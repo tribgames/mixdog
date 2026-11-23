@@ -65,7 +65,7 @@ fn appended(w: &mut Writer) {
         if w.projections.is_empty() && w.upserts.is_empty() && w.small.is_empty() {
             return;
         }
-        w.append_transaction();
+        w.append_answered();
     }
     panic!("the writer's appends do not end");
 }
@@ -166,7 +166,7 @@ fn a_retirement_waits_while_its_parents_view_is_still_being_computed() {
         }
         w.views = true;
         w.view_step();
-        w.append_transaction();
+        w.append_answered();
     }
     retired.try_recv().expect("the retirement is answered once both views are done").expect("clean");
     assert!(!dirty(&w, GRANDCHILD));
@@ -240,7 +240,7 @@ fn an_append_that_meets_a_foreign_lock_keeps_what_is_queued() {
     foreign.execute_batch("BEGIN IMMEDIATE").expect("the write lock");
     let mut projected = project(&mut w, BASE, vec![item(2)]);
     let mut retired = retire(&mut w, BASE, None, Vec::new(), end_after(2));
-    w.append_transaction();
+    w.append_answered();
     assert_eq!(reconcile_seam::commits(dir.path()).last().map(|(kind, ..)| *kind), Some("locked"), "the transaction met the lock");
     assert_eq!(w.projections.len(), 2, "what is queued stays queued");
     assert!(projected.try_recv().is_err() && retired.try_recv().is_err(), "nothing is answered while the lock is held");
@@ -266,7 +266,7 @@ fn an_append_that_cannot_begin_fails_everything_queued() {
     let mut row = upsert(&mut w, OTHER);
     let marked = mark(&mut w, BASE, ACTIVATION + 1);
     reconcile_seam::fail_append(dir.path(), reconcile_seam::AppendFault::Begin);
-    w.append_transaction();
+    w.append_answered();
     for answer in [&mut projected, &mut retired, &mut row] {
         let failed = answer.try_recv().expect("answered");
         assert!(matches!(&failed, Err(DbError::Write(why)) if why.contains(reconcile_seam::INJECTED)), "{failed:?}");
@@ -294,7 +294,7 @@ fn an_append_that_fails_on_one_sessions_frames_keeps_the_others_queued() {
     let mut retired = retire(&mut w, BASE, None, vec![frame(2, FrameKind::Other)], end_after(2));
     let mut failed = project(&mut w, FAILED, vec![item(2)]);
     reconcile_seam::fail_append(dir.path(), reconcile_seam::AppendFault::Frames(FAILED.into()));
-    w.append_transaction();
+    w.append_answered();
     let lost = failed.try_recv().expect("the failing session's projection is answered");
     assert!(matches!(&lost, Err(DbError::Write(why)) if why.contains(reconcile_seam::INJECTED)), "{lost:?}");
     assert!(row.try_recv().is_err() && raised.try_recv().is_err() && retired.try_recv().is_err(), "the others are not answered with the failure");
@@ -326,7 +326,7 @@ fn an_append_that_fails_on_one_sessions_row_keeps_the_rows_written_before_it() {
     let mut w = faulted(&dir);
     let mut rows = [(OTHER, upsert(&mut w, OTHER)), (FAILED, upsert(&mut w, FAILED))];
     reconcile_seam::fail_append(dir.path(), reconcile_seam::AppendFault::RowAt(1));
-    w.append_transaction();
+    w.append_answered();
     let answers: Vec<_> = rows.iter_mut().map(|(_, row)| row.try_recv().ok()).collect();
     let failing = answers.iter().position(Option::is_some).expect("the session whose row failed is answered");
     assert!(matches!(&answers[failing], Some(Err(DbError::Write(why))) if why.contains(reconcile_seam::INJECTED)), "{answers:?}");
@@ -354,7 +354,7 @@ fn an_append_whose_commit_fails_fails_what_it_held() {
     let mut retired = retire(&mut w, FAILED, None, vec![frame(2, FrameKind::Other)], end_after(2));
     let mut row = upsert(&mut w, OTHER);
     reconcile_seam::fail_append(dir.path(), reconcile_seam::AppendFault::Commit);
-    w.append_transaction();
+    w.append_answered();
     for answer in [&mut projected, &mut retired, &mut row] {
         let failed = answer.try_recv().expect("answered");
         assert!(matches!(&failed, Err(DbError::Write(why)) if why.contains(reconcile_seam::INJECTED)), "{failed:?}");
@@ -401,7 +401,7 @@ fn a_retirement_waits_for_the_fork_view_its_row_needs() {
         }
         w.views = true;
         w.view_step();
-        w.append_transaction();
+        w.append_answered();
     }
     retired.try_recv().expect("the retirement is answered once the view is done").expect("clean");
     assert!(!dirty(&w, FORK));

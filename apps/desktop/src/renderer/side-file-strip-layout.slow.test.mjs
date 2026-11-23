@@ -11,8 +11,10 @@ import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-l
 // the file tabs, as reported at a 430px panel) and the Changes pane's own
 // strip, at the panel's minimum and the reported width, with 2, 5 and 8 file
 // tabs (8 is the most a dock keeps), with and without Changes and with an
-// inline header action (Save while dirty).
+// inline header action (Save while dirty). Names are measured in the shipped UI
+// face (font-faces-styles.ts), never in whatever face the runner's system has.
 const PAGE = `
+  import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
   import React from 'react';
   import { flushSync } from 'react-dom';
   import { createRoot } from 'react-dom/client';
@@ -163,6 +165,13 @@ test('dock tab strips: names ellipsize inside their tabs, the strip ends before 
     `<!doctype html><html><head><style>${css.map((out) => out.text).join('\n')}</style></head><body style="margin:0"><div id="host" style="display:flex;flex-direction:column"></div></body></html>`
   );
   await tab.addScriptTag({ content: js });
+  // Pretendard loads its Latin and Hangul in unicode-range slices on first use.
+  const fontLoaded = await tab.evaluate(async (text) => {
+    await document.fonts.load('14px "Pretendard Variable"', text);
+    await document.fonts.ready;
+    return document.fonts.check('14px "Pretendard Variable"', text);
+  }, 'attachments/image-1a2061b028c4dab01234567.png 변경 사항 Save');
+  assert.equal(fontLoaded, true, 'the shipped UI font is loaded');
 
   const out = process.env.SIDE_FILE_STRIP_OUT;
   if (out) mkdirSync(out, { recursive: true });

@@ -476,7 +476,10 @@ pub fn classify(response: &ErrorResponse, dialect: &ErrorDialect, now: SystemTim
         }
         None => rest_error(response, &text, dialect.label, now),
     };
-    err.kind = crate::retry::classify::wording_kind_scoped(err.kind, &err.message, err.quota_scope, err.retry_after);
+    // Only a rate limit is re-read here: the wording of an overflow is not this codec's to read.
+    if err.kind == ErrorKind::RateLimited {
+        err.kind = crate::retry::classify::wording_kind_scoped(err.kind, &err.message, err.quota_scope, err.retry_after);
+    }
     err
 }
 

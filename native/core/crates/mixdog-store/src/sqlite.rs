@@ -1646,6 +1646,8 @@ struct Writer {
     archive: ArchiveCell,
     /// Moves each time a transaction reads the archive snapshot: the sequence an archive projection read its state at.
     archive_reads: Arc<std::sync::atomic::AtomicU64>,
+    /// The answers of the last append transaction, sent once [`Self::run`] took what arrived before them.
+    answers: Vec<(Ack, Result<(), DbError>)>,
 }
 
 const LABELS_KEY: &str = "ui:placeholder_labels";
@@ -1873,12 +1875,6 @@ fn commit_told(sink: &RowSinkCell, tx: Transaction<'_>, edge: Option<RowEdge>) -
     committed
 }
 
-fn send(acks: Vec<Ack>, result: &Result<(), String>) {
-    for ack in acks {
-        let _ = ack.send(result.clone().map_err(DbError::Write));
-    }
-}
-
 impl Writer {
     fn start(path: &Path) -> Result<Writer, DbError> {
         let conn = open_writer(path, None)?;
@@ -1915,7 +1911,22 @@ impl Writer {
             step_rows: STEP_ROWS,
             sink: RowSinkCell::default(),
             archive: ArchiveCell::default(),
+            answers: Vec::new(),
         })
+    }
+
+    fn answer(&mut self) {
+        for (ack, answer) in self.answers.drain(..) {
+            let _ = ack.send(answer);
+        }
+    }
+
+    /// [`Self::append_transaction`] answered at once, as [`Self::run`] answers it before its next decision: a test that
+    /// drives the writer a transaction at a time.
+    #[cfg(test)]
+    fn append_answered(&mut self) {
+        self.append_transaction();
+        self.answer();
     }
 
     fn take(&mut self, cmd: Command) {
@@ -2472,24 +2483,31 @@ impl Writer {
         }
     }
 
+    /// The answers of an append transaction go out after the drain that follows it: a request sent in reply to one is
+    /// taken only after the next transaction is chosen, whichever thread runs first once the answer wakes its sender.
+    /// With nothing else queued or due, that next transaction is the first step of what the answered one made due (the
+    /// title refold, a fork view); a request another caller had already sent, another due step, or a later step of the
+    /// same work can still run on either side of the reply.
     fn run(mut self, rx: mpsc::Receiver<Command>) {
-        loop {
+        'serve: loop {
             if self.idle() {
+                self.answer();
                 match rx.recv() {
-                    Ok(cmd) if cmd.closes() => return,
-                    Ok(cmd) => self.take(cmd),
-                    Err(_) => return,
+                    Ok(cmd) if !cmd.closes() => self.take(cmd),
+                    _ => break,
                 }
             }
             // Taking a command only queues it, so the drain ends with what has arrived.
             while let Ok(cmd) = rx.try_recv() {
                 if cmd.closes() {
-                    return;
+                    break 'serve;
                 }
                 self.take(cmd);
             }
+            self.answer();
             self.dispatch();
         }
+        self.answer();
     }
 
     /// One transaction, after which [`Self::run`] takes what arrived meanwhile and decides again. What the serving core
@@ -2815,9 +2833,7 @@ impl Writer {
             self.projections = kept;
             dropped.into()
         };
-        for (ack, why) in refused {
-            let _ = ack.send(Err(DbError::Write(why)));
-        }
+        self.answers.extend(refused.into_iter().map(|(ack, why)| (ack, Err(DbError::Write(why)))));
         // A projection that finished may have opened a view, or advanced the watermark a
         // pending view waits for.
         let advanced = !finished.is_empty();
@@ -2841,7 +2857,7 @@ impl Writer {
                 }
             }
         }
-        send(acks, &result);
+        self.answers.extend(acks.into_iter().map(|ack| (ack, result.clone().map_err(DbError::Write))));
     }
 
     /// One refold step: placeholder titles take the current labels' folds.
