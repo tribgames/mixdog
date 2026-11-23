@@ -77,7 +77,7 @@ fn writer(dir: &tempfile::TempDir, append_rows: usize) -> Writer {
         if w.projections.is_empty() && w.upserts.is_empty() {
             break;
         }
-        w.append_transaction();
+        w.append_answered();
     }
     started.try_recv().expect("the session's first projection is answered").expect("committed");
     assert_eq!(listed_model(&w), json!("zero"));
@@ -94,11 +94,11 @@ fn a_projection_is_answered_with_its_row_while_a_later_one_of_its_session_is_sti
     let mut w = writer(&dir, 4);
     let mut one = project(&mut w, vec![item(1)], "one");
     let mut two = project(&mut w, vec![item(2)], "two");
-    w.append_transaction();
+    w.append_answered();
     one.try_recv().expect("the first projection is answered").expect("committed");
     assert_eq!(listed_model(&w), json!("one"), "the first projection was answered before its row was written");
     assert!(two.try_recv().is_err(), "the second projection was answered before its frame went in");
-    w.append_transaction();
+    w.append_answered();
     two.try_recv().expect("the second projection is answered").expect("committed");
     assert_eq!(listed_model(&w), json!("two"));
 }
@@ -111,13 +111,13 @@ fn a_projection_whose_row_did_not_fit_is_answered_by_the_transaction_that_writes
     let mut w = writer(&dir, 3);
     let mut one = project(&mut w, vec![item(1)], "one");
     let mut two = project(&mut w, vec![item(2)], "two");
-    w.append_transaction();
-    w.append_transaction();
+    w.append_answered();
+    w.append_answered();
     assert!(w.projections.is_empty(), "both frames are in");
     assert!(one.try_recv().is_err(), "the first projection was answered before its row was written");
     assert!(two.try_recv().is_err(), "the second projection was answered before its row was written");
     assert_eq!(listed_model(&w), json!("zero"));
-    w.append_transaction();
+    w.append_answered();
     one.try_recv().expect("the first projection is answered").expect("committed");
     two.try_recv().expect("the second projection is answered").expect("committed");
     assert_eq!(listed_model(&w), json!("two"));

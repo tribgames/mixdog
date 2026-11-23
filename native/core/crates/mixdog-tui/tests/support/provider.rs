@@ -80,6 +80,19 @@ impl Reply {
     }
 }
 
+/// The opening of the core's session-title prompt (`mixdog-core` `run_host::title_completion`). A session's title is asked of
+/// the model beside its turns, at the first turn's first output: it is answered apart, so a script holds the turns' answers only.
+const TITLE_PROMPT: &str = "Create a concise, natural session title";
+const TITLE: &str = "Stand-in session";
+
+/// Whether `body` is the core's title request: its system prompt asks for the session's title.
+fn asks_for_a_title(body: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|request| request.get("system").map(Value::to_string))
+        .is_some_and(|system| system.contains(TITLE_PROMPT))
+}
+
 /// One server-sent event.
 fn event(kind: &str, data: &Value) -> String {
     format!("event: {kind}\ndata: {data}\n\n")
@@ -126,7 +139,7 @@ impl Provider {
         *self.script.lock().unwrap_or_else(PoisonError::into_inner) = replies.into();
     }
 
-    /// How many messages requests have been answered.
+    /// How many messages requests of the turns (not the title's) have been answered.
     pub fn served(&self) -> usize {
         self.served.load(Ordering::Acquire)
     }
@@ -140,8 +153,9 @@ impl Drop for Provider {
     }
 }
 
-/// Reads one request (the head and the body it announces) and returns its request line, lower-cased.
-fn read_request(stream: &mut TcpStream) -> Option<String> {
+/// Reads one request (the head and the body it announces) and returns its request line, lower-cased, and the body of a
+/// request with a length (the core's model requests carry one); a chunked body is read but not returned.
+fn read_request(stream: &mut TcpStream) -> Option<(String, Vec<u8>)> {
     stream.set_read_timeout(Some(Duration::from_secs(30))).ok()?;
     let mut raw = Vec::new();
     let mut chunk = [0u8; 8192];
@@ -167,6 +181,7 @@ fn read_request(stream: &mut TcpStream) -> Option<String> {
             }
             raw.extend_from_slice(&chunk[..read]);
         }
+        return Some((line, raw[head_end..head_end + length].to_vec()));
     } else if chunked {
         while !raw[head_end..].ends_with(b"0\r\n\r\n") {
             let read = stream.read(&mut chunk).ok()?;
@@ -176,20 +191,24 @@ fn read_request(stream: &mut TcpStream) -> Option<String> {
             raw.extend_from_slice(&chunk[..read]);
         }
     }
-    Some(line)
+    Some((line, Vec::new()))
 }
 
 fn answer(mut stream: TcpStream, script: &Mutex<VecDeque<Reply>>, served: &AtomicUsize) {
-    let Some(line) = read_request(&mut stream) else { return };
+    let Some((line, body)) = read_request(&mut stream) else { return };
     let messages =
         line.starts_with("post ") && line.split_whitespace().nth(1).is_some_and(|path| path.split('?').next().unwrap_or_default().ends_with("/v1/messages"));
     if !messages {
         let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 9\r\nconnection: close\r\n\r\nno script");
         return;
     }
+    if asks_for_a_title(&body) {
+        let _ = stream_reply(&mut stream, &Reply::text(TITLE), &format!("msg_title_{}", served.load(Ordering::Acquire)));
+        return;
+    }
     let reply = script.lock().unwrap_or_else(PoisonError::into_inner).pop_front().unwrap_or_else(|| Reply::text("ok"));
     let index = served.fetch_add(1, Ordering::AcqRel);
-    let _ = stream_reply(&mut stream, &reply, index);
+    let _ = stream_reply(&mut stream, &reply, &format!("msg_{index}"));
 }
 
 fn send(stream: &mut TcpStream, kind: &str, data: &Value) -> std::io::Result<()> {
@@ -197,12 +216,12 @@ fn send(stream: &mut TcpStream, kind: &str, data: &Value) -> std::io::Result<()>
     stream.flush()
 }
 
-fn stream_reply(stream: &mut TcpStream, reply: &Reply, index: usize) -> std::io::Result<()> {
+fn stream_reply(stream: &mut TcpStream, reply: &Reply, id: &str) -> std::io::Result<()> {
     stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n")?;
     send(
         stream,
         "message_start",
-        &json!({ "type": "message_start", "message": { "id": format!("msg_{index}"), "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [], "usage": { "input_tokens": 10, "output_tokens": 1 } } }),
+        &json!({ "type": "message_start", "message": { "id": id, "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [], "usage": { "input_tokens": 10, "output_tokens": 1 } } }),
     )?;
     let hold = |sent: usize| reply.holds.iter().filter(|(at, _)| *at == sent).for_each(|(_, gate)| gate.pass());
     let mut block = 0;

@@ -379,6 +379,13 @@ async function openListPage(t) {
 
 test('the branch list in all three hosts: one-line rows at the row height, a one-line foot at the longest and shortest words', async (t) => {
   const { page, errors } = await openListPage(t);
+  // Headless Linux Chrome has no hover-capable pointer and CDP cannot emulate one: there the "…" stays hidden, as on a
+  // touch screen (15-worktree-branch.css), so its reveal on hover is observable on Windows and macOS only.
+  const hoverPointer = await page.evaluate(() => matchMedia('(hover: hover)').matches);
+  if (!hoverPointer) {
+    assert.equal(process.platform, 'linux', 'only headless Linux Chrome may lack a hover-capable pointer');
+    t.diagnostic('no hover-capable pointer on this runner: the "…" reveal on hover not checked');
+  }
   // The foot's words are longest in French (New branch · New worktree · Clean up) and German (View changes · Merge ·
   // Remove), where labels give way to icons, shortest in Simplified Chinese; Korean is the approved mockup's.
   const languages = ['fr', 'de', 'zh-CN', 'ko'];
@@ -419,7 +426,7 @@ test('the branch list in all three hosts: one-line rows at the row height, a one
         assert.equal(list.width, 280, `${at}: as wide as its row`);
         assert.equal(list.buttons.at(-1).text, '', `${at}: Clean up is its broom alone`);
       }
-      if (language === 'ko' && host === 'rail-project') {
+      if (hoverPointer && language === 'ko' && host === 'rail-project') {
         // The "…" takes the end mark's place; the name stays where it is and never runs under it.
         for (const branch of ['main', 'reply-with-the-single-word-ok', 'feat/session-rail-polish']) {
           const before = await page.evaluate((name) => window.rowBox(name), branch);
