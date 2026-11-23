@@ -5136,6 +5136,44 @@ async fn a_quota_hop_sends_the_destination_tuning_and_keeps_prior_work() {
     let events = h.observer.events();
     assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if message == "m1 refused — switched to m2.")));
 }
+/// A hop that rewrote the session's prompt hands the run the session's system messages: the destination's first request
+/// leads with them and not with what the route being left was sent, the conversation after them is kept, and the run's
+/// transcript holds them from then on. A hop that hands none keeps the run's own.
+#[tokio::test]
+async fn a_hop_sends_the_destination_the_system_messages_the_hop_wrote() {
+    let system = |text: &str| {
+        let mut message = AgentMessage::user(text);
+        message.message.role = mixdog_core_api::domain::provider::Role::System;
+        message
+    };
+    for rewritten in [true, false] {
+        let next = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        let route = PlayRoute::new(
+            RouteDecision::Switch(RouteSwitch {
+                provider: next.clone(),
+                model: "m2".into(),
+                notice: "m1 refused — switched to m2.".into(),
+                request: mixdog_agent::env::RouteSwitchRequest {
+                    system: rewritten.then(|| vec![system("rules"), system("roster of the bridge"), system("env")]),
+                    ..Default::default()
+                },
+                effort: None,
+                text_only: None,
+            }),
+            Vec::new(),
+        );
+        let mut h = Harness::new(vec![Attempt::Reject(ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::NotSent))]);
+        h.route = Some(route);
+        let output = finish(h.run(config(), vec![], vec![system("rules"), system("native roster"), AgentMessage::user("go")])).await;
+        let sent = next.requests();
+        assert_eq!(sent.len(), 1);
+        let leading = if rewritten { vec!["System:rules", "System:roster of the bridge", "System:env"] } else { vec!["System:rules", "System:native roster"] };
+        let expected: Vec<String> = leading.into_iter().chain(["User:go"]).map(str::to_owned).collect();
+        assert_eq!(wire_dump(&sent[0]), expected, "rewritten={rewritten}");
+        let kept: Vec<String> = output.transcript.iter().filter(|m| m.message.role == mixdog_core_api::domain::provider::Role::System).map(|m| m.text()).collect();
+        assert_eq!(kept, expected.iter().filter_map(|line| line.strip_prefix("System:")).collect::<Vec<_>>(), "rewritten={rewritten}");
+    }
+}
 /// A route fallback that reconsiders once, on its second ask: the request after a tool round.
 struct ReturnRoute {
     asked: Mutex<u32>,

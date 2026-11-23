@@ -484,6 +484,9 @@ impl mixdog_tools::orch::bridge::CatalogView for LateCatalog {
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> mixdog_tools::orch::bridge::CallResolution {
         self.bound().resolve_call(thread, name)
     }
+    fn callable(&self, thread: &ThreadId) -> Vec<String> {
+        self.bound().callable(thread)
+    }
     async fn refresh(&self, thread: &ThreadId) {
         self.bound().refresh(thread).await;
     }
@@ -1972,10 +1975,12 @@ async fn turn_world_at(
 struct Routed {
     builder: Arc<dyn mixdog_ai::registry::providers::ProviderBuilder>,
     config: Arc<Mutex<serde_json::Map<String, Value>>>,
+    /// What a route change of its hops reads: nothing ([`NoRouteFacts`]) unless a test gives its own.
+    facts: Arc<dyn super::super::route_change::RouteFacts>,
 }
 
 fn routed(builder: Arc<dyn mixdog_ai::registry::providers::ProviderBuilder>, config: Value) -> Routed {
-    Routed { builder, config: Arc::new(Mutex::new(config.as_object().expect("an agent config").clone())) }
+    Routed { builder, config: Arc::new(Mutex::new(config.as_object().expect("an agent config").clone())), facts: Arc::new(NoRouteFacts) }
 }
 
 /// [`turn_world_at`]; with `routed`, a registry over `routed`'s providers and route hops that write the session.
@@ -2024,7 +2029,7 @@ async fn turn_world_routed(
     .unwrap();
     let store = Arc::new(super::super::side_question_store::SideQuestionStore::new());
     let (builder, hop_config) = match routed {
-        Some(Routed { builder, config }) => (builder, Some(config)),
+        Some(Routed { builder, config, facts }) => (builder, Some((config, facts))),
         None => (Arc::new(OneProvider(provider.clone())) as Arc<dyn mixdog_ai::registry::providers::ProviderBuilder>, None),
     };
     let hop_clocks: (Arc<dyn Clock>, Arc<dyn mixdog_core_session::session::Clock>) = (clock.clone(), rig.clock.clone());
@@ -2182,9 +2187,9 @@ async fn turn_world_routed(
                 // the directory, with the route change the run host computes.
                 let (config, sessions): (mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>) =
                     match hop_config {
-                        Some(config) => {
+                        Some((config, facts)) => {
                             let (run_clock, session_clock) = hop_clocks;
-                            let change = Arc::new(super::super::route_change::RunHostRouteChange::new(Arc::new(NoRouteFacts), run_clock));
+                            let change = Arc::new(super::super::route_change::RunHostRouteChange::new(facts, run_clock));
                             let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
                             let routes = Arc::new(HopRouteConfig(lock(&config).clone()));
                             let adapter = Arc::new(mixdog_core_session::session::route_session::SessionRouteAdapter::new(

@@ -1470,6 +1470,10 @@ impl Run {
     fn seat_route(&mut self, switch: RouteSwitch) {
         // The new provider takes no other provider's replay state.
         self.strip_replay_for_new_route();
+        if let Some(system) = switch.request.system {
+            let leading = self.messages.iter().take_while(|m| m.message.role == mixdog_core_api::domain::provider::Role::System).count();
+            self.messages.splice(..leading, system);
+        }
         self.carry.cache.messages_ttl_ms = crate::run::CacheReadings::messages_ttl(&switch.request.header);
         self.provider = switch.provider;
         // The requests captured for the session's side questions and compaction forks from here on are on the destination.

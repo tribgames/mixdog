@@ -426,6 +426,20 @@ impl CatalogView for SessionCatalog {
         }
     }
 
+    /// One reading of the header: what [`Self::resolve_call`] answers as deferred and [`Self::block_reason`] does not
+    /// block, which is what a bridge roster lists of the catalog.
+    fn callable(&self, thread: &ThreadId) -> Vec<String> {
+        let Some((header, session)) = self.running(thread) else { return Vec::new() };
+        let eager = eager_names(&session);
+        let surface = self.surfaces.surface(thread, &header);
+        let readonly = bridge_readonly_session(&session);
+        let runs = |tool: &Value| {
+            let name = tool_name(tool);
+            !eager.contains(&name) && self.runs(&name) && surface.refusal(&name, None).is_none() && !(readonly && !readonly_selectable(tool))
+        };
+        self.available_tools(&session).iter().filter(|tool| runs(tool)).map(tool_name).collect()
+    }
+
     /// `resolveBridgeTarget` after the argument checks.
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> CallResolution {
         let Some((header, session)) = self.running(thread) else { return CallResolution::NotFound };
@@ -768,6 +782,43 @@ mod tests {
         assert!(listed(&answer, "activeTools", "computer") && listed(&answer, "activeTools", "eagerone"));
         assert!(listed(&answer, "discoveredTools", "computer"));
         assert_eq!(set_over(&["read", "computer", "eagerone"]).resolve("computer").expect("callable").spec().name, "computer");
+    }
+
+    /// A read-only bridge session that names no tool is told what its `call_tool` runs now, the tools its prompt's roster
+    /// lists: not an edit or a shell its read-only rule blocks, not a tool the core cannot run or the session denies, not
+    /// a directly defined one.
+    #[tokio::test]
+    async fn a_read_only_sessions_unknown_name_is_answered_with_what_call_tool_runs() {
+        let mut session = catalog_session(
+            &["read", "edit", "shell", "web_fetch", "recall", "computer", "memory"],
+            Some(super::super::tool_exposure::TOOL_EXPOSURE_BRIDGE),
+        );
+        session["deferredSurfaceMode"] = json!("readonly");
+        session["disallowedTools"] = json!(["memory"]);
+        let host = Arc::new(Without("computer"));
+        let mut roster = ToolSurface { host: host.as_ref(), clock: &Now }.pool_tool_names(&session);
+        let store = Store::of(&session);
+        let thread = ThreadId::from("t1");
+        let catalog = Arc::new(SessionCatalog::new(store.clone(), store.clone(), store, Arc::new(NoRouteExclusions), host, Arc::new(Now)));
+        let mut callable = catalog.callable(&thread);
+        assert_eq!(callable, ["web_fetch", "recall"]);
+        roster.sort();
+        callable.sort();
+        assert_eq!(callable, roster);
+
+        struct Never;
+        #[async_trait]
+        impl mixdog_tools::orch::bridge::ToolDispatcher for Never {
+            async fn dispatch(&self, _: &mixdog_core_api::domain::tool::ToolContext, _: &str, _: Value) -> mixdog_core_api::domain::tool::ToolOutcome {
+                unreachable!("a name that is no tool is never dispatched")
+            }
+        }
+        let call = mixdog_tools::orch::bridge::CallTool::new(catalog, Arc::new(Never));
+        let refused = mixdog_core_api::domain::tool::CallProjection::project(&call, &thread, &json!({ "name": "noop", "arguments": {} })).expect_err("refused");
+        assert_eq!(
+            refused,
+            "Error: TOOL_NOT_FOUND: no tool named \"noop\" is available in this session. call_tool runs: web_fetch, recall. load_tool {names} shows a tool's parameters."
+        );
     }
 
     /// A name in no catalog stays a plain unknown tool, on both sides.

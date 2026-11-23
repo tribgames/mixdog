@@ -413,3 +413,150 @@ async fn a_primary_switched_off_after_it_was_registered_is_not_used() {
     let header = handle.live_header().header();
     assert_eq!((header["provider"].as_str(), header["model"].as_str()), (Some("openai-oauth"), Some("m2")));
 }
+
+/// The route facts of the composition as far as the tool surface goes: a route change rebuilds the header's surface for
+/// its new provider from the tools the session resolves to (`.1`), over a host that defines the bridge's two tools (`.0`).
+struct SurfaceFacts(Vec<Value>, Vec<Value>);
+
+impl crate::run_host::tool_surface::SurfaceHost for SurfaceFacts {
+    fn defined(&self, _: &str) -> bool {
+        true
+    }
+    fn bridge_tools(&self) -> Vec<Value> {
+        self.0.clone()
+    }
+    fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
+        json!({})
+    }
+}
+
+#[async_trait]
+impl crate::run_host::route_change::RouteFacts for SurfaceFacts {
+    fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
+        None
+    }
+    fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &mixdog_store::schema::record::Header) -> Option<Value> {
+        None
+    }
+    fn surface_change(
+        &self,
+        header: &mixdog_store::schema::record::Header,
+        previous: &mixdog_core_ports::ports::route::Route,
+        _: &crate::run_host::route_change::SurfaceLookup,
+    ) -> mixdog_store::schema::record::HeaderChange {
+        let surface = crate::run_host::tool_surface::ToolSurface { host: self, clock: &Fixed };
+        let prepared = crate::run_host::route_surface::PreparedTools { tools: json!(self.1), tool_spec: json!("full") };
+        crate::run_host::route_surface::route_surface_change(&surface, &Fixed, header, previous, Some(prepared), false)
+    }
+}
+
+/// An agent's session through the real hop, on each bridge route. Its direct route answers a turn; the next turn's
+/// request is refused there and the hop takes the bridge route mid-turn: that request leads with the roster and the
+/// guidance the hop wrote, which is what the session's header gives. The turn after builds the same prefix from the
+/// header. With the bridge route gone the following turn returns to the direct route, which is sent the text it was
+/// sent before the hop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mid_turn_hop_to_a_bridge_route_sends_its_roster_and_the_return_sends_the_direct_routes_text() {
+    use crate::run_host::tool_exposure::TOOL_BRIDGE_GUIDANCE;
+    use mixdog_core_api::domain::provider::{Content, Role};
+
+    let system_of = |request: &ModelRequest| -> Vec<String> {
+        let leading = request.messages.iter().take_while(|m| m.role == Role::System);
+        leading.map(|m| if let Content::Text(text) = &m.content { text.to_string() } else { panic!("a system message is text") }).collect()
+    };
+    for bridge in ["grok-oauth", "gemini", "opencode-go-oauth"] {
+        let scripted = |id: &str| {
+            let reply = |text: &str| {
+                vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+            };
+            Arc::new(Scripted {
+                id: ProviderId::from(id),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(VecDeque::from([reply("one"), reply("two")])),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            })
+        };
+        let (direct, bridged) = (scripted("openai-oauth"), scripted(bridge));
+        let refusing = ArmedRefusal::new(direct.clone());
+        let providers =
+            GatedProviders::new(vec![("openai-oauth", refusing.clone() as Arc<dyn ProviderAdapter>), (bridge, bridged.clone() as Arc<dyn ProviderAdapter>)]);
+        let config = json!({
+            "default": "lead-route",
+            "presets": [{ "id": "lead-route", "provider": "openai-oauth", "model": "m1", "fallbacks": [{ "provider": bridge, "model": "m2" }] }],
+            "providers": { "openai-oauth": { "enabled": true }, bridge: { "enabled": true } },
+        });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": { "type": "object", "properties": {} } });
+        let resolved = vec![tool("read"), tool("git"), tool("load_tool"), tool("computer")];
+        let facts = Arc::new(SurfaceFacts(vec![tool("load_tool"), tool("call_tool")], resolved.clone()));
+        let mut routed = routed(providers.clone(), config);
+        routed.facts = facts.clone();
+        let world = turn_world_routed(
+            bridged.clone(),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            None,
+            Arc::new(MockFileService::default()),
+            false,
+            Arc::new(Fixed),
+            Arc::new(Config),
+            false,
+            None,
+            Some(routed),
+        )
+        .await;
+
+        // The session as its direct route built it: `git` defined, `computer` in the prompt's roster.
+        let surface = crate::run_host::tool_surface::ToolSurface { host: facts.as_ref(), clock: &Fixed };
+        let mut session = json!({
+            "owner": "agent", "provider": "openai-oauth", "model": "m1",
+            "tools": resolved,
+            "messages": [{ "role": "system", "content": "rules" }, { "role": "system", "content": "skills" }],
+        });
+        surface.apply(&mut session, "lead", &[], &crate::run_host::tool_surface::ApplyOptions::default());
+        let mut header = session.as_object().unwrap().clone();
+        let messages = header.shift_remove("messages").unwrap();
+        header.insert("agent".into(), json!("reviewer"));
+        header.insert("routeFallbackSource".into(), json!({ "agent": "reviewer" }));
+        header.insert("bp3EnvSplit".into(), json!(true));
+        header.insert("promptBase".into(), messages[0]["content"].clone());
+        header.insert("promptStable".into(), messages[1]["content"].clone());
+        let native = header["promptStable"].as_str().unwrap().to_owned();
+        assert!(native.contains("\n- computer") && !native.contains("\n- git"), "{bridge}: the direct route's roster: {native}");
+        let (id, handle) = started_thread(&world, Value::Object(header)).await;
+        let of_header = || {
+            let header = handle.live_header().header();
+            crate::run_host::factory::system_messages(&header).iter().map(|m| m.text()).collect::<Vec<_>>()
+        };
+
+        settled_turn(&world, &id, &handle, "op-1", 1).await;
+        let before = system_of(&lock(&direct.requests)[0]);
+        assert_eq!(before[..2], ["rules".to_owned(), native.clone()], "{bridge}: the direct route's prompt");
+
+        let mut overloaded = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, DeliveryState::Accepted);
+        overloaded.status = Some(503);
+        overloaded.message = "Service Unavailable".into();
+        *lock(&refusing.refusal) = Some(overloaded);
+        settled_turn(&world, &id, &handle, "op-2", 2).await;
+        assert_eq!(lock(&direct.requests).len(), 1, "{bridge}: the refused attempt never reached the script");
+        let hopped = system_of(&lock(&bridged.requests)[0]);
+        assert_eq!(handle.live_header().header()["provider"], bridge);
+        assert_eq!(hopped[0], "rules");
+        assert!(hopped[1].contains("\n- git") && hopped[1].ends_with(TOOL_BRIDGE_GUIDANCE), "{bridge}: the request after the hop: {}", hopped[1]);
+        assert_eq!(hopped, of_header(), "{bridge}: the hopped turn was sent what the session holds");
+
+        settled_turn(&world, &id, &handle, "op-3", 3).await;
+        assert_eq!(system_of(&lock(&bridged.requests)[1]), hopped, "{bridge}: the next turn's prefix is the hopped turn's");
+
+        providers.set(bridge, false);
+        settled_turn(&world, &id, &handle, "op-4", 4).await;
+        assert_eq!(handle.live_header().header()["provider"], "openai-oauth");
+        let returned = system_of(&lock(&direct.requests)[1]);
+        assert_eq!(returned[..2], before[..2], "{bridge}: the direct route is sent the text it was sent before the hop");
+        assert_eq!(returned, of_header(), "{bridge}: the returning turn was sent what the session holds");
+    }
+}

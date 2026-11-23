@@ -137,6 +137,43 @@ fn reasoning_text_is_kept_and_replayed_under_the_key_it_arrived_on() {
     assert!(body_of(&codec, &foreign)["messages"][2].get("reasoning_content").is_none());
 }
 
+/// A bridge session's request on the Chat wire as opencode-go sends it and on the xAI Responses wire as grok-oauth sends
+/// it: every tool of the offer, the bridge's two among them, is a function definition with its name and its parameters,
+/// and the system text that lists the bridged tools is sent whole.
+#[test]
+fn a_bridge_surface_is_sent_as_function_definitions_with_the_prompts_roster() {
+    let offered = [("read", "file_path"), ("load_tool", "names"), ("call_tool", "arguments")];
+    let system = "rules\n\n---\n\n<available-deferred-tools>\n- git: Git.\n</available-deferred-tools>\n\n<tool-bridge>\nRun one with call_tool {name, arguments}.\n</tool-bridge>";
+    let mut request = base_request("m");
+    request.messages[0] = text_message(Role::System, system);
+    request.tools = offered
+        .iter()
+        .map(|(name, property)| ToolDefinition {
+            name: (*name).into(),
+            description: format!("{name} does."),
+            input_schema: json!({"type": "object", "properties": {*property: {"type": "string"}}}),
+            defer_loading: false,
+            freeform: None,
+        })
+        .collect();
+    let escaped = serde_json::to_string(system).unwrap();
+    let carried = |wire: &str, body: &JsonValue, definition_of: &dyn Fn(&JsonValue) -> JsonValue| {
+        let tools = body["tools"].as_array().unwrap_or_else(|| panic!("{wire}: tools in {body}"));
+        assert_eq!(tools.len(), offered.len(), "{wire}");
+        for (tool, (name, property)) in tools.iter().zip(offered) {
+            let definition = definition_of(tool);
+            assert_eq!(definition["name"], name, "{wire}");
+            assert!(definition["parameters"]["properties"].get(property).is_some(), "{wire}: {name} with its parameters: {definition}");
+        }
+        assert!(body.to_string().contains(&escaped[1..escaped.len() - 1]), "{wire}: the roster and the guidance: {body}");
+    };
+    let chat = body_of(&CompatChatCodec::new(CompatProfile::opencode_go(), CompatConfig::default()), &request);
+    carried("opencode-go chat", &chat, &|tool| tool["function"].clone());
+    let wire = crate::providers::grok::codec("1.0.0").encode(&request).expect("encodes");
+    let responses: JsonValue = serde_json::from_slice(&wire.body).expect("json body");
+    carried("grok-oauth responses", &responses, &|tool| tool.clone());
+}
+
 #[test]
 fn effort_reaches_the_body_by_dialect_not_by_provider_name() {
     let with = |profile: CompatProfile, effort: &str, params: Option<JsonValue>, models: Vec<JsonValue>| {

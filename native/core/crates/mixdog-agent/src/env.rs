@@ -832,6 +832,10 @@ pub struct RouteSwitchRequest {
     /// The session's cache-tail gate sized for the destination's compaction settings, as the run holds them once the
     /// hop applied them. The book it judges on is the session's own: only the sizing key moves.
     pub tail_gate: Option<TailGateFor>,
+    /// The session's system messages as the hop left its prompt. They replace the run's, so the destination's first
+    /// request leads with the text written for its tool surface, the same text the next turn builds from the session.
+    /// `None`: the run keeps its own.
+    pub system: Option<Vec<crate::message::AgentMessage>>,
 }
 
 /// The session's cache-tail gate for the compaction settings a request is judged under.
