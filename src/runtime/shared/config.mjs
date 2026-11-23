@@ -25,7 +25,12 @@ import {
   findLegacyUserDataEvidence,
   USER_DATA_INIT_MARKER,
 } from './user-data-guard.mjs';
-import { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
+import {
+  AGENT_PROVIDER_ENV,
+  AGENT_PROVIDER_ENV_ALIASES,
+  getAgentApiKey,
+  setBeforeStoredKeyRead,
+} from './provider-api-key.mjs';
 import { bumpConfigInputEpoch } from './config-epoch.mjs';
 import { watchDirectory } from './directory-watch.mjs';
 import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
@@ -123,6 +128,25 @@ function cachedRaw(now) {
   return undefined;
 }
 
+// The config file as the last read from disk or listener pass found it.
+let _readSeenConfig = null;
+
+const configFileKey = (st) => `${configPath()}|${st ? statKey(st) : 'missing'}`;
+
+function currentConfigFileKey() {
+  try {
+    return configFileKey(statSync(configPath()));
+  } catch {
+    return configFileKey(null);
+  }
+}
+
+function sawConfigFile(st) {
+  const previous = _readSeenConfig;
+  _readSeenConfig = configFileKey(st);
+  if (previous !== null && previous !== _readSeenConfig) announceFoundChange();
+}
+
 function readRawFromDisk(watch, now) {
   let st;
   try {
@@ -130,6 +154,7 @@ function readRawFromDisk(watch, now) {
   } catch (err) {
     if (err.code === 'ENOENT') {
       _configReadCache = missingConfigEntry(watch, now);
+      sawConfigFile(null);
       return null;
     }
     process.stderr.write(`[config] readConfigRawCached: unexpected stat error for ${configPath()}: ${err.message}\n`);
@@ -141,12 +166,14 @@ function readRawFromDisk(watch, now) {
   } catch (err) {
     if (err.code === 'ENOENT') {
       _configReadCache = missingConfigEntry(watch, now);
+      sawConfigFile(null);
       return null;
     }
     process.stderr.write(`[config] readJsonFile: unexpected read error for ${configPath()}: ${err.message}\n`);
     throw err;
   }
   _configReadCache = { raw, path: configPath(), stat: statKey(st), atMs: now, watch };
+  sawConfigFile(st);
   return raw;
 }
 
@@ -426,6 +453,8 @@ const SECRET_DELETED_KEY = '#deleted';
 let _secretsSeen = null;
 let _secretsSeenPath = '';
 let _secretsMarkerStat = '';
+// A read applied another process's secret change before the listener pass did.
+let _secretsChangedSincePass = false;
 
 function secretsMarkerPath() {
   return join(dirname(configPath()), SECRETS_MARKER_FILE);
@@ -472,11 +501,15 @@ function syncSecretsMarker() {
   return changed;
 }
 
+setBeforeStoredKeyRead(() => syncSecretsMarkerIfMoved());
+
 function syncSecretsMarkerIfMoved() {
   if (_secretsSeen !== null && _secretsSeenPath === secretsMarkerPath()) {
     if (secretsMarkerStat(_secretsSeenPath) === _secretsMarkerStat) return;
   }
-  syncSecretsMarker();
+  if (!syncSecretsMarker().length) return;
+  _secretsChangedSincePass = true;
+  announceFoundChange();
 }
 
 /** account -> token of the last change of that secret this process has
@@ -549,6 +582,13 @@ const WATCHED_FILES = new Set(['mixdog-config.json', SECRETS_MARKER_FILE]);
 const CONFIG_DIR_FILES = [...WATCHED_FILES, USER_DATA_INIT_MARKER];
 const _configChangeListeners = new Set();
 let _configChangeTimer = null;
+let _configChangePass = Promise.resolve();
+
+/** Settles once the listener pass started last has run every listener
+ *  (it may wait for a keyring snapshot first). */
+export function configChangePassSettled() {
+  return _configChangePass;
+}
 // `{ close(), trusted }`: the subscription to the config directory's files.
 let _configWatcher = null;
 // While the config directory cannot be watched (missing, or its watch
@@ -558,8 +598,12 @@ let _configWaiter = null;
 let _configWatchDir = '';
 
 /** The shared directory watch (directory-watch.mjs `watchDirectory`); tests
- *  substitute failing watches. */
-export const configWatchDeps = { watch: watchDirectory };
+ *  substitute failing watches. `vouches`: a live watch's silence means the
+ *  files are unchanged, so reads under it skip the file. Not on macOS: there a
+ *  directory watch hears only some time after it returns, and every watch the
+ *  process starts or closes restarts all of them (libuv's one FSEvents
+ *  stream), so a change made meanwhile is never heard. */
+export const configWatchDeps = { watch: watchDirectory, vouches: process.platform !== 'darwin' };
 
 function stopConfigWatcher() {
   const watchers = [_configWatcher, _configWaiter];
@@ -600,6 +644,8 @@ function configMidWriteError(parseErr) {
 async function runConfigChangeListeners() {
   const forced = _configChangeForced;
   _configChangeForced = false;
+  // The key before the bytes: a change between them is then found by the next read.
+  _readSeenConfig = currentConfigFileKey();
   const content = watchedContent();
   const last = _watchedContent;
   if (!forced && Array.isArray(last) && last.every((value, index) => value === content[index])) return;
@@ -608,7 +654,9 @@ async function runConfigChangeListeners() {
   invalidateConfigReadCache();
   // A Linux keyring is read only through a snapshot, which the invalidation
   // dropped: re-take it so listeners reload the changed keys.
-  if (syncSecretsMarker().length && process.platform === 'linux') {
+  const secretsChanged = syncSecretsMarker().length > 0 || _secretsChangedSincePass;
+  _secretsChangedSincePass = false;
+  if (secretsChanged && process.platform === 'linux') {
     try {
       await _prewarmSecrets?.();
     } catch {}
@@ -634,17 +682,23 @@ function notifyConfigChanged({ fromWatch = false } = {}) {
   if (_configChangeTimer) clearTimeout(_configChangeTimer);
   _configChangeTimer = setTimeout(() => {
     _configChangeTimer = null;
-    void runConfigChangeListeners();
+    _configChangePass = runConfigChangeListeners();
   }, CONFIG_CHANGE_DEBOUNCE_MS);
   _configChangeTimer.unref?.();
 }
 
+// Where no watch vouches, a change a read finds by its own check (the config
+// file's stat, the secrets marker's) goes the way a watch event's does.
+function announceFoundChange() {
+  if (!configWatchDeps.vouches && _configWatchDir === dirname(configPath())) notifyConfigChanged({ fromWatch: true });
+}
+
 // Moves each time a directory watch starts; 0 while none runs for the current
-// config directory, or while nothing would hear that directory replaced (its
-// reads are then checked by stat). A raw read records it (readConfigRawCached).
+// config directory, while nothing would hear that directory replaced, or where
+// no watch vouches (its reads are then checked by stat). A raw read records it (readConfigRawCached).
 let _configWatchStarts = 0;
 function configWatchGeneration() {
-  if (!_configWatcher?.trusted || _configWatchDir !== dirname(configPath())) return 0;
+  if (!configWatchDeps.vouches || !_configWatcher?.trusted || _configWatchDir !== dirname(configPath())) return 0;
   return _configWatchStarts;
 }
 
@@ -741,10 +795,19 @@ export function withLastGoodConfigReads(fn) {
   }
 }
 
-/** Subscribe to persisted config and secret changes (this process or another). Returns unsubscribe. */
+/** Subscribe to persisted config and secret changes (this process or another),
+ *  each announced once, after a 100 ms debounce. Returns unsubscribe. This
+ *  process's writes are announced at once. Another process's are announced on
+ *  the watch event where the watch vouches (configWatchDeps.vouches). Where it
+ *  does not (macOS), the event may never come: the change is announced at the
+ *  latest by the next read in this process that checks the file it changed,
+ *  and while nothing reads, nothing is announced. */
 export function subscribeConfigChange(listener) {
   // Another data dir's bytes are no baseline: equal bytes there would hide a change here.
-  if (!_configChangeListeners.size || _configWatchDir !== dirname(configPath())) _watchedContent = watchedContent();
+  if (!_configChangeListeners.size || _configWatchDir !== dirname(configPath())) {
+    _readSeenConfig = currentConfigFileKey();
+    _watchedContent = watchedContent();
+  }
   _configChangeListeners.add(listener);
   // The first subscriber fixes the secret baseline this process applies from.
   if (_secretsSeen === null) syncSecretsMarker();

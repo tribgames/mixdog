@@ -20,6 +20,13 @@ export const AGENT_PROVIDER_ENV_ALIASES = Object.freeze({
   xai: ['GROK_API_KEY'],
 });
 
+// Runs before each stored-key read; config.mjs, once loaded, applies another
+// process's secret changes there (and announces them where no watch vouches).
+let beforeStoredKeyRead = () => {};
+export function setBeforeStoredKeyRead(hook) {
+  beforeStoredKeyRead = hook;
+}
+
 function providerSecretEnv(provider) {
   return `MIXDOG_AGENT_${String(provider || '')
     .replace(/[.\s]+/g, '_')
@@ -58,6 +65,7 @@ export function hasAgentApiKey(provider) {
   if (!id) return false;
   if (environmentApiKey(id)) return true;
   try {
+    beforeStoredKeyRead();
     return hasSecret(`agent.${id}.apiKey`);
   } catch {
     return false;
@@ -70,6 +78,7 @@ export function getAgentApiKey(provider) {
   const environment = environmentApiKey(id);
   if (environment) return environment;
   try {
+    beforeStoredKeyRead();
     const stored = getSecret(`agent.${id}.apiKey`);
     if (stored) return stored;
   } catch {
@@ -109,6 +118,7 @@ export async function readAgentApiKeyAsync(provider) {
   const environment = environmentApiKey(id);
   if (environment) return environment;
   try {
+    beforeStoredKeyRead();
     return (await getSecretAsync(`agent.${id}.apiKey`)) || null;
   } catch {
     return null;
