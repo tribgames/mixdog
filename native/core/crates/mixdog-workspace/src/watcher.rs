@@ -568,6 +568,12 @@ impl FolderWatcher {
     pub fn open_watches(&self) -> usize {
         self.lock().os.len()
     }
+
+    /// The batch window watch `id` was registered with; `None` for an id not watched.
+    #[cfg(feature = "count-jobs")]
+    pub fn window_of(&self, id: &str) -> Option<u64> {
+        self.lock().subs.get(id).map(|sub| sub.window_ms)
+    }
 }
 
 impl Drop for FolderWatcher {

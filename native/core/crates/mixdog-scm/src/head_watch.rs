@@ -294,7 +294,6 @@ impl Drop for HeadFollow {
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests {
     use std::time::Duration;
-    use std::time::Instant;
 
     use super::*;
 
@@ -367,8 +366,21 @@ mod tests {
     async fn heard(follow: &mut HeadFollow) -> bool {
         mixdog_rt::time::timeout(Duration::from_secs(5), follow.moved()).await.unwrap_or(false)
     }
-    async fn silent(follow: &mut HeadFollow) -> bool {
-        !mixdog_rt::time::timeout(Duration::from_millis(800), follow.moved()).await.unwrap_or(false)
+
+    /// The follower's watch id on `dir`.
+    fn watch_of(follow: &HeadFollow, dir: &Path) -> String {
+        let dir = mixdog_workspace::pathguard::canonical(dir).unwrap();
+        follow.core.inner.lock().unwrap().watches.get(&dir).cloned().unwrap_or_else(|| panic!("{} is watched", dir.display()))
+    }
+
+    /// What the watcher hands the follower for a write of `file`, told on this thread: its wake, if any, is sent before this returns.
+    fn told(watchers: &HeadWatchers, follow: &HeadFollow, file: &Path) {
+        let id = watch_of(follow, file.parent().unwrap());
+        HeadSink(watchers.heads.clone()).changed(&id, vec![file.to_string_lossy().into_owned()], ChangeKind::Modified);
+    }
+
+    fn woken(follow: &HeadFollow) -> bool {
+        follow.moved.has_changed().unwrap()
     }
     #[tokio::test]
     async fn a_switch_done_outside_wakes_the_follower() {
@@ -380,26 +392,34 @@ mod tests {
         std::fs::write(dir.path().join(".git/HEAD"), "0123456789012345678901234567890123456789\n").unwrap();
         assert!(heard(&mut follow).await, "a detach is heard");
     }
-    #[tokio::test]
-    async fn the_wake_comes_within_the_old_debounce_not_the_standard_batch() {
+    /// Every watch of a follower is pushed on the old debounce: the folder watcher pushes a watch on the window it was registered
+    /// with, ahead of the standard batch (`watcher::tests::a_watch_with_its_own_window_is_pushed_on_it_and_others_keep_theirs`).
+    #[test]
+    fn the_wake_comes_within_the_old_debounce_not_the_standard_batch() {
         let dir = checkout("main");
         let watchers = HeadWatchers::new();
-        let mut follow = watchers.follow(dir.path()).expect("followed");
-        let started = Instant::now();
-        switch(dir.path(), "ref: refs/heads/topic\n");
-        assert!(heard(&mut follow).await);
-        assert!(started.elapsed() < Duration::from_millis(200), "{:?}", started.elapsed());
+        let follow = watchers.follow(dir.path()).expect("followed");
+        let ids: Vec<String> = follow.core.inner.lock().unwrap().watches.values().cloned().collect();
+        assert_eq!(ids.len(), 3, "{ids:?}");
+        let folders = watchers.folders().unwrap();
+        for id in &ids {
+            assert_eq!(folders.window_of(id), Some(HEAD_WINDOW_MS), "{id}");
+        }
     }
-    #[tokio::test]
-    async fn a_write_that_is_not_head_wakes_no_one() {
+    #[test]
+    fn a_write_that_is_not_head_wakes_no_one() {
         let dir = checkout("main");
         let watchers = HeadWatchers::new();
-        let mut follow = watchers.follow(dir.path()).expect("followed");
-        std::fs::write(dir.path().join(".git/index"), "x").unwrap();
-        assert!(silent(&mut follow).await);
+        let follow = watchers.follow(dir.path()).expect("followed");
+        let index = dir.path().join(".git/index");
+        std::fs::write(&index, "x").unwrap();
+        told(&watchers, &follow, &index);
+        assert!(!woken(&follow));
         // A commit on the checked-out branch rewrites its ref file: the answer is the same branch, nobody is woken.
-        std::fs::write(dir.path().join(".git/refs/heads/main"), "0123456789012345678901234567890123456789\n").unwrap();
-        assert!(silent(&mut follow).await);
+        let main = dir.path().join(".git/refs/heads/main");
+        std::fs::write(&main, "0123456789012345678901234567890123456789\n").unwrap();
+        told(&watchers, &follow, &main);
+        assert!(!woken(&follow));
     }
     #[tokio::test]
     async fn a_retargeted_alias_branch_is_heard() {
@@ -418,7 +438,7 @@ mod tests {
         std::fs::create_dir_all(&inner).unwrap();
         let watchers = HeadWatchers::new();
         let mut follow = watchers.follow(&inner).expect("followed");
-        assert!(silent(&mut follow).await);
+        assert!(!woken(&follow), "following a folder wakes no one");
         // `git init` in an ancestor.
         std::fs::create_dir_all(outer.path().join("work/.git/refs/heads")).unwrap();
         std::fs::write(outer.path().join("work/.git/HEAD"), "ref: refs/heads/main\n").unwrap();
