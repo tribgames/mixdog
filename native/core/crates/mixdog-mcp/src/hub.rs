@@ -480,7 +480,7 @@ impl McpHub {
                 let connected = if dead {
                     server.reconnect_after_answering(None, Some(start)).await
                 } else {
-                    server.connect_answering(Some(start), None).await.map_err(|error| error.to_string())
+                    server.connect_answering(Some(start)).await.map_err(|error| error.to_string())
                 };
                 // The lines Node's `connectServer` writes to the log (`[mcp-client] Failed to connect`, `[mcp] connected`).
                 match connected {
