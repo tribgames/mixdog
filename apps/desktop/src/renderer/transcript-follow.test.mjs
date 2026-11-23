@@ -1026,13 +1026,18 @@ test('a wheel releases follow only as a vertical upward notch, over a nested scr
   }
 });
 
-test("a mouse press on a row's content lets go of the tail, as a press on a control does; a finger's press and one on chrome do not", async () => {
+test("a selection begun on a row's content lets go of the tail; a click there, a finger's press and one on chrome do not", async () => {
   const harness = await tailHarness('press-row-content');
   const { state, viewport } = harness;
+  const selectionChanged = () =>
+    harness.act(async () => {
+      document.dispatchEvent(new window.Event('selectionchange'));
+    });
   try {
     const content = document.createElement('div');
     content.className = 'transcript-virtual-row-content';
     const prose = document.createElement('p');
+    prose.textContent = 'A streamed reply the reader clicks on.';
     content.appendChild(prose);
     const kept = document.createElement('span');
     kept.setAttribute('data-transcript-keeps-follow', '');
@@ -1044,9 +1049,23 @@ test("a mouse press on a row's content lets go of the tail, as a press on a cont
     await harness.pointerDown(prose, { pointerType: 'touch' });
     await harness.pointerDown(prose, { button: 2 });
     assert.equal(state.hook.followingRef.current, true, 'none of these begins a selection in a row');
+    // A click on the text (the window brought forward, a caret placed): the press ends with nothing selected.
     await harness.pointerDown(prose, { pointerType: 'mouse' });
+    await selectionChanged();
+    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    assert.equal(state.hook.followingRef.current, true, 'a click on the text keeps the tail followed');
+    // A selection made after the press ended is not one this press began.
+    window.getSelection().selectAllChildren(prose);
+    await selectionChanged();
+    assert.equal(state.hook.followingRef.current, true, 'a selection made by no press in the row keeps it');
+    window.getSelection().removeAllRanges();
+    // The press drags out a selection: the text being selected is not scrolled away.
+    await harness.pointerDown(prose, { pointerType: 'mouse' });
+    window.getSelection().selectAllChildren(prose);
+    await selectionChanged();
     assert.equal(state.hook.followingRef.current, false, 'the text being selected is not scrolled away');
   } finally {
+    window.getSelection().removeAllRanges();
     await harness.dispose();
   }
 });
