@@ -215,6 +215,11 @@ impl SessionHandle {
         super::transcript::LiveRow::values(&held)
     }
 
+    /// Whether the current turn's transcript holds any message, read without copying them.
+    pub fn turn_running(&self) -> bool {
+        !self.cell.turn_messages.borrow().is_empty()
+    }
+
     /// The session's latest acked header (`SessionGate`'s `LiveHeader`).
     pub fn live_header(&self) -> Arc<dyn LiveHeader> {
         self.cell.clone()

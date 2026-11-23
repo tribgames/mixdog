@@ -4558,6 +4558,13 @@ impl SessionActor {
         self.accept_view(Change::Section(Section::Context(context)), Vec::new());
     }
 
+    /// A compaction changed the context: the reading it published measured the context before it.
+    pub(super) fn context_compacted(&mut self) {
+        if self.stats.compacted() {
+            self.publish_stats();
+        }
+    }
+
     /// A run's notice, live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
     fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
         match shown {
@@ -4658,6 +4665,9 @@ impl SessionActor {
                 self.accept_view(Change::Barrier, vec![note]);
             }
             RunShown::Pass(pass) => {
+                if matches!(pass.stage, mixdog_agent::env::PassStage::Done { changed: true, .. }) {
+                    self.context_compacted();
+                }
                 if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
                     let change = super::usage_books::pass_change(&self.projected.header, &pass, &books, self.deps.clock.now_ms() as f64);
                     self.accept_header(change);

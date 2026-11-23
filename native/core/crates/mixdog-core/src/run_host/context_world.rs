@@ -249,14 +249,16 @@ impl LiveContextWorld {
     /// which the transcript moves the figures otherwise reads it whole as the full snapshot does.
     async fn snapshot_of(&self, thread: &ThreadId, header: serde_json::Map<String, Value>, header_only: bool) -> Result<Option<ContextSnapshot>, CoreError> {
         let route = self.routes.route(thread);
-        let live = self.session.live_turn_messages(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
         // The transcript moves the header-only figures through one answer only, whether it holds a conversation, unless a turn
         // runs, the header names no session, or its deferred native tools take the tools the transcript referenced: then it is
         // read whole.
-        let header_only = header_only && live.is_empty() && header_names_session(&header) && header.get("deferredNativeTools") != Some(&Value::Bool(true));
-        let rows = if !live.is_empty() {
-            live
-        } else if header_only {
+        let header_only = header_only
+            && header_names_session(&header)
+            && header.get("deferredNativeTools") != Some(&Value::Bool(true))
+            && !self.session.turn_running(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+        // The committed conversation is what the next request carries: the running turn's rows are in it as the actor takes
+        // them, and a compaction inside the turn has replaced what it dropped; the live turn holds only the turn's own rows.
+        let rows = if header_only {
             // The newest rows up to the newest one that makes a conversation: `active` below answers as over the whole transcript.
             let session = self.session.clone();
             let conversation = move |message: &Value| session.has_user_conversation(std::slice::from_ref(message)) || is_summary_anchor(message);
@@ -312,6 +314,7 @@ impl LiveContextWorld {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use mixdog_tools::orch::util::PortError;
     use serde_json::json;
 
     use super::*;
@@ -384,6 +387,145 @@ pub(crate) mod tests {
         assert_ne!(corrupted, expected, "a loading flag");
         assert_ne!(expected[..2], expected[..], "a dropped definition");
     }
+    /// A thread with a running turn: its committed conversation, and the rows its turn published so far.
+    struct Running {
+        header: serde_json::Map<String, Value>,
+        committed: Vec<Value>,
+        live: Vec<Value>,
+    }
+
+    #[async_trait]
+    impl ThreadState for Running {
+        async fn header(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, PortError> {
+            Ok(self.header.clone())
+        }
+        async fn held_fields(&self, _: &ThreadId, _: &'static [&'static str]) -> Result<serde_json::Map<String, Value>, PortError> {
+            unreachable!("the status writes nothing")
+        }
+        async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
+            unreachable!("the status writes nothing")
+        }
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            _: serde_json::Map<String, Value>,
+            _: serde_json::Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<serde_json::Map<String, Value>>, PortError> {
+            unreachable!("the status writes nothing")
+        }
+        async fn patch_header_at(
+            &self,
+            _: &ThreadId,
+            _: &mixdog_core_ports::ports::threads::RunFence,
+            _: serde_json::Map<String, Value>,
+            _: serde_json::Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, PortError> {
+            unreachable!("the status writes nothing")
+        }
+        async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), PortError> {
+            unreachable!("the status publishes nothing")
+        }
+        async fn store_header(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+            unreachable!("the status writes nothing")
+        }
+        fn log_identity(&self, _: &ThreadId) -> Option<String> {
+            None
+        }
+    }
+
+    #[async_trait]
+    impl ThreadMessages for Running {
+        async fn messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+            Ok(self.committed.clone())
+        }
+    }
+
+    impl LiveRoute for Running {
+        fn route(&self, _: &ThreadId) -> serde_json::Map<String, Value> {
+            serde_json::Map::new()
+        }
+        fn adopt_held(&self, _: &ThreadId, _: &serde_json::Map<String, Value>) {}
+    }
+
+    #[async_trait]
+    impl RouteSession for Running {
+        fn generation(&self, _: &ThreadId) -> u64 {
+            0
+        }
+        async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+            Ok(self.live.clone())
+        }
+        fn has_user_conversation(&self, messages: &[Value]) -> bool {
+            messages.iter().any(|m| m["role"] == "user")
+        }
+        async fn update_route(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: bool) -> Result<bool, PortError> {
+            unreachable!("the status moves no route")
+        }
+        async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
+            unreachable!("the status moves no route")
+        }
+        async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
+            unreachable!("the status moves no route")
+        }
+        async fn owner_fallbacks(&self, _: &ThreadId, _: &serde_json::Map<String, Value>, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+            unreachable!("the status moves no route")
+        }
+        fn write_statusline(&self, _: &ThreadId, _: &serde_json::Map<String, Value>) {}
+        fn invalidate_context_status(&self, _: &ThreadId) {}
+    }
+
+    #[async_trait]
+    impl SurfaceHost for Running {
+        fn mode(&self, _: Option<&serde_json::Map<String, Value>>) -> String {
+            String::new()
+        }
+        async fn preview(&self) -> Result<mixdog_tools::orch::status::StatusSurface, CoreError> {
+            unreachable!("the thread has its session")
+        }
+        async fn reconcile_empty(&self, _: &ThreadId) -> Result<(), CoreError> {
+            unreachable!("the status reconciles nothing")
+        }
+    }
+
+    struct TextOnly;
+    impl MediaMeter for TextOnly {
+        fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+            panic!("media part in a text-only transcript: {part:?}")
+        }
+    }
+    impl ImageIdentities for TextOnly {
+        fn images(&self, _: &mixdog_agent::message::AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
+            Vec::new()
+        }
+    }
+
+    /// During a turn the status counts the conversation the next request carries: what came before the turn (here a
+    /// compaction's summary and its tail) and the turn's rows, not the turn's published rows alone.
+    #[tokio::test]
+    async fn a_running_turns_status_counts_the_whole_committed_conversation() {
+        let summary = format!("{}earlier work", mixdog_agent::compact::fresh::SUMMARY_PREFIX);
+        let turn = json!({ "role": "user", "content": "the running turn's prompt" });
+        let reply = json!({ "role": "assistant", "content": "working on it" });
+        let running = Arc::new(Running {
+            header: json!({ "id": "s_a", "provider": "anthropic", "model": "m" }).as_object().expect("header").clone(),
+            committed: vec![json!({ "role": "user", "content": summary }), json!({ "role": "assistant", "content": "kept tail" }), turn.clone(), reply.clone()],
+            live: vec![turn, reply],
+        });
+        let world = LiveContextWorld {
+            threads: running.clone(),
+            messages: running.clone(),
+            routes: running.clone(),
+            session: running.clone(),
+            host: running.clone(),
+            lowering: Arc::new(|_: &ThreadId, _: &str| (Arc::new(TextOnly) as Arc<dyn MediaMeter>, Arc::new(TextOnly) as Arc<dyn ImageIdentities>)),
+        };
+        let snapshot = world.snapshot(Some(&ThreadId::from("s_a"))).await.expect("read").expect("a snapshot");
+        let expected = super::super::factory::session_messages(&running.header, &running.committed).expect("messages");
+        assert_eq!(snapshot.messages, expected);
+    }
+
     /// A stored MCP entry of `publisher` (none: stored before publishers were recorded) with `description` as its payload.
     fn entry(name: &str, publisher: Option<&str>, description: &str) -> Value {
         let doc = json!({ "name": name, "description": description, "inputSchema": { "type": "object", "properties": {} } });

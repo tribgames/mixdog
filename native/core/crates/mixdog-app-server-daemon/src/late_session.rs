@@ -107,6 +107,10 @@ impl mixdog_core_ports::ports::route::RouteSession for LateRouteSession {
         self.bound()?.live_turn_messages(thread).await
     }
 
+    async fn turn_running(&self, thread: &ThreadId) -> Result<bool, mixdog_tools::orch::util::PortError> {
+        self.bound()?.turn_running(thread).await
+    }
+
     fn has_user_conversation(&self, messages: &[Value]) -> bool {
         self.expect_bound().has_user_conversation(messages)
     }
