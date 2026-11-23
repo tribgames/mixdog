@@ -228,8 +228,12 @@ pub struct McpServer {
     stopped: CancellationToken,
     /// Ownership barriers inherited by a same-name replacement, including any skipped generations.
     pub(crate) predecessors: std::sync::OnceLock<Vec<CancellationToken>>,
-    /// Completion of a hub-scheduled startup, independent of later connection state changes.
-    pub(crate) scheduled_start: Mutex<Option<CancellationToken>>,
+    /// The running connect attempt and the starts it answers; see [`Attempts`].
+    attempts: Mutex<Attempts>,
+    /// The latest hub-scheduled start, written only under `attempts`: it ends with the attempt that answers it.
+    scheduled: ArcSwapOption<CancellationToken>,
+    #[cfg(feature = "test-support")]
+    holds: Mutex<Vec<(ConnectStep, Arc<ConnectHold>)>>,
     /// The folder of the server's scope now, which a server that follows its scope advertises as its root
     /// (`_scopeRoots`, mcp/client.mjs:79); empty: none set.
     scope_root: Arc<Mutex<String>>,
@@ -570,6 +574,130 @@ mod catalog_tests {
     }
 }
 
+/// A server's connect attempt, and the hub-scheduled starts it answers.
+///
+/// The invariant: for every reader, "this attempt's outcome is published", "this attempt can no longer be joined" and
+/// "the starts it answers have ended" are one step ([`McpServer::end_attempt`]), and so are "an attempt runs" and "the state
+/// is `Starting`" ([`McpServer::connect_answering`]); both steps hold this lock. Readers:
+/// - `connect_answering` (and `join_attempt` through it) decides under the lock: an attempt that runs has published no
+///   outcome, so the caller joins it and is answered by it; one whose outcome is published has ended, so the caller
+///   begins its own attempt, which asks the server.
+/// - `McpServer::schedule_start` (the hub's `apply_retrying`) decides under the lock: the last start is alive only
+///   while the attempt answering it has published nothing, or before its connect began or joined one, so it is
+///   answered by a connect that began after the state the hub read; an ended start is replaced by one that asks.
+/// - Waiters on a start or an attempt (`AccountGroup::initialize`, `McpGlue::account_connect_settled`,
+///   `McpHub::pending_starts` for `ScopeRuntime::follow_pending`, `join_attempt`) are released by a cancel made after the
+///   publish, so the state they read is the outcome or a later one.
+/// - A ready connection leaves the state only for the attempt of the caller that retired it (`reconnect`), which closes
+///   it once its calls ended: `connect_answering` that finds another ready connection, under the lock, is answered by
+///   it and ends its start there, since that connection's attempt began after the failure the start was scheduled for.
+/// - A reader of the state alone sees no outcome before the attempt's last connect: one that connects again under a new
+///   sign-in publishes nothing for the connection it replaces, and is one start until its last connect.
+/// - Shutdown (`close_because`) publishes `Closed` under the lock after cancelling `shutdown`: an attempt begun before it
+///   ends without an outcome of its own, and none begins after it; a removed server is closed the same way.
+#[derive(Default)]
+struct Attempts {
+    /// Ends with the running attempt; `None`: none runs.
+    running: Option<CancellationToken>,
+    /// The scheduled starts the running attempt answers.
+    answers: Vec<CancellationToken>,
+}
+
+impl Attempts {
+    fn end(&mut self) {
+        if let Some(ended) = self.running.take() {
+            ended.cancel();
+        }
+        for start in self.answers.drain(..) {
+            start.cancel();
+        }
+    }
+}
+
+/// Ends the attempt `ended` names if it left without [`McpServer::end_attempt`].
+struct AttemptEnded<'a> {
+    server: &'a McpServer,
+    ended: CancellationToken,
+}
+
+impl Drop for AttemptEnded<'_> {
+    fn drop(&mut self) {
+        if self.ended.is_cancelled() {
+            return;
+        }
+        let mut attempts = self.server.attempts();
+        if !self.ended.is_cancelled() {
+            attempts.end();
+        }
+    }
+}
+
+/// Where a test holds a connect attempt (feature `test-support`).
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectStep {
+    /// The connect waited for its predecessors and has not looked at the attempt yet.
+    BeforeClaim,
+    /// The handshake settled and was checked; the step that ends the attempt has not begun.
+    BeforeOutcome,
+    /// Inside that step, between its statements: the thread waits with the attempt lock held.
+    InOutcome,
+    /// The step is done; the connect has not returned.
+    AfterOutcome,
+}
+
+/// A connect held at a [`ConnectStep`] until released.
+#[cfg(feature = "test-support")]
+#[derive(Default)]
+pub struct ConnectHold {
+    pub reached: tokio::sync::Notify,
+    released: Mutex<bool>,
+    wake: std::sync::Condvar,
+    resume: tokio::sync::Notify,
+}
+
+#[cfg(feature = "test-support")]
+impl ConnectHold {
+    pub fn release(&self) {
+        *self.released.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.wake.notify_all();
+        self.resume.notify_one();
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl McpServer {
+    /// The next connect attempt of the server to reach `at` waits there until the hold is released.
+    pub fn hold_connect(&self, at: ConnectStep) -> Arc<ConnectHold> {
+        let hold = Arc::new(ConnectHold::default());
+        self.holds.lock().unwrap_or_else(|e| e.into_inner()).push((at, Arc::clone(&hold)));
+        hold
+    }
+
+    fn take_hold(&self, at: ConnectStep) -> Option<Arc<ConnectHold>> {
+        let mut holds = self.holds.lock().unwrap_or_else(|e| e.into_inner());
+        let index = holds.iter().position(|(step, _)| *step == at)?;
+        Some(holds.remove(index).1)
+    }
+
+    async fn hold(&self, at: ConnectStep) {
+        if let Some(hold) = self.take_hold(at) {
+            hold.reached.notify_one();
+            hold.resume.notified().await;
+        }
+    }
+
+    fn hold_blocking(&self, at: ConnectStep) {
+        if let Some(hold) = self.take_hold(at) {
+            hold.reached.notify_one();
+            let mut released = hold.released.lock().unwrap_or_else(|e| e.into_inner());
+            while !*released {
+                released = hold.wake.wait(released).unwrap_or_else(|e| e.into_inner());
+            }
+        }
+    }
+}
+
 impl McpServer {
     pub fn new(config: McpServerConfig, io: McpIo, spiller: Spiller, policy: OutputPolicy, authorizer: Option<Arc<dyn Authorizer>>) -> Arc<Self> {
         let gate = AdmissionGate::new(config.max_concurrency, config.max_queue, config.min_owner_queue);
@@ -593,7 +721,10 @@ impl McpServer {
             shutdown: CancellationToken::new(),
             stopped: CancellationToken::new(),
             predecessors: std::sync::OnceLock::new(),
-            scheduled_start: Mutex::new(None),
+            attempts: Mutex::new(Attempts::default()),
+            scheduled: ArcSwapOption::empty(),
+            #[cfg(feature = "test-support")]
+            holds: Mutex::new(Vec::new()),
             scope_root: Arc::default(),
             died: ArcSwapOption::empty(),
             reconnecting: tokio::sync::Semaphore::new(1),
@@ -685,14 +816,82 @@ impl McpServer {
         }
     }
 
-    /// Connects, handshakes and lists tools. Concurrent callers share one attempt.
+    fn attempts(&self) -> std::sync::MutexGuard<'_, Attempts> {
+        self.attempts.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The completion of the hub's latest scheduled start: it ends with the outcome of the connect that answers it,
+    /// published before it ends.
+    pub fn scheduled_start(&self) -> Option<CancellationToken> {
+        self.scheduled.load_full().map(|start| CancellationToken::clone(&start))
+    }
+
+    /// A start for the hub to run through [`Self::connect_answering`]; `None` while the last one is not answered (its
+    /// connect begins, or joins an attempt, after this call). Decided under the attempt lock, so a start whose outcome
+    /// a caller read is ended here, and the start returned then asks the server.
+    pub(crate) fn schedule_start(&self) -> Option<CancellationToken> {
+        let _attempts = self.attempts();
+        if self.scheduled.load().as_ref().is_some_and(|start| !start.is_cancelled()) {
+            return None;
+        }
+        let start = CancellationToken::new();
+        self.scheduled.store(Some(Arc::new(start.clone())));
+        Some(start)
+    }
+
+    /// Connects, handshakes and lists tools. Concurrent callers share one attempt; a server found ready answers the call.
     pub async fn connect(self: &Arc<Self>) -> Result<(), ConnectError> {
+        self.connect_answering(None, None).await
+    }
+
+    /// [`Self::connect`] that answers hub-scheduled `start`: it ends with the outcome of the attempt this call begins or
+    /// joins, or here when the server is found ready. `replaces`: the ready connection the caller retired, the only
+    /// one a new attempt takes the state from.
+    pub(crate) async fn connect_answering(self: &Arc<Self>, start: Option<CancellationToken>, replaces: Option<&Arc<Ready>>) -> Result<(), ConnectError> {
         if !self.wait_for_predecessors().await {
             return Err(ConnectError::Closed);
         }
-        let Ok(_attempt) = self.connecting.try_acquire() else {
-            return self.join_attempt().await;
+        #[cfg(feature = "test-support")]
+        self.hold(ConnectStep::BeforeClaim).await;
+        enum Claim {
+            Join(CancellationToken),
+            Closed,
+            Answered,
+            Begun(CancellationToken, u64),
+        }
+        let claimed = {
+            let mut attempts = self.attempts();
+            let current = self.state();
+            if let Some(ended) = attempts.running.clone() {
+                attempts.answers.extend(start);
+                Claim::Join(ended)
+            } else if self.shutdown.is_cancelled() {
+                Claim::Closed
+            } else if let ServerState::Ready(ready) = &*current
+                && replaces.is_none_or(|old| !Arc::ptr_eq(old, ready))
+            {
+                if let Some(start) = start {
+                    start.cancel();
+                }
+                Claim::Answered
+            } else {
+                let ended = CancellationToken::new();
+                attempts.running = Some(ended.clone());
+                attempts.answers.extend(start);
+                let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+                self.state.send_replace(Arc::new(ServerState::Starting));
+                Claim::Begun(ended, generation)
+            }
         };
+        let (ended, mut generation) = match claimed {
+            Claim::Begun(ended, generation) => (ended, generation),
+            Claim::Join(running) => return Self::join_attempt(&self.subscribe(), &running).await,
+            Claim::Closed => return Err(ConnectError::Closed),
+            Claim::Answered => return Ok(()),
+        };
+        // An attempt that leaves without an outcome (closed meanwhile) still ends, so nothing waits on it.
+        let _ended = AttemptEnded { server: self, ended };
+        let _attempt = self.connecting.acquire().await.expect("the connect gate is never closed");
         if self.shutdown.is_cancelled() {
             return Err(ConnectError::Closed);
         }
@@ -706,14 +905,19 @@ impl McpServer {
         let startup_timeout = if self.accounts.get().is_some() { None } else { self.config.startup_timeout };
         // A connection is the sign-in it was opened as. One opened as a sign-in that is no longer the stored one is not
         // the server's connection, whatever its handshake came to: it is closed and the server connects again.
+        let mut first = true;
         loop {
-            let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-            self.state.send_replace(Arc::new(ServerState::Starting));
+            if !std::mem::take(&mut first) {
+                generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+                self.state.send_replace(Arc::new(ServerState::Starting));
+            }
             if let Some(cause) = &self.config.blocked {
                 let cause = scrub(cause, &self.secrets);
                 crate::config::daemon_line(&format!("[mcp-server] name={} connect failed (blocked by config): {cause}", self.name()));
                 self.died.store(None);
-                self.publish(generation, ServerState::Failed { cause: cause.clone() });
+                self.end_attempt(generation, ServerState::Failed { cause: cause.clone() }, || false).await;
+                #[cfg(feature = "test-support")]
+                self.hold(ConnectStep::AfterOutcome).await;
                 return Err(ConnectError::Failed(cause));
             }
             let handshake = async {
@@ -746,14 +950,17 @@ impl McpServer {
                     let client = Arc::clone(&ready.client);
                     // `connectServer` (mcp/client.mjs:1501) follows `list_changed` only from a server that advertised it.
                     let follows = ready.capabilities.pointer("/tools/listChanged").is_some_and(truthy);
-                    self.publish(generation, ServerState::Ready(Arc::new(ready)));
-                    self.watch(generation, Arc::clone(&client), follows);
-                    // Read again now that the server is ready: a sign-in stored since the check above is either seen
-                    // here, or finds the server ready when its own reconnect looks.
-                    if self.opened_as_replaced(&client) && !self.shutdown.is_cancelled() {
+                    // Read again in the step that publishes the server ready: a sign-in stored since the check above is
+                    // seen here, and this attempt connects again as one start; one stored after it finds the server
+                    // ready, or the attempt ended, when its own reconnect looks.
+                    let replaced = || self.opened_as_replaced(&client) && !self.shutdown.is_cancelled();
+                    if self.end_attempt(generation, ServerState::Ready(Arc::new(ready)), replaced).await {
                         client.close().await;
                         continue;
                     }
+                    self.watch(generation, Arc::clone(&client), follows);
+                    #[cfg(feature = "test-support")]
+                    self.hold(ConnectStep::AfterOutcome).await;
                     return Ok(());
                 }
                 Err(error) => {
@@ -766,11 +973,31 @@ impl McpServer {
                         }
                         _ => crate::config::daemon_line(&format!("[mcp-server] name={} connect failed: {cause}", self.name())),
                     }
-                    self.publish(generation, ServerState::Failed { cause: cause.clone() });
+                    self.end_attempt(generation, ServerState::Failed { cause: cause.clone() }, || false).await;
+                    #[cfg(feature = "test-support")]
+                    self.hold(ConnectStep::AfterOutcome).await;
                     return Err(ConnectError::Failed(cause));
                 }
             }
         }
+    }
+
+    /// The step that ends the attempt with `outcome`, unless `again` says it connects again first. One lock, the one a
+    /// connect takes to join or begin an attempt and the hub takes to schedule a start, covers the publish and the end of
+    /// the attempt and of the starts it answers, so neither sees the outcome without the end or the end without the
+    /// outcome; a waiter on either token is released after the publish, so it reads the outcome or a later state.
+    async fn end_attempt(&self, generation: u64, outcome: ServerState, again: impl FnOnce() -> bool) -> bool {
+        #[cfg(feature = "test-support")]
+        self.hold(ConnectStep::BeforeOutcome).await;
+        let mut attempts = self.attempts();
+        if again() {
+            return true;
+        }
+        self.publish(generation, outcome);
+        #[cfg(feature = "test-support")]
+        self.hold_blocking(ConnectStep::InOutcome);
+        attempts.end();
+        false
     }
 
     /// Whether `client`'s connection was opened as a sign-in that is not the stored one any more.
@@ -781,8 +1008,10 @@ impl McpServer {
         }
     }
 
-    async fn join_attempt(&self) -> Result<(), ConnectError> {
-        let mut rx = self.subscribe();
+    /// The outcome of the attempt `ended` ends with, or of one that began after it.
+    async fn join_attempt(rx: &watch::Receiver<Arc<ServerState>>, ended: &CancellationToken) -> Result<(), ConnectError> {
+        ended.cancelled().await;
+        let mut rx = rx.clone();
         let settled = match rx.wait_for(|s| !matches!(**s, ServerState::Starting)).await {
             Ok(state) => Arc::clone(&*state),
             Err(_) => return Err(ConnectError::Closed),
@@ -1036,16 +1265,21 @@ impl McpServer {
     /// is ended first, and a call that cut says the server was restarted. Any other connection is replaced: it ends
     /// once the calls already on it ended, each by its own result or timeout.
     pub async fn reconnect(self: &Arc<Self>) -> Result<(), ConnectError> {
+        self.reconnect_answering(None).await
+    }
+
+    async fn reconnect_answering(self: &Arc<Self>, start: Option<CancellationToken>) -> Result<(), ConnectError> {
         let ready = match &*self.state() {
             ServerState::Ready(ready) => Arc::clone(ready),
-            _ => return self.connect().await,
+            _ => return self.connect_answering(start, None).await,
         };
+        let replaced = Arc::clone(&ready);
         // Bumping the generation retires the old watcher before the close lands.
         self.generation.fetch_add(1, Ordering::AcqRel);
         if self.runs_a_process() {
             self.restarted.store(Some(Arc::clone(&ready.client)));
             ready.client.close().await;
-            return self.connect().await;
+            return self.connect_answering(start, Some(&replaced)).await;
         }
         // The server owns the connection it replaces until that one is closed. The closing is started and listed under
         // the list's lock, which a close of the server takes after it began: a close finds every closing a reconnect
@@ -1071,7 +1305,7 @@ impl McpServer {
             }));
         }
         let _swapped = swapped.drop_guard();
-        self.connect().await
+        self.connect_answering(start, Some(&replaced)).await
     }
 
     fn runs_a_process(&self) -> bool {
@@ -1105,8 +1339,12 @@ impl McpServer {
         self.shutdown.cancel();
         // Startup owns the opening client until it publishes it or shuts it down on failure.
         let _attempt = self.connecting.acquire().await.expect("the connect gate is never closed");
+        // Under the attempt lock: an attempt that begins after this step finds the server shut down, and one that began
+        // before it published its `Starting` first.
+        let attempts = self.attempts();
         self.generation.fetch_add(1, Ordering::AcqRel);
         let previous = self.state.send_replace(Arc::new(ServerState::Closed));
+        drop(attempts);
         // A closed server lists nothing: the connection that ended by itself goes too.
         self.died.store(None);
         let opening = self.opening.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -1419,6 +1657,12 @@ impl McpServer {
     /// itself), unless a peer already did (its replacement is reused) or the server was closed meanwhile (a failed call
     /// never brings back a server someone removed).
     pub(crate) async fn reconnect_after(self: &Arc<Self>, failed: Option<Arc<RpcClient>>) -> Result<(), String> {
+        self.reconnect_after_answering(failed, None).await
+    }
+
+    /// [`Self::reconnect_after`] that answers hub-scheduled `start`: a start is asked for once its server's failure was
+    /// read, so it connects again rather than sharing a peer's failure.
+    pub(crate) async fn reconnect_after_answering(self: &Arc<Self>, failed: Option<Arc<RpcClient>>, start: Option<CancellationToken>) -> Result<(), String> {
         let _one = self.reconnecting.acquire().await.expect("the private reconnect admission gate is never closed");
         let disconnected = || format!("MCP server \"{}\" was disconnected", self.name());
         match &*self.state() {
@@ -1427,13 +1671,13 @@ impl McpServer {
             }
             ServerState::Closed => return Err(disconnected()),
             // A peer's reconnect of the same connection already failed: this caller shares that failure.
-            ServerState::Failed { cause } if !self.is_dead() => return Err(cause.clone()),
+            ServerState::Failed { cause } if !self.is_dead() && start.is_none() => return Err(cause.clone()),
             _ => {}
         }
         if self.shutdown.is_cancelled() {
             return Err(disconnected());
         }
-        self.reconnect().await.map_err(|error| error.to_string())
+        self.reconnect_answering(start).await.map_err(|error| error.to_string())
     }
 
     /// Calls a tool the server answers without listing it (a read-only helper the approval

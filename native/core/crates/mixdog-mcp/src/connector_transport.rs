@@ -185,8 +185,7 @@ mod tests {
         let spiller = crate::result::Spiller::new(dir.path().to_path_buf(), io.durability);
         let server = McpServer::new(account, io, spiller, crate::result::OutputPolicy::default(), None);
         server.connect().await.unwrap_err();
-        let scheduled = CancellationToken::new();
-        *server.scheduled_start.lock().unwrap() = Some(scheduled.clone());
+        let scheduled = server.schedule_start().unwrap();
         let runtime = AccountRuntime { health: Arc::new(AccountHealth::default()), data_dir: dir.path().to_path_buf(), maintenance: tokens.maintenance_io };
         let group = AccountGroup::new(&config, vec![server], &runtime);
 
@@ -315,7 +314,7 @@ impl AccountGroup {
             .map(|server| async move {
                 // A connect scheduled for the account has not begun until it says so: the state before it is the last
                 // attempt's, and a namespace that read it would fail beside an account about to connect.
-                let scheduled = server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let scheduled = server.scheduled_start();
                 if let Some(ended) = scheduled {
                     ended.cancelled().await;
                 }
