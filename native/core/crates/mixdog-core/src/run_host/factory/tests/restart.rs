@@ -281,6 +281,8 @@ struct Peeks {
     /// `Some`: the first run waits for it.
     first_held: Option<Arc<tokio::sync::Notify>>,
     first_ended: tokio::sync::watch::Sender<bool>,
+    /// Told as the first run starts: the scripted stream ends only then ([`streamed_behind`]).
+    first_started: Arc<tokio::sync::Notify>,
 }
 
 #[async_trait]
@@ -290,6 +292,9 @@ impl Tool for Peeks {
     }
     async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
         let run = self.runs.fetch_add(1, Ordering::SeqCst) + 1;
+        if run == 1 {
+            self.first_started.notify_one();
+        }
         match (run, &self.first_held) {
             (1, Some(held)) => held.notified().await,
             (1, None) => {}
@@ -318,6 +323,14 @@ impl Tool for Edits {
         self.1.store(true, Ordering::SeqCst);
         Ok(ToolOutput { parts: vec![ToolPart::Text("edited".into())], ..ToolOutput::default() })
     }
+}
+
+/// The round `e1` edit, `r1` peek, `h1` holder, whose stop waits until `peeks` started its first run: a read starts as it
+/// streams only while the stream is open, and one whose stream ended first is run once, in the batch, after the edit.
+fn streamed_behind(peeks: &Peeks) -> Arc<dyn ProviderAdapter> {
+    let round = scripted_rounds(vec![vec![tool_call("e1", "edit"), tool_call("r1", "peek"), tool_call("h1", "holder"), tool_use()]]);
+    let round = Arc::into_inner(round).expect("the round's one owner");
+    Arc::new(HeldScripted(round, peeks.first_started.clone(), 0))
 }
 
 fn tool_spec(name: &str, read_only: bool) -> ToolSpec {
@@ -354,13 +367,13 @@ async fn a_read_run_again_is_recovered_as_its_last_run(first_run_first: bool) {
         runs: std::sync::atomic::AtomicUsize::new(0),
         first_held: first_held.clone(),
         first_ended: tokio::sync::watch::Sender::new(false),
+        first_started: Arc::new(tokio::sync::Notify::new()),
     });
     let (blocked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
     let more: Vec<Arc<dyn Tool>> =
         vec![Arc::new(Edits(spec("edit", false), edited)), peeks.clone(), Arc::new(Blocker(spec("holder", true), blocked.clone(), release.clone()))];
-    let first = scripted_rounds(vec![vec![tool_call("e1", "edit"), tool_call("r1", "peek"), tool_call("h1", "holder"), tool_use()]]);
     let (rig, workspace) = (Rig::new(), tempfile::tempdir().unwrap());
-    let provider: Arc<dyn ProviderAdapter> = first.clone();
+    let provider = streamed_behind(&peeks);
     let directory = restartable_with(&rig, &provider, workspace.path(), more);
     let reply = directory
         .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
@@ -471,6 +484,7 @@ async fn a_read_behind_an_edit_the_surface_refused_is_recovered_by_its_one_run()
         runs: std::sync::atomic::AtomicUsize::new(0),
         first_held: None,
         first_ended: tokio::sync::watch::Sender::new(false),
+        first_started: Arc::new(tokio::sync::Notify::new()),
     });
     let (blocked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
     let more: Vec<Arc<dyn Tool>> = vec![
@@ -478,9 +492,8 @@ async fn a_read_behind_an_edit_the_surface_refused_is_recovered_by_its_one_run()
         peeks.clone(),
         Arc::new(Blocker(tool_spec("holder", true), blocked.clone(), release.clone())),
     ];
-    let first = scripted_rounds(vec![vec![tool_call("e1", "edit"), tool_call("r1", "peek"), tool_call("h1", "holder"), tool_use()]]);
     let (rig, workspace) = (Rig::new(), tempfile::tempdir().unwrap());
-    let provider: Arc<dyn ProviderAdapter> = first.clone();
+    let provider = streamed_behind(&peeks);
     let mut deps = rig.deps_parts(rig.store.clone());
     deps.runs = Arc::new(RunHostFactory::new(
         mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
