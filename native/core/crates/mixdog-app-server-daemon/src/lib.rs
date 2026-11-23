@@ -10,6 +10,8 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::exec::Executors;
 use mixdog_rt::exec::RtConfig;
 
+pub mod acp_tools;
+pub mod acp_usage;
 pub mod acquired;
 pub mod agent_lifecycle;
 pub mod barrier;
@@ -256,6 +258,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         log,
         stop: stop.clone(),
         catalog_http: catalog::production_http().map_err(compose::ComposeError::Catalog)?,
+        agent_presets: acp_tools::builtin_presets(),
         #[cfg(test)]
         pg_install: None,
     };

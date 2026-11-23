@@ -209,6 +209,12 @@ pub trait SideQuestions: Send + Sync {
     /// transport scope, one provider call, no tools executed; logs the usage as `side-question`. `idle`: no turn or
     /// compaction of the session is running, so a cold transcript may be compacted before the question is asked.
     async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, idle: bool, cancel: &CancellationToken) -> Result<SideReply, SideFailure>;
+    /// Why the session takes no side question at all, in words for the user; `None` for a session that takes one.
+    /// A session whose turns an external agent runs takes none: the question forks the session's own request, and
+    /// the conversation such a session would fork is in the agent's session, which is not Mixdog's to copy.
+    async fn refusal(&self, _thread: &ThreadId) -> Option<String> {
+        None
+    }
 }
 
 /// The stored transcripts of the copies of a session's conversation in other sessions (`offloadCopies`), serialized
@@ -335,6 +341,11 @@ pub fn compact_in_turn() -> Value {
     serde_json::json!({ "changed": false, "reason": "compact skipped: turn in progress" })
 }
 
+/// The header key of a session whose turns an external agent runs (`{ agent, sessionId }`): the conversation's
+/// context is the agent's own. A fork, a rewind, a clear and a compaction leave the key behind, so the agent's
+/// session, which still holds what they removed, is never continued from them.
+pub const AGENT_SESSION: &str = "acpSession";
+
 /// `sideQuestionPrompt`.
 fn side_question_prompt(question: &str) -> String {
     [
@@ -356,6 +367,9 @@ pub async fn ask_side_question(side: &dyn SideQuestions, thread: &ThreadId, ques
     let text = mixdog_js::js_trim(question);
     if text.is_empty() {
         return Err(failure("Side question is empty."));
+    }
+    if let Some(refusal) = side.refusal(thread).await {
+        return Err(failure(&refusal));
     }
     if !side.has_request(thread).await {
         return Err(failure(SIDE_QUESTION_NO_REQUEST));

@@ -103,12 +103,34 @@ pub enum Index {
     /// Nothing was written since the revision asked about.
     Unchanged,
     /// What was written since it: each session whose `worker` map changed, with its place in the index order and its map
-    /// now (`None`: the index lists none), and each agent-only session that changed, with its place among them and its list
-    /// row now (`None`: no longer listed).
-    Delta { revision: Revision, maps: Vec<(String, Option<(Place, Row)>)>, sessions: Vec<(String, Option<(Place, Row)>)> },
-    /// Every map and every agent-only session, each at its place; `revision` is what a later load asks the changes since of
-    /// (`None`: the store keeps none).
-    Full { revision: Option<Revision>, maps: Vec<(String, Place, Row)>, sessions: Vec<(Place, Row)> },
+    /// now (`None`: the index lists none), and each agent-only session that changed, with its list row now (`None`: no
+    /// longer listed).
+    Delta { revision: Revision, maps: Vec<(String, Option<(Place, Row)>)>, sessions: Vec<(String, Option<ListRow>)> },
+    /// Every map, each at its place, and every agent-only session's list row; `revision` is what a later load asks the
+    /// changes since of (`None`: the store keeps none).
+    Full { revision: Option<Revision>, maps: Vec<(String, Place, Row)>, sessions: Vec<(String, ListRow)> },
+}
+
+/// An agent-only session's list row as the index hands it over: its JSON text, read into a row only for a session the
+/// registry holds the row of ([`State::held`]).
+#[derive(Clone, PartialEq, Eq)]
+pub struct ListRow(String);
+
+impl ListRow {
+    /// The JSON text of a list row.
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+
+    /// The list row of a store that hands its rows parsed.
+    pub fn of(row: &Row) -> Self {
+        Self(serde_json::to_string(row).expect("a row serializes"))
+    }
+
+    /// The row; `None` when the text is not a JSON object, which no listing lists.
+    fn row(&self) -> Option<Row> {
+        serde_json::from_str(&self.0).ok()
+    }
 }
 
 /// A store's revision of what it hands over: of the index, and of the kept maps.
@@ -140,7 +162,7 @@ pub trait WorkerStore: Send + Sync {
     /// revision hands over everything, each map and session at its place in the listing.
     async fn index_since(&self, _since: Option<Revision>) -> Result<Index, String> {
         let maps = self.worker_maps().await?.into_iter().enumerate().map(|(at, (id, map))| (id, Place::At(at as i64), map)).collect();
-        let sessions = self.agent_sessions().await?.into_iter().enumerate().map(|(at, session)| (Place::At(at as i64), session)).collect();
+        let sessions = self.agent_sessions().await?.iter().map(|session| (clean(session.get("id")), ListRow::of(session))).collect();
         Ok(Index::Full { revision: None, maps, sessions })
     }
     /// The sessions whose map is a kept one.
@@ -149,8 +171,12 @@ pub trait WorkerStore: Send + Sync {
     }
     /// Every session's `worker` map, newest session first.
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String>;
-    /// The agent-only sessions' list rows, closed ones included.
+    /// The agent-only sessions' list rows, closed ones included, most recent activity first.
     async fn agent_sessions(&self) -> Result<Vec<Row>, String>;
+    /// The list row of agent-only session `session`; `Ok(None)` when the index lists no agent-only session of that id.
+    async fn agent_session(&self, session: &str) -> Result<Option<Row>, String> {
+        Ok(self.agent_sessions().await?.into_iter().find(|row| clean(row.get("id")) == session))
+    }
     /// The worker sessions held for a sensitive rewrite: the store answers their maps without their content, so a
     /// listing of the workers waits for each ([`Self::rewrite_settled`]). A store that never rewrites has none.
     async fn held_workers(&self) -> Result<Vec<String>, String> {
@@ -395,10 +421,14 @@ struct State {
     releases: HashMap<String, Unstored>,
     /// Set through a cleanup's refresh: each session a map is written for has its signals held here from before the write.
     holding: Option<Holding>,
-    /// The agent-only sessions as last loaded, in their order.
-    sessions: BTreeMap<Place, Row>,
-    /// The first of `sessions` with each id.
-    session_at: HashMap<String, Place>,
+    /// The list rows of the sessions live agents stand for, as the index last listed them: each session with a worker row
+    /// or a bound tag ([`State::wanted`]), `None` when the index lists no agent-only session of that id. Any other agent-only
+    /// session is read from the index by the operation that asks for it ([`Reads`]).
+    held: HashMap<String, Option<Arc<Row>>>,
+    /// What the operation under way read of the index besides; empty between operations ([`Operation`]).
+    reads: Reads,
+    /// The sessions a dispatch runs a turn on, each with the count of dispatches holding it ([`AgentRegistry::pin`]).
+    pins: Arc<Mutex<HashMap<String, usize>>>,
     /// A legacy tombstone's resolved owner fields, by its identity (`row-reads.mjs` `owners`).
     owners: HashMap<String, Option<Row>>,
     /// A Lead pool row's worker map as this process last wrote it, until the stored header shows
@@ -419,6 +449,75 @@ struct State {
     epoch: u64,
     /// The reads of the index as shared views, following each write (views.rs).
     views: RefCell<Views>,
+}
+
+/// The agent-only sessions as one read of the index lists them, in its order.
+struct Listing {
+    rows: Vec<Arc<Row>>,
+    /// The first of `rows` with each id.
+    at: HashMap<String, usize>,
+}
+
+impl Listing {
+    fn of(rows: Vec<Row>) -> Self {
+        let rows: Vec<Arc<Row>> = rows.into_iter().map(Arc::new).collect();
+        let mut at = HashMap::new();
+        for (i, row) in rows.iter().enumerate() {
+            at.entry(clean(row.get("id"))).or_insert(i);
+        }
+        Self { rows, at }
+    }
+}
+
+/// What one operation read of the agent-only sessions from the index beyond the rows the registry holds: read before it
+/// takes the state, and let go when it ends.
+#[derive(Clone, Default)]
+struct Reads {
+    /// Every agent-only session, when the operation lists them.
+    listing: Option<Arc<Listing>>,
+    /// The sessions it looked up by id: each one's row, `None` when the index lists no agent-only session of that id.
+    rows: HashMap<String, Option<Arc<Row>>>,
+}
+
+impl Reads {
+    /// The row this operation read of session `id`; `None` when it read none of it.
+    fn find(&self, id: &str) -> Option<Option<Arc<Row>>> {
+        if let Some(row) = self.rows.get(id) {
+            return Some(row.clone());
+        }
+        let listing = self.listing.as_ref()?;
+        Some(listing.at.get(id).map(|at| listing.rows[*at].clone()))
+    }
+}
+
+/// The state for one operation, with what it read of the index ([`Reads`]): when it ends, the rows it read of the sessions
+/// live agents now stand for are held and the rest let go.
+struct Operation<'a>(MutexGuard<'a, State>);
+
+impl std::ops::Deref for Operation<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Operation<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.0
+    }
+}
+
+impl Drop for Operation<'_> {
+    fn drop(&mut self) {
+        let reads = std::mem::take(&mut self.0.reads);
+        if reads.listing.is_none() && reads.rows.is_empty() {
+            return;
+        }
+        let st = &mut *self.0;
+        let found: Vec<(String, Option<Arc<Row>>)> =
+            st.wanted().into_iter().filter(|id| !st.held.contains_key(id)).filter_map(|id| reads.find(&id).map(|row| (id, row))).collect();
+        st.hold(found);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -450,6 +549,31 @@ impl State {
     /// A change the views cannot follow one session at a time: they start over.
     fn changed(&mut self) {
         self.epoch += 1;
+    }
+
+    /// The sessions live agents stand for: each with a worker row in the index, a bound tag, or a dispatch running a turn.
+    fn wanted(&self) -> HashSet<String> {
+        let mut ids: HashSet<String> = self.maps.iter().filter(|(_, map)| !clean(map.get("sessionId")).is_empty()).map(|(id, _)| id.clone()).collect();
+        ids.extend(self.tags.iter().map(|(_, id)| id.clone()));
+        ids.extend(self.pins.lock().unwrap_or_else(|p| p.into_inner()).keys().cloned());
+        ids
+    }
+
+    /// Holds `rows`; each tag whose session's row changed is read again.
+    fn hold(&mut self, rows: impl IntoIterator<Item = (String, Option<Arc<Row>>)>) {
+        let mut changed = Vec::new();
+        for (id, row) in rows {
+            if self.held.get(&id) != Some(&row) {
+                self.held.insert(id.clone(), row);
+                changed.push(id);
+            }
+        }
+        let views = self.views.get_mut();
+        for id in changed {
+            for tag in self.tags.of_session(&id) {
+                views.facts.touch(&tag);
+            }
+        }
     }
 }
 
@@ -546,15 +670,6 @@ fn outlives_delete(row: &Row) -> bool {
     is_lead_pool_agent(row.get("agent")) || !is_terminal_row(row) || is_unnotified_restart_failure(row)
 }
 
-/// The first stored session of each id (`sessions.find(s => clean(s.id) === id)`).
-fn sessions_by_id(sessions: &BTreeMap<Place, Row>) -> HashMap<String, Place> {
-    let mut at = HashMap::new();
-    for (place, session) in sessions {
-        at.entry(clean(session.get("id"))).or_insert_with(|| place.clone());
-    }
-    at
-}
-
 fn released_at(map: &Row, now: f64) -> bool {
     let at = stamp_ms(map.get("releasedAt"));
     at > 0.0 && at >= now - TAG_TOMBSTONE_TTL_MS
@@ -574,6 +689,11 @@ fn described(cancelled: &HashSet<String>, st: &State, mut session: Row) -> Row {
         }
     }
     session
+}
+
+/// [`described`] of a session that is held shared: it is copied only when a close cancelled it.
+fn described_shared(cancelled: &HashSet<String>, st: &State, session: Arc<Row>) -> Arc<Row> {
+    if marks_cancelled(cancelled, st, &session) { Arc::new(described(cancelled, st, Row::clone(&session))) } else { session }
 }
 
 /// A session as the tag facts read it: the row they answer with and, for a loaded session, the published header it was read
@@ -661,7 +781,7 @@ impl AgentRegistry {
     }
 
     /// From now on every read of the store's worker rows waits, until [`Self::recover_held_worker_rows`] has settled them: a start
-    /// whose index is being rebuilt holds them while the rebuild projects them, so no reader (the pool, a spawn's tags, the
+    /// whose index owes sessions their rows (a rebuild, or its repairs) holds them while those are projected, so no reader (the pool, a spawn's tags, the
     /// maintenance pass, the restart notices) sees a worker before the restart's settlement of it, or the rows of part of the index.
     pub fn hold_worker_rows(&self) {
         self.rows_held.send_replace(Settlement::Held);
@@ -845,20 +965,37 @@ impl AgentRegistry {
         let index = self.store.index_since(since).await?;
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.reloads += 1);
-        let mut guard = self.lock();
-        let st = &mut *guard;
-        match index {
-            Index::Unchanged => {}
-            Index::Delta { revision, maps, sessions } => {
-                self.apply_delta(st, maps);
-                Self::apply_sessions(st, sessions);
-                st.revision = Some(revision);
+        let missing: Vec<String> = {
+            let mut guard = self.lock();
+            let st = &mut *guard;
+            match index {
+                Index::Unchanged => {}
+                Index::Delta { revision, maps, sessions } => {
+                    self.apply_delta(st, maps);
+                    Self::hold_listed(st, sessions, false);
+                    st.revision = Some(revision);
+                }
+                Index::Full { revision, maps, sessions } => {
+                    self.load_maps(st, maps);
+                    Self::hold_listed(st, sessions.into_iter().map(|(id, row)| (id, Some(row))).collect(), true);
+                    st.revision = revision;
+                }
             }
-            Index::Full { revision, maps, sessions } => {
-                self.load_maps(st, maps);
-                Self::load_sessions(st, sessions);
-                st.revision = revision;
-            }
+            let wanted = st.wanted();
+            st.held.retain(|id, _| wanted.contains(id));
+            wanted.into_iter().filter(|id| !st.held.contains_key(id)).collect()
+        };
+        // The sessions that came to stand for a live agent since the last load, whose rows this one did not hand over.
+        let mut found = Vec::with_capacity(missing.len());
+        for id in missing {
+            let row = self.store.agent_session(&id).await?;
+            found.push((id, row.map(Arc::new)));
+        }
+        if !found.is_empty() {
+            let mut st = self.lock();
+            let wanted = st.wanted();
+            let found: Vec<(String, Option<Arc<Row>>)> = found.into_iter().filter(|(id, _)| wanted.contains(id) && !st.held.contains_key(id)).collect();
+            st.hold(found);
         }
         Ok(())
     }
@@ -943,57 +1080,24 @@ impl AgentRegistry {
         }
     }
 
-    /// Every agent-only session the store lists, compared with those held.
-    fn load_sessions(st: &mut State, sessions: Vec<(Place, Row)>) {
-        let mut next: BTreeMap<Place, Row> = BTreeMap::new();
-        for (place, session) in sessions {
-            next.entry(place).or_insert(session);
-        }
-        let same_sessions = st.sessions.len() == next.len()
-            && st.sessions.iter().zip(&next).all(|(a, b)| {
+    /// The list rows a load handed over, read only for the sessions live agents stand for ([`State::wanted`]); `whole`:
+    /// `listed` is every agent-only session, so one of those sessions it does not name is listed no longer.
+    fn hold_listed(st: &mut State, listed: Vec<(String, Option<ListRow>)>, whole: bool) {
+        let wanted = st.wanted();
+        let mut rows: HashMap<String, Option<Arc<Row>>> = HashMap::new();
+        for (id, row) in listed {
+            if wanted.contains(&id) {
                 #[cfg(any(test, feature = "test-support"))]
                 work::note(|c| c.sessions_compared += 1);
-                a == b
-            });
-        if !same_sessions {
-            let before = std::mem::take(&mut st.session_at);
-            let old = std::mem::replace(&mut st.sessions, next);
-            st.session_at = sessions_by_id(&st.sessions);
-            // A tag's session read from the stored rows is read again when its row changed.
-            let mut changed: HashSet<&String> =
-                st.session_at.iter().filter(|(id, at)| before.get(*id).map(|was| &old[was]) != Some(&st.sessions[*at])).map(|(id, _)| id).collect();
-            changed.extend(before.keys().filter(|id| !st.session_at.contains_key(*id)));
-            let views = st.views.get_mut();
-            for id in changed {
-                for tag in st.tags.of_session(id) {
-                    views.facts.touch(&tag);
-                }
+                rows.insert(id, row.and_then(|row| row.row()).map(Arc::new));
             }
         }
-    }
-
-    /// The agent-only sessions the store wrote since the held revision.
-    fn apply_sessions(st: &mut State, sessions: Vec<(String, Option<(Place, Row)>)>) {
-        for (id, entry) in sessions {
-            #[cfg(any(test, feature = "test-support"))]
-            work::note(|c| c.sessions_compared += 1);
-            let held = st.session_at.get(&id).map(|at| (at, &st.sessions[at]));
-            if held == entry.as_ref().map(|(place, row)| (place, row)) {
-                continue;
-            }
-            if let Some(at) = st.session_at.remove(&id) {
-                st.sessions.remove(&at);
-            }
-            if let Some((place, row)) = entry {
-                st.session_at.insert(id.clone(), place.clone());
-                st.sessions.insert(place, row);
-            }
-            // A tag's session read from the stored rows is read again.
-            let views = st.views.get_mut();
-            for tag in st.tags.of_session(&id) {
-                views.facts.touch(&tag);
+        if whole {
+            for id in wanted {
+                rows.entry(id).or_insert(None);
             }
         }
+        st.hold(rows);
     }
 
     fn persist(&self, st: &mut State, session: &str, map: Option<Row>) {
@@ -1026,12 +1130,62 @@ impl AgentRegistry {
         self.store.settled().await
     }
 
+    /// What an operation reads of the index before it takes the state: every agent-only session when `listing`, and the
+    /// row of each of `ids` that is not loaded and whose row the registry does not hold.
+    async fn read_index(&self, listing: bool, ids: &[&str]) -> Result<Reads, String> {
+        let mut reads = Reads::default();
+        if listing {
+            reads.listing = Some(Arc::new(Listing::of(self.store.agent_sessions().await?)));
+        }
+        let unread: Vec<String> = {
+            let st = self.lock();
+            ids.iter()
+                .map(|id| clean_str(id))
+                .filter(|id| !id.is_empty() && !st.held.contains_key(id) && reads.find(id).is_none() && self.live.shared_header(id).is_none())
+                .collect()
+        };
+        for id in unread {
+            let row = self.store.agent_session(&id).await?;
+            reads.rows.insert(id, row.map(Arc::new));
+        }
+        Ok(reads)
+    }
+
+    /// [`Self::read_index`] for an answer that has no failure to give: a read that failed is logged, and the operation
+    /// answers from the sessions loaded and the rows the registry holds.
+    async fn read_index_or_held(&self, listing: bool, ids: &[&str]) -> Reads {
+        self.read_index(listing, ids).await.unwrap_or_else(|error| {
+            tracing::warn!("[agent] the agent sessions could not be read from the index: {error}");
+            Reads { listing: listing.then(|| Arc::new(Listing::of(Vec::new()))), rows: HashMap::new() }
+        })
+    }
+
+    /// The state for an operation that read `reads` ([`Operation`]).
+    fn op(&self, reads: Reads) -> Operation<'_> {
+        let mut st = self.lock();
+        st.reads = reads;
+        Operation(st)
+    }
+
+    /// Whether a refresh resolves legacy tombstones' owners now, which reads every agent-only session.
+    fn owners_owed(&self) -> bool {
+        let st = self.lock();
+        let now = self.now();
+        let resolved = st.views(now).owners_resolved;
+        if resolved {
+            return false;
+        }
+        let tombstones = st.stored_tombstones(now);
+        tombstones.iter().any(|row| is_legacy(row) && !st.owners.contains_key(&identity(row)))
+    }
+
     /// `mgr.listSessions({includeClosed})`: the loaded sessions as they are now, then the
-    /// stored ones.
-    fn list_sessions(&self, st: &State, include_closed: bool) -> Vec<Row> {
+    /// stored ones as the operation read them.
+    fn list_sessions(&self, st: &State, include_closed: bool) -> Vec<Arc<Row>> {
+        debug_assert!(st.reads.listing.is_some(), "an operation that lists the agent sessions reads them first");
         #[cfg(test)]
         self.walks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let mut out: Vec<Row> = Vec::new();
+        let mut out: Vec<Arc<Row>> = Vec::new();
         let mut seen = HashSet::new();
         for id in self.live.loaded() {
             if let Some(header) = self.loaded_session(&id) {
@@ -1039,7 +1193,7 @@ impl AgentRegistry {
                 out.push(header);
             }
         }
-        for session in st.sessions.values() {
+        for session in st.reads.listing.iter().flat_map(|listing| listing.rows.iter()) {
             if !seen.contains(&clean(session.get("id"))) {
                 out.push(session.clone());
             }
@@ -1048,44 +1202,87 @@ impl AgentRegistry {
             out.retain(|s| s.get("closed") != Some(&Value::Bool(true)));
         }
         let cancelled = self.cancelled.lock().unwrap_or_else(|p| p.into_inner());
-        out.into_iter().map(|session| described(&cancelled, st, session)).collect()
+        out.into_iter().map(|session| described_shared(&cancelled, st, session)).collect()
     }
 
-    fn loaded_session(&self, id: &str) -> Option<Row> {
-        let mut header = self.live.header(id)?;
-        header.insert("id".into(), Value::String(id.to_owned()));
-        Some(header)
+    /// A loaded session's published header, which carries its tool list and prompt: read where it is, and copied only
+    /// when it does not name the session as `id`.
+    fn loaded_session(&self, id: &str) -> Option<Arc<Row>> {
+        let header = self.live.shared_header(id)?;
+        if header.get("id").and_then(Value::as_str) == Some(id) {
+            return Some(header);
+        }
+        let mut row = Row::clone(&header);
+        row.insert("id".into(), Value::String(id.to_owned()));
+        Some(Arc::new(row))
     }
 
     /// `mgr.getSession`.
-    fn session(&self, st: &State, id: &str) -> Option<Row> {
+    fn session(&self, st: &State, id: &str) -> Option<Arc<Row>> {
         if id.is_empty() {
             return None;
         }
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.sessions_visited += 1);
         let session = self.loaded_session(id).or_else(|| Self::indexed_session(st, id))?;
-        Some(described(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, session))
+        Some(described_shared(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, session))
     }
 
-    /// The session as the index stored it, for a session not loaded.
-    fn indexed_session(st: &State, id: &str) -> Option<Row> {
-        let at = st.session_at.get(id)?;
+    /// The session as the index lists it, for a session not loaded: its held row, else the one the operation read.
+    fn indexed_session(st: &State, id: &str) -> Option<Arc<Row>> {
+        let row = match st.held.get(id) {
+            Some(row) => row.clone(),
+            None => st.reads.find(id).flatten(),
+        }?;
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.sessions_visited += 1);
-        Some(st.sessions[at].clone())
+        Some(row)
     }
 
-    /// `mgr.getSession(id)` for a worker's turn (`sessionOf`).
-    pub(super) fn session_of(&self, id: &str) -> Option<Row> {
+    /// `mgr.getSession(id)` (`sessionOf`), read from the index when the session is neither loaded nor held.
+    pub(super) async fn session_of(&self, id: &str) -> Option<Arc<Row>> {
+        let id = clean_str(id);
+        let reads = self.read_index_or_held(false, &[&id]).await;
+        let st = self.op(reads);
+        self.session(&st, &id)
+    }
+
+    /// [`Self::session_of`] of a session that is loaded or whose row is held: a worker's own, from its turn.
+    pub(super) fn held_session_of(&self, id: &str) -> Option<Arc<Row>> {
         let st = self.lock();
         self.session(&st, &clean_str(id))
     }
 
-    /// Whether [`Self::session_of`] finds the session, without copying it.
-    pub(super) fn knows_session(&self, id: &str) -> bool {
+    /// [`Registry::tag_for_session`] of a session that is loaded or whose row is held: a worker's own, from its turn.
+    pub(super) fn held_tag_for_session(&self, session_id: &str) -> Option<String> {
+        let st = self.lock();
+        self.tag_of(&st, session_id)
+    }
+
+    /// The session's own `agentTag`, else the first tag bound to it.
+    fn tag_of(&self, st: &State, session_id: &str) -> Option<String> {
+        let persisted = self.live_session_row(st, session_id).map(|s| agent_tag_of(&s)).unwrap_or_default();
+        if !persisted.is_empty() {
+            return Some(persisted);
+        }
+        st.tags.first_of(session_id).cloned()
+    }
+
+    /// Whether [`Self::session_of`] finds the session, without copying it. One whose row could not be read is not known
+    /// to be gone.
+    pub(super) async fn knows_session(&self, id: &str) -> bool {
         let id = clean_str(id);
-        !id.is_empty() && (self.live.shared_header(&id).is_some() || self.lock().session_at.contains_key(&id))
+        if id.is_empty() {
+            return false;
+        }
+        if self.live.shared_header(&id).is_some() {
+            return true;
+        }
+        let held = self.lock().held.get(&id).map(Option::is_some);
+        if let Some(known) = held {
+            return known;
+        }
+        !matches!(self.store.agent_session(&id).await, Ok(None))
     }
 
     /// `upsertWorkerSessionDeferred(session, tag, extra)` from the worker's turn.
@@ -1095,7 +1292,7 @@ impl AgentRegistry {
     }
 
     /// `getLiveSession`.
-    fn live_session_row(&self, st: &State, id: &str) -> Option<Row> {
+    fn live_session_row(&self, st: &State, id: &str) -> Option<Arc<Row>> {
         self.session(st, id).filter(|s| s.get("closed") != Some(&Value::Bool(true)))
     }
 
@@ -1106,8 +1303,8 @@ impl AgentRegistry {
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.sessions_visited += 1);
         let Some(header) = self.live.shared_header(id) else {
-            let row = described(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, Self::indexed_session(st, id)?);
-            return (row.get("closed") != Some(&Value::Bool(true))).then(|| SessionRead { row: Arc::new(row), published: None });
+            let row = described_shared(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, Self::indexed_session(st, id)?);
+            return (row.get("closed") != Some(&Value::Bool(true))).then_some(SessionRead { row, published: None });
         };
         let overlay =
             header.get("id").and_then(Value::as_str) != Some(id) || marks_cancelled(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, &header);
@@ -1232,8 +1429,9 @@ impl AgentRegistry {
     }
 
     /// `mgr.listSessions()`: the agent sessions that are not closed.
-    pub(crate) fn open_sessions(&self) -> Vec<Row> {
-        let st = self.lock();
+    pub(crate) async fn open_sessions(&self) -> Vec<Arc<Row>> {
+        let reads = self.read_index_or_held(true, &[]).await;
+        let st = self.op(reads);
         self.list_sessions(&st, false)
     }
 
@@ -1335,6 +1533,10 @@ impl AgentRegistry {
         let unresolved: Vec<&Row> = legacy.iter().filter(|row| !st.owners.contains_key(&identity(row))).collect();
         if unresolved.is_empty() {
             st.views(now).owners_resolved = true;
+            return;
+        }
+        // Over the listing the operation read: one that read none leaves them to a later refresh.
+        if st.reads.listing.is_none() {
             return;
         }
         let sessions = self.list_sessions(st, true);
@@ -1544,7 +1746,7 @@ impl AgentRegistry {
         }
         if scan_sessions {
             let open = self.list_sessions(st, false);
-            self.scan_listed(st, &open, scope);
+            self.scan_listed(st, open.iter().map(|session| &**session), scope);
         }
     }
 
@@ -1580,8 +1782,9 @@ impl AgentRegistry {
 
     /// `agentSessionEntries` for the views (list and status keep terminal traces), over the
     /// index as last refreshed.
-    pub fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Arc<Row>)> {
-        let mut st = self.lock();
+    pub async fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Arc<Row>)> {
+        let reads = self.read_index_or_held(scan_sessions, &[]).await;
+        let mut st = self.op(reads);
         self.entries(&mut st, scan_sessions, scope, false)
     }
 
@@ -1592,7 +1795,8 @@ impl AgentRegistry {
     /// a session for it.
     pub fn status_entries(&self, scope: &Scope) -> Vec<(String, Arc<Row>)> {
         let Some(caller) = scope.caller_session_id.clone() else {
-            return self.session_entries(false, scope);
+            let mut st = self.lock();
+            return self.entries(&mut st, false, scope, false);
         };
         let st = self.lock();
         let now = self.now();
@@ -1645,7 +1849,7 @@ impl AgentRegistry {
                 if !tag.is_empty() && self.blocks_scan(st, &session, &tag, &by_key) {
                     continue;
                 }
-                add(&mut out, &mut seen, &Arc::new(session.clone()), &tag);
+                add(&mut out, &mut seen, &session, &tag);
                 if !tag.is_empty() {
                     self.scan_upsert(st, &session, &tag, &by_key);
                 }
@@ -1677,7 +1881,7 @@ impl AgentRegistry {
                     if self.blocks_scan(st, &session, &tag, &by_key) {
                         continue;
                     }
-                    add(&mut out, &mut seen, &Arc::new(session), &tag);
+                    add(&mut out, &mut seen, &session, &tag);
                 }
             }
         }
@@ -1741,33 +1945,66 @@ impl AgentRegistry {
         !clean(session.get("id")).is_empty() && agent_tag_of(session) == tag && !is_lead_pool_agent(session.get("agent")) && matches_scope(session, scope)
     }
 
-    /// `agentDescendantSessionIds`: every agent session below `session`, depth first, each
-    /// once; a child is linked by its `parentSessionId || ownerSessionId`.
-    pub(crate) fn descendants(&self, session: &str) -> Vec<String> {
-        let st = self.lock();
-        let mut children: HashMap<String, Vec<String>> = HashMap::new();
-        for s in self.list_sessions(&st, true) {
-            if let Some((parent, id)) = parent_link(&s) {
-                children.entry(parent).or_default().push(id);
+    /// `agentDescendantSessionIds`: every agent session below `session`, depth first, each once, over one listing of the
+    /// index; `Err` when it could not be read.
+    pub(crate) async fn descendants(&self, session: &str) -> Result<Vec<String>, String> {
+        let reads = self.read_index(true, &[]).await?;
+        let st = self.op(reads);
+        Ok(Tree::of(self.list_sessions(&st, true).iter().map(|s| &**s)).below(&clean_str(session)))
+    }
+
+    /// A cancel of the tree under `root` (`cancelAgentTree`): `root` and every agent session the loaded sessions and the held
+    /// rows link below it refuse admission before the index is read, and the rest of the tree once one listing of it is.
+    /// The guard, with the tree or why the index could not be read.
+    pub(crate) async fn cancel_tree(self: &Arc<Self>, root: &str) -> (CancelScope, Result<Tree, String>) {
+        let root = clean_str(root);
+        let known: HashSet<String> = {
+            let st = self.lock();
+            let loaded: Vec<Arc<Row>> = self.live.loaded().iter().filter_map(|id| self.loaded_session(id)).collect();
+            let tree = Tree::of(loaded.iter().map(|s| &**s).chain(st.held.values().flatten().map(|s| &**s)));
+            std::iter::once(root.clone()).chain(tree.below(&root)).collect()
+        };
+        let mut guard = self.begin_cancellation(&known.iter().cloned().collect::<Vec<_>>());
+        let tree = match self.read_index(true, &[]).await {
+            Ok(reads) => {
+                let st = self.op(reads);
+                Tree::of(self.list_sessions(&st, true).iter().map(|s| &**s))
             }
+            Err(error) => return (guard, Err(error)),
+        };
+        let rest: Vec<String> = tree.below(&root).into_iter().filter(|id| !known.contains(id)).collect();
+        guard.extend(&rest);
+        (guard, Ok(tree))
+    }
+
+    /// The session a dispatch runs a turn on stands for a live agent while the dispatch lasts: its list row is read now
+    /// when the registry does not hold it, so the turn's row writes, which its events make with nothing to await, find the
+    /// session loaded or held ([`Self::held_session_of`]).
+    pub(super) async fn pin(&self, id: &str) -> Pinned {
+        let id = clean_str(id);
+        let pins = self.lock().pins.clone();
+        if !id.is_empty() {
+            *pins.lock().unwrap_or_else(|p| p.into_inner()).entry(id.clone()).or_insert(0) += 1;
         }
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        let mut stack = vec![(clean_str(session), 0usize)];
-        while let Some((parent, at)) = stack.pop() {
-            let Some(next) = children.get(&parent).and_then(|c| c.get(at)) else { continue };
-            stack.push((parent, at + 1));
-            if seen.insert(next.clone()) {
-                out.push(next.clone());
-                stack.push((next.clone(), 0));
+        let pinned = Pinned { pins, id: id.clone() };
+        if id.is_empty() || self.lock().held.contains_key(&id) {
+            return pinned;
+        }
+        match self.store.agent_session(&id).await {
+            Ok(row) => {
+                let mut st = self.lock();
+                if !st.held.contains_key(&id) {
+                    st.hold([(id, row.map(Arc::new))]);
+                }
             }
+            Err(error) => tracing::warn!("[agent] the agent session {id} could not be read from the index: {error}"),
         }
-        out
+        pinned
     }
 
     /// A cleanup's reading of `listed`, every agent session as one listing holds them: the links [`Self::descendants`]
     /// follows, the sessions listed (those [`Self::session_of`] finds), the open Lead sessions and the open sessions.
-    fn topology_of(listed: &[Row]) -> Topology {
+    fn topology_of(listed: &[Arc<Row>]) -> Topology {
         let mut topology = Topology::default();
         for session in listed {
             let id = clean(session.get("id"));
@@ -1798,6 +2035,69 @@ impl AgentRegistry {
             .iter()
             .find(|row| clean(row.get("tag")) == value && is_terminal_row(row) && self.live_session_row(st, &clean(row.get("sessionId"))).is_none())
             .cloned()
+    }
+}
+
+/// The agent sessions as one listing links them: each session's children by their `parentSessionId || ownerSessionId`, in
+/// the listing's order.
+pub(crate) struct Tree(HashMap<String, Vec<String>>);
+
+impl Tree {
+    fn of<'a>(sessions: impl IntoIterator<Item = &'a Row>) -> Self {
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+        for session in sessions {
+            if let Some((parent, id)) = parent_link(session) {
+                children.entry(parent).or_default().push(id);
+            }
+        }
+        Self(children)
+    }
+
+    /// The sessions linked directly below `parent` (`registry.childrenOf`).
+    pub(crate) fn children(&self, parent: &str) -> &[String] {
+        self.0.get(parent).map_or(&[], Vec::as_slice)
+    }
+
+    /// Every session below `root`, depth first, each once (`agentDescendantSessionIds`).
+    fn below(&self, root: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut stack = vec![(root.to_owned(), 0usize)];
+        while let Some((parent, at)) = stack.pop() {
+            let Some(next) = self.0.get(&parent).and_then(|c| c.get(at)) else { continue };
+            stack.push((parent, at + 1));
+            if seen.insert(next.clone()) {
+                out.push(next.clone());
+                stack.push((next.clone(), 0));
+            }
+        }
+        out
+    }
+
+    /// `root` and every session below it, each once, descendants first (`cancelAgentTree`'s order).
+    pub(crate) fn descendants_first(&self, root: &str) -> Vec<String> {
+        let mut ordered = Vec::new();
+        mixdog_agent::agent_tool::dispatch::visit_descendants_first(&|id| self.children(id).to_vec(), root, &mut HashSet::new(), &mut ordered);
+        ordered
+    }
+}
+
+/// A dispatch's hold on the session it runs a turn on ([`AgentRegistry::pin`]): the registry holds the session's row until
+/// it drops.
+pub struct Pinned {
+    pins: Arc<Mutex<HashMap<String, usize>>>,
+    id: String,
+}
+
+impl Drop for Pinned {
+    fn drop(&mut self) {
+        let mut pins = self.pins.lock().unwrap_or_else(|p| p.into_inner());
+        let left = pins.get(&self.id).map_or(0, |count| count.saturating_sub(1));
+        if left > 0 {
+            pins.insert(self.id.clone(), left);
+        } else {
+            pins.remove(&self.id);
+        }
     }
 }
 
@@ -1938,14 +2238,23 @@ fn settled(done: &ReleaseDone) -> bool {
 
 #[async_trait]
 impl Registry for AgentRegistry {
-    fn resolve_tombstone_owners(&self) {
-        let mut st = self.lock();
+    async fn resolve_tombstone_owners(&self) {
+        // A listing that could not be read resolves nothing: the next refresh reads it again.
+        let reads = match self.read_index(self.owners_owed(), &[]).await {
+            Ok(reads) => reads,
+            Err(error) => {
+                tracing::warn!("[agent] the agent sessions could not be read from the index: {error}");
+                return;
+            }
+        };
+        let mut st = self.op(reads);
         self.resolve_owners(&mut st);
     }
 
     async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) -> Result<(), String> {
         self.reload().await?;
-        let mut st = self.lock();
+        let reads = self.read_index(scan_sessions || self.owners_owed(), &[]).await?;
+        let mut st = self.op(reads);
         self.refresh(&mut st, scan_sessions, scope);
         Ok(())
     }
@@ -1955,14 +2264,17 @@ impl Registry for AgentRegistry {
     async fn claim_tag(&self, explicit: &str, scope: &Scope, options: ResolveOptions, next: &(dyn Fn() -> String + Sync)) -> Result<TagClaim, String> {
         let _admitted = self.spawn_admission.lock().await;
         self.reload().await?;
+        let explicit_id = clean_str(explicit);
+        let ids: Vec<&str> = if explicit_id.starts_with("sess_") { vec![explicit_id.as_str()] } else { Vec::new() };
+        let reads = self.read_index(options.scan_sessions || self.owners_owed(), &ids).await?;
         {
-            let mut st = self.lock();
+            let mut st = self.op(reads.clone());
             self.refresh(&mut st, false, scope);
         }
         // A tag another path bound since `next` named it is passed over; an explicit one is refused.
         for _ in 0..8 {
             let tag = if explicit.is_empty() { next() } else { explicit.to_owned() };
-            let mut st = self.lock();
+            let mut st = self.op(reads.clone());
             let bound = self.resolve(&mut st, &tag, scope, options)?.is_some();
             let mut claimed = self.claimed.lock().unwrap_or_else(|p| p.into_inner());
             if !bound && claimed.insert(tag.clone()) {
@@ -1980,12 +2292,13 @@ impl Registry for AgentRegistry {
     /// signals of every session it writes (a stale row's tombstone, a recovered row) are held in what it answers.
     async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> Result<(Topology, Recovered), String> {
         self.reload().await?;
-        let mut st = self.lock();
+        let reads = self.read_index(true, &[]).await?;
+        let mut st = self.op(reads);
         st.holding = Some(Holding::default());
         self.refresh(&mut st, false, scope);
         let listed = self.list_sessions(&st, true);
         if scan_sessions {
-            let open = listed.iter().filter(|session| session.get("closed") != Some(&Value::Bool(true)));
+            let open = listed.iter().map(|session| &**session).filter(|session| session.get("closed") != Some(&Value::Bool(true)));
             self.scan_listed(&mut st, open, scope);
         }
         Ok((Self::topology_of(&listed), st.holding.take().unwrap_or_default().recovered))
@@ -1996,13 +2309,17 @@ impl Registry for AgentRegistry {
         self.lock().map(&clean_str(session_id)).map(mark_of)
     }
 
-    fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
-        let mut st = self.lock();
+    async fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
+        let value = clean_str(tag);
+        let ids: Vec<&str> = if value.starts_with("sess_") { vec![value.as_str()] } else { Vec::new() };
+        let reads = self.read_index(options.scan_sessions || self.owners_owed(), &ids).await?;
+        let mut st = self.op(reads);
         self.resolve(&mut st, tag, scope, options)
     }
 
-    fn live_session(&self, session_id: &str) -> Option<SessionFacts> {
-        let st = self.lock();
+    async fn live_session(&self, session_id: &str) -> Option<SessionFacts> {
+        let reads = self.read_index_or_held(false, &[session_id]).await;
+        let st = self.op(reads);
         self.live_session_row(&st, session_id).map(|s| session_facts(&s))
     }
 
@@ -2014,13 +2331,10 @@ impl Registry for AgentRegistry {
         self.lock().tag_agents.contains_key(tag)
     }
 
-    fn tag_for_session(&self, session_id: &str) -> Option<String> {
-        let st = self.lock();
-        let persisted = self.live_session_row(&st, session_id).map(|s| agent_tag_of(&s)).unwrap_or_default();
-        if !persisted.is_empty() {
-            return Some(persisted);
-        }
-        st.tags.first_of(session_id).cloned()
+    async fn tag_for_session(&self, session_id: &str) -> Option<String> {
+        let reads = self.read_index_or_held(false, &[session_id]).await;
+        let st = self.op(reads);
+        self.tag_of(&st, session_id)
     }
 
     fn unbind_tag(&self, tag: &str) {
@@ -2028,13 +2342,14 @@ impl Registry for AgentRegistry {
     }
 
     /// `bindTag(tag, session, {turnStartedAt})`.
-    fn bind_tag(&self, tag: &str, session: &SessionFacts, turn_started_at: &str) {
+    async fn bind_tag(&self, tag: &str, session: &SessionFacts, turn_started_at: &str) {
         if tag.is_empty() || session.id.is_empty() {
             return;
         }
-        let mut st = self.lock();
+        let reads = self.read_index_or_held(false, &[&session.id]).await;
+        let mut st = self.op(reads);
         st.bind(tag, &session.id, &session.agent, &session.cwd);
-        let mut row = self.session(&st, &session.id).unwrap_or_default();
+        let mut row = self.session(&st, &session.id).map(|row| Row::clone(&row)).unwrap_or_default();
         row.insert("id".into(), Value::String(session.id.clone()));
         let set = |row: &mut Row, key: &str, value: &str| {
             if !value.is_empty() {
@@ -2197,14 +2512,15 @@ impl Registry for AgentRegistry {
         });
     }
 
-    fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord> {
+    async fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord> {
         let value = clean_str(tag);
         let caller = scope.caller_session_id.as_deref().map(clean_str).unwrap_or_default();
         if value.is_empty() || value.starts_with("sess_") || caller.is_empty() {
             return None;
         }
-        let st = self.lock();
-        let mut newest: Option<Row> = None;
+        let reads = self.read_index_or_held(true, &[]).await;
+        let st = self.op(reads);
+        let mut newest: Option<Arc<Row>> = None;
         for session in self.list_sessions(&st, true) {
             if !Self::owned_tag_session(&session, &value, scope) {
                 continue;
@@ -2230,20 +2546,23 @@ impl Registry for AgentRegistry {
         }
         // A header that could not be read is not a session that cannot be resumed: the caller would start a fresh one
         // under the tag of a session that is there.
-        let mut record = match self.loaded_session(&id) {
+        let record = match self.loaded_session(&id) {
             Some(header) => header,
             None => match self.store.header(&id).await? {
-                Some(header) => header,
+                Some(mut header) => {
+                    header.insert("id".into(), Value::String(id.clone()));
+                    Arc::new(header)
+                }
                 None => return Ok(None),
             },
         };
-        record.insert("id".into(), Value::String(id.clone()));
         let closed = record.get("closed") == Some(&Value::Bool(true)) || record.get("status").and_then(Value::as_str) == Some("closed");
         if closed || !resumable_after_reap(&record) || !Self::owned_tag_session(&record, &value, scope) {
             return Ok(None);
         }
         let session = {
-            let st = self.lock();
+            let reads = self.read_index(false, &[&id]).await?;
+            let st = self.op(reads);
             match self.live_session_row(&st, &id).map(|s| session_facts(&s)) {
                 Some(session) => session,
                 None => return Ok(None),
@@ -2258,15 +2577,17 @@ impl Registry for AgentRegistry {
     }
 }
 
+#[async_trait]
 impl TerminalTrace for AgentRegistry {
     /// `hasTerminalTrace`: a tag that resolves to a live session is reused, not a trace; an
     /// ambiguous tag is the resolver's error.
-    fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> Result<bool, String> {
+    async fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> Result<bool, String> {
         let value = clean_str(tag);
         if value.is_empty() || value.starts_with("sess_") {
             return Ok(false);
         }
-        let mut st = self.lock();
+        let reads = self.read_index(self.owners_owed(), &[]).await?;
+        let mut st = self.op(reads);
         let options = ResolveOptions { exclude_terminal_traces: true, skip_released: true, ..ResolveOptions::default() };
         if self.resolve(&mut st, &value, scope, options)?.is_some() {
             return Ok(false);
@@ -2274,12 +2595,17 @@ impl TerminalTrace for AgentRegistry {
         Ok(self.terminal_row_for_tag(&st, &value, scope).is_some())
     }
 
-    fn reap_terminal_trace_for_tag(&self, tag: &str, scope: &Scope) {
+    async fn reap_terminal_trace_for_tag(&self, tag: &str, scope: &Scope) {
         let value = clean_str(tag);
         if value.is_empty() || value.starts_with("sess_") {
             return;
         }
-        let mut st = self.lock();
+        // A listing that could not be read leaves the legacy owners to a later refresh.
+        let reads = self.read_index(self.owners_owed(), &[]).await.unwrap_or_else(|error| {
+            tracing::warn!("[agent] the agent sessions could not be read from the index: {error}");
+            Reads::default()
+        });
+        let mut st = self.op(reads);
         let Some(row) = self.terminal_row_for_tag(&st, &value, scope) else { return };
         self.refresh(&mut st, false, scope);
         let id = clean(row.get("sessionId"));
@@ -3366,7 +3692,7 @@ impl WorkerStore for StoreWorkers {
             KeptSince::Changed(changed) => changed.iter().map(|(id, _)| id.clone()).collect(),
             KeptSince::All(_) => Vec::new(),
         };
-        let read = self.index.worker_index_since(since.map(|r| (r.generation, r.index)), also).await.map_err(|e| format!("{e:?}"))?;
+        let mut read = self.index.worker_index_since(since.map(|r| (r.generation, r.index)), also).await.map_err(|e| format!("{e:?}"))?;
         {
             let mut logs = self.logs.lock().unwrap_or_else(|e| e.into_inner());
             if read.full {
@@ -3380,10 +3706,8 @@ impl WorkerStore for StoreWorkers {
             }
         }
         let revision = Revision { index: read.revision, generation: read.generation, kept: kept_revision };
-        let session_of = |s: &mixdog_store::worker::IndexedSession| {
-            let (activity, summary) = s.agent.as_ref()?;
-            Some((Place::stamped(Some(*activity), &s.session), serde_json::from_str::<Row>(summary).ok()?))
-        };
+        // Handed over as read, unparsed: the registry reads only the rows of the sessions live agents stand for.
+        let list_row = |s: &mut mixdog_store::worker::IndexedSession| s.agent.take().map(|(_, summary)| ListRow::new(summary));
         let kept = match kept {
             KeptSince::Changed(changed) if !read.full => changed,
             _ => {
@@ -3396,7 +3720,7 @@ impl WorkerStore for StoreWorkers {
                     }
                 }
                 maps.extend(kept.into_iter().filter(|(id, _, _)| !listed.contains(id.as_str())).map(|(id, at, map)| (id, Place::Kept(at), map)));
-                let sessions = read.sessions.iter().filter_map(session_of).collect();
+                let sessions = read.sessions.iter_mut().filter_map(|s| Some((s.session.clone(), list_row(s)?))).collect();
                 return Ok(Index::Full { revision: Some(revision), maps, sessions });
             }
         };
@@ -3404,14 +3728,14 @@ impl WorkerStore for StoreWorkers {
             return Ok(Index::Unchanged);
         }
         let mut maps: Vec<(String, Option<(Place, Row)>)> = Vec::new();
-        let mut sessions: Vec<(String, Option<(Place, Row)>)> = Vec::new();
-        for s in &read.sessions {
+        let mut sessions: Vec<(String, Option<ListRow>)> = Vec::new();
+        for s in &mut read.sessions {
             let map = match &s.worker {
                 Some(map) => Some((Place::stamped(s.created_at, &s.session), map.clone())),
                 None => self.kept.get(&s.session).map(|(at, map)| (Place::Kept(at), map)),
             };
             maps.push((s.session.clone(), map));
-            sessions.push((s.session.clone(), session_of(s)));
+            sessions.push((s.session.clone(), list_row(s)));
         }
         Ok(Index::Delta { revision, maps, sessions })
     }
@@ -3474,6 +3798,13 @@ impl WorkerStore for StoreWorkers {
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
         let rows = self.index.agent_only_sessions().await.map_err(|e| format!("{e:?}"))?;
         Ok(rows.iter().filter_map(|summary| serde_json::from_str::<Row>(summary).ok()).collect())
+    }
+
+    /// The session's list row, when the index lists it as an agent-only session (the row's `visibility`, which the index's
+    /// own is projected from).
+    async fn agent_session(&self, session: &str) -> Result<Option<Row>, String> {
+        let summary = self.index.summary(session).await.map_err(|e| format!("{e:?}"))?;
+        Ok(summary.and_then(|summary| serde_json::from_str::<Row>(&summary).ok()).filter(|row| clean(row.get("visibility")) == "agent-only"))
     }
 
     async fn held_workers(&self) -> Result<Vec<String>, String> {

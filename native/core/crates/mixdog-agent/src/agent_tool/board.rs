@@ -27,6 +27,7 @@ use serde_json::Value;
 
 use super::error_text::ErrorText;
 use super::error_text::PlainErrorText;
+use super::flow::stages::TurnStage;
 use super::host::Cleaned;
 use super::host::TaskFacts;
 use super::host::Tasks;
@@ -133,6 +134,8 @@ pub struct JobSnapshot {
     pub notified: bool,
     /// Why the run ended, when its ender said (`terminalReason`).
     pub terminal_reason: Option<String>,
+    /// The stage the job's turn entered last before its session started it, and when (epoch ms).
+    pub turn_stage: Option<(TurnStage, i64)>,
 }
 
 /// The cancellation `cancelBackgroundTasks` selects and applies.
@@ -206,6 +209,7 @@ struct Record {
     cwd: Option<String>,
     terminal_reason: Option<String>,
     render: Option<RenderFn>,
+    turn_stage: Option<(TurnStage, i64)>,
 }
 
 fn is_terminal(status: &str) -> bool {
@@ -571,6 +575,7 @@ impl JobBoard {
             cwd: job.cwd.filter(|c| !c.is_empty()),
             terminal_reason: None,
             render: job.render,
+            turn_stage: None,
         });
         drop(state);
         self.run(Effects { changed: vec![session_id.unwrap_or_default()], ..Effects::default() });
@@ -620,6 +625,7 @@ impl JobBoard {
             meta: task.meta.clone(),
             notified: task.notified,
             terminal_reason: task.terminal_reason.clone(),
+            turn_stage: task.turn_stage,
         }
     }
 
@@ -731,6 +737,14 @@ impl JobBoard {
     pub fn set_hop(&self, task_id: &str, hop: u32) {
         if let Some(task) = self.lock().tasks.iter_mut().find(|t| t.task_id == task_id) {
             task.hop = hop;
+        }
+    }
+
+    /// The job's turn entered `stage`.
+    pub fn set_turn_stage(&self, task_id: &str, stage: TurnStage) {
+        let now = self.now();
+        if let Some(task) = self.lock().tasks.iter_mut().find(|t| t.task_id == task_id) {
+            task.turn_stage = Some((stage, now));
         }
     }
 

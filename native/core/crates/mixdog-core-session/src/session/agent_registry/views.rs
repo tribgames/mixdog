@@ -1055,7 +1055,7 @@ impl super::AgentRegistry {
                 return None;
             }
             let index = st.tombstone_index(now);
-            return (!self.blocks_scan(st, &found, tag, &index)).then(|| Arc::new(found));
+            return (!self.blocks_scan(st, &found, tag, &index)).then_some(found);
         }
         let facts = self.facts_of(st, pass, tag, session, now);
         facts.session.filter(|_| !facts.blocks)

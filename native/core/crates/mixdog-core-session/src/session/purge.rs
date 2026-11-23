@@ -363,6 +363,15 @@ pub struct SessionDeletion {
     pub read_state: Arc<ReadState>,
     /// The agent definitions (`purgeAgentDefinition`); `None` where the process has none.
     pub agents: Option<Arc<dyn RetiredAgents>>,
+    /// The external agents of the sessions an ACP agent runs: a session's agent process ends where its MCP scope is
+    /// released (close, delete, unload). `None` where the process has none.
+    pub agent_processes: Option<Arc<dyn SessionAgentProcesses>>,
+}
+
+/// The process an external agent runs in for one session.
+pub trait SessionAgentProcesses: Send + Sync {
+    /// Ends the session's agent with its whole process tree; a session with none has nothing to end.
+    fn release(&self, session_id: &str);
 }
 
 /// `purgeAgentDefinition(agentId)` over the process's agent definitions.
@@ -390,9 +399,15 @@ impl DeleteSeams for SessionDeletion {
 
     fn release_mcp_scope(&self, session_id: &str) {
         self.mcp_scopes.release(session_id);
+        if let Some(agents) = &self.agent_processes {
+            agents.release(session_id);
+        }
     }
 
     fn release_unloaded_runtime(&self, session_id: &str) {
+        if let Some(agents) = &self.agent_processes {
+            agents.release(session_id);
+        }
         self.mcp_scopes.release_unloaded(session_id);
         self.read_state.release_session(session_id);
     }

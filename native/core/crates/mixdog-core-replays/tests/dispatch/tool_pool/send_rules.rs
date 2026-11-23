@@ -166,6 +166,15 @@ impl Rebind for NoRebind {
     }
 }
 
+struct NoRecords;
+
+#[async_trait]
+impl mixdog_core_session::session::delegation::SessionLookup for NoRecords {
+    async fn session(&self, _: &str) -> Option<serde_json::Value> {
+        None
+    }
+}
+
 /// How the host answers a worktree request.
 #[derive(Clone)]
 enum Worktree {
@@ -302,7 +311,7 @@ async fn sending(configure: impl FnOnce(&mut Host)) -> Sending {
         rooms: Arc::default(),
         directory: directory.clone(),
         tasks,
-        chains: CallerChains { record: Arc::new(|_: &str| None), turn: Arc::new(|_: &str| (0, Vec::new())) },
+        chains: CallerChains { record: Arc::new(NoRecords), turn: Arc::new(|_: &str| (0, Vec::new())) },
         names: Arc::new(Names),
         catalog: Arc::new(Menu(vec![
             json!({ "provider": "openai", "id": "gpt-5", "display": "GPT 5", "effortOptions": [{ "value": "low" }, { "value": "high" }] }),

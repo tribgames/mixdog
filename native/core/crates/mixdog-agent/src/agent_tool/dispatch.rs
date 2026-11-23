@@ -229,20 +229,23 @@ pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, sessi
     if id.is_empty() {
         return Ok(false);
     }
-    let mut ordered = Vec::new();
-    let mut seen = HashSet::new();
-    visit_descendants_first(&|current| sessions.child_session_ids(current), id, &mut seen, &mut ordered);
-    let _cancelling = sessions.begin_cancellation(&ordered);
+    let (ordered, _cancelling) = sessions.cancel_tree(id).await?;
+    close_tree_members(sessions, tasks, &ordered, reason, options).await
+}
+
+/// The closes of a tree whose cancel holds its admission ([`Sessions::cancel_tree`]), `ordered` descendants first, as
+/// [`cancel_agent_tree`] makes them.
+pub async fn close_tree_members(sessions: &dyn Sessions, tasks: &dyn Tasks, ordered: &[String], reason: &str, options: CloseOptions) -> Result<bool, String> {
     let mut closed = false;
     let mut failures = Vec::new();
-    for current in &ordered {
+    for current in ordered {
         tasks.cancel_owned(current, reason);
         for row in tasks.list(&Scope::default()) {
             if row.session_id.as_deref() == Some(current.as_str()) {
                 tasks.cancel(&row.task_id, reason);
             }
         }
-        match sessions.try_close_session(current, reason, options).await {
+        match sessions.try_close_covered(current, reason, options).await {
             Ok(done) => closed |= done,
             Err(error) => failures.push(error),
         }
@@ -261,7 +264,7 @@ fn tree_outcome(closed: bool, mut failures: Vec<String>, members: usize) -> Resu
 }
 
 /// The tree below `current` (each session once across `seen`), descendants first.
-fn visit_descendants_first(children: &dyn Fn(&str) -> Vec<String>, current: &str, seen: &mut HashSet<String>, ordered: &mut Vec<String>) {
+pub fn visit_descendants_first(children: &dyn Fn(&str) -> Vec<String>, current: &str, seen: &mut HashSet<String>, ordered: &mut Vec<String>) {
     if !seen.insert(current.to_owned()) {
         return;
     }
@@ -292,10 +295,10 @@ pub async fn close_resolved(
     keep_row: bool,
 ) -> Result<ClosedView, String> {
     let CloseParts { registry, sessions, tasks } = parts;
-    if registry.live_session(session_id).is_some_and(|s| is_lead_pool_agent(&s.agent)) {
+    if registry.live_session(session_id).await.is_some_and(|s| is_lead_pool_agent(&s.agent)) {
         return Err(format!("agent close: target \"{target}\" is a Lead session"));
     }
-    let tag = registry.tag_for_session(session_id);
+    let tag = registry.tag_for_session(session_id).await;
     if sessions.session_gone(session_id).await {
         let row_tag = match tag.as_deref().filter(|tag| !tag.is_empty()) {
             Some(tag) => tag,
@@ -316,7 +319,7 @@ pub async fn close_resolved(
             ..ClosedView::default()
         });
     }
-    let descendants = sessions.descendant_session_ids(session_id);
+    let descendants = sessions.descendant_session_ids(session_id).await?;
     let mut hide_failed = Vec::new();
     sessions.clear_statusline_route(session_id);
     cancel_session_tasks(tasks, session_id, target, scope);
@@ -594,7 +597,7 @@ async fn close_tree(
     }
     // No turn is admitted in the tree from here.
     let _cancelling = sessions.begin_cancellation(&ids);
-    let tag = registry.tag_for_session(&root);
+    let tag = registry.tag_for_session(&root).await;
     // Each member's own outcome, under its own id: none stands in for another's.
     let of_member =
         |member: &str, reason: String| json!({ "tag": tag_or_null(if member == root { &row.tag } else { "" }), "sessionId": member, "reason": reason });
@@ -748,7 +751,7 @@ impl AgentRuntime {
 
     async fn run(&self, args: &Value, caller: &Caller, cancel: &CancellationToken) -> Result<AgentReply, String> {
         // A tool call reads every legacy tombstone with its owner.
-        self.deps.registry.resolve_tombstone_owners();
+        self.deps.registry.resolve_tombstone_owners().await;
         let kind = clean(args.get("type"));
         let kind = if kind.is_empty() { "spawn".to_owned() } else { kind };
         let scope = Scope::of(args, &caller.scope);
@@ -802,9 +805,12 @@ impl AgentRuntime {
 
     // ---- close / cleanup -------------------------------------------------------------------
 
-    fn tag_bound_by_caller(&self, target: &str, scope: &Scope) -> bool {
+    async fn tag_bound_by_caller(&self, target: &str, scope: &Scope) -> bool {
         let registry = &self.deps.registry;
-        let live = registry.tag_session(target).and_then(|id| registry.live_session(&id));
+        let live = match registry.tag_session(target) {
+            Some(id) => registry.live_session(&id).await,
+            None => None,
+        };
         if let Some(live) = live {
             return scope.owns(&live.owner);
         }
@@ -831,13 +837,11 @@ impl AgentRuntime {
             return Err("agent close: tag or sessionId is required".into());
         }
         let task_id_out = task.as_ref().map(|t| t.task_id.clone());
-        let Some(session_id) = registry.resolve_tag(
-            &target,
-            &scope,
-            ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: false },
-        )?
+        let Some(session_id) = registry
+            .resolve_tag(&target, &scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: false })
+            .await?
         else {
-            if !target.starts_with("sess_") && registry.has_tag_agent(&target) && self.tag_bound_by_caller(&target, &scope) {
+            if !target.starts_with("sess_") && registry.has_tag_agent(&target) && self.tag_bound_by_caller(&target, &scope).await {
                 registry.unbind_tag(&target);
                 if let Some(id) = &task_id_out {
                     self.deps.tasks.cancel(id, CLOSE_REASON);
@@ -903,11 +907,11 @@ impl AgentRuntime {
         }
     }
 
-    fn inherited_tag_identity(&self, tag: &str, caller: &Caller, args: &Value, caller_cwd: &str) -> Option<Inherited> {
+    async fn inherited_tag_identity(&self, tag: &str, caller: &Caller, args: &Value, caller_cwd: &str) -> Option<Inherited> {
         let registry = &self.deps.registry;
         let row = registry.read_worker_rows(&caller.scope).ok().and_then(|rows| rows.into_iter().find(|r| clean_str(&r.tag) == tag));
         let tombstone = registry.tag_tombstone_for_tag(tag, &caller.scope);
-        let record = if row.is_some() || tombstone.is_some() { None } else { registry.last_tag_session(tag, &caller.scope) };
+        let record = if row.is_some() || tombstone.is_some() { None } else { registry.last_tag_session(tag, &caller.scope).await };
         if row.is_none() && tombstone.is_none() && record.is_none() {
             return None;
         }
@@ -963,7 +967,7 @@ impl AgentRuntime {
         let caller_cwd = caller.cwd.as_str();
         let base = if caller_cwd.is_empty() { self.deps.default_cwd.as_str() } else { caller_cwd };
         let prompt = resolve_prompt(args, base, self.deps.env.as_ref()).await?;
-        let Some(inherited) = self.inherited_tag_identity(tag, caller, args, caller_cwd) else {
+        let Some(inherited) = self.inherited_tag_identity(tag, caller, args, caller_cwd).await else {
             return Err(error);
         };
         let resumed = self
@@ -1004,11 +1008,14 @@ impl AgentRuntime {
         let caller_cwd = caller.cwd.as_str();
         let live_session_id = registry
             .resolve_tag(tag, scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: true, skip_released: true })
+            .await
             .ok()
             .flatten();
-        if let Some(id) = live_session_id
-            && let Some(live) = registry.live_session(&id)
-        {
+        let live = match &live_session_id {
+            Some(id) => registry.live_session(id).await,
+            None => None,
+        };
+        if let Some(live) = live {
             // A spawn reuses a session only when the request fits it, as a resume does (`request_fits`): the tag is
             // taken, so a spawn that asks for another agent or directory is refused, not answered by this session.
             if !self.resume.request_fits(&live.agent, &live.cwd, args, caller_cwd) {
@@ -1027,8 +1034,8 @@ impl AgentRuntime {
                 self.deps.send_flow.dispatch_to_existing_session(&prepared, caller, DispatchOptions { reused: true, ..DispatchOptions::default() }).await?;
             return Ok(SpawnPlan::Reused(Box::new(reply)));
         }
-        if self.deps.terminal_trace.has_terminal_trace(tag, scope)? {
-            self.deps.terminal_trace.reap_terminal_trace_for_tag(tag, scope);
+        if self.deps.terminal_trace.has_terminal_trace(tag, scope).await? {
+            self.deps.terminal_trace.reap_terminal_trace_for_tag(tag, scope).await;
             return Ok(SpawnPlan::Fresh { args: args.clone(), respawned: true });
         }
         // Tombstone inheritance and resume never honor allTerminals/global scope.
@@ -1063,7 +1070,7 @@ impl AgentRuntime {
         if foreign {
             return Err(format!("agent spawn: tag \"{tag}\" belongs to another terminal"));
         }
-        if let Some(record) = registry.last_tag_session(tag, &caller.scope) {
+        if let Some(record) = registry.last_tag_session(tag, &caller.scope).await {
             let resumed = self
                 .resume
                 .resume_tag(
@@ -1083,7 +1090,7 @@ impl AgentRuntime {
     async fn spawn(&self, request_args: &Value, caller: &Caller, scope: &Scope) -> Result<AgentReply, String> {
         // Resolve a user-pinned model before deferring, so a miss or an ambiguous name answers
         // this call instead of failing the background job.
-        let args = resolve_requested_model(request_args, self.deps.catalog.as_deref()).await?;
+        let (args, route_note) = resolve_requested_model(request_args, self.deps.catalog.as_deref()).await?;
         let tag = clean(args.get("tag"));
         let (spawn_args, respawned) = if tag.is_empty() {
             (args, false)
@@ -1095,7 +1102,13 @@ impl AgentRuntime {
                 SpawnPlan::Fresh { args, respawned } => (args, respawned),
             }
         };
-        let job = self.deps.spawn_flow.start_deferred_spawn_job(&spawn_args, &caller.cwd, caller, caller, SpawnOptions { respawned }).await?;
+        let mut job = self.deps.spawn_flow.start_deferred_spawn_job(&spawn_args, &caller.cwd, caller, caller, SpawnOptions { respawned }).await?;
+        if !route_note.is_empty() {
+            job.view.note = Some(match job.view.note.take().filter(|n| !n.is_empty()) {
+                Some(existing) => format!("{existing}; {route_note}"),
+                None => route_note,
+            });
+        }
         Ok(Self::spawn_result(job))
     }
 }

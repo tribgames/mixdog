@@ -629,9 +629,7 @@ impl ProviderAdapter for GatewayAdapter {
     /// only: a send that went out on Messages ends with its ladder's failure, as the Anthropic route's does. A
     /// standalone Chat recovery cannot prove which org the failed Go send used.
     fn recovers_spent(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
-        self.account.id().as_str() != "opencode-go-oauth"
-            && self.wire_of(request) == Some(Wire::Chat)
-            && self.account.recovers_spent(request, failure)
+        self.account.id().as_str() != "opencode-go-oauth" && self.wire_of(request) == Some(Wire::Chat) && self.account.recovers_spent(request, failure)
     }
     /// The Messages engine's answer to a dead stream (`decideStreamError`, inherited by `GatewayMessagesEngine`) for a
     /// send whose last attempt went out on that wire; no other wire of a gateway re-issues a cut stream. OpenCode Go
@@ -1332,8 +1330,9 @@ mod tests {
         let media = MediaSupport { native_pdf: false, native_documents: None };
         let messages_engine =
             AnthropicAdapter::engine(ProviderId::from("opencode-go-oauth"), config, Arc::new(GatewayHttp::new(http)), Arc::new(GoKey), media, lanes.cpu_bulk);
-        let gateway = GatewayAdapter::new(account, vec![(Wire::Messages, Arc::new(messages_engine) as Arc<dyn ProviderAdapter>)], WirePick::Fixed(Wire::Messages))
-            .with_session_header();
+        let gateway =
+            GatewayAdapter::new(account, vec![(Wire::Messages, Arc::new(messages_engine) as Arc<dyn ProviderAdapter>)], WirePick::Fixed(Wire::Messages))
+                .with_session_header();
         let turn = || {
             Arc::new(ModelRequest {
                 model: "claude-sonnet-4-6".into(),
@@ -1469,7 +1468,13 @@ impl GatewayAdapter {
 
     /// The request `engine` is sent on `wire`, its first `lowered` assistant turns lowered: an attempt's and the
     /// re-issue of its send alike.
-    async fn shaped(&self, wire: Wire, engine: &dyn ProviderAdapter, request: Arc<ModelRequest>, lowered_count: usize) -> Result<Arc<ModelRequest>, ProviderError> {
+    async fn shaped(
+        &self,
+        wire: Wire,
+        engine: &dyn ProviderAdapter,
+        request: Arc<ModelRequest>,
+        lowered_count: usize,
+    ) -> Result<Arc<ModelRequest>, ProviderError> {
         // A reroute is a new route: the images are prepared again for the wire this attempt actually takes.
         let request = crate::registry::egress::prepare(engine, lowered(request, lowered_count)).await?;
         Ok(self.with_ceiling(wire, request))
@@ -1477,7 +1482,13 @@ impl GatewayAdapter {
 
     /// One attempt on `wire`, with the send's own headers.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>, lowered_count: usize, go: Option<Arc<GoPin>>) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn attempt_on(
+        &self,
+        wire: Wire,
+        request: Arc<ModelRequest>,
+        lowered_count: usize,
+        go: Option<Arc<GoPin>>,
+    ) -> Result<Box<dyn ModelStream>, ProviderError> {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
         request.options.send_identity.set_wire(wire.as_str());
         // What this attempt goes out under: a re-issue of the send is shaped and signed in the same way, or not at all.

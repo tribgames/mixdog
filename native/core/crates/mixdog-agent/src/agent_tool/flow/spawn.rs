@@ -233,7 +233,7 @@ impl SpawnFlowImpl {
         // A contact agent never goes to one already in the delegation chain, itself included.
         let kind = world.agent_kind(&agent).await?;
         if world.is_contact_agent(&agent, kind.as_deref()) {
-            let delegation = world.delegation(&context.caller_id());
+            let delegation = world.delegation(&context.caller_id()).await;
             assert_bot_chain_target(&agent, &delegation.chain, &delegation.acting, "agent spawn")?;
         }
         let agent_perm = world.agent_permission(&agent).await?;

@@ -49,8 +49,8 @@ pub use value::builtin_feature_active;
 /// `EFFORT_JUDGE_UNSUPPORTED`.
 pub const EFFORT_JUDGE_UNSUPPORTED: &str = "Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)";
 
-const TOGGLEABLE_BUILTINS: [&str; 7] = ["git", "office", "tidy", "localProvider", "autoEffort", "visualize", "media"];
-const INSTALLABLE_BUILTINS: [&str; 6] = ["git", "memory", "office", "tidy", "localProvider", "autoEffort"];
+const TOGGLEABLE_BUILTINS: [&str; 8] = ["git", "office", "tidy", "localProvider", "autoEffort", "visualize", "media", "acpAgents"];
+const INSTALLABLE_BUILTINS: [&str; 7] = ["git", "memory", "office", "tidy", "localProvider", "autoEffort", "acpAgents"];
 
 /// What the config cannot tell and the side effects the setters trigger. The owners of the
 /// local provider, the effort judge, the embedder and the session surface implement it; reads
@@ -75,6 +75,16 @@ pub trait ToolModulesHost: Send + Sync + 'static {
     async fn shutdown_effort_judge(&self);
     fn invalidate_context_status_cache(&self);
     fn invalidate_pre_session_tool_surface(&self);
+
+    /// The value's `acpAgents`: `{ enabled, agents }`, each agent with the state of its CLI. `None` for a host with no ACP agents.
+    async fn acp_agents(&self) -> Option<Value> {
+        None
+    }
+
+    /// Installs each ACP agent's CLI where it is missing and brings it up to date where it is there; `Err` tells what failed.
+    async fn install_acp_agents(&self) -> Result<(), String> {
+        Ok(())
+    }
 
     /// The settings the local provider answers its changes with (`getToolModuleSettings()`).
     fn attach_tool_settings(&self, _settings: std::sync::Weak<dyn mixdog_services::local_provider::provider::ToolSettings>) {}
@@ -196,7 +206,11 @@ impl ToolModules {
     /// `getToolModuleSettings()`.
     pub async fn settings(&self) -> Value {
         let external = self.host.external().await;
-        value::tool_module_settings(&self.config.agent(), &external, &*self.env)
+        let mut settings = value::tool_module_settings(&self.config.agent(), &external, &*self.env);
+        if let Some(agents) = self.host.acp_agents().await {
+            settings["acpAgents"] = agents;
+        }
+        settings
     }
 
     /// Has the publishing task recompute and publish if the value changed; answers the
@@ -286,7 +300,9 @@ impl ToolModules {
     /// `setBuiltinToolEnabled`.
     pub async fn set_builtin_tool_enabled(&self, name: &str, enabled: bool) -> Result<Value, ToolModulesError> {
         if !TOGGLEABLE_BUILTINS.contains(&name) {
-            return Err(ToolModulesError::InvalidArgument("Built-in tool must be git, office, tidy, localProvider, autoEffort, visualize, or media.".into()));
+            return Err(ToolModulesError::InvalidArgument(
+                "Built-in tool must be git, office, tidy, localProvider, autoEffort, visualize, media, or acpAgents.".into(),
+            ));
         }
         if name == "localProvider" {
             if enabled {
@@ -311,6 +327,10 @@ impl ToolModules {
             return Err(ToolModulesError::Failed(EFFORT_JUDGE_UNSUPPORTED.into()));
         }
         if name == "autoEffort" && enabled {
+            let _ = self.prepare(name, None).await?;
+        }
+        // Turning ACP agents on while they are on starts a new look at each agent's CLI; the value tells what it finds.
+        if name == "acpAgents" && enabled && value::builtin_feature_active(&self.config.agent(), name, &*self.env, external.onnx_supported) {
             let _ = self.prepare(name, None).await?;
         }
         let owned = name.to_owned();
@@ -359,7 +379,20 @@ impl ToolModules {
     /// `engines` for `tidy` it only fetches those engines and leaves the state as set.
     pub async fn install_builtin_feature(&self, name: &str, engines: Option<Vec<String>>) -> Result<Value, ToolModulesError> {
         if !INSTALLABLE_BUILTINS.contains(&name) {
-            return Err(ToolModulesError::InvalidArgument("Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.".into()));
+            return Err(ToolModulesError::InvalidArgument(
+                "Built-in feature must be git, memory, office, tidy, localProvider, autoEffort, or acpAgents.".into(),
+            ));
+        }
+        if name == "acpAgents" {
+            // The feature is on before its CLIs are fetched: the agents do nothing while it is off.
+            self.write(|doc| {
+                edit::set_builtin_installed(doc, "acpAgents");
+                edit::set_module_enabled(doc, "acpAgents", true);
+            })
+            .await?;
+            let installed = self.host.install_acp_agents().await.map_err(ToolModulesError::Failed);
+            let settings = self.refresh().await;
+            return installed.map(|()| settings);
         }
         if name == "localProvider" {
             let epoch = self.local_provider_off.load(Ordering::SeqCst);

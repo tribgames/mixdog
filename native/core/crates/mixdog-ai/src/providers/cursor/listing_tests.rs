@@ -175,6 +175,170 @@ async fn a_listing_refreshes_the_catalog_the_sends_read() {
     assert!(kept.iter().any(|m| m.id == "m1"));
 }
 
+/// An account whose sign-in Cursor refuses still has its models in the catalog: the static list answers within the
+/// catalog's listing deadline instead of the provider going missing.
+#[tokio::test(start_paused = true)]
+async fn a_refused_sign_in_still_lists_the_static_models_in_the_catalog() {
+    let http = Arc::new(Replay::new(|_request: &WireRequest| (401, Vec::new())));
+    let adapter = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), http, Arc::new(NoRun), Arc::new(Token));
+    let provider = mixdog_protocol::ProviderId::from("cursor-oauth");
+    let source = crate::catalog::ModelSource::of_adapter(provider.clone(), Arc::new(adapter)).expect("Cursor lists models");
+    let catalog = crate::catalog::ProviderCatalog::new(crate::catalog::CatalogSnapshot::default());
+    let outcome = catalog.refresh(&[source]).await;
+    assert!(outcome.failed.is_empty(), "{:?}", outcome.failed.iter().map(|(_, error)| &error.message).collect::<Vec<_>>());
+    let ids: Vec<String> = catalog.snapshot().models_of(&provider).iter().map(|r| r.id.clone()).collect();
+    assert!(ids.iter().any(|id| id == "composer-2.5"), "{ids:?}");
+    assert!(
+        matches!(catalog.snapshot().status.get(&provider), Some(crate::catalog::ProviderStatus::Stale { .. })),
+        "the static list is recorded as the account's answer"
+    );
+}
+
+/// Hands out `first`, and `renewed` once a refusal of it is reported.
+struct Renewing {
+    renewals: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl AccessToken for Renewing {
+    async fn access_token(&self) -> Result<Access, ProviderError> {
+        Ok(Access::plain("first-cursor-token".to_owned()))
+    }
+    async fn after_rejection(&self, _rejected: &Access) -> Result<Access, ProviderError> {
+        self.renewals.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Access::plain("renewed-cursor-token".to_owned()))
+    }
+    async fn renewed(&self) -> Result<Access, ProviderError> {
+        self.access_token().await
+    }
+}
+
+fn bearer(request: &WireRequest) -> &str {
+    request.headers.iter().find(|(name, _)| name == "authorization").map_or("", |(_, value)| value.as_str())
+}
+
+/// A listing whose sign-in is refused and renewed lists again on the renewed token: the account's own models are what the
+/// catalog records, not the static list.
+#[tokio::test(start_paused = true)]
+async fn a_refused_listing_whose_sign_in_is_renewed_lists_the_accounts_models() {
+    let http = Arc::new(Replay::new(|request: &WireRequest| {
+        if bearer(request) == "Bearer first-cursor-token" {
+            (401, Vec::new())
+        } else if request.url.ends_with("/GetUsableModels") {
+            (200, vec![0x0A, 0x0F, 0x0A, 0x02, b'm', b'1', 0x22, 0x09, b'M', b'o', b'd', b'e', b'l', b' ', b'O', b'n', b'e'])
+        } else {
+            (200, Vec::new())
+        }
+    }));
+    let tokens = Arc::new(Renewing { renewals: Default::default() });
+    let adapter = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), http, Arc::new(NoRun), tokens.clone());
+    let provider = mixdog_protocol::ProviderId::from("cursor-oauth");
+    let source = crate::catalog::ModelSource::of_adapter(provider.clone(), Arc::new(adapter)).expect("Cursor lists models");
+    let catalog = crate::catalog::ProviderCatalog::new(crate::catalog::CatalogSnapshot::default());
+    catalog.refresh(&[source]).await;
+    let ids: Vec<String> = catalog.snapshot().models_of(&provider).iter().map(|r| r.id.clone()).collect();
+    assert!(ids.iter().any(|id| id == "m1"), "{ids:?}");
+    assert_eq!(catalog.snapshot().status.get(&provider), Some(&crate::catalog::ProviderStatus::Ok));
+    assert_eq!(tokens.renewals.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+/// A sign-in marked for a new sign-in answers the static list as a settled answer: the catalog holds no retry time for
+/// it, since nothing can change until the user signs in again.
+#[tokio::test]
+async fn a_signed_out_account_settles_with_the_static_list() {
+    struct Marked;
+    #[async_trait]
+    impl AccessToken for Marked {
+        async fn access_token(&self) -> Result<Access, ProviderError> {
+            let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Auth, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+            error.reauth_required = true;
+            error.status = Some(401);
+            Err(error)
+        }
+        async fn after_rejection(&self, _rejected: &Access) -> Result<Access, ProviderError> {
+            self.access_token().await
+        }
+        async fn renewed(&self) -> Result<Access, ProviderError> {
+            self.access_token().await
+        }
+    }
+    let http = Arc::new(Replay::new(|_request: &WireRequest| (200, Vec::new())));
+    let adapter = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), Arc::new(Marked));
+    let provider = mixdog_protocol::ProviderId::from("cursor-oauth");
+    let source = crate::catalog::ModelSource::of_adapter(provider.clone(), Arc::new(adapter)).expect("Cursor lists models");
+    let catalog = crate::catalog::ProviderCatalog::new(crate::catalog::CatalogSnapshot::default());
+    catalog.refresh(&[source]).await;
+    let snapshot = catalog.snapshot();
+    assert!(snapshot.models_of(&provider).iter().any(|r| r.id == "composer-2.5"));
+    assert_eq!(snapshot.status.get(&provider), Some(&crate::catalog::ProviderStatus::Ok));
+    assert!(snapshot.complete() && snapshot.retry_at().is_none(), "a signed-out account keeps the catalog pending");
+    assert!(http.requests.lock().unwrap().is_empty());
+}
+
+/// Two processes share the sign-in file. This one's listing is refused; the other renews the pair meanwhile, so this one's
+/// renewal with the old refresh token is refused too and marks nothing. That is no settled answer: the static list is
+/// asked again after the backoff, and the next ask lists the account's models on the pair the other process stored.
+#[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "test: the other process writes the shared credential file")]
+async fn a_renewal_refused_after_another_process_renewed_is_asked_again() {
+    use base64::Engine;
+    let jwt = |name: &str| {
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":4000000000,"sub":"{name}"}}"#));
+        format!("h.{payload}.s")
+    };
+    let (first, other) = (jwt("first"), jwt("other"));
+    let pair =
+        |access: &str, refresh: &str| serde_json::json!({ "access_token": access, "refresh_token": refresh, "expires_at": 4_000_000_000_000_u64 }).to_string();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cursor-oauth.json");
+    std::fs::write(&path, pair(&first, "first-refresh")).unwrap();
+    let (written, refused, renewed) = (path.clone(), format!("Bearer {first}"), format!("Bearer {other}"));
+    let stored_by_other = pair(&other, "other-refresh");
+    let http = Arc::new(Replay::new(move |request: &WireRequest| {
+        if request.url == super::auth::EXCHANGE_URL {
+            // The other process renewed first: the old refresh token is spent.
+            std::fs::write(&written, &stored_by_other).unwrap();
+            (401, Vec::new())
+        } else if bearer(request) == refused {
+            (401, Vec::new())
+        } else if bearer(request) == renewed && request.url.ends_with("/GetUsableModels") {
+            (200, vec![0x0A, 0x0F, 0x0A, 0x02, b'm', b'1', 0x22, 0x09, b'M', b'o', b'd', b'e', b'l', b' ', b'O', b'n', b'e'])
+        } else {
+            (200, Vec::new())
+        }
+    }));
+    let rt = mixdog_rt::testing::tokens();
+    let file = crate::oauth::CredentialFile::new(path.clone(), crate::oauth::CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+    let tokens = Arc::new(super::auth::FileAccess::new(http.clone(), file));
+    let adapter = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), http, Arc::new(NoRun), tokens);
+    let provider = mixdog_protocol::ProviderId::from("cursor-oauth");
+    let source = crate::catalog::ModelSource::of_adapter(provider.clone(), Arc::new(adapter)).expect("Cursor lists models");
+    let catalog = crate::catalog::ProviderCatalog::new(crate::catalog::CatalogSnapshot::default());
+
+    catalog.refresh(std::slice::from_ref(&source)).await;
+    let snapshot = catalog.snapshot();
+    assert!(matches!(snapshot.status.get(&provider), Some(crate::catalog::ProviderStatus::Stale { .. })), "{:?}", snapshot.status);
+    assert!(snapshot.retry_at().is_some(), "the refused renewal settled the static list");
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("reauth_required\":true"), "the other process's sign-in was marked");
+
+    catalog.refresh(&[source]).await;
+    assert!(catalog.snapshot().models_of(&provider).iter().any(|r| r.id == "m1"), "the next ask lists the account's models");
+    assert_eq!(catalog.snapshot().status.get(&provider), Some(&crate::catalog::ProviderStatus::Ok));
+}
+
+/// A 403 of the primary call and a 401 of the legacy one are not a refusal of the sign-in: nothing is renewed or marked,
+/// and the listing goes on as for any failure.
+#[tokio::test(start_paused = true)]
+async fn only_a_401_of_the_primary_call_refuses_the_sign_in() {
+    let http = Arc::new(Replay::new(|request: &WireRequest| if request.url.ends_with("/GetUsableModels") { (401, Vec::new()) } else { (403, Vec::new()) }));
+    let tokens = Arc::new(Renewing { renewals: Default::default() });
+    let adapter = CursorAdapter::new("cursor-oauth", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), tokens.clone());
+    let records = adapter.models().unwrap().list_models().await.unwrap();
+    assert!(records.iter().any(|r| r.id == "composer-2.5"), "the static list answers");
+    assert_eq!(tokens.renewals.load(std::sync::atomic::Ordering::SeqCst), 0, "a failure that is not a 401 renewed the sign-in");
+    assert_eq!(http.requests.lock().unwrap().len(), 8, "every attempt of the ladder was made");
+}
+
 /// Node's `session.selectedContextWindow` decides Max mode: the route's saved `context` choice names the window.
 #[test]
 fn the_routes_context_choice_is_the_selected_window() {
@@ -299,7 +463,8 @@ async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_
             cloud_rule: None,
         },
     };
-    let request = Arc::new(mixdog_core_api::domain::provider::ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() });
+    let request =
+        Arc::new(mixdog_core_api::domain::provider::ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() });
     // A run of the scope ends with a throttle, after `tokens` streamed tokens.
     let throttled = |tokens: u64| {
         use crate::providers::connect::pb::Writer;
@@ -309,7 +474,8 @@ async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_
             delta.varint(1, tokens);
             update.message(8, delta);
             message.message(1, update);
-            mixdog_core_api::domain::provider::WireDecoder::feed(&mut live.decoder, &crate::providers::connect::frame::encode(&message.finish(), 0)).expect("decodes");
+            mixdog_core_api::domain::provider::WireDecoder::feed(&mut live.decoder, &crate::providers::connect::frame::encode(&message.finish(), 0))
+                .expect("decodes");
         }
         let mut stream = super::CursorStream::new(live, Default::default(), &request);
         stream.throttle = Some((adapter.rotated.clone(), "s1".into()));

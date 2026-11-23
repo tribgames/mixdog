@@ -1,8 +1,10 @@
+mod carry;
 mod drive;
 mod forwarding;
 mod history;
 mod interrupt;
 mod observer;
+mod outside;
 mod segments;
 mod sink;
 
@@ -182,12 +184,25 @@ pub struct AssembleInput<'a> {
     /// Where the run's tools report progress: `ToolEnv.progress` (the run's own sink, built by the
     /// factory over the session cell's progress value).
     pub progress: Arc<dyn mixdog_core_api::domain::tool::ProgressSink>,
+    /// The route is an outside agent's that cannot run now, and this is what the agent says why: the route hops to its
+    /// fallback as a route whose provider is not available does, and with none the turn fails with it.
+    pub agent_refusal: Option<&'a str>,
 }
 
 #[async_trait]
 pub trait RunParts: Send + Sync + 'static {
     /// The turn's host parts; a refusal fails the turn with its error.
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError>;
+
+    /// The agents that run turns outside the loop; a host with none runs every turn in the loop.
+    fn outside_agents(&self) -> Option<Arc<dyn OutsideAgents>> {
+        None
+    }
+
+    /// The tool side of [`Self::assemble`], for a turn an outside agent runs: no provider, request or compactor.
+    async fn assemble_outside(&self, _input: AssembleInput<'_>) -> Result<OutsideAssembled, TurnError> {
+        Err(TurnError { message: "this host assembles no turn for an outside agent".to_owned(), data: json!({}), provider_error: None })
+    }
 
     /// `reconcileTurnSettings`: the header the turn is built from, once the thread's settings follow the
     /// live ones (`conversation`: the thread already holds one, so it keeps its prefix; `header` is what
@@ -301,12 +316,15 @@ impl RunFactory for RunHostFactory {
     }
 }
 
+use self::carry::*;
 use self::drive::*;
 use self::forwarding::*;
 use self::history::*;
 pub(crate) use self::history::{native_searches, session_messages, system_messages};
 use self::interrupt::*;
 use self::observer::*;
+pub use self::outside::{History, OutsideAgents, OutsideAnswer, OutsideAsk, OutsideAssembled, OutsideTurn};
+use self::outside::{Outside, drive_outside};
 pub(crate) use self::segments::Segments;
 use self::segments::*;
 use self::sink::*;

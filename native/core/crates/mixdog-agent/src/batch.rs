@@ -279,6 +279,7 @@ impl Run {
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
             prepared: false,
+            outside: self.outside,
             native_pdf: self.provider.native_pdf(),
             sees_images: self.config.vision.as_ref().is_none_or(|vision| vision.sees_images(self.provider.id().as_str(), &self.model)),
         })

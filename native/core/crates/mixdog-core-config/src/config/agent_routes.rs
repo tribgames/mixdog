@@ -28,6 +28,13 @@ use super::ConfigError;
 use super::on_lane;
 
 const BOTS_DIR: &str = "bots";
+
+/// A route the agent config `agent` (the file's `agent` section) holds: the route as it is, else the route of the preset
+/// it names. `None` for a value that is neither.
+pub fn route_of(agent: &Map<String, Value>, candidate: &Value) -> Option<Value> {
+    let effective = crate::workflow::presets::effective(agent);
+    crate::workflow::presets::route_of_candidate(&effective.config, candidate).ok().flatten()
+}
 const MIGRATION_MANIFEST: &str = "migration.json";
 const MIGRATION_VERSION: i64 = 1;
 const MIXY_BOT_ID: &str = "mixy";
@@ -87,8 +94,7 @@ impl AgentRoutes {
         }
         let agent = self.config.agent();
         let candidate = agent.get("agents")?.get(&id).filter(|route| crate::workflow::ids::truthy(Some(*route)))?;
-        let effective = crate::workflow::presets::effective(&agent);
-        crate::workflow::presets::route_of_candidate(&effective.config, candidate).ok().flatten()
+        route_of(&agent, candidate)
     }
 
     /// Whether the agent is switched off (`isAgentDisabled`).

@@ -353,7 +353,7 @@ async fn a_cut_connection_ends_the_waiting_run_and_the_next_step_opens_a_new_one
         let mut reader = Reader::new(&state);
         std::iter::from_fn(|| reader.next_field().ok().flatten()).map(|(n, _)| n).collect::<Vec<_>>()
     });
-    assert_eq!(entries, Some(vec![1, 1, 1, 8]), "the transcript's three entries, the result among them, and its open turn");
+    assert_eq!(entries, Some(vec![1, 1, 1, 1, 8]), "the opening message, the transcript's three entries, the result among them, and its open turn");
     assert!(at(&sent[5..], &[1, 2, 1]).is_none() && at(&sent[5..], &[1, 2, 2]).is_some(), "the open turn is resumed, with no user message");
     drop((first, second));
 }
@@ -385,7 +385,11 @@ async fn text_of_the_user_after_the_results_is_the_user_message_of_a_new_run() {
         assert_eq!(service.opened(), 2, "{serves}");
         assert!(service.closed(0), "{serves}: the run that waited is closed");
         assert!(service.written(0).iter().all(|written| at(&written[5..], &[2]).is_none()), "{serves}: no result is written on the run that is left");
-        assert_eq!(asked_of(&service, 1), (3, Some("Stop there and say hello.".into())), "{serves}: the call, its result and the user's text");
+        assert_eq!(
+            asked_of(&service, 1),
+            (4, Some("Stop there and say hello.".into())),
+            "{serves}: the opening message, the call, its result and the user's text"
+        );
         drop((first, second));
     }
 }
@@ -548,7 +552,8 @@ async fn a_model_id_the_service_does_not_know_is_asked_once_under_its_listed_id(
 async fn a_providers_failure_of_a_held_conversation_gives_the_next_request_a_fresh_id() {
     let conversation = |service: &Service, run: usize| at(&service.first(run)[5..], &[1, 5]).expect("the conversation id");
     let ended = |body: &str| vec![frame::encode(body.as_bytes(), frame::END_STREAM)];
-    let provider = r#"{"error":{"code":"unavailable","message":"Error","details":[{"type":"aiserver.v1.ErrorDetails","debug":{"error":"ERROR_PROVIDER_ERROR"}}]}}"#;
+    let provider =
+        r#"{"error":{"code":"unavailable","message":"Error","details":[{"type":"aiserver.v1.ErrorDetails","debug":{"error":"ERROR_PROVIDER_ERROR"}}]}}"#;
     let quota = r#"{"error":{"code":"resource_exhausted","message":"You have hit your usage limit","details":[{"type":"aiserver.v1.ErrorDetails","debug":{"error":"ERROR_PRO_USER_USAGE_LIMIT"}}]}}"#;
     for (failure, rotates) in [(provider, true), (quota, false)] {
         let service = Service::with(vec![answer_frames(), ended(failure), answer_frames()]);
@@ -606,7 +611,11 @@ async fn a_call_not_handed_over_goes_with_the_run_that_is_left() {
     let paths: Vec<(&str, bool, Option<Arc<ModelRequest>>)> = vec![
         ("text of the user after the results", false, Some(request(with(vec![said("Stop there.")])))),
         ("a transcript that does not continue the batch", false, Some(request(with(vec![elsewhere, said("Go on.")])))),
-        ("other rules", false, Some(request(std::iter::once(Message::new(Role::System, Content::Text("Answer in one word.".into()))).chain(with(Vec::new())).collect()))),
+        (
+            "other rules",
+            false,
+            Some(request(std::iter::once(Message::new(Role::System, Content::Text("Answer in one word.".into()))).chain(with(Vec::new())).collect())),
+        ),
         ("other tools", false, Some(more_tools(with(Vec::new())))),
         ("another model", false, Some(other_model(with(Vec::new())))),
         ("a cut", true, Some(request(with(Vec::new())))),

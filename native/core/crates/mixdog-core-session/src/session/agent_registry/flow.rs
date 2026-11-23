@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-use crate::session::failure_record::{Route, failure_text, log_failure};
+use crate::session::failure_record::{Route, log_failure, task_failure_text};
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::flow::handoff::handoff_content;
 use mixdog_agent::agent_tool::flow::seams::AssistantText;
@@ -12,6 +12,8 @@ use mixdog_agent::agent_tool::flow::seams::TurnError;
 use mixdog_agent::agent_tool::flow::seams::TurnRequest;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use mixdog_agent::agent_tool::flow::seams::TurnSessions;
+use mixdog_agent::agent_tool::flow::stages::TurnStage;
+use mixdog_agent::agent_tool::flow::stages::TurnStages;
 use mixdog_app_protocol::v2::thread::TurnInput;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
@@ -36,7 +38,6 @@ use mixdog_agent::agent_tool::flow::seams::TurnSource;
 use mixdog_agent::agent_tool::flow::seams::Unobserve;
 use mixdog_agent::agent_tool::flow::seams::WorkerInbox;
 use mixdog_agent::agent_tool::flow::seams::WorkerRows;
-use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::scope::clean;
 use mixdog_agent::agent_tool::scope::clean_str;
 use mixdog_core_api::ids::ThreadId;
@@ -46,14 +47,18 @@ use super::AgentRegistry;
 use super::Row;
 use crate::session::SessionDirectory;
 
+/// A worker's `turn/start` on its session, owned so that it can outlive the job that sent it.
+type PendingStart = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Reply, mixdog_core_api::CoreError>> + Send>>;
+
 impl SessionNames for AgentRegistry {
+    /// A worker's own tag, from its turn: its session is loaded, or its row held.
     fn tag_for_session(&self, session_id: &str) -> Option<String> {
-        Registry::tag_for_session(self, session_id)
+        self.held_tag_for_session(session_id)
     }
 
     /// `sessionOf(sessionId).agent`: the loaded session's, else its worker row's.
     fn agent(&self, session_id: &str) -> Option<String> {
-        let agent = clean(self.session_of(session_id)?.get("agent"));
+        let agent = clean(self.held_session_of(session_id)?.get("agent"));
         (!agent.is_empty()).then_some(agent)
     }
 }
@@ -77,11 +82,17 @@ fn patch(update: RowUpdate) -> Row {
     extra
 }
 
+#[async_trait]
 impl WorkerRows for AgentRegistry {
-    /// `upsertWorkerSessionDeferred(sessionOf(sessionId), tag, patch)`.
+    /// `upsertWorkerSessionDeferred(sessionOf(sessionId), tag, patch)`: the session is loaded, or its row held for the
+    /// dispatch ([`WorkerRows::hold`]).
     fn upsert(&self, session_id: &str, tag: Option<&str>, update: RowUpdate) {
-        let Some(session) = self.session_of(session_id) else { return };
+        let Some(session) = self.held_session_of(session_id) else { return };
         self.upsert_session_row(&session, tag.unwrap_or_default(), &patch(update));
+    }
+
+    async fn hold(&self, session_id: &str) -> Box<dyn Send> {
+        Box::new(self.pin(session_id).await)
     }
 }
 
@@ -354,8 +365,10 @@ mod tests {
                 on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
                 on_terminal_result,
                 on_submitted: None,
+                on_stage: None,
             },
             slot: None,
+            cancel: None,
         }
     }
 
@@ -868,6 +881,175 @@ mod tests {
         mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cards(), 1, "one card for the execution; its body shows once");
     }
+
+    /// A job's request: the stages its card is told, a wake at each, and the job's cancellation.
+    struct Staged {
+        told: Arc<Mutex<Vec<TurnStage>>>,
+        entered: Arc<tokio::sync::Notify>,
+        cancel: mixdog_agent::cancel::Cancel,
+    }
+
+    impl Staged {
+        fn told(&self) -> Vec<TurnStage> {
+            self.told.lock().unwrap().clone()
+        }
+
+        /// Runs `run` until the card is told `stage`; `run` is still waiting then.
+        async fn reaches<T>(&self, run: &mut std::pin::Pin<&mut impl std::future::Future<Output = T>>, stage: TurnStage) {
+            while self.told().last() != Some(&stage) {
+                tokio::select! {
+                    biased;
+                    _ = run.as_mut() => panic!("the turn ended before it was {}: {:?}", stage.word(), self.told()),
+                    () = self.entered.notified() => {}
+                }
+            }
+        }
+    }
+
+    fn staged_request(session: &ThreadId, submission: &str) -> (TurnRequest, Staged) {
+        let staged = Staged { told: Arc::default(), entered: Arc::default(), cancel: mixdog_agent::cancel::Cancel::new() };
+        let (sink, entered) = (staged.told.clone(), staged.entered.clone());
+        let mut request = worker_request(session, "work", submission, None);
+        request.hooks.on_stage = Some(Arc::new(move |stage: TurnStage| {
+            sink.lock().unwrap().push(stage);
+            entered.notify_one();
+        }));
+        request.cancel = Some(staged.cancel.clone());
+        (request, staged)
+    }
+
+    /// The core's log lines of `session`'s stages, each without its `[turn-start] session=<id> ` head.
+    fn stage_lines(lines: &Mutex<Vec<(mixdog_rt::node_log::Origin, mixdog_rt::node_log::Channel, String)>>, session: &ThreadId) -> Vec<String> {
+        let own = format!("[turn-start] session={session} ");
+        lines.lock().unwrap().iter().filter_map(|(_, _, line)| line.strip_prefix(&own).map(str::to_owned)).collect()
+    }
+
+    fn completing() -> crate::session::testing::Script {
+        Arc::new(|run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: "done".into(), iterations: 1, ..Default::default() }))
+            })
+        })
+    }
+
+    /// Every thread is still to arrive until `0` is told.
+    struct Late(Arc<tokio::sync::Notify>);
+    impl crate::session::directory::ArrivingThreads for Late {
+        fn arriving(&self, _: &ThreadId) -> Option<futures::future::BoxFuture<'static, ()>> {
+            let there = self.0.clone();
+            Some(Box::pin(async move { there.notified().await }))
+        }
+    }
+
+    /// A turn whose session does not open: its card says it is opening the session and the log names the wait while it
+    /// lasts; the job's cancellation ends the turn there. An open that ends fails the turn with the store's own answer.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_held_at_the_open_is_named_logged_and_ends_with_its_job() {
+        use mixdog_agent::agent_tool::flow::stages::STAGE_WARN_AFTER;
+
+        let (lines, _guard) = mixdog_rt::node_log::capture_trace();
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let there = Arc::new(tokio::sync::Notify::new());
+        assert!(directory.set_arriving(Arc::new(Late(there.clone()))).is_ok());
+        let turns = SessionTurns::new(directory, Arc::new(Released(Mutex::default())));
+        let session = ThreadId::from("sess_late");
+
+        let (request, staged) = staged_request(&session, "sub-1");
+        let run = turns.run_turn(request);
+        tokio::pin!(run);
+        staged.reaches(&mut run, TurnStage::Opening).await;
+        assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening]);
+        tokio::time::advance(STAGE_WARN_AFTER + std::time::Duration::from_secs(1)).await;
+        assert!(futures::poll!(run.as_mut()).is_pending(), "no deadline ends the wait");
+        staged.cancel.abort("stop");
+        assert_eq!(run.await.expect_err("cancelled").message, "stop");
+        let logged = stage_lines(&lines, &session);
+        assert!(logged.iter().any(|line| line.starts_with("stage=opening waiting_ms=")), "{logged:?}");
+        assert_eq!(logged.last().map(String::as_str), Some("stage=opening cancelled"), "{logged:?}");
+
+        there.notify_one();
+        let (request, staged) = staged_request(&session, "sub-2");
+        let refused = turns.run_turn(request).await.expect_err("no such session");
+        assert!(refused.message.starts_with("agent session sess_late is unavailable"), "{}", refused.message);
+        assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening]);
+        let logged = stage_lines(&lines, &session);
+        assert!(logged.last().is_some_and(|line| line.starts_with("stage=opening ms=")), "{logged:?}");
+    }
+
+    /// A turn whose message count is not answered: its card says it is reading the count. Once the store answers, the turn
+    /// runs and each stage it passed is in the log with its time.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn a_turn_held_at_its_message_count_is_named_and_logged() {
+        let rig = crate::session::testing::Rig::new();
+        rig.set_script(completing());
+        let store = crate::session::testing::CallCounted::new(rig.store.clone());
+        let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+        let handle = crate::session::tests::start_thread(&directory).await;
+        let turns = Arc::new(SessionTurns::new(directory, Arc::new(Released(Mutex::default()))));
+        let (request, staged) = staged_request(&handle.id, "sub-count");
+        let mut held = store.hold("context_len");
+        // The lines are their thread's: the turn runs on the runtime's one worker.
+        let run = tokio::spawn({
+            let session = handle.id.clone();
+            async move {
+                let (lines, _guard) = mixdog_rt::node_log::capture_trace();
+                let result = turns.run_turn(request).await;
+                (result, stage_lines(&lines, &session))
+            }
+        });
+        held.entered("context_len").await;
+        assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening, TurnStage::Counting]);
+        held.release();
+        let (result, logged) = run.await.expect("joined");
+        assert_eq!(result.expect("turn").content, "done");
+        assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening, TurnStage::Counting, TurnStage::Starting, TurnStage::Started]);
+        let passed: Vec<&str> = logged.iter().filter_map(|line| line.split_once(" ms=").map(|(stage, _)| stage)).collect();
+        assert_eq!(passed, ["stage=opening", "stage=counting-after-open", "stage=starting"], "{logged:?}");
+    }
+
+    /// A turn whose start the session does not answer (the core holds new starts): its card says it is starting the turn and
+    /// the log names the step waited on; the job's cancellation ends the turn and the session has nothing started or queued.
+    /// The same session then starts a turn, and the stage is in the log with its time.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_held_at_its_start_is_named_logged_and_ends_with_its_job() {
+        use crate::session::StartHold;
+        use crate::session::tests::idle;
+        use mixdog_agent::agent_tool::flow::stages::STAGE_WARN_AFTER;
+
+        let rig = crate::session::testing::Rig::new();
+        rig.set_script(completing());
+        let (hold, gate) = tokio::sync::watch::channel(StartHold::Open);
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.start_hold = gate;
+        let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+        let handle = crate::session::tests::start_thread(&directory).await;
+        let turns = SessionTurns::new(directory, Arc::new(Released(Mutex::default())));
+        hold.send_replace(StartHold::Held);
+        let (lines, _guard) = mixdog_rt::node_log::capture_trace();
+
+        let (request, staged) = staged_request(&handle.id, "sub-1");
+        let run = turns.run_turn(request);
+        tokio::pin!(run);
+        staged.reaches(&mut run, TurnStage::Starting).await;
+        assert_eq!(staged.told(), [TurnStage::Admitted, TurnStage::Opening, TurnStage::Counting, TurnStage::Starting]);
+        tokio::time::advance(STAGE_WARN_AFTER + std::time::Duration::from_secs(1)).await;
+        assert!(futures::poll!(run.as_mut()).is_pending(), "no deadline ends the wait");
+        let logged = stage_lines(&lines, &handle.id);
+        assert!(logged.iter().any(|line| line.starts_with("stage=starting step=core-hold waiting_ms=")), "{logged:?}");
+        staged.cancel.abort("stop");
+        assert_eq!(run.await.expect_err("cancelled").message, "stop");
+        assert!(idle(&handle) && handle.cell.queued.load().is_empty(), "nothing is started or queued on the session");
+        assert!(handle.cell.agent_start.lock().unwrap().is_none(), "and no start waits for a turn");
+
+        hold.send_replace(StartHold::Open);
+        let (request, staged) = staged_request(&handle.id, "sub-2");
+        assert_eq!(turns.run_turn(request).await.expect("turn").content, "done");
+        assert_eq!(staged.told().last(), Some(&TurnStage::Started));
+        let logged = stage_lines(&lines, &handle.id);
+        assert!(logged.iter().any(|line| line.starts_with("stage=starting ms=")), "{logged:?}");
+    }
 }
 
 /// The session layer as a worker's turn uses it (`TurnSessions`): reads over the stored model
@@ -1085,23 +1267,67 @@ impl SessionTurns {
         }
     }
 
+    /// A start its job stopped waiting for, which the session's actor may still answer: the answer is taken here, so a
+    /// turn the session starts for it is stopped and one it queued is taken off the queue. A start the cancellation
+    /// ended before it reached the actor answers its refusal, and nothing is left.
+    fn unstart(handle: Arc<crate::session::handle::SessionHandle>, thread: ThreadId, op: OpId, submission: String, start: PendingStart) {
+        drop(mixdog_rt::spawn("agent-turn-unstart", mixdog_rt::TaskClass::Work, async move {
+            let answer = start.await;
+            // The worker's start is this request's only while no later request put its own in its place.
+            {
+                let mut waiting = handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner());
+                if waiting.as_ref().is_some_and(|start| start.turn.hooks.submission_id == submission) {
+                    waiting.take();
+                }
+            }
+            match answer {
+                Ok(Reply::Value(value)) if value["kind"] == "started" => {
+                    if let Some(turn) = value["turnId"].as_str() {
+                        let turn = mixdog_core_api::ids::TurnId::from(turn.to_owned());
+                        let abort = mixdog_agent::cancel::Abort::close_session(thread.as_str(), mixdog_agent::cancel::AGENT_TASK_CANCEL);
+                        let _ = handle.cell.abort(&turn, &abort);
+                    }
+                }
+                Ok(Reply::Value(value)) => {
+                    if let Some(queued) = value["queuedId"].as_str() {
+                        Self::unqueue_refused(&handle, &thread, &op, CallContext::internal("agent-turn"), queued).await;
+                    }
+                }
+                _ => {}
+            }
+        }));
+    }
+
     async fn turn(&self, request: TurnRequest, caller_watchdog: bool) -> Result<TurnResult, TurnError> {
         let thread = ThreadId::from(clean_str(&request.session_id).as_str());
-        let ctx = CallContext::internal("agent-turn");
+        let mut ctx = CallContext::internal("agent-turn");
+        // The job's cancellation is the request's: the session's own waits on it (the open, the start's gates) end with it.
+        if let Some(cancel) = &request.cancel {
+            ctx.cancel = cancel.token();
+        }
+        let stages = TurnStages::new(thread.as_str(), request.hooks.on_stage.clone(), request.cancel.clone());
+        // A wait the job's cancellation ended fails with the cancellation's reason, whatever the wait itself answered.
+        let ended = |stages: &TurnStages, text: String| TurnError::new(stages.cancelled().unwrap_or(text));
         // `const cancelEpoch = registry.assertAdmission(sessionId)` (`agent-turns.mjs:96`).
         let epoch = self.admitted(thread.as_str(), None)?;
-        let handle = self
-            .directory
-            .open_handle(&thread, &ctx)
+        stages.enter(TurnStage::Admitted);
+        let opening = async {
+            let handle = self.directory.open_handle(&thread, &ctx).await?;
+            self.await_first_connect(&handle, request.kind).await;
+            Ok::<_, mixdog_core_api::CoreError>(handle)
+        };
+        let handle = stages
+            .pass(TurnStage::Opening, opening)
             .await
-            .map_err(|error| TurnError::new(format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
-        self.await_first_connect(&handle, request.kind).await;
+            .map_err(TurnError::new)?
+            .map_err(|error| ended(&stages, format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
         // Where the turn's own rows begin, for the files it produced.
-        let message_start = self.message_count(thread.as_str()).await;
+        let message_start = stages.pass(TurnStage::Counting, self.message_count(thread.as_str())).await.map_err(TurnError::new)?;
         // After `entryForSession` (`:108`), and again before the turn is submitted (`:116`, after
         // the transcript length is read).
         self.admitted(thread.as_str(), epoch)?;
         let submission = request.hooks.submission_id.clone();
+        let submission_id = submission.clone();
         let op = OpId::from(format!("agent-turn:{}", if submission.is_empty() { uuid::Uuid::new_v4().to_string() } else { submission.clone() }));
         let input = TurnInput {
             prompt: PromptContent::Text(request.prompt.clone()),
@@ -1129,14 +1355,31 @@ impl SessionTurns {
             done,
         });
         let params = json!({ "threadId": thread, "opId": op, "input": input });
-        let started = handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() }).await;
+        let mut start: PendingStart = {
+            let (handle, request) = (handle.clone(), CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() });
+            Box::pin(async move { handle.request(request).await })
+        };
+        let started = match &request.cancel {
+            None => stages.hold(TurnStage::Starting, &mut start).await,
+            Some(cancel) => tokio::select! {
+                biased;
+                started = stages.hold(TurnStage::Starting, &mut start) => started,
+                // The request may be with the actor: its answer is waited for apart from the job, which ends now.
+                () = cancel.cancelled() => {
+                    mixdog_rt::turn_trace!("[turn-start] session={thread} stage=starting cancelled");
+                    Self::unstart(handle, thread, op, submission_id, start);
+                    return Err(TurnError::new(cancel.reason()));
+                }
+            },
+        };
         let unstarted = |message: String| {
             handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take();
-            TurnError::new(message)
+            ended(&stages, message)
         };
         match started {
             // The turn this request started, named to its submitter: what a cancellation of the job stops.
             Ok(Reply::Value(value)) if value["kind"] == "started" => {
+                stages.enter(TurnStage::Started);
                 if let (Some(submitted), Some(turn)) = (&submitted, value["turnId"].as_str()) {
                     submitted(turn);
                 }
@@ -1169,7 +1412,7 @@ impl SessionTurns {
                 // and fault say, never an empty message.
                 let route = Route { provider: "", model: "" };
                 log_failure("agent-task-error", request.session_id.as_str(), &op.to_string(), &error, &route);
-                Err(TurnError::new(marks.redact_text(&thread, &failure_text(&error, &route))))
+                Err(TurnError::new(marks.redact_text(&thread, &task_failure_text(&error, &route))))
             }
             Ok(RunOutcome::Interrupted) => Err(TurnError::new("The turn was interrupted")),
             Err(_) => Err(TurnError::new(format!("agent session {} closed during its turn", request.session_id))),

@@ -56,8 +56,12 @@ async fn a_tool_results_text_is_one_allocation_in_view_in_the_turn_and_in_the_ne
     for (turn, sent) in [(1, 2), (2, 3)] {
         let op = format!("op-{turn}");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), &op)).await.expect("turn/start");
-        eventually_on_awaiting(|| format!("the end of turn {turn}"), &[handle.stepped()], || (lock(&provider.requests).len() == sent && !handle.turn_busy()).then_some(()))
-            .await;
+        eventually_on_awaiting(
+            || format!("the end of turn {turn}"),
+            &[handle.stepped()],
+            || (lock(&provider.requests).len() == sent && !handle.turn_busy()).then_some(()),
+        )
+        .await;
     }
 
     let shown = handle

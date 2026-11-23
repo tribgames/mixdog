@@ -27,6 +27,9 @@ fn safe_code(error: &ProviderError) -> Option<&str> {
 fn reason_class(error: &ProviderError) -> &'static str {
     let status = error.status.unwrap_or(0);
     let code = safe_code(error);
+    if error.kind == ErrorKind::Policy || error.code.as_deref().is_some_and(|c| c.trim().eq_ignore_ascii_case("content_filter")) {
+        return "policy";
+    }
     if matches!(error.kind, ErrorKind::RateLimited | ErrorKind::QuotaExhausted) || status == 429 {
         return "rate_limited";
     }
@@ -56,6 +59,7 @@ fn reason_text(error: &ProviderError, class: &str) -> String {
         "overloaded" => "Provider overloaded".into(),
         "server_error" => "Provider server error".into(),
         "auth" => "Provider rejected the sign-in".into(),
+        "policy" => "Safety filter refused the reply".into(),
         "first_response_timeout" if error.timeout_phase.is_some_and(StreamTimeoutPhase::is_first_byte) => {
             format!("Model still thinking: no output in {}; the provider sent nothing yet", format_duration_ms(ms))
         }
@@ -74,15 +78,44 @@ pub fn reconnecting(error: &ProviderError, attempt: u32, max: u32, wait: Duratio
     let wait_ms = wait.as_millis() as u64;
     let count = attempt.max(1);
     let max = max.max(count);
+    let unbounded = max == u32::MAX;
     let tail = if wait_ms > 0 { format!(" in {}", format_duration_ms(wait_ms as f64)) } else { String::new() };
+    let counter = if unbounded { count.to_string() } else { format!("{count}/{max}") };
     json!({
         "reasonClass": class,
         "attempt": attempt,
-        "max": max,
+        "max": if unbounded { Value::Null } else { json!(max) },
         "waitMs": wait_ms,
         "retryAt": now_ms + wait_ms,
         "reason": reason,
         "classifier": safe_code(error),
-        "message": format!("{reason} · retry {count}/{max}{tail}"),
+        "message": format!("{reason} · retry {counter}{tail}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::provider::DeliveryState;
+
+    use super::*;
+
+    fn error(kind: ErrorKind) -> ProviderError {
+        ProviderError::new(kind, DeliveryState::NotSent)
+    }
+
+    #[test]
+    fn a_content_filter_refusal_reads_as_a_policy_retry() {
+        let mut refused = error(ErrorKind::Transient);
+        refused.code = Some("content_filter".into());
+        let payload = reconnecting(&refused, 1, 3, Duration::from_secs(2), 0);
+        assert_eq!(payload["reasonClass"], "policy");
+        assert_eq!(payload["message"], "Safety filter refused the reply · retry 1/3 in 2s");
+    }
+
+    #[test]
+    fn a_retry_with_no_end_shows_the_attempt_without_a_total() {
+        let payload = reconnecting(&error(ErrorKind::Transient), 7, u32::MAX, Duration::from_secs(30), 0);
+        assert_eq!(payload["message"], "Connection interrupted · retry 7 in 30s");
+        assert!(payload["max"].is_null());
+    }
 }

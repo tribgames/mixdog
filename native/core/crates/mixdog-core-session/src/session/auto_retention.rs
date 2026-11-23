@@ -96,6 +96,14 @@ pub enum Action {
     Delete,
 }
 
+/// Every listed session, and the agent-only rows read with them: the plan made on this listing reads the sub-agent sessions
+/// from these (a listing of a thousand sessions is not read again for each). The pass holds it while it plans, and no longer.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Listing {
+    pub sessions: Vec<Session>,
+    pub agent_rows: AgentRows,
+}
+
 /// The daemon's idle-only delete's answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdleDelete {
@@ -113,8 +121,8 @@ pub trait AutoRetentionHost: Send + Sync {
     fn identity(&self) -> Arc<PolicyIdentity>;
     /// `sessionRetention.load()`.
     async fn record(&self) -> Result<RetentionRecord, String>;
-    /// Every listed session.
-    async fn sessions(&self) -> Result<Vec<Session>, String>;
+    /// Every listed session, with the agent-only rows read with them.
+    async fn sessions(&self) -> Result<Listing, String>;
     /// One session as the listing has it now; none when it is gone.
     async fn session(&self, id: &str) -> Result<Option<Session>, String>;
     /// The stamp of its archive (`archivedAt`), none when it has none.
@@ -122,9 +130,9 @@ pub trait AutoRetentionHost: Send + Sync {
     /// It holds background shell jobs (`shellJobsPoller.statusFor(..).count > 0`).
     async fn background_jobs(&self, id: &str) -> Result<bool, String>;
     /// `hasLiveSubSession`'s read: none when a sub-session of it is running, waiting on the user, or unarchived and active within
-    /// `window_ms`; else every sub-session under it with its activity stamp. `fresh`: read now, never from the listing the plan was
-    /// made on (the final judgment before an archive).
-    async fn sub_sessions(&self, id: &str, now: f64, window_ms: f64, fresh: bool) -> Result<Option<Vec<(String, f64)>>, String>;
+    /// `window_ms`; else every sub-session under it with its activity stamp. `listed`: the agent-only rows of the listing the plan
+    /// is made on; none: read now (the final judgment before an archive).
+    async fn sub_sessions(&self, id: &str, now: f64, window_ms: f64, listed: Option<&AgentRows>) -> Result<Option<Vec<(String, f64)>>, String>;
     async fn archive_tree(&self, id: &str, now: f64, policy: Policy, admit: Admit) -> Result<TreeOutcome, String>;
     /// The idle-only delete: refused (nothing closed or deleted) unless the session is still archived, idle, at `last_used_at`
     /// and `activity`, unwatched and without an approval showing, and `cancel` has not fired; decided by the session's own actor.
@@ -165,15 +173,16 @@ pub struct Verdict {
     pub children: Vec<(String, f64)>,
 }
 
-/// `retentionJudge`: what may happen to `session` now, or none. `fresh`: the facts outside the session actor that the judgment
-/// reads (the sub-agent sessions) are read now, not from the listing the plan was made on: the final judgment before an action.
+/// `retentionJudge`: what may happen to `session` now, or none. `listed`: the agent-only rows of the listing the plan is made on;
+/// none: the facts outside the session actor that the judgment reads (the sub-agent sessions) are read now, the final judgment
+/// before an action.
 pub async fn judge(
     host: &dyn AutoRetentionHost,
     session: &Session,
     now: f64,
     policy: Policy,
     record: &RetentionRecord,
-    fresh: bool,
+    listed: Option<&AgentRows>,
 ) -> Result<Option<Verdict>, String> {
     let id = session.id.as_str();
     // Sub-agent sessions follow the runtime's own retention.
@@ -211,7 +220,7 @@ pub async fn judge(
     if unread_output(session) || host.background_jobs(id).await? {
         return Ok(None);
     }
-    let Some(children) = host.sub_sessions(id, now, archive_window, fresh).await? else { return Ok(None) };
+    let Some(children) = host.sub_sessions(id, now, archive_window, listed).await? else { return Ok(None) };
     Ok(Some(Verdict { action: Action::Archive, at: activity, children }))
 }
 
@@ -224,19 +233,19 @@ pub struct Plan {
 
 pub async fn plan(
     host: &dyn AutoRetentionHost,
-    sessions: &[Session],
+    listing: &Listing,
     now: f64,
     policy: Policy,
     record: &RetentionRecord,
     cancel: &CancellationToken,
 ) -> Result<Plan, String> {
     let (mut archive, mut delete): (AgedSessions, AgedSessions) = (Vec::new(), Vec::new());
-    for session in sessions {
+    for session in &listing.sessions {
         // Stopped (shutdown, or superseded): what is planned so far is never acted on, the pass stops before its first action.
         if cancel.is_cancelled() {
             break;
         }
-        match judge(host, session, now, policy, record, false).await? {
+        match judge(host, session, now, policy, record, Some(&listing.agent_rows)).await? {
             Some(Verdict { action: Action::Archive, at, .. }) => archive.push((session.id.clone(), at)),
             Some(Verdict { action: Action::Delete, at, .. }) => delete.push((session.id.clone(), at)),
             None => {}
@@ -294,7 +303,7 @@ async fn act(
     let Some(policy) = host.policy() else { return Ok(Outcome::Skipped) };
     let record = read!(host.record());
     let Some(fresh) = read!(host.session(id)) else { return Ok(Outcome::Skipped) };
-    let verdict = read!(judge(host, &fresh, now(), policy, &record, true));
+    let verdict = read!(judge(host, &fresh, now(), policy, &record, None));
     if verdict.filter(|verdict| verdict.action == action).is_none() {
         return Ok(Outcome::Skipped);
     }
@@ -312,7 +321,7 @@ async fn act(
     }
     // The slow check ran: the session is looked at again.
     let Some(judged) = read!(host.session(id)) else { return Ok(Outcome::Skipped) };
-    if read!(judge(host, &judged, now(), policy, &record, true)).filter(|verdict| verdict.action == action).is_none() {
+    if read!(judge(host, &judged, now(), policy, &record, None)).filter(|verdict| verdict.action == action).is_none() {
         return Ok(Outcome::Skipped);
     }
     if cancel.is_cancelled() || host.policy() != Some(policy) {
@@ -334,8 +343,10 @@ pub async fn run_pass(
         return Ok(None);
     }
     let record = host.record().await?;
-    let sessions = host.sessions().await?;
-    let plan = plan(host, &sessions, now(), policy, &record, cancel).await?;
+    let plan = {
+        let listing = host.sessions().await?;
+        plan(host, &listing, now(), policy, &record, cancel).await?
+    };
     let candidates = plan.archive.into_iter().map(|id| (id, Action::Archive)).chain(plan.delete.into_iter().map(|id| (id, Action::Delete)));
     let mut report = Report::default();
     for (id, action) in candidates {
@@ -470,9 +481,6 @@ pub struct DirectoryAutoRetention {
     /// Moved inside the config's install of every document that changed the policy ([`PolicyIdentity`]).
     identity: Arc<PolicyIdentity>,
     _adoption: mixdog_core_config::config::AdoptionGuard,
-    /// The agent-only rows as the plan's listing read them: the sub-session walk of the PLAN uses them (a listing of a thousand
-    /// sessions is not read again for each). The final judgment before an action reads them afresh, never from here.
-    agent_rows: Mutex<Arc<AgentRows>>,
     /// Itself: an archive runs as a task this host owns to its end.
     me: std::sync::Weak<Self>,
 }
@@ -503,19 +511,7 @@ impl DirectoryAutoRetention {
                 }
             })
         };
-        Arc::new_cyclic(|me| Self {
-            directory,
-            store,
-            config,
-            record,
-            domains,
-            trees,
-            log,
-            identity,
-            _adoption: adoption,
-            agent_rows: Mutex::new(Arc::default()),
-            me: me.clone(),
-        })
+        Arc::new_cyclic(|me| Self { directory, store, config, record, domains, trees, log, identity, _adoption: adoption, me: me.clone() })
     }
 
     /// The threads among `ids` that are not loaded now: what a read loads for itself, and so lets go of afterwards.
@@ -533,17 +529,16 @@ impl DirectoryAutoRetention {
     }
 
     /// The agent-only rows as the index holds them now.
-    async fn read_agent_rows(&self) -> Result<Arc<Vec<(String, Map<String, Value>)>>, String> {
+    async fn read_agent_rows(&self) -> Result<AgentRows, String> {
         let rows = self.store.agent_only_sessions().await.map_err(|error| error.to_string())?;
-        let parsed: Vec<(String, Map<String, Value>)> = rows
+        Ok(rows
             .iter()
             .filter_map(|row| match serde_json::from_str::<Value>(row).ok()? {
                 Value::Object(map) => Some((text(map.get("id")), map)),
                 _ => None,
             })
             .filter(|(id, _)| !id.is_empty())
-            .collect();
-        Ok(Arc::new(parsed))
+            .collect())
     }
 
     /// `working`: the session's own turn, or an agent's working for it (`inFlightSessionActivity`).
@@ -632,7 +627,7 @@ impl DirectoryAutoRetention {
     /// over exactly the sub-agent sessions held. `Some(reason)` when it no longer holds.
     async fn judged_whole(&self, id: &str, now: f64, policy: Policy, record: &RetentionRecord, held: &[String]) -> Result<Option<String>, String> {
         let Some(fresh) = self.session(id).await? else { return Ok(Some("missing".to_owned())) };
-        let Some(verdict) = judge(self, &fresh, now, policy, record, true).await?.filter(|verdict| verdict.action == Action::Archive) else {
+        let Some(verdict) = judge(self, &fresh, now, policy, record, None).await?.filter(|verdict| verdict.action == Action::Archive) else {
             return Ok(Some("changed".to_owned()));
         };
         let mut judged: Vec<&str> = verdict.children.iter().map(|(child, _)| child.as_str()).collect();
@@ -667,8 +662,8 @@ impl AutoRetentionHost for DirectoryAutoRetention {
         Ok(record)
     }
 
-    async fn sessions(&self) -> Result<Vec<Session>, String> {
-        *self.agent_rows.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = self.read_agent_rows().await?;
+    async fn sessions(&self) -> Result<Listing, String> {
+        let agent_rows = self.read_agent_rows().await?;
         let flight = self.directory.in_flight();
         let mut out = Vec::new();
         let mut after = None;
@@ -679,7 +674,7 @@ impl AutoRetentionHost for DirectoryAutoRetention {
             let encoded = encode_catalog_cursor(&last.row);
             after = decode_catalog_cursor(Some(encoded.as_str())).map_err(|error| error.to_string())?;
         }
-        Ok(out)
+        Ok(Listing { sessions: out, agent_rows })
     }
 
     async fn session(&self, id: &str) -> Result<Option<Session>, String> {
@@ -703,10 +698,17 @@ impl AutoRetentionHost for DirectoryAutoRetention {
         Ok(list.get("error").is_some() || list.get("jobs").and_then(Value::as_array).is_none_or(|jobs| !jobs.is_empty()))
     }
 
-    async fn sub_sessions(&self, id: &str, now: f64, window_ms: f64, fresh: bool) -> Result<Option<Vec<(String, f64)>>, String> {
-        let rows = if fresh { self.read_agent_rows().await? } else { self.agent_rows.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() };
+    async fn sub_sessions(&self, id: &str, now: f64, window_ms: f64, listed: Option<&AgentRows>) -> Result<Option<Vec<(String, f64)>>, String> {
+        let fresh;
+        let rows = match listed {
+            Some(rows) => rows,
+            None => {
+                fresh = self.read_agent_rows().await?;
+                &fresh
+            }
+        };
         // The parent/owner adjacency, with the sessions this process created that the index may not list yet.
-        let mut adjacency = super::archive_trees::Adjacency::of(&rows);
+        let mut adjacency = super::archive_trees::Adjacency::of(rows);
         adjacency.join(self.directory.created_links());
         let by_id: std::collections::HashMap<&str, &Map<String, Value>> = rows.iter().map(|(row_id, row)| (row_id.as_str(), row)).collect();
         let flight = self.directory.in_flight();
@@ -772,4 +774,4 @@ mod tests;
 type AgedSessions = Vec<(String, f64)>;
 
 /// The agent-only rows of a listing, by session id.
-type AgentRows = Vec<(String, Map<String, Value>)>;
+pub type AgentRows = Vec<(String, Map<String, Value>)>;

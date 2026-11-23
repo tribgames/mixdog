@@ -230,6 +230,8 @@ mod sensitive_record_tests;
 #[cfg(test)]
 mod session_grants_tests;
 #[cfg(test)]
+mod session_title_tests;
+#[cfg(test)]
 mod stop_race_tests;
 #[cfg(test)]
 mod store_burst_tests;
@@ -553,6 +555,9 @@ pub struct SessionDeps {
     pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
     /// The desktop notices a turn's end and a failed save raise (`notices.rs`).
     pub notices: Arc<dyn notices::SessionNotices>,
+    /// The automatic session titles: a Lead turn's first prompt and its third completed exchange title the session.
+    /// `None` titles nothing.
+    pub titles: Option<Arc<session_title::TitleHooks>>,
     /// Announces a settings scope changed to every client (`notifySettingsChanged(scope)`): `ui/settings/changed`.
     pub settings_changed: Arc<dyn Fn(&str) + Send + Sync>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.

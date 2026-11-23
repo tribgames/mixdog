@@ -115,7 +115,6 @@ impl BlobStore {
         Ok(())
     }
 
-
     /// Stores `data` under its own digest and returns the id. It is part of what the run's request names: it is
     /// answered for as long as the run lives, and the bounds hold what the service stores besides.
     pub fn put_content(&mut self, data: Vec<u8>) -> Result<Vec<u8>, ProviderError> {
@@ -373,16 +372,15 @@ pub fn selected_tools(request: &ModelRequest) -> Vec<McpToolDefinition> {
 }
 
 /// The offered tools as text of the run's rule, one JSON object a line in the order offered. The service gives the model
-/// one call that takes a server, a tool name and arguments, and none of the definitions sent beside it: the rule is
-/// where the model reads each tool's name and the schema of its arguments.
+/// one call that takes a server, a tool name and arguments, and shows it neither the definitions nor the descriptors
+/// sent beside it: the rule is where the model reads each tool's name and the schema of its arguments.
 fn tool_manifest(tools: &[McpToolDefinition]) -> String {
     let mut lines = vec![
         "<mixdog-tools>".to_owned(),
-        "The tools of the mixdog MCP server, one per line as {name, description, inputSchema}. Call a tool by its exact name, with arguments that match its inputSchema.".to_owned(),
+        "The tools of the mixdog MCP server, one per line as {name, description, inputSchema}. Call one through the MCP tool call with server \"mixdog\", its exact name, and all of its arguments as one object that matches its inputSchema; never leave the arguments out.".to_owned(),
     ];
-    lines.extend(
-        tools.iter().map(|tool| serde_json::json!({"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema}).to_string()),
-    );
+    lines
+        .extend(tools.iter().map(|tool| serde_json::json!({"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema}).to_string()));
     lines.push("</mixdog-tools>".to_owned());
     lines.join("\n")
 }
@@ -398,6 +396,25 @@ pub fn request_context(tools: &[McpToolDefinition], cloud_rule: Option<&str>) ->
         mcp_instructions: if tools.is_empty() { Vec::new() } else { vec![("mixdog".to_owned(), MCP_INSTRUCTIONS.to_owned())] },
         cloud_rule: rule,
     }
+}
+
+/// The message that opens a conversation's prompt after the service's own system text, holding the run's rule and
+/// the MCP server's instructions. The service writes it once, from the context of the request that starts the
+/// conversation, and keeps it in the state it hands back; from a context sent with a state that already has entries
+/// it writes nothing. A state rebuilt from a transcript carries it itself, in the service's tags, or every request
+/// after the first runs without the rule and the tools it states. None when the context says nothing.
+fn context_preamble(context: &RequestContext) -> Option<String> {
+    let rule = context
+        .cloud_rule
+        .iter()
+        .map(|rule| format!("<cloud_instructions description=\"Instructions pulled from AGENTS.md\">\nAGENTS.md contents:\n\n{rule}\n</cloud_instructions>"));
+    let servers = context.mcp_instructions.iter().map(|(server, text)| {
+        format!(
+            "<mcp_instructions description=\"Instructions provided by MCP servers to help use them properly\">\nServer: {server}\n{text}\n</mcp_instructions>"
+        )
+    });
+    let content = rule.chain(servers).collect::<Vec<_>>().join("\n\n");
+    (!content.is_empty()).then(|| serde_json::json!({"role": "user", "content": content}).to_string())
 }
 
 /// The model the run asks for.
@@ -532,6 +549,11 @@ pub fn build_prepared(prepared: Prepared, selection: &ModelSelection, conversati
     let context = request_context(&tools, cloud_rule.as_deref());
     let mut blobs = BlobStore::default();
     let mut ids = Vec::new();
+    if !parsed.history.is_empty()
+        && let Some(preamble) = context_preamble(&context)
+    {
+        ids.push(blobs.put_content(preamble.into_bytes())?);
+    }
     for entry in &parsed.history {
         ids.push(blobs.put_content(entry.clone().into_bytes())?);
     }
@@ -612,8 +634,12 @@ mod tests {
         use crate::providers::connect::pb::Reader;
 
         let mut call = Message::new(Role::Assistant, Content::Text(String::new().into()));
-        call.tool_calls =
-            vec![mixdog_core_api::domain::provider::ToolCall { id: "call-1".into(), name: "lookup".into(), arguments: serde_json::json!({}), native_type: None }];
+        call.tool_calls = vec![mixdog_core_api::domain::provider::ToolCall {
+            id: "call-1".into(),
+            name: "lookup".into(),
+            arguments: serde_json::json!({}),
+            native_type: None,
+        }];
         let mut result = Message::new(Role::Tool, Content::Text("42".into()));
         result.tool_call_id = Some("call-1".into());
         let request = ModelRequest {
@@ -735,10 +761,69 @@ mod tests {
         assert_eq!(id_of(whole, "conversation"), id_of(tail(), "conversation"));
         assert_ne!(id_of(tail(), "conversation"), id_of(tail(), "another"));
         // Two turns that say the same: the later one keeps its own id when the earlier one is compacted away.
-        let again = |call_id: &str, answer: &str| vec![said("look"), made(vec![call(call_id, serde_json::json!({}))]), result(call_id, Content::Text(answer.into()))];
+        let again =
+            |call_id: &str, answer: &str| vec![said("look"), made(vec![call(call_id, serde_json::json!({}))]), result(call_id, Content::Text(answer.into()))];
         let both: Vec<Message> = again("c1", "1").into_iter().chain(again("c2", "2")).collect();
         assert_eq!(id_of(both, "conversation"), id_of(again("c2", "2"), "conversation"));
         assert_ne!(id_of(again("c1", "1"), "conversation"), id_of(again("c2", "2"), "conversation"));
+    }
+
+    /// The service writes the rule into a conversation's prompt once, when the conversation starts with no entries.
+    /// Every later request, asking or resuming, opens its rebuilt state with that message: the rule, its tools block
+    /// included, and the server's instructions, ahead of the transcript's entries.
+    #[test]
+    fn a_rebuilt_state_opens_with_the_rule_the_conversation_started_with() {
+        use crate::providers::connect::pb::Reader;
+        use serde_json::json;
+
+        let all = |bytes: &[u8], wanted: u32| {
+            let mut reader = Reader::new(bytes);
+            std::iter::from_fn(|| reader.next_field().unwrap()).filter(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec()).collect::<Vec<_>>()
+        };
+        let tool = ToolDefinition {
+            name: "read".into(),
+            description: "Reads.".into(),
+            input_schema: json!({"type": "object", "properties": {"file_path": {"type": "string"}}}),
+            defer_loading: false,
+            freeform: None,
+        };
+        let selection = ModelSelection { model_id: "m".into(), parameters: Vec::new(), max_mode: false, pricing_model: None };
+        // The entries a request's state names, as the text of their blobs.
+        let entries = |messages: Vec<Message>| {
+            let request = ModelRequest { model: "m".into(), messages, tools: vec![tool.clone()], options: Default::default() };
+            let built = build_run(&request, &selection, "conversation", "message-1").unwrap();
+            let state = all(&all(&built.message, 1)[0], 1).into_iter().next().unwrap_or_default();
+            all(&state, 1).iter().map(|id| String::from_utf8(built.blobs.get(id).expect("held").to_vec()).unwrap()).collect::<Vec<_>>()
+        };
+        let system = || Message::new(Role::System, Content::Text("Answer in Korean.".into()));
+        let said = |text: &str| Message::new(Role::User, Content::Text(text.to_owned().into()));
+        assert!(entries(vec![system(), said("read it")]).is_empty(), "the service starts the conversation and writes the rule itself");
+
+        let mut call = Message::new(Role::Assistant, Content::Text(String::new().into()));
+        call.tool_calls = vec![mixdog_core_api::domain::provider::ToolCall {
+            id: "call-1".into(),
+            name: "read".into(),
+            arguments: json!({"file_path": "a"}),
+            native_type: None,
+        }];
+        let mut result = Message::new(Role::Tool, Content::Text("alpha".into()));
+        result.tool_call_id = Some("call-1".into());
+        let resumed = vec![system(), said("read it"), call, result];
+        let asked: Vec<Message> = resumed.iter().cloned().chain([Message::new(Role::Assistant, Content::Text("alpha".into())), said("again")]).collect();
+        let rule = request_context(&[prepare_tool(&tool)], Some("Answer in Korean.")).cloud_rule.expect("a rule");
+        assert!(rule.contains("<mixdog-tools>") && rule.contains("\"name\":\"read\""));
+        for (messages, held) in [(resumed, 3), (asked, 4)] {
+            let entries = entries(messages);
+            assert_eq!(entries.len(), 1 + held, "the opening message, then the transcript");
+            let opening: serde_json::Value = serde_json::from_str(&entries[0]).expect("a message");
+            assert_eq!(opening["role"], "user");
+            assert_eq!(
+                opening["content"],
+                format!(
+                    "<cloud_instructions description=\"Instructions pulled from AGENTS.md\">\nAGENTS.md contents:\n\n{rule}\n</cloud_instructions>\n\n<mcp_instructions description=\"Instructions provided by MCP servers to help use them properly\">\nServer: mixdog\n{MCP_INSTRUCTIONS}\n</mcp_instructions>"
+                )
+            );
+        }
     }
 
     #[test]
@@ -804,8 +889,13 @@ mod tests {
         };
         let (rule, offered) = rule_of(&messages, 1);
         let stated = rule.strip_prefix(system).expect("the system text first").strip_prefix("\n\n<mixdog-tools>\n").expect("then the tools");
-        let lines: Vec<serde_json::Value> =
-            stated.strip_suffix("\n</mixdog-tools>").expect("closed").lines().skip(1).map(|line| serde_json::from_str(line).expect("one tool a line")).collect();
+        let lines: Vec<serde_json::Value> = stated
+            .strip_suffix("\n</mixdog-tools>")
+            .expect("closed")
+            .lines()
+            .skip(1)
+            .map(|line| serde_json::from_str(line).expect("one tool a line"))
+            .collect();
         assert_eq!(offered.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["read", "todo", "load_tool", "call_tool"]);
         assert_eq!(lines.len(), offered.len());
         for (line, tool) in lines.iter().zip(&offered) {
@@ -813,7 +903,8 @@ mod tests {
         }
 
         let mut call = Message::new(Role::Assistant, Content::Text(String::new().into()));
-        call.tool_calls = vec![mixdog_core_api::domain::provider::ToolCall { id: "call-1".into(), name: "todo".into(), arguments: json!({"op": "view"}), native_type: None }];
+        call.tool_calls =
+            vec![mixdog_core_api::domain::provider::ToolCall { id: "call-1".into(), name: "todo".into(), arguments: json!({"op": "view"}), native_type: None }];
         let mut result = Message::new(Role::Tool, Content::Text("empty".into()));
         result.tool_call_id = Some("call-1".into());
         messages.extend([call, result]);

@@ -470,7 +470,9 @@ fn a_turns_summed_usage_never_anchors_the_pressure_baseline_or_the_meter() {
         applied(header, settled_change(header, &settled, true, Some(&books), false, 300.0))
     };
     let base = header(json!({ "id": "s1", "provider": "cursor-oauth", "contextWindow": 200_000 }));
-    let reads = |header: &Header| (header.get("contextPressureBaselineTokens").cloned().unwrap_or_default(), header.get("lastContextTokens").cloned().unwrap_or_default());
+    let reads = |header: &Header| {
+        (header.get("contextPressureBaselineTokens").cloned().unwrap_or_default(), header.get("lastContextTokens").cloned().unwrap_or_default())
+    };
 
     // A turn of several batches: every call, and the settlement, read the occupancy.
     let first = call(&base, &batch(8_000), 1);
@@ -490,7 +492,8 @@ fn a_turns_summed_usage_never_anchors_the_pressure_baseline_or_the_meter() {
     assert_eq!(cut["contextPressureBaselineTokens"], json!(8_000));
 
     // A batch with no prompt count and no checkpoint is the size of nothing: its reply alone anchors no baseline.
-    let unmeasured = Usage { raw: Some(json!({ "input_tokens_known": false, "cache_tokens_known": false, "context_tokens": null, "completion_tokens": 134 })), ..batch(0) };
+    let unmeasured =
+        Usage { raw: Some(json!({ "input_tokens_known": false, "cache_tokens_known": false, "context_tokens": null, "completion_tokens": 134 })), ..batch(0) };
     assert_eq!(call(&base, &unmeasured, 1).get("contextPressureBaselineTokens"), None);
     assert_eq!(settle(&base, &unmeasured, &unmeasured).get("contextPressureBaselineTokens"), None);
 }

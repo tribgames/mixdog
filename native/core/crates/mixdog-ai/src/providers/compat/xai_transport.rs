@@ -5,8 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::{
-    DeliveryState, ErrorKind, ErrorResponse, Exposure, ModelRequest, ModelStream, ProviderError, SendIdentity, StreamEvent, TransportFault, WireCodec,
-    WsPhase,
+    DeliveryState, ErrorKind, ErrorResponse, Exposure, ModelRequest, ModelStream, ProviderError, SendIdentity, StreamEvent, TransportFault, WireCodec, WsPhase,
 };
 use serde_json::{Map, Value};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -381,7 +380,8 @@ mod tests {
     }
 
     fn calls_lookup() -> Vec<String> {
-        let item = json!({"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "lookup", "arguments": "{\"key\":\"answer\"}", "status": "completed"});
+        let item =
+            json!({"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "lookup", "arguments": "{\"key\":\"answer\"}", "status": "completed"});
         vec![
             json!({"type": "response.created", "response": {"id": "resp_1", "model": "grok-4.5"}}).to_string(),
             json!({"type": "response.output_item.done", "output_index": 0, "item": item}).to_string(),
@@ -453,8 +453,7 @@ mod tests {
     /// fresh socket.
     #[tokio::test]
     async fn a_refused_chain_is_sent_again_in_full_once() {
-        let refusal =
-            json!({"type": "error", "error": {"type": "invalid_request_error", "code": "previous_response_not_found", "message": "Previous response not found."}});
+        let refusal = json!({"type": "error", "error": {"type": "invalid_request_error", "code": "previous_response_not_found", "message": "Previous response not found."}});
         let (dial, socket, account) = rig(vec![
             Dialed::Socket { frames: [calls_lookup(), vec![refusal.to_string()]].concat(), close: (1000, String::new()) },
             Dialed::Socket { frames: answers(), close: (1000, String::new()) },

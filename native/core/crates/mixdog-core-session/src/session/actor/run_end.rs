@@ -3,6 +3,28 @@
 use super::*;
 
 impl SessionActor {
+    /// `completeTurn`'s `observeThird`: a session whose title work is done reads nothing; any other reads its model
+    /// context only up to its third exchange, once the session holds the turn this end completes.
+    fn observe_third_title(&mut self) {
+        let Some(titles) = self.deps.titles.clone() else { return };
+        let Some(session) = titles.third_due(self.id.as_str(), &self.projected.header) else { return };
+        #[cfg(any(test, feature = "test-support"))]
+        self.ledger(format!("title:read:{}", self.id.as_str()));
+        let (store, lanes, thread) = (self.deps.store.clone(), self.deps.lanes, self.id.clone());
+        drop(mixdog_rt::spawn("session-title", mixdog_rt::TaskClass::Work, async move {
+            let read =
+                super::super::run::fold_context_until(&store, &lanes, &thread, 0, |held: &mut Vec<Value>, rows: Vec<(mixdog_core_api::ids::ItemId, Value)>| {
+                    crate::session::session_title::gather_exchanges(held, rows.into_iter().map(|(_, body)| body))
+                });
+            match read.await {
+                Ok(messages) => {
+                    titles.turn_completed(crate::session::session_title::TitleSession { messages, ..session });
+                }
+                Err(error) => tracing::warn!(thread = %thread, "[session-title] the exchanges were not read: {error:?}"),
+            }
+        }));
+    }
+
     pub(super) fn run_ended(&mut self, turn: TurnId, outcome: RunOutcome) {
         // The run's task is over: it runs nothing more a latch would have to abort.
         self.cell.stop_latches.end(&self.id, &turn);
@@ -28,6 +50,8 @@ impl SessionActor {
             return;
         };
         self.deps.wakes.reset(&self.id);
+        // A first title still waiting on the turn's output is released by its settling.
+        slot.shown.send_replace(true);
         // The turn's terminal save writes the books still waiting, before its end.
         self.save_usage();
         self.cell.publish_run(None);
@@ -103,7 +127,10 @@ impl SessionActor {
         {
             let provider = slot.provider.as_str();
             match &outcome {
-                RunOutcome::Completed(_) => self.deps.notices.turn_completed(provider),
+                RunOutcome::Completed(_) => {
+                    self.deps.notices.turn_completed(provider);
+                    self.observe_third_title();
+                }
                 RunOutcome::Failed(error) => self.deps.notices.turn_failed(provider, error.provider_error.as_ref().map(|detail| detail.kind.as_str())),
                 RunOutcome::Interrupted => {}
             }

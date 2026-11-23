@@ -737,14 +737,14 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     let updates = request.options.effort_projection.as_ref().filter(|_| {
         claude_floors::enabled(claude_floors::Feature::EffortUpdates, cfg.floors, &request.model)
             && effort_updates::enabled(
-            cfg.provider_name,
-            &request.model,
-            &Gate {
-                first_party: cfg.first_party,
-                manual_budget: manual_budget(request).is_some(),
-                enabled: parameters.and_then(|p| p.get("effortConfigurationEnabled")) != Some(&Value::Bool(false)),
-            },
-        )
+                cfg.provider_name,
+                &request.model,
+                &Gate {
+                    first_party: cfg.first_party,
+                    manual_budget: manual_budget(request).is_some(),
+                    enabled: parameters.and_then(|p| p.get("effortConfigurationEnabled")) != Some(&Value::Bool(false)),
+                },
+            )
     });
     let messages = lower_conversation(cfg, request, &context, updates, &cache, reserved);
     let turn_scoped_system = messages.iter().any(|m| m.clear_at);

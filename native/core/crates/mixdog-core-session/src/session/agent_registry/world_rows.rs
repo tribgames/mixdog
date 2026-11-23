@@ -18,6 +18,18 @@ pub struct CancelScope {
     ids: Vec<String>,
 }
 
+impl CancelScope {
+    /// `ids` refuse admission too until the guard drops, and each one's epoch moves for good.
+    pub fn extend(&mut self, ids: &[String]) {
+        let mut st = self.registry.lock();
+        for id in ids {
+            *st.cancelling.entry(id.clone()).or_insert(0) += 1;
+            *st.epochs.entry(id.clone()).or_insert(0) += 1;
+        }
+        self.ids.extend_from_slice(ids);
+    }
+}
+
 impl Drop for CancelScope {
     fn drop(&mut self) {
         let mut st = self.registry.lock();
@@ -32,10 +44,18 @@ impl Drop for CancelScope {
     }
 }
 
+#[async_trait::async_trait]
+impl crate::session::delegation::SessionLookup for AgentRegistry {
+    async fn session(&self, session_id: &str) -> Option<serde_json::Value> {
+        self.session_row(session_id).await.map(serde_json::Value::Object)
+    }
+}
+
 impl AgentRegistry {
-    /// `mgr.getSession(id)`: the loaded session's header, else its stored list row.
-    pub fn session_row(&self, id: &str) -> Option<Row> {
-        self.session_of(id)
+    /// `mgr.getSession(id)`: the loaded session's header, else its list row, read from the index when the registry does
+    /// not hold it.
+    pub async fn session_row(&self, id: &str) -> Option<Row> {
+        self.session_of(id).await.map(|row| Row::clone(&row))
     }
 
     /// `nextTag(agent, context)`: the agent plus a per-agent local index with no hyphen
@@ -104,21 +124,6 @@ impl AgentRegistry {
         }
     }
 
-    /// `registry.childrenOf(parent)`: the agent sessions linked directly below `parent` (by their
-    /// `parentSessionId || ownerSessionId`).
-    pub fn children_of(&self, parent: &str) -> Vec<String> {
-        let st = self.lock();
-        self.list_sessions(&st, true)
-            .into_iter()
-            .filter(|s| {
-                let link = super::either(s, "parentSessionId", "ownerSessionId");
-                clean(link) == parent && clean(s.get("id")) != parent
-            })
-            .map(|s| clean(s.get("id")))
-            .filter(|id| !id.is_empty())
-            .collect()
-    }
-
     /// `registry.assertAdmission(id, epoch)` (`agent-tree/agent-registry.mjs:59`): refused while a
     /// cancellation covers the session, or when one has covered it since `epoch` was read
     /// (`None`: the epoch now). The epoch to compare against later.
@@ -134,12 +139,9 @@ impl AgentRegistry {
     /// `registry.beginCancellation(ids)`: every session of the tree being cancelled is refused
     /// admission until the guard drops, and each one's epoch moves for good.
     pub fn begin_cancellation(self: &Arc<Self>, ids: &[String]) -> CancelScope {
-        let mut st = self.lock();
-        for id in ids {
-            *st.cancelling.entry(id.clone()).or_insert(0) += 1;
-            *st.epochs.entry(id.clone()).or_insert(0) += 1;
-        }
-        CancelScope { registry: self.clone(), ids: ids.to_vec() }
+        let mut scope = CancelScope { registry: self.clone(), ids: Vec::new() };
+        scope.extend(ids);
+        scope
     }
 
     /// `upsertWorkerSessionDeferred(session, tag, extra)`.
@@ -300,8 +302,10 @@ mod tests {
                 on_tool_result: Arc::new(|_| {}),
                 on_terminal_result: None,
                 on_submitted: None,
+                on_stage: None,
             },
             slot: None,
+            cancel: None,
         };
         let error = turns.run_turn(request).await.unwrap_err();
         assert_eq!(error.message, format!("agent session {id} was cancelled during admission"));

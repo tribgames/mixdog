@@ -461,7 +461,8 @@ impl State {
         if self.watcher.is_none() {
             return Ok(());
         }
-        let under: Vec<PathBuf> = self.os.iter().filter(|(_, entry)| root.is_none_or(|root| is_within(root, &entry.path))).map(|(key, _)| key.clone()).collect();
+        let under: Vec<PathBuf> =
+            self.os.iter().filter(|(_, entry)| root.is_none_or(|root| is_within(root, &entry.path))).map(|(key, _)| key.clone()).collect();
         for key in under {
             let Some(entry) = self.os.get_mut(&key) else { continue };
             entry.coverage = None;
@@ -1091,7 +1092,8 @@ mod tests {
         let (_dir, _base, src, through) = install();
         let spelling = |id: &str| if id == "plain" { src.clone() } else { through.clone() };
         let (open, close) = (Asked::Watch(src.clone(), true), Asked::Unwatch(src.clone()));
-        for (order, leaves_first) in [(["plain", "through"], "plain"), (["plain", "through"], "through"), (["through", "plain"], "plain"), (["through", "plain"], "through")]
+        for (order, leaves_first) in
+            [(["plain", "through"], "plain"), (["plain", "through"], "through"), (["through", "plain"], "plain"), (["through", "plain"], "through")]
         {
             let case = format!("registered {order:?}, {leaves_first} goes first");
             let stays = if leaves_first == "plain" { "through" } else { "plain" };

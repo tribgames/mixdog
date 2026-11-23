@@ -52,6 +52,7 @@ members = [
     "crates/mixdog-core-agents",
     "crates/mixdog-core-session",
     "crates/mixdog-core-session-replays",
+    "crates/mixdog-acp",
     "crates/mixdog-core-prompt",
     "crates/mixdog-core",
     "crates/mixdog-core-replays",
@@ -226,6 +227,7 @@ mixdog-core-domains = { path = "crates/mixdog-core-domains" }
 mixdog-core-run = { path = "crates/mixdog-core-run" }
 mixdog-core-agents = { path = "crates/mixdog-core-agents" }
 mixdog-core-session = { path = "crates/mixdog-core-session" }
+mixdog-acp = { path = "crates/mixdog-acp" }
 mixdog-core-prompt = { path = "crates/mixdog-core-prompt" }
 mixdog-core = { path = "crates/mixdog-core" }
 mixdog-app-server = { path = "crates/mixdog-app-server" }

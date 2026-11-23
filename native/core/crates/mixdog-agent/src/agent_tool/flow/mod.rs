@@ -19,6 +19,7 @@ pub mod review;
 pub mod seams;
 pub mod send;
 pub mod spawn;
+pub mod stages;
 pub mod turn;
 pub mod worker_turns;
 pub mod world;

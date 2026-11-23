@@ -304,11 +304,15 @@ pub fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> 
 }
 
 #[cfg(test)]
+mod acp_session_tests;
+#[cfg(test)]
 mod bot_send_tests;
 #[cfg(test)]
 mod config_watch_tests;
 #[cfg(test)]
 mod limits_tests;
+#[cfg(test)]
+mod owed_rows_start_tests;
 #[cfg(test)]
 mod session_project_flow_tests;
 #[cfg(test)]
@@ -341,6 +345,7 @@ mod tests {
             log,
             stop,
             catalog_http: crate::compose_test_support::offline_http(),
+            agent_presets: crate::acp_tools::builtin_presets(),
             #[cfg(test)]
             pg_install: None,
         }
@@ -697,6 +702,9 @@ pub struct ComposeConfig {
     pub stop: tokio_util::sync::CancellationToken,
     /// The catalog's HTTP client (models.dev and LiteLLM fetches): the real one in the daemon (catalog::production_http), a client that cannot connect in tests.
     pub catalog_http: Arc<dyn mixdog_ai::transport::http::HttpSend>,
+    /// The ACP agents a session's route can name (the `acpAgents` feature): the shipped ones (`acp_tools::builtin_presets`) in the daemon,
+    /// a fake agent's in a test.
+    pub agent_presets: Vec<mixdog_acp::preset::AgentPreset>,
     /// Compiled for tests only (the daemon always runs the bundled runtime's download). What runs when the memory database is first used to bring the PostgreSQL runtime: None in the daemon (the bundled runtime's download, nsureRuntime), a held or failing install in a test.
     #[cfg(test)]
     pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
@@ -987,6 +995,7 @@ async fn compose_inner(
         log,
         stop,
         catalog_http,
+        agent_presets,
         #[cfg(test)]
         pg_install,
     } = config;
@@ -1062,6 +1071,7 @@ async fn compose_inner(
         runtime_root,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
+        agent_presets,
         #[cfg(test)]
         pg_install,
         env: process_env(),

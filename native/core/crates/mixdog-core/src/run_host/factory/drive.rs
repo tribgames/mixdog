@@ -119,6 +119,68 @@ pub(super) async fn drive_turn(
     run: RunStart,
     asked: Arc<std::sync::atomic::AtomicBool>,
 ) -> RunOutcome {
+    // A turn that begins on an outside agent's route and ends before it is that agent's (its start failed or was
+    // stopped) leaves what the agent queued for it unanswered: the agent is told the turn was not run.
+    // The route is the agent's where the turn starts on it, and where the turn's own start (a pick held for it, a
+    // setting that moved) brings the session onto it.
+    let agents = parts.outside_agents();
+    let thread = run.thread.clone();
+    let handover = Arc::new(AgentReach {
+        begun: std::sync::atomic::AtomicBool::new(agents.as_ref().is_some_and(|agents| agents.serves(&run.header))),
+        reached: std::sync::atomic::AtomicBool::new(false),
+    });
+    let outcome = drive(parts, liveness, search_usage, run, asked, handover.clone()).await;
+    if let Some(agents) = agents
+        && handover.begun.load(Ordering::SeqCst)
+        && !handover.reached.load(Ordering::SeqCst)
+    {
+        let why = match &outcome {
+            RunOutcome::Failed(error) => error.message.clone(),
+            _ => "the turn was stopped before it started".to_owned(),
+        };
+        agents.unrun(&thread, &why).await;
+    }
+    outcome
+}
+
+const LEAVE_FAILED: &str = "the agent's session could not be removed from the session";
+
+/// A turn of the loop begins on `header`: the agent is told, and the session leaves it once its header no longer names
+/// the agent's own session (one that stayed would be resumed later without the turns the loop ran meanwhile). A change
+/// the store could not write is held by the session and written ahead of every record this turn stores; `false` only
+/// for a turn that is no longer the session's.
+async fn leave_agent(
+    agents: &dyn OutsideAgents,
+    thread: &ThreadId,
+    header: &mixdog_store::schema::record::Header,
+    port: &RunPort,
+    handover: &AgentReach,
+) -> bool {
+    if let Some(change) = agents.loop_turn(thread, header)
+        && port.save_header(change).await.is_err()
+    {
+        return false;
+    }
+    handover.reached.store(true, Ordering::SeqCst);
+    true
+}
+
+/// How far a turn got towards an outside agent.
+pub(super) struct AgentReach {
+    /// The turn was on an agent's route at some point of its start.
+    pub(super) begun: std::sync::atomic::AtomicBool,
+    /// The turn was handed to the agent, or the agent was told a turn of the loop began.
+    pub(super) reached: std::sync::atomic::AtomicBool,
+}
+
+async fn drive(
+    parts: Arc<dyn RunParts>,
+    liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    run: RunStart,
+    asked: Arc<std::sync::atomic::AtomicBool>,
+    handover: Arc<AgentReach>,
+) -> RunOutcome {
     let RunStart {
         prefix_guard,
         cache_tail,
@@ -194,14 +256,16 @@ pub(super) async fn drive_turn(
     // copy held for the whole run was one of the turn's several (Codex keeps one shared history). The ids are rejoined only
     // for the rare rewrites below.
     let (mut stored_ids, mut prior): (Vec<ItemId>, Vec<Value>) = stored.into_iter().unzip();
-    let rejoined = |ids: &[ItemId], bodies: &[Value]| -> Vec<(ItemId, Value)> { ids.iter().cloned().zip(bodies.iter().cloned()).collect() };
-    let injected = input_body.pointer("/meta/source").is_some_and(Value::is_string);
+    let injected = is_injected(&input_body);
     // Node's `await reconcileTurnSettings()` of the turn preparation: a gate that moved since the last turn
     // reaches this one through the header, before the request is assembled.
     let header = match parts.reconcile_turn(&thread, header, mixdog_core_session::session::thread_settings::has_conversation_messages(&prior)).await {
         Ok(header) => header,
         Err(error) => return RunOutcome::Failed(error),
     };
+    if parts.outside_agents().is_some_and(|agents| agents.serves(&header)) {
+        handover.begun.store(true, Ordering::SeqCst);
+    }
     // A prefix that moved under the stored conversation (a rebuilt prompt) leaves the thinking it stored bound to the old
     // one (`markToolSurfaceMigrated` with the transcript). The fold records that owed in the header, in the write that moves
     // the prefix; the rows are rebound and written with this turn's input below, and only then is the debt cleared, so a turn
@@ -259,6 +323,66 @@ pub(super) async fn drive_turn(
         return failed(format!("prompt blocked by hook: {}", verdict.reason.as_deref().unwrap_or_default()), Value::Null);
     }
     let turn_context = super::super::lifecycle_hooks::turn_context(own_context.as_deref(), &verdict.context);
+    // The route the header names now (a pick held for the turn has been applied) decides who runs the turn: an agent
+    // outside the loop takes it from here, with the turn begun as any other. An agent that cannot run now does not: its
+    // route hops to its fallback as a route whose provider is not available does, and the turn runs there in the loop.
+    let outside = parts.outside_agents();
+    let mut agent_refusal = None;
+    if let Some(agents) = outside.clone()
+        && agents.serves(&header)
+    {
+        agent_refusal = agents.refusal(&header);
+        if agent_refusal.is_none() {
+            // An agent outside the loop makes no model request to observe: its turn's route is the header's, from the turn's start.
+            if header.get("owner").and_then(Value::as_str) == Some("agent") {
+                let route = ["provider", "model", "effort", "fast"].into_iter().filter_map(|key| Some((key.to_owned(), header.get(key)?.clone()))).collect();
+                liveness.publish_request_route(thread.as_str(), route);
+            }
+            return drive_outside(Outside {
+                parts,
+                agents,
+                thread,
+                turn,
+                header,
+                port,
+                context,
+                surface,
+                progress,
+                tool_progress,
+                hints,
+                cancel,
+                review,
+                input_body,
+                input_item,
+                stored_ids,
+                prior,
+                injected,
+                goal_reminder,
+                notice: carried_notice,
+                transcript: turn_transcript,
+                turn_context,
+                unattended,
+                generation,
+                request,
+                asked,
+                handover,
+                rebound,
+                rebind_owed,
+                slot,
+                notify,
+                on_tool_result,
+            })
+            .await;
+        }
+    }
+    // A route that hops off an agent leaves it once the hop is made: with no fallback the turn fails, and the session
+    // keeps the agent's own session for the turn the agent can run.
+    if let Some(agents) = &outside
+        && agent_refusal.is_none()
+        && !leave_agent(agents.as_ref(), &thread, &header, &port, &handover).await
+    {
+        return failed(LEAVE_FAILED, Value::Null);
+    }
     let surface_now = surface.borrow().clone();
     let assembled = match parts
         .assemble(AssembleInput {
@@ -278,12 +402,19 @@ pub(super) async fn drive_turn(
             unattended,
             notify,
             progress: tool_progress,
+            agent_refusal: agent_refusal.as_deref(),
         })
         .await
     {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
+    if let Some(agents) = &outside
+        && agent_refusal.is_some()
+        && !leave_agent(agents.as_ref(), &thread, &header, &port, &handover).await
+    {
+        return failed(LEAVE_FAILED, Value::Null);
+    }
     let Assembled {
         provider,
         tools,
@@ -316,99 +447,37 @@ pub(super) async fn drive_turn(
     let mut carry = carry;
     carry.prefix_guard = prefix_guard.for_header(&header);
     let failures = failures.map(|inner| Arc::new(SensitiveFailures { inner, context: context.clone() }) as Arc<dyn mixdog_agent::env::ToolFailureLog>);
-    // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
-    // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
-    // before the first save.
-    let prompt = (!injected).then(|| json!({ "role": "user", "content": input_body.get("content").cloned().unwrap_or(Value::Null) }));
-    if let Some(change) = mixdog_core_session::session::session_title::fallback_title_change(&header, &prior, prompt.as_ref(), clock.now_ms())
-        && port.save_header(change).await.is_err()
-    {
-        return failed("the session's title could not be saved", Value::Null);
-    }
     // The turn's tools publish each edit's card diff to the same review (`registerEditToolUiDiff`).
     let mut tool_env = tool_env;
     tool_env.review = Some(review.api());
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
-
-    // `buildUserTurn` (`ask-turn-prepare.mjs:147-246`): the reminders staged on the conversation (a workflow or an
-    // orchestration mode switch, moved settings, a changed agent list or working folder, a prepared worktree, a
-    // deferred-tool delta, the Goal) and the ones this prompt earns (the current time, a delegated agent's todo start)
-    // ride this turn once, as the user message's reminder suffix. The message is kept as it was sent (the context the
-    // next turns replay, and a retry resubmits), and the actor acknowledges the revisions when the turn is accepted
-    // (`ask-turn-settle.mjs:148-164`); a failed turn leaves them pending.
-    let mut input_body = input_body;
-    let current_agents = match parts.current_agents(&thread, &header).await {
-        Ok(agents) => agents,
-        Err(error) => return RunOutcome::Failed(error),
+    let carried = carry_turn(Carry {
+        parts: &parts,
+        thread: &thread,
+        header: &header,
+        port: &port,
+        stored_ids: &stored_ids,
+        prior: &prior,
+        input_item: &input_item,
+        input_body,
+        injected,
+        turn_context: &turn_context,
+        goal_reminder: goal_reminder.as_ref(),
+        notice: &carried_notice,
+        hidden_agent: config.hidden_agent,
+        config: Some(&config),
+        clock: &clock,
+        blobs: &blobs,
+        guards: &guards,
+        rebound,
+        rebind_owed,
+    })
+    .await;
+    let (input_body, retried) = match carried {
+        Ok(carried) => carried,
+        Err(outcome) => return outcome,
     };
-    // A retried failed turn resends its own message as it is (`retainedUserTurn`, `ask-turn-execute.mjs:38-69`): it
-    // keeps the reminders it was built with, learns the agents changed since, and acknowledges its settings notice only.
-    let retried = super::super::turn_reminders::is_retained(&input_body);
-    let (mut carried, revisions) = if retried {
-        match super::super::turn_reminders::resubmit(&input_body, &header, &prior, current_agents.as_deref()) {
-            Ok(resent) => resent,
-            Err(text) => return failed(text, input_body),
-        }
-    } else {
-        let mode_instructions = match super::super::turn_reminders::carried_mode(&header) {
-            Some(mode) => match parts.orchestration_instructions(&mode).await {
-                Ok(text) => Some(text),
-                Err(error) => return RunOutcome::Failed(error),
-            },
-            None => None,
-        };
-        // `promptContentText(prompt)`: a stored text attachment is read from the store; one that cannot be read fails the turn.
-        let prompt_content = input_body.get("content").cloned().unwrap_or(Value::Null);
-        let prompt_text = match with_blobs_if_read(&*blobs, move |store| super::super::turn_reminders::prompt_content_text(&prompt_content, store)).await {
-            Ok(Ok(text)) => text,
-            Ok(Err(text)) => return failed(text, input_body),
-            Err(error) => return failed(error.to_string(), input_body),
-        };
-        let facts = super::super::turn_reminders::Facts {
-            header: &header,
-            prior: &prior,
-            prompt_text: &prompt_text,
-            genuine: !injected,
-            current_agents: current_agents.as_deref(),
-            mode_instructions: mode_instructions.as_deref(),
-            goal: goal_reminder.as_ref().map(|reminder| reminder.content.as_str()),
-            hidden_agent: config.hidden_agent,
-            now_ms: clock.now_ms() as f64,
-        };
-        let reminders = match super::super::turn_reminders::build(&facts) {
-            Ok(reminders) => reminders,
-            Err(text) => return failed(text, input_body),
-        };
-        // `prefixUserTurnContent(prompt, contextBlock)` (`buildUserTurn`): the turn's context leads the prompt, the reminders
-        // trail it. A retried turn resends its message as it was built (`retainedUserTurn` reads no context).
-        let Some(carried) = super::super::lifecycle_hooks::with_turn_context(&input_body, &turn_context).and_then(|message| reminders.carry(&message)) else {
-            return failed("the turn's input row cannot carry the turn's reminders".to_owned(), input_body);
-        };
-        (carried, reminders.revisions)
-    };
-    stamp_outgoing_effort(&mut carried, &config);
-    // Told means sent: the one point where the start reminder is on the outgoing message, built now or retained from the
-    // failed attempt. A retained message stored without it (an older build) leaves the ten-call reminder to fire.
-    if mixdog_core_run::run_host::guards::carries_todo_start(&carried) {
-        guards.note_creation_told();
-    }
-    if carried != input_body || rebound {
-        let mut sent = rejoined(&stored_ids, &prior);
-        sent.push((input_item.clone(), carried.clone()));
-        if port.context_rewound(sent).await.is_err() {
-            return failed("the turn's reminders could not be saved with the turn's input", Value::Null);
-        }
-        input_body = carried;
-    }
-    if rebind_owed {
-        let spent =
-            mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec!["thinkingRebindPending".into()], patch: Default::default() };
-        if port.save_header(spent).await.is_err() {
-            return failed("the session's thinking rebind could not be recorded", Value::Null);
-        }
-    }
-    carried_notice.carry(revisions);
     let input = match message_of(&input_body) {
         Ok(input) => input,
         Err(error) => return failed(format!("the turn's input row is not a model message: {error}"), input_body),

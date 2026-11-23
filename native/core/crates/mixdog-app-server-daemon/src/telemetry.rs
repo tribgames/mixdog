@@ -18,7 +18,15 @@
 //! summary line in `daemon.log`. V8's CPU profiler has no native counterpart that needs no debug symbols or a second tool, so
 //! a kept window holds what the runtime can say about itself: the window's lag, the in-flight work and the state `context`
 //! returns (the lanes and spans the wiring chooses).
+//!
+//! While `<data dir>/heap-summary.on` exists (created by hand, read and watched as `lag-profile.on` is), the memory line also
+//! ends with `heapInUseBytes=` and `heapCommittedBytes=`: the busy and committed bytes of the process's default heap (the one
+//! the Rust and C allocators share), from `HeapSummary`, read right after the private bytes. Windows only; elsewhere, and
+//! without the file, the line is unchanged and nothing is read. Cost while on: `HeapSummary` walks every block of the heap
+//! holding its lock, about 17 ms for 600K live blocks and 80 ms for 1.3 GiB, once per line written; for that time every
+//! thread's allocation or free above the low-fragmentation sizes waits (small ones do not).
 
+use std::fmt::Write as _;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -49,6 +57,8 @@ const LAG_LOG_P99_MS: u64 = 250;
 const LAG_KEEP_MS: u64 = 1000;
 /// `LAG_PROFILE_FLAG_FILE`.
 pub const LAG_PROFILE_FLAG_FILE: &str = "lag-profile.on";
+/// The flag file that adds the heap's in-use and committed bytes to the memory line.
+pub const HEAP_SUMMARY_FLAG_FILE: &str = "heap-summary.on";
 const PROFILE_DIR: &str = "profiles";
 /// `LAG_PROFILE_KEEP`.
 const PROFILE_KEEP: usize = 10;
@@ -136,6 +146,44 @@ pub fn format_line(reason: Reason, at_ms: i64, pid: u32, memory: MemoryUsage, wo
     )
 }
 
+/// The default process heap's busy and committed bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeapUse {
+    pub in_use_bytes: u64,
+    pub committed_bytes: u64,
+}
+
+/// `line` with the heap's fields at its end, when there is a reading.
+fn with_heap(mut line: String, heap: Option<HeapUse>) -> String {
+    if let Some(heap) = heap {
+        let _ = write!(line, " heapInUseBytes={} heapCommittedBytes={}", heap.in_use_bytes, heap.committed_bytes);
+    }
+    line
+}
+
+/// `HeapSummary` of the default process heap.
+#[cfg(windows)]
+pub fn process_heap() -> Option<HeapUse> {
+    use std::ffi::c_void;
+    // HEAP_SUMMARY: `cb` (a DWORD in the first word, little-endian), then allocated, committed, reserved and max reserve.
+    type Summary = [usize; 5];
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetProcessHeap() -> *mut c_void;
+        fn HeapSummary(heap: *mut c_void, flags: u32, summary: *mut Summary) -> i32;
+    }
+    let mut summary: Summary = [std::mem::size_of::<Summary>(), 0, 0, 0, 0];
+    // SAFETY: the process's own default heap, and an out struct of the size its `cb` declares.
+    let ok = unsafe { HeapSummary(GetProcessHeap(), 0, &mut summary) } != 0;
+    ok.then_some(HeapUse { in_use_bytes: summary[1] as u64, committed_bytes: summary[2] as u64 })
+}
+
+/// No heap summary outside Windows.
+#[cfg(not(windows))]
+pub fn process_heap() -> Option<HeapUse> {
+    None
+}
+
 /// `process.memoryUsage()`'s `rss` and `heapUsed`: the working set, and the private bytes the process allocated.
 #[cfg(windows)]
 pub fn process_memory() -> MemoryUsage {
@@ -180,6 +228,10 @@ pub fn process_memory() -> MemoryUsage {
 pub trait ProfileStore: Send + Sync + 'static {
     /// Whether `lag-profile.on` exists.
     fn flag_present(&self, lane: &InLane<MaintenanceIo>) -> bool;
+    /// Whether `heap-summary.on` exists.
+    fn heap_flag_present(&self, _lane: &InLane<MaintenanceIo>) -> bool {
+        false
+    }
     /// The profile file `name` written, the directory made first.
     fn save(&self, lane: &InLane<MaintenanceIo>, name: &str, bytes: &[u8]) -> io::Result<()>;
     /// The names in the profile directory.
@@ -209,6 +261,10 @@ impl DiskProfileStore {
 impl ProfileStore for DiskProfileStore {
     fn flag_present(&self, lane: &InLane<MaintenanceIo>) -> bool {
         mixdog_statefile::metadata(lane, &self.data_dir.join(LAG_PROFILE_FLAG_FILE)).is_ok()
+    }
+
+    fn heap_flag_present(&self, lane: &InLane<MaintenanceIo>) -> bool {
+        mixdog_statefile::metadata(lane, &self.data_dir.join(HEAP_SUMMARY_FLAG_FILE)).is_ok()
     }
 
     fn save(&self, lane: &InLane<MaintenanceIo>, name: &str, bytes: &[u8]) -> io::Result<()> {
@@ -268,6 +324,9 @@ struct Sampler {
     /// Whether the flag file was there when it was last read, and whether it may have changed since (true until the first read).
     flag: Mutex<bool>,
     flag_stale: AtomicBool,
+    /// The heap flag, read on the lane as the stall flag is; the memory line reads the last answer.
+    heap_flag: AtomicBool,
+    heap_flag_stale: AtomicBool,
 }
 
 impl Sampler {
@@ -300,7 +359,19 @@ impl Sampler {
         state.1 = message;
     }
 
+    /// Reads the heap flag again after a reported change, and says when it turned on or off.
+    fn refresh_heap_flag(&self, lane: &InLane<MaintenanceIo>, log: &(dyn Fn(&str) + Send + Sync)) {
+        if !self.heap_flag_stale.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let present = self.store.heap_flag_present(lane);
+        if self.heap_flag.swap(present, Ordering::AcqRel) != present {
+            log(if present { "heap-summary enabled" } else { "heap-summary disabled" });
+        }
+    }
+
     fn pass(&self, lane: &InLane<MaintenanceIo>, at_ms: i64, lag: LagWindow, work: WorkCounts, log: &(dyn Fn(&str) + Send + Sync)) -> SamplerOutcome {
+        self.refresh_heap_flag(lane, log);
         let present = self.flag_present(lane);
         {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -371,6 +442,7 @@ pub struct Telemetry {
     seams: Seams,
     activity: AtomicBool,
     sampler: Arc<Sampler>,
+    heap: fn() -> Option<HeapUse>,
     /// The watch on the folder of the flag file, held for as long as the loop runs.
     watch: Mutex<Option<notify::RecommendedWatcher>>,
 }
@@ -396,15 +468,24 @@ impl Telemetry {
             state: Mutex::new((false, String::new())),
             flag: Mutex::new(false),
             flag_stale: AtomicBool::new(true),
+            heap_flag: AtomicBool::new(false),
+            heap_flag_stale: AtomicBool::new(true),
         });
-        Arc::new(Self { seams, activity: AtomicBool::new(false), sampler, watch: Mutex::new(None) })
+        Arc::new(Self { seams, activity: AtomicBool::new(false), sampler, heap: process_heap, watch: Mutex::new(None) })
+    }
+
+    /// The memory and work line; the heap's reading follows the private bytes' while the heap flag is on.
+    fn memory_line(&self, reason: Reason, at_ms: i64, work: WorkCounts) -> String {
+        let memory = (self.seams.memory)();
+        let heap = if self.sampler.heap_flag.load(Ordering::Acquire) { (self.heap)() } else { None };
+        with_heap(format_line(reason, at_ms, self.seams.pid, memory, work), heap)
     }
 
     /// `emit('boot')`: the line written once when the daemon is ready, with or without activity. It leaves the activity of
     /// the first window as it is.
     pub fn boot(&self) {
         let work = (self.seams.work)();
-        (self.seams.log)(&format_line(Reason::Boot, (self.seams.now_ms)(), self.seams.pid, (self.seams.memory)(), work));
+        (self.seams.log)(&self.memory_line(Reason::Boot, (self.seams.now_ms)(), work));
     }
 
     /// The daemon did work: the next window writes its memory and work line.
@@ -418,7 +499,7 @@ impl Telemetry {
         let work = (self.seams.work)();
         let at_ms = (self.seams.now_ms)();
         if self.activity.swap(false, Ordering::AcqRel) {
-            (self.seams.log)(&format_line(Reason::Periodic, at_ms, self.seams.pid, (self.seams.memory)(), work));
+            (self.seams.log)(&self.memory_line(Reason::Periodic, at_ms, work));
         }
         if lag.p99_ms >= LAG_LOG_P99_MS {
             (self.seams.log)(&format!("event-loop lag p95={}ms p99={}ms max={}ms", lag.p95_ms, lag.p99_ms, lag.max_ms));
@@ -427,9 +508,10 @@ impl Telemetry {
         tokio::spawn(async move { this.sample(at_ms, lag, work).await });
     }
 
-    /// The flag file may have been created or removed: the next pass reads it again.
+    /// A flag file may have been created or removed: the next pass reads both again.
     pub fn flag_changed(&self) {
         self.sampler.flag_stale.store(true, Ordering::Release);
+        self.sampler.heap_flag_stale.store(true, Ordering::Release);
     }
 
     /// Starts watching the folder of the flag file: a change to the file re-reads it and runs a sampler pass at once (so
@@ -441,7 +523,9 @@ impl Telemetry {
         let (weak, runtime) = (Arc::downgrade(self), tokio::runtime::Handle::current());
         let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             let concerns_flag = match &event {
-                Ok(event) => event.paths.iter().any(|path| path.file_name().is_some_and(|name| name == LAG_PROFILE_FLAG_FILE)),
+                Ok(event) => {
+                    event.paths.iter().any(|path| path.file_name().is_some_and(|name| name == LAG_PROFILE_FLAG_FILE || name == HEAP_SUMMARY_FLAG_FILE))
+                }
                 Err(_) => true,
             };
             if !concerns_flag {
@@ -502,6 +586,7 @@ mod tests {
     #[derive(Default)]
     struct MemStore {
         flag: AtomicBool,
+        heap_flag: AtomicBool,
         files: Mutex<BTreeSet<String>>,
         fail_save: AtomicBool,
         saves: AtomicUsize,
@@ -510,6 +595,10 @@ mod tests {
     impl ProfileStore for MemStore {
         fn flag_present(&self, _: &InLane<MaintenanceIo>) -> bool {
             self.flag.load(Ordering::SeqCst)
+        }
+
+        fn heap_flag_present(&self, _: &InLane<MaintenanceIo>) -> bool {
+            self.heap_flag.load(Ordering::SeqCst)
         }
 
         fn save(&self, _: &InLane<MaintenanceIo>, name: &str, bytes: &[u8]) -> io::Result<()> {
@@ -603,6 +692,36 @@ mod tests {
                 "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"
             ]
         );
+    }
+    /// Without `heap-summary.on` the line is the one above; with it, the same line ends with the process heap's real reading.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn the_heap_flag_adds_the_heaps_in_use_and_committed_bytes_to_the_line() {
+        const PLAIN: &str = "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4";
+        let f = fixture();
+        let memory_lines = |f: &Fixture| lines(f).into_iter().filter(|line| line.starts_with("daemon-telemetry")).collect::<Vec<_>>();
+        f.telemetry.note_activity();
+        f.telemetry.tick(LagWindow::default());
+        assert_eq!(memory_lines(&f), [PLAIN]);
+
+        f.store.heap_flag.store(true, Ordering::SeqCst);
+        f.telemetry.flag_changed();
+        // The first window's own pass may still hold the sampler (`Busy`): passes go on until one has read the flag.
+        for _ in 0..100 {
+            if lines(&f).iter().any(|line| line == "heap-summary enabled") {
+                break;
+            }
+            f.telemetry.sample(0, LagWindow::default(), WorkCounts::default()).await;
+            tokio::task::yield_now().await;
+        }
+        assert!(lines(&f).iter().any(|line| line == "heap-summary enabled"));
+        f.telemetry.note_activity();
+        f.telemetry.tick(LagWindow::default());
+        let line = memory_lines(&f).pop().expect("a second memory line");
+        let rest = line.strip_prefix(&format!("{PLAIN} heapInUseBytes=")).expect("the plain line, then the heap's fields");
+        let (in_use, committed) = rest.split_once(" heapCommittedBytes=").expect("both fields");
+        let (in_use, committed): (u64, u64) = (in_use.parse().expect("a number"), committed.parse().expect("a number"));
+        assert!(in_use > 0 && committed >= in_use, "in use {in_use}, committed {committed}");
     }
     #[tokio::test]
     async fn the_boot_line_is_written_without_activity_and_leaves_the_window_silent() {

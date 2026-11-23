@@ -174,6 +174,7 @@ impl CoreLauncher for InProcessLauncher {
             ownership: Arc::new(PrivateRoot(format!("exec-{}", uuid::Uuid::new_v4().simple()))),
             stop,
             catalog_http: mixdog_app_server_daemon::catalog::production_http().map_err(|error| error.to_string())?,
+            agent_presets: mixdog_app_server_daemon::acp_tools::builtin_presets(),
         };
         // Composed inside the executors, as the daemon composes its core: every ambient handle lands on them.
         let tokens = self.tokens.clone();

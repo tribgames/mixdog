@@ -65,11 +65,11 @@ use super::schema::McpToolDefinition;
 use super::schema::QueryCase;
 use super::schema::QueryReply;
 use super::schema::ServerMessage;
+use super::schema::TurnUsage;
 use super::schema::UnavailableKind;
 use super::schema::checkpoint_used_tokens;
 use super::schema::decode_json_value;
 use super::schema::exec_client_message;
-use super::schema::TurnUsage;
 use super::schema::exec_stream_close;
 use super::schema::exec_throw;
 use super::schema::interaction_response;
@@ -290,7 +290,8 @@ fn drift(message: &str) -> ProviderError {
 
 /// The longest tail the read tool reads.
 const READ_TAIL_MAX: u64 = 100_000;
-const READ_TAIL_TOO_LONG: &str = "This window starts more than 100000 lines before the file's end, which is not read as one window. Read it by offset and limit from the file's start.";
+const READ_TAIL_TOO_LONG: &str =
+    "This window starts more than 100000 lines before the file's end, which is not read as one window. Read it by offset and limit from the file's start.";
 
 /// The service's codes in the error detail an end frame carries, each by its readable name and its number: a failure
 /// of the provider behind the service, a model id it does not know, and the limits of the account's plan.
@@ -299,8 +300,9 @@ const BAD_MODEL_NAME: &[(&str, u64)] = &[("ERROR_BAD_MODEL_NAME", 5)];
 const PLAN_LIMIT: &[(&str, u64)] = &[("ERROR_FREE_USER_USAGE_LIMIT", 9), ("ERROR_PRO_USER_USAGE_LIMIT", 10), ("ERROR_USAGE_PRICING_REQUIRED", 44)];
 
 /// How the service words a limit of the account, which no other conversation would pass.
-static QUOTA_WORDING: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"(?i)quota|usage\s+limit|spend(?:ing)?\s+limit|billing|upgrade|out\s+of\s+(?:requests|credits)").expect("constant pattern"));
+static QUOTA_WORDING: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)quota|usage\s+limit|spend(?:ing)?\s+limit|billing|upgrade|out\s+of\s+(?:requests|credits)").expect("constant pattern")
+});
 
 /// Whether the end frame `payload` carries one of `codes` in a detail of the service's error type, by the detail's
 /// readable form or by its encoded one.
@@ -493,7 +495,12 @@ mod tests {
     }
 
     fn lookup_decoder() -> CursorDecoder {
-        let tool = McpToolDefinition { name: "lookup".into(), description: String::new(), input_schema: json!({"type": "object"}), provider_identifier: "mixdog".into() };
+        let tool = McpToolDefinition {
+            name: "lookup".into(),
+            description: String::new(),
+            input_schema: json!({"type": "object"}),
+            provider_identifier: "mixdog".into(),
+        };
         CursorDecoder::new(BlobStore::default(), vec![tool], None)
     }
 
@@ -594,7 +601,11 @@ mod tests {
         let three = vec![vec![call("call-1", "a"), call("call-2", "b"), call("call-3", "c")]];
         let sequences: Vec<(Vec<Vec<u8>>, Vec<Vec<(String, Value)>>, usize)> = vec![
             (vec![mcp_call(1, "a"), mcp_call(2, "b"), listing(3), mcp_call(3, "c")], three.clone(), 0),
-            (vec![text.clone(), mcp_call(1, "a"), heartbeat.clone(), mcp_call(2, "b"), listing(3), checkpoint.clone(), mcp_call(3, "c"), checkpoint.clone()], three.clone(), 0),
+            (
+                vec![text.clone(), mcp_call(1, "a"), heartbeat.clone(), mcp_call(2, "b"), listing(3), checkpoint.clone(), mcp_call(3, "c"), checkpoint.clone()],
+                three.clone(),
+                0,
+            ),
             (vec![listing(3), mcp_call(1, "a"), mcp_call(2, "b"), mcp_call(3, "c")], three.clone(), 0),
             (vec![mcp_call(1, "a"), mcp_call(2, "b"), mcp_call(3, "c"), heartbeat, listing(3)], three, 0),
             (vec![listing(1), checkpoint.clone(), mcp_call(1, "a")], vec![vec![call("call-1", "a")]], 0),
@@ -625,8 +636,16 @@ mod tests {
             (vec![vec![mcp_call(1, "a")], vec![heartbeat.clone(), mcp_call(2, "b")]], vec![one(1, "a"), one(2, "b")], 2),
             // The first call's result was written back: a listing behind it is another step's, and counts what follows.
             (vec![vec![mcp_call(1, "a")], vec![mcp_call(2, "b"), listing(2)]], vec![one(1, "a"), one(2, "b")], 2),
-            (vec![vec![mcp_call(1, "a")], vec![listing(2), mcp_call(2, "b"), heartbeat.clone(), mcp_call(3, "c")]], vec![one(1, "a"), vec![call("call-2", "b"), call("call-3", "c")]], 1),
-            (vec![vec![listing(3), mcp_call(1, "a"), heartbeat, mcp_call(2, "b")], vec![listing(1), mcp_call(3, "c")]], vec![vec![call("call-1", "a"), call("call-2", "b")], one(3, "c")], 1),
+            (
+                vec![vec![mcp_call(1, "a")], vec![listing(2), mcp_call(2, "b"), heartbeat.clone(), mcp_call(3, "c")]],
+                vec![one(1, "a"), vec![call("call-2", "b"), call("call-3", "c")]],
+                1,
+            ),
+            (
+                vec![vec![listing(3), mcp_call(1, "a"), heartbeat, mcp_call(2, "b")], vec![listing(1), mcp_call(3, "c")]],
+                vec![vec![call("call-1", "a"), call("call-2", "b")], one(3, "c")],
+                1,
+            ),
         ];
         for (index, (stretches, batches, at_quiet)) in sequences.iter().enumerate() {
             let styles: Vec<Vec<Vec<Vec<u8>>>> = stretches.iter().map(|frames| cuts(frames)).collect();
@@ -657,7 +676,8 @@ mod tests {
     /// arrived before the results were written was the handed-over step's and still counts its execs.
     #[test]
     fn a_step_handed_over_at_the_quiet_point_leaves_no_count_to_the_next() {
-        let first: [(&str, Vec<Vec<u8>>, usize); 2] = [("listed for more than arrived", vec![listing(3), mcp_call(1, "a"), mcp_call(2, "b")], 2), ("not listed", vec![mcp_call(1, "a")], 1)];
+        let first: [(&str, Vec<Vec<u8>>, usize); 2] =
+            [("listed for more than arrived", vec![listing(3), mcp_call(1, "a"), mcp_call(2, "b")], 2), ("not listed", vec![mcp_call(1, "a")], 1)];
         for (step, frames, expected) in first {
             let mut decoder = lookup_decoder();
             decoder.attend(answered(&["call-1", "call-2"]));
@@ -745,11 +765,18 @@ mod tests {
         assert!(!Refusal::of(foreign.to_string().as_bytes()).provider);
         // A model the service does not know, and a limit of the account, by code or by wording.
         let says = |code: &str, message: &str, named: &str| {
-            Refusal::of(json!({"error": {"code": code, "message": message, "details": [{"type": "aiserver.v1.ErrorDetails", "debug": {"error": named}}]}}).to_string().as_bytes())
+            Refusal::of(
+                json!({"error": {"code": code, "message": message, "details": [{"type": "aiserver.v1.ErrorDetails", "debug": {"error": named}}]}})
+                    .to_string()
+                    .as_bytes(),
+            )
         };
         assert!(says("not_found", "Error", "ERROR_BAD_MODEL_NAME").model && says("not_found", "Model x was not found", "ERROR_NOT_FOUND").model);
         assert!(!says("not_found", "Conversation not found", "ERROR_NOT_FOUND").model, "a not-found of something else");
-        assert!(says("resource_exhausted", "Error", "ERROR_PRO_USER_USAGE_LIMIT").quota && says("resource_exhausted", "You have hit your usage limit", "ERROR_RESOURCE_EXHAUSTED").quota);
+        assert!(
+            says("resource_exhausted", "Error", "ERROR_PRO_USER_USAGE_LIMIT").quota
+                && says("resource_exhausted", "You have hit your usage limit", "ERROR_RESOURCE_EXHAUSTED").quota
+        );
         assert!(!says("resource_exhausted", "Error", "ERROR_RESOURCE_EXHAUSTED").quota, "a bare throttle");
 
         // Text shown with no token counted, in a batch before the one that fails, is something shown.
@@ -809,7 +836,12 @@ mod tests {
     }
 
     fn native_decoder() -> CursorDecoder {
-        let tool = |name: &str| McpToolDefinition { name: name.into(), description: String::new(), input_schema: json!({"type": "object"}), provider_identifier: "mixdog".into() };
+        let tool = |name: &str| McpToolDefinition {
+            name: name.into(),
+            description: String::new(),
+            input_schema: json!({"type": "object"}),
+            provider_identifier: "mixdog".into(),
+        };
         CursorDecoder::new(BlobStore::default(), vec![tool("grep"), tool("read")], None)
     }
 
@@ -817,7 +849,8 @@ mod tests {
     /// and the reasoning count, and of the output what the batches before it had not yet reported.
     #[test]
     fn the_turn_reports_what_the_turn_ended_update_says_it_used() {
-        let usage_of = |events: &[StreamEvent]| events.iter().find_map(|e| if let StreamEvent::Usage(usage) = e { Some(usage.clone()) } else { None }).expect("usage");
+        let usage_of =
+            |events: &[StreamEvent]| events.iter().find_map(|e| if let StreamEvent::Usage(usage) = e { Some(usage.clone()) } else { None }).expect("usage");
         let mut decoder = lookup_decoder();
         let first = decoder.feed(&[update(8, |t| t.varint(1, 5)), listing(1), mcp_call(1, "a")].concat()).expect("decodes");
         let streamed = usage_of(&first);
@@ -882,11 +915,12 @@ mod tests {
         assert!(decoder.take_outbound().is_empty());
 
         // A window that starts further before the file's end than the read tool reads is answered here, as no window.
-        decoder.feed(&native(9, 7, |a| {
-            a.string(1, "a.txt");
-            a.varint(4, (-200_000_i64) as u64);
-        }))
-        .expect("decodes");
+        decoder
+            .feed(&native(9, 7, |a| {
+                a.string(1, "a.txt");
+                a.varint(4, (-200_000_i64) as u64);
+            }))
+            .expect("decodes");
         let no_window = decoder.take_outbound();
         assert_eq!(no_window.len(), 1);
         assert!(at(&no_window[0], &[2, 7, 3]).is_some(), "the read's failure");
@@ -913,7 +947,8 @@ mod tests {
             a.varint(5, 10);
         });
         let events = decoder.feed(&[listing(2), grep, read].concat()).expect("decodes");
-        let arguments: Vec<Value> = events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(call) = e { Some(call.arguments.clone()) } else { None }).collect();
+        let arguments: Vec<Value> =
+            events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(call) = e { Some(call.arguments.clone()) } else { None }).collect();
         assert_eq!(arguments[0].get("offset"), Some(&json!(20)));
         // The tail is read whole (the read tool lets a tail override a limit); the answer keeps the ten rows asked for.
         assert_eq!((arguments[1].get("tail"), arguments[1].get("offset"), arguments[1].get("limit")), (Some(&json!(30)), None, None));
@@ -1087,7 +1122,8 @@ impl CursorDecoder {
         if let Some(listed) = update.listed {
             self.listed = Some(listed);
         }
-        self.heartbeat_only = update.heartbeat && events.len() == before && update.token_delta == 0 && !update.turn_ended && !update.step_completed && update.listed.is_none();
+        self.heartbeat_only =
+            update.heartbeat && events.len() == before && update.token_delta == 0 && !update.turn_ended && !update.step_completed && update.listed.is_none();
         // Tokens generated with no text to show are the model working (a long think streams only them).
         if update.token_delta > 0 && events.len() == before {
             events.push(StreamEvent::Progress(ProgressKind::Semantic));
@@ -1280,7 +1316,12 @@ impl CursorDecoder {
         let (tool, args, id) = if let Some(a) = &exec.read {
             self.tool_named(&["read"])?;
             if a.offset.unsigned_abs() > READ_TAIL_MAX && a.offset < 0 {
-                self.unavailable(exec, UnavailableKind::PathError { field: 7, error_field: 3 }, READ_TAIL_TOO_LONG, ExecEcho { path: a.path.clone(), ..ExecEcho::default() });
+                self.unavailable(
+                    exec,
+                    UnavailableKind::PathError { field: 7, error_field: 3 },
+                    READ_TAIL_TOO_LONG,
+                    ExecEcho { path: a.path.clone(), ..ExecEcho::default() },
+                );
                 return Some(false);
             }
             let tool = self.tool_named(&["read"])?;

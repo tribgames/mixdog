@@ -6,6 +6,8 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 use async_trait::async_trait;
+use mixdog_agent::agent_tool::flow::stages::TurnStage;
+use mixdog_agent::agent_tool::flow::stages::warned;
 use mixdog_app_protocol::v2::feed::ResumeWindow;
 use mixdog_app_protocol::v2::thread::ThreadClearParams;
 use mixdog_app_protocol::v2::thread::ThreadForkParams;
@@ -341,10 +343,24 @@ impl SessionHandle {
         }
     }
 
+    /// One of a start's waits before the actor has the request: the caller's cancel ends it, and while it is still waited
+    /// on the core's log names it ([`warned`]).
+    async fn start_wait<T>(
+        &self,
+        cancel: &mixdog_rt::CancellationToken,
+        step: &'static str,
+        wait: impl std::future::Future<Output = T>,
+    ) -> Result<T, CoreError> {
+        let wait = warned(self.id.as_str(), TurnStage::Starting, Some(step), wait);
+        Scope::new().cancel(cancel).run(wait).await.done().map(|(out, _)| out).ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)
+    }
+
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
-        self.deferring(&req.ctx).await?;
+        let cancel = req.ctx.cancel.clone();
+        let id = self.id.as_str();
+        warned(id, TurnStage::Starting, Some("core-hold"), self.deferring(&req.ctx)).await.0?;
         // A thread just opened is still reading its history for images; the send is judged on that answer.
-        Scope::new().cancel(&req.ctx.cancel).run(self.image_gate.scanned()).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?;
+        self.start_wait(&cancel, "image-check", self.image_gate.scanned()).await?;
         if let Some(sentence) = self.image_gate.refusal() {
             return Err(mixdog_core_base::support::failed("session", sentence));
         }
@@ -352,14 +368,15 @@ impl SessionHandle {
         // in its intake, and the thread refuses starts while that delete runs.
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         // A turn is a session's first use (`createCurrentSession('turn')`, `turn-prepare.mjs`).
-        self.create_session().await?;
+        self.start_wait(&cancel, "session-seat", self.create_session()).await??;
         let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
-        let cancel = req.ctx.cancel.clone();
-        let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
-        self.take_in_prompt(&mut req, &cancel).await?;
+        let in_order = warned(id, TurnStage::Starting, Some("submit-order"), self.submits.enter(&cancel)).await.0.map_err(caller_cancelled)?;
+        warned(id, TurnStage::Starting, Some("prompt"), self.take_in_prompt(&mut req, &cancel)).await.0?;
         // The attachments' intake comes first: the refusal is the submit's answer.
         let provider = self.header_snapshot().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
-        self.deps.prompt_intake.admit(&self.id, &provider, &req.params).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+        self.start_wait(&cancel, "attachments", self.deps.prompt_intake.admit(&self.id, &provider, &req.params))
+            .await?
+            .map_err(|message| mixdog_core_base::support::failed("session", message))?;
         let mut named = super::staged_originals::named_originals(&req.params);
         named.sort();
         named.dedup();
@@ -387,7 +404,8 @@ impl SessionHandle {
             .map_err(caller_cancelled)?
             .map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
-        let reply = answer.await.map_err(|_| {
+        // The actor has the request: its answer is waited for whatever the caller does, so a turn it starts is known.
+        let reply = warned(id, TurnStage::Starting, Some("actor"), answer).await.0.map_err(|_| {
             tracing::warn!(thread = %self.id, method = "turn/start", "the session actor dropped the request's reply without answering it");
             closed()
         })??;

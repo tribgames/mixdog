@@ -214,19 +214,18 @@ fn check_schema(mut conn: Connection, app_id: i32, user_version: i32) -> Result<
     Ok(conn)
 }
 
-/// How long [`truncate_wal`] lets SQLite's busy handler wait for the readers of older WAL frames.
-const TRUNCATE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long one statement of the writer connection ([`open_writer`]) lets SQLite's busy handler wait for a lock: a foreign
+/// connection's write lock, or the readers of older WAL frames ([`truncate_wal`]). No bound on the wait as a whole: an
+/// append transaction that still meets the lock keeps what is queued and begins again ([`Writer::append_transaction`]).
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// `wal_checkpoint(TRUNCATE)`: every WAL frame into the database, then the WAL emptied. A reader's snapshot holds
 /// the frames it may still read, so SQLite's busy handler waits for those readers (each read job is one bounded
-/// query), up to [`TRUNCATE_WAIT`]; the connection's own zero timeout is put back after.
+/// query), up to [`LOCK_WAIT`].
 fn truncate_wal(conn: &Connection) -> Result<(), String> {
-    conn.busy_timeout(TRUNCATE_WAIT).map_err(|e| e.to_string())?;
-    let busy = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0));
-    conn.busy_timeout(std::time::Duration::ZERO).map_err(|e| e.to_string())?;
-    match busy.map_err(|e| e.to_string())? {
+    match conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())? {
         0 => Ok(()),
-        _ => Err(format!("the index WAL stayed in use by readers for {} s; it is truncated at the next attempt", TRUNCATE_WAIT.as_secs())),
+        _ => Err(format!("the index WAL stayed in use by readers for {} s; it is truncated at the next attempt", LOCK_WAIT.as_secs())),
     }
 }
 
@@ -248,6 +247,9 @@ fn open_writer(path: &Path, ddl: Option<&str>) -> Result<Connection, DbError> {
         }
     };
     conn.pragma_update(None, "secure_delete", "ON").map_err(|e| DbError::Write(e.to_string()))?;
+    // The index has one writer in this process, and the data dir one process: a lock this connection meets is a foreign
+    // one (a tool's, a test's). It is waited for inside SQLite, where a failed transaction would lose what it held.
+    conn.busy_timeout(LOCK_WAIT)?;
     // Every index a writer opens holds it, a projection's included, so a rebuilt index and a fresh projection have the
     // same tables.
     conn.execute_batch(withheld::WITHHELD_DDL)?;
@@ -1353,6 +1355,29 @@ fn placed(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame) -> rusqli
     })
 }
 
+/// What an append transaction was doing when it failed: whose failure it is ([`Writer::append_transaction`]).
+enum Failing {
+    /// It did not begin. Still locked by a foreign connection after [`LOCK_WAIT`], nothing was tried and nothing queued
+    /// is at fault; any other error is the failure of everything queued.
+    Begin,
+    /// A small command, which is answered with the failure.
+    Small,
+    /// The frames or the row of this session.
+    Session(String),
+    /// The commit of everything it held.
+    Commit,
+}
+
+/// A catalog row an append transaction wrote, held until its commit: put back as it was queued when the transaction fails
+/// on another session.
+struct WrittenRow {
+    id: String,
+    upsert: Upsert,
+    retiring: Option<Retiring>,
+    refusal: Option<String>,
+    written: usize,
+}
+
 /// The `meta` key of a session whose rows hold frames past its cursor (FORMAT.md §8.2): a projection of it was never taken
 /// and later ones were. Its rows cannot be continued from the cursor; they are rebuilt from its log ([`Writer::reproject`]).
 pub(crate) fn hole_key(session: &str) -> String {
@@ -1626,31 +1651,20 @@ struct Writer {
 const LABELS_KEY: &str = "ui:placeholder_labels";
 const REFOLD_JOB: &str = "job:refold_titles";
 
-/// The seam of the boot reconcile between a session's projection and its row: a test arms it
-/// for one data dir, and the next reconcile there ends (as a process ending at that point).
-#[cfg(test)]
-pub(crate) mod reconcile_seam {
+/// A test's hold on the repair a start owes one session: this crate's tests, and those of a crate that composes over the
+/// index and needs a start whose projection has not ended.
+#[cfg(any(test, feature = "test-support"))]
+pub mod repair_hold {
     use std::path::Path;
     use std::path::PathBuf;
     use std::sync::Mutex;
 
-    static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
-    static FAILING: Mutex<Option<PathBuf>> = Mutex::new(None);
     type Held = (PathBuf, String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
     static HELD: Mutex<Option<Held>> = Mutex::new(None);
 
-    pub(crate) fn arm(data: &Path) {
-        *ARMED.lock().expect("seam") = Some(data.to_path_buf());
-    }
-
-    /// Whether the seam [`arm`] set for `data` has not been reached yet.
-    pub(crate) fn armed(data: &Path) -> bool {
-        ARMED.lock().expect("seam").as_deref() == Some(data)
-    }
-
     /// The repair of `session` in `data` starts once the returned sender sends (or is dropped); the receiver is told when
     /// the repairs got to it and wait there.
-    pub(crate) fn hold(data: &Path, session: &str) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
+    pub fn hold(data: &Path, session: &str) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
         let (release, held) = std::sync::mpsc::channel();
         let (arrive, arrived) = std::sync::mpsc::channel();
         *HELD.lock().expect("seam") = Some((data.to_path_buf(), session.to_owned(), arrive, held));
@@ -1665,6 +1679,29 @@ pub(crate) mod reconcile_seam {
             let _ = arrive.send(());
             let _ = held.recv();
         }
+    }
+}
+
+/// The seam of the boot reconcile between a session's projection and its row: a test arms it
+/// for one data dir, and the next reconcile there ends (as a process ending at that point).
+#[cfg(test)]
+pub(crate) mod reconcile_seam {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static FAILING: Mutex<Option<PathBuf>> = Mutex::new(None);
+    type Held = (PathBuf, String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+    pub(crate) use super::repair_hold::hold;
+
+    pub(crate) fn arm(data: &Path) {
+        *ARMED.lock().expect("seam") = Some(data.to_path_buf());
+    }
+
+    /// Whether the seam [`arm`] set for `data` has not been reached yet.
+    pub(crate) fn armed(data: &Path) -> bool {
+        ARMED.lock().expect("seam").as_deref() == Some(data)
     }
 
     /// The next reconcile in `data` fails its first index write.
@@ -1777,7 +1814,38 @@ pub(crate) mod reconcile_seam {
         COMMITS.lock().expect("seam").push((data.to_path_buf(), (kind, session.to_owned(), rows)));
     }
 
-    /// The transactions the writer of `data` committed, in order.
+    /// Where an append transaction fails, as the database failing there.
+    #[derive(PartialEq)]
+    pub(crate) enum AppendFault {
+        Begin,
+        /// The frames of this session's projection.
+        Frames(String),
+        /// The catalog row the transaction writes at this place among its rows (0: the first).
+        RowAt(usize),
+        Commit,
+    }
+    static APPEND_FAULTS: Mutex<Vec<(PathBuf, AppendFault)>> = Mutex::new(Vec::new());
+    pub(super) const INJECTED: &str = "the test's injected append failure";
+
+    /// The next append transaction of `data` that gets to `fault` fails there.
+    pub(crate) fn fail_append(data: &Path, fault: AppendFault) {
+        APPEND_FAULTS.lock().expect("seam").push((data.to_path_buf(), fault));
+    }
+
+    pub(super) fn append_fault(data: &Option<PathBuf>, fault: AppendFault) -> rusqlite::Result<()> {
+        let Some(data) = data else { return Ok(()) };
+        let mut faults = APPEND_FAULTS.lock().expect("seam");
+        match faults.iter().position(|(at, armed)| at == data && *armed == fault) {
+            Some(at) => {
+                faults.remove(at);
+                Err(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL), Some(INJECTED.to_owned())))
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// The transactions the writer of `data` committed, in order (and `locked`: an append transaction that did not begin
+    /// for a foreign connection's lock).
     pub(crate) fn commits(data: &Path) -> Vec<Commit> {
         COMMITS.lock().expect("seam").iter().filter(|(at, _)| at == data).map(|(_, commit)| commit.clone()).collect()
     }
@@ -2483,8 +2551,22 @@ impl Writer {
         let archive = bound_archive(&self.archive);
         let read_seq = self.archive_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let env = SmallEnv { archive: archive.as_deref(), read_seq, watch };
+        let mut failing = Failing::Begin;
+        // What the transaction moves in memory, put back when it fails, so that what it did not fail on is queued as it
+        // was. Where each queued projection stood;
+        let stood: Vec<(usize, Option<FramePos>)> = self.projections.iter().map(|pending| (pending.next, pending.hole)).collect();
+        // the retirements its projections handed over, by the projection's place, each with the one it replaced;
+        let mut retired: Vec<(usize, Option<Retiring>)> = Vec::new();
+        // the rows its projections queued (`None`) or gave a newer head, with the head and order they had;
+        type Stood = Option<(Arc<CatalogHead>, u64)>;
+        let mut raised: Vec<(String, Stood)> = Vec::new();
+        // and the rows it wrote.
+        let mut wrote: Vec<WrittenRow> = Vec::new();
         let result = (|| -> rusqlite::Result<()> {
+            #[cfg(test)]
+            reconcile_seam::append_fault(&self.seam, reconcile_seam::AppendFault::Begin)?;
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            failing = Failing::Small;
             // Small commands (dirty marks, status): one row each.
             while rows < self.append_rows
                 && let Some(cmd) = self.small.pop_front()
@@ -2497,7 +2579,10 @@ impl Writer {
             // the transaction's first frame (not held back, so a frame larger than the room the rows leave still goes in) a
             // frame goes in only while the rows still fit after it: one per session with a row to write, and this projection's.
             let mut first = true;
-            'outer: for pending in self.projections.iter_mut() {
+            'outer: for (at, pending) in self.projections.iter_mut().enumerate() {
+                failing = Failing::Session(pending.projection.session.clone());
+                #[cfg(test)]
+                reconcile_seam::append_fault(&self.seam, reconcile_seam::AppendFault::Frames(pending.projection.session.clone()))?;
                 // A projection queued after one of its session the index never took: its frames go in as before, and the
                 // cursor stays at the first frame missing, with the session noted as one whose rows the next start rebuilds
                 // from its log. No later projection moves the cursor across the missing one.
@@ -2549,11 +2634,11 @@ impl Writer {
                 if let Some(retirement) = pending.retire.take()
                     && let Some(ack) = pending.ack.take()
                 {
-                    // An older retirement of the session still waiting is another writer's: this one replaces it.
-                    if let Some(older) = self.retires.insert(pending.projection.session.clone(), Retiring { retirement, ack }) {
-                        refused.push((older.ack, format!("{}: retired again before its row was written", pending.projection.session)));
-                    }
+                    // An older retirement of the session still waiting is another writer's: this one replaces it, and the
+                    // commit refuses the older.
+                    retired.push((at, self.retires.insert(pending.projection.session.clone(), Retiring { retirement, ack })));
                 }
+                raised.push((pending.projection.session.clone(), self.upserts.get(&pending.projection.session).map(|entry| (entry.0.clone(), entry.3))));
                 let entry = self.upserts.entry(pending.projection.session.clone()).or_insert_with(|| (latest.clone(), DirtyMark::Keep, Vec::new(), seq));
                 if entry.3 < seq {
                     entry.0 = latest;
@@ -2572,55 +2657,65 @@ impl Writer {
                 if rows >= self.append_rows || bytes >= APPEND_BYTES {
                     break;
                 }
-                let (head, dirty, waiters, seq) = self.upserts.remove(&id).expect("listed");
-                rows += 1;
+                failing = Failing::Session(id.clone());
+                #[cfg(test)]
+                let place = wrote.len();
                 // The row of a retired writer is written clean only here, with the row, once the index holds its log
                 // through its end; otherwise the mark stays and the retirement is refused.
-                let retiring = self.retires.remove(&id);
-                let mut refusal = match &retiring {
-                    Some(retiring) => retire_refusal(&tx, &id, retiring)?,
-                    None => None,
-                };
-                // A row that waits for a fork view no step of this process can run (its base is behind the fork point,
-                // holed, or waits itself) is not waited for: the retirement is refused now, and the mark stays.
-                if retiring.is_some()
-                    && refusal.is_none()
-                    && crate::message_index::has_pending_view(&tx, &id)?
-                    && !crate::message_index::view_runnable(&tx, &id)?
-                {
-                    refusal = Some(format!("{id}: its row waits for a fork view that cannot be computed before the next start"));
+                wrote.push(WrittenRow {
+                    upsert: self.upserts.remove(&id).expect("listed"),
+                    retiring: self.retires.remove(&id),
+                    refusal: None,
+                    written: 0,
+                    id: id.clone(),
+                });
+                let row = wrote.last_mut().expect("pushed");
+                rows += 1;
+                #[cfg(test)]
+                reconcile_seam::append_fault(&self.seam, reconcile_seam::AppendFault::RowAt(place))?;
+                if let Some(retiring) = &row.retiring {
+                    row.refusal = retire_refusal(&tx, &id, retiring)?;
+                    // A row that waits for a fork view no step of this process can run (its base is behind the fork point,
+                    // holed, or waits itself) is not waited for: the retirement is refused now, and the mark stays.
+                    if row.refusal.is_none() && crate::message_index::has_pending_view(&tx, &id)? && !crate::message_index::view_runnable(&tx, &id)? {
+                        row.refusal = Some(format!("{id}: its row waits for a fork view that cannot be computed before the next start"));
+                    }
                 }
-                let dirty = if retiring.is_some() && refusal.is_none() { DirtyMark::Clear } else { dirty };
+                let dirty = if row.retiring.is_some() && row.refusal.is_none() { DirtyMark::Clear } else { row.upsert.1 };
                 // An anonymous mark (a creation's row) is no activation's until that activation names it.
                 if dirty != DirtyMark::Keep {
                     tx.prepare_cached("DELETE FROM meta WHERE key = ?1")?.execute([mark_key(&id)])?;
                 }
-                let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch, archive.as_deref())?;
+                let (written, edge) = upsert_edge(&tx, &row.upsert.0, dirty, &self.labels, watch, archive.as_deref())?;
                 edges.extend(edge);
-                if written == 0 {
-                    waiting.push((id.clone(), (head, seq)));
-                }
-                match (retiring, refusal) {
-                    // The row waits for its fork view, which the next steps compute: the retirement waits with it, its
-                    // mark kept until then.
-                    (Some(retiring), None) if written == 0 => {
-                        tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")?
-                            .execute(params![mark_key(&id), retiring.retirement.activation.to_string()])?;
-                        self.retires.insert(id.clone(), retiring);
-                    }
-                    (Some(retiring), None) => acks.push(retiring.ack),
-                    (Some(retiring), Some(why)) => refused.push((retiring.ack, why)),
-                    (None, _) => {}
+                row.written = written;
+                // The row waits for its fork view, which the next steps compute: the retirement waits with it, its mark
+                // kept until then.
+                if let Some(retiring) = &row.retiring
+                    && row.refusal.is_none()
+                    && written == 0
+                {
+                    tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")?
+                        .execute(params![mark_key(&id), retiring.retirement.activation.to_string()])?;
                 }
                 bytes += written;
-                acks.extend(waiters);
             }
             if let Some(sink) = self.sink.get().filter(|_| !edges.is_empty()) {
                 sink.writing(edges.len());
                 told = edges.len();
             }
+            failing = Failing::Commit;
+            #[cfg(test)]
+            reconcile_seam::append_fault(&self.seam, reconcile_seam::AppendFault::Commit)?;
             tx.commit()
         })();
+        // Still locked after SQLite's own wait: the lock is a foreign connection's, and no fault of what is queued.
+        let locked =
+            matches!(failing, Failing::Begin) && matches!(&result, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::DatabaseBusy);
+        #[cfg(test)]
+        let injected = matches!(&result, Err(rusqlite::Error::SqliteFailure(_, Some(why))) if why == reconcile_seam::INJECTED);
+        #[cfg(not(test))]
+        let injected = false;
         let result = result.map_err(|e| e.to_string());
         // The count told to the sink is given back before anything can leave this function: the assertion below panics in a
         // debug build, and a count never given back makes every later listing wait for ever.
@@ -2630,28 +2725,99 @@ impl Writer {
         {
             sink.dropped(told);
         }
-        debug_assert!(result.is_ok(), "append transaction failed: {result:?}");
+        // The only failure a test build lets by is the lock of a foreign connection (and one a test injected): any other
+        // is a defect of what the transaction wrote.
+        debug_assert!(result.is_ok() || locked || injected, "append transaction failed: {result:?}");
         #[cfg(test)]
         if result.is_ok() {
             self.trace("serving", "", rows);
-        }
-        if result.is_err() {
-            // Nothing of the transaction is in: no retirement that waited on it is answered clean.
-            acks.extend(self.retires.drain().map(|(_, retiring)| retiring.ack));
-            acks.extend(refused.drain(..).map(|(ack, _)| ack));
-        }
-        for (ack, why) in refused {
-            let _ = ack.send(Err(DbError::Write(why)));
+        } else if locked {
+            self.trace("locked", "", 0);
         }
         let finished: Vec<Pending> = if result.is_ok() {
+            for (at, older) in retired {
+                if let Some(older) = older {
+                    refused.push((older.ack, format!("{}: retired again before its row was written", self.projections[at].projection.session)));
+                }
+            }
+            for WrittenRow { id, upsert: (head, _, waiters, seq), retiring, refusal, written } in wrote {
+                if written == 0 {
+                    waiting.push((id.clone(), (head, seq)));
+                }
+                match (retiring, refusal) {
+                    (Some(retiring), None) if written == 0 => drop(self.retires.insert(id, retiring)),
+                    (Some(retiring), None) => acks.push(retiring.ack),
+                    (Some(retiring), Some(why)) => refused.push((retiring.ack, why)),
+                    (None, _) => {}
+                }
+                acks.extend(waiters);
+            }
             self.projections.drain(..done_projections).collect()
         } else {
-            let failed: std::collections::HashSet<String> =
-                self.projections.iter().take(reached.max(done_projections).max(1)).map(|p| p.projection.session.clone()).collect();
+            // Nothing of the transaction is in. What it failed on is lost to the index: the session it was writing; when
+            // the commit failed, every session it held; when it did not begin for a reason other than a lock, everything
+            // queued. Each failure so takes its work off the queue, and the next transaction is another. Everything else
+            // is queued as it was and goes in with that one. A projection dropped here leaves its session with a later
+            // one past its cursor: that one is applied, the session is noted as holed, and the next start purges its rows
+            // and replays its log from the first frame, behind the serving core. A full disk did that to six sessions
+            // on 2026-11-23 13:08Z ("index write failed: database or disk is full"), one of them with a 717 MB log.
+            let unbegun = matches!(failing, Failing::Begin) && !locked;
+            let mut failed: std::collections::HashSet<String> = match &failing {
+                Failing::Begin | Failing::Small => std::collections::HashSet::new(),
+                Failing::Session(session) => std::collections::HashSet::from([session.clone()]),
+                Failing::Commit => self.projections.iter().take(reached.max(done_projections)).map(|p| p.projection.session.clone()).collect(),
+            };
+            if matches!(failing, Failing::Commit) {
+                failed.extend(wrote.iter().map(|row| row.id.clone()));
+            }
+            for row in wrote.into_iter().rev() {
+                if let Some(retiring) = row.retiring {
+                    self.retires.insert(row.id.clone(), retiring);
+                }
+                self.upserts.insert(row.id, row.upsert);
+            }
+            for (session, before) in raised.into_iter().rev() {
+                match before {
+                    Some((head, seq)) => {
+                        if let Some(entry) = self.upserts.get_mut(&session) {
+                            (entry.0, entry.3) = (head, seq);
+                        }
+                    }
+                    None => drop(self.upserts.remove(&session)),
+                }
+            }
+            for (at, older) in retired.into_iter().rev() {
+                let pending = &mut self.projections[at];
+                if let Some(Retiring { retirement, ack }) = self.retires.remove(&pending.projection.session) {
+                    (pending.retire, pending.ack) = (Some(retirement), Some(ack));
+                }
+                if let Some(older) = older {
+                    self.retires.insert(pending.projection.session.clone(), older);
+                }
+            }
+            for (pending, (next, hole)) in self.projections.iter_mut().zip(stood) {
+                (pending.next, pending.hole) = (next, hole);
+            }
+            if unbegun {
+                failed.extend(self.projections.iter().map(|p| p.projection.session.clone()));
+                failed.extend(self.upserts.keys().cloned());
+                failed.extend(self.retires.keys().cloned());
+                // A small command's answer is its own to send: dropped, its sender is told the writer did not answer.
+                self.small.clear();
+            }
+            for session in &failed {
+                acks.extend(self.upserts.remove(session).into_iter().flat_map(|upsert| upsert.2));
+                acks.extend(self.retires.remove(session).map(|retiring| retiring.ack));
+            }
+            // The small commands that ran are answered with the failure, their own refusals among them.
+            acks.extend(refused.drain(..).map(|(ack, _)| ack));
             let (dropped, kept): (VecDeque<Pending>, VecDeque<Pending>) = self.projections.drain(..).partition(|p| failed.contains(&p.projection.session));
             self.projections = kept;
             dropped.into()
         };
+        for (ack, why) in refused {
+            let _ = ack.send(Err(DbError::Write(why)));
+        }
         // A projection that finished may have opened a view, or advanced the watermark a
         // pending view waits for.
         let advanced = !finished.is_empty();
@@ -4054,8 +4220,7 @@ impl SqliteStore {
     }
 
     /// Test support: the index row of `session`'s op `op_id` removed, as a projection the index never took leaves it. Written
-    /// by the index writer, in order with its appends: another connection's write fails an append that meets it (the writer
-    /// does not wait for a lock). Refused when there is no such row.
+    /// by the index writer, in order with its appends. Refused when there is no such row.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn forget_thread_op(&self, session: &str, op_id: &str) -> Result<(), DbError> {
         let (id, op_id) = (session.to_owned(), op_id.to_owned());
@@ -4971,8 +5136,8 @@ fn replay_rewritten(sender: &mpsc::Sender<Command>, rewrite: &Rewritten) -> Resu
 fn repair_owed(repairer: &gate::Repairer, data: &Path) {
     let blobs = crate::blobs::BlobStore::new(data);
     while let Some((session, forced)) = repairer.next() {
-        #[cfg(test)]
-        reconcile_seam::wait_if_held(data, &session);
+        #[cfg(any(test, feature = "test-support"))]
+        repair_hold::wait_if_held(data, &session);
         if repair_and_settle(repairer, data, &blobs, &session, forced).is_none() {
             // As a process ending there: nothing more is repaired, and what is pending stays so.
             repairer.end();
@@ -5770,8 +5935,11 @@ fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: O
     Ok((items_of(units), next))
 }
 
+/// A row's frame length and live amend.
+type RowFrame = (u64, Option<(FramePos, u64)>);
+
 /// The frame length and live amend of a `PAGE_SQL` row, and what the two cost a page's byte budget.
-fn row_frame(r: &rusqlite::Row<'_>) -> rusqlite::Result<((u64, Option<(FramePos, u64)>), u64)> {
+fn row_frame(r: &rusqlite::Row<'_>) -> rusqlite::Result<(RowFrame, u64)> {
     let frame_len = r.get::<_, i64>(7)? as u64;
     let amend = match r.get::<_, Option<i64>>(8)? {
         Some(o) => Some((FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 }, r.get::<_, i64>(11)? as u64)),

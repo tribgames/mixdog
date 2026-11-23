@@ -134,7 +134,7 @@ impl SessionActor {
 
     /// The crashed runs end: what each left is committed, then its end (`recoverTurnCheckpoint`: the record names
     /// the turn it covers, is stamped as used, and drops the provider continuation, `turn-checkpoint.mjs:545-554`).
-    pub(super) fn recovered(&mut self, ended: Vec<(String, super::super::seams::CrashedRows, Option<serde_json::Map<String, Value>>)>) {
+    pub(super) fn recovered(&mut self, ended: Vec<super::RecoveredRun>) {
         let at = self.deps.clock.now_ms();
         // The recovery is one unit, written whole or failed whole: a failed save shows nothing of it (the open is served the
         // log as it stands) and leaves the runs open, their drafts kept, for the next open, as an unreadable context does.

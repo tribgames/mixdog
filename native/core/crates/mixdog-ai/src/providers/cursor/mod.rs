@@ -37,20 +37,22 @@ use std::time::Duration;
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use bytes::Bytes;
-use mixdog_core_api::domain::provider::Message;
-use mixdog_core_api::domain::provider::MessageSource;
-use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::ListedRoster;
+use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::MessageSource;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
+use mixdog_core_api::domain::provider::Provenance;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
@@ -66,12 +68,12 @@ use serde_json::Value;
 
 use self::decoder::CursorDecoder;
 use self::models::CursorModel;
+use self::models::ParameterAsk;
 use self::open_run::Fingerprint;
 use self::open_run::Kept;
 use self::open_run::Live;
 use self::open_run::Parked;
 use self::open_run::Runs;
-use self::models::ParameterAsk;
 use self::request::ModelSelection;
 use self::request::Prepared;
 use self::request::RunBuild;
@@ -241,6 +243,12 @@ fn is_auth_failure(error: &ProviderError) -> bool {
         || matches!(error.status, Some(401 | 403))
 }
 
+/// The service refused the sign-in itself (401) on a request that carried only its token. A 403 is not: a plan without
+/// the data, a blocked or retired endpoint.
+pub(crate) fn is_sign_in_refusal(error: &ProviderError) -> bool {
+    error.status == Some(401)
+}
+
 /// The server's own detail of a Connect failure the protocol-drift check reads: the message after `Cursor <code>: `.
 fn failure_detail(error: &ProviderError) -> &str {
     error.message.split_once(": ").map_or("", |(_, detail)| detail)
@@ -268,6 +276,20 @@ fn with_failure_hint(mut error: ProviderError) -> ProviderError {
 }
 
 // Adapter
+
+/// What a model discovery answered with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Discovery {
+    /// The account's own catalog.
+    Live,
+    /// The static list: no attempt gave a row.
+    Fallback,
+    /// The static list: the service refused the token the discovery was sent on.
+    Refused,
+    /// The static list: the sign-in is marked for a new sign-in, so nothing can change until the user signs in again
+    /// (which re-lists by itself). A settled answer, asked again by nothing.
+    SignedOut,
+}
 
 pub struct CursorAdapter {
     id: ProviderId,
@@ -324,10 +346,10 @@ impl CursorAdapter {
         if let Some(models) = self.catalog.load_full() {
             return Ok((*models).clone());
         }
-        let (models, fallback) = self.discover_models(access_token).await;
+        let (models, discovery) = self.discover_models(access_token).await;
         // The picker may have installed a live catalog while this send was fetching: it is newer than anything this
         // discovery found, and better than the static list, so it answers first.
-        if fallback {
+        if discovery != Discovery::Live {
             return Ok(self.catalog.load_full().map_or(models, |installed| (*installed).clone()));
         }
         // A cold fill never replaces a catalog installed while it was fetching; the fallback is never kept.
@@ -341,27 +363,30 @@ impl CursorAdapter {
 
     /// The live catalog with Node's backoff (`getCursorModels`): three attempts after 0.5, 1.5 and 3 s, each
     /// `AvailableModels` then the legacy `GetUsableModels`; the static list answers when none gave a row, flagged so
-    /// it is never kept.
-    pub async fn discover_models(&self, access_token: &str) -> (Vec<CursorModel>, bool) {
+    /// it is never kept. A sign-in the primary call refuses is refused again after any wait, so that refusal answers the
+    /// static list at once.
+    pub async fn discover_models(&self, access_token: &str) -> (Vec<CursorModel>, Discovery) {
         for delay in [None, Some(Duration::from_millis(500)), Some(Duration::from_millis(1_500)), Some(Duration::from_millis(3_000))] {
             if let Some(delay) = delay {
                 mixdog_rt::time::sleep(delay).await;
             }
-            if let Ok(models) = self.discover_once(access_token).await
+            // The sign-in is judged by the primary call's answer; the legacy call only stands in for its rows.
+            match self.fetch_models(access_token).await {
+                Ok(models) if !models.is_empty() => return (models, Discovery::Live),
+                Err(error) if is_sign_in_refusal(&error) => return (models::fallback_models(), Discovery::Refused),
+                _ => {}
+            }
+            if let Ok(models) = self.fetch_usable_models(access_token).await
                 && !models.is_empty()
             {
-                return (models, false);
+                return (models, Discovery::Live);
             }
         }
-        (models::fallback_models(), true)
+        (models::fallback_models(), Discovery::Fallback)
     }
 
-    async fn discover_once(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
-        if let Ok(models) = self.fetch_models(access_token).await
-            && !models.is_empty()
-        {
-            return Ok(models);
-        }
+    /// One legacy `GetUsableModels` request.
+    async fn fetch_usable_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
         let body = self.unary(MODELS_PATH, Vec::new(), access_token).await?;
         models::decode_usable_models(unwrap_unary_body(&body)).map_err(|e| pb_error(&e.to_string()))
     }
@@ -519,17 +544,60 @@ impl Asked {
 #[async_trait]
 impl ModelListing for CursorAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        let token = self.tokens.access_token().await?.token;
-        let (models, fallback) = self.discover_models(&token).await;
+        Ok(self.listed().await?.0)
+    }
+
+    /// [`Self::list_models`], with the static list stated as the seed: it is never recorded as the account's answer, so the
+    /// catalog asks again once its backoff passed. A sign-in that needs a new sign-in is the exception: its static list
+    /// is the provider's settled answer until the user signs in again.
+    async fn list_roster(&self) -> Result<ListedRoster, ProviderError> {
+        let before = self.roster_identity().await;
+        let (rows, discovery) = self.listed().await?;
+        let identity = self.roster_identity().await;
+        if before != identity {
+            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+            error.message = "the signed-in account changed while the model list was being fetched".to_owned();
+            return Err(error);
+        }
+        let provenance = match discovery {
+            Discovery::Live | Discovery::SignedOut => Provenance::Fetched,
+            Discovery::Fallback | Discovery::Refused => Provenance::Seed,
+        };
+        Ok(ListedRoster { rows, provenance, identity })
+    }
+}
+
+impl CursorAdapter {
+    /// One listing. A sign-in already refused sends nothing and answers the static list. A refusal of the sign-in this
+    /// listing was sent on is acted on as a send's is: that one is renewed, and the listing runs once more on the renewed
+    /// token, or it is marked for a new sign-in when its renewal is refused too.
+    async fn listed(&self) -> Result<(Vec<ModelRecord>, Discovery), ProviderError> {
+        let (models, discovery) = match self.tokens.access_token().await {
+            Ok(access) => match self.discover_models(&access.token).await {
+                (_, Discovery::Refused) => match self.tokens.after_rejection(&access).await {
+                    Ok(renewed) if renewed.token != access.token => self.discover_models(&renewed.token).await,
+                    Ok(_) => (models::fallback_models(), Discovery::Refused),
+                    // A refused renewal is no proof the stored sign-in is marked (another process may have renewed it
+                    // meanwhile): only the token step reading a marked sign-in settles, on the next ask.
+                    Err(error) => {
+                        tracing::warn!(provider = self.id.as_str(), kind = ?error.kind, "[cursor] the refused sign-in was not renewed");
+                        (models::fallback_models(), Discovery::Refused)
+                    }
+                },
+                discovered => discovered,
+            },
+            Err(error) if is_sign_in_refusal(&error) => (models::fallback_models(), Discovery::SignedOut),
+            Err(error) => return Err(error),
+        };
         let rows: Vec<ModelRecord> = listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect();
         // The static list answers this call only: `_loadCursorCatalog` keeps no catalog from it, so `getCachedModelInfo`
         // has nothing of it either.
-        if !fallback {
+        if discovery == Discovery::Live {
             // The sends read the catalog this listing refreshed (`_loadCursorCatalog` is one cache for both).
             self.catalog.store(Some(Arc::new(models)));
             self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
         }
-        Ok(rows)
+        Ok((rows, discovery))
     }
 }
 #[async_trait]
@@ -852,7 +920,19 @@ impl CursorStream {
         live.decoder.attend(request.clone());
         let heartbeat = Box::pin(mixdog_rt::ticker().wait_until(live.heartbeat_at));
         let identity = request.options.send_identity.clone();
-        Self { live: Some(live), replay, throttle: None, queue: VecDeque::new(), ended: false, heartbeat, quiet: None, identity, waits: None, parked: None, unknown_model: false }
+        Self {
+            live: Some(live),
+            replay,
+            throttle: None,
+            queue: VecDeque::new(),
+            ended: false,
+            heartbeat,
+            quiet: None,
+            identity,
+            waits: None,
+            parked: None,
+            unknown_model: false,
+        }
     }
 
     fn live(&mut self) -> &mut Live {

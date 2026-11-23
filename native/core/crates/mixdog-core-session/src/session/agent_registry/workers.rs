@@ -208,6 +208,7 @@ impl Workers for AgentWorkers {
     async fn entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, WorkerFacts)> {
         self.registry
             .session_entries(scan_sessions, scope)
+            .await
             .into_iter()
             .map(|(tag, session)| {
                 let id = mixdog_js::js_trim(session.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();

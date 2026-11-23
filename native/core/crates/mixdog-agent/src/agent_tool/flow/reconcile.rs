@@ -65,6 +65,7 @@ pub struct JobHandle {
     early_notified: AtomicBool,
     slot: std::sync::OnceLock<std::sync::Arc<dyn crate::env::Yielder>>,
     turn: tokio::sync::watch::Sender<Option<JobTurn>>,
+    cancel: std::sync::OnceLock<crate::cancel::Cancel>,
 }
 
 /// The turn a job submitted to a session, from the session's start of it until its run is over.
@@ -85,7 +86,27 @@ impl JobHandle {
             early_notified: AtomicBool::new(false),
             slot: std::sync::OnceLock::new(),
             turn: tokio::sync::watch::channel(None).0,
+            cancel: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The job's own cancellation, which its board row's cancel aborts.
+    pub fn set_cancel(&self, cancel: crate::cancel::Cancel) {
+        let _ = self.cancel.set(cancel);
+    }
+
+    pub fn cancel(&self) -> Option<crate::cancel::Cancel> {
+        self.cancel.get().cloned()
+    }
+
+    /// The job's turn entered `stage`: its card names it.
+    pub fn set_stage(&self, stage: super::stages::TurnStage) {
+        self.board.set_turn_stage(&self.task_id, stage);
+    }
+
+    /// The stage the job's turn entered last.
+    pub fn stage(&self) -> Option<super::stages::TurnStage> {
+        self.snapshot().and_then(|s| s.turn_stage).map(|(stage, _)| stage)
     }
 
     /// The job's turn started on its session (`Some`), or is over (`None`).

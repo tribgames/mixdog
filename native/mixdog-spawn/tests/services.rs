@@ -540,7 +540,6 @@ fn output_text(frames: &[Value]) -> String {
 /// before the tab existed and does nothing about the tab; the desktop (connection 1) opens it and types into it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_phone_reading_the_lane_gets_the_first_output_of_a_tab_another_connection_opens() {
-    use mixdog_core_api::feed::ScopedFeeds;
     use mixdog_core_api::ids::FeedId;
     use mixdog_core_api::mock::FeedTap;
 

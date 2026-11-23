@@ -116,6 +116,8 @@ pub struct TurnPathParts {
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     /// The sessions' result caches, made by the composition: the manual compaction (built before the path) resets them too.
     pub reuses: Arc<super::result_reuse::LiveReuses>,
+    /// The agents that run turns outside the loop; `None` runs every turn in it.
+    pub outside: Option<Arc<dyn super::factory::OutsideAgents>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -195,6 +197,7 @@ impl TurnPath {
             liveness,
             search_usage,
             reuses,
+            outside,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         // A tool result's images enter the attachment store through the one importer, as every other ingress does.
@@ -248,6 +251,7 @@ impl TurnPath {
             turn_settings: turn_settings.clone(),
             liveness: liveness.clone(),
             search_usage,
+            outside,
         };
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
         Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings, liveness, gate_env: live_gate_env })

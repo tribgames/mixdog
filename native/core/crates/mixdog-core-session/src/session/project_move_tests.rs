@@ -47,12 +47,15 @@ const ID: &str = "sess_move";
 
 /// The session workspaces as the turns' admission and the live workspace, bound once they exist (they are built over the
 /// directory); a turn is admitted at once. While `hold` is set, a move the actor began waits for it before it is carried out;
-/// `begun` counts the moves the actor began.
+/// `begun` counts the moves the actor began and `carried` those whose carry ended. While `read` is set, a live-workspace read
+/// started then answers its workspace once its token is cancelled.
 #[derive(Default)]
 struct Late {
     workspaces: OnceLock<SessionWorkspaces>,
     hold: Mutex<Option<Arc<Notify>>>,
     begun: std::sync::atomic::AtomicUsize,
+    carried: Arc<std::sync::atomic::AtomicUsize>,
+    read: Mutex<Option<(Value, CancellationToken)>>,
 }
 
 #[async_trait]
@@ -64,12 +67,14 @@ impl TurnAdmission for Late {
     fn settled_move(&self, thread: &str, pending: Value) -> Option<futures::future::BoxFuture<'static, Result<(), CoreError>>> {
         let carry = self.workspaces.get()?.settled_move(thread, pending)?;
         self.begun.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let hold = locked(&self.hold).clone();
+        let (hold, carried) = (locked(&self.hold).clone(), self.carried.clone());
         Some(Box::pin(async move {
             if let Some(hold) = hold {
                 hold.notified().await;
             }
-            carry.await
+            let result = carry.await;
+            carried.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            result
         }))
     }
 }
@@ -77,6 +82,11 @@ impl TurnAdmission for Late {
 #[async_trait]
 impl LiveWorkspace for Late {
     async fn live(&self, session: &str) -> Option<Value> {
+        let read = locked(&self.read).clone();
+        if let Some((workspace, answer)) = read {
+            answer.cancelled().await;
+            return Some(workspace);
+        }
         self.workspaces.get()?.live_workspace(session).await
     }
 }
@@ -299,12 +309,12 @@ async fn a_move_during_a_turn_waits_for_it_to_end_and_the_turn_keeps_its_folder(
 /// whatever move a read carries, the published state shows the record's move as it is when the read is published.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_workspace_read_published_late_shows_the_records_move_not_its_own() {
-    use mixdog_core_ports::ports::threads::Section;
     let (rig, folders) = (Rig::new(), folders());
     let served = served(&rig, &folders).await;
     let gate = held_turns(&rig);
+    let early = CancellationToken::new();
+    *locked(&served.late.read) = Some((json!({ "cwd": folders.a, "marker": "early" }), early.clone()));
     let handle = create(&rig, &served.directory, &folders, json!({})).await;
-    let (threads, id) = (SessionThreads::new(served.directory.clone()), ThreadId::from(ID));
     let published = |cwd: &str| {
         let workspace = handle.cell.view.load_full().state.workspace.clone();
         workspace.filter(|workspace| workspace["cwd"] == cwd)
@@ -312,17 +322,25 @@ async fn a_workspace_read_published_late_shows_the_records_move_not_its_own() {
     running(&handle).await;
     move_to(&served, &folders.b, 1).await.expect("accepted");
 
-    // A read from before the move was asked for, published after it: the pending move still shows.
-    threads.publish(&id, Section::Workspace(Some(json!({ "cwd": folders.a, "marker": "early" })))).await.expect("published");
+    // The session's reads from before the move was asked for, published after it: the pending move still shows.
+    early.cancel();
     eventually_on!(&[&handle.cell.stepped], || published(&folders.a).filter(|workspace| workspace["marker"] == "early").map(drop)).await;
     assert_eq!(shown(&handle).map(|move_| move_["projectPath"].clone()), Some(json!(folders.b)));
 
-    gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (pending(&handle).is_none() && same(&cwd(&handle), &folders.b)).then_some(())).await;
-
-    // A read made while the move was pending, published last: the move it carries is gone from the record, so it does not show.
+    // The re-read the move's new folder starts carries the move as a read made while it was pending, and answers only after
+    // the carry, whose own last publish is the move's.
+    let late = CancellationToken::new();
     let stale = json!({ "cwd": folders.a, "marker": "late", "pendingProjectMove": { "projectPath": folders.b, "requestedAt": 1 } });
-    threads.publish(&id, Section::Workspace(Some(stale))).await.expect("published");
+    *locked(&served.late.read) = Some((stale, late.clone()));
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || {
+        let carried = served.late.carried.load(std::sync::atomic::Ordering::SeqCst) == 1;
+        (carried && pending(&handle).is_none() && same(&cwd(&handle), &folders.b)).then_some(())
+    })
+    .await;
+
+    // Published last, the move it carries is gone from the record, so it does not show.
+    late.cancel();
     eventually_on!(&[&handle.cell.stepped], || published(&folders.a).filter(|workspace| workspace["marker"] == "late").map(drop)).await;
     assert_eq!(shown(&handle), None, "the published workspace carries no move the record no longer has");
 }

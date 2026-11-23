@@ -88,14 +88,24 @@ pub struct Claim {
 
 /// What a dispatch asks of the one owner of a worker's turn status: the claim of the turn it
 /// submits and the observation of turns queued behind a running one.
+#[async_trait::async_trait]
 pub trait TurnOwner: Send + Sync {
     fn claim(&self, session_id: &str, job: Option<Arc<JobHandle>>) -> Claim;
     fn observe(&self, session_id: &str) -> bool;
+    /// Taken before [`Self::claim`] and held through its release ([`WorkerTurns::hold`]).
+    async fn hold(&self, _session_id: &str) -> Box<dyn Send> {
+        Box::new(())
+    }
 }
 
+#[async_trait::async_trait]
 impl TurnOwner for WorkerTurns {
     fn claim(&self, session_id: &str, job: Option<Arc<JobHandle>>) -> Claim {
         WorkerTurns::claim(self, session_id, job)
+    }
+
+    async fn hold(&self, session_id: &str) -> Box<dyn Send> {
+        WorkerTurns::hold(self, session_id).await
     }
 
     fn observe(&self, session_id: &str) -> bool {
@@ -197,6 +207,12 @@ impl WorkerTurns {
         let agent = self.inner.names.agent(&owner.session_id).unwrap_or_default();
         let (status, stalled) = settled_turn_status(&outcome, &agent, job.as_deref());
         self.settle_row(&owner.session_id, status, stalled, job.as_deref());
+    }
+
+    /// What the row writes of `session_id`'s turns read of the session stays at hand until the guard drops
+    /// ([`WorkerRows::hold`]).
+    pub async fn hold(&self, session_id: &str) -> Box<dyn Send> {
+        self.inner.rows.hold(session_id).await
     }
 
     /// Observes `session_id`'s turns through the route that runs them; `false` when that route

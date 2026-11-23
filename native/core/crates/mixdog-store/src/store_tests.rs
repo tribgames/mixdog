@@ -1077,6 +1077,34 @@ async fn the_open_reads_the_last_group_once_and_otherwise_the_window() {
     assert!(opened.bytes_read <= REVERSE_SCAN_MAX + window, "{} of {size}", opened.bytes_read);
 }
 
+/// The open starts from the newest anchor of the newest file however far from its end it lies within the bound: the header
+/// changed before and after that anchor reads as written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_header_reads_as_written_from_an_anchor_far_from_the_end() {
+    use crate::schema::frame::*;
+    let env = Env::new();
+    let mut w = env.create("s1", None).await;
+    let meta = |n: usize| rec(json!({"k":"meta","change":{"inline":{"set":{"step":n},"unset":[]}}}));
+    let mut n = 0;
+    loop {
+        w = env.commit(w, vec![sized_item(&format!("i{n}"), 100), meta(n)]).await.0;
+        n += 1;
+        let bytes = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
+        let scan = crate::framing::scan(&bytes, 0, 0, first_ordinal(&bytes));
+        let newest = scan.frames.iter().filter(|frame| is_anchor_payload(frame.payload(&bytes))).map(|frame| frame.start).last().expect("the session frame");
+        // Past a checkpoint, and further from the end than two of the reverse scan's first windows.
+        if newest > 0 && bytes.len() - newest > 2 * (MAX_FRAME_LEN + 1) {
+            break;
+        }
+    }
+    drop(w);
+    let opened = env.reopen("s1").await;
+    let mut header = serde_json::Map::new();
+    header.insert("title".into(), json!("t"));
+    header.insert("step".into(), json!(n - 1));
+    assert_eq!((opened.status, opened.fold.rows, opened.fold.header.to_map()), (LogStatus::Clean, n as u64, header));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_old_reader_never_misreads_a_log_with_groups() {
     use crate::schema::frame::*;
@@ -3346,6 +3374,42 @@ async fn a_missed_projection_keeps_the_mark_and_the_cursor_at_the_first_frame_mi
     assert_eq!(iids(&rows), ["c", "b", "a"]);
     assert!(reopened.owed_repairs().await.unwrap().is_empty());
     drop(reopened);
+    assert_eq!(session_rows(&env.data), rebuilt_rows(&env, "s1"));
+}
+
+/// A transaction the index writer cannot begin because a foreign connection holds the database's write lock is the failure
+/// of nothing queued: the writer thread waits for the lock in SQLite, and the projection that waits meanwhile is not
+/// dropped and goes in once the lock is gone. The index then holds the log through its end, so the writer retires clean
+/// and the next start owes the session nothing. Dropped, it left the session's next projection past its cursor: a hole,
+/// and a rebuild of its rows from the log's first frame.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_projection_queued_while_the_index_cannot_begin_a_transaction_is_not_lost() {
+    let env = Env::new();
+    let w = env.create_from("s1", stamped_session("s1")).await;
+    env.mark("s1").await;
+    let w = env.commit(w, vec![item("a")]).await.0;
+    let locker = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    locker.busy_timeout(std::time::Duration::from_secs(30)).unwrap();
+    locker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (w, appended) = env.append(w, vec![item("b")]).await;
+    let taken = env.store.queue_projection(appended.unwrap().projection).await.unwrap();
+    // The writer's transaction with the projection met the lock and gave up its wait: seen, and not assumed of a delay.
+    let met = |data: &Path| crate::sqlite::reconcile_seam::commits(data).iter().any(|(kind, ..)| *kind == "locked");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), async {
+        while !met(&env.data) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the writer met the lock");
+    locker.execute_batch("ROLLBACK").unwrap();
+    drop(locker);
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), taken).await.expect("the projection is answered once the lock is gone").unwrap();
+    let w = env.commit(w, vec![item("c")]).await.0;
+    env.retire(w).await.unwrap();
+    assert!(env.store.owed_repairs().await.unwrap().is_empty(), "the session is neither marked nor holed");
+    let (rows, _) = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
     assert_eq!(session_rows(&env.data), rebuilt_rows(&env, "s1"));
 }
 

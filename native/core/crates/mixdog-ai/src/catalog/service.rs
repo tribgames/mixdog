@@ -355,6 +355,18 @@ impl CatalogService {
         self.catalog.snapshot()
     }
 
+    /// A read of a loaded catalog: the providers whose retry time has passed are listed again, each by the one read that
+    /// claims it, without the read waiting for them. Their retry time is moved to when the answer can be there, and the
+    /// answer reaches the readers as a late one does ([`Self::on_late_answer`]).
+    pub fn ask_overdue(&self) {
+        let claimed = self.catalog.claim_overdue(&self.sources());
+        if claimed.is_empty() {
+            return;
+        }
+        let catalog = self.catalog.clone();
+        drop(mixdog_rt::spawn("catalog.overdue-refresh", mixdog_rt::TaskClass::Work, async move { catalog.refresh_claimed(&claimed).await }));
+    }
+
     /// Replaces the listings a refresh asks while no registry is bound ([`Self::bind_registered`]).
     pub fn set_sources(&self, sources: Vec<ModelSource>) {
         self.sources.store(Arc::new(sources));
@@ -412,6 +424,25 @@ impl CatalogService {
         };
         futures::future::join(self.metadata.load(false), litellm).await;
         self.publish_listing();
+    }
+
+    /// Binds the catalog revision's move (`moved`) to the listings that land after their refresh published them missing:
+    /// such an answer is told to its readers as a refresh's is, the listing tables published again and the revision moved.
+    /// The move is that listing's answer, not a new provider set, so a due refresh does not ask every provider again for it.
+    pub fn on_late_answer(self: &Arc<Self>, moved: impl Fn() + Send + Sync + 'static) {
+        let service = Arc::downgrade(self);
+        self.catalog.on_late_answer(move || {
+            let Some(service) = service.upgrade() else { return };
+            let before = service.catalog_revision();
+            moved();
+            {
+                let mut listed = service.listed_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if *listed == Some(before) {
+                    *listed = Some(service.catalog_revision());
+                }
+            }
+            service.publish_listing();
+        });
     }
 
     /// An auth/account change: the rows listed under the previous account are

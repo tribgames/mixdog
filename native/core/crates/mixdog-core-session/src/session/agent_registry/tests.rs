@@ -203,7 +203,7 @@ impl Store {
             return Index::Unchanged;
         }
         let maps = self.listed().into_iter().enumerate().map(|(at, (id, map))| (id, Place::At(at as i64), map)).collect();
-        let sessions = self.sessions.lock().unwrap().iter().enumerate().map(|(at, s)| (Place::At(at as i64), s.clone())).collect();
+        let sessions = self.sessions.lock().unwrap().iter().map(|s| (clean(s.get("id")), ListRow::of(s))).collect();
         Index::Full { revision: Some(revision), maps, sessions }
     }
 
@@ -418,7 +418,7 @@ async fn a_tombstone_blocks_a_scan_of_its_reaped_session_only() {
     let initial = [true, false, true, false, true, true, false, false, false, true, true, false, false, false];
     assert_eq!(decisions(&registry, &checks), initial);
 
-    registry.resolve_tombstone_owners();
+    registry.resolve_tombstone_owners().await;
     assert_eq!(decisions(&registry, &checks), initial, "the recovered owner keeps it blocked");
     let legacy = registry.tag_tombstone_for_tag("legacy", &Scope::default()).expect("legacy tombstone");
     assert_eq!(legacy.owner.parent_session_id, "lead-a", "recovered from its one session");
@@ -455,7 +455,7 @@ async fn a_status_recompute_over_an_unchanged_index_visits_no_row_and_no_tombsto
     let scope = lead("lead-a");
     let recompute = || async {
         registry.refresh_tags_from_sessions(false, &scope).await.unwrap();
-        (registry.session_entries(false, &scope), registry.read_worker_rows(&scope).unwrap(), registry.read_all_tag_tombstones())
+        (registry.session_entries(false, &scope).await, registry.read_worker_rows(&scope).unwrap(), registry.read_all_tag_tombstones())
     };
 
     let first = recompute().await;
@@ -513,7 +513,7 @@ async fn the_kept_reads_follow_the_clock_as_a_read_that_keeps_nothing_does() {
     rig.store.write("s-released", Some(released));
     let kept = rig.registry();
     kept.reload().await.unwrap();
-    kept.resolve_tombstone_owners();
+    kept.resolve_tombstone_owners().await;
 
     let ttl = TAG_TOMBSTONE_TTL_MS as i64;
     // The reaps are at NOW - 1h and the marker at NOW - 2d: they end at NOW + ttl - 1h and NOW + ttl - 2d.
@@ -522,7 +522,7 @@ async fn the_kept_reads_follow_the_clock_as_a_read_that_keeps_nothing_does() {
         rig.clock.0.store(NOW + offset, Ordering::SeqCst);
         let fresh = rig.registry();
         fresh.reload().await.unwrap();
-        fresh.resolve_tombstone_owners();
+        fresh.resolve_tombstone_owners().await;
         let (have, want) = (index_reads(&kept), index_reads(&fresh));
         assert_eq!(have.0, want.0, "rows at +{offset}");
         assert_eq!(have.1, want.1, "all rows at +{offset}");
@@ -552,7 +552,7 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
     rig.store.write("s-released", Some(released));
     let kept = rig.registry();
     kept.reload().await.unwrap();
-    kept.resolve_tombstone_owners();
+    kept.resolve_tombstone_owners().await;
 
     let ttl = TAG_TOMBSTONE_TTL_MS as i64;
     let (reap_end, marker_end) = (NOW - HOUR + ttl, NOW - 2 * DAY + ttl);
@@ -572,8 +572,8 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
         // A read made before the owners of this instant are resolved is kept, and the resolve must invalidate it (`owners` is
         // an input of `tombstones`): each refresh of the kept registry resolves the owners again, as the registry's own does.
         let _ = reads(&kept);
-        kept.resolve_tombstone_owners();
-        fresh.resolve_tombstone_owners();
+        kept.resolve_tombstone_owners().await;
+        fresh.resolve_tombstone_owners().await;
         assert_eq!(reads(&kept), reads(&fresh), "at {now}");
         let (index, scoped) = reads(&kept);
         let future_legacy = index.3.iter().find(|t| t["tag"] == "futleg").expect("the future-stamped legacy tombstone is read at every instant");
@@ -606,7 +606,7 @@ async fn a_bookkeeping_pass_over_running_rows_reads_no_session_record() {
     let scope = lead("lead-a");
     for _ in 0..3 {
         registry.refresh_tags_from_sessions(true, &scope).await.unwrap();
-        assert_eq!(registry.session_entries(true, &scope).len(), 6);
+        assert_eq!(registry.session_entries(true, &scope).await.len(), 6);
         assert!(registry.read_worker_rows(&scope).unwrap().len() >= 6);
     }
     assert_eq!(rig.store.header_reads.load(Ordering::SeqCst), 0, "a pass loaded a session's record");
@@ -622,7 +622,7 @@ async fn the_tag_facts_share_a_loaded_header_and_keep_none_of_it_after_unload() 
     let header = session("s-a", "ta", &at(NOW - HOUR), json!({ "tools": tools }));
     rig.live.headers.lock().unwrap().insert("s-a".into(), header.clone());
     let registry = rig.registry();
-    registry.bind_tag("ta", &session_facts(&header), &at(NOW));
+    registry.bind_tag("ta", &session_facts(&header), &at(NOW)).await;
     let published = rig.live.published("s-a").expect("loaded");
     {
         let st = registry.lock();
@@ -647,7 +647,7 @@ async fn a_cancelled_session_leaves_no_header_copy_after_unload() {
     let header = session("s-c", "tc", &at(NOW - HOUR), json!({ "tools": tools, "status": "running" }));
     rig.live.headers.lock().unwrap().insert("s-c".into(), header.clone());
     let registry = rig.registry();
-    registry.bind_tag("tc", &session_facts(&header), &at(NOW));
+    registry.bind_tag("tc", &session_facts(&header), &at(NOW)).await;
     registry.set_cancelled("s-c", true);
     let read = {
         let st = registry.lock();
@@ -712,7 +712,7 @@ async fn the_tag_facts_of_a_session_not_loaded_read_only_the_index() {
     let rig = Rig::new();
     let header = session("s-r", "tr", &at(NOW - HOUR), json!({}));
     let registry = AgentRegistry::new(rig.store.clone(), Arc::new(LoadsMeanwhile(header.clone())), Arc::new(Hour), rig.clock.clone());
-    registry.bind_tag("tr", &session_facts(&header), &at(NOW));
+    registry.bind_tag("tr", &session_facts(&header), &at(NOW)).await;
     let st = registry.lock();
     let now = registry.now();
     let pass = registry.tag_pass(&st, now);
@@ -727,7 +727,7 @@ async fn a_tag_pass_answers_from_its_one_reading() {
     let header = session("s-p", "tp", &at(NOW - HOUR), json!({}));
     rig.live.headers.lock().unwrap().insert("s-p".into(), header.clone());
     let registry = rig.registry();
-    registry.bind_tag("tp", &session_facts(&header), &at(NOW));
+    registry.bind_tag("tp", &session_facts(&header), &at(NOW)).await;
     // A first pass keeps the facts; the second takes them from the published header.
     {
         let st = registry.lock();
@@ -772,7 +772,7 @@ async fn an_owner_close_keeps_the_agent_released_for_seven_days() {
 
     let first = rig.registry();
     first.refresh_tags_from_sessions(false, &scope).await.unwrap();
-    first.bind_tag("rev", &session_facts(&rev), &at(NOW));
+    first.bind_tag("rev", &session_facts(&rev), &at(NOW)).await;
     assert!(!row_of(&first).expect("bound").contains_key("released"));
     // `close`: the row goes and the owner's marker is set.
     first.forget_terminal_session(Some("rev"), "sess_rel_1");
@@ -814,25 +814,25 @@ async fn a_spawn_resolve_gives_a_closed_session_its_tag_up() {
     let scope = lead("lead-rel");
     let registry = rig.registry();
     registry.refresh_tags_from_sessions(false, &scope).await.unwrap();
-    registry.bind_tag("rev", &session_facts(&old), &at(NOW));
+    registry.bind_tag("rev", &session_facts(&old), &at(NOW)).await;
     registry.forget_terminal_session(Some("rev"), "sess_rel_1");
     registry.mark_released(&["sess_rel_1".into()]);
 
     let scan = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
     // A send's scan binds the closed agent again (it is revived by its tag).
     registry.refresh_tags_from_sessions(true, &scope).await.unwrap();
-    assert_eq!(registry.resolve_tag("rev", &scope, scan), Ok(Some("sess_rel_1".into())), "a send reaches a closed agent");
+    assert_eq!(registry.resolve_tag("rev", &scope, scan).await, Ok(Some("sess_rel_1".into())), "a send reaches a closed agent");
     // A spawn finds the tag free, however long ago the close was, and the scan does not take it back.
     let spawn = ResolveOptions { scan_sessions: true, skip_released: true, ..ResolveOptions::default() };
-    assert_eq!(registry.resolve_tag("rev", &scope, spawn), Ok(None));
+    assert_eq!(registry.resolve_tag("rev", &scope, spawn).await, Ok(None));
     assert_eq!(registry.tag_session("rev"), None);
     assert!(registry.is_released("sess_rel_1"), "the release marker stays");
     // The new session takes the tag; later scans resolve to it, never to both.
     *rig.store.sessions.lock().unwrap() = vec![old.clone(), new.clone()];
     rig.store.touch_sessions();
-    registry.bind_tag("rev", &session_facts(&new), &at(NOW));
+    registry.bind_tag("rev", &session_facts(&new), &at(NOW)).await;
     registry.refresh_tags_from_sessions(true, &scope).await.unwrap();
-    assert_eq!(registry.resolve_tag("rev", &scope, scan), Ok(Some("sess_rel_2".into())));
+    assert_eq!(registry.resolve_tag("rev", &scope, scan).await, Ok(Some("sess_rel_2".into())));
 }
 
 /// A closed session yields its tag only to a session of the same owner: another lead's live agent under the same tag never
@@ -854,14 +854,14 @@ async fn another_owners_binding_of_the_tag_does_not_hide_a_closed_session() {
     let (scope_a, scope_b) = (lead("lead-a"), lead("lead-b"));
     let registry = rig.registry();
     registry.refresh_tags_from_sessions(false, &scope_a).await.unwrap();
-    registry.bind_tag("rev", &session_facts(&mine), &at(NOW));
+    registry.bind_tag("rev", &session_facts(&mine), &at(NOW)).await;
     registry.forget_terminal_session(Some("rev"), "sess_a");
     registry.mark_released(&["sess_a".into()]);
-    registry.bind_tag("rev", &session_facts(&theirs), &at(NOW));
+    registry.bind_tag("rev", &session_facts(&theirs), &at(NOW)).await;
 
     let scan = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
-    assert_eq!(registry.resolve_tag("rev", &scope_a, scan), Ok(Some("sess_a".into())), "A's own closed session is revived");
-    assert_eq!(registry.resolve_tag("rev", &scope_b, scan), Ok(Some("sess_b".into())));
+    assert_eq!(registry.resolve_tag("rev", &scope_a, scan).await, Ok(Some("sess_a".into())), "A's own closed session is revived");
+    assert_eq!(registry.resolve_tag("rev", &scope_b, scan).await, Ok(Some("sess_b".into())));
     assert_eq!(registry.tag_session("rev").as_deref(), Some("sess_b"), "B's binding is untouched");
 }
 
@@ -909,7 +909,7 @@ async fn a_closed_session_yields_its_tag_only_to_the_same_owner_identity() {
         let registry = rig.registry();
         registry.reload().await.unwrap();
         registry.mark_released(&["sess_c".into()]);
-        assert_eq!(registry.resolve_tag("rev", &Scope::default(), global), want, "{name}");
+        assert_eq!(registry.resolve_tag("rev", &Scope::default(), global).await, want, "{name}");
     }
 }
 
@@ -945,18 +945,21 @@ async fn tags_resolve_inside_the_callers_scope_only() {
     let registry = rig.registry();
     registry.refresh_tags_from_sessions(true, &lead("lead-a")).await.unwrap();
     let none = ResolveOptions::default();
-    assert_eq!(registry.resolve_tag("rev", &lead("lead-a"), none), Ok(Some("sess_a".into())));
+    assert_eq!(registry.resolve_tag("rev", &lead("lead-a"), none).await, Ok(Some("sess_a".into())));
     // lead-b's session is not indexed yet: only a scan finds it.
-    assert_eq!(registry.resolve_tag("rev", &lead("lead-b"), none), Ok(None));
+    assert_eq!(registry.resolve_tag("rev", &lead("lead-b"), none).await, Ok(None));
     let scan = ResolveOptions { scan_sessions: true, ..none };
-    assert_eq!(registry.resolve_tag("rev", &lead("lead-b"), scan), Ok(Some("sess_b".into())));
-    assert_eq!(registry.resolve_tag("rev", &lead("lead-c"), none), Ok(None));
-    assert_eq!(registry.resolve_tag("sess_b", &lead("lead-a"), none), Ok(None));
+    assert_eq!(registry.resolve_tag("rev", &lead("lead-b"), scan).await, Ok(Some("sess_b".into())));
+    assert_eq!(registry.resolve_tag("rev", &lead("lead-c"), none).await, Ok(None));
+    assert_eq!(registry.resolve_tag("sess_b", &lead("lead-a"), none).await, Ok(None));
     let everyone = Scope::default();
-    assert_eq!(registry.resolve_tag("rev", &everyone, scan), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into()));
+    assert_eq!(registry.resolve_tag("rev", &everyone, scan).await, Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into()));
     // A trace check of an ambiguous tag raises the resolver's error to the caller.
-    assert_eq!(TerminalTrace::has_terminal_trace(&registry, "rev", &everyone), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into()));
-    assert_eq!(TerminalTrace::has_terminal_trace(&registry, "rev", &lead("lead-a")), Ok(false), "live: reused");
+    assert_eq!(
+        TerminalTrace::has_terminal_trace(&registry, "rev", &everyone).await,
+        Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into())
+    );
+    assert_eq!(TerminalTrace::has_terminal_trace(&registry, "rev", &lead("lead-a")).await, Ok(false), "live: reused");
     let rows: Vec<String> = registry.read_worker_rows(&lead("lead-b")).unwrap().into_iter().map(|r| r.session_id).collect();
     assert_eq!(rows, ["sess_b"]);
 }
@@ -1009,18 +1012,86 @@ async fn a_close_that_stopped_a_turn_is_still_read_cancelled_by_the_next_process
 
     let first = rig.registry();
     first.refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
-    assert_ne!(state(&first.session_of("s1").expect("the session")), cancelled);
+    assert_ne!(state(&first.session_of("s1").await.expect("the session")), cancelled);
     first.set_cancelled("s1", true);
-    assert_eq!(state(&first.session_of("s1").expect("the session")), cancelled);
+    assert_eq!(state(&first.session_of("s1").await.expect("the session")), cancelled);
 
     let next = rig.registry();
     next.refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
-    assert_eq!(state(&next.session_of("s1").expect("the session")), cancelled, "the next process reads the mark off the row");
+    assert_eq!(state(&next.session_of("s1").await.expect("the session")), cancelled, "the next process reads the mark off the row");
     crate::session::TurnStarts::turn_started(&next, &mixdog_core_api::ids::ThreadId::from("s1"), &"turn".into());
-    assert_ne!(state(&next.session_of("s1").expect("the session")), cancelled, "a turn started on it");
+    assert_ne!(state(&next.session_of("s1").await.expect("the session")), cancelled, "a turn started on it");
     let after = rig.registry();
     after.refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
-    assert_ne!(state(&after.session_of("s1").expect("the session")), cancelled, "and the row no longer holds the mark");
+    assert_ne!(state(&after.session_of("s1").await.expect("the session")), cancelled, "and the row no longer holds the mark");
+}
+
+/// A listing gives the loaded sessions, then each stored agent-only row whole (its members in their order, its numbers exact)
+/// in the index's order, without the closed ones and without a loaded one again; a lookup gives a loaded session's header, the
+/// stored row of a session not loaded, closed or not, and nothing for a session the index does not list.
+#[tokio::test]
+async fn a_listing_and_a_lookup_give_the_stored_rows_whole_and_in_order() {
+    let rig = Rig::new();
+    let stored = [
+        json!({ "id": "s-b", "title": "second", "messageCount": 3, "cost": 0.1, "ratio": 1e-7, "nested": { "z": 1, "a": [1, 2.5, "x", null] } }),
+        json!({ "zeta": "members in their stored order", "id": "s-closed", "closed": true, "alpha": null }),
+        json!({ "agentTag": "t-a", "id": "s-a", "createdAt": at(NOW - HOUR) }),
+        json!({ "id": "s-live", "title": "as the index last saw it" }),
+    ];
+    *rig.store.sessions.lock().unwrap() = stored.iter().map(|row| obj(row.clone())).collect();
+    rig.store.touch_sessions();
+    let loaded = json!({ "id": "s-live", "title": "loaded" });
+    rig.live.headers.lock().unwrap().insert("s-live".to_owned(), obj(loaded.clone()));
+    let registry = rig.registry();
+    registry.reload().await.unwrap();
+
+    let text = |row: &Row| serde_json::to_string(row).unwrap();
+    let listed: Vec<String> = registry.open_sessions().await.iter().map(|row| text(row)).collect();
+    assert_eq!(listed, [loaded.to_string(), stored[0].to_string(), stored[2].to_string()]);
+    assert_eq!(registry.session_of("s-closed").await.map(|row| text(&row)), Some(stored[1].to_string()));
+    assert_eq!(registry.session_of("s-a").await.map(|row| text(&row)), Some(stored[2].to_string()));
+    assert_eq!(registry.session_of("s-live").await.map(|row| text(&row)), Some(loaded.to_string()));
+    assert!(registry.session_of("s-none").await.is_none());
+}
+
+/// `agent send` to a session by its id: an open agent-only session that is not loaded and has neither a worker row nor a tag
+/// is resolved, and the lookup the send world makes of it once the resolve has ended (`SessionRows::row`) still finds it.
+#[tokio::test]
+async fn a_send_to_an_open_session_with_no_worker_row_and_no_tag_reaches_it() {
+    let rig = Rig::new();
+    let open = session("sess_open", "", &at(NOW - HOUR), json!({ "visibility": "agent-only" }));
+    *rig.store.sessions.lock().unwrap() = vec![open.clone()];
+    rig.store.touch_sessions();
+    let registry = rig.registry();
+    registry.reload().await.unwrap();
+    assert_eq!(registry.resolve_tag("sess_open", &lead("lead-a"), ResolveOptions::default()).await, Ok(Some("sess_open".into())));
+    assert_eq!(registry.session_row("sess_open").await, Some(open));
+}
+
+/// The agent-only sessions are read from the index when asked: one the index lists only after the registry loaded is found by
+/// a lookup, a resolve of its id, a scanning listing and a resolve of the tag that listing bound; one whose tag a reap
+/// tombstoned is neither listed by the scan nor resolved by its tag.
+#[tokio::test]
+async fn a_session_created_after_boot_is_found_and_a_tombstoned_one_is_not() {
+    let rig = Rig::new();
+    let reaped = session("sess_gone", "gone", &at(NOW - 2 * HOUR), json!({}));
+    *rig.store.sessions.lock().unwrap() = vec![reaped];
+    rig.store.touch_sessions();
+    rig.store.write("sess_gone", without_row(&obj(json!({ "tombstone": tombstone("gone", &at(NOW - HOUR), json!({})) }))));
+    let registry = rig.registry();
+    registry.reload().await.unwrap();
+
+    let created = session("sess_new", "fresh", &at(NOW - HOUR / 6), json!({}));
+    rig.store.sessions.lock().unwrap().insert(0, created.clone());
+    rig.store.touch_sessions();
+    let scope = lead("lead-a");
+    assert_eq!(registry.session_of("sess_new").await.map(|row| Row::clone(&row)), Some(created));
+    assert_eq!(registry.resolve_tag("sess_new", &scope, ResolveOptions::default()).await, Ok(Some("sess_new".into())));
+    let listed: Vec<(String, String)> = registry.session_entries(true, &scope).await.into_iter().map(|(tag, row)| (tag, clean(row.get("id")))).collect();
+    assert_eq!(listed, [("fresh".to_owned(), "sess_new".to_owned())]);
+    assert_eq!(registry.resolve_tag("fresh", &scope, ResolveOptions::default()).await, Ok(Some("sess_new".into())));
+    let scan = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
+    assert_eq!(registry.resolve_tag("gone", &scope, scan).await, Ok(None));
 }
 
 #[derive(Default)]
@@ -1251,11 +1322,19 @@ impl WorkerStore for Whole {
     }
 }
 
-/// What a registry holds of the index: every map at its place, and the agent-only sessions at theirs.
-fn held(registry: &AgentRegistry) -> (Vec<(String, Place, Row)>, Vec<(Place, Row)>) {
+/// What a registry holds of the index: every map at its place, and the list row of each session a live agent stands for.
+fn held(registry: &AgentRegistry) -> (Vec<(String, Place, Row)>, Vec<(String, Option<Row>)>) {
     let st = registry.lock();
     let maps = st.maps.iter().map(|(id, map)| (id.clone(), st.maps.key(id).cloned().expect("held"), map.clone())).collect();
-    (maps, st.sessions.iter().map(|(place, row)| (place.clone(), row.clone())).collect())
+    let mut rows: Vec<(String, Option<Row>)> = st.held.iter().map(|(id, row)| (id.clone(), row.as_deref().cloned())).collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    (maps, rows)
+}
+
+/// The state as an operation that lists the agent-only sessions holds it: with every one of them read from the index.
+async fn listed(registry: &AgentRegistry) -> Operation<'_> {
+    let reads = registry.read_index(true, &[]).await.expect("the index reads");
+    registry.op(reads)
 }
 
 fn at_ms(ms: i64) -> String {
@@ -1461,7 +1540,7 @@ fn old_entries_head(registry: &AgentRegistry, st: &State, scope: &Scope, now: f6
             if !matches_scope(&session, scope) || !seen.insert(id) {
                 continue;
             }
-            out.push((tag, session));
+            out.push((tag, Row::clone(&session)));
         }
     }
     (out, seen)
@@ -1493,7 +1572,7 @@ fn old_entries_tail(registry: &AgentRegistry, st: &State, scope: &Scope, now: f6
         if !matches_scope(&session, scope) || !seen.insert(sid) {
             continue;
         }
-        out.push((tag, session));
+        out.push((tag, Row::clone(&session)));
     }
     out
 }
@@ -1510,7 +1589,7 @@ fn listed_by_status(entries: Vec<(String, Row)>) -> Vec<(String, Row)> {
 }
 
 /// Every read of the registry at its clock, against the reads made before its views; then a refresh and the listings.
-fn check_reads(registry: &AgentRegistry, scope: &Scope, tag: &str, label: &str) {
+async fn check_reads(registry: &AgentRegistry, scope: &Scope, tag: &str, label: &str) {
     let now = registry.now();
     {
         // The public reads over the same index.
@@ -1533,7 +1612,7 @@ fn check_reads(registry: &AgentRegistry, scope: &Scope, tag: &str, label: &str) 
         assert_eq!(st.rows(scope, now).iter().cloned().collect::<Vec<_>>(), old_rows(&st, scope, now), "rows, {label}");
         assert_eq!(registry.stale_rows(&st, scope), old_stale_rows(registry, &st, scope, now), "stale rows, {label}");
     }
-    let mut st = registry.lock();
+    let mut st = listed(registry).await;
     // The refresh's own owners and staleness passes, until they change nothing more; then its tag passes.
     for _ in 0..4 {
         registry.resolve_owners(&mut st);
@@ -1547,7 +1626,7 @@ fn check_reads(registry: &AgentRegistry, scope: &Scope, tag: &str, label: &str) 
     assert_eq!(tag_maps(&st), want, "tag maps after a refresh, {label}");
     let want = old_entries(registry, &st, scope, now);
     drop(st);
-    let have: Vec<(String, Row)> = registry.session_entries(false, scope).into_iter().map(|(tag, s)| (tag, (*s).clone())).collect();
+    let have: Vec<(String, Row)> = registry.session_entries(false, scope).await.into_iter().map(|(tag, s)| (tag, (*s).clone())).collect();
     assert_eq!(have, want, "listing, {label}");
     let status: Vec<(String, Row)> = registry.status_entries(scope).into_iter().map(|(tag, s)| (tag, (*s).clone())).collect();
     assert_eq!(listed_by_status(status), listed_by_status(want), "status listing, {label}");
@@ -1726,13 +1805,13 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                 }
                 11 => {
                     if dice.below(2) == 0 {
-                        registry.bind_tag(&tag, &session_facts(&stored(&id, &tag, &owner, status)), &at(registry.now() as i64));
+                        registry.bind_tag(&tag, &session_facts(&stored(&id, &tag, &owner, status)), &at(registry.now() as i64)).await;
                     } else {
                         registry.unbind_tag(&tag);
                     }
                 }
                 12 => registry.forget_terminal_session(Some(&tag), &id),
-                13 => registry.reap_terminal_trace_for_tag(&tag, dice.pick(&scopes)),
+                13 => registry.reap_terminal_trace_for_tag(&tag, dice.pick(&scopes)).await,
                 14 => {
                     registry.update_lead_worker_cwd(&id, "/moved").await;
                 }
@@ -1758,8 +1837,11 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                 18 => {
                     // A scanning listing adds the stored sessions it finds, and writes their rows.
                     let scope = dice.pick(&scopes).clone();
-                    let head = old_entries_head(&registry, &registry.lock(), &scope, registry.now(), true);
-                    let have: Vec<(String, Row)> = registry.session_entries(true, &scope).into_iter().map(|(t, s)| (t, (*s).clone())).collect();
+                    let head = {
+                        let st = listed(&registry).await;
+                        old_entries_head(&registry, &st, &scope, registry.now(), true)
+                    };
+                    let have: Vec<(String, Row)> = registry.session_entries(true, &scope).await.into_iter().map(|(t, s)| (t, (*s).clone())).collect();
                     let want = old_entries_tail(&registry, &registry.lock(), &scope, registry.now(), head);
                     assert_eq!(have, want, "scanning listing, seed {seed} step {step} scope {scope:?}");
                 }
@@ -1767,10 +1849,14 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                     let scope = dice.pick(&scopes).clone();
                     if dice.below(3) == 0 {
                         // The listing before the scan's writes, over the index as the refresh at the head of the resolve leaves it.
-                        registry.refresh(&mut registry.lock(), true, &scope);
-                        let head = old_entries_head(&registry, &registry.lock(), &scope, registry.now(), true);
+                        let head = {
+                            let mut st = listed(&registry).await;
+                            registry.refresh(&mut st, true, &scope);
+                            old_entries_head(&registry, &st, &scope, registry.now(), true)
+                        };
                         let have = registry
                             .resolve_tag(&tag, &scope, ResolveOptions { scan_sessions: true, exclude_terminal_traces: false, skip_released: false })
+                            .await
                             .map_err(|_| ());
                         let st = registry.lock();
                         let ids = tag_matches(&rig, registry.now() as i64, &old_entries_tail(&registry, &st, &scope, registry.now(), head), &tag);
@@ -1781,7 +1867,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                         };
                         assert_eq!(have, want, "scanning resolve, seed {seed} step {step} scope {scope:?}");
                     } else {
-                        let have = registry.resolve_tag(&tag, &scope, ResolveOptions::default()).map_err(|_| ());
+                        let have = registry.resolve_tag(&tag, &scope, ResolveOptions::default()).await.map_err(|_| ());
                         let st = registry.lock();
                         let ids = tag_matches(&rig, registry.now() as i64, &old_entries(&registry, &st, &scope, registry.now()), &tag);
                         let want = match ids.as_slice() {
@@ -1796,7 +1882,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
             for _ in 0..2 {
                 let scope = dice.pick(&scopes).clone();
                 let tag = dice.pick(&workers).1.clone();
-                check_reads(&registry, &scope, &tag, &format!("seed {seed} step {step} scope {scope:?}"));
+                check_reads(&registry, &scope, &tag, &format!("seed {seed} step {step} scope {scope:?}")).await;
             }
         }
     }
@@ -2437,7 +2523,7 @@ async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_de
     // must not replace the task outcomes, and stamped notices must not erase status.
     let restarted = rig.registry();
     restarted.refresh_tags_from_sessions(true, &lead("lead-a")).await.unwrap();
-    let listed = restarted.session_entries(true, &lead("lead-a"));
+    let listed = restarted.session_entries(true, &lead("lead-a")).await;
     assert_eq!(listed.len(), 8);
     assert!(listed.iter().all(|(_, row)| row["status"] == "failed"));
     let (_, _, fresh_board) = lost_task_world();
@@ -2767,16 +2853,16 @@ async fn a_close_that_stops_a_running_turn_reads_cancelled_until_a_turn_starts()
     eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(state(&registry.session_of(&id).expect("the session")), cancelled);
-    let listed = registry.open_sessions();
+    assert_eq!(state(&registry.session_of(&id).await.expect("the session")), cancelled);
+    let listed = registry.open_sessions().await;
     let scanned = listed.iter().find(|session| session.get("id").and_then(Value::as_str) == Some(id.as_str())).expect("listed");
     assert_eq!(state(scanned), cancelled, "the scan reads it so");
 
     turn(&handle, "again", "op-2").await;
     eventually_on!(&[&handle.cell.stepped], || (runs.load(Ordering::SeqCst) == 2 && idle(&handle)).then_some(())).await;
-    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "a turn started on it");
+    assert_ne!(state(&registry.session_of(&id).await.expect("the session")), cancelled, "a turn started on it");
     assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
-    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "it was not running");
+    assert_ne!(state(&registry.session_of(&id).await.expect("the session")), cancelled, "it was not running");
 }
 /// The composed sessions over a data folder, as the daemon builds them: the real thread store and index, the session
 /// directory, the worker rows' store and the kept-row table; a new one over the same folder is the next process.
@@ -3626,7 +3712,7 @@ async fn a_cleanup_leaves_the_workers_an_earlier_one_closed_alone() {
     assert_eq!((again.agents_closed, again.workers), (0, 0), "{again:?}");
     assert_eq!(writes(&world), indexed, "a later cleanup writes none of them again");
     let told = world.announcements();
-    world.registry.session_entries(true, &lead("lead"));
+    world.registry.session_entries(true, &lead("lead")).await;
     assert_eq!(world.announcements(), told, "a scanning list writes none of them again");
 }
 
@@ -3910,7 +3996,7 @@ async fn cleanup_reads_the_open_agent_sessions_the_bound_sessions_and_the_hidden
     use mixdog_agent::agent_tool::host::Sessions;
 
     let ParkWorld { registry, loaded, sessions, .. } = &park_world().await;
-    let open: Vec<(String, String)> = sessions.open_sessions().into_iter().filter(|s| !s.tag.is_empty()).map(|s| (s.id, s.tag)).collect();
+    let open: Vec<(String, String)> = sessions.open_sessions().await.into_iter().filter(|s| !s.tag.is_empty()).map(|s| (s.id, s.tag)).collect();
     assert_eq!(open, [("sess_w1".to_owned(), "w1".to_owned())], "a closed session is not listed");
     assert_eq!(registry.bound_sessions(), ["sess_w1".to_owned()]);
     let started = loaded.id.as_str().to_owned();
@@ -4224,6 +4310,8 @@ async fn two_turn_ids_with_equal_start_stamps_are_two_outcomes_with_two_settle_i
     let stored = || rig.store.map("s-a").expect("the row");
     let fix = |turns: u64| SettleFix { session_id: "s-a".into(), turns, candidate: json!(at(NOW - 5_000)) };
     let start = |turn: &str| TurnStarts::turn_started(&registry, &"s-a".into(), &turn.into());
+    // The dispatch of the session's turns holds what their row writes read of it, the session not being loaded.
+    let _dispatch = WorkerRows::hold(&registry, "s-a").await;
 
     // The spawn's row, before any turn: a row write counts none.
     WorkerRows::upsert(&registry, "s-a", Some("a"), settle());
@@ -4347,7 +4435,7 @@ async fn a_release_leaves_the_member_a_turn_started_on_since_its_close() {
     assert!(rig.store.map("sess_a").is_some_and(|map| !map.contains_key("sessionId")), "the released member's row goes");
     for (kept, tag) in [("sess_b", "b"), ("sess_c", "c")] {
         assert!(!registry.is_released(kept) && rig.store.map(kept).is_some_and(|map| map.contains_key("sessionId")), "{kept} keeps its row");
-        assert_eq!(registry.tag_for_session(kept).as_deref(), Some(tag));
+        assert_eq!(registry.tag_for_session(kept).await.as_deref(), Some(tag));
     }
     assert!(registry.is_released("sess_a"));
 }

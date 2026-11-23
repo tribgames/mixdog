@@ -64,7 +64,11 @@ impl RouteFacts for CatalogFacts {
     }
 
     async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String> {
-        self.readiness.ensure_providers_ready(Some(ensure_provider_enabled(config, provider))).await.map(|_| ()).map_err(|e| e.message)
+        self.readiness
+            .ensure_providers_ready(Some(ensure_provider_enabled(config, provider)))
+            .await
+            .map(|_| ())
+            .map_err(|e| mixdog_ai::service::error_text::route_ready_error_text(e.message))
     }
 
     fn model_meta(&self, provider: &str, model: &str) -> Value {

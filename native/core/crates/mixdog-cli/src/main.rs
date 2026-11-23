@@ -91,6 +91,9 @@ enum Command {
         args: Vec<std::ffi::OsString>,
     },
     ExtWorker,
+    /// The stdio end of a session's tool server for an ACP agent; started by that agent, never by a user.
+    #[command(name = "acp-mcp-bridge", hide = true)]
+    AcpMcpBridge,
     /// The program the `mixdog-skill-node` launchers start: runs a skill script.
     #[command(name = "skill-run", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
     SkillRun {
@@ -197,6 +200,7 @@ fn main() -> ExitCode {
             ExitCode::from(mixdog_app_server_daemon::embedding_host::run(cache_dir, model_id, ort_library, dtype) as u8)
         }
         Command::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
+        Command::AcpMcpBridge => ExitCode::from(mixdog_app_server_daemon::acp_tools::run_bridge() as u8),
         Command::ExtWorker => {
             // A pptxgenjs authoring script runs on the script interpreter of the install; without one that route says so.
             if let Ok(js) = mixdog_app_server_daemon::js_runtime::resolve_current() {

@@ -61,6 +61,8 @@ pub struct HostParts {
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
     /// The registry the runs register their turn in and the hosted web search reports its spend to (`SenderDeps.sinks`: the same Arc).
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    /// The agents that run turns outside the loop; `None` runs every turn in it.
+    pub outside: Option<Arc<dyn super::factory::OutsideAgents>>,
 }
 
 /// The session directory over `deps`, whose `runs` is the real run factory.
@@ -98,8 +100,10 @@ pub fn build_directory(
             turn_settings,
             liveness,
             search_usage,
+            outside,
         } = host;
         let services = HostServices {
+            outside,
             registry,
             clock,
             files,

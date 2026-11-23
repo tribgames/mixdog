@@ -52,6 +52,7 @@ uuid = { workspace = true, features = ["v4"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 fancy-regex = { workspace = true, features = ["probe"] }
+mixdog-acp = { workspace = true, features = ["test-support"] }
 mixdog-agent = { workspace = true, features = ["test-support"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-app-server-daemon = { workspace = true, features = ["replay-controls", "test-hooks"] }

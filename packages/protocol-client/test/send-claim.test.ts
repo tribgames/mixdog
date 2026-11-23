@@ -15,7 +15,7 @@ interface Frame {
   readonly sent: SentClaim | undefined;
 }
 
-async function rig() {
+async function rig(limits: Record<string, unknown> = {}) {
   const net = new MockNetwork();
   const frames: Frame[] = [];
   const open = net.open.bind(net);
@@ -43,7 +43,12 @@ async function rig() {
   const handshake = async (): Promise<MockConn> => {
     const conn = await net.accept();
     const init = JSON.parse(await conn.nextSent());
-    conn.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 'i1' } });
+    conn.serverSend({ id: init.id, result: {
+        ...options.initializeResult,
+        limits: { ...options.initializeResult.limits, ...limits },
+        serverInstanceId: 'i1',
+      },
+    });
     await conn.nextSent();
     return conn;
   };
@@ -68,6 +73,7 @@ async function rig() {
     client,
     frames,
     answerNext,
+    reply: (frame: unknown) => conn.serverSend(frame as never),
     statusIs,
     /** Resolves with the length of the frame log at the moment the client went `reconnecting`: what follows belongs to the next connection. */
     lose: async (): Promise<number> => {
@@ -153,17 +159,113 @@ test('a multi-chunk upload hands its claim to the last chunk, once: the upload h
   const uploaded = client.putBlob(new Uint8Array(chunk * 2 + 10), 'application/octet-stream', { sent: mine.claim });
   void uploaded.catch(() => undefined);
   await answerNext({});
-  assert.equal(mine.got.length, 0, 'the first chunk is not the end of the upload');
   await answerNext({});
-  assert.equal(mine.got.length, 0, 'nor is the second');
   await answerNext({});
-  assert.equal(mine.got.length, 1, 'the third and last chunk carries the claim');
+  await uploaded;
+  assert.equal(mine.got.length, 1, 'the third and last chunk carries the claim, once');
   const puts = frames.filter((f) => f.body.method === 'blob/put');
   assert.equal(puts.length, 3);
   assert.deepEqual(
     puts.map((f) => f.sent === mine.claim),
     [false, false, true]
   );
+});
+
+// Digest and base64 of a large put take real time before the first frame.
+const settleIo = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 300));
+type PutFrame = { id: number; method: string; params: { offset: number } };
+const putsOf = (frames: Array<{ body: unknown }>): PutFrame[] =>
+  frames.map((f) => f.body as PutFrame).filter((b) => b.method === 'blob/put');
+const putAt = (frames: Array<{ body: unknown }>, index: number): PutFrame => {
+  const put = putsOf(frames)[index];
+  if (!put) throw new Error('no chunk ' + index);
+  return put;
+};
+
+test('a multi-chunk put sends the next chunk before the first is answered, within maxUploadInFlightBytes', async () => {
+  const { client, frames, reply } = await rig();
+  const limits = options.initializeResult.limits;
+  const chunk = limits.maxBlobPutChunkBytes as number;
+  const wire = 4 * Math.ceil(chunk / 3);
+  const fit = Math.floor((limits.maxUploadInFlightBytes as number) / wire);
+  const total = fit + 2;
+  const uploaded = client.putBlob(new Uint8Array(chunk * total), 'application/octet-stream');
+  await settleIo();
+  assert.equal(putsOf(frames).length, fit, 'every chunk the budget holds is out before any answer');
+  assert.deepEqual(
+    putsOf(frames).map((p) => p.params.offset),
+    Array.from({ length: fit }, (_, i) => i * chunk),
+    'in order'
+  );
+  reply({ id: putAt(frames, 0).id, result: {} });
+  await settleIo();
+  assert.equal(putsOf(frames).length, fit + 1, 'an answer frees budget for the next chunk');
+  for (const put of putsOf(frames).slice(1)) reply({ id: put.id, result: {} });
+  await settleIo();
+  reply({ id: putAt(frames, fit + 1).id, result: {} });
+  const ref = await uploaded;
+  assert.equal(ref.blob.bytes, chunk * total);
+  assert.equal(putsOf(frames).length, total, 'nothing is sent twice');
+});
+
+test('a core that states no in-flight budget is served one chunk at a time', async () => {
+  const { client, frames, reply } = await rig({ maxUploadInFlightBytes: 0 });
+  const chunk = options.initializeResult.limits.maxBlobPutChunkBytes as number;
+  const uploaded = client.putBlob(new Uint8Array(chunk * 2), 'application/octet-stream');
+  await settleIo();
+  assert.equal(putsOf(frames).length, 1);
+  reply({ id: putAt(frames, 0).id, result: {} });
+  await settleIo();
+  assert.equal(putsOf(frames).length, 2);
+  reply({ id: putAt(frames, 1).id, result: {} });
+  await uploaded;
+});
+
+test('a chunk failing mid-way fails the put once with its error, and no chunk is sent after it', async () => {
+  const { client, frames, reply } = await rig();
+  const chunk = options.initializeResult.limits.maxBlobPutChunkBytes as number;
+  let progress = 0;
+  const uploaded = client.putBlob(new Uint8Array(chunk * 3), 'application/octet-stream', {
+    onChunkAccepted: () => void (progress += 1),
+  });
+  const outcome = uploaded.then(
+    () => 'resolved',
+    (error: Error) => error.message
+  );
+  await settleIo();
+  const [first, second, third] = putsOf(frames) as [PutFrame, PutFrame, PutFrame];
+  reply({ id: first.id, result: {} });
+  reply({ id: second.id, error: { code: -32603, message: 'disk full', data: { reason: 'internal', incidentId: 'x' } } });
+  reply({ id: third.id, result: {} });
+  assert.match(await outcome, /disk full/);
+  assert.equal(putsOf(frames).length, 3, 'no chunk is uploaded again or after the failure');
+  assert.equal(progress, 2, 'the answered chunks were reported once each');
+});
+
+test('chunks the core refuses as out of order resume from the bytes it holds, nothing already held is sent again', async () => {
+  const { client, frames, reply } = await rig();
+  const chunk = options.initializeResult.limits.maxBlobPutChunkBytes as number;
+  const uploaded = client.putBlob(new Uint8Array(chunk * 3), 'application/octet-stream');
+  await settleIo();
+  const [first, second, third] = putsOf(frames) as [PutFrame, PutFrame, PutFrame];
+  const outOfOrder = {
+    code: -32602,
+    message: 'invalid params',
+    data: { reason: 'invalidParams', path: 'offset', expected: 'the next byte after those already received' },
+  };
+  reply({ id: first.id, result: {} });
+  reply({ id: second.id, error: outOfOrder });
+  reply({ id: third.id, error: outOfOrder });
+  await settleIo();
+  const resumed = putsOf(frames);
+  assert.equal(resumed.length, 4);
+  assert.equal(putAt(frames, 3).params.offset, chunk, 'it resumes after the acknowledged chunk');
+  reply({ id: putAt(frames, 3).id, result: {} });
+  await settleIo();
+  assert.equal(putAt(frames, 4).params.offset, chunk * 2);
+  reply({ id: putAt(frames, 4).id, result: {} });
+  await uploaded;
+  assert.equal(putsOf(frames).length, 5);
 });
 
 test("a call that never writes hands nothing over, and the next call's frame is claimed by that call alone", async () => {

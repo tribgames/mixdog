@@ -540,6 +540,8 @@ pub struct Run {
     /// A one-shot call: messages go to the wire as given, with no synthetic-row
     /// envelope (a provider-level send, not a loop request).
     pub(crate) unprojected: bool,
+    /// The run's calls are an outside agent's ([`crate::handed`]): its model does not read the session's rows.
+    pub(crate) outside: bool,
     /// The session's provider state as the run last saw it: the host's value at
     /// the start (`config.options.provider_state`), then each report of a provider.
     pub(crate) provider_state: Option<ProviderState>,
@@ -693,6 +695,7 @@ impl Run {
             step_effort: None,
             auto_effort_steps: 0,
             unprojected: false,
+            outside: false,
         }
     }
 

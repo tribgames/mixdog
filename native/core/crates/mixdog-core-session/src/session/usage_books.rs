@@ -144,7 +144,9 @@ pub(crate) fn gateway_facts(header: &Header, settled: &Settled, books: Option<&B
             pressure::estimate_transcript_context_usage(&settled.transcript, &tools, provider, books)
         })
     });
-    let effort = super::gateway_usage::turn_effort(settled.transcript.iter().filter_map(|message| message.stored.as_deref().map(mixdog_agent::message::StoredRow::fields)));
+    let effort = super::gateway_usage::turn_effort(
+        settled.transcript.iter().filter_map(|message| message.stored.as_deref().map(mixdog_agent::message::StoredRow::fields)),
+    );
     (estimate, effort)
 }
 

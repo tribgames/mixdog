@@ -192,7 +192,7 @@ impl AgentRegistry {
         let outcome = settled.and_then(|any| stored.map(|()| any));
         self.rows_held.send_replace(match &outcome {
             Ok(_) => super::Settlement::Open,
-            Err(why) => super::Settlement::Failed(format!("the stored worker rows could not be settled after the index rebuild: {why}")),
+            Err(why) => super::Settlement::Failed(format!("the stored worker rows could not be settled once the index held them: {why}")),
         });
         outcome
     }

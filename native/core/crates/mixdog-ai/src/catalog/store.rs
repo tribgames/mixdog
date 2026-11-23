@@ -201,22 +201,35 @@ struct Listed {
     /// For a listing of the whole catalog, its providers: the published snapshot holds only these, as Node's catalog
     /// is one entry per provider registered when its load began (`sharedProviderCatalog`).
     whole: Option<Vec<ProviderId>>,
+    /// The listings this refresh stopped waiting for, still running: each is published when it lands.
+    late: Vec<(ProviderId, Shared<BoxFuture<'static, Listing>>)>,
+}
+
+/// What a publish writes: shared with the listings that land after their refresh stopped waiting for them.
+#[derive(Clone)]
+struct Board {
+    current: Arc<ArcSwap<CatalogSnapshot>>,
+    epoch: Arc<AtomicU64>,
+    publish_lock: Arc<Mutex<()>>,
+    failures: Arc<CatalogFailureStore>,
 }
 
 pub struct ProviderCatalog {
-    current: ArcSwap<CatalogSnapshot>,
+    current: Arc<ArcSwap<CatalogSnapshot>>,
     /// Bumped on an auth/account change: listings started before it are not
     /// joined and publish nothing.
-    epoch: AtomicU64,
+    epoch: Arc<AtomicU64>,
     /// Serializes the epoch check + publish of a refresh against
     /// `invalidate_accounts`, so a stale listing can never land after the
     /// snapshot was cleared.
-    publish_lock: Mutex<()>,
+    publish_lock: Arc<Mutex<()>>,
     serial: AtomicU64,
     flights: Arc<Mutex<Flights>>,
     /// Why each provider's latest listing failed (`providerCatalogFailure`).
     failures: Arc<CatalogFailureStore>,
     now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// Told when a late listing was published ([`Self::on_late_answer`]).
+    landed: Arc<arc_swap::ArcSwapOption<Box<dyn Fn() + Send + Sync>>>,
     /// Test-only seam: runs after a listing is spawned and before the caller polls its deadline, standing in for a
     /// caller descheduled there while another worker runs the listing.
     #[cfg(test)]
@@ -328,6 +341,40 @@ mod tests {
         kept.refresh(&[fast, hung]).await;
         assert_eq!(kept.snapshot().models_of(&"hung".into()).len(), 1);
         assert!(kept.snapshot().partial());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_listing_that_answers_after_the_deadline_is_in_the_next_snapshot() {
+        let clock = Arc::new(AtomicU64::new(1_000));
+        let catalog = clocked(&clock);
+        let (late, calls) = slow("late", Some(LIST_DEADLINE + Duration::from_secs(2)));
+        let outcome = catalog.refresh(std::slice::from_ref(&late)).await;
+        assert_eq!(outcome.failed.len(), 1, "the refresh stopped waiting at the deadline");
+        assert!(catalog.snapshot().models_of(&"late".into()).is_empty());
+        mixdog_rt::time::sleep(Duration::from_secs(3)).await;
+        let snap = catalog.snapshot();
+        assert_eq!(snap.models_of(&"late".into()).len(), 1, "the late answer was kept");
+        assert_eq!(snap.status.get(&ProviderId::from("late")), Some(&ProviderStatus::Ok));
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "no other listing was started");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_overdue_failure_is_claimed_once_and_its_retry_time_moves_ahead() {
+        let clock = Arc::new(AtomicU64::new(0));
+        let catalog = clocked(&clock);
+        let (good, _) = slow("good", Some(Duration::from_millis(1)));
+        let (bad, bad_calls) = failing("bad");
+        let sources = [good, bad];
+        catalog.refresh_asking(&sources, Ask::Due).await;
+        assert!(catalog.claim_overdue(&sources).is_empty(), "inside its backoff");
+        clock.store(RETRY_AFTER_MS, Ordering::SeqCst);
+        let claimed = catalog.claim_overdue(&sources);
+        assert_eq!(claimed.iter().map(|s| s.provider().as_str()).collect::<Vec<_>>(), ["bad"]);
+        assert!(catalog.claim_overdue(&sources).is_empty(), "a second reader claims it again");
+        assert_eq!(catalog.snapshot().retry_at(), Some(RETRY_AFTER_MS + LIST_DEADLINE.as_millis() as u64), "the answer is due by the deadline");
+        catalog.refresh_claimed(&claimed).await;
+        assert_eq!(bad_calls.load(Ordering::SeqCst), 2);
+        assert!(catalog.snapshot().retry_at().is_some_and(|at| at > RETRY_AFTER_MS), "the retry time handed out is ahead of now");
     }
 
     #[tokio::test(start_paused = true)]
@@ -446,16 +493,23 @@ mod tests {
 impl ProviderCatalog {
     pub fn new(initial: CatalogSnapshot) -> Self {
         Self {
-            current: ArcSwap::from_pointee(initial),
-            epoch: AtomicU64::new(0),
-            publish_lock: Mutex::new(()),
+            current: Arc::new(ArcSwap::from_pointee(initial)),
+            epoch: Arc::new(AtomicU64::new(0)),
+            publish_lock: Arc::new(Mutex::new(())),
             serial: AtomicU64::new(0),
             flights: Arc::default(),
             failures: Arc::new(CatalogFailureStore::default()),
             now_ms: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)),
+            landed: Arc::default(),
             #[cfg(test)]
             after_spawn: None,
         }
+    }
+
+    /// Binds what a refresh's caller does once its answer is published, for a listing that lands after its refresh
+    /// published it missing: its readers are told as a refresh's are.
+    pub fn on_late_answer(&self, landed: impl Fn() + Send + Sync + 'static) {
+        self.landed.store(Some(Arc::new(Box::new(landed))));
     }
 
     /// Replaces the wall clock that stamps `retry_at` (tests).
@@ -486,8 +540,9 @@ impl ProviderCatalog {
     /// One bounded, single-flight listing (`boundedProviderCatalogOp`). The
     /// caller waits at most the deadline; the operation runs on until it
     /// settles, and while it overran a deadline nobody asks the provider again.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> Listing {
+    /// A caller whose deadline passed gets the operation too, to publish its
+    /// answer when it lands.
+    async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> (Listing, Option<Shared<BoxFuture<'static, Listing>>>) {
         let provider = source.provider().clone();
         // The deadline's instant is fixed before the listing can start (Node arms it synchronously, `CD:123-124`, and
         // runs the provider a microtask later, `:73-74`): another worker may run the listing at once, and its own
@@ -498,11 +553,11 @@ impl ProviderCatalog {
             match flights.latest.get(&provider) {
                 // `catalog-deadline.mjs:146-150`: fail fast instead of waiting out another deadline.
                 Some(flight) if flight.epoch == epoch && flight.timed_out.load(Ordering::SeqCst) => {
-                    return Err(pending_error(&provider));
+                    return (Err(pending_error(&provider)), None);
                 }
                 Some(flight) if flight.epoch == epoch => flight.clone(),
                 // Superseded (`:140-145`): a stalled operation of any epoch holds the provider.
-                _ if flights.stalled(&provider) => return Err(stalled_error(&provider)),
+                _ if flights.stalled(&provider) => return (Err(stalled_error(&provider)), None),
                 _ => {
                     let serial = self.serial.fetch_add(1, Ordering::SeqCst);
                     let (source, tables, settled) = (source.clone(), self.flights.clone(), provider.clone());
@@ -531,10 +586,11 @@ impl ProviderCatalog {
         tokio::select! {
             biased;
             () = deadline => {
-                flight.timed_out.store(true, Ordering::SeqCst);
-                Err(deadline_error(&provider))
+                // Only the caller that marks the operation late takes its answer; later callers fail fast above.
+                let first = !flight.timed_out.swap(true, Ordering::SeqCst);
+                (Err(deadline_error(&provider)), first.then_some(flight.work))
             }
-            listing = flight.work => listing,
+            listing = flight.work.clone() => (listing, None),
         }
     }
 
@@ -546,6 +602,39 @@ impl ProviderCatalog {
     /// One atomic load; never waits on a refresh.
     pub fn snapshot(&self) -> Arc<CatalogSnapshot> {
         self.current.load_full()
+    }
+
+    /// Claims the providers of `sources` whose retry time has passed (on the catalog's clock), for one listing of them:
+    /// each is given the listing deadline to answer, its retry time moved to then, so a reader handed the catalog meanwhile
+    /// is told when the answer can be there and no other reader claims it again.
+    pub fn claim_overdue(&self, sources: &[ModelSource]) -> Vec<ModelSource> {
+        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = (self.now_ms)();
+        let current = self.current.load_full();
+        let overdue = |source: &&ModelSource| matches!(current.status.get(source.provider()), Some(ProviderStatus::Missing { retry_at, .. } | ProviderStatus::Stale { retry_at, .. }) if now >= *retry_at);
+        let claimed: Vec<ModelSource> = sources.iter().filter(overdue).cloned().collect();
+        if claimed.is_empty() {
+            return claimed;
+        }
+        let answer_by = now + LIST_DEADLINE.as_millis() as u64;
+        let mut status = current.status.clone();
+        for source in &claimed {
+            if let Some(ProviderStatus::Missing { retry_at, .. } | ProviderStatus::Stale { retry_at, .. }) = status.get_mut(source.provider()) {
+                *retry_at = answer_by;
+            }
+        }
+        self.current.store(Arc::new(CatalogSnapshot { generation: current.generation, models: current.models.clone(), status }));
+        claimed
+    }
+
+    /// Lists the providers [`Self::claim_overdue`] claimed; their answer is told to the readers as a late answer is.
+    pub async fn refresh_claimed(&self, claimed: &[ModelSource]) {
+        let listed = self.list_all(claimed, Ask::All).await;
+        if self.publish_told(listed).1
+            && let Some(landed) = self.landed.load_full()
+        {
+            landed();
+        }
     }
 
     /// Lists every source concurrently and publishes one new snapshot. A
@@ -566,6 +655,35 @@ impl ProviderCatalog {
         let mut listed = self.list_all(sources, ask).await;
         listed.whole = Some(sources.iter().map(|s| s.provider().clone()).collect());
         self.publish(listed)
+    }
+
+    fn board(&self) -> Board {
+        Board { current: self.current.clone(), epoch: self.epoch.clone(), publish_lock: self.publish_lock.clone(), failures: self.failures.clone() }
+    }
+
+    /// Publishes the refresh, then each listing it stopped waiting for when that one lands, after the refresh's own
+    /// publish: the deadline bounds the wait, not whether the answer is kept.
+    fn publish(&self, listed: Listed) -> RefreshOutcome {
+        self.publish_told(listed).0
+    }
+
+    /// [`Self::publish`], and whether the refresh's own answer was published.
+    fn publish_told(&self, mut listed: Listed) -> (RefreshOutcome, bool) {
+        let (epoch, late) = (listed.epoch, std::mem::take(&mut listed.late));
+        let board = self.board();
+        let (outcome, published) = board.publish(listed, false);
+        for (provider, work) in late {
+            let (board, now_ms, landed) = (board.clone(), self.now_ms.clone(), self.landed.clone());
+            tokio::spawn(async move {
+                let listing = work.await;
+                let ended_at = now_ms();
+                let (_, published) = board.publish(Listed { epoch, entries: vec![(provider, listing, ended_at)], whole: None, late: Vec::new() }, true);
+                if let Some(landed) = landed.load_full().filter(|_| published) {
+                    landed();
+                }
+            });
+        }
+        (outcome, published)
     }
 
     /// Lists the providers `ask` selects, concurrently. A provider not asked
@@ -589,15 +707,20 @@ impl ProviderCatalog {
                 }
             })
             .collect();
-        let entries = futures::future::join_all(asked.iter().map(|s| async move {
-            let listing = self.list_bounded(s, epoch).await;
-            (s.provider().clone(), listing, (self.now_ms)())
+        let listings = futures::future::join_all(asked.iter().map(|s| async move {
+            let (listing, late) = self.list_bounded(s, epoch).await;
+            ((s.provider().clone(), listing, (self.now_ms)()), late.map(|work| (s.provider().clone(), work)))
         }))
         .await;
-        Listed { epoch, entries, whole: None }
+        let (entries, late): (Vec<_>, Vec<_>) = listings.into_iter().unzip();
+        Listed { epoch, entries, whole: None, late: late.into_iter().flatten().collect() }
     }
+}
 
-    fn publish(&self, listed: Listed) -> RefreshOutcome {
+impl Board {
+    /// `late`: one listing that landed after its refresh published it missing; it replaces only that missing answer,
+    /// never a status published since. The flag says whether anything was published.
+    fn publish(&self, listed: Listed, late: bool) -> (RefreshOutcome, bool) {
         let mut outcome = RefreshOutcome { refreshed: Vec::new(), failed: Vec::new() };
         let mut answers = Vec::new();
         for (provider, listing, ended_at) in listed.entries {
@@ -624,7 +747,14 @@ impl ProviderCatalog {
         // describes the previous account and is not published.
         let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
         if self.epoch.load(Ordering::SeqCst) != listed.epoch {
-            return outcome;
+            return (outcome, false);
+        }
+        if late {
+            let current = self.current.load();
+            let missing = |provider: &ProviderId| matches!(current.status.get(provider), Some(ProviderStatus::Missing { .. }));
+            if !answers.iter().all(|(provider, _, _)| missing(provider)) {
+                return (outcome, false);
+            }
         }
         // Only a listing of the current account is recorded (`callerGeneration === generation`).
         for provider in &outcome.refreshed {
@@ -651,6 +781,6 @@ impl ProviderCatalog {
             }
             Arc::new(CatalogSnapshot { generation: current.generation + 1, models, status })
         });
-        outcome
+        (outcome, true)
     }
 }

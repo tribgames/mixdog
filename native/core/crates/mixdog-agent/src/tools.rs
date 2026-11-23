@@ -1155,6 +1155,7 @@ mod tests {
             prepared: false,
             native_pdf: false,
             sees_images: false,
+            outside: false,
             live_cwd: None,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
@@ -1452,6 +1453,8 @@ pub(crate) struct CallEnv {
     pub(crate) native_pdf: bool,
     /// The run's model sees images (`pdfReadModes`' `seesImages`), which a call carries to `read`.
     pub(crate) sees_images: bool,
+    /// The calls are an outside agent's ([`crate::handed`]): its model does not read the session's rows.
+    pub(crate) outside: bool,
 }
 impl CallEnv {
     /// The folder a call starts in: the session's live one, else the turn's.
@@ -1535,7 +1538,7 @@ fn unapproved_detail(resolution: &ApprovalResolution, reason: &str) -> String {
 
 /// The gate, the approval wait and the final surface judgement of one call: the call to
 /// dispatch, or the model-visible refusal.
-async fn authorize(
+pub(crate) async fn authorize(
     call: (&str, &str),
     arguments: &JsonValue,
     cwd: &std::path::Path,
@@ -1763,6 +1766,7 @@ fn tool_context(
             pdf_page_images: env.sees_images,
             pdf_page_ocr: !env.sees_images,
             called_as: (target.name != spec.name).then(|| target.name.clone()),
+            outside_context: env.outside,
         },
         review: env.tool_env.review.clone(),
     }

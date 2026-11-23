@@ -98,6 +98,11 @@ impl SessionActor {
             ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
             // Node publishes a route value only when it changed (`local-session-runtime.mjs` `publishChanged`).
             ProducerMsg::Section(Section::TurnEffort(effort)) if effort == self.acked.route().turn_effort => {}
+            // A read started before this publish may have seen the workspace it replaces: its answer is no longer the latest.
+            ProducerMsg::Section(section @ Section::Workspace(_)) => {
+                self.live_workspace_reads += 1;
+                self.accept_view(Change::Section(section), Vec::new());
+            }
             ProducerMsg::Section(section) => self.accept_view(Change::Section(section), Vec::new()),
             ProducerMsg::ItemStarted { turn, item } => {
                 if !self.active(&turn) {

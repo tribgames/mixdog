@@ -19,6 +19,7 @@ use super::board::JobBoard;
 use super::board::JobMeta;
 use super::board::JobSnapshot;
 use super::dispatch::first_truthy;
+use super::flow::stages::TurnStage;
 use super::host::Job;
 use super::host::ListOptions;
 use super::host::Registry;
@@ -194,6 +195,7 @@ struct JobData {
     error: Option<String>,
     result: Option<TaskResult>,
     meta: JobMeta,
+    turn_stage: Option<(TurnStage, i64)>,
 }
 
 impl From<JobSnapshot> for JobData {
@@ -207,6 +209,7 @@ impl From<JobSnapshot> for JobData {
             error: s.error,
             result: s.result,
             meta: s.meta,
+            turn_stage: s.turn_stage,
         }
     }
 }
@@ -261,7 +264,22 @@ impl JobViews {
                     Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
                 view.stage = Some(self.progress_of(session_id, None).await.worker_stage);
             }
-            let live = self.progress_of(session_id, Some(&job.status)).await;
+            let mut live = self.progress_of(session_id, Some(&job.status)).await;
+            // Until the session started the job's turn, what it reports is of an earlier turn: the card names the stage
+            // the job's own turn waits in. Once started, the stage stands in only where the session reports none.
+            if let Some((stage, at)) = job.turn_stage
+                && (stage != TurnStage::Started || live.worker_stage == "unknown")
+            {
+                let waited = Some((self.clock.now_ms() - at).max(0) / 1000).filter(|secs| *secs >= 5 && stage != TurnStage::Started);
+                live.worker_stage = stage.word().to_owned();
+                live.last_progress = match waited {
+                    Some(secs) => format!("{} ({secs}s)", stage.describe()),
+                    None => stage.describe().to_owned(),
+                };
+                live.diagnostic = live.last_progress.clone();
+                live.silent_for_secs = None;
+                view.stage = Some(live.worker_stage.clone());
+            }
             apply(view, live);
         } else {
             let spawning = job.status == "running";
@@ -378,6 +396,7 @@ impl JobViews {
                 fast: Some(session.fast),
                 ..JobMeta::default()
             },
+            turn_stage: None,
         }))
     }
 }

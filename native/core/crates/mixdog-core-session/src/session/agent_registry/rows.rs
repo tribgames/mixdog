@@ -546,7 +546,7 @@ pub fn order_tombstones(mut rows: Vec<Row>) -> Vec<Row> {
 }
 /// `recoverTagTombstoneOwner`: the owner a legacy (owner-less) tombstone's session had,
 /// when exactly one session can be it; `None` otherwise.
-pub fn recover_owner(row: &Row, sessions: &[Row]) -> Option<Row> {
+pub fn recover_owner<S: std::borrow::Borrow<Row>>(row: &Row, sessions: &[S]) -> Option<Row> {
     if !clean(either(row, "parentSessionId", "ownerSessionId")).is_empty() {
         return None;
     }
@@ -559,6 +559,7 @@ pub fn recover_owner(row: &Row, sessions: &[Row]) -> Option<Row> {
     let tag = clean(row.get("tag"));
     let candidates: Vec<&Row> = sessions
         .iter()
+        .map(std::borrow::Borrow::borrow)
         .filter(|s| {
             let id = clean(s.get("id"));
             let created = stamp_ms(s.get("createdAt"));

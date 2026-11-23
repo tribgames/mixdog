@@ -2095,9 +2095,9 @@ dependencies = [
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -4278,6 +4278,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-acp"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "fancy-regex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mixdog-acp",
+ "mixdog-agent",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-app-server",
+ "mixdog-browser-engine",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-core-domains",
+ "mixdog-core-ports",
+ "mixdog-core-review",
+ "mixdog-core-rooms",
+ "mixdog-core-run",
+ "mixdog-core-session",
+ "mixdog-exthost",
+ "mixdog-fsio",
+ "mixdog-imaging",
+ "mixdog-js",
+ "mixdog-mcp",
+ "mixdog-migrate",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-scm",
+ "mixdog-secrets",
+ "mixdog-services",
+ "mixdog-spawn",
+ "mixdog-store",
+ "mixdog-testkit",
+ "mixdog-tools",
+ "mixdog-trace",
+ "mixdog-workspace",
+ "mixdog-workspace-hack",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "mixdog-agent"
 version = "1.5.0"
 dependencies = [
@@ -4480,6 +4532,7 @@ dependencies = [
  "fancy-regex",
  "futures",
  "libc",
+ "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -4635,6 +4688,7 @@ dependencies = [
  "flate2",
  "httparse",
  "log",
+ "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -5414,6 +5468,7 @@ dependencies = [
  "fancy-regex",
  "flate2",
  "httparse",
+ "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-server",
@@ -5703,6 +5758,7 @@ version = "1.5.0"
 dependencies = [
  "fancy-regex",
  "libc",
+ "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-server",
@@ -6292,6 +6348,7 @@ version = "1.5.0"
 dependencies = [
  "async-trait",
  "fancy-regex",
+ "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-server",
@@ -6789,6 +6846,7 @@ name = "mixdog-tui"
 version = "1.5.0"
 dependencies = [
  "fancy-regex",
+ "mixdog-acp",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-server",
@@ -10700,9 +10758,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

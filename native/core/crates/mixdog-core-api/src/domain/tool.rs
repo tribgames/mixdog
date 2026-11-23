@@ -424,6 +424,9 @@ pub struct CallOptions {
     /// The name the model called the tool by, when it is not the canonical one (a declared alias, or the same name in
     /// another case): the adapters of other CLIs' tools word their refusals with the name the model wrote.
     pub called_as: Option<String>,
+    /// The caller's model does not read the session's rows (an agent that runs the turn outside Mixdog's loop): a tool
+    /// that answers "already in your context" by what those rows hold answers in full.
+    pub outside_context: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

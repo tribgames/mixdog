@@ -757,8 +757,7 @@ async fn a_kept_book_is_persisted_in_the_touch_file_and_read_at_the_next_load() 
     let warm_at = T0 + 240_000;
     let warm = books.gate(session, Some(&header), settings(warm_at));
     let on_a = route("a");
-    let Verdict::Send(permit) =
-        warm.0.admit(Admission { purpose: Purpose::Warm, route: &on_a, manifest: &manifest, generation: None, unreduced: None }).await
+    let Verdict::Send(permit) = warm.0.admit(Admission { purpose: Purpose::Warm, route: &on_a, manifest: &manifest, generation: None, unreduced: None }).await
     else {
         panic!("the warm is admitted inside the lifetime")
     };
@@ -813,8 +812,7 @@ async fn a_warm_of_an_unloaded_session_reaches_its_next_load() {
     let warm_at = T0 + 240_000;
     let warm = books.gate(session, Some(&header), settings(warm_at));
     let on_a = route("a");
-    let Verdict::Send(permit) =
-        warm.0.admit(Admission { purpose: Purpose::Warm, route: &on_a, manifest: &manifest, generation: None, unreduced: None }).await
+    let Verdict::Send(permit) = warm.0.admit(Admission { purpose: Purpose::Warm, route: &on_a, manifest: &manifest, generation: None, unreduced: None }).await
     else {
         panic!("the warm is admitted inside the lifetime")
     };

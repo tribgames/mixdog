@@ -177,8 +177,8 @@ impl SendFlowImpl {
     }
 
     /// The session a prepared send runs on, as the manager holds it now.
-    fn session_of(&self, prepared: &Prepared) -> Value {
-        self.world.session(&prepared.session_id).unwrap_or_else(|| {
+    async fn session_of(&self, prepared: &Prepared) -> Value {
+        self.world.session(&prepared.session_id).await.unwrap_or_else(|| {
             let mut session = Map::new();
             session.insert("id".into(), prepared.session.id.clone().into());
             session.insert("agent".into(), prepared.session.agent.clone().into());
@@ -197,9 +197,10 @@ impl SendFlowImpl {
         }
         let session_id = self
             .registry
-            .resolve_tag(&target, scope, ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: false })?
+            .resolve_tag(&target, scope, ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: false })
+            .await?
             .ok_or_else(|| format!("agent send: target \"{target}\" not found"))?;
-        let session = self.world.session(&session_id).filter(|s| s.get("closed") != Some(&Value::Bool(true)));
+        let session = self.world.session(&session_id).await.filter(|s| s.get("closed") != Some(&Value::Bool(true)));
         let Some(session) = session else {
             return Err(format!("agent send: session \"{session_id}\" is closed"));
         };
@@ -219,11 +220,11 @@ impl SendFlowImpl {
     /// and applies it from the session's next turn.
     async fn apply_requested_route(&self, session: Value, route: &Value) -> Result<Value, String> {
         let id = id_of(&session);
-        if !self.world.surface_runs(&session) || !self.world.can_set_route() {
+        if !self.world.surface_runs(&session).await || !self.world.can_set_route() {
             return Err(format!("agent spawn: this surface cannot change the model of reused session \"{id}\""));
         }
         self.world.set_route(&session, route).await?;
-        Ok(self.world.session(&id).unwrap_or(session))
+        Ok(self.world.session(&id).await.unwrap_or(session))
     }
 
     /// `agentRouteToFollow`: a worker that runs on its agent's configured route follows that
@@ -275,8 +276,10 @@ impl SendFlowImpl {
     async fn settle_route(&self, prepared: &Prepared, mut session: Value) -> Result<Value, String> {
         let id = &prepared.session_id;
         let mut followed = if prepared.route.is_some() { None } else { self.agent_route_to_follow(&session).await? };
-        if let Some(route) = followed.as_ref().filter(|_| !self.world.surface_runs(&session)) {
-            if !self.world.is_busy(id) {
+        if let Some(route) = followed.as_ref()
+            && !self.world.surface_runs(&session).await
+        {
+            if !self.world.is_busy(id).await {
                 let cross = route.get("provider") != session.get("provider") || route.get("model") != session.get("model");
                 self.world.update_session_route(id, route, &session, cross);
             } else {
@@ -298,11 +301,11 @@ impl SendFlowImpl {
         notify: &SpawnContext,
         options: DispatchOptions,
     ) -> Result<AgentReply, String> {
-        let session = self.settle_route(prepared, self.session_of(prepared)).await?;
+        let session = self.settle_route(prepared, self.session_of(prepared).await).await?;
         let id = prepared.session_id.clone();
         let prompt = prepared.prompt.clone().unwrap_or_default();
-        let tag = self.registry.tag_for_session(&id);
-        let busy = self.world.is_busy(&id);
+        let tag = self.registry.tag_for_session(&id).await;
+        let busy = self.world.is_busy(&id).await;
         // Queued work runs as the worker's own later turn (or steers into the running one): the
         // owner follows it from that turn's start.
         if busy {
@@ -320,13 +323,14 @@ impl SendFlowImpl {
                 queue_depth,
             })
         };
-        if self.world.surface_runs(&session)
+        let runs = self.world.surface_runs(&session).await;
+        if runs
             && busy
             && let Some(queued) = self.world.enqueue_turn(&session, &prompt, &attachments, context).await?
         {
             return Ok(queued_view(queued.get("queueDepth").and_then(Value::as_u64)));
         }
-        if !self.world.surface_runs(&session) && busy {
+        if !runs && busy {
             // The queued follow-up keeps the forwarded files, as the canonical queue does.
             if let Some(depth) = self.world.enqueue_pending(&id, &prompt, &attachments) {
                 return Ok(queued_view(Some(depth)));
@@ -336,7 +340,7 @@ impl SendFlowImpl {
         let start = send_start_context(notify);
         let (flow, prepared_run) = (self.clone(), prepared.clone());
         let job = self.starter.start_job("send", meta, start, move |job, owner_context| async move {
-            let plan = flow.turn_plan(&prepared_run);
+            let plan = flow.turn_plan(&prepared_run).await;
             let value: WorkerResult = flow.runner.run(plan, Some(owner_context), Some(job)).await?;
             Ok(Some(value))
         })?;
@@ -347,11 +351,11 @@ impl SendFlowImpl {
     }
 
     /// What `runSend` runs: a follow-up turn on the existing worker.
-    pub fn turn_plan(&self, prepared: &Prepared) -> TurnPlan {
-        let session = self.session_of(prepared);
+    pub async fn turn_plan(&self, prepared: &Prepared) -> TurnPlan {
+        let session = self.session_of(prepared).await;
         let id = prepared.session_id.clone();
         let send_agent = text(&session, "agent").unwrap_or_else(|| normalize_agent_name(&clean(prepared.args.get("agent"))));
-        let tag = self.registry.tag_for_session(&id).unwrap_or_default();
+        let tag = self.registry.tag_for_session(&id).await.unwrap_or_default();
         let mut identity = Map::new();
         identity.insert("tag".into(), tag.clone().into());
         identity.insert("sessionId".into(), id.clone().into());
@@ -378,12 +382,12 @@ impl SendFlowImpl {
     /// A background-task completion was queued for this worker. A busy worker takes it at its
     /// next tool boundary; an idle one runs a follow-up turn on an empty prompt, which drains the
     /// queued completion (never an empty user turn). Its answer reaches the owner like any send.
-    pub fn wake_idle_worker(self: &Arc<Self>, session_id: &str) -> bool {
+    pub async fn wake_idle_worker(self: &Arc<Self>, session_id: &str) -> bool {
         let id = clean_str(session_id);
-        if id.is_empty() || self.world.is_busy(&id) {
+        if id.is_empty() || self.world.is_busy(&id).await {
             return false;
         }
-        let Some(session) = self.world.session(&id).filter(|s| s.get("closed") != Some(&Value::Bool(true))) else { return false };
+        let Some(session) = self.world.session(&id).await.filter(|s| s.get("closed") != Some(&Value::Bool(true))) else { return false };
         let owner = either(&session, "ownerSessionId", "parentSessionId");
         let notify = SpawnContext {
             caller_session_id: Some(owner.clone()).filter(|o| !o.is_empty()),

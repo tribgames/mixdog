@@ -200,6 +200,7 @@ impl HostRuntime for LiveHostRuntime {
         let workers: Vec<Map<String, Value>> = self
             .registry
             .session_entries(false, &Default::default())
+            .await
             .into_iter()
             .map(|(_, row)| std::sync::Arc::unwrap_or_clone(row))
             .filter(|row| text(row, "ownerSessionId").as_deref() == Some(id) || text(row, "parentSessionId").as_deref() == Some(id))

@@ -10,6 +10,7 @@ use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::flow::early::EarlyNotice;
 use mixdog_agent::agent_tool::flow::reconcile::JobHandle;
 use mixdog_agent::agent_tool::flow::seams::*;
+use mixdog_agent::agent_tool::flow::stages::TurnStage;
 use mixdog_agent::agent_tool::flow::turn::TurnPlan;
 use mixdog_agent::agent_tool::flow::turn::TurnRunner;
 use mixdog_agent::agent_tool::flow::worker_turns::Claim;
@@ -69,6 +70,8 @@ struct World {
     /// A session and the value it marked sensitive; the carries the runner asked for.
     secret: Option<(String, String)>,
     carried: Mutex<Vec<(String, String)>>,
+    /// Told when the script reaches a `hold` step.
+    held: tokio::sync::Notify,
 }
 
 impl World {
@@ -106,6 +109,27 @@ impl TurnSessions for Sess {
             } else if let Some(terminal) = step.get("terminal") {
                 if let Some(hook) = &request.hooks.on_terminal_result {
                     hook(&turn_result(terminal));
+                }
+            } else if let Some(stage) = step.get("stage").and_then(Value::as_str) {
+                // The route tells the turn's job where the turn stands before the session started it.
+                let stage = match stage {
+                    "opening" => TurnStage::Opening,
+                    "counting-after-open" => TurnStage::Counting,
+                    "starting" => TurnStage::Starting,
+                    other => panic!("stage {other}"),
+                };
+                if let Some(told) = &request.hooks.on_stage {
+                    told(stage);
+                }
+            } else if step.get("hold").is_some() {
+                // A wait that never ends by itself: the job's cancellation ends it, as the session's route ends its own.
+                w.held.notify_one();
+                match &request.cancel {
+                    Some(cancel) => {
+                        cancel.cancelled().await;
+                        return Err(TurnError::new(cancel.reason()));
+                    }
+                    None => std::future::pending::<()>().await,
                 }
             } else if step.get("cancel").is_some() {
                 let id = lock(&w.job).clone().unwrap();
@@ -174,6 +198,86 @@ async fn a_workers_prompt_leaves_its_owner_redacted_and_marks_carry_both_ways() 
     runner.run(plan, None, None).await.ok();
     assert!(lock(&world.calls).contains(&json!("ask:enter [redacted]@/work")), "{:?}", lock(&world.calls));
     assert_eq!(*lock(&world.carried), [("sess_w1".to_owned(), "lead".to_owned()), ("lead".to_owned(), "sess_w1".to_owned())]);
+}
+
+fn send_plan() -> TurnPlan {
+    TurnPlan {
+        kind: TurnKind::Send,
+        session_id: "sess_w1".into(),
+        parent_session_id: Some("lead".into()),
+        session_owner_id: None,
+        tag: "scout".into(),
+        agent: "worker".into(),
+        identity: identity(false, "worker"),
+        prompt: "go on".into(),
+        attachments: Vec::new(),
+        context: None,
+        cwd: "/work".into(),
+        skill_selection: None,
+        canonical: false,
+    }
+}
+
+/// A send whose turn waits before its session was handed anything (the route says where: `opening`), on a wait that does
+/// not end by itself. The job's card names that stage. Cancelling the job ends its work: the turn's claim is released
+/// as cancelled, the runtime is unloaded, and nothing is closed on the session, which never got a turn.
+#[tokio::test(start_paused = true)]
+async fn a_job_cancelled_before_its_turn_was_submitted_ends_and_its_card_named_the_stage_it_waited_in() {
+    use crate::flow_scenarios::{NoStarts, NoWorkers, Open, RecordedCloses, Reg};
+    use mixdog_agent::agent_tool::board::JobMeta;
+    use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
+    use mixdog_agent::agent_tool::scope::Scope;
+    use mixdog_agent::agent_tool::views::JobViews;
+
+    backend();
+    let world = Arc::new(World { steps: vec![json!({ "stage": "opening" }), json!({ "hold": true })], ..World::default() });
+    let clock: Arc<dyn Clock> = Arc::new(FixedClock);
+    let board = JobBoard::new(clock.clone(), None, None);
+    let early = Arc::new(EarlyNotice::new(Arc::new(Owner(world.clone())), clock.clone()));
+    let runner = Arc::new(TurnRunner::new(
+        Arc::new(Sess(world.clone())),
+        Arc::new(TurnsOwner(world.clone())),
+        Arc::new(Reviews(world.clone())),
+        Arc::new(Events(world.clone())),
+        Arc::new(NoInbox),
+        early,
+    ));
+    let closes = Arc::new(RecordedCloses::default());
+    let starter = JobStarter::new(board.clone(), closes.clone(), Arc::new(Sess(world.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let scenario = crate::flow_scenarios::rig(&json!({}), None);
+    let views = JobViews::new(board.clone(), Arc::new(Reg(scenario.shared.clone())), Arc::new(NoWorkers), clock);
+    let ended = Arc::new(tokio::sync::Notify::new());
+    let job = {
+        let (runner, ended) = (runner.clone(), ended.clone());
+        let meta = JobMeta { session_id: Some("sess_w1".into()), tag: Some("scout".into()), ..JobMeta::default() };
+        starter
+            .start_job("send", meta, Default::default(), move |job, context| async move {
+                let outcome = runner.run(send_plan(), Some(context), Some(job)).await;
+                ended.notify_one();
+                outcome.map(Some)
+            })
+            .expect("started")
+    };
+    async fn within(what: &'static str, wait: impl std::future::Future<Output = ()>) {
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), wait).await.unwrap_or_else(|_| panic!("{what}"));
+    }
+    within("the turn reaches its held wait", world.held.notified()).await;
+
+    let card = views.card(job.task_id(), &Scope::default(), false).await.expect("the job's card");
+    assert_eq!(card.view.status.as_deref(), Some("running"));
+    assert_eq!(
+        (card.view.worker_stage.as_deref(), card.view.last_progress.as_deref(), card.view.stage.as_deref()),
+        (Some("opening"), Some("opening the worker session"), Some("opening")),
+        "the card names the stage the turn waits in"
+    );
+
+    board.cancel(job.task_id(), "user cancelled", CancelNotice::Default);
+    within("the cancelled job's work ends with the wait its cancellation ended", ended.notified()).await;
+    assert_eq!(job.status().as_deref(), Some("cancelled"));
+    let calls = lock(&world.calls).clone();
+    assert!(calls.contains(&json!("release:cancelled")), "the turn's claim is released as cancelled: {calls:?}");
+    assert!(calls.contains(&json!("unload:agent-turn-complete")), "{calls:?}");
+    assert!(lock(&closes.turns).is_empty() && lock(&closes.calls).is_empty(), "no turn was submitted: nothing on the session is closed");
 }
 
 struct Events(Arc<World>);

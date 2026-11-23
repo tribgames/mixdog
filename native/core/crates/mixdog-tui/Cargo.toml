@@ -44,6 +44,7 @@ mixdog-core = { workspace = true, features = ["count-work", "replay-bytes", "tes
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 fancy-regex = { workspace = true, features = ["probe"] }
+mixdog-acp = { workspace = true, features = ["test-support"] }
 mixdog-agent = { workspace = true, features = ["test-support"] }
 mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }

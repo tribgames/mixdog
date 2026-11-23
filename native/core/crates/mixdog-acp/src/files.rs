@@ -1,0 +1,88 @@
+//! The one client capability offered to an agent: reading a text file of the session's folder.
+//! Writing is not offered, so the agent keeps editing with its own tools and reports diffs.
+
+use std::path::Component;
+use std::path::Path;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::FileService;
+use mixdog_core_api::domain::fs::ReadRange;
+use mixdog_rt::InteractiveIo;
+use mixdog_rt::LaneToken;
+use serde_json::Value;
+use serde_json::json;
+
+use crate::connection::RpcError;
+
+#[async_trait]
+pub trait TextFiles: Send + Sync {
+    async fn read(&self, path: AbsPath) -> Result<String, String>;
+    /// `path` with every link on it followed: the place a read of it reaches.
+    async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String>;
+}
+
+/// [`TextFiles`] over the core's file service.
+pub struct ServiceFiles {
+    pub files: Arc<dyn FileService>,
+    pub lane: InteractiveIo,
+}
+
+#[async_trait]
+impl TextFiles for ServiceFiles {
+    async fn read(&self, path: AbsPath) -> Result<String, String> {
+        let read = self.files.read(self.lane, path, ReadRange::default()).await.map_err(|error| format!("{:?}", error.kind))?;
+        String::from_utf8(read.bytes).map_err(|_| "the file is not UTF-8 text".to_owned())
+    }
+
+    async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| std::fs::canonicalize(path.as_path()));
+        let resolved = match job {
+            Ok(job) => job.await.map_err(|_| "the file could not be looked at".to_owned())?,
+            Err(_) => return Err("the file could not be looked at".to_owned()),
+        };
+        resolved.map_err(|error| error.to_string()).and_then(|path| AbsPath::new(path).ok_or_else(|| "the file has no absolute place".to_owned()))
+    }
+}
+
+/// The place to read for `path`, when it names one inside `cwd` without leaving it, by its name and by where its links
+/// lead: a link or junction inside the folder that points out of it is outside. The place is the resolved one that was
+/// checked, so a link changed after the check leads the read nowhere else.
+async fn inside(files: &dyn TextFiles, cwd: &AbsPath, path: &str) -> Option<AbsPath> {
+    let path = AbsPath::new(path)?;
+    let rest = path.as_path().strip_prefix(cwd.as_path()).ok()?;
+    if !rest.components().all(|part| matches!(part, Component::Normal(_))) {
+        return None;
+    }
+    // A place that cannot be resolved (no such file) leads nowhere: its read tells why.
+    let Ok(place) = files.resolved(path.clone()).await else { return Some(path) };
+    let folder = files.resolved(cwd.clone()).await.ok()?;
+    place.as_path().starts_with(folder.as_path()).then_some(place)
+}
+
+fn invalid(message: &str) -> RpcError {
+    RpcError { code: -32602, message: message.to_owned(), data: Value::Null }
+}
+
+/// The answer to the agent's `fs/read_text_file`: `line` is 1-based, `limit` counts lines.
+pub async fn read_text_file(files: &dyn TextFiles, cwd: &AbsPath, params: &Value) -> Result<Value, RpcError> {
+    let requested = params.get("path").and_then(Value::as_str).ok_or_else(|| invalid("path is required"))?;
+    let Some(path) = inside(files, cwd, requested).await else {
+        return Err(invalid(&format!("{} is outside the session's folder {}", requested, Path::display(cwd.as_path()))));
+    };
+    let text = files.read(path).await.map_err(|message| RpcError { code: -32603, message, data: Value::Null })?;
+    let first = params.get("line").and_then(Value::as_u64).unwrap_or(1).max(1) as usize - 1;
+    let content = match (first, params.get("limit").and_then(Value::as_u64)) {
+        (0, None) => text,
+        (first, limit) => {
+            let lines = text.split_inclusive('\n').skip(first);
+            match limit {
+                Some(limit) => lines.take(limit as usize).collect(),
+                None => lines.collect(),
+            }
+        }
+    };
+    Ok(json!({ "content": content }))
+}

@@ -26,6 +26,8 @@ macro_rules! re {
 
 const DETAILS_LIMIT: usize = 12_000;
 const SUMMARY_LIMIT: usize = 180;
+/// The longest a failure that already names its causes (a fallback chain's every model) is cut at.
+const PRESENTED_LIMIT: f64 = 1_200.0;
 
 /// The phase a provider timeout names (`provider-timeout-phase.mjs`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -87,6 +89,97 @@ pub fn provider_error_text(error: &ProviderError, surface: &str) -> String {
         return error.message.clone();
     }
     present_error_text(&ErrorView::from(error), &PresentOptions { surface: surface.into(), ..PresentOptions::default() })
+}
+
+/// A rate-limit or quota refusal as an agent task hands it to its spawner: the provider by name and the provider's own words,
+/// read from the `"message"` of a JSON body the text carries (also one cut short), else the whole text.
+pub fn provider_limit_line(provider: &str, message: &str) -> String {
+    let own = re!(r#""message"\s*:\s*"((?:[^"\\]|\\.)*)"#)
+        .captures(message)
+        .map(|c| serde_json::from_str::<String>(&format!("\"{}\"", &c[1])).unwrap_or_else(|_| c[1].to_owned()))
+        .unwrap_or_else(|| message.to_owned());
+    format!("{provider} quota/rate limit hit: {}", one_line(&strip_error_prefix(&own)))
+}
+
+/// `providerDisplayName` (`shared/provider-display-name.mjs`): a known provider id's display name, any other id as itself.
+pub fn provider_display_name(provider: &str) -> String {
+    let name = match provider.to_lowercase().as_str() {
+        "openai-oauth" => "OpenAI OAuth",
+        "anthropic-oauth" => "Anthropic OAuth",
+        "grok-oauth" => "Grok OAuth",
+        "muse-code-oauth" => "Muse Code",
+        "command-code-oauth" => "Command Code",
+        "mimo-oauth" => "MiMo",
+        "cursor-oauth" => "Cursor OAuth",
+        "devin-oauth" => "Devin",
+        "antigravity-oauth" => "Antigravity OAuth",
+        "openai" | "openai-api" => "OpenAI API",
+        "anthropic" | "anthropic-api" => "Anthropic API",
+        "gemini" | "gemini-api" => "Gemini API",
+        "xai" | "xai-api" => "xAI API",
+        "deepseek" | "deepseek-api" => "DeepSeek API",
+        "opencode-go-oauth" => "OpenCode Go OAuth",
+        "openrouter" => "OpenRouter",
+        "mixdog-local" => "Local Provider",
+        "default" => "Default",
+        _ => provider,
+    };
+    name.to_owned()
+}
+
+/// A route whose provider cannot run now, as the user reads it: the provider by name, why (the registry's own cause when it
+/// recorded one), and what to do about it.
+pub fn provider_unavailable_text(provider: &str, cause: Option<&str>, switched_off: bool) -> String {
+    let name = provider_display_name(provider);
+    let recorded = cause.map(|cause| {
+        let own = re!(r#"^\[provider\] Failed to init "[^"]*":\s*"#).replace(cause, "");
+        re!(r"\s*[—-]\s*run /login\s*$").replace(&own, "").trim().to_owned()
+    });
+    let why = match recorded.filter(|why| !why.is_empty()) {
+        Some(why) => why,
+        None if switched_off => "it is switched off".to_owned(),
+        None => "it is not signed in and has no API key".to_owned(),
+    };
+    let step = if why.contains("/providers") { "" } else { " Sign in under /providers, or add an API key there." };
+    format!("{name} is not available: {why}.{step}")
+}
+
+/// A readiness failure that says no provider family of this core serves `provider`: `Some(provider)`.
+pub fn unserved_provider_of(message: &str) -> Option<String> {
+    let found = re!(r#"^\[provider\] Failed to init "([^"]+)": unknown enabled provider: (.+)$"#).captures(message.trim())?;
+    (found[1] == found[2]).then(|| found[1].to_owned())
+}
+
+/// A route-save readiness failure as a sentence: a provider this core does not offer is named as such, any other failure
+/// stands as it is.
+pub fn route_ready_error_text(message: String) -> String {
+    match unserved_provider_of(&message) {
+        Some(provider) => {
+            let name = provider_display_name(&provider);
+            let shown = if name == provider { format!("\"{provider}\"") } else { format!("{name} (\"{provider}\")") };
+            format!("This core does not offer the provider {shown}; choose a route on another provider.")
+        }
+        None => message,
+    }
+}
+
+/// The chain lines a surfaced failure carries after its own message (`annotateEndedChain`): every model tried and why each
+/// failed, or where the chain stopped.
+fn chain_line(message: &str) -> Option<String> {
+    let found = re!(r"(?m)^(?:Every model in the fallback chain failed|Fallback chain stopped before)[^\n]*$").find(message)?;
+    Some(one_line(found.as_str()))
+}
+
+/// The provider's own reason in a refusal's message: the `"message"` of a JSON body it carries, else the text after the
+/// status; `None` when nothing is left.
+fn refusal_reason(message: &str) -> Option<String> {
+    let message = message.split("\nSkipped fallback").next().unwrap_or(message);
+    let own = match re!(r#""message"\s*:\s*"((?:[^"\\]|\\.)*)"#).captures(message) {
+        Some(c) => serde_json::from_str::<String>(&format!("\"{}\"", &c[1])).unwrap_or_else(|_| c[1].to_owned()),
+        None => re!(r"^[^{]*?\b[0-9]{3}\s*:\s*").replace(message, "").into_owned(),
+    };
+    let own = one_line(&strip_error_prefix(&own));
+    (!own.is_empty()).then(|| cap_text(&own, 300.0))
 }
 
 /// The sentence for a failure that has no message and no fault: what its kind and delivery state tell.
@@ -198,6 +291,16 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
         Some(TransportFault::CorruptBody) => return "The provider's response could not be decoded: the compressed body is corrupt.".into(),
         _ => {}
     }
+    if re!(
+        r"^(?:\S[^:]{0,40} quota/rate limit hit: |Provider usage limit reached|Out of credits or at spend limit|Not included in your plan|Access denied by the provider|Provider is rate-limited|Every model in the fallback chain failed|Fallback chain stopped before)"
+    )
+    .is_match(error.message.trim())
+    {
+        return cap_text(&one_line(&error.message), options.max.unwrap_or(240.0).max(PRESENTED_LIMIT));
+    }
+    if let Some(chain) = chain_line(&error.message) {
+        return cap_text(&chain, options.max.unwrap_or(240.0).max(PRESENTED_LIMIT));
+    }
     let presentation = describe_error(error);
     if matches!(presentation.kind, "image-size" | "payload-size" | "request" | "model-unavailable" | "tool-schema") {
         return presentation.summary;
@@ -206,7 +309,11 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
         && presentation.kind != "unknown"
         && let Some(line) = kind_line(&presentation.provider_kind, presentation.retry_after_ms)
     {
-        return line;
+        let line = match refusal_reason(&error.message).filter(|_| presentation.provider_kind == "permission") {
+            Some(reason) => format!("{}: {reason}", line.trim_end_matches('.')),
+            None => line,
+        };
+        return re!(r"(?m)^Skipped fallback [^\n]*$").find_iter(&error.message).fold(line, |text, skipped| format!("{text} {}", one_line(skipped.as_str())));
     }
     let surface = options.surface.as_str();
     let subject = subject_for_surface(surface);
@@ -998,6 +1105,61 @@ fn typed_stream_failure_text(error: &ErrorView, text: &str, provider_label: Opti
 mod tests {
 
     use super::*;
+
+    fn typed(kind: ErrorKind, status: u16, message: &str) -> ProviderError {
+        let mut error = ProviderError::new(kind, DeliveryState::Accepted);
+        error.status = Some(status);
+        error.message = message.to_owned();
+        error
+    }
+
+    fn shown(error: &ProviderError) -> String {
+        present_error_text(&ErrorView::from(error), &PresentOptions::default())
+    }
+
+    /// A route whose provider is signed out names the provider, the registry's cause, and the step to take.
+    #[test]
+    fn an_unavailable_provider_is_named_with_its_cause_and_the_step_to_take() {
+        let cause = "[provider] Failed to init \"cursor-oauth\": not signed in — run /login";
+        let text = provider_unavailable_text("cursor-oauth", Some(cause), false);
+        assert_eq!(text, "Cursor OAuth is not available: not signed in. Sign in under /providers, or add an API key there.");
+        assert!(provider_unavailable_text("openai", None, true).contains("OpenAI API is not available: it is switched off"));
+    }
+
+    /// A chain that ended names every model tried on the failure's last line, whatever the kind of the last error.
+    #[test]
+    fn a_failure_after_a_fallback_chain_names_every_model_tried() {
+        let message =
+            "Gemini REST 429: {}\nEvery model in the fallback chain failed — Gemini 4: Provider is rate-limited.; Opus 5: Provider usage limit reached.";
+        let shown = shown(&typed(ErrorKind::RateLimited, 429, message));
+        assert_eq!(shown, "Every model in the fallback chain failed — Gemini 4: Provider is rate-limited.; Opus 5: Provider usage limit reached.");
+        assert_eq!(present_error_text(&ErrorView::message(shown.clone()), &PresentOptions::default()), shown, "a spawner's re-reading keeps it");
+    }
+
+    /// A suspended account's refusal carries the provider's own reason.
+    #[test]
+    fn an_access_denial_carries_the_providers_reason() {
+        let body = "Gemini REST streamGenerateContent 403: {\"error\":{\"code\":403,\"message\":\"Your account has been suspended.\",\"status\":\"PERMISSION_DENIED\"}}";
+        assert_eq!(shown(&typed(ErrorKind::Permission, 403, body)), "Access denied by the provider: Your account has been suspended.");
+    }
+
+    /// A failure that passed over several fallbacks names each of them, not only the first.
+    #[test]
+    fn a_failure_names_every_fallback_it_skipped() {
+        let message = "overloaded\nSkipped fallback GPT 6: OpenAI OAuth is not available: not signed in.\nSkipped fallback Gemini 4: Google is not available: it is switched off.";
+        assert_eq!(
+            shown(&typed(ErrorKind::Overloaded, 503, message)),
+            "Provider is busy at capacity. Skipped fallback GPT 6: OpenAI OAuth is not available: not signed in. Skipped fallback Gemini 4: Google is not available: it is switched off."
+        );
+    }
+
+    /// A route saved on a provider this core does not serve says so in a sentence.
+    #[test]
+    fn a_provider_this_core_does_not_offer_is_named_in_a_sentence() {
+        let raw = "[provider] Failed to init \"acp-antigravity\": unknown enabled provider: acp-antigravity".to_owned();
+        assert_eq!(route_ready_error_text(raw), "This core does not offer the provider \"acp-antigravity\"; choose a route on another provider.");
+        assert_eq!(route_ready_error_text("the token store is locked".into()), "the token store is locked");
+    }
 
     /// A peer that closed or a failed lookup carries the code Node's `cause` names, as a reset does.
     #[test]

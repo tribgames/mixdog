@@ -194,7 +194,7 @@ pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
         None => format!("Anthropic API: {detail}"),
     };
     // `providerErrorKind`'s wording fallback: a 400 whose only signal is its text.
-    err.kind = crate::retry::classify::wording_kind(err.kind, &err.message);
+    err.kind = crate::retry::classify::wording_kind_scoped(err.kind, &err.message, err.quota_scope, err.retry_after);
     // `isThinkingReplayRejection`: a reasoning replay the API will not take back, typed for the loop's repair.
     crate::providers::rejections::mark_replay_rejection(&mut err);
     err

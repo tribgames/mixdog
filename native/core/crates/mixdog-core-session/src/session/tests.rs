@@ -2228,7 +2228,8 @@ async fn a_compaction_inside_a_turn_leaves_the_reading_pending_until_the_next_ca
                 .await
                 .expect("usage");
             gate.notified().await;
-            let stage = mixdog_agent::env::PassStage::Done { changed: true, handoff_source: "session-local", after_tokens: 9_000, duration_ms: 1, after: Vec::new() };
+            let stage =
+                mixdog_agent::env::PassStage::Done { changed: true, handoff_source: "session-local", after_tokens: 9_000, duration_ms: 1, after: Vec::new() };
             let pass = mixdog_agent::env::CompactPass {
                 request: Vec::new(),
                 tools: Vec::new(),
@@ -2508,6 +2509,85 @@ async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it
 
     handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-3" }), "op-3")).await.expect("clear");
     assert_eq!(handle.live_header().header().get("providerState"), None);
+}
+
+/// A compaction of a session an external agent runs is taken as any session's, and its commit takes the agent's session
+/// out of the header with the rows it replaces: the agent's next turn starts a session of its own on the summary.
+#[tokio::test(start_paused = true)]
+async fn a_compaction_of_an_agents_session_is_applied_and_leaves_the_agents_session_behind() {
+    const KEY: &str = crate::session::turn_ops::AGENT_SESSION;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let set = std::iter::once((KEY.to_owned(), json!({ "agent": "antigravity", "sessionId": "sess-1" }))).collect();
+            run.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await.expect("saved");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let agent_session = |handle: &SessionHandle| handle.live_header().header().get(KEY).cloned();
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && agent_session(&handle).is_some()).then_some(())).await;
+
+    // The request reaches the compaction engine: nothing refuses it for the session's route.
+    let Reply::Value(taken) =
+        handle.request(request("thread/compact/start", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("answered")
+    else {
+        panic!("a compaction answers a value")
+    };
+    assert_eq!(taken.get("notApplicable"), None, "{taken}");
+    assert!(lock(&rig.compaction.calls).iter().any(|call| call.starts_with("compact ")), "the engine was not asked");
+
+    // The engine's commit: the summary replaces the rows, and the header no longer names the agent's session.
+    let snapshot: Vec<ItemId> = directory.model_context(&handle.id).read().await.expect("context").into_iter().map(|(iid, _)| iid).collect();
+    let summary = json!({ "role": "user", "content": "[summary] manual" });
+    let compaction = super::run::Compaction { replacement: vec![(ItemId::from("msum".to_owned()), summary)], at: 9_000, dropped_count: 1, dropped: None };
+    let applied = directory.commit_compaction(&handle.id, snapshot, compaction, None).await.expect("answered");
+    assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
+    eventually_on!(&[&handle.cell.stepped], || agent_session(&handle).is_none().then_some(())).await;
+    let context = directory.model_context(&handle.id).read().await.expect("context");
+    assert_eq!(context.iter().map(|(iid, _)| iid.as_str()).collect::<Vec<_>>(), ["msum"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_external_agents_session_stays_out_of_a_fork_a_rewind_and_a_clear() {
+    const KEY: &str = crate::session::turn_ops::AGENT_SESSION;
+    let rig = Rig::new();
+    let held = json!({ "agent": "antigravity", "sessionId": "sess-1" });
+    let saved = held.clone();
+    rig.set_script(Arc::new(move |run| {
+        let saved = saved.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let set = std::iter::once((KEY.to_owned(), saved)).collect();
+            run.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await.expect("saved");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let agent_session = |handle: &SessionHandle| handle.live_header().header().get(KEY).cloned();
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && agent_session(&handle).is_some()).then_some(())).await;
+
+    let Reply::Value(fork) = handle.request(request("thread/fork", json!({ "threadId": handle.id, "opId": "op-fork" }), "op-fork")).await.expect("fork") else {
+        panic!("fork reply")
+    };
+    let heir = ThreadId::from(fork["thread"]["id"].as_str().expect("heir id"));
+    let heir = directory.open_handle(&heir, &CallContext::internal("test")).await.expect("the fork");
+    assert_eq!(agent_session(&heir), None, "the fork is a conversation of its own");
+    assert_eq!(agent_session(&handle), Some(held), "the source keeps its agent's session");
+
+    let first = handle.view_items()[0].id().clone();
+    handle.request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-rewind", "itemId": first }), "op-rewind")).await.expect("rewind");
+    assert_eq!(agent_session(&handle), None, "the agent's session still holds the turns the rewind took away");
+
+    turn(&handle, "two", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && agent_session(&handle).is_some()).then_some(())).await;
+    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-clear" }), "op-clear")).await.expect("clear");
+    assert_eq!(agent_session(&handle), None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -3668,8 +3748,7 @@ async fn a_turns_compaction_is_stored_with_its_fold_marked_owed() {
     eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
     assert_eq!(mark(&handle), Some(json!(true)));
     let id = handle.id.clone();
-    let reopened =
-        SessionDirectory::new(rig.deps_on(store)).open_handle(&id, &CallContext::internal("test")).await.expect("the session opens again");
+    let reopened = SessionDirectory::new(rig.deps_on(store)).open_handle(&id, &CallContext::internal("test")).await.expect("the session opens again");
     assert_eq!(mark(&reopened), Some(json!(true)), "the stored compaction carries its mark");
 }
 
@@ -8115,7 +8194,7 @@ async fn at_fence(handle: &SessionHandle, conn: &mixdog_core_api::mock::MockConn
         let log = log_units(handle).await;
         let Some(difference) = held.differs_from(&log) else { break log };
         // What the lane is still owed arrives as a frame: the wait is for it, and its bound only ends a fence never reached.
-        let next = tokio::time::timeout(Duration::from_secs(30), conn.drain_text_until(|frames| !frames.is_empty())).await;
+        let next = mixdog_rt::time::timeout(Duration::from_secs(30), conn.drain_text_until(|frames| !frames.is_empty())).await;
         frames = next.unwrap_or_else(|_| panic!("at the fence `{fence}`: {difference}"));
     };
     let recorded: Vec<&Value> = held.loose.iter().filter(|item| item["meta"]["ext"].get("historyPosition").is_some()).collect();
@@ -8202,8 +8281,7 @@ fn worded(steps: Steps) -> Script {
                 mixdog_protocol::PromptContent::Text(text) => text.clone(),
                 mixdog_protocol::PromptContent::Parts(_) => String::new(),
             };
-            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
-            result.content = "ok".into();
+            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult { content: "ok".into(), ..Default::default() };
             let mut failed = false;
             let mut segments: Vec<(String, String)> = Vec::new();
             for word in text.split_whitespace() {
@@ -8339,7 +8417,7 @@ impl Fenced {
 
     /// Waits for the running turn to reach its next `pause`.
     async fn paused(&mut self) {
-        let reached = tokio::time::timeout(Duration::from_secs(30), self.reached.recv()).await;
+        let reached = mixdog_rt::time::timeout(Duration::from_secs(30), self.reached.recv()).await;
         assert!(matches!(reached, Ok(Some(()))), "the run reaches its pause");
     }
 

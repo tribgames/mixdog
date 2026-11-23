@@ -33,8 +33,8 @@ const BOOLEAN_SECOND: &[&str] = &[
     "config/setDeveloperOption",
 ];
 const HEARTBEAT_INTERVAL_CHOICES: &[f64] = &[30.0, 60.0, 120.0, 240.0];
-const TOGGLEABLE_BUILTIN_TOOLS: &[&str] = &["git", "office", "localProvider", "tidy", "autoEffort", "visualize", "media"];
-const INSTALLABLE_BUILTIN_FEATURES: &[&str] = &["git", "memory", "office", "localProvider", "tidy", "autoEffort"];
+const TOGGLEABLE_BUILTIN_TOOLS: &[&str] = &["git", "office", "localProvider", "tidy", "autoEffort", "visualize", "media", "acpAgents"];
+const INSTALLABLE_BUILTIN_FEATURES: &[&str] = &["git", "memory", "office", "localProvider", "tidy", "autoEffort", "acpAgents"];
 
 const MAX_USAGE_REQUEST_PAGE: f64 = 200.0;
 const MAX_USAGE_REQUEST_CURSOR_LENGTH: usize = 200;
@@ -181,7 +181,7 @@ fn builtin_tool(p: &Fields, method: &str) -> Result<(), ErrorData> {
     boolean_switch(p, method)?;
     match p.get("name") {
         Some(Value::String(name)) if TOGGLEABLE_BUILTIN_TOOLS.contains(&name.as_str()) => Ok(()),
-        _ => Err(invalid("/name", "setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, or media.")),
+        _ => Err(invalid("/name", "setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, media, or acpAgents.")),
     }
 }
 
@@ -223,7 +223,7 @@ fn proxy_options(p: &Fields, method: &str) -> Result<(), ErrorData> {
 fn install_builtin_feature(p: &Fields) -> Result<(), ErrorData> {
     let name = p.get("name").and_then(Value::as_str);
     if !name.is_some_and(|name| INSTALLABLE_BUILTIN_FEATURES.contains(&name)) {
-        return Err(invalid("/name", "installBuiltinFeature requires git, memory, office, localProvider, or tidy."));
+        return Err(invalid("/name", "installBuiltinFeature requires git, memory, office, localProvider, tidy, autoEffort, or acpAgents."));
     }
     let Some(options) = p.get("options") else { return Ok(()) };
     let engines = options.get("engines").and_then(Value::as_array);

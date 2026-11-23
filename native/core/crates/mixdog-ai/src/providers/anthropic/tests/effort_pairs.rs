@@ -239,7 +239,10 @@ fn a_thread_continues_across_an_effort_change() {
         let delta = unmarked(&messages(&second.body));
         assert_eq!(
             delta,
-            [json!({ "role": "system", "content": [], "output_config": { "effort": "high" } }), json!({ "role": "user", "content": [{ "type": "text", "text": "q2" }] })],
+            [
+                json!({ "role": "system", "content": [], "output_config": { "effort": "high" } }),
+                json!({ "role": "user", "content": [{ "type": "text", "text": "q2" }] })
+            ],
             "{flavor:?}"
         );
     }

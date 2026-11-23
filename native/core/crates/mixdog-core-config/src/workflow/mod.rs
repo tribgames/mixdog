@@ -102,6 +102,12 @@ pub trait WorkflowHost: Send + Sync {
         false
     }
 
+    /// An outside agent's route provider: no entry of the provider config, and its models keep a favourite and a
+    /// hidden mark as a provider's do.
+    fn agent_provider(&self, _provider: &str) -> bool {
+        false
+    }
+
     /// `requireLocalProviderManagement()`: refuses where provider management is off.
     fn require_local_provider_management(&self) -> Result<(), String>;
 

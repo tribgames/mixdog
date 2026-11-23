@@ -176,7 +176,7 @@ impl TagResume {
         // Only once the turn was admitted on the session: the tag resolves to it again (its row
         // is stamped fresh, so nothing ages it out before the turn writes its own), and the
         // reap record goes.
-        self.registry.bind_tag(tag, &prepared.session, &self.env.now_iso());
+        self.registry.bind_tag(tag, &prepared.session, &self.env.now_iso()).await;
         if let Some(tombstone) = request.tombstone {
             self.registry.consume_tag_tombstone(tombstone);
         }

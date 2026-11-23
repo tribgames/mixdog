@@ -259,7 +259,15 @@ pub trait NextMainRequest: Send + Sync {
     async fn compact(&self, _thread: &ThreadId) -> Result<(), String> {
         Err("this session cannot be compacted here".to_owned())
     }
+    /// Why the thread's next turn sends no request of Mixdog's a question could fork, for a thread whose turns an
+    /// agent outside the loop runs; `None` for every other thread.
+    async fn outside_refusal(&self, _thread: &ThreadId) -> Option<String> {
+        None
+    }
 }
+
+/// What `/btw` answers on a session whose turns an agent outside the loop runs.
+pub const SIDE_QUESTION_OUTSIDE_AGENT: &str = "/btw is not available on this model: an ACP agent keeps the conversation in its own session, and the protocol gives Mixdog no copy of it to ask a side question on without the question joining the conversation. Ask it as a message instead.";
 
 pub(crate) struct ForkScope {
     name: String,
@@ -324,6 +332,10 @@ impl SideQuestionService {
 impl SideQuestions for SideQuestionService {
     async fn has_request(&self, thread: &ThreadId) -> bool {
         self.store.current(thread).is_some() || self.next.next(thread).await.is_some()
+    }
+
+    async fn refusal(&self, thread: &ThreadId) -> Option<String> {
+        self.next.outside_refusal(thread).await
     }
 
     fn begin(&self, thread: &ThreadId) -> SideRun {
@@ -684,6 +696,29 @@ mod tests {
         assert_eq!(ask_side_question(&rebuilt, &thread(), "x", true).await.unwrap(), "answer");
         assert_eq!(provider.sent.lock().unwrap()[0].messages.len(), 2, "the transcript, then the prompt: no reply to append");
         assert!(store.saved_request(&thread()).is_none(), "a rebuilt request is not kept");
+    }
+
+    /// The next turn of a session on an agent outside the loop sends no request of Mixdog's.
+    struct OutsideAgent(Arc<Recording>);
+    #[async_trait]
+    impl NextMainRequest for OutsideAgent {
+        async fn next(&self, _: &ThreadId) -> Option<SideMaterial> {
+            Some(material(self.0.clone()))
+        }
+        async fn outside_refusal(&self, _: &ThreadId) -> Option<String> {
+            Some(SIDE_QUESTION_OUTSIDE_AGENT.to_owned())
+        }
+    }
+
+    /// A session whose turns an agent outside the loop runs refuses a side question in so many words, and asks
+    /// nothing of any provider: not "send a message first", which no message would cure.
+    #[tokio::test]
+    async fn a_session_on_an_outside_agent_refuses_a_side_question_with_its_reason() {
+        let provider = Recording::new([MockAttempt::Body(b"t:answer\ndone\n".to_vec())]);
+        let side = service(&Arc::new(SideQuestionStore::new()), Arc::new(OutsideAgent(provider.clone())));
+        let refused = ask_side_question(&side, &thread(), "x", true).await.unwrap_err();
+        assert!(format!("{refused:?}").contains(SIDE_QUESTION_OUTSIDE_AGENT), "{refused:?}");
+        assert!(provider.sent.lock().unwrap().is_empty());
     }
 
     /// One cancel source per thread: a new begin cancels the old, a cancel reports whether a run was

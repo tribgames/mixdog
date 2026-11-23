@@ -1734,7 +1734,6 @@ fn antigravity_cooldown_policy() -> crate::accounts::rotation::CooldownPolicy {
         unknown_ms: Some(60_000),
         rotate_on_rate_limit: true,
         wait_for_cooldown_ms: Some(300_000),
-        blocked_ms: Some(600_000),
     }
 }
 

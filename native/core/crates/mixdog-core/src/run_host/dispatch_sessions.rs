@@ -15,6 +15,7 @@ use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::cancel::Cancel;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::admin_route::{normalize_context_tokens, number, truthy};
+use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_config::config::Config;
 use mixdog_core_session::session::dispatch_sessions::DispatchThreads;
 use mixdog_store::schema::record::Header;
@@ -22,17 +23,35 @@ use serde_json::{Map, Value, json};
 
 use crate::run_host::agent_dispatch::{AskRequest, DispatchSessions, PrepareSpec, Prepared};
 
+/// The ACP agents a route's provider can name: a session on one runs its turns in that agent.
+pub trait AgentRoutes: Send + Sync + 'static {
+    /// `None`: `provider` is no agent's. `Some(Ok)`: the agent can run a session now; `Some(Err)`: the agent's own
+    /// state message for why it cannot.
+    fn admits(&self, provider: &str) -> Option<Result<(), String>>;
+}
+
+/// Admits the route provider `name` of a new session: an agent's when it is ready, else a registered provider.
+/// The provider adapter is `None` on an agent's route.
+pub fn admit_route(providers: &ProviderRegistry, agents: Option<&dyn AgentRoutes>, name: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    if let Some(admitted) = agents.and_then(|agents| agents.admits(name)) {
+        return admitted.map(|()| None);
+    }
+    providers.registered_for_route(name).map(Some).ok_or_else(|| format!("Provider \"{name}\" not found or not enabled"))
+}
+
 pub struct SessionDispatch {
     threads: Arc<DispatchThreads>,
     providers: Arc<ProviderRegistry>,
+    agents: Option<Arc<dyn AgentRoutes>>,
     /// The saved configuration: the `autoClear` a session's cache policy follows.
     config: Config,
 }
 
 impl SessionDispatch {
-    /// `providers`: the process's provider registry (`getProvider`); `config`: the saved configuration.
-    pub fn new(threads: Arc<DispatchThreads>, providers: Arc<ProviderRegistry>, config: Config) -> Self {
-        Self { threads, providers, config }
+    /// `providers`: the process's provider registry (`getProvider`); `agents`: the ACP agents a route can name;
+    /// `config`: the saved configuration.
+    pub fn new(threads: Arc<DispatchThreads>, providers: Arc<ProviderRegistry>, agents: Option<Arc<dyn AgentRoutes>>, config: Config) -> Self {
+        Self { threads, providers, agents, config }
     }
 }
 
@@ -48,15 +67,13 @@ fn text_or_null(value: Option<&String>) -> Value {
 
 /// What `prepareAgentSession(spec)` records on the new session (the record's route, provenance
 /// and permission fields), or the error `createSession` throws.
-pub fn stamped_header(spec: &PrepareSpec, available_route: impl FnOnce(&str) -> bool) -> Result<Header, String> {
+pub fn stamped_header(spec: &PrepareSpec, admit_route: impl FnOnce(&str) -> Result<(), String>) -> Result<Header, String> {
     let preset = &spec.preset;
     let field = |key: &str| preset.get(key).filter(|value| truthy(Some(value)));
     let Some(provider) = field("provider") else { return Err("createSession: provider is required".into()) };
     let Some(model) = field("model") else { return Err("createSession: model is required".into()) };
     let provider = mixdog_js::value_to_string(provider);
-    if !available_route(&provider) {
-        return Err(format!("Provider \"{provider}\" not found or not enabled"));
-    }
+    admit_route(&provider)?;
     let context = |key: &str| spec.context.get(key);
     let permission = text_or_null(spec.permission.as_ref());
     let mut header = Map::new();
@@ -107,8 +124,8 @@ impl DispatchSessions for SessionDispatch {
     async fn prepare(&self, spec: PrepareSpec) -> Result<Prepared, String> {
         let mut provider = None;
         let mut header = stamped_header(&spec, |name| {
-            provider = self.providers.registered_for_route(name);
-            provider.is_some()
+            provider = admit_route(&self.providers, self.agents.as_deref(), name)?;
+            Ok(())
         })?;
         super::session_cache_opts::stamp_cache_opts(&mut header, &self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null));
         // The MCP scope of the session that asked for the run (`mcpScopeId` of the spawning runtime).
@@ -189,6 +206,11 @@ mod tests {
 
     /// The header `prepare` stamps for a session on `provider`'s route, admitted as `prepare` admits it.
     fn session_on(registry: &ProviderRegistry, provider: &str) -> Result<Header, String> {
+        session_with_agents(registry, None, provider)
+    }
+
+    /// The same, with `agents` the ACP agents a route can name.
+    fn session_with_agents(registry: &ProviderRegistry, agents: Option<&dyn AgentRoutes>, provider: &str) -> Result<Header, String> {
         let spec = PrepareSpec {
             agent: "worker".into(),
             preset_name: "p".into(),
@@ -205,7 +227,31 @@ mod tests {
             skip_role_reminder: false,
             schema_allowed_tools: None,
         };
-        stamped_header(&spec, |name| registry.registered_for_route(name).is_some())
+        stamped_header(&spec, |name| admit_route(registry, agents, name).map(|_| ()))
+    }
+
+    /// One agent, `acp-agent`, ready or refusing with `state`.
+    struct Agent(Result<(), String>);
+
+    impl AgentRoutes for Agent {
+        fn admits(&self, provider: &str) -> Option<Result<(), String>> {
+            (provider == "acp-agent").then(|| self.0.clone())
+        }
+    }
+
+    #[test]
+    fn a_session_on_a_ready_agents_route_is_admitted() {
+        let registry = ProviderRegistry::new(Arc::new(Mocks));
+        let header = session_with_agents(&registry, Some(&Agent(Ok(()))), "acp-agent").expect("admitted");
+        assert_eq!(header["provider"], json!("acp-agent"));
+    }
+
+    #[test]
+    fn a_session_on_an_unready_agents_route_is_refused_with_the_agents_state() {
+        let registry = ProviderRegistry::new(Arc::new(Mocks));
+        let agent = Agent(Err("ACP agents are turned off in Settings.".into()));
+        assert_eq!(session_with_agents(&registry, Some(&agent), "acp-agent").err().as_deref(), Some("ACP agents are turned off in Settings."));
+        assert_eq!(session_with_agents(&registry, Some(&agent), "other").err().as_deref(), Some("Provider \"other\" not found or not enabled"));
     }
 
     /// A provider is turned off and the removal settles; it is turned on again, and a session starts on its route

@@ -90,6 +90,10 @@ pub(super) struct Scripted {
     pub(super) hang_inference: Arc<AtomicBool>,
     /// Notified when a hung `/inference` request has been read.
     pub(super) inference_seen: Arc<Notify>,
+    /// Lets a held `/inference` request go on (never notified for a request meant to hang).
+    pub(super) release_inference: Arc<Notify>,
+    /// While set, `/inference` answers HTTP 500.
+    pub(super) fail_inference: Arc<AtomicBool>,
     /// Notified when a child is killed.
     pub(super) killed: Notify,
 }
@@ -125,7 +129,14 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<(Vec<u8>, us
     Some((raw, head_end))
 }
 
-async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>>>, hang: Arc<AtomicBool>, seen: Arc<Notify>) {
+async fn serve(
+    listener: tokio::net::TcpListener,
+    requests: Arc<Mutex<Vec<Value>>>,
+    hang: Arc<AtomicBool>,
+    seen: Arc<Notify>,
+    release: Arc<Notify>,
+    fail: Arc<AtomicBool>,
+) {
     loop {
         let Ok((mut stream, _)) = listener.accept().await else { return };
         // The readiness probe connects and hangs up without a request.
@@ -143,7 +154,16 @@ async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>
         requests.lock().unwrap().push(json!({"method": method, "url": url, "multipart": multipart, "fields": fields}));
         if hang.load(Ordering::SeqCst) {
             seen.notify_one();
-            std::future::pending::<()>().await;
+            release.notified().await;
+            hang.store(false, Ordering::SeqCst);
+        }
+        if fail.load(Ordering::SeqCst) {
+            let reply = "boom";
+            let _ = stream
+                .write_all(format!("HTTP/1.1 500 Internal Server Error\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len()).as_bytes())
+                .await;
+            let _ = stream.shutdown().await;
+            continue;
         }
         let reply = r#"{"text":" hello world "}"#;
         let _ = stream
@@ -185,7 +205,14 @@ impl ProcessManager for Scripted {
             let host = args[args.iter().position(|a| a == "--host").unwrap() + 1].clone();
             self.listener_port.store(u32::from(port), Ordering::SeqCst);
             let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await.map_err(|_| ProcessError::Io { os_code: None })?;
-            let task = tokio::spawn(serve(listener, self.requests_shared.clone(), self.hang_inference.clone(), self.inference_seen.clone()));
+            let task = tokio::spawn(serve(
+                listener,
+                self.requests_shared.clone(),
+                self.hang_inference.clone(),
+                self.inference_seen.clone(),
+                self.release_inference.clone(),
+                self.fail_inference.clone(),
+            ));
             self.servers.lock().unwrap().insert(request.handle.0.clone(), (tx, task));
         } else if name == "ffmpeg" {
             #[allow(clippy::disallowed_methods)]

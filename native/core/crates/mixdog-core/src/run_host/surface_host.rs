@@ -732,7 +732,14 @@ impl LeadSurfaceHost {
     }
 
     /// The header with the prompt folded in, and whether the request's prefix (system text or tools) moved.
-    fn folded_prompt(&self, thread: &ThreadId, header: &Header, composed: &SessionPrompt, denied: &[String], point: FoldPoint) -> Result<(Header, bool), String> {
+    fn folded_prompt(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        composed: &SessionPrompt,
+        denied: &[String],
+        point: FoldPoint,
+    ) -> Result<(Header, bool), String> {
         let s = &self.sources;
         let (_, model) = self.seated_route(thread, header);
         let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
@@ -1413,7 +1420,8 @@ fn compaction_unsent(header: &Header) -> bool {
 /// `sessionTailCacheExpired`: the provider's cache already let the message tail expire since the session's last send.
 fn tail_expired(header: &Header, now_ms: i64) -> bool {
     let last_send = mixdog_js::to_number_of(header.get("lastProviderSendAt"));
-    tail_cache_lifetime_ms(&clean(header.get("provider")), header.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy"))).is_some_and(|lifetime| last_send > 0.0 && now_ms as f64 - last_send > lifetime as f64)
+    tail_cache_lifetime_ms(&clean(header.get("provider")), header.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")))
+        .is_some_and(|lifetime| last_send > 0.0 && now_ms as f64 - last_send > lifetime as f64)
 }
 
 /// `leadRosterRevision(parts)` (`role-instructions.mjs:413`): the bot roster a Lead's prompt lists (its

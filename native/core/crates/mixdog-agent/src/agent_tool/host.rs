@@ -114,7 +114,7 @@ impl std::fmt::Debug for TagClaim {
 
 #[async_trait]
 pub trait Registry: Send + Sync {
-    fn resolve_tombstone_owners(&self);
+    async fn resolve_tombstone_owners(&self);
     /// `Err` when the stored worker rows could not be read whole: the tags then held in memory are no account of them,
     /// and nothing is to be decided from a tag they do not show.
     async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) -> Result<(), String>;
@@ -131,7 +131,7 @@ pub trait Registry: Send + Sync {
     async fn claim_tag(&self, explicit: &str, scope: &Scope, options: ResolveOptions, next: &(dyn Fn() -> String + Sync)) -> Result<TagClaim, String> {
         self.refresh_tags_from_sessions(false, scope).await?;
         let tag = if explicit.is_empty() { next() } else { explicit.to_owned() };
-        if self.resolve_tag(&tag, scope, options)?.is_some() {
+        if self.resolve_tag(&tag, scope, options).await?.is_some() {
             return Err(format!("agent spawn: tag \"{tag}\" already exists"));
         }
         Ok(TagClaim::new(tag, None))
@@ -142,14 +142,14 @@ pub trait Registry: Send + Sync {
         None
     }
     /// `Err` when a tag is ambiguous across terminals.
-    fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String>;
-    fn live_session(&self, session_id: &str) -> Option<SessionFacts>;
+    async fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String>;
+    async fn live_session(&self, session_id: &str) -> Option<SessionFacts>;
     /// The session id a tag is bound to.
     fn tag_session(&self, tag: &str) -> Option<String>;
     fn has_tag_agent(&self, tag: &str) -> bool;
-    fn tag_for_session(&self, session_id: &str) -> Option<String>;
+    async fn tag_for_session(&self, session_id: &str) -> Option<String>;
     fn unbind_tag(&self, tag: &str);
-    fn bind_tag(&self, tag: &str, session: &SessionFacts, turn_started_at: &str);
+    async fn bind_tag(&self, tag: &str, session: &SessionFacts, turn_started_at: &str);
     fn forget_terminal_session(&self, tag: Option<&str>, session_id: &str);
     fn remove_worker_row(&self, session_id: &str);
     fn mark_released(&self, session_ids: &[String]);
@@ -202,7 +202,7 @@ pub trait Registry: Send + Sync {
     fn read_all_tag_tombstones(&self) -> Vec<TagRecord>;
     fn tag_tombstone_for_tag(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
     fn consume_tag_tombstone(&self, tombstone: &TagRecord);
-    fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
+    async fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
     /// `Ok(None)`: the session cannot be resumed, and the caller starts a fresh one. `Err`: whether it can is not known
     /// (its record could not be read), and nothing is started in its place.
     async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Result<Option<Resumable>, String>;
@@ -229,10 +229,11 @@ pub trait SpawnFlow: Send + Sync {
     async fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, caller: &Caller, notify: &Caller, options: SpawnOptions) -> Result<Job, String>;
 }
 
+#[async_trait]
 pub trait TerminalTrace: Send + Sync {
     /// `Err` when the tag is ambiguous across terminals (`resolveTag` throws).
-    fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> Result<bool, String>;
-    fn reap_terminal_trace_for_tag(&self, tag: &str, scope: &Scope);
+    async fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> Result<bool, String>;
+    async fn reap_terminal_trace_for_tag(&self, tag: &str, scope: &Scope);
 }
 
 #[async_trait]
@@ -261,9 +262,37 @@ pub trait Sessions: Send + Sync {
     async fn close_member(&self, session_id: &str, reason: &str, options: CloseOptions, _member: MemberClose) -> Result<MemberOutcome, String> {
         Ok(if self.try_close_session(session_id, reason, options).await? { MemberOutcome::Closed } else { MemberOutcome::Nothing })
     }
-    fn descendant_session_ids(&self, session_id: &str) -> Vec<String>;
-    /// `registry.childrenOf(id)`: the agent sessions linked directly below `session_id`.
-    fn child_session_ids(&self, session_id: &str) -> Vec<String>;
+    /// A member's close inside a tree cancel that holds the admission of all of it ([`Self::cancel_tree`]):
+    /// [`Self::try_close_session`] without reading the tree again.
+    async fn try_close_covered(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        self.try_close_session(session_id, reason, options).await
+    }
+    /// `agentDescendantSessionIds`: `Err` when the agent sessions could not be read.
+    async fn descendant_session_ids(&self, session_id: &str) -> Result<Vec<String>, String>;
+    /// `registry.childrenOf(id)`: the agent sessions linked directly below `session_id`, as the default
+    /// [`Self::cancel_tree`] walks them.
+    async fn child_session_ids(&self, _session_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+    /// The tree a cancel of `root` closes (`cancelAgentTree`): `root` and every session below it, each once, descendants
+    /// first, with the guard that refuses admission under it while it lives, taken before the tree is read. `Err` when
+    /// the tree could not be read.
+    async fn cancel_tree(&self, root: &str) -> Result<(Vec<String>, Box<dyn Send>), String> {
+        let first = self.begin_cancellation(&[root.to_owned()]);
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+        let mut next = vec![root.to_owned()];
+        while let Some(id) = next.pop() {
+            if let std::collections::hash_map::Entry::Vacant(unread) = children.entry(id) {
+                let below = self.child_session_ids(unread.key()).await;
+                next.extend(below.iter().cloned());
+                unread.insert(below);
+            }
+        }
+        let mut ordered = Vec::new();
+        super::dispatch::visit_descendants_first(&|id| children.get(id).cloned().unwrap_or_default(), root, &mut HashSet::new(), &mut ordered);
+        let rest = self.begin_cancellation(&ordered[..ordered.len() - 1]);
+        Ok((ordered, Box::new((first, rest))))
+    }
     /// While the returned guard lives, the agent-status signals of these sessions are owed, not sent one by one;
     /// [`Self::publish_held`] (or its drop) announces what is owed once.
     fn hold_publication(&self, _ids: &[String]) -> Box<dyn Send> {
@@ -300,7 +329,7 @@ pub trait Sessions: Send + Sync {
         false
     }
     /// `mgr.listSessions()`: the agent sessions that are not closed, as cleanup reads them.
-    fn open_sessions(&self) -> Vec<OpenSession> {
+    async fn open_sessions(&self) -> Vec<OpenSession> {
         Vec::new()
     }
     /// `mgr.parkSession(id)`: an idle agent's live runtime is released while the agent stays open; its next turn loads

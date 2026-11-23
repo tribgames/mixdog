@@ -143,9 +143,13 @@ pub struct OpenedLog {
 
 fn read_range(file: &mut File, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
     let mut buf = vec![0; len];
-    file.seek(SeekFrom::Start(offset)).map_err(err(IoOp::Read, path))?;
-    file.read_exact(&mut buf).map_err(err(IoOp::Read, path))?;
+    read_into(file, path, offset, &mut buf)?;
     Ok(buf)
+}
+
+fn read_into(file: &mut File, path: &Path, offset: u64, buf: &mut [u8]) -> Result<(), IoError> {
+    file.seek(SeekFrom::Start(offset)).map_err(err(IoOp::Read, path))?;
+    file.read_exact(buf).map_err(err(IoOp::Read, path))
 }
 
 fn parse_record(payload: &[u8]) -> Result<Record, String> {
@@ -244,11 +248,12 @@ struct AnchorWindow {
     anchor_ordinal: u64,
 }
 
-/// The tail window of a file of `size` bytes that holds its newest anchor, read backwards from the end. The clean-close
-/// case needs the last frame and the `GROUP_LOOKBACK` bytes before it: the bound is `REVERSE_SCAN_MAX` (+1 byte so the LF
-/// before the anchor is in the window) plus that lookback. With no anchor within the bound the newest file is damaged
-/// somewhere: it is read whole from its first frame (every file starts with an anchor), so the forward scan validates
-/// every group and locates any damage exactly.
+/// The tail window of a file of `size` bytes that holds its newest anchor, read backwards from the end, twice as far each
+/// time no anchor is in it, so it ends near that anchor. The clean-close case needs the last frame and the
+/// `GROUP_LOOKBACK` bytes before it: the bound is `REVERSE_SCAN_MAX` (+1 byte so the LF before the anchor is in the
+/// window) plus that lookback. With no anchor within the bound the newest file is damaged somewhere: it is read whole from
+/// its first frame (every file starts with an anchor), so the forward scan validates every group and locates any damage
+/// exactly.
 fn locate_anchor(file: &mut File, path: &Path, size: u64, bytes_read: &mut u64) -> Result<AnchorWindow, IoError> {
     let mut buf = Vec::new();
     let mut window_start = size;
@@ -256,16 +261,18 @@ fn locate_anchor(file: &mut File, path: &Path, size: u64, bytes_read: &mut u64) 
     let found = loop {
         let start = size.saturating_sub(want);
         if start < window_start {
-            let mut more = read_range(file, path, start, (window_start - start) as usize)?;
-            *bytes_read += more.len() as u64;
-            more.extend_from_slice(&buf);
-            buf = more;
+            let added = (window_start - start) as usize;
+            let mut wider = vec![0; added + buf.len()];
+            read_into(file, path, start, &mut wider[..added])?;
+            *bytes_read += added as u64;
+            wider[added..].copy_from_slice(&buf);
+            buf = wider;
             window_start = start;
         }
         want = match framing::reverse_scan(&buf, window_start == 0) {
             framing::Reverse::Found(a) => break Some(a),
             framing::Reverse::Need(n) => size - window_start + n,
-            framing::Reverse::None if want < REVERSE_SCAN_MAX + 1 => REVERSE_SCAN_MAX + 1,
+            framing::Reverse::None if want < REVERSE_SCAN_MAX + 1 => (want * 2).min(REVERSE_SCAN_MAX + 1),
             framing::Reverse::None => break None,
         };
         if want > REVERSE_SCAN_MAX + 1 + GROUP_LOOKBACK {

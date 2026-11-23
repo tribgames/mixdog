@@ -306,7 +306,8 @@ impl ListHost {
         load
     }
 
-    /// One load: the providers prepared, then the listings that are due, adopted when the load carries secrets.
+    /// One load: the providers prepared, then the listings that are due, adopted when the load carries secrets. Over a loaded
+    /// cache the providers whose retry time has passed are asked again without the load waiting for them.
     /// `started` is the sequence the load began under; one an invalidation superseded keeps it and `adopt` refuses it.
     async fn run_load(&self, catalog: &CatalogService, load_secrets: bool, started: u64) -> Result<LoadOutcome, String> {
         if !self.prepare(load_secrets, true).await? {
@@ -318,6 +319,8 @@ impl ListHost {
             if self.current(seq) {
                 remember_loaded_rows(catalog);
             }
+        } else {
+            catalog.ask_overdue();
         }
         if load_secrets && answered(&catalog.snapshot()) {
             self.adopt(seq);
@@ -451,6 +454,8 @@ impl ModelListService {
         if !loaded {
             self.catalog.refresh_due().await;
             self.remember_loaded(seq);
+        } else {
+            self.catalog.ask_overdue();
         }
         self.adopt(seq);
     }

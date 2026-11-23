@@ -44,6 +44,9 @@ impl WorkflowHost for Host {
     fn provider_available(&self, _provider: &str) -> bool {
         true
     }
+    fn agent_provider(&self, provider: &str) -> bool {
+        provider == "acp-antigravity"
+    }
     fn require_local_provider_management(&self) -> Result<(), String> {
         Ok(())
     }
@@ -123,6 +126,13 @@ fn model_preferences_are_stored_per_model_and_a_custom_provider_keeps_its_visibi
     assert_eq!((saved.after["providers"][id]["type"].clone(), saved.after["providers"][id]["enabled"].clone()), (json!("custom"), json!(true)));
     assert!(saved.custom_catalog_changed);
     assert!(super::prefs::prepare(&plain, &json!("nope"), &json!([]), &host).is_err());
+
+    // An outside agent's models keep their marks as a provider's do, though the provider config holds no entry of it.
+    let changes = json!([{ "model": "gemini-3.8-flash", "favorite": true }, { "model": "gpt-oss-120b-medium", "hidden": true }]);
+    let saved = super::prefs::prepare(&plain, &json!("acp-antigravity"), &changes, &host).unwrap();
+    assert_eq!(saved.after["modelSettings"]["acp-antigravity/gemini-3.8-flash"], json!({ "favorite": true }));
+    assert_eq!(saved.after["modelSettings"]["acp-antigravity/gpt-oss-120b-medium"], json!({ "hidden": true }));
+    assert_eq!(saved.after.get("providers"), None);
 }
 
 /// The pushed sections hold what the session actions return (`listPresets`, `getWebSearchRoute`, `listWorkflows`,

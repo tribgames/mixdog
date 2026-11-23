@@ -769,20 +769,20 @@ async fn a_send_to_a_busy_agent_queues_and_to_an_idle_one_runs_a_job() {
 #[tokio::test(start_paused = true)]
 async fn only_an_idle_open_agent_is_woken() {
     backend();
-    let woken = |scenario: Value| {
+    let woken = |scenario: Value| async move {
         let rig = rig(&scenario, None);
-        let woke = rig.send.wake_idle_worker("sess_w1");
+        let woke = rig.send.wake_idle_worker("sess_w1").await;
         (rig, woke)
     };
-    let (rig, woke) = woken(send_scenario("process", false, json!([{ "return": { "content": "woken" } }])));
+    let (rig, woke) = woken(send_scenario("process", false, json!([{ "return": { "content": "woken" } }]))).await;
     assert!(woke);
     settle().await;
     settle().await;
     assert!(told(&rig).iter().any(|t| t.contains("woken")));
-    assert!(!woken(send_scenario("process", true, json!([]))).1);
+    assert!(!woken(send_scenario("process", true, json!([]))).await.1);
     let mut closed = send_scenario("process", false, json!([]));
     closed["session"]["closed"] = json!(true);
-    assert!(!woken(closed).1);
+    assert!(!woken(closed).await.1);
 }
 
 /// The agent tool answers a bad request as text: an unknown type and a task that is not there.

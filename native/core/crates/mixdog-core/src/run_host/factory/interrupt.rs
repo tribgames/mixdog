@@ -165,7 +165,6 @@ pub(super) fn stalled_results(turn: &[Arc<AgentMessage>], early: &[AgentMessage]
 /// ([`stalled_results`]), as [`close_cancelled`] closes a stopped turn's, so no call of an ended turn is without one.
 /// Nothing else is added: the turn failed, and its failure is its end.
 pub(super) async fn close_stalled(port: &RunPort, sink: &PortSink, rows: &StoredRows, observed: &Mutex<Observed>) {
-    use mixdog_agent::compact::execution_tail::MessageRows as _;
     let early = std::mem::take(&mut lock(observed).results);
     let results = stalled_results(&lock(&sink.turn), &early);
     for message in results {

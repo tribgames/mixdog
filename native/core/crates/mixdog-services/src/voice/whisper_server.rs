@@ -7,6 +7,7 @@
 //! binary or model. An idle child is released after [`IDLE_TIMEOUT`] so one transcription does
 //! not pin the model for the life of the daemon.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
@@ -143,23 +144,93 @@ impl WhisperServer {
         let path = wav.to_owned();
         let data = io_on_lane(self.processes.durability(), move || read_wav(&path)).await.map_err(|e| VoiceError(e.to_string()))?;
         let name = wav.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let boundary = format!("----mixdog{}", uuid::Uuid::new_v4().simple());
-        let body = multipart_body(&boundary, &name, &data, language);
-        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).map_err(|e| VoiceError(e.to_string()))?;
-        let request = WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".to_owned(),
-            url: format!("http://{host}:{port}/inference"),
-            headers: vec![("content-type".to_owned(), format!("multipart/form-data; boundary={boundary}"))],
-            body,
-        };
-        let mut response = link.send(request, VOICE_INFERENCE).await.map_err(|e| VoiceError(e.into_message()))?;
-        // Not `read_all`: its dispatcher ceiling is a timer, and this exchange has none.
-        let mut text = Vec::new();
-        while let Some(chunk) = response.body.next().await {
-            text.extend_from_slice(&chunk.map_err(|fault| VoiceError(format!("{fault:?}")))?);
+        post_wav(host, port, &name, &data, language).await
+    }
+}
+
+async fn post_wav(host: &str, port: u16, name: &str, data: &[u8], language: Option<&str>) -> Result<String, VoiceError> {
+    let boundary = format!("----mixdog{}", uuid::Uuid::new_v4().simple());
+    let body = multipart_body(&boundary, name, data, language);
+    let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).map_err(|e| VoiceError(e.to_string()))?;
+    let request = WireRequest {
+        transport: TransportKind::Http1,
+        method: "POST".to_owned(),
+        url: format!("http://{host}:{port}/inference"),
+        headers: vec![("content-type".to_owned(), format!("multipart/form-data; boundary={boundary}"))],
+        body,
+    };
+    let mut response = link.send(request, VOICE_INFERENCE).await.map_err(|e| VoiceError(e.into_message()))?;
+    // Not `read_all`: its dispatcher ceiling is a timer, and this exchange has none.
+    let mut text = Vec::new();
+    while let Some(chunk) = response.body.next().await {
+        text.extend_from_slice(&chunk.map_err(|fault| VoiceError(format!("{fault:?}")))?);
+    }
+    parse_inference(response.status, &String::from_utf8_lossy(&text))
+}
+
+/// One second of 16 kHz mono 16-bit silence.
+fn silent_wav() -> Vec<u8> {
+    const SAMPLES: u32 = 16_000;
+    let data_len = SAMPLES * 2;
+    let mut wav = Vec::with_capacity(44 + data_len as usize);
+    wav.extend(b"RIFF");
+    wav.extend((36 + data_len).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(16_000u32.to_le_bytes());
+    wav.extend(32_000u32.to_le_bytes());
+    wav.extend(2u16.to_le_bytes());
+    wav.extend(16u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend(data_len.to_le_bytes());
+    wav.resize(44 + data_len as usize, 0);
+    wav
+}
+
+/// Runs one inference on the fresh child so the GPU backend builds its pipelines before the first
+/// real request. Advisory: a failed inference is logged and the child stays. A stop arriving
+/// meanwhile, or the last server handle going away, ends the warm-up; other commands wait for
+/// the next turn, a teardown included: it belongs to a request of an earlier child or to one
+/// caller of several, and must not end a start the others wait on.
+async fn warm_up(
+    running: &mut Option<Running>,
+    commands: &mut mpsc::Receiver<Command>,
+    pending: &mut VecDeque<Command>,
+    deadline: tokio::time::Instant,
+) -> Result<(), VoiceError> {
+    let Some(r) = running.as_ref() else { return Ok(()) };
+    let (host, port) = (r.contract.host.clone(), r.port);
+    let wav = silent_wav();
+    let mut post = Box::pin(post_wav(&host, port, "warmup.wav", &wav, None));
+    loop {
+        tokio::select! {
+            result = &mut post => {
+                if let Err(error) = result {
+                    tracing::warn!("mixdog voice: whisper-server warm-up failed: {}", error.0);
+                }
+                return Ok(());
+            }
+            () = mixdog_rt::time::sleep_until(deadline) => {
+                tracing::warn!("mixdog voice: whisper-server warm-up did not finish within the ready budget");
+                return Ok(());
+            }
+            command = commands.recv() => match command {
+                Some(Command::Stop(reply)) => {
+                    drop(post);
+                    teardown(running).await;
+                    let _ = reply.send(());
+                    return Err(VoiceError("whisper-server stopped during warm-up".into()));
+                }
+                Some(other) => pending.push_back(other),
+                None => {
+                    drop(post);
+                    teardown(running).await;
+                    return Err(VoiceError("whisper-server stopped during warm-up".into()));
+                }
+            },
         }
-        parse_inference(response.status, &String::from_utf8_lossy(&text))
     }
 }
 
@@ -417,14 +488,152 @@ mod tests {
         }
         panic!("the abandoned start's child (seen: {seen}) was never released");
     }
+    /// Ready is reported only once the warm-up inference has reached the server.
+    #[tokio::test]
+    async fn ready_is_reported_only_after_one_warm_up_inference() {
+        let (_dir, manager, server, contract) = scripted_server(None);
+        let server = Arc::new(server);
+        manager.hang_inference.store(true, Ordering::SeqCst);
+        let start = tokio::spawn({
+            let (server, contract) = (server.clone(), contract.clone());
+            async move { server.ensure_ready(&contract).await }
+        });
+        manager.inference_seen.notified().await;
+        assert!(!start.is_finished(), "ready was reported before the warm-up inference finished");
+        assert_eq!(manager.requests_shared.lock().unwrap().len(), 1);
+        manager.release_inference.notify_one();
+        start.await.unwrap().unwrap();
+        server.stop().await;
+    }
+
+    /// A transcription sent while the warm-up runs waits for that start and is served by it.
+    #[tokio::test]
+    async fn a_transcription_during_warm_up_is_served_by_the_same_start() {
+        let (dir, manager, server, contract) = scripted_server(None);
+        let server = Arc::new(server);
+        let wav = dir.path().join("a.wav");
+        std::fs::write(&wav, b"RIFF").unwrap();
+        manager.hang_inference.store(true, Ordering::SeqCst);
+        let start = tokio::spawn({
+            let (server, contract) = (server.clone(), contract.clone());
+            async move { server.ensure_ready(&contract).await }
+        });
+        manager.inference_seen.notified().await;
+        let request = tokio::spawn({
+            let server = server.clone();
+            async move { server.transcribe(&wav, None).await }
+        });
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+        assert!(!request.is_finished());
+        manager.release_inference.notify_one();
+        start.await.unwrap().unwrap();
+        assert_eq!(request.await.unwrap().unwrap(), " hello world ");
+        let starts = manager.calls.lock().unwrap().iter().filter(|c| c["file"].as_str().is_some_and(|f| f.contains("whisper-server"))).count();
+        assert_eq!(starts, 1);
+        assert_eq!(manager.requests_shared.lock().unwrap().len(), 2);
+        server.stop().await;
+    }
+
+    /// A transcription that is cancelled while it waits for the warm-up leaves the start, and the
+    /// other transcription waiting on it, alone.
+    #[tokio::test]
+    async fn a_transcription_cancelled_during_warm_up_does_not_end_the_start_for_the_others() {
+        let (dir, manager, server, contract) = scripted_server(None);
+        let server = Arc::new(server);
+        let wav = dir.path().join("a.wav");
+        std::fs::write(&wav, b"RIFF").unwrap();
+        manager.hang_inference.store(true, Ordering::SeqCst);
+        let start = tokio::spawn({
+            let (server, contract) = (server.clone(), contract.clone());
+            async move { server.ensure_ready(&contract).await }
+        });
+        manager.inference_seen.notified().await;
+        let request = |wav: PathBuf| {
+            let server = server.clone();
+            tokio::spawn(async move { server.transcribe(&wav, None).await })
+        };
+        let (leaving, staying) = (request(wav.clone()), request(wav));
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+        leaving.abort();
+        let _ = leaving.await;
+        manager.release_inference.notify_one();
+        start.await.unwrap().unwrap();
+        assert_eq!(staying.await.unwrap().unwrap(), " hello world ");
+        assert_eq!(manager.servers.lock().unwrap().len(), 1, "the start's child was torn down by the caller that left");
+        server.stop().await;
+    }
+
+    /// A stop arriving during the warm-up ends it and the child.
+    #[tokio::test]
+    async fn a_stop_during_warm_up_ends_it_cleanly() {
+        let (_dir, manager, server, contract) = scripted_server(None);
+        let server = Arc::new(server);
+        manager.hang_inference.store(true, Ordering::SeqCst);
+        let start = tokio::spawn({
+            let (server, contract) = (server.clone(), contract.clone());
+            async move { server.ensure_ready(&contract).await }
+        });
+        manager.inference_seen.notified().await;
+        server.stop().await;
+        assert!(start.await.unwrap().is_err());
+        assert!(manager.servers.lock().unwrap().is_empty());
+    }
+
+    /// A warm-up inference that fails leaves the server ready and usable.
+    #[tokio::test]
+    async fn a_failing_warm_up_inference_still_ends_ready() {
+        let (dir, manager, server, contract) = scripted_server(None);
+        let wav = dir.path().join("a.wav");
+        std::fs::write(&wav, b"RIFF").unwrap();
+        manager.fail_inference.store(true, Ordering::SeqCst);
+        server.ensure_ready(&contract).await.unwrap();
+        assert_eq!(manager.requests_shared.lock().unwrap().len(), 1);
+        manager.fail_inference.store(false, Ordering::SeqCst);
+        assert_eq!(server.transcribe(&wav, None).await.unwrap(), " hello world ");
+        assert_eq!(manager.servers.lock().unwrap().len(), 1);
+        server.stop().await;
+    }
+
+    #[test]
+    fn the_warm_up_audio_is_a_silent_16khz_mono_wav() {
+        let wav = silent_wav();
+        assert_eq!((&wav[..4], &wav[8..12]), (&b"RIFF"[..], &b"WAVE"[..]));
+        assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 16_000);
+        assert_eq!(u16::from_le_bytes(wav[22..24].try_into().unwrap()), 1);
+        assert!(wav[44..].iter().all(|b| *b == 0));
+    }
+
+    /// A warm-up inference the child never answers ends at the ready deadline: the start reports
+    /// ready, the idle release is armed, and the child is served once it answers.
+    #[tokio::test(start_paused = true)]
+    async fn a_warm_up_the_child_never_answers_ends_at_the_ready_deadline() {
+        let (dir, manager, server, contract) = scripted_server(Some(Duration::from_secs(10)));
+        let wav = dir.path().join("a.wav");
+        std::fs::write(&wav, b"RIFF").unwrap();
+        manager.hang_inference.store(true, Ordering::SeqCst);
+        let started = tokio::time::Instant::now();
+        server.ensure_ready(&contract).await.unwrap();
+        assert!(started.elapsed() >= READY_TIMEOUT, "ready came before the deadline");
+        manager.release_inference.notify_one();
+        assert_eq!(server.transcribe(&wav, None).await.unwrap(), " hello world ");
+        let waited = tokio::time::Instant::now();
+        while waited.elapsed() < Duration::from_secs(60) {
+            if manager.servers.lock().unwrap().is_empty() {
+                return;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("the idle release was never armed after the failed warm-up");
+    }
+
     /// A transcribe dropped while the child is still working on it (its last waiter left) kills the
     /// child, so a wedged one does not stay behind for the next request.
     #[tokio::test]
     async fn a_transcribe_dropped_mid_request_kills_the_child() {
         let (dir, manager, server, contract) = scripted_server(None);
         let server = Arc::new(server);
-        manager.hang_inference.store(true, Ordering::SeqCst);
         server.ensure_ready(&contract).await.unwrap();
+        manager.hang_inference.store(true, Ordering::SeqCst);
         assert_eq!(manager.servers.lock().unwrap().len(), 1);
         let wav = dir.path().join("a.wav");
         std::fs::write(&wav, b"RIFF").unwrap();
@@ -520,7 +729,15 @@ impl Core {
 /// any lock held across an await.
 async fn run_actor(core: Core, usage: Arc<Usage>, weak: mpsc::WeakSender<Command>, mut commands: mpsc::Receiver<Command>) {
     let mut running: Option<Running> = None;
-    while let Some(command) = commands.recv().await {
+    let mut pending: VecDeque<Command> = VecDeque::new();
+    loop {
+        let command = match pending.pop_front() {
+            Some(command) => command,
+            None => match commands.recv().await {
+                Some(command) => command,
+                None => break,
+            },
+        };
         match command {
             Command::Start(contract, reply) => {
                 let alive = running.as_mut().is_some_and(|r| r.contract == contract && !r.exited());
@@ -528,7 +745,14 @@ async fn run_actor(core: Core, usage: Arc<Usage>, weak: mpsc::WeakSender<Command
                     Ok(())
                 } else {
                     teardown(&mut running).await;
-                    core.start(&contract).await.map(|started| running = Some(started))
+                    let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
+                    match core.start(&contract, deadline).await {
+                        Ok(started) => {
+                            running = Some(started);
+                            warm_up(&mut running, &mut commands, &mut pending, deadline).await
+                        }
+                        Err(error) => Err(error),
+                    }
                 };
                 // Armed here, not by the caller: a start nobody waits for any more still must not
                 // pin the model (Node's startup `finally`).
@@ -589,7 +813,8 @@ impl WhisperServer {
     }
 }
 impl Core {
-    async fn start(&self, contract: &ServerContract) -> Result<Running, VoiceError> {
+    /// `deadline` is the one ready budget: the port answering and the warm-up inference share it.
+    async fn start(&self, contract: &ServerContract, deadline: tokio::time::Instant) -> Result<Running, VoiceError> {
         let lane = self.processes.durability();
         let pid_path = pid_file(&contract.server_cmd);
         let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
@@ -641,7 +866,7 @@ impl Core {
             };
             write_pid_file(lane, pid_path, &meta).await;
         }
-        self.await_ready(running, contract, port, pid, &cwd).await
+        self.await_ready(running, contract, port, pid, &cwd, deadline).await
     }
 
     async fn reclaim_recorded_child(&self, contract: &ServerContract, pid_path: &Path, cwd: &Path) -> Result<(), VoiceError> {
@@ -658,7 +883,15 @@ impl Core {
         Ok(())
     }
 
-    async fn await_ready(&self, running: Running, contract: &ServerContract, port: u16, pid: Option<u32>, cwd: &Path) -> Result<Running, VoiceError> {
+    async fn await_ready(
+        &self,
+        running: Running,
+        contract: &ServerContract,
+        port: u16,
+        pid: Option<u32>,
+        cwd: &Path,
+        deadline: tokio::time::Instant,
+    ) -> Result<Running, VoiceError> {
         // The ownership queries end with the readiness budget.
         let readiness = CancellationToken::new();
         let _end = readiness.clone().drop_guard();
@@ -671,7 +904,6 @@ impl Core {
                 }
             }
         });
-        let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
         let addr = format!("{}:{port}", contract.host);
         while tokio::time::Instant::now() < deadline {
             if running.exited() {

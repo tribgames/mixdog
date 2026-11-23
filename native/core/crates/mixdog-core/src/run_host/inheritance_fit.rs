@@ -134,7 +134,7 @@ impl HostInheritanceFit {
 }
 
 /// `INHERITANCE_COMPACT_MIN_BUDGET_TOKENS`.
-const MIN_COMPACT_BUDGET_TOKENS: u64 = 4_000;
+pub(crate) const MIN_COMPACT_BUDGET_TOKENS: u64 = 4_000;
 
 #[async_trait]
 impl InheritanceFit for HostInheritanceFit {

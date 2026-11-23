@@ -60,13 +60,24 @@ pub struct SummaryDeps {
     pub io: ToolIo,
 }
 
+/// The agents that run turns outside the loop, once the composition has them: a session on one has that agent for
+/// its own model.
+type OutsideSlot = Arc<std::sync::OnceLock<Arc<dyn crate::run_host::factory::OutsideAgents>>>;
+
 pub struct SummaryServices {
     deps: Arc<SummaryDeps>,
+    outside: OutsideSlot,
 }
 
 impl SummaryServices {
     pub fn new(deps: SummaryDeps) -> Self {
-        Self { deps: Arc::new(deps) }
+        Self { deps: Arc::new(deps), outside: Arc::default() }
+    }
+
+    /// Binds the agents that run turns outside the loop: the summary a session on one writes with its own model is
+    /// that agent's to write. Bound once, by the composition of the turn path.
+    pub fn bind_outside(&self, agents: Arc<dyn crate::run_host::factory::OutsideAgents>) {
+        let _ = self.outside.set(agents);
     }
 
     /// The heartbeat's Maintainer model over the same providers (`createMaintainerCall`).
@@ -86,6 +97,7 @@ impl SummaryServices {
         let window = mixdog_agent::agent_tool::scope::positive_int(header.get("contextWindow"));
         Arc::new(ProcessSummaryHost {
             deps: self.deps.clone(),
+            outside: self.outside.clone(),
             thread: thread.clone(),
             attributed: true,
             session: SessionRoute {
@@ -103,6 +115,7 @@ impl SummaryServices {
     pub fn sessionless_host(&self, label: &str) -> Arc<dyn SummaryHost> {
         Arc::new(ProcessSummaryHost {
             deps: self.deps.clone(),
+            outside: self.outside.clone(),
             thread: ThreadId::from(label),
             attributed: false,
             session: SessionRoute { provider: String::new(), model: String::new(), context_window: None, summary_model: None },
@@ -112,6 +125,7 @@ impl SummaryServices {
 
 struct ProcessSummaryHost {
     deps: Arc<SummaryDeps>,
+    outside: OutsideSlot,
     thread: ThreadId,
     /// The summary's usage is the session's (`<thread>:compact`); false for a session-less step.
     attributed: bool,
@@ -163,6 +177,51 @@ pub(crate) fn maintainer_of(config: &Map<String, Value>) -> Option<MaintainerRou
     })
 }
 
+impl ProcessSummaryHost {
+    /// The agents outside the loop, when `provider` is one of their routes.
+    fn outside_agent(&self, provider: &str) -> Option<Arc<dyn crate::run_host::factory::OutsideAgents>> {
+        self.outside.get().filter(|agents| agents.answers(provider)).cloned()
+    }
+}
+
+/// Sends a summary request to the agent a session's route names: the session's own model is that agent, which
+/// writes the summary in a session of its own that holds nothing of the conversation but the request.
+struct AgentSender {
+    agents: Arc<dyn crate::run_host::factory::OutsideAgents>,
+    provider: String,
+}
+
+/// The protocol's word for why an agent stopped, as a provider's stop.
+fn agent_stop(reason: &str) -> mixdog_core_api::domain::provider::StopReason {
+    use mixdog_core_api::domain::provider::StopReason;
+    match reason {
+        "end_turn" => StopReason::EndTurn,
+        "max_tokens" => StopReason::MaxTokens,
+        "refusal" => StopReason::Refusal,
+        other => StopReason::Other(other.to_owned()),
+    }
+}
+
+#[async_trait]
+impl SummarySender for AgentSender {
+    async fn send(&self, system: &str, prompt: &str, call: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
+        let ask = crate::run_host::factory::OutsideAsk {
+            provider: self.provider.clone(),
+            model: call.model.clone(),
+            system: system.to_owned(),
+            prompt: prompt.to_owned(),
+        };
+        let answer = self.agents.ask(ask).await.map_err(SummaryFailure::Failed)?;
+        Ok(SummaryResponse {
+            text: answer.text,
+            tool_call: false,
+            stop: answer.stop_reason.as_deref().map(agent_stop),
+            usage: answer.usage,
+            input_excludes_cache: answer.input_excludes_cache,
+        })
+    }
+}
+
 #[async_trait]
 impl SummaryHost for ProcessSummaryHost {
     fn session(&self) -> SessionRoute {
@@ -180,6 +239,10 @@ impl SummaryHost for ProcessSummaryHost {
     /// init failure is the step's own failure, moving to the next route when `fallsToNextRoute`
     /// says so; a provider that is not there is not ready.
     async fn provider_ready(&self, provider: &str, init: bool) -> Result<bool, SummaryFailure> {
+        // An agent outside the loop is no provider of the registry: it is there for as long as its route is.
+        if self.outside_agent(provider).is_some() {
+            return Ok(true);
+        }
         if init {
             let config = (self.deps.config)();
             let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
@@ -199,6 +262,9 @@ impl SummaryHost for ProcessSummaryHost {
     }
 
     fn sender(&self, provider: &str) -> Arc<dyn SummarySender> {
+        if let Some(agents) = self.outside_agent(provider) {
+            return Arc::new(AgentSender { agents, provider: provider.to_owned() });
+        }
         Arc::new(RegistrySender { deps: self.deps.clone(), thread: self.thread.clone(), attributed: self.attributed, provider: provider.to_owned() })
     }
 

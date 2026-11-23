@@ -324,6 +324,73 @@ mod tests {
         value.as_object().unwrap().clone()
     }
 
+    /// A provider whose model listing answers one model after the catalog stopped waiting for it.
+    struct LateListing(MockProvider);
+    #[async_trait]
+    impl mixdog_core_api::domain::provider::ModelListing for LateListing {
+        async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+            mixdog_rt::time::sleep(crate::catalog::LIST_DEADLINE + std::time::Duration::from_secs(2)).await;
+            Ok(vec![mixdog_core_api::domain::provider::ModelRecord::new("late-model")])
+        }
+    }
+    #[async_trait]
+    impl ProviderAdapter for LateListing {
+        fn release_send(&self, _group: &str) {}
+        fn id(&self) -> &mixdog_protocol::ProviderId {
+            self.0.id()
+        }
+        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+            self.0.codec()
+        }
+        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+            self.0.retry_policy()
+        }
+        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+            self.0.keepalive()
+        }
+        async fn attempt(
+            &self,
+            request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
+            self.0.attempt(request).await
+        }
+        fn models(&self) -> Option<&dyn mixdog_core_api::domain::provider::ModelListing> {
+            Some(self)
+        }
+    }
+    struct LateBuilder;
+    #[async_trait]
+    impl ProviderBuilder for LateBuilder {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(Arc::new(LateListing(MockProvider::new([]))))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    /// A listing that lands after the startup refresh published it missing reaches its readers as the refresh's answer
+    /// did: the catalog holds it and the catalog revision moved past the one the refresh left.
+    #[tokio::test(start_paused = true)]
+    async fn a_listing_that_lands_after_its_refresh_moves_the_catalog_revision() {
+        let ready = readiness_over(Arc::new(LateBuilder)).await;
+        ready.ensure_providers_ready(Some(config(json!({"xai": {"enabled": true}})))).await.unwrap();
+        ready.join_startup_refresh().await;
+        ready.settle_refreshes().await;
+        let provider = mixdog_protocol::ProviderId::from("xai");
+        assert!(ready.catalog.snapshot().models_of(&provider).is_empty(), "the refresh stopped waiting at the deadline");
+        let before = ready.catalog_revision();
+        mixdog_rt::time::sleep(crate::catalog::LIST_DEADLINE).await;
+        assert_eq!(ready.catalog.snapshot().models_of(&provider).len(), 1, "the late answer was published");
+        assert!(ready.catalog_revision() > before, "the late answer did not move the catalog revision");
+    }
+
     #[test]
     fn the_asked_providers_are_those_the_map_enables_by_name() {
         let requested = config(json!({"b": {"enabled": true, "k": 1}, "a": {"enabled": true}, "c": {"enabled": false}}));
@@ -923,6 +990,8 @@ impl ProviderReadiness {
     pub fn new(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Arc<Self> {
         let revision = registry.clone();
         catalog.bind_revision(move || revision.catalog_revision());
+        let moved = registry.clone();
+        catalog.on_late_answer(move || moved.bump_catalog_revision());
         let providers = registry.clone();
         catalog.bind_providers(Arc::new(move |name| providers.route_provider(name)));
         let registered = registry.clone();

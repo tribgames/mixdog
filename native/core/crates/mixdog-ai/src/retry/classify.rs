@@ -86,11 +86,36 @@ static REQUEST_SIZE_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
 static CAPACITY_WORDING: LazyLock<RegexSet> =
     LazyLock::new(|| RegexSet::new([r"(?i)\bat capacity\b|\boverloaded\b|\bserver is busy\b"]).expect("static patterns"));
 
+/// A refusal that says the account's budget is spent: waiting does not clear it, whatever status carried it.
+static BUDGET_SPENT_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)exceeded (?:its|your|the) (?:monthly )?(?:spending|spend)(?: cap| limit)",
+        r"(?i)(?:spending|spend) (?:cap|limit) (?:has been |was |is )?(?:reached|exceeded|hit)",
+        r"(?i)(?:out of|insufficient|no (?:more|remaining)) (?:credits?|funds|balance)",
+        r"(?i)credits? (?:have been |has been |are |is )?(?:exhausted|depleted|used up)",
+        r"(?i)billing (?:hard )?limit",
+    ])
+    .expect("static patterns")
+});
+
 /// `providerErrorKind`'s wording fallback: an error read as `unknown` or
 /// `invalid_request` whose text names a token-context or request-size refusal
 /// is `context_overflow` or `request_too_large`. A typed code or any other
 /// kind always stands.
 pub fn wording_kind(kind: ErrorKind, text: &str) -> ErrorKind {
+    wording_kind_scoped(kind, text, None, None)
+}
+
+/// Longest retry advice that still marks a refusal as a short-lived rate limit.
+const SHORT_WAIT: Duration = Duration::from_secs(60);
+
+/// [`wording_kind`] for an error that may carry its own window: an explicit short scope (per minute, or a retry delay of
+/// seconds) keeps a rate limit a rate limit whatever its wording says.
+pub fn wording_kind_scoped(kind: ErrorKind, text: &str, scope: Option<QuotaScope>, retry_after: Option<Duration>) -> ErrorKind {
+    let short = scope == Some(QuotaScope::Minute) || retry_after.is_some_and(|wait| wait <= SHORT_WAIT);
+    if kind == ErrorKind::RateLimited && !short && BUDGET_SPENT_WORDING.is_match(text) {
+        return ErrorKind::QuotaExhausted;
+    }
     if !matches!(kind, ErrorKind::Unknown | ErrorKind::InvalidRequest) {
         return kind;
     }
@@ -205,7 +230,7 @@ pub fn kind_of(facts: &Facts<'_>) -> ErrorKind {
         base_kind(facts)
     };
     let kind = match facts.text {
-        Some(text) => wording_kind(kind, text),
+        Some(text) => wording_kind_scoped(kind, text, facts.quota_scope, facts.retry_after),
         None => kind,
     };
     window_adjusted(kind, facts)

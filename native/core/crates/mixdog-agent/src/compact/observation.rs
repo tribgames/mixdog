@@ -62,7 +62,8 @@ fn with_parts(content: &Content, parts: Vec<ContentPart>) -> Content {
                     _ => "",
                 })
                 .collect::<Vec<_>>()
-                .join("\n")).into()
+                .join("\n"))
+            .into(),
         ),
         Content::Parts(_) => Content::Parts(parts),
     }

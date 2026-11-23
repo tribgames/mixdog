@@ -72,7 +72,7 @@ default-filter = '''not (
 # in the `pg-cluster` group below, so they run one at a time, with the time the composed tests get (below).
 [profile.pg]
 default-filter = '''package(mixdog-app-server-daemon) & (
-    test(/^compose::(tests|session_project_flow_tests)::/)
+    test(/^compose::(tests|session_project_flow_tests|acp_session_tests)::/)
   | test(/^server::tests::/)
   | test(/^ssh_origin_tests::/)
   | test(/^serving::tests::start_serves_both/)
@@ -161,7 +161,7 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 # disk). A test added to those modules shares the cluster unless it names `TestPg::start_own` or a stack; add it here then.
 # The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::boot::/) | test(=memory::tests::session_search::a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|session_project_flow_tests)::/) | test(/^ssh_origin_tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed) | test(=model_proxy_client_tests::a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::boot::/) | test(=memory::tests::session_search::a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|session_project_flow_tests|acp_session_tests)::/) | test(/^ssh_origin_tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed) | test(=model_proxy_client_tests::a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one)))'
 test-group = 'pg-cluster'
 
 # The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked
@@ -170,7 +170,7 @@ test-group = 'pg-cluster'
 # fails when a test using the runner is missing here or from the `pg` filter.
 [[profile.default.overrides]]
 filter = '''package(mixdog-app-server-daemon) & (
-    test(/^compose::session_project_flow_tests::/)
+    test(/^compose::(session_project_flow_tests|acp_session_tests)::/)
   | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
   | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)
   | test(=compose::tests::the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token)

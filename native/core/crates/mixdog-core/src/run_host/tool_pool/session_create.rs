@@ -541,7 +541,7 @@ impl SessionSend {
         }
         let (started, ready) = tokio::sync::watch::channel(false);
         let prompt = handoff_content(&brief, &call.attachment_parts);
-        let bot_chain = bot_chain_of(self.chains.bot_chain(caller).iter().map(String::as_str));
+        let bot_chain = bot_chain_of(self.chains.bot_chain(caller).await.iter().map(String::as_str));
         let origin = Origin {
             agent_id: agent_id.to_owned(),
             session_id: caller.to_owned(),
