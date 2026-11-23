@@ -200,18 +200,18 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "mixdog-ai/src/providers/openai/adapter.rs",
-        "ws_semantic_idle_ms(|name| links.context.var(name))",
-        "the WebSocket stream's idle window (MIXDOG_ENABLE_STREAM_WATCHDOG, MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS): a switch and a duration",
+        "WsTimers::read(&|name| links.context.var(name))",
+        "the WebSocket stream's idle, first-output and pre-response-created windows (MIXDOG_ENABLE_STREAM_WATCHDOG, MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS, STALL_TIMEOUT_S): switches and durations, not credentials",
+    ),
+    (
+        "mixdog-ai/src/providers/compat/xai_transport.rs",
+        "WsTimers::read(&|name| env.var(name))",
+        "the same WebSocket windows for the xAI socket: switches and durations, not credentials",
     ),
     (
         "mixdog-ai/src/providers/openai/adapter.rs",
         "first_output_ms(|name| links.context.var(name)",
-        "the HTTP and WebSocket first-output windows (STALL_TIMEOUT_S and the idle windows): durations, not credentials",
-    ),
-    (
-        "mixdog-ai/src/providers/openai/adapter.rs",
-        "ws_pre_stream_ms(|name| links.context.var(name))",
-        "the WebSocket pre-response-created window and watchdog settings: durations and switches, not credentials",
+        "the HTTP first-output window (STALL_TIMEOUT_S and the idle window): a duration, not a credential",
     ),
     (
         "mixdog-ai/src/providers/openai/adapter.rs",
