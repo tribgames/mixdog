@@ -20,7 +20,7 @@ import { MarkdownOpenFileContext, MarkdownSessionContext } from './MarkdownLink'
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { VISUALIZE_TWEAKS_MARK } from './visualize-feedback-store';
-import { imagePreviewCache, imagePreviewKey } from './transcript-metrics';
+import { imagePreviewCache, imagePreviewKey, sentImagePreview, sentImageSlot } from './transcript-metrics';
 
 export function stripImageTokens(text: string): string {
   return text
@@ -145,17 +145,20 @@ export interface ImageMarkerChip {
   line?: string;
 }
 
-/** Each marker chip's stored original: the next unused `imageRefs` entry drawn
- *  by the chip's line. Chips with no such entry (omitted images, bare `#N`
- *  references) get none. */
+/** Each marker chip's image slot and stored original: the next unused
+ *  `imageRefs` entry drawn by the chip's line. Chips with no such entry
+ *  (omitted images, bare `#N` references) get none. */
 function markerChipRefs(
   chips: readonly ImageMarkerChip[],
   refs: TranscriptItem['imageRefs']
-): Array<string | undefined> {
-  const pool = Array.isArray(refs) ? [...refs] : [];
+): Array<{ ref?: string; slot: number } | undefined> {
+  const slots = Array.isArray(refs) ? refs : [];
+  const taken = new Set<number>();
   return chips.map((chip) => {
-    const at = chip.line ? pool.findIndex((entry) => entry?.line === chip.line) : -1;
-    return at < 0 ? undefined : pool.splice(at, 1)[0]?.ref;
+    const slot = chip.line ? slots.findIndex((entry, at) => !taken.has(at) && entry?.line === chip.line) : -1;
+    if (slot < 0) return undefined;
+    taken.add(slot);
+    return { ref: slots[slot]?.ref, slot };
   });
 }
 
@@ -448,7 +451,13 @@ export function SentAttachments({
   fileChips: ReturnType<typeof extractFileMarkers>['chips'];
   menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
 }) {
-  const markerRefs = markerChipRefs(markerChips, item.imageRefs);
+  const markerSlots = markerChipRefs(markerChips, item.imageRefs);
+  const imageSlots = Array.isArray(item.imageRefs) ? item.imageRefs.length : 0;
+  const submission = submissionIdentity(String(item.id ?? ''));
+  // In the order of the content this window sent (the stored row's), not of `images` (by id); any it did not send after.
+  const sentImages = images
+    .map((image, index) => ({ image, index, slot: sentImageSlot(submission, image.id, image.bytes) }))
+    .sort((a, b) => (a.slot ?? images.length + a.index) - (b.slot ?? images.length + b.index));
   const records = chipAttachments(item.attachments, fileChips, []);
   const queued = item.pending === true;
   const hostFileOf = (record: SentAttachmentRecord | undefined) =>
@@ -456,37 +465,44 @@ export function SentAttachments({
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
     <div className="message-attachments" role="group" aria-label={t('Attachments')}>
-      {images.map((image, index) => {
-        const preview = imagePreviewCache.peek(
-          imagePreviewKey(submissionIdentity(String(item.id ?? '')), image.id, image.bytes)
-        );
-        const name = image.name || t('Attached image');
-        return (
-          <SentImageCard
-            // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
-            key={`${image.id ?? 'img'}-${index}`}
-            session={session}
-            attachmentRef={image.attachmentRef}
-            live={preview || undefined}
-            name={preview ? name : image.name || 'Image'}
-            queued={queued}
-            menuProps={menuProps}
-          />
-        );
-      })}
-      {markerChips.map((chip, index) => (
-        <SentImageCard
-          // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
-          key={`marker-${index}`}
-          session={session}
-          attachmentRef={markerRefs[index]}
-          name={chip.name}
-          tooltip={chip.title}
-          dims={chip.dims}
-          queued={queued}
-          menuProps={menuProps}
-        />
-      ))}
+      {/* One list, each image keyed by its place in the content this window sent: the pending row draws it from
+          `images`, the stored row from the `[Image: …]` line its `imageRefs` slot names, and the swap keeps the card
+          and its picture. */}
+      {[
+        ...sentImages.map(({ image, index, slot }) => {
+          const preview = imagePreviewCache.peek(imagePreviewKey(submission, image.id, image.bytes));
+          const name = image.name || t('Attached image');
+          return (
+            <SentImageCard
+              // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's images never reorder; the index separates images this window did not send.
+              key={slot === undefined ? `listed-${index}` : `image-${slot}`}
+              session={session}
+              attachmentRef={image.attachmentRef}
+              live={preview || undefined}
+              name={preview ? name : image.name || 'Image'}
+              queued={queued}
+              menuProps={menuProps}
+            />
+          );
+        }),
+        ...markerChips.map((chip, index) => {
+          const slot = markerSlots[index]?.slot;
+          return (
+            <SentImageCard
+              // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
+              key={slot === undefined ? `marker-${index}` : `image-${slot}`}
+              session={session}
+              attachmentRef={markerSlots[index]?.ref}
+              live={slot === undefined ? undefined : sentImagePreview(submission, slot, imageSlots)}
+              name={chip.name}
+              tooltip={chip.title}
+              dims={chip.dims}
+              queued={queued}
+              menuProps={menuProps}
+            />
+          );
+        }),
+      ]}
       {pastedChips.map((chip, index) => {
         const stored = sentPastedTextSource(chip.token, chip.name, item.id);
         const hostFile = hostFileOf(pastedRecords[index]);
