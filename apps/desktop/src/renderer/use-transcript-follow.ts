@@ -349,6 +349,36 @@ export function useTranscriptFollow({
     // A click is judged on its pointerdown (handlePointerDown).
   }, []);
 
+  // A press on a row's content is a click until it selects text: only then is the text under the pointer being read.
+  const releaseSelectionWatch = useRef<() => void>(() => undefined);
+  const watchSelection = useCallback(
+    (root: HTMLDivElement) => {
+      releaseSelectionWatch.current();
+      const document = root.ownerDocument;
+      const view = document.defaultView;
+      const end = (): void => {
+        document.removeEventListener('selectionchange', selected);
+        view?.removeEventListener('pointerup', end, true);
+        view?.removeEventListener('pointercancel', end, true);
+        view?.removeEventListener('blur', end);
+        releaseSelectionWatch.current = () => undefined;
+      };
+      const selected = (): void => {
+        const selection = document.getSelection();
+        if (!selection || selection.isCollapsed || !root.contains(selection.anchorNode)) return;
+        end();
+        stop('select', lastTop.current);
+      };
+      document.addEventListener('selectionchange', selected);
+      view?.addEventListener('pointerup', end, true);
+      view?.addEventListener('pointercancel', end, true);
+      view?.addEventListener('blur', end);
+      releaseSelectionWatch.current = end;
+    },
+    [lastTop, stop]
+  );
+  useEffect(() => () => releaseSelectionWatch.current(), []);
+
   const handlePointerDown = useCallback(
     (event: PointerLike) => {
       const root = event.currentTarget;
@@ -359,13 +389,11 @@ export function useTranscriptFollow({
         signals.current.pressAt = Date.now();
         holdBar();
       }
-      // Pressing a control is about to change the content under the reader; pressing a row's content begins a
-      // selection, and the text under the pointer must not scroll away from it.
-      if (activationReleasesFollow(root, event.target) || pressIsOnRowContent(root, event)) {
-        stop('press', lastTop.current);
-      }
+      // Pressing a control is about to change the content under the reader.
+      if (activationReleasesFollow(root, event.target)) stop('press', lastTop.current);
+      else if (pressIsOnRowContent(root, event)) watchSelection(root);
     },
-    [clearMutation, lastTop, markGesture, signals, stop]
+    [clearMutation, lastTop, markGesture, signals, stop, watchSelection]
   );
 
   const handlePointerUp = useCallback(() => {
