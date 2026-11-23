@@ -95,8 +95,8 @@ pub(crate) struct Slot {
     starting: usize,
     /// What the last check that opened a session learned of the signed-in account.
     pub(crate) account: Account,
-    /// The quota read running on the CLI, by its id: the feature's switch and a sign-out end it.
-    usage_read: Option<(u64, CancellationToken)>,
+    /// The quota reads running on the CLI, by id: the feature's switch and a sign-out end every one.
+    usage_reads: Vec<(u64, CancellationToken)>,
 }
 
 /// What an agent tells of the account its CLI is signed in with. It names no one: the plan is all it says.
@@ -424,8 +424,10 @@ impl Agents {
         asked.await.map_err(|fault: Fault| fault.to_string())?;
         drop(starting);
         // A quota read of the account signed out of has nothing left to report.
-        if let Some((_, read)) = lock(&self.slots).get_mut(&preset.id).and_then(|slot| slot.usage_read.take()) {
-            read.cancel();
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            for (_, read) in slot.usage_reads.drain(..) {
+                read.cancel();
+            }
         }
         // The agents that ran under the account hold a session of it no longer.
         let ran: Vec<ThreadId> = lock(&self.sessions).iter().filter(|(_, session)| session.preset.id == preset.id).map(|(thread, _)| thread.clone()).collect();
@@ -452,6 +454,11 @@ impl Agents {
     /// checked or updated, and once the feature is turned off or the agent signed out while the CLI runs (which ends
     /// it). `Some(Err)` is a report that failed, in the CLI's words.
     pub async fn usage(self: &Arc<Self>, preset: &AgentPreset) -> Option<Result<Value, String>> {
+        self.usage_until(preset, &CancellationToken::new()).await
+    }
+
+    /// [`Self::usage`], ended by `stop` (`None`) and by the time a provider's own usage request is given (`Some(Err)`).
+    pub async fn usage_until(self: &Arc<Self>, preset: &AgentPreset, stop: &CancellationToken) -> Option<Result<Value, String>> {
         let report = preset.usage.as_ref()?;
         if !self.enabled() {
             return None;
@@ -466,7 +473,7 @@ impl Agents {
                 return None;
             }
             slot.starting += 1;
-            slot.usage_read = Some((read, cancel.clone()));
+            slot.usage_reads.push((read, cancel.clone()));
             (slot.program.clone().unwrap_or_else(|| preset.command.clone()), Starting { agents: self.clone(), preset: preset.id.clone() })
         };
         let launch = Launch { program, args: report.args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd };
@@ -474,16 +481,18 @@ impl Agents {
         let ran = tokio::select! {
             biased;
             () = cancel.cancelled() => None,
-            ran = run_to_exit(&self.parts.processes, launch) => Some(ran),
+            () = stop.cancelled() => None,
+            () = mixdog_rt::time::sleep(std::time::Duration::from_millis(mixdog_ai::service::usage_antigravity::REQUEST_TIMEOUT_MS)) => {
+                Some(Err(format!("{}'s quota report took longer than {} s.", preset.label, mixdog_ai::service::usage_antigravity::REQUEST_TIMEOUT_MS / 1_000)))
+            }
+            ran = run_to_exit(&self.parts.processes, launch) => Some(ran.map_err(|fault| fault.to_string())),
         };
-        if let Some(slot) = lock(&self.slots).get_mut(&preset.id)
-            && slot.usage_read.as_ref().is_some_and(|(id, _)| *id == read)
-        {
-            slot.usage_read = None;
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            slot.usage_reads.retain(|(id, _)| *id != read);
         }
         let ran = match ran? {
             Ok(ran) => ran,
-            Err(fault) => return Some(Err(fault.to_string())),
+            Err(why) => return Some(Err(why)),
         };
         let printed: Option<Value> = ran.stdout.lines().rev().find_map(|line| serde_json::from_str(line.trim()).ok());
         Some(match printed.as_ref().and_then(|printed| printed.pointer("/command/data")) {
@@ -499,7 +508,7 @@ impl Agents {
             if let Some(running) = slot.running {
                 running.cancel.cancel();
             }
-            if let Some((_, read)) = slot.usage_read {
+            for (_, read) in slot.usage_reads {
                 read.cancel();
             }
         }

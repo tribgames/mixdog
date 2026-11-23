@@ -1416,7 +1416,11 @@ impl RunParts for HostRunParts {
                 let provider_id = text(header, "provider");
                 let switched_off =
                     seams.hop_host(thread, header).is_some_and(|host| mixdog_ai::service::admin_route::provider_switched_off(&host.config(), provider_id));
-                let refusal = not_available(provider_id, input.agent_refusal, s.registry.init_errors().get(provider_id).map(String::as_str), switched_off);
+                let mut refusal = not_available(provider_id, input.agent_refusal, s.registry.init_errors().get(provider_id).map(String::as_str), switched_off);
+                // An agent that is signed out fails as a provider whose sign-in does not hold.
+                if input.agent_refusal.is_some() && s.outside.as_ref().is_some_and(|agents| agents.signed_out(header)) {
+                    refusal = mixdog_core_session::session::failure_record::auth_turn_error(refusal.message, provider_id, refusal.data);
+                }
                 let Some(route) = &route else { return Err(refusal) };
                 let Some(provider) = route.unavailable(&refusal.message).await.map_err(refuse)? else { return Err(refusal) };
                 let landed = directory.live_header(thread).header();

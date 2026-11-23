@@ -3123,6 +3123,55 @@ async fn the_spinner_shows_a_task_wait_until_it_settles() {
     assert_eq!(modes, ["requesting", "tool-use", "task-wait", "tool-use", "requesting"]);
 }
 
+/// The live output speed (`spinner.liveCall`) a tool call withdraws comes back with what the model streams once the calls are
+/// over, whether or not a usage report came in between: a run whose model reports its usage once, at the turn's end (an agent
+/// outside the loop), shows its speed after its first call as a provider's run does.
+#[tokio::test(start_paused = true)]
+async fn the_live_speed_comes_back_after_the_calls_without_a_usage_report_between() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for (id, mark) in [("a1", CallMark::ToolCall), ("a2", CallMark::ToolPhaseCompleted)] {
+                let item = ThreadItem::AgentMessage {
+                    id: ItemId::from(id.to_owned()),
+                    text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                    imported_tool_runs: Vec::new(),
+                    meta: Default::default(),
+                };
+                if id == "a2" {
+                    run.port.call_mark(mark).await.expect("shown");
+                }
+                run.port.item_started(item).await.expect("a reply begins");
+                run.port.delta(ItemId::from(id.to_owned()), format!("streamed by {id}")).await.expect("its text");
+                if id == "a1" {
+                    run.port.call_mark(mark).await.expect("shown");
+                }
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "stream, call, stream", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let mut seen: Vec<(String, bool)> = Vec::new();
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        let spinner = &params["value"]["spinner"];
+        if method != "thread/runtime/updated" || !spinner.is_object() {
+            continue;
+        }
+        let state = (spinner["mode"].as_str().unwrap_or_default().to_owned(), spinner["liveCall"].is_object());
+        if seen.last() != Some(&state) {
+            seen.push(state);
+        }
+    }
+    let after_calls = seen.iter().position(|(mode, _)| mode == "tool-use").expect("the calls were shown");
+    assert!(seen[..after_calls].iter().any(|(_, live)| *live), "the first reply's speed is shown: {seen:?}");
+    assert!(seen[after_calls..].iter().any(|(mode, live)| mode == "requesting" && *live), "the speed comes back after the calls: {seen:?}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn input_and_task_notifications_release_the_runs_wait() {
     use mixdog_tools::exec::TaskNotifier;

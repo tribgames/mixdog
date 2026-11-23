@@ -123,6 +123,8 @@ struct Routing {
     background: HashMap<String, Background>,
     /// Every call id this session has put into a row.
     issued: HashSet<String>,
+    /// The process ended and all it wrote was routed: the agent sends nothing more.
+    ended: bool,
 }
 
 /// The agent's own report of its context (`usage_update`): the tokens the context holds now, and the window it
@@ -409,12 +411,13 @@ impl AgentSession {
         lock(&self.routing).unanswered.is_some()
     }
 
-    /// The stream of a turn that starts now: what waited for it, then what the agent sends while it runs. A turn
-    /// that sends a `prompt` ends the quiet a cancelled reply left.
+    /// The stream of a turn that starts now: what waited for it, then what the agent sends while it runs, which ends
+    /// with the process: at once for a process that has already ended. A turn that sends a `prompt` ends the quiet a
+    /// cancelled reply left.
     pub fn attach(&self, prompt: bool) -> (Vec<Incoming>, mpsc::UnboundedReceiver<Incoming>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut routing = lock(&self.routing);
-        routing.turn = Some(tx);
+        routing.turn = (!routing.ended).then_some(tx);
         routing.woken = false;
         if prompt {
             routing.quiet = false;
@@ -638,7 +641,11 @@ async fn route(
         let routed = session.take(message);
         session.act(routed).await;
     }
-    // The process ended: a running turn sees its stream close.
-    lock(&session.routing).turn = None;
+    // The process ended: a running turn sees its stream close, and so does every turn that attaches later.
+    {
+        let mut routing = lock(&session.routing);
+        routing.turn = None;
+        routing.ended = true;
+    }
     on_exit();
 }

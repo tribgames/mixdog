@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+pub use mixdog_agent::env::CompactEvent;
 use mixdog_agent::env::Tone;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
@@ -35,7 +36,9 @@ pub struct TurnUsage {
     pub model: String,
     pub tool_calls: u64,
     pub started_at_ms: i64,
-    pub elapsed_ms: u64,
+    /// The time the agent's model worked in the turn: the turn's time less the time its calls ran and waited on the
+    /// user, which a provider's request time leaves out too.
+    pub request_ms: u64,
 }
 
 /// What a turn's usage says of the context, as the session's reading takes it: the counts are the whole turn's, summed
@@ -54,6 +57,19 @@ pub fn input_excludes_cache(usage: &TurnUsage) -> bool {
     usage.cached_read_tokens > 0 && usage.total_tokens == Some(usage.input_tokens + usage.cached_read_tokens + usage.output_tokens)
 }
 
+/// A turn's usage as a provider's call reports its own: the counts, and the agent's report of its context as the evidence
+/// the session's reading takes.
+pub fn provider_usage(usage: &TurnUsage) -> Usage {
+    Usage {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_tokens: usage.cached_read_tokens,
+        reasoning_tokens: usage.thought_tokens,
+        raw: Some(context_evidence(usage.context)),
+        ..Usage::default()
+    }
+}
+
 #[async_trait]
 pub trait TurnSurface: Send + Sync {
     async fn item_started(&self, item: ThreadItem) -> Result<(), RunError>;
@@ -64,6 +80,9 @@ pub trait TurnSurface: Send + Sync {
     async fn commit(&self, item: ItemCommit) -> Result<(), RunError>;
     async fn notice(&self, text: String, warn: bool) -> Result<(), RunError>;
     async fn usage(&self, usage: TurnUsage) -> Result<(), RunError>;
+    /// What the turn streamed since its last progress record that no row holds yet (`text`, `reasoning`): the record the
+    /// loop's run writes, which a restart restores as the turn's partial reply. Handed on in order with the rows.
+    async fn draft(&self, body: serde_json::Value) -> Result<(), RunError>;
     async fn save_header(&self, change: HeaderChange) -> Result<(), RunError>;
     /// The window the agent says it holds its context in: the session's window from here on, in every field the
     /// session keeps a window in (the compaction boundary is the whole of it, as it is for a model's own window).
@@ -72,6 +91,10 @@ pub trait TurnSurface: Send + Sync {
         self.save_header(HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await
     }
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution;
+    /// A stage the spinner shows as the loop's own stages show (`compacting`, then `requesting` once it is over).
+    async fn stage(&self, stage: &str) -> Result<(), RunError>;
+    /// A compaction pass's marker, as the loop's own pass shows it.
+    async fn compact_event(&self, event: CompactEvent) -> Result<(), RunError>;
     /// A step of the turn the spinner follows, as the loop marks its own: the agent writes, a call runs, a call waits
     /// on the user's approval, the calls are over.
     async fn call_mark(&self, mark: CallMark) -> Result<(), RunError>;
@@ -151,18 +174,11 @@ impl TurnSurface for RunPort {
         let input_excludes_cache = input_excludes_cache(&usage);
         let report = UsageReport {
             iteration: 1,
-            usage: Usage {
-                input_tokens: usage.input_tokens,
-                output_tokens: usage.output_tokens,
-                cache_read_tokens: usage.cached_read_tokens,
-                reasoning_tokens: usage.thought_tokens,
-                raw: Some(context_evidence(usage.context)),
-                ..Usage::default()
-            },
+            usage: provider_usage(&usage),
             model: usage.model.clone(),
             requested_model: usage.model,
             delta_tool_calls: usage.tool_calls,
-            request_ms: usage.elapsed_ms,
+            request_ms: usage.request_ms,
             delta_prompt: 0,
             send_tools: Arc::from(Vec::new()),
             reasoning_tokens: usage.thought_tokens,
@@ -175,12 +191,32 @@ impl TurnSurface for RunPort {
         RunPort::usage(self, report).await
     }
 
+    /// The record is handed on and the turn goes on: its write is told apart, as the loop's run tells it.
+    async fn draft(&self, body: serde_json::Value) -> Result<(), RunError> {
+        let queued = self.queue_draft(body).await?;
+        let port = self.clone();
+        drop(mixdog_rt::spawn("acp.draft", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = port.saved(queued).await {
+                tracing::warn!("[turn-checkpoint] write failed: {error:?}");
+            }
+        }));
+        Ok(())
+    }
+
     async fn save_header(&self, change: HeaderChange) -> Result<(), RunError> {
         RunPort::save_header(self, change).await
     }
 
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution {
         self.request(ask).await
+    }
+
+    async fn stage(&self, stage: &str) -> Result<(), RunError> {
+        RunPort::stage(self, stage.to_owned(), None).await
+    }
+
+    async fn compact_event(&self, event: CompactEvent) -> Result<(), RunError> {
+        RunPort::compact_event(self, event).await
     }
 
     async fn call_mark(&self, mark: CallMark) -> Result<(), RunError> {

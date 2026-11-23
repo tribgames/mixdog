@@ -25,6 +25,11 @@ pub trait OutsideAgents: Send + Sync + 'static {
     fn refusal(&self, _header: &Header) -> Option<String> {
         None
     }
+    /// The refusal of [`Self::refusal`] is the agent's sign-in not holding: the turn's failure is then a provider's
+    /// authentication failure.
+    fn signed_out(&self, _header: &Header) -> bool {
+        false
+    }
     /// The input row `input` is something to tell the agent. One that is not (the turn of a reply the agent began on
     /// its own) is sent to nobody, so it carries no reminders.
     fn prompts(&self, input: &Value) -> bool;
@@ -145,6 +150,16 @@ pub struct OutsideTurn {
     /// The hook of the job that owns a sub-agent's turn (`AgentTurn.hooks.on_tool_result`): told each tool result
     /// the turn gains, as the loop's sink tells it.
     pub on_tool_result: Option<Arc<ToldResult>>,
+    /// What the agent tells of its turn for the turn's end.
+    pub report: Arc<OutsideReport>,
+}
+
+/// What an agent tells of its turn for the turn's end, besides its outcome, as the loop's run tells its own.
+#[derive(Debug, Default)]
+pub struct OutsideReport {
+    /// The usage the agent reported for the turn, and whether its input leaves its cache reads out: what the ask of a
+    /// finished turn is settled with.
+    pub usage: Mutex<Option<(mixdog_core_api::domain::provider::Usage, bool)>>,
 }
 
 /// A job's hook for the tool results its turn gains.
@@ -155,6 +170,9 @@ pub struct History {
     port: RunPort,
     rows: Vec<(ItemId, Value)>,
     input: (ItemId, Value),
+    /// How many rows the session's model context holds ahead of the turn's input: the rows before the turn, or the
+    /// summary a compaction of this turn stored in their place.
+    held: Arc<std::sync::atomic::AtomicUsize>,
     budget_tokens: u64,
     clock: Arc<dyn Clock>,
     /// The session's reading of the agent's context and the trigger it reached, when it reached it.
@@ -217,6 +235,11 @@ impl History {
         self.summarize().await.map(Some)
     }
 
+    /// Whether [`Self::hand_over`] has a summary to make: a conversation with no earlier summary standing for it.
+    pub fn hand_over_summarizes(&self) -> bool {
+        Self::standing_summary(&self.rows.iter().map(|(_, row)| row).collect::<Vec<_>>()).is_none() && self.holds_conversation()
+    }
+
     /// The agent's context reached the session's compaction trigger: the reading and the trigger.
     pub fn compaction_due(&self) -> Option<(u64, u64)> {
         self.due
@@ -261,6 +284,7 @@ impl History {
         replacement.push(self.input.clone());
         let compaction = Compaction { replacement, at: self.clock.now_ms(), dropped_count: rows.len().saturating_sub(kept.len()) as u64, dropped: None };
         self.port.compacted(compaction).await.map_err(|error| format!("the summary could not be stored: {error:?}"))?;
+        self.held.store(kept.len(), Ordering::SeqCst);
         // The reading was of the context the summary replaced: the session has none until the agent reports again.
         let now = mixdog_js::json_number(self.clock.now_ms() as f64);
         let set = [("lastContextTokens", json!(0)), ("lastContextTokensUpdatedAt", now), ("lastContextTokensStaleAfterCompact", json!(false))]
@@ -290,6 +314,8 @@ pub(super) struct Outside {
     pub(super) tool_progress: Arc<dyn mixdog_core_api::domain::tool::ProgressSink>,
     pub(super) hints: ToolHints,
     pub(super) cancel: tokio_util::sync::CancellationToken,
+    /// The same cancellation with the reason it was stopped for.
+    pub(super) signal: mixdog_agent::cancel::Cancel,
     pub(super) review: TurnSnapshot,
     pub(super) input_body: Value,
     pub(super) input_item: ItemId,
@@ -328,6 +354,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         tool_progress,
         hints,
         cancel,
+        signal,
         review,
         input_body,
         input_item,
@@ -429,6 +456,8 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     } else {
         input_body
     };
+    let redactor = context.clone();
+    let turn_id = turn.clone();
     let observer: Arc<dyn RunObserver> = Arc::new(HandedObserver { progress: progress.clone(), clock: clock.clone() });
     let asks = mixdog_agent::handed::JudgedAsks::over(Arc::new(port.clone()));
     let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(
@@ -454,10 +483,16 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         slot,
         asks: Some(asks),
     }));
+    let held = Arc::new(std::sync::atomic::AtomicUsize::new(stored_ids.len()));
+    let (stopped_item, ended_input) = (input_item.clone(), input_body.clone());
+    let model = header.get("model").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let system = system_messages(&header);
+    let asked_at = clock.now_ms();
     let history = History {
         port: port.clone(),
         rows: stored_ids.into_iter().zip(prior).collect(),
         input: (input_item, input_body.clone()),
+        held: held.clone(),
         budget_tokens: handoff_budget_tokens,
         clock,
         due: due(compact.as_ref(), context_tokens),
@@ -466,6 +501,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     asked.store(true, Ordering::SeqCst);
     handover.reached.store(true, Ordering::SeqCst);
     let end_port = port.clone();
+    let report = Arc::new(OutsideReport::default());
     let begun = OutsideTurn {
         thread,
         turn,
@@ -478,19 +514,92 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         calls: calls.clone(),
         history,
         on_tool_result,
+        report: report.clone(),
     };
     let outcome = agents.run(begun).await;
     hints.finish().await;
-    // The guard state that outlives one turn lives on the session record, as the loop leaves it.
+    // The guard state that outlives one turn lives on the session record, as the loop leaves it, and so does the turn's
+    // result as its owner gets it: the last text the turn committed. A turn that did not finish, or committed no text,
+    // leaves none, so the stored readers fall back to the rows.
     let mut set = calls.repeat_saved().await;
     if let Some(check) = guards.saved() {
         set.insert("todoCheck".to_owned(), check);
     }
-    if !set.is_empty() {
-        let end_port = if cancel.is_cancelled() { end_port.closing() } else { end_port };
-        let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await;
+    let mut unset = Vec::new();
+    match &outcome {
+        RunOutcome::Completed(result)
+            if !cancel.is_cancelled() && !mixdog_js::js_trim(result.report_content.as_deref().unwrap_or(&result.content)).is_empty() =>
+        {
+            let said = result.report_content.as_deref().unwrap_or(&result.content);
+            set.insert("lastHandoff".to_owned(), Value::String(redactor.redact_text(said)));
+            set.insert("lastHandoffTurn".to_owned(), Value::String(turn_id.as_str().to_owned()));
+        }
+        _ => unset.extend(["lastHandoff".to_owned(), "lastHandoffTurn".to_owned()]),
+    }
+    let end_port = if cancel.is_cancelled() { end_port.closing() } else { end_port };
+    let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset, patch: Default::default() }).await;
+    match &outcome {
+        // `settleAskTurn`: the ask's usage, over the conversation as the turn left it, reaches the header and the usage
+        // the statusline reads, as a finished turn of the loop settles its own. An agent that reported no usage for the
+        // turn has nothing to settle: the session's readings and the ask books stay as they were.
+        RunOutcome::Completed(result) if !cancel.is_cancelled() && lock(&report.usage).is_some() => {
+            let (usage, input_excludes_cache) = lock(&report.usage).take().unwrap_or_default();
+            let rows = conversation_after(&redactor).await.unwrap_or_default();
+            let transcript = settled_transcript(system, rows, held.load(Ordering::SeqCst), &ended_input);
+            let settled = mixdog_core_session::session::run::Settled {
+                transcript,
+                usage: usage.clone(),
+                last_turn_usage: usage,
+                tool_calls_total: result.tool_calls_total,
+                send_tools: Arc::from(Vec::new()),
+                response_model: model,
+                asked_at_ms: asked_at,
+                input_excludes_cache,
+            };
+            let _ = end_port.settled(settled).await;
+        }
+        // A stopped turn closes as the loop closes one that produced nothing (its prompt handed back on a user's stop) when
+        // the agent added no row after the prompt: no reply text, call or result.
+        RunOutcome::Interrupted if cancel.is_cancelled() => {
+            let produced = conversation_after(&redactor).await.is_none_or(|rows| rows.len() > held.load(Ordering::SeqCst));
+            if !produced {
+                close_stopped_prompt(&end_port, &stopped_item, &ended_input, signal.close_reason()).await;
+            }
+        }
+        _ => {}
     }
     outcome
+}
+
+/// The session's model context after a turn of an agent, without the turn's input row; `None` when it cannot be read.
+async fn conversation_after(context: &mixdog_core_session::session::run::ModelContext) -> Option<Vec<(ItemId, Value)>> {
+    match context.read().await {
+        Ok(rows) => Some(rows),
+        Err(error) => {
+            tracing::warn!("[session] the conversation an agent's turn left could not be read: {error:?}");
+            None
+        }
+    }
+}
+
+/// The session's model context as a finished turn of an agent left it, as the loop's settlement reads `session.messages`:
+/// the request's `system` messages, the `held` rows of `rows` ahead of the turn's input less the stale system rows they
+/// lead with, the input, and the rows the turn added after it.
+fn settled_transcript(system: Vec<AgentMessage>, rows: Vec<(ItemId, Value)>, held: usize, input: &Value) -> Vec<AgentMessage> {
+    let at = held.min(rows.len());
+    let mut transcript = system;
+    let mut leading = true;
+    for row in rows[..at].iter().map(|(_, row)| row).chain(std::iter::once(input)).chain(rows[at..].iter().map(|(_, row)| row)) {
+        match message_of(row) {
+            Ok(message) if leading && is_stale_system_row(&message) => {}
+            Ok(message) => {
+                leading = false;
+                transcript.push(message);
+            }
+            Err(error) => tracing::warn!("[session] a row of the settled conversation could not be read: {error}"),
+        }
+    }
+    transcript
 }
 
 #[cfg(test)]

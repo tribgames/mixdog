@@ -28,11 +28,19 @@ struct Agent {
     left: Mutex<usize>,
     /// What it says why it cannot run now; `None` for an agent that can.
     refusal: Option<String>,
+    /// The refusal is the agent's sign-in not holding.
+    signed_out: bool,
     /// The liveness the world is composed with, and the route it held for the thread when each turn was handed over.
     liveness: Option<Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>>,
     routes: Mutex<Vec<Option<Value>>>,
     /// What each compaction of the session it made on a prompt `compact` came to.
     compacted: Mutex<Vec<Result<Option<String>, String>>>,
+    /// It gives nothing and waits for the turn's stop.
+    hold: bool,
+    /// It ends its turn without a word.
+    silent: bool,
+    /// The usage it reports for each turn.
+    usage: Option<mixdog_core_api::domain::provider::Usage>,
 }
 
 /// The header key the stand-in agent's own session is kept under.
@@ -52,6 +60,10 @@ impl OutsideAgents for Agent {
         self.refusal.clone()
     }
 
+    fn signed_out(&self, _: &mixdog_store::schema::record::Header) -> bool {
+        self.signed_out
+    }
+
     fn prompts(&self, _: &Value) -> bool {
         true
     }
@@ -60,6 +72,32 @@ impl OutsideAgents for Agent {
         lock(&self.turns).push((turn.header.clone(), turn.input.clone()));
         if let Some(liveness) = &self.liveness {
             lock(&self.routes).push(liveness.request_route(turn.thread.as_str()).map(|route| Value::Object((*route).clone())));
+        }
+        if self.hold {
+            let _ = turn.port.input_durable().await;
+            turn.cancel.cancelled().await;
+            return RunOutcome::Interrupted;
+        }
+        // The usage an agent reports for its turn reaches the session as a call's report, and is kept for the turn's end.
+        if let Some(usage) = &self.usage {
+            let report = mixdog_core_session::session::UsageReport {
+                iteration: 1,
+                usage: usage.clone(),
+                model: "default".to_owned(),
+                requested_model: "default".to_owned(),
+                delta_tool_calls: 0,
+                request_ms: 1_000,
+                delta_prompt: 0,
+                send_tools: Arc::from(Vec::new()),
+                reasoning_tokens: None,
+                reasoning_tokens_complete: false,
+                outgoing: Arc::from(Vec::new()),
+                sent_at_ms: 0,
+                input_excludes_cache: false,
+                tail_book: None,
+            };
+            let _ = turn.port.usage(report).await;
+            *lock(&turn.report.usage) = Some((usage.clone(), false));
         }
         if prompt_text(&turn.input).starts_with("compact") {
             let made = turn.history.compact().await;
@@ -71,7 +109,7 @@ impl OutsideAgents for Agent {
         }
         let _ = turn.port.input_durable().await;
         RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult {
-            content: "done".into(),
+            content: if self.silent { String::new() } else { "done".into() },
             report_content: None,
             termination: None,
             iterations: 1,
@@ -154,6 +192,138 @@ async fn a_sub_agents_turn_on_an_outside_route_carries_its_route_while_the_agent
 
     let route = lock(&agent.routes)[0].clone().expect("the turn's route is published");
     assert_eq!((route["provider"].as_str(), route["model"].as_str(), route["effort"].as_str()), (Some("outside"), Some("gem"), Some("high")));
+}
+
+/// The result an outside agent's finished turn gave is what the session keeps as its result for its owner, as a turn of
+/// the loop keeps its own: an earlier turn's kept result is not read in its place.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_outside_agents_finished_turn_is_the_result_the_session_keeps_for_its_owner() {
+    let agent = Arc::new(Agent::default());
+    let header = json!({ "provider": "outside", "model": "default", "owner": "agent", "lastHandoff": "an earlier turn's result" });
+    let (world, id, handle) = on_agents_route(&agent, &[], header).await;
+
+    start_turn(&id, &handle, "go").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let header = handle.live_header().header();
+    assert_eq!(header["lastHandoff"], "done");
+    assert!(header["lastHandoffTurn"].as_str().is_some_and(|turn| !turn.is_empty()), "{header:?}");
+
+    // A turn that committed no text leaves no result, so the owner reads the session's rows.
+    let agent = Arc::new(Agent { silent: true, ..Agent::default() });
+    let header = json!({ "provider": "outside", "model": "default", "owner": "agent", "lastHandoff": "an earlier turn's result" });
+    let (world, id, handle) = on_agents_route(&agent, &[], header).await;
+    start_turn(&id, &handle, "go").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+    let header = handle.live_header().header();
+    assert!(!header.contains_key("lastHandoff") && !header.contains_key("lastHandoffTurn"), "{header:?}");
+}
+
+/// The asks the world's sessions recorded where the statusline footer reads a route's spend, every one written.
+async fn recorded_asks(world: &World) -> Vec<Value> {
+    world.gateway.flush_final().await;
+    let written = crate::run_host::fixture_fs::read_to_string(world.gateway.store_path()).unwrap_or_default();
+    written.lines().filter(|line| !line.trim().is_empty()).map(|line| serde_json::from_str(line).expect("an event")).collect()
+}
+
+/// The ask of an outside agent's finished turn is settled as a finished turn of the loop settles its own
+/// (`settleAskTurn`): the usage the agent reported for it, which reached the session as a call's report, is counted once
+/// in the session's totals, and the ask is recorded where the statusline footer reads a route's spend, over the
+/// conversation as the request saw it: the system messages, then the prompt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_outside_agents_finished_turn_settles_its_ask_with_the_usage_the_agent_reported() {
+    let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 1_200, output_tokens: 300, ..Default::default() };
+    let agent = Arc::new(Agent { usage: Some(usage), ..Agent::default() });
+    let header = json!({ "provider": "outside", "model": "default", "promptBase": "The session's rules." });
+    let (world, id, handle) = on_agents_route(&agent, &[], header).await;
+
+    start_turn(&id, &handle, "go").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let header = handle.live_header().header();
+    let totals = (header.get("totalInputTokens").and_then(Value::as_f64), header.get("totalOutputTokens").and_then(Value::as_f64));
+    assert_eq!(totals, (Some(1_200.0), Some(300.0)), "counted once: {header:?}");
+    let asks = recorded_asks(&world).await;
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    let ask = &asks[0];
+    assert_eq!((ask["provider"].as_str(), ask["inputTokens"].as_f64(), ask["outputTokens"].as_f64()), (Some("outside"), Some(1_200.0), Some(300.0)), "{ask}");
+    let system = system_messages(&header).len();
+    assert!(system > 0, "the session has a system prompt: {header:?}");
+    assert_eq!(ask["messageCount"].as_u64(), Some(system as u64 + 1), "{ask}");
+}
+
+/// A finished turn the agent reported no usage for has no ask to settle: the session's reading of its context and its
+/// totals stay as they were, and no ask is recorded for the statusline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_outside_agents_turn_that_reported_no_usage_settles_nothing() {
+    let agent = Arc::new(Agent::default());
+    let header = json!({ "provider": "outside", "model": "default", "lastContextTokens": 5_000 });
+    let (world, id, handle) = on_agents_route(&agent, &[], header).await;
+
+    start_turn(&id, &handle, "go").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let header = handle.live_header().header();
+    assert_eq!(header.get("lastContextTokens").and_then(Value::as_f64), Some(5_000.0), "{header:?}");
+    assert!(!header.contains_key("totalInputTokens") && !header.contains_key("totalOutputTokens"), "{header:?}");
+    assert!(recorded_asks(&world).await.is_empty());
+}
+
+/// A user's stop that keeps the prompt of an outside agent's turn that produced nothing closes it as the loop closes such
+/// a turn: the prompt stays, followed by the interruption line.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_outside_agents_stopped_turn_that_keeps_its_prompt_is_followed_by_the_interruption_line() {
+    let agent = Arc::new(Agent { hold: true, ..Agent::default() });
+    let (world, id, handle) = on_agents_route(&agent, &[], json!({ "provider": "outside", "model": "default" })).await;
+    let input = json!({ "prompt": "keep it", "options": { "clientSubmissionId": "sub-1" } });
+    let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": input }), "op-1")).await.expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    eventually_on_awaiting(
+        || "the agent's turn".to_owned(),
+        &[&world.rig.store.committed, handle.stepped()],
+        || (!lock(&agent.turns).is_empty()).then_some(()),
+    )
+    .await;
+
+    let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+    let stopped = handle
+        .stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(false), submission_id: Some("sub-1".to_owned()), ctx })
+        .await
+        .expect("stop");
+    assert_eq!(stopped["restoreText"], json!(""), "the prompt is kept: {stopped}");
+    until(&world, &handle, "the stopped turn's end", || true).await;
+
+    let records = world.rig.store.records(&id);
+    assert!(!records.iter().any(|(_, record)| matches!(record, Record::Rewind(_))), "the prompt stays: {records:?}");
+    assert!(format!("{records:?}").contains("[Request interrupted]"), "the interruption line follows the prompt: {records:?}");
+}
+
+/// A stopped turn of an outside agent that added nothing after its prompt closes as a stopped turn of the loop that
+/// produced nothing: the prompt's row leaves the conversation, a prompt no composer takes back (a kickoff) included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_outside_agents_stopped_turn_that_produced_nothing_takes_its_prompt_out_of_the_conversation() {
+    let agent = Arc::new(Agent { hold: true, ..Agent::default() });
+    let (world, id, handle) = on_agents_route(&agent, &[], json!({ "provider": "outside", "model": "default" })).await;
+    let input = json!({ "prompt": "greet the user", "options": { "clientSubmissionId": "sub-k", "kickoff": true } });
+    let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": input }), "op-1")).await.expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    eventually_on_awaiting(
+        || "the agent's turn".to_owned(),
+        &[&world.rig.store.committed, handle.stepped()],
+        || (!lock(&agent.turns).is_empty()).then_some(()),
+    )
+    .await;
+
+    let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+    let stopped = handle
+        .stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(true), submission_id: Some("sub-k".to_owned()), ctx })
+        .await
+        .expect("stop");
+    assert_eq!(stopped["restoreText"], json!(""), "no composer takes a kickoff back: {stopped}");
+    until(&world, &handle, "the stopped turn's end", || true).await;
+
+    let records = world.rig.store.records(&id);
+    assert!(records.iter().any(|(_, record)| matches!(record, Record::Rewind(_))), "the prompt's row is rewound: {records:?}");
 }
 
 /// A turn that begins on an outside agent's route and fails before it is handed over is a failed turn, and the agent is
@@ -301,4 +471,17 @@ async fn a_turn_its_own_start_moves_onto_the_agent_tells_the_agent_when_it_then_
     let unrun = lock(&agent.unrun).clone();
     assert_eq!(unrun.len(), 1, "{unrun:?}");
     assert!(lock(&agent.turns).is_empty() && lock(&world.ledger.0).is_empty());
+}
+
+/// A turn on the route of an agent that is already known signed out, with no fallback, fails with the kind of a provider's
+/// authentication failure, so the transcript offers the sign-in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_on_a_signed_out_agent_fails_as_an_authentication_failure() {
+    let agent = Arc::new(Agent { refusal: Some("Test Agent is signed out. Sign in to it in Settings.".to_owned()), signed_out: true, ..Agent::default() });
+    let (world, id, handle) = on_agents_route(&agent, &[], json!({ "provider": "outside", "model": "default" })).await;
+
+    start_turn(&id, &handle, "go").await;
+    until(&world, &handle, "the failure", || world.rig.feeds.frames(id.as_str()).iter().any(|(_, _, params)| params.to_string().contains(r#""kind":"auth""#)))
+        .await;
+    assert!(lock(&agent.turns).is_empty(), "the agent ran nothing");
 }

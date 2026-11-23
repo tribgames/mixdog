@@ -2084,6 +2084,11 @@ async fn turn_world_routed(
             reuses: Arc::default(),
         })) as Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction>
     });
+    // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
+    let production_surface = threads.is_some();
+    let thread_store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
+    let rig_deps = rig.deps_parts(thread_store);
+    let gateway = rig_deps.gateway_usage.clone();
     let parts = super::super::turn_path::TurnPathParts {
         tokens: tokens.clone(),
         clock: clock.clone(),
@@ -2152,10 +2157,6 @@ async fn turn_world_routed(
         reuses: Arc::default(),
         outside: outside_tests::OUTSIDE.with(|slot| slot.borrow_mut().take()),
         deps: Box::new({
-            // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
-            let production_surface = threads.is_some();
-            let store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
-            let rig_deps = rig.deps_parts(store);
             move |runs| {
                 let mut deps = rig_deps;
                 deps.runs = runs;
@@ -2239,7 +2240,7 @@ async fn turn_world_routed(
     let settings = Arc::new(Mutex::new(serde_json::Map::new()));
     assert!(!lead, "a Lead surface host needs the recorded tool pool, which only the local comparison build has");
     assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
-    World { workspace, rig, ledger, asked, store, next, directory, registry: world_registry, live_settings: settings }
+    World { workspace, rig, ledger, asked, store, next, directory, registry: world_registry, live_settings: settings, gateway }
 }
 
 /// The two providers of a switched-off test: `primary` and the Codex fallback `openai-oauth`, each answering `answers`
@@ -2338,6 +2339,8 @@ struct World {
     registry: Arc<mixdog_ai::registry::providers::ProviderRegistry>,
     /// The live settings a turn start brings the header to ([`LiveSettings`]); empty moves nothing.
     live_settings: Arc<Mutex<serde_json::Map<String, Value>>>,
+    /// Where the sessions record each settled ask, the statusline footer's route spend.
+    gateway: mixdog_core_session::session::gateway_usage::GatewayUsage,
 }
 
 async fn started_thread(world: &World, header: Value) -> (ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {

@@ -29,11 +29,13 @@ use mixdog_acp::runs::Stored;
 use mixdog_acp::runs::TurnRequest;
 use mixdog_acp::runs::WAKE_TEXT;
 use mixdog_acp::surface::CallMark;
+use mixdog_acp::surface::CompactEvent;
 use mixdog_acp::surface::TurnSurface;
 use mixdog_acp::surface::TurnUsage;
 use mixdog_acp::turn::Ask;
 use mixdog_acp::turn::TurnContext;
 use mixdog_acp::turn::TurnEnd;
+use mixdog_agent::env::CompactStatus;
 use mixdog_agent::env::GateAsk;
 use mixdog_agent::env::GateCall;
 use mixdog_agent::env::GateDecision;
@@ -99,6 +101,12 @@ enum Event {
     Header(HeaderChange),
     /// A step of the turn the spinner was told of.
     Mark(CallMark),
+    /// A stage the spinner was told of.
+    Stage(String),
+    /// A compaction pass's marker.
+    Compact(CompactStatus),
+    /// A progress record of what the turn streamed.
+    Draft(Value),
 }
 
 /// Where the agents' refusals are kept: what a restart of the app finds again.
@@ -140,6 +148,10 @@ impl Conversation for Turns {
             std::future::pending::<()>().await;
         }
         self.summary.map(|summary| summary.map(str::to_owned).map_err(str::to_owned)).transpose()
+    }
+
+    fn hand_over_summarizes(&self) -> bool {
+        self.summary.is_some() || self.stops_summary.is_some()
     }
 
     fn compaction_due(&self) -> Option<mixdog_acp::runs::Due> {
@@ -280,12 +292,24 @@ impl TurnSurface for Surface {
         self.record(Event::Usage(usage))
     }
 
+    async fn draft(&self, body: Value) -> Result<(), RunError> {
+        self.record(Event::Draft(body))
+    }
+
     async fn save_header(&self, change: HeaderChange) -> Result<(), RunError> {
         self.record(Event::Header(change))
     }
 
     async fn call_mark(&self, mark: CallMark) -> Result<(), RunError> {
         self.record(Event::Mark(mark))
+    }
+
+    async fn stage(&self, stage: &str) -> Result<(), RunError> {
+        self.record(Event::Stage(stage.to_owned()))
+    }
+
+    async fn compact_event(&self, event: CompactEvent) -> Result<(), RunError> {
+        self.record(Event::Compact(event.status))
     }
 
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution {
@@ -935,6 +959,28 @@ async fn an_agent_that_exits_in_the_middle_of_a_turn_fails_it_with_every_item_se
     assert!(completed_text(&end).starts_with("session=sess-1 resumed=true"), "{end:?}");
 }
 
+/// A turn that attaches to a session whose agent's process has already ended, everything it wrote routed, reads what was
+/// left for it and fails at once as a turn whose agent exited: the stream it reads is not one nothing will ever close.
+#[tokio::test]
+async fn a_turn_that_attaches_after_its_agents_process_ended_fails_at_once() {
+    let world = World::new(&[]);
+    let session = world.agents.session(&thread(), &world.preset, world.cwd(), None, Some("RULES".into())).await.expect("the agent starts");
+    session.connection.kill();
+    within("the agent's exit", session.connection.exited().cancelled()).await;
+    // The session leaves the agents once all its process wrote was routed: the turn attaches after that.
+    within("the end of the agent's output", async {
+        while world.agents.running(&thread()).is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    let whoami = Ask::Prompt(vec![json!({ "type": "text", "text": "whoami" })]);
+    let surface = Surface::default();
+    let end = within("the turn", mixdog_acp::turn::run(&session, Arc::new(surface.clone()), whoami, world.context(CancellationToken::new()))).await;
+    assert!(matches!(end, TurnEnd::Failed { code: None, .. }), "{end:?}");
+    assert!(surface.rows().is_empty(), "{:?}", surface.rows());
+}
+
 #[tokio::test]
 async fn a_line_of_the_agents_output_that_is_no_message_is_passed_over() {
     let world = World::new(&[]);
@@ -1011,7 +1057,11 @@ async fn a_summary_that_cannot_be_made_fails_the_turn_and_the_agent_is_not_start
     let end = world.ask(&surface, "whoami", Turns { summary: Some(Err("the summary route answered nothing")), ..Turns::default() }).await;
     assert_eq!(
         end,
-        TurnEnd::Failed { message: "The conversation could not be summarized for Antigravity ACP: the summary route answered nothing".into(), code: None }
+        TurnEnd::Failed {
+            message: "The conversation could not be summarized for Antigravity ACP: the summary route answered nothing".into(),
+            code: None,
+            reported: false
+        }
     );
     assert_eq!(world.logged("session/prompt"), 0);
     // No agent session is recorded, so the next turn makes the summary again.
@@ -1111,7 +1161,7 @@ async fn a_failure_notice_the_reply_ends_on_is_the_turns_error() {
     let surface = Surface::default();
     let failed = "failed to construct executor: plan model not specified; you must specify a valid model";
     let end = world.ask(&surface, &format!("notice {failed}"), Turns::default()).await;
-    assert_eq!(end, TurnEnd::Failed { message: failed.into(), code: None });
+    assert_eq!(end, TurnEnd::Failed { message: failed.into(), code: None, reported: true });
     no_notice_shown(&surface);
     assert_eq!(world.agents.status()["agents"][0]["state"], "ready");
 }
@@ -1129,8 +1179,81 @@ async fn an_authentication_notice_the_reply_ends_on_fails_the_turn_and_signs_the
     assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
     let refusal = world.agents.selectable(&world.preset).err().expect("a signed-out agent runs no turn");
     assert_eq!(refusal.message(&world.preset), "Antigravity ACP is signed out. Sign in to it in Settings.");
+    // The refusal reaches the run as a sign-in failure, typed as a provider's authentication failure is.
+    assert!(refusal.signed_out());
+    let error = world.agents.failure(&world.preset, refusal.message(&world.preset), Some(-32000), json!({}), None).await;
+    assert_eq!(error.provider_error.map(|detail| (detail.provider, detail.kind)), Some((world.preset.provider.clone(), "auth".to_owned())));
 }
 
+/// A failure is a spent quota only when the agent reported it for the prompt and the account's quota, read now, shows the
+/// window of the model the agent is on exhausted: every other failure starts no CLI and stays as it is.
+#[tokio::test]
+async fn only_a_failure_the_agent_reported_is_checked_against_the_quota() {
+    use mixdog_acp::agents::QuotaCheck;
+
+    let full = r#"{"groups":[{"buckets":[{"id":"gemini-5h","window":"5h","remaining_fraction":0.0,"reset_time":"2030-01-01T05:00:00Z"}]}]}"#;
+    let world = World::new(&[("FAKE_AGENT_USAGE", full)]);
+    assert_eq!(world.checked().await["state"], "ready");
+    let (now_ms, stop) = (1_700_000_000_000, CancellationToken::new());
+
+    let spent = world
+        .agents
+        .failure(
+            &world.preset,
+            "limit".into(),
+            None,
+            json!({ "reason": "acpAgent" }),
+            Some(QuotaCheck { model: "gemini-3-pro", current: None, now_ms, stop: &stop }),
+        )
+        .await;
+    assert_eq!(spent.provider_error.as_ref().map(|detail| detail.kind.as_str()), Some("quota_exhausted"));
+    assert_eq!(spent.data["providerFacts"]["quotaExhausted"]["resetAt"], json!(1_893_474_000_000_u64));
+    assert_eq!(spent.data["reason"], "acpAgent");
+    assert_eq!(world.logged("usage"), 1);
+
+    // The default route is the model the agent is on.
+    let default = world
+        .agents
+        .failure(&world.preset, "limit".into(), None, json!({}), Some(QuotaCheck { model: "default", current: Some("gemini-3-pro"), now_ms, stop: &stop }))
+        .await;
+    assert_eq!(default.provider_error.as_ref().map(|detail| detail.kind.as_str()), Some("quota_exhausted"));
+    assert_eq!(default.data["providerFacts"]["quotaExhausted"]["model"], "default", "the stop names the route the session is on");
+    let reads = world.logged("usage");
+    let unknown =
+        world.agents.failure(&world.preset, "limit".into(), None, json!({}), Some(QuotaCheck { model: "default", current: None, now_ms, stop: &stop })).await;
+    assert!(unknown.provider_error.is_none(), "an agent not running is on no known model");
+    assert_eq!(world.logged("usage"), reads, "and nothing is read for it");
+    // Another model's window is not the route's.
+    let other = world
+        .agents
+        .failure(&world.preset, "limit".into(), None, json!({}), Some(QuotaCheck { model: "claude-sonnet-4", current: None, now_ms, stop: &stop }))
+        .await;
+    assert!(other.provider_error.is_none());
+    let reads = world.logged("usage");
+
+    // A failure that was not the agent's answer starts no read.
+    let plain = world.agents.failure(&world.preset, "the process ended".into(), None, json!({}), None).await;
+    assert!(plain.provider_error.is_none());
+    assert_eq!(world.logged("usage"), reads);
+
+    // A stopped turn ends the read and leaves the failure as it is.
+    let stopped = CancellationToken::new();
+    stopped.cancel();
+    let ended = world
+        .agents
+        .failure(&world.preset, "limit".into(), None, json!({}), Some(QuotaCheck { model: "gemini-3-pro", current: None, now_ms, stop: &stopped }))
+        .await;
+    assert!(ended.provider_error.is_none());
+
+    // A read that fails leaves it as it is too.
+    let failing = World::new(&[("FAKE_AGENT_USAGE_FAILS", "quota service unavailable")]);
+    assert_eq!(failing.checked().await["state"], "ready");
+    let unread = failing
+        .agents
+        .failure(&failing.preset, "limit".into(), None, json!({}), Some(QuotaCheck { model: "gemini-3-pro", current: None, now_ms, stop: &stop }))
+        .await;
+    assert!(unread.provider_error.is_none());
+}
 /// A turn whose agent no longer holds its session (it answers the prompt that the session is not found, or tells of it
 /// in a notice) leaves that session behind: its process ends, the conversation stops naming it, and the next turn
 /// starts a new one with the conversation handed over, as after a compaction.
@@ -1621,6 +1744,42 @@ async fn the_file_a_read_opens_is_the_resolved_place_that_was_checked() {
     assert_eq!(completed_text(&end), "read:through the link");
     let resolved = std::fs::canonicalize(real.join("inner.txt")).expect("the resolved place");
     assert_eq!(*world.opened.lock().unwrap(), [resolved], "the read opened the place the check resolved, not the name the agent gave");
+}
+
+/// A turn's answer is the last text it committed, whichever row took it: a report the agent wrote ahead of a last call
+/// of its own is what the turn ends with, as it is for a reply that ends on text.
+#[tokio::test]
+async fn a_report_written_ahead_of_the_agents_last_call_is_the_turns_answer() {
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    let end = within("the turn", world.prompt(&thread(), &surface, "report", None, CancellationToken::new())).await;
+    assert_eq!(completed_text(&end), "The report.");
+    let rows = surface.rows();
+    assert_eq!((&rows[0]["content"], &rows[0]["toolCalls"][0]["id"]), (&json!("The report."), &json!("turn-1.r1")), "{rows:?}");
+}
+
+/// What an agent's reply streams is written to the turn's progress record as it arrives, ahead of the row that later
+/// holds it, as the loop's run writes its own: a restart restores the reply streamed up to it.
+#[tokio::test]
+async fn an_agents_streamed_reply_is_written_to_the_turns_progress_record_ahead_of_its_row() {
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    let cancel = CancellationToken::new();
+    let running = {
+        let (surface, cancel) = (surface.clone(), cancel.clone());
+        let world = &world;
+        async move { world.prompt(&thread(), &surface, "hang", None, cancel).await }
+    };
+    let stop = async {
+        surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        cancel.cancel();
+    };
+    let (end, ()) = within("the stop", async { tokio::join!(running, stop) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    let events = surface.events();
+    let drafted = events.iter().position(|event| matches!(event, Event::Draft(body) if body["text"] == "working")).expect("the reply was recorded");
+    let row = events.iter().position(|event| matches!(event, Event::Commit(item) if item.body["content"] == "working")).expect("the reply's row");
+    assert!(drafted < row, "the record is written ahead of the row: {events:?}");
 }
 
 #[tokio::test]
@@ -2408,7 +2567,9 @@ async fn the_agents_report_of_its_context_is_the_turns_reading_and_the_sessions_
 
 /// A context that reached the session's trigger is compacted where a provider's is, before the prompt is sent: the
 /// conversation is summarized, the agent's session is left behind and the turn opens a new one on the summary. Below
-/// the trigger the agent's session goes on, and so it does when the summary cannot be made.
+/// the trigger the agent's session goes on, and so it does when the summary cannot be made. The pass shows as a
+/// provider's: the spinner's `compacting` while it runs, then `requesting`; the divider of the stored summary and no
+/// notice of the agent's own; the loop's marker of the pass, done or failed.
 #[tokio::test]
 async fn a_context_at_the_sessions_trigger_is_compacted_before_the_prompt_and_the_agent_starts_anew_on_the_summary() {
     let due = Some(mixdog_acp::runs::Due { used: 900, trigger: 800 });
@@ -2416,6 +2577,18 @@ async fn a_context_at_the_sessions_trigger_is_compacted_before_the_prompt_and_th
     async fn serve(world: &World, surface: &Surface, turns: Turns) -> TurnEnd {
         let input = json!({ "role": "user", "content": "whoami" });
         within("the turn", world.serve_with(surface, input, Some(held("sess-9")), Some("RULES"), "default", CancellationToken::new(), turns)).await
+    }
+    /// The stages the spinner was told of and the compaction markers, in order.
+    fn shown(surface: &Surface) -> Vec<String> {
+        surface
+            .events()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Stage(stage) => Some(stage),
+                Event::Compact(status) => Some(format!("{status:?}")),
+                _ => None,
+            })
+            .collect()
     }
 
     let world = World::new(&[]);
@@ -2425,12 +2598,8 @@ async fn a_context_at_the_sessions_trigger_is_compacted_before_the_prompt_and_th
     assert!(said.starts_with("session=sess-1 resumed=false"), "{said}");
     let lead = said.split_once(" lead=").expect("the lead").1;
     assert!(lead.starts_with("# The conversation before this session") && lead.contains("## User\nearlier talk"), "{said}");
-    assert_eq!(
-        surface.notices(),
-        [
-            "Antigravity ACP's context reached this session's compaction trigger (900 of 800 tokens): the conversation above was summarized, and Antigravity ACP continues on the summary in a new session of its own."
-        ]
-    );
+    assert!(surface.notices().is_empty(), "{:?}", surface.notices());
+    assert_eq!(shown(&surface), ["compacting", "requesting", "Compacted"]);
     assert_eq!(world.logged("session/resume"), 0, "the session that held the context is not reopened");
     let recorded = surface.events().into_iter().find_map(|event| match event {
         Event::Header(change) => change.set.get(mixdog_acp::runs::SESSION_KEY).cloned(),
@@ -2443,17 +2612,21 @@ async fn a_context_at_the_sessions_trigger_is_compacted_before_the_prompt_and_th
     let end = serve(&world, &surface, Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() }).await;
     assert!(completed_text(&end).starts_with("session=sess-9 resumed=true") && completed_text(&end).contains(" lead= images="), "{end:?}");
     assert!(surface.notices().is_empty());
+    assert!(shown(&surface).is_empty(), "no pass below the trigger");
 
     let world = World::new(&[]);
     let surface = Surface::default();
     let end = serve(&world, &surface, Turns { summary: Some(Err("the summary route answered nothing")), due, ..Turns::default() }).await;
     assert!(completed_text(&end).starts_with("session=sess-9 resumed=true") && completed_text(&end).contains(" lead= images="), "{end:?}");
-    assert_eq!(
-        surface.notices(),
-        [
-            "Antigravity ACP's context reached this session's compaction trigger (900 of 800 tokens), and the conversation could not be summarized: the summary route answered nothing. Antigravity ACP continues in its session as it is."
-        ]
-    );
+    assert!(surface.notices().is_empty(), "{:?}", surface.notices());
+    assert_eq!(shown(&surface), ["compacting", "requesting", "Failed"]);
+
+    // The summary a new session of the agent's is handed is made by the same compaction, and shows as one while it is made.
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    let end = world.ask(&surface, "whoami", Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() }).await;
+    assert!(completed_text(&end).contains("## User\nearlier talk"), "{end:?}");
+    assert_eq!(shown(&surface), ["compacting", "requesting"]);
 }
 
 /// A turn stopped after its compaction, before the prompt that carries the summary reached the agent, leaves the
