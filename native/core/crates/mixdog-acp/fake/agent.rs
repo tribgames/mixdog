@@ -256,6 +256,12 @@ impl Agent {
                 }));
                 self.asked = Some(id);
             }
+            // A report, then a last call of the agent's own, and the turn's end with no text after it.
+            "report" => {
+                self.say("The report.");
+                self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Save notes", "kind": "edit", "status": "completed" }));
+                self.end(&id);
+            }
             "hang" => {
                 self.say("working");
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "h1", "title": "Long build", "kind": "execute", "status": "in_progress" }));

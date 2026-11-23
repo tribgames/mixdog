@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { projectSettledTranscriptRows } from './transcript-rows.ts';
 import { transcriptRowNode } from './conversation-support.tsx';
+import { takeRequestedBuiltInFeature } from './settings/built-in-feature-request.ts';
 // The changes card under a turn's row, listing none of its preview card's files.
 import { PreviewedTurnChangesCard as TurnChangesCard } from './transcript-visualize-card.tsx';
 
@@ -234,6 +235,44 @@ test('a sign-in-expired failure offers Sign in again and a retry for after signi
   assert.equal(typeof notice.props.onRetry, 'function');
   notice.props.onRetry();
   assert.deepEqual(retried, ['turn:u1']);
+});
+
+test("Sign in again opens an agent route's card among the built-in features, and a provider's under Providers", () => {
+  const opened = [];
+  const press = (provider) => {
+    const items = [
+      { kind: 'user', id: 'u1', text: 'one' },
+      { kind: 'turndone', id: 'd1', status: 'failed', message: 'Sign-in expired.',
+        errorKind: { kind: 'auth', code: '', status: 0, retryAfterMs: null, resetAt: null },
+        provider,
+      },
+    ];
+    const row = project(items, ['turn:u1']).find((candidate) => candidate._tag === 'Error');
+    const node = transcriptRowNode(row, {
+      disclosureScope: 's',
+      optimisticActivityStartedAt: 0,
+      readOnly: false,
+      renderAssistantRow: () => 'assistant',
+      retryDisabled: false,
+      settledItems: items,
+      settledTurnKeys: items.map(() => 'turn:u1'),
+      snapshot: { sessionId: 's' },
+      onRetryTurn() {},
+      onOpenSettings: (section) => opened.push(section),
+    });
+    (row.turnChanges ? node.props.children[0] : node).props.action.props.onClick();
+  };
+  const previous = globalThis.window;
+  globalThis.window = { Event, dispatchEvent() {} };
+  try {
+    press('anthropic-oauth');
+    assert.deepEqual(opened, ['providers']);
+    press('acp-antigravity');
+    assert.deepEqual(opened, ['providers', 'plugins']);
+    assert.equal(takeRequestedBuiltInFeature(), 'acpAgents');
+  } finally {
+    globalThis.window = previous;
+  }
 });
 
 test('coding order on an error row: notice, then the visualize cards, then the changes card', () => {

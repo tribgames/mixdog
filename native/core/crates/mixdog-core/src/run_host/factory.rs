@@ -323,7 +323,7 @@ use self::history::*;
 pub(crate) use self::history::{native_searches, session_messages, system_messages};
 use self::interrupt::*;
 use self::observer::*;
-pub use self::outside::{History, OutsideAgents, OutsideAnswer, OutsideAsk, OutsideAssembled, OutsideTurn};
+pub use self::outside::{History, OutsideAgents, OutsideAnswer, OutsideAsk, OutsideAssembled, OutsideReport, OutsideTurn};
 use self::outside::{Outside, drive_outside};
 pub(crate) use self::segments::Segments;
 use self::segments::*;

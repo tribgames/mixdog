@@ -7,6 +7,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use base64::Engine;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
+use mixdog_agent::env::CompactEvent;
+use mixdog_agent::env::CompactStatus;
+use mixdog_agent::env::CompactTrigger;
 use mixdog_agent::response::Termination;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_run::run_host::progress::RunProgress;
@@ -55,6 +58,12 @@ pub trait Conversation: Send + Sync {
     /// returns it as text; `None` for a session with no earlier conversation. `Err` tells why no summary was made.
     async fn hand_over(&self) -> Result<Option<String>, String>;
 
+    /// Whether [`Self::hand_over`] has a summary to make now, which takes a model request: `false` for a session with no
+    /// earlier conversation, or one whose earlier summary is handed over as it stands.
+    fn hand_over_summarizes(&self) -> bool {
+        false
+    }
+
     /// The agent's context, as its last turn left the session's reading, has reached the session's compaction
     /// trigger: the reading and the trigger. `None` for a session below it, with automatic compaction off, or with
     /// no reading.
@@ -76,6 +85,25 @@ pub trait Conversation: Send + Sync {
 pub struct Due {
     pub used: u64,
     pub trigger: u64,
+}
+
+/// The loop's event of an automatic compaction pass over the context `due` holds, `duration_ms` long, that ended `status`.
+fn pass(due: Due, duration_ms: i64, status: CompactStatus) -> CompactEvent {
+    CompactEvent {
+        dropped_count: 0,
+        dropped: None,
+        trigger: CompactTrigger::Auto,
+        status,
+        before_tokens: due.used,
+        duration_ms: duration_ms.max(0) as u64,
+        after_tokens: due.used,
+        before_messages: 0,
+        after_messages: 0,
+        pressure_tokens: due.used,
+        trigger_tokens: due.trigger,
+        boundary_tokens: 0,
+        target_budget_tokens: 0,
+    }
 }
 
 /// The attachments the session's rows name.
@@ -299,7 +327,7 @@ async fn account_learned(agents: &Agents, preset: &AgentPreset, end: &TurnEnd) {
     match end {
         TurnEnd::Refused { message } => agents.refused(preset, message).await,
         TurnEnd::Completed { .. } => agents.answered(preset).await,
-        TurnEnd::Failed { message, code: Some(AUTH_REQUIRED) } => {
+        TurnEnd::Failed { message, code: Some(AUTH_REQUIRED), .. } => {
             agents.not_ready(preset, |version| Readiness::SignedOut { version, message: message.clone() })
         }
         _ => {}
@@ -317,7 +345,7 @@ async fn begin(
     context: &TurnContext,
 ) -> Result<(Arc<crate::session::AgentSession>, Vec<Value>, Option<HeaderChange>), TurnEnd> {
     let TurnRequest { thread, cwd, stored, rules, input, conversation, attachments } = request;
-    let refused = |refusal: Refusal| TurnEnd::Failed { message: refusal.message(preset), code: None };
+    let refused = |refusal: Refusal| TurnEnd::Failed { message: refusal.message(preset), code: refusal.signed_out().then_some(AUTH_REQUIRED), reported: false };
     // The session compacts where a provider's does: before the request is sent, once the context the last turn left
     // has reached the session's trigger. The agent owns the context, so the compaction is the one a manual Compact
     // makes of an agent's session: Mixdog's summary becomes the stored context, the agent's session is left behind,
@@ -328,6 +356,10 @@ async fn begin(
     // recorded again.
     let mut record_again = false;
     if let (Some(_), Some(due)) = (&stored, conversation.compaction_due()) {
+        // The pass shows as a provider's does: the spinner's `compacting` while the summary is made, the divider of the
+        // compaction it stores, and the loop's marker of the pass, which the session shows where the loop's would be.
+        let _ = surface.stage("compacting").await;
+        let began = (context.now_ms)();
         let made = tokio::select! {
             biased;
             // The process holds the session the compaction was leaving behind: it ends with the stop, as the session
@@ -338,23 +370,22 @@ async fn begin(
             }
             made = conversation.compact() => made,
         };
+        let _ = surface.stage("requesting").await;
         match made {
             Ok(Some(summary)) => {
-                let notice = format!(
-                    "{}'s context reached this session's compaction trigger ({} of {} tokens): the conversation above was summarized, and {} continues on the summary in a new session of its own.",
-                    preset.label, due.used, due.trigger, preset.label
-                );
-                let _ = surface.notice(notice, false).await;
+                let _ = surface.compact_event(pass(due, (context.now_ms)() - began, CompactStatus::Compacted)).await;
                 compacted = Some(summary);
                 stored = None;
             }
             Ok(None) => {}
             Err(why) => {
-                let notice = format!(
-                    "{}'s context reached this session's compaction trigger ({} of {} tokens), and the conversation could not be summarized: {why}. {} continues in its session as it is.",
-                    preset.label, due.used, due.trigger, preset.label
+                tracing::warn!(
+                    "[acp] {}'s context reached the compaction trigger ({} of {} tokens) and was not summarized: {why}",
+                    preset.id,
+                    due.used,
+                    due.trigger
                 );
-                let _ = surface.notice(notice, true).await;
+                let _ = surface.compact_event(pass(due, (context.now_ms)() - began, CompactStatus::Failed)).await;
                 record_again = true;
             }
         }
@@ -392,21 +423,32 @@ async fn begin(
         let handed = match compacted {
             // The automatic compaction above made the summary and told of it.
             Some(summary) => Ok(Some(summary)),
-            None => tokio::select! {
-                biased;
-                () = context.cancel.cancelled() => {
-                    agents.end_process(&thread);
-                    return Err(TurnEnd::Interrupted);
+            // The summary is the session's compaction too: the spinner shows it as one while it is made.
+            None => {
+                let summarizes = conversation.hand_over_summarizes();
+                if summarizes {
+                    let _ = surface.stage("compacting").await;
                 }
-                handed = conversation.hand_over() => handed,
-            },
+                let handed = tokio::select! {
+                    biased;
+                    () = context.cancel.cancelled() => {
+                        agents.end_process(&thread);
+                        return Err(TurnEnd::Interrupted);
+                    }
+                    handed = conversation.hand_over() => handed,
+                };
+                if summarizes {
+                    let _ = surface.stage("requesting").await;
+                }
+                handed
+            }
         };
         match handed {
             Ok(Some(summary)) => {
                 lead.push(format!(
                     "# The conversation before this session\nThis session continues a conversation held in Mixdog. Mixdog summarized it; take what follows as what was said and done before the request below.\n\n{summary}"
                 ));
-                // An automatic compaction told of itself where it was made.
+                // An automatic compaction shows as a provider's does, by the divider of what it stored.
                 if !automatic {
                     let notice = if session.restarted {
                         format!("{} could not reopen its earlier session: the conversation above was summarized for the new one.", preset.label)
@@ -419,7 +461,11 @@ async fn begin(
             Ok(None) => {}
             Err(why) => {
                 agents.end_process(&thread);
-                return Err(TurnEnd::Failed { message: format!("The conversation could not be summarized for {}: {why}", preset.label), code: None });
+                return Err(TurnEnd::Failed {
+                    message: format!("The conversation could not be summarized for {}: {why}", preset.label),
+                    code: None,
+                    reported: false,
+                });
             }
         }
     }
@@ -490,11 +536,28 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
     let Some(cwd) = header.get("cwd").and_then(Value::as_str).and_then(AbsPath::new) else {
         return failed("The session has no working folder to start the agent in.".to_owned(), "acpAgent");
     };
+    let thread_id = thread.clone();
     let request = TurnRequest { thread, cwd, stored: stored_session(&header, preset), rules, input, conversation, attachments };
     let model = header.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_MODEL).to_owned();
     let effort = header.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
-    let context = TurnContext { turn, model, effort, now_ms, cancel, progress, calls, on_tool_result, record: None };
-    outcome(serve(agents, preset, request, surface, context).await, transcript.as_ref())
+    let clock = now_ms.clone();
+    let context = TurnContext { turn, model: model.clone(), effort, now_ms, cancel, progress, calls, on_tool_result, record: None };
+    let stop = context.cancel.clone();
+    match serve(agents, preset, request, surface, context).await {
+        TurnEnd::Failed { message, code, reported } => {
+            // Only what the agent itself reported for the prompt is the account's quota speaking; a lost session is not.
+            let current = agents.running(&thread_id).and_then(|session| session.models().current);
+            let now_ms = clock();
+            let check = (reported && code != Some(crate::turn::SESSION_NOT_FOUND)).then(|| crate::agents::QuotaCheck {
+                model: &model,
+                current: current.as_deref(),
+                now_ms,
+                stop: &stop,
+            });
+            RunOutcome::Failed(agents.failure(preset, message, code, json!({ "reason": "acpAgent", "code": code }), check).await)
+        }
+        end => outcome(end, transcript.as_ref()),
+    }
 }
 
 /// What an agent answered a question asked outside every conversation.
@@ -537,12 +600,21 @@ impl TurnSurface for Unshown {
         *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(usage);
         Ok(())
     }
+    async fn draft(&self, _: Value) -> Result<(), mixdog_core_session::session::run::RunError> {
+        Ok(())
+    }
     async fn save_header(&self, _: HeaderChange) -> Result<(), mixdog_core_session::session::run::RunError> {
         Ok(())
     }
     /// Nobody is asked: the agent is refused the call, as a session with nobody to approve refuses it, and goes on.
     async fn approve(&self, _: mixdog_core_api::domain::approval::ApprovalAsk) -> mixdog_protocol::ApprovalResolution {
         mixdog_protocol::ApprovalResolution::Unavailable { at: 0 }
+    }
+    async fn stage(&self, _: &str) -> Result<(), mixdog_core_session::session::run::RunError> {
+        Ok(())
+    }
+    async fn compact_event(&self, _: crate::surface::CompactEvent) -> Result<(), mixdog_core_session::session::run::RunError> {
+        Ok(())
     }
     async fn call_mark(&self, _: crate::surface::CallMark) -> Result<(), mixdog_core_session::session::run::RunError> {
         Ok(())
@@ -647,7 +719,7 @@ fn outcome(end: TurnEnd, transcript: Option<&TurnTranscript>) -> RunOutcome {
             }))
         }
         TurnEnd::Interrupted => RunOutcome::Interrupted,
-        TurnEnd::Failed { message, code } => {
+        TurnEnd::Failed { message, code, .. } => {
             RunOutcome::Failed(TurnError { message, data: json!({ "reason": "acpAgent", "code": code }), provider_error: None })
         }
         TurnEnd::Refused { message } => RunOutcome::Failed(TurnError { message, data: json!({ "reason": "acpAgentAccount" }), provider_error: None }),

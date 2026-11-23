@@ -10,10 +10,10 @@ use std::sync::Weak;
 
 use async_trait::async_trait;
 use mixdog_acp::agents::Agents;
+use mixdog_acp::agents::report_windows;
 use mixdog_acp::preset::AgentPreset;
 use mixdog_ai::service::oauth_usage::QuotaHistory;
 use mixdog_ai::service::oauth_usage::QuotaSample;
-use mixdog_ai::service::usage_antigravity::quota_windows;
 use mixdog_core::run_host::usage_stats_feed::Clock;
 use mixdog_core::run_host::usage_stats_feed::DASHBOARD_KEY;
 use mixdog_core::run_host::usage_stats_feed::SectionSource;
@@ -106,31 +106,7 @@ pub enum Ask {
 /// The dashboard windows of a CLI's quota report, read as the provider that meters the same quota reads the
 /// gateway's own summary: the report names each bucket's fields in its own spelling.
 fn windows_of(report: &Value) -> Vec<Value> {
-    let groups = report.get("groups").and_then(Value::as_array).into_iter().flatten();
-    let groups: Vec<Value> = groups
-        .map(|group| {
-            let buckets = group.get("buckets").and_then(Value::as_array).into_iter().flatten();
-            let buckets: Vec<Value> = buckets
-                .map(|bucket| {
-                    let mut read = serde_json::Map::new();
-                    for (ours, theirs) in [
-                        ("bucketId", "id"),
-                        ("window", "window"),
-                        ("remainingFraction", "remaining_fraction"),
-                        ("resetTime", "reset_time"),
-                        ("displayName", "name"),
-                    ] {
-                        if let Some(value) = bucket.get(theirs) {
-                            read.insert(ours.to_owned(), value.clone());
-                        }
-                    }
-                    Value::Object(read)
-                })
-                .collect();
-            json!({ "buckets": buckets })
-        })
-        .collect();
-    normalise_windows(Some(&Value::Array(quota_windows(&json!({ "groups": groups })))), SOURCE)
+    normalise_windows(Some(&Value::Array(report_windows(report))), SOURCE)
 }
 
 /// Both readings are one account's: a window both name has begun (something of it is used) and ends at the same

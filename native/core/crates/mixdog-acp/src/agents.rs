@@ -8,9 +8,16 @@ use std::sync::OnceLock;
 
 use std::sync::atomic::AtomicU64;
 
+use mixdog_ai::accounts::Account;
+use mixdog_ai::accounts::Usage;
+use mixdog_ai::accounts::Window;
+use mixdog_ai::accounts::policy;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_session::session::failure_record::auth_turn_error;
+use mixdog_core_session::session::failure_record::quota_turn_error;
 use mixdog_protocol::ThreadId;
+use mixdog_protocol::TurnError;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -116,6 +123,87 @@ impl Refusal {
     }
 }
 
+impl Refusal {
+    /// Whether the agent is refused to the user for want of a sign-in.
+    pub fn signed_out(&self) -> bool {
+        matches!(self, Self::NotReady(Readiness::SignedOut { .. })) || matches!(self, Self::Fault(Fault::Rpc(error)) if error.code == AUTH_REQUIRED)
+    }
+}
+
+/// The windows of a CLI's quota report (its `command.data`), each with the models it gates: the report names a
+/// bucket's fields in its own spelling, which the gateway's own summary spells differently.
+pub fn report_windows(report: &Value) -> Vec<Value> {
+    let groups = report.get("groups").and_then(Value::as_array).into_iter().flatten();
+    let groups: Vec<Value> = groups
+        .map(|group| {
+            let buckets = group.get("buckets").and_then(Value::as_array).into_iter().flatten();
+            let buckets: Vec<Value> = buckets
+                .map(|bucket| {
+                    let mut read = serde_json::Map::new();
+                    for (ours, theirs) in [
+                        ("bucketId", "id"),
+                        ("window", "window"),
+                        ("remainingFraction", "remaining_fraction"),
+                        ("resetTime", "reset_time"),
+                        ("displayName", "name"),
+                    ] {
+                        if let Some(value) = bucket.get(theirs) {
+                            read.insert(ours.to_owned(), value.clone());
+                        }
+                    }
+                    Value::Object(read)
+                })
+                .collect();
+            json!({ "buckets": buckets })
+        })
+        .collect();
+    mixdog_ai::service::usage_antigravity::quota_windows(&json!({ "groups": groups }))
+}
+
+/// Where a quota report that shows `model`'s window exhausted at `now_ms` says it resets: `Some(None)` when it names no
+/// time, `None` when the window has room (or the report says nothing of it).
+fn exhausted_until(report: &Value, model: &str, now_ms: i64) -> Option<Option<u64>> {
+    let windows = report_windows(report).into_iter().filter_map(|window| serde_json::from_value::<Window>(window).ok()).collect();
+    let account = Account { usage: Some(Usage { windows, checked_at: now_ms }), ..Account::new("default") };
+    policy::account_exhausted(&account, now_ms, model, false)
+        .then(|| policy::accounts_reset_at(std::slice::from_ref(&account), now_ms, model, false).and_then(|at| u64::try_from(at).ok()))
+}
+
+/// What a failure the agent itself reported for the prompt is checked against: the account's quota, read now.
+pub struct QuotaCheck<'a> {
+    /// The model the route names; [`DEFAULT_MODEL`] runs the one the agent is on.
+    pub model: &'a str,
+    /// The model the agent is on, when it is running.
+    pub current: Option<&'a str>,
+    pub now_ms: i64,
+    /// The turn's stop: it ends the read.
+    pub stop: &'a CancellationToken,
+}
+
+impl Agents {
+    /// The failure of a turn on `preset`'s agent as the run reports it. An agent that is signed out (`code` is
+    /// [`AUTH_REQUIRED`]) fails as a provider's authentication does. With a `check`, a failure the agent reported fails as
+    /// a spent quota does when the account's quota, read within the provider's own request time, shows the window of
+    /// `check.model` exhausted, with that window's reset time. A read that is stopped, times out or fails leaves the
+    /// failure as it is, as does every failure with no `check`: none of them starts a CLI.
+    pub async fn failure(self: &Arc<Self>, preset: &AgentPreset, message: String, code: Option<i64>, data: Value, check: Option<QuotaCheck<'_>>) -> TurnError {
+        if code == Some(AUTH_REQUIRED) {
+            return auth_turn_error(message, &preset.provider, data);
+        }
+        // The window is the one of the model the agent runs; the stop is the route's, which the session names.
+        let stopped = async {
+            let check = check?;
+            let on = if check.model == DEFAULT_MODEL { check.current? } else { check.model };
+            let report = self.usage_until(preset, check.stop).await?.ok()?;
+            exhausted_until(&report, on, check.now_ms).map(|reset_at| (check.model, reset_at))
+        }
+        .await;
+        match stopped {
+            Some((model, reset_at)) => quota_turn_error(message, &preset.provider, model, reset_at, data),
+            None => TurnError { message, data, provider_error: None },
+        }
+    }
+}
 /// Where an agent's refusal of the signed-in account is kept, so it stands across a restart of the app.
 #[async_trait::async_trait]
 pub trait Refusals: Send + Sync {
@@ -577,3 +665,27 @@ impl mixdog_core_session::session::purge::SessionAgentProcesses for Agents {
 /// and its model's service options. A compaction applies: it replaces the stored conversation with its summary, and
 /// the agent's next turn starts a session of its own on that summary.
 pub const NOT_APPLICABLE: [&str; 5] = ["effort", "autoEffort", "fast", "contextWindow", "fallbacks"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(gemini_left: f64, third_party_left: f64) -> Value {
+        json!({ "groups": [
+            { "name": "Gemini Models", "buckets": [
+                { "id": "gemini-5h", "name": "Five Hour Limit Remaining", "window": "5h", "remaining_fraction": gemini_left, "reset_time": "2030-01-01T05:00:00Z" },
+            ] },
+            { "name": "Claude and GPT models", "buckets": [
+                { "id": "3p-5h", "name": "Five Hour Limit Remaining", "window": "5h", "remaining_fraction": third_party_left, "reset_time": "2030-01-01T06:00:00Z" },
+            ] },
+        ] })
+    }
+
+    #[test]
+    fn a_failure_is_a_quota_stop_only_when_the_routes_window_is_exhausted() {
+        let now = 1_700_000_000_000;
+        assert_eq!(exhausted_until(&report(0.0, 1.0), "gemini-3-pro", now), Some(Some(1_893_474_000_000)));
+        assert_eq!(exhausted_until(&report(0.0, 1.0), "claude-sonnet-4", now), None, "another window's exhaustion is not the route's");
+        assert_eq!(exhausted_until(&report(0.5, 0.0), "gemini-3-pro", now), None, "a window with room stays what it is");
+    }
+}

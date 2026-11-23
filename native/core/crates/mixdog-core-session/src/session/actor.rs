@@ -4798,6 +4798,11 @@ impl SessionActor {
                 }
             }
             super::run::CallMark::ToolPhaseCompleted => {
+                // The model takes the turn back: what it streams next is timed afresh, as a call after a usage report is. A
+                // run whose model reports its usage once, at the turn's end (an agent outside the loop), has no report in between.
+                if self.run.as_mut().is_some_and(|run| run.live_call.next()) {
+                    self.patch_spinner([("liveCall", Value::Null)]);
+                }
                 let mode = self.spinner().and_then(|spinner| spinner.get("mode")).and_then(Value::as_str);
                 if mode.is_some_and(|mode| mode != "requesting") {
                     self.patch_spinner([("mode", json!("requesting"))]);

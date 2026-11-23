@@ -66,6 +66,9 @@ pub enum TurnEnd {
     Failed {
         message: String,
         code: Option<i64>,
+        /// The agent itself reported the failure for the prompt (its error answer or its notice), as against one of
+        /// the turn's own (the process ended, a step before the prompt failed).
+        reported: bool,
     },
     /// The agent answered that the signed-in account may not use it; `message` is what it said.
     Refused {
@@ -105,6 +108,84 @@ impl TurnContext {
     }
 }
 
+/// The time the agent's model worked in a turn, told apart by the steps the spinner shows: the turn's time less the
+/// time it showed a call running or waiting on the user.
+#[derive(Debug, Default)]
+struct ModelTime {
+    /// When the turn's step became a call's, while it is one.
+    calls_since: Option<i64>,
+    calls_ms: i64,
+}
+
+impl ModelTime {
+    fn mark(&mut self, mark: CallMark, now: i64) {
+        let calls = matches!(mark, CallMark::ToolCall | CallMark::ToolApproval);
+        match (calls, self.calls_since) {
+            (true, None) => self.calls_since = Some(now),
+            (false, Some(since)) => {
+                self.calls_ms += (now - since).max(0);
+                self.calls_since = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn worked_ms(&self, started_at_ms: i64, now: i64) -> u64 {
+        let calls = self.calls_ms + self.calls_since.map_or(0, |since| (now - since).max(0));
+        (now - started_at_ms - calls).max(0) as u64
+    }
+}
+
+/// `TURN_CHECKPOINT_THROTTLE_MS`: streamed text is recorded at most this often, as the loop's run records its own.
+const DRAFT_THROTTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// The turn's progress record as it streams: what no record and no row holds yet, and when the last record was written.
+#[derive(Debug, Default)]
+struct Draft {
+    text: String,
+    reasoning: String,
+    written_at: Option<tokio::time::Instant>,
+}
+
+impl Draft {
+    /// When what is held is to be written: at once for the turn's first record, else a throttle after the last one;
+    /// `None` while nothing is held.
+    fn due(&self) -> Option<tokio::time::Instant> {
+        if self.text.is_empty() && self.reasoning.is_empty() {
+            return None;
+        }
+        Some(self.written_at.map_or_else(tokio::time::Instant::now, |at| at + DRAFT_THROTTLE))
+    }
+
+    /// The record of what is held, taken.
+    fn take(&mut self) -> Option<Value> {
+        let mut body = serde_json::Map::new();
+        for (key, held) in [("text", &mut self.text), ("reasoning", &mut self.reasoning)] {
+            if !held.is_empty() {
+                body.insert(key.to_owned(), Value::String(std::mem::take(held)));
+            }
+        }
+        (!body.is_empty()).then(|| {
+            self.written_at = Some(tokio::time::Instant::now());
+            Value::Object(body)
+        })
+    }
+
+    /// An assistant row holds what the turn streamed: the record has nothing of it to keep.
+    fn message_committed(&mut self) {
+        self.text.clear();
+        self.reasoning.clear();
+    }
+}
+
+/// Resolves at `due`, and never without one.
+async fn until(due: Option<tokio::time::Instant>) {
+    match due {
+        Some(at) => mixdog_rt::time::sleep(at.saturating_duration_since(tokio::time::Instant::now())).await,
+        None => std::future::pending().await,
+    }
+}
+
 struct Call {
     /// The call's id in the turn's rows.
     id: String,
@@ -133,6 +214,7 @@ struct Reply<'a> {
     last_text: String,
     /// The step the spinner was last told of.
     marked: Option<CallMark>,
+    model_time: ModelTime,
     plans: u64,
     /// Calls of Mixdog tools the agent made through the session's server.
     handed: u64,
@@ -150,6 +232,7 @@ struct Reply<'a> {
     /// The last text chunk, held back while it has the form of the agent's notice of a failure of its own: the prompt's
     /// end tells whether it is one, and anything the agent sends after it shows it as the reply's.
     held: Option<String>,
+    draft: Draft,
 }
 
 /// The option the agent is answered with for how the user's approval ended, by the options' kinds. The agent's
@@ -203,6 +286,7 @@ impl Reply<'_> {
     async fn mark(&mut self, mark: CallMark) {
         if self.marked != Some(mark) {
             self.marked = Some(mark);
+            self.model_time.mark(mark, (self.context.now_ms)());
             let _ = self.surface.call_mark(mark).await;
         }
     }
@@ -264,12 +348,32 @@ impl Reply<'_> {
         }
     }
 
+    /// Commits an assistant row of `text` and the `calls` it makes. The row holds what the progress record held of the
+    /// reply, and text it holds is the turn's last word so far.
+    async fn commit_assistant(&mut self, surface: &dyn TurnSurface, item: ItemId, text: &str, calls: Vec<(String, String, Value)>) -> Result<(), RunError> {
+        self.draft.message_committed();
+        if !text.trim().is_empty() {
+            self.last_text = text.to_owned();
+        }
+        surface.commit(rows::assistant(item, text, calls)).await
+    }
+
     /// Commits the text shown so far as an assistant row of its own.
     async fn end_text(&mut self, surface: &dyn TurnSurface) -> Result<(), RunError> {
         self.blank.clear();
         let Some((item, text)) = self.text.take() else { return Ok(()) };
-        self.last_text.clone_from(&text);
-        surface.commit(rows::assistant(item, &text, Vec::new())).await
+        self.commit_assistant(surface, item, &text, Vec::new()).await
+    }
+
+    /// Writes the turn's progress record of what it streamed since the last one, when that is due or `now`.
+    async fn write_draft(&mut self, now: bool) -> Result<(), RunError> {
+        if !now && self.draft.due().is_none_or(|due| due > tokio::time::Instant::now()) {
+            return Ok(());
+        }
+        match self.draft.take() {
+            Some(body) => self.surface.draft(body).await,
+            None => Ok(()),
+        }
     }
 
     /// Shows the chunk held back as a possible notice: the agent went on after it, so it is the reply's.
@@ -310,8 +414,10 @@ impl Reply<'_> {
                 text
             }
         };
+        self.draft.text.push_str(&shown);
         let (item, _) = self.text.as_ref().expect("the text item is open");
-        self.surface.delta(item.clone(), shown).await
+        self.surface.delta(item.clone(), shown).await?;
+        self.write_draft(false).await
     }
 
     async fn thought(&mut self, chunk: &str) -> Result<(), RunError> {
@@ -326,7 +432,10 @@ impl Reply<'_> {
         }
         let (item, text) = self.reasoning.as_mut().expect("the reasoning item was just opened");
         text.push_str(chunk);
-        self.surface.reasoning_delta(item.clone(), chunk.to_owned()).await
+        let item = item.clone();
+        self.draft.reasoning.push_str(chunk);
+        self.surface.reasoning_delta(item, chunk.to_owned()).await?;
+        self.write_draft(false).await
     }
 
     /// The result of a call an earlier turn made, which that turn closed as still running: an item of its own that
@@ -338,7 +447,8 @@ impl Reply<'_> {
         let id = self.session.call_id(agent_id, self.context.turn.as_str(), self.epoch);
         let tool = &earlier.tool;
         self.late += 1;
-        self.surface.commit(rows::assistant(new_item_id(), "", vec![(id.clone(), tool.name(self.agent()), tool.late_arguments(&earlier.id))])).await?;
+        let call = (id.clone(), tool.name(self.agent()), tool.late_arguments(&earlier.id));
+        self.commit_assistant(surface.as_ref(), new_item_id(), "", vec![call]).await?;
         self.commit_result(rows::tool_result(new_item_id(), &id, tool.result_text(), tool.status == "failed", tool.diff(&self.differ))).await
     }
 
@@ -384,7 +494,8 @@ impl Reply<'_> {
             self.context.mark(|progress, now| progress.tool_call(Some(&name), now));
             // The call is the turn's once its row is stored, and from then on the turn's end gives it a result: a row
             // the session did not take leaves no call to close, so no result is written for a call that is not there.
-            self.surface.commit(rows::assistant(item, &text, vec![(id.clone(), name, tool.arguments())])).await?;
+            let surface = self.surface.clone();
+            self.commit_assistant(surface.as_ref(), item, &text, vec![(id.clone(), name, tool.arguments())]).await?;
             self.mark(CallMark::ToolCall).await;
             self.order.push(agent_id.clone());
             self.calls.insert(agent_id.clone(), Call { id, tool, closed: false });
@@ -456,7 +567,8 @@ impl Reply<'_> {
         self.handed += 1;
         let id = self.session.call_id(&format!("mixdog-{}", self.handed), self.context.turn.as_str(), self.epoch);
         self.context.mark(|progress, now| progress.tool_call(Some(name), now));
-        self.surface.commit(rows::assistant(item, &text, vec![(id.clone(), name.to_owned(), arguments.clone())])).await?;
+        let surface = self.surface.clone();
+        self.commit_assistant(surface.as_ref(), item, &text, vec![(id.clone(), name.to_owned(), arguments.clone())]).await?;
         Ok(id)
     }
 
@@ -537,7 +649,7 @@ impl Reply<'_> {
         let id = self.session.call_id(&format!("plan-{}", self.plans), self.context.turn.as_str(), self.epoch);
         let (arguments, text) = rows::plan(update);
         let name = crate::mcp::STEP_LIST_TOOL;
-        self.surface.commit(rows::assistant(new_item_id(), "", vec![(id.clone(), name.to_owned(), arguments.clone())])).await?;
+        self.commit_assistant(surface.as_ref(), new_item_id(), "", vec![(id.clone(), name.to_owned(), arguments.clone())]).await?;
         // The session has one step list, the one its `todo` tool keeps: where the agent is handed that tool, its own
         // plan is written into the same list by the same call, so whichever of the two the agent used last is what
         // the list shows. A session that hands no tools shows the plan as the call's card only.
@@ -710,8 +822,15 @@ enum Ended {
 }
 
 /// What the turn reports of its tokens: the prompt answer's usage, and the agent's own report of its context
-/// (`reported`). `None` for a turn that has neither.
-fn usage_of(answer: &Value, reported: Option<ContextUse>, context: &TurnContext, started_at_ms: i64, tool_calls: u64) -> Option<TurnUsage> {
+/// (`reported`). `None` for a turn that has neither. `(started_at_ms, request_ms)`: when the turn started, and how long
+/// the agent's model worked in it.
+fn usage_of(
+    answer: &Value,
+    reported: Option<ContextUse>,
+    context: &TurnContext,
+    (started_at_ms, request_ms): (i64, u64),
+    tool_calls: u64,
+) -> Option<TurnUsage> {
     let usage = answer.get("usage").filter(|usage| usage.is_object());
     if usage.is_none() && reported.is_none() {
         return None;
@@ -727,7 +846,7 @@ fn usage_of(answer: &Value, reported: Option<ContextUse>, context: &TurnContext,
         model: context.model.clone(),
         tool_calls,
         started_at_ms,
-        elapsed_ms: ((context.now_ms)() - started_at_ms).max(0) as u64,
+        request_ms,
     })
 }
 
@@ -747,7 +866,7 @@ fn failure(quirks: &crate::preset::Quirks, message: String, code: Option<i64>) -
     } else {
         code
     };
-    TurnEnd::Failed { message, code }
+    TurnEnd::Failed { message, code, reported: true }
 }
 
 /// Runs one turn on `session` and reports it to `surface`.
@@ -771,6 +890,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         late: 0,
         last_text: String::new(),
         marked: None,
+        model_time: ModelTime::default(),
         plans: 0,
         handed: 0,
         reports: HashSet::new(),
@@ -780,7 +900,9 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         reported: false,
         window: None,
         held: None,
+        draft: Draft::default(),
     };
+    let replying = matches!(ask, Ask::Reply);
     let prompt = match ask {
         Ask::Prompt(blocks) => {
             let sent = tokio::select! {
@@ -800,10 +922,12 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                     }
                     Some(id)
                 }
-                Some(Err(fault)) => {
-                    session.detach(stream, Vec::new()).await;
-                    context.mark(|progress, now| progress.settle("error", now, false));
-                    return TurnEnd::Failed { message: fault.to_string(), code: None };
+                // The process ended, or stopped reading, while the prompt was written: it may have read the prompt and
+                // written to it before it ended. The process is ended, and the turn reads what it wrote up to its end
+                // and fails as one whose agent exited.
+                Some(Err(_)) => {
+                    session.connection.kill();
+                    None
                 }
                 // The agent stopped reading while the prompt was written: how much of it it holds is unknown.
                 None => {
@@ -818,7 +942,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
     };
     // What the agent sent on its own before a prompt's turn began is shown first, as rows of its own: it is no part of
     // the answer to the prompt.
-    let mut backlog = prompt.is_some() && !queued.is_empty();
+    let mut backlog = !replying && !queued.is_empty();
     let ended = loop {
         if backlog && queued.is_empty() {
             backlog = false;
@@ -830,18 +954,28 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             Some(incoming) => incoming,
             None if context.cancel.is_cancelled() => break Ended::Stopped,
             // A reply the agent began on its own is shown as far as it has arrived.
-            None if prompt.is_none() => match stream.try_recv() {
+            None if replying => match stream.try_recv() {
                 Ok(incoming) => incoming,
                 Err(_) => break Ended::Agent(None),
             },
-            None => tokio::select! {
-                biased;
-                () = context.cancel.cancelled() => break Ended::Stopped,
-                next = stream.recv() => match next {
-                    Some(incoming) => incoming,
-                    None => break Ended::Gone,
-                },
-            },
+            // What streamed since the last progress record is written once it is due, whether or not more arrives.
+            None => {
+                let due = reply.draft.due();
+                tokio::select! {
+                    biased;
+                    () = context.cancel.cancelled() => break Ended::Stopped,
+                    next = stream.recv() => match next {
+                        Some(incoming) => incoming,
+                        None => break Ended::Gone,
+                    },
+                    () = until(due) => {
+                        if reply.write_draft(true).await.is_err() {
+                            break Ended::Surface;
+                        }
+                        continue;
+                    }
+                }
+            }
         };
         let step = match incoming {
             Incoming::Notification { method, params } if method == "session/update" => reply.update(params.get("update").unwrap_or(&Value::Null)).await,
@@ -873,7 +1007,8 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let _ = reply.show_held().await;
             reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
             session.detach(stream, Vec::new()).await;
-            if let Some(usage) = usage_of(&Value::Null, reported, &context, started_at_ms, tool_calls) {
+            let timing = (started_at_ms, reply.model_time.worked_ms(started_at_ms, (context.now_ms)()));
+            if let Some(usage) = usage_of(&Value::Null, reported, &context, timing, tool_calls) {
                 let _ = surface.usage(usage).await;
             }
             failure(&session.preset.quirks, error.message, Some(error.code))
@@ -895,7 +1030,8 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let background = reply.close(surface.as_ref(), ("Still running in the agent's background.", false)).await;
             session.detach(stream, background).await;
             let answer = answer.unwrap_or(Value::Null);
-            if let Some(usage) = usage_of(&answer, session.context_use(), &context, started_at_ms, tool_calls) {
+            let timing = (started_at_ms, reply.model_time.worked_ms(started_at_ms, (context.now_ms)()));
+            if let Some(usage) = usage_of(&answer, session.context_use(), &context, timing, tool_calls) {
                 let _ = surface.usage(usage).await;
             }
             // A reply, or a notice, that is the agent's word that the account may not use it is no answer to the
@@ -919,7 +1055,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let _ = reply.show_held().await;
             reply.close(surface.as_ref(), ("The agent's process ended before this call did.", true)).await;
             session.detach(stream, Vec::new()).await;
-            TurnEnd::Failed { message: session.connection.closed().to_string(), code: None }
+            TurnEnd::Failed { message: session.connection.closed().to_string(), code: None, reported: false }
         }
         // The user stopped the turn, the agent says it was stopped, or the session is gone from under the turn: the
         // agent is told to stop unless it already closed the prompt, and what the turn showed is closed on a surface
@@ -931,7 +1067,8 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let closing = surface.closing();
             reply.close(closing.as_ref(), ("Cancelled", true)).await;
             session.detach(stream, Vec::new()).await;
-            if let Some(usage) = usage_of(&Value::Null, reported, &context, started_at_ms, tool_calls) {
+            let timing = (started_at_ms, reply.model_time.worked_ms(started_at_ms, (context.now_ms)()));
+            if let Some(usage) = usage_of(&Value::Null, reported, &context, timing, tool_calls) {
                 let _ = closing.usage(usage).await;
             }
             TurnEnd::Interrupted
@@ -940,4 +1077,30 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
     let stage = if matches!(end, TurnEnd::Failed { .. } | TurnEnd::Refused { .. }) { "error" } else { "done" };
     context.mark(|progress, now| progress.settle(stage, now, false));
     end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The request time an agent's turn reports, which the output speed is read over, is the time its model worked: the
+    /// turn's time less the time a call ran or waited on the user's approval, as a provider's request time leaves out
+    /// the calls between its requests. A call still running when the turn ends is left out up to the end.
+    #[test]
+    fn a_turns_request_time_leaves_out_its_calls_and_their_approval_waits() {
+        let mut time = ModelTime::default();
+        for (mark, at) in [
+            (CallMark::Streaming, 10),
+            (CallMark::ToolCall, 100),
+            (CallMark::ToolApproval, 150),
+            (CallMark::ToolCall, 300),
+            (CallMark::ToolPhaseCompleted, 400),
+            (CallMark::Streaming, 450),
+        ] {
+            time.mark(mark, at);
+        }
+        assert_eq!(time.worked_ms(0, 600), 300, "600 ms of turn, 300 of them in a call and its approval");
+        time.mark(CallMark::ToolCall, 650);
+        assert_eq!(time.worked_ms(0, 700), 350, "a call still running at the end is no model time");
+    }
 }

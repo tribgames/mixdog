@@ -305,6 +305,22 @@ pub fn provider_turn_error(error: &ProviderError, provider: &str, data: Value) -
     }
 }
 
+/// The `TurnError` of a turn on `provider` that failed because its sign-in does not hold: the kind of a provider's own
+/// authentication failure, so the transcript shows the same notice.
+pub fn auth_turn_error(message: String, provider: &str, data: Value) -> TurnError {
+    let detail = ProviderErrorDetail { provider: provider.to_owned(), status: None, kind: "auth".to_owned(), delivery: None };
+    TurnError { message, data, provider_error: Some(detail) }
+}
+
+/// The `TurnError` of a turn on `provider` that failed while the account's quota shows the window of `model` exhausted:
+/// the pool's quota proof, so the record is the quota stop with `reset_at`, epoch milliseconds.
+pub fn quota_turn_error(message: String, provider: &str, model: &str, reset_at: Option<u64>, data: Value) -> TurnError {
+    let proof = QuotaProof { provider: Some(provider.to_owned()), model: Some(model.to_owned()), reset_at };
+    let facts = ProviderFacts { quota_exhausted: Some(proof), ..ProviderFacts::default() };
+    let detail = ProviderErrorDetail { provider: provider.to_owned(), status: None, kind: "quota_exhausted".to_owned(), delivery: None };
+    TurnError { message, data: facts.into_data(data), provider_error: Some(detail) }
+}
+
 /// `toolErrorDisplay`'s no-prefix cases (`tool-result-text.mjs:121-128`).
 static SPECIAL: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(
@@ -572,6 +588,30 @@ mod tests {
         let data = ProviderFacts { code: Some("x".into()), ..ProviderFacts::default() }.into_data(Value::Null);
         let typed = TurnError { message: "You hit your usage limit.".into(), data, provider_error: None };
         assert_eq!(failure_record(&typed, &route).unwrap()["providerKind"], json!("unknown"));
+    }
+
+    #[test]
+    fn an_agent_failure_is_typed_as_a_providers_sign_in_and_quota_failures_are() {
+        let route = Route { provider: "acp-antigravity", model: "gemini-3-pro" };
+        let signed_out = auth_turn_error("Antigravity ACP is signed out.".into(), "acp-antigravity", json!({ "reason": "acpAgent" }));
+        assert_eq!(failure_record(&signed_out, &route).unwrap()["errorKind"]["kind"], json!("auth"));
+        let provider_auth = provider_turn_error(
+            &ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Auth, DeliveryState::NotSent),
+            "anthropic-oauth",
+            Value::Null,
+        );
+        assert_eq!(failure_record(&signed_out, &route).unwrap()["errorKind"]["kind"], failure_record(&provider_auth, &route).unwrap()["errorKind"]["kind"]);
+
+        let limited = quota_turn_error("usage limit".into(), "acp-antigravity", "gemini-3-pro", Some(1_900_000_000_000), json!({ "reason": "acpAgent" }));
+        let record = failure_record(&limited, &route).unwrap();
+        assert_eq!(record["errorKind"]["kind"], json!("quota_exhausted"));
+        assert_eq!(record["errorKind"]["resetAt"], json!(1_900_000_000_000_u64));
+        assert_eq!(record["quota"], json!({ "provider": "acp-antigravity", "model": "gemini-3-pro", "resetAt": 1_900_000_000_000_u64 }));
+        assert_eq!(limited.data["reason"], "acpAgent", "the failure's own fields stay");
+        let unscheduled = failure_record(&quota_turn_error("usage limit".into(), "acp-antigravity", "gemini-3-pro", None, Value::Null), &route).unwrap();
+        assert_eq!(unscheduled["errorKind"]["kind"], json!("quota_exhausted"));
+        assert_eq!(unscheduled["errorKind"]["resetAt"], Value::Null);
+        assert_eq!(unscheduled["quota"], json!({ "provider": "acp-antigravity", "model": "gemini-3-pro", "resetAt": null }));
     }
 
     #[test]

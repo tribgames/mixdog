@@ -23,25 +23,28 @@ impl BeforeLoop {
             SetupEnd::Stalled => failed(reason.unwrap_or_default(), Value::Null),
             SetupEnd::Stopped => {
                 // The run's token has fired: what closes the stopped turn is saved on a port whose waits outlive it.
-                let port = self.port.closing();
-                if let Ok(input) = message_of(&self.input_body) {
-                    let (rewound, following) = stopped_prompt(&input, self.signal.close_reason());
-                    if rewound {
-                        // A row the thread shows under another id is taken by the actor when the turn closes (`apply_reclaim`).
-                        if let Err(error) = port.prompt_rewound(self.input_item.clone()).await {
-                            tracing::warn!("[session] rewound prompt save failed: {error:?}");
-                        }
-                    }
-                    for message in &following {
-                        let item =
-                            ItemCommit { iid: new_item_id(), role: Some("user".to_owned()), model: true, visible: false, body: row_of(message), prompt: None };
-                        if let Err(error) = port.commit_item(item).await {
-                            tracing::warn!("[session] interrupted turn row save failed: {error:?}");
-                        }
-                    }
-                }
+                close_stopped_prompt(&self.port.closing(), &self.input_item, &self.input_body, self.signal.close_reason()).await;
                 RunOutcome::Interrupted
             }
+        }
+    }
+}
+
+/// Closes a turn stopped before anything of it reached the conversation, for the stop's reason, on `port`: a user's stop
+/// hands the prompt back (the rewind record at its row), and a stop that keeps it writes the interruption line after it.
+pub(super) async fn close_stopped_prompt(port: &RunPort, input_item: &ItemId, input_body: &Value, reason: mixdog_agent::interrupt::AbortReason) {
+    let Ok(input) = message_of(input_body) else { return };
+    let (rewound, following) = stopped_prompt(&input, reason);
+    if rewound {
+        // A row the thread shows under another id is taken by the actor when the turn closes (`apply_reclaim`).
+        if let Err(error) = port.prompt_rewound(input_item.clone()).await {
+            tracing::warn!("[session] rewound prompt save failed: {error:?}");
+        }
+    }
+    for message in &following {
+        let item = ItemCommit { iid: new_item_id(), role: Some("user".to_owned()), model: true, visible: false, body: row_of(message), prompt: None };
+        if let Err(error) = port.commit_item(item).await {
+            tracing::warn!("[session] interrupted turn row save failed: {error:?}");
         }
     }
 }
@@ -351,6 +354,7 @@ async fn drive(
                 tool_progress,
                 hints,
                 cancel,
+                signal,
                 review,
                 input_body,
                 input_item,
