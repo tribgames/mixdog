@@ -1419,6 +1419,8 @@ async fn boot_projects_the_frames_a_crash_left_unprojected() {
     let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
     assert_eq!(iids(&rows), ["c", "b", "a"]);
     assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
+    // Its writer ends first: the step it takes after the repair holds the write lock the next open's repair takes.
+    reopened.close();
     // A session whose index holds its whole log is left as it is.
     let again = open_index(&env.data).unwrap();
     let (rows, _) = again.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
@@ -3561,17 +3563,18 @@ async fn a_retirement_leaves_the_mark_another_process_set_after_the_close() {
     env.mark("s1").await;
     let w = env.commit(w, vec![item("a")]).await.0;
     let (projection, retirement) = env.close(w).await;
-    // The other process: its own handle on the index, its own activation, its own writer over the log.
+    // The other process: its own handle on the index, its own activation. Its writer ends before this one's final row: the
+    // step it takes after its repair holds the index's write lock, which this one's busy timeout of zero does not wait for.
     let other = open_index(&env.data).unwrap();
     other.reconciled().await.unwrap();
     other.mark_dirty("s1", LOG_ID, new_activation()).await.unwrap();
+    other.close();
     let refused = env.store.queue_retirement(projection, retirement).await.unwrap().await;
     assert!(matches!(&refused, Err(DbError::Write(why)) if why.contains("not this writer's activation")), "{refused:?}");
-    assert_eq!(other.owed_repairs().await.unwrap(), ["s1"], "the first process cleared the second one's mark");
+    assert_eq!(env.store.owed_repairs().await.unwrap(), ["s1"], "the first process cleared the second one's mark");
     let (opened, deps) = (env.reopen("s1").await, env.deps());
     let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
     env.append(w, vec![item("b")]).await.1.map(drop).unwrap();
-    other.close();
     let reopened = env.restart().await;
     let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
     assert_eq!(iids(&rows), ["b", "a"]);
