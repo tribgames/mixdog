@@ -2,11 +2,52 @@ use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+#[derive(Debug, Default)]
+struct GateState {
+    reached: bool,
+    open: bool,
+}
+
+/// A point of a reply the stand-in holds at until the test opens it; the test can wait for the stand-in to get there.
+#[derive(Clone, Debug, Default)]
+pub struct Gate(Arc<(Mutex<GateState>, Condvar)>);
+
+impl Gate {
+    /// Lets the reply go on.
+    pub fn open(&self) {
+        let (lock, wake) = &*self.0;
+        lock.lock().unwrap_or_else(PoisonError::into_inner).open = true;
+        wake.notify_all();
+    }
+
+    /// Waits until the stand-in has written everything before the gate; `false` at the limit.
+    pub fn wait_reached(&self, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        let (lock, wake) = &*self.0;
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        while !state.reached {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
+            state = wake.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        true
+    }
+
+    fn pass(&self) {
+        let (lock, wake) = &*self.0;
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        state.reached = true;
+        wake.notify_all();
+        while !state.open {
+            state = wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
 
 /// One scripted answer of the model.
 #[derive(Clone, Debug, Default)]
@@ -17,6 +58,9 @@ pub struct Reply {
     pub calls: Vec<(String, String, Value)>,
     /// The pause after each delta.
     pub pause: Duration,
+    /// Gates the reply waits at: `(n, gate)` holds it after its first `n` text deltas (`n` equal to the number of deltas holds
+    /// it before the message ends).
+    pub holds: Vec<(usize, Gate)>,
 }
 
 impl Reply {
@@ -27,7 +71,7 @@ impl Reply {
     /// `text` split into deltas of `lines` lines each, with `pause` after each.
     pub fn streamed(text: &str, lines: usize, pause: Duration) -> Self {
         let rows: Vec<&str> = text.split_inclusive('\n').collect();
-        Self { chunks: rows.chunks(lines.max(1)).map(|group| group.concat()).collect(), calls: Vec::new(), pause }
+        Self { chunks: rows.chunks(lines.max(1)).map(|group| group.concat()).collect(), pause, ..Self::default() }
     }
 
     /// An answer that is only tool calls.
@@ -160,15 +204,18 @@ fn stream_reply(stream: &mut TcpStream, reply: &Reply, index: usize) -> std::io:
         "message_start",
         &json!({ "type": "message_start", "message": { "id": format!("msg_{index}"), "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [], "usage": { "input_tokens": 10, "output_tokens": 1 } } }),
     )?;
+    let hold = |sent: usize| reply.holds.iter().filter(|(at, _)| *at == sent).for_each(|(_, gate)| gate.pass());
     let mut block = 0;
     if !reply.chunks.is_empty() {
         send(stream, "content_block_start", &json!({ "type": "content_block_start", "index": block, "content_block": { "type": "text", "text": "" } }))?;
-        for chunk in &reply.chunks {
+        for (sent, chunk) in reply.chunks.iter().enumerate() {
+            hold(sent);
             send(stream, "content_block_delta", &json!({ "type": "content_block_delta", "index": block, "delta": { "type": "text_delta", "text": chunk } }))?;
             if !reply.pause.is_zero() {
                 thread::park_timeout(reply.pause);
             }
         }
+        hold(reply.chunks.len());
         send(stream, "content_block_stop", &json!({ "type": "content_block_stop", "index": block }))?;
         block += 1;
     }

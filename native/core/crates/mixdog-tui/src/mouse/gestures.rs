@@ -210,7 +210,7 @@ impl Mouse {
         let hi = Point { x: found.x2, y: found.y2 };
         let rect = linear_selection(lo, hi);
         host.stop_smooth_scroll();
-        self.clear_stitch_buffer();
+        self.begin_selection(host, region, y);
         self.drag = Drag::pressed(x, y, true, region, anchor_scroll, Some(AnchorSpan { lo, hi, kind }));
         self.apply_selection_rect(host, Some(rect), now_ms);
         self.last_click = Some(LastClick { x, y, t_ms: now_ms, count: click_count });
@@ -252,8 +252,8 @@ impl Mouse {
         // A new selection is anchored here. Nothing is painted yet: a plain single click must not flash a one-cell highlight,
         // the selection renders once a drag extends past the anchor. The status band never scrolls, so its anchor scroll is 0.
         host.stop_smooth_scroll();
-        // A fresh character-drag anchor drops the rows stitched from a prior selection.
-        self.clear_stitch_buffer();
+        // A fresh character-drag anchor drops the rows read for a prior selection and takes its own row as content.
+        self.begin_selection(host, region, y);
         self.drag = Drag::pressed(x, y, true, region, anchor_scroll, None);
     }
 

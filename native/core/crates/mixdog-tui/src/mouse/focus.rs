@@ -33,7 +33,8 @@ impl Mouse {
     /// `moveSelectionFocus`: moves the focus end of the released transcript or status selection. Returns whether the move was
     /// consumed (a drag in progress, no live non-empty rect, an unknown move or a clamped no-op is not).
     pub fn move_selection_focus<H: MouseHost + ?Sized>(&mut self, host: &mut H, step: FocusMove, now_ms: u64) -> bool {
-        if self.drag.active {
+        // A selection the frame draws none of has no focus end on screen to move.
+        if self.drag.active || self.follow.hidden {
             return false;
         }
         let region = self.drag.region;

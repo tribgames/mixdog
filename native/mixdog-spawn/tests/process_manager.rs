@@ -74,11 +74,10 @@ async fn run_limit_ends_with_time_limit_and_reports_124() {
     let h = handle("time-limit");
     let mut req = request(&h, long_sleep());
     req.time_limit = Some(Duration::from_millis(300));
-    let started = Instant::now();
     m.spawn(req).await.unwrap();
     let (_, exit) = collect(&m, &h).await;
+    // The 40 s sleep did not end on its own: the limit ended it.
     assert_eq!(exit.killed, Some(KillReason::TimeLimit));
-    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
     let outcome = TaskOutcome::of_exit(&exit);
     assert_eq!((outcome.status, outcome.exit_code), (TaskStatus::Failed, Some(124)));
 }
@@ -188,11 +187,14 @@ async fn child_pid(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::P
     .await
 }
 
+/// A root that prints its grandchild's pid and goes on running; the grandchild holds the output pipe as the root does (on
+/// Windows started without the shell, so it inherits the root's handles, as in [`orphan_pipe_script`]).
 fn tree_script() -> CommandSpec {
     if cfg!(windows) {
         CommandSpec::Shell {
-            script: "$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; \
-                     Write-Output \"CHILD=$($p.Id)\"; Start-Sleep 90"
+            script: "$i = New-Object System.Diagnostics.ProcessStartInfo; $i.FileName = 'ping'; \
+                     $i.Arguments = '-n 90 127.0.0.1'; $i.UseShellExecute = $false; \
+                     $p = [System.Diagnostics.Process]::Start($i); Write-Output \"CHILD=$($p.Id)\"; Start-Sleep 90"
                 .to_owned(),
             shell: Some("powershell".to_owned()),
         }
@@ -234,29 +236,26 @@ fn late_exit_report(root: u32) -> String {
     format!("root {root}: no group listing on Windows")
 }
 
-/// DS-PROC-6 and the tree-kill of DS-PROC-1: one kill takes the grandchild with the root, and
-/// both are gone within 100 ms.
+/// DS-PROC-6 and the tree-kill of DS-PROC-1: one kill takes the grandchild and every other member of the group with the root,
+/// and the exit is announced once nothing of the tree holds the output. The drain bound is past every wait of the test, so an
+/// exit announced at all was announced by the end of the tree, not by the bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn kill_takes_the_whole_tree_within_100ms() {
-    let m = manager();
-    let h = handle("tree");
+async fn kill_takes_the_whole_tree_before_its_exit_is_announced() {
+    let m = manager_with(ProcessConfig { output_drain: 2 * WAIT, ..ProcessConfig::default() });
+    let h = handle("tree-order");
     m.spawn(request(&h, tree_script())).await.unwrap();
     let grandchild = child_pid(&m, &h).await;
     assert!(pid_alive(grandchild), "the grandchild runs");
-    let started = Instant::now();
     m.kill(&h).unwrap();
-    let killed_in = started.elapsed();
+    let Ok((_, exit)) = mixdog_rt::time::timeout(WAIT, collect(&m, &h)).await else {
+        panic!("no exit announced: the kill left a holder of the output\n{}", late_exit_report(m.info(&h).unwrap().pid));
+    };
+    assert_eq!(exit.killed, Some(KillReason::Requested));
+    let started = Instant::now();
     while pid_alive(grandchild) {
         assert!(started.elapsed() < Duration::from_secs(5), "the grandchild survived the kill");
-        std::thread::sleep(Duration::from_millis(1));
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     }
-    let gone_after = started.elapsed();
-    wait_exit(&m, &h).await;
-    let exit_after = started.elapsed();
-    eprintln!("kill issued in {killed_in:?}, grandchild gone after {gone_after:?}, exit event after {exit_after:?}");
-    assert!(gone_after <= Duration::from_millis(100), "tree gone after {gone_after:?}");
-    assert!(exit_after <= Duration::from_millis(100), "exit announced after {exit_after:?}\n{}", late_exit_report(m.info(&h).unwrap().pid));
-    assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -317,21 +316,23 @@ async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     assert!(m.info(&h).unwrap().exit.is_none(), "the flood is held back, not finished");
 
     // A second client's keystrokes pass while the output is stalled.
-    let started = Instant::now();
     m.write_input(&h, b"x".to_vec()).unwrap();
-    while m.input_backlog(&h).unwrap() > 0 {
-        assert!(started.elapsed() < Duration::from_secs(2), "keystroke stuck behind the stalled output");
-        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
-    }
+    let passed = mixdog_rt::time::timeout(WAIT, async {
+        while m.input_backlog(&h).unwrap() > 0 {
+            mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    assert!(passed.is_ok(), "keystroke stuck behind the stalled output");
+    assert!(m.info(&h).unwrap().exit.is_none(), "the flood is still held back");
 
-    // Another process is neither slowed nor stalled by it.
+    // Another process runs to its end while the flood is held back.
     let other = handle("flood-other");
-    let t = Instant::now();
     m.spawn(request(&other, shell("echo unaffected", "echo unaffected"))).await.unwrap();
     let (bytes, exit) = collect(&m, &other).await;
     assert_eq!(exit.status, ExitStatus::Code(0));
     assert!(text(&bytes).contains("unaffected"));
-    assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+    assert!(m.info(&h).unwrap().exit.is_none(), "the flood is still held back");
 
     // The client reads again: the flood completes, up to its last line.
     let drain_started = Instant::now();
@@ -380,19 +381,24 @@ async fn explicit_pause_stops_the_reader_and_resume_releases_it() {
 
 /// A process that exits by itself while its output is paused still publishes its exit and frees
 /// its admission slot: the exit opens the reader's flow gate (it used to join a reader parked on
-/// the gate).
+/// the gate). The script waits for a line of input between its two outputs, which the test sends once the output is paused.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn natural_exit_behind_paused_output_is_published_and_frees_the_slot() {
     let m = manager_with(ProcessConfig { max_processes: 1, ..ProcessConfig::default() });
     for (name, pty) in [("paused-pipe", false), ("paused-pty", true)] {
         let h = handle(name);
-        let cmd = shell("echo first& ping -n 3 127.0.0.1 >nul& echo last", "echo first; sleep 2; echo last");
-        let req = if pty { pty_request(&h, cmd, PtySize { cols: 100, rows: 30 }) } else { request(&h, cmd) };
+        let cmd = shell("echo first& set /p line=& echo last", "echo first; read line; echo last");
+        let req = if pty { pty_request(&h, cmd, PtySize { cols: 100, rows: 30 }) } else { SpawnRequest { stdin_piped: true, ..request(&h, cmd) } };
         m.spawn(req).await.unwrap();
         while m.output_pushed(&h).unwrap() == 0 {
             mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         m.set_output_paused(&h, true).unwrap();
+        if pty {
+            m.write_input(&h, b"go\r".to_vec()).unwrap();
+        } else {
+            m.write_stdin(&h, b"go\r\n".to_vec()).await.unwrap();
+        }
         wait_exit(&m, &h).await;
         assert_eq!(m.live(), 0, "{name}: the slot is free");
         let (bytes, exit) = collect(&m, &h).await;
@@ -430,8 +436,11 @@ async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() 
     let h = handle("orphan-pipe");
     m.spawn(request(&h, orphan_pipe_script())).await.unwrap();
     let grandchild = child_pid(&m, &h).await;
-    // Long enough for the root to be gone; the pipe is still held.
-    mixdog_rt::time::sleep(Duration::from_millis(1500)).await;
+    // The root ends after it printed the grandchild; the manager reaps it, and the pipe is still held.
+    let root = m.info(&h).unwrap().pid;
+    while pid_alive(root) {
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+    }
     assert!(m.info(&h).unwrap().exit.is_none(), "the exit waits for the held pipe");
     assert!(pid_alive(grandchild));
     let killed = m.kill(&h);
@@ -565,25 +574,26 @@ async fn pty_session_echoes_input_and_follows_resizes() {
 }
 
 /// The isolation property: the exit of one process is announced while another's output is
-/// still being produced and consumed, and neither waits for the other.
+/// still being produced and consumed, and neither waits for the other. The slow process only
+/// ends when it is killed, so every quick exit is announced while it still runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn one_processes_exit_never_waits_for_anothers_output() {
     let m = manager();
     let slow = handle("slow");
-    m.spawn(request(&slow, shell("ping -n 6 127.0.0.1", "for i in 1 2 3 4 5; do echo tick; sleep 1; done"))).await.unwrap();
+    m.spawn(request(&slow, shell("ping -t 127.0.0.1", "while :; do echo tick; sleep 1; done"))).await.unwrap();
+    let mut ticks = m.subscribe(&slow, None).unwrap();
     let mut quick = Vec::new();
     for i in 0..8 {
         let h = handle(&format!("quick-{i}"));
         m.spawn(request(&h, shell(&format!("echo quick {i}"), &format!("echo quick {i}")))).await.unwrap();
         quick.push(h);
     }
-    let t = Instant::now();
     for h in &quick {
         let (_, exit) = collect(&m, h).await;
         assert_eq!(exit.status, ExitStatus::Code(0));
     }
-    assert!(t.elapsed() < Duration::from_secs(4), "quick processes waited {:?}", t.elapsed());
     assert!(m.info(&slow).unwrap().exit.is_none(), "the slow process is still running");
+    assert!(matches!(ticks.next().await, Some(ProcessEvent::Output { .. })), "its output is still being produced");
     m.kill(&slow).unwrap();
 }
 

@@ -144,6 +144,8 @@ pub struct AppFrame {
     pub prompt_box: Option<BoxLayout>,
     /// What the floating panel took.
     pub panel: Option<PanelPaint>,
+    /// The screen row of the first line of the first mounted transcript item; none when the items were not drawn row by row.
+    pub transcript_top: Option<i32>,
 }
 
 fn cursor_at(col: i32, row: i32) -> Option<CursorPos> {
@@ -168,7 +170,7 @@ pub fn render_app(props: &AppViewProps<'_>, painter: &mut Painter) -> AppFrame {
     let prompt_cluster_rows = if layout.input_box_hidden { 0 } else { meta_rows + queued_lines.len() + layout.prompt_box_rows };
     let bottom_rows = layout.panel_transition_clear_rows + layout.floating_panel_rows + prompt_cluster_rows + usize::from(STATUSLINE_BAND_ROWS);
     let viewport_height = layout.viewport_height.min(props.rows.saturating_sub(welcome_rows + bottom_rows));
-    paint_viewport(painter, welcome_rows as i32, viewport_height, frame_columns, layout, props.overlay, props.transcript);
+    let transcript_top = paint_viewport(painter, welcome_rows as i32, viewport_height, frame_columns, layout, props.overlay, props.transcript);
 
     let mut y = (welcome_rows + viewport_height + layout.panel_transition_clear_rows) as i32;
     let mut panel = None;
@@ -199,7 +201,7 @@ pub fn render_app(props: &AppViewProps<'_>, painter: &mut Painter) -> AppFrame {
         paint_statusline_band(painter, 0, top, width, props.footer, &workflow_mode_label(props.workflow));
     }
     painter.pop_clip(root);
-    AppFrame { cursor, prompt_box, panel }
+    AppFrame { cursor, prompt_box, panel, transcript_top }
 }
 
 /// The meta row above the prompt: the live reasoning at the left (clipped to what the hint leaves) and the short-lived

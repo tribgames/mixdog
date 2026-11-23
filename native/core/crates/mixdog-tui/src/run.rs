@@ -436,9 +436,7 @@ impl Driver {
         let wait = if self.dirty {
             let (grid, cursor) = self.app.render_frame(columns, rows);
             self.dirty = false;
-            let wait = self.frames.draw(grid, cursor, now);
-            self.app.after_frame();
-            wait
+            self.frames.draw(grid, cursor, now)
         } else {
             self.frames.poll(now)
         };

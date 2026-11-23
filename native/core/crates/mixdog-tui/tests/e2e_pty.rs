@@ -19,7 +19,7 @@ use mixdog_term::testing::VtGrid;
 use mixdog_termtext::display_width;
 use serde_json::json;
 use support::daemon::{Setup, Workspace};
-use support::provider::Reply;
+use support::provider::{Gate, Reply};
 use support::pty::{TuiSession, dump_text};
 
 /// The boot: the core starts, the session is created, the first frame is painted.
@@ -113,27 +113,15 @@ fn mouse(session: &TuiSession, code: u32, column: usize, row: usize, press: bool
     session.send(&format!("\x1b[<{code};{column};{row}{}", if press { 'M' } else { 'm' }));
 }
 
-fn pause(duration: Duration) {
-    std::thread::park_timeout(duration);
-}
-
-/// `/exit`, then the terminal as the shell finds it.
+/// `/exit`, then the terminal as the shell finds it. Enter on the palette's command row runs it (`accept_slash_palette`).
 fn exit_and_check(mut session: TuiSession) {
     session.send("/exit");
     session.wait_until("/exit in the prompt", STEP, |grid| prompt_text(grid).contains("/exit"));
     session.send("\r");
-    let mut code = session.wait_exit(Duration::from_secs(8));
-    if code.is_none() {
-        // The first Enter completed the palette's selection; the second runs it.
-        session.send("\r");
-        code = session.wait_exit(Duration::from_secs(20));
-    }
+    let code = session.wait_exit(STEP);
     assert_eq!(code, Some(0), "the terminal UI ends with code 0 after /exit\n{}", session.screen_text());
-    session.settle(Duration::from_millis(300), Duration::from_secs(5));
-    session.with_grid(|grid| {
-        assert!(!grid.in_alternate_screen(), "the main screen is back");
-        assert!(grid.cursor_visible(), "the cursor is visible");
-    });
+    // The child's last bytes may still be on their way to the grid when its exit is seen.
+    session.wait_until("the main screen back with the cursor visible", STEP, |grid| !grid.in_alternate_screen() && grid.cursor_visible());
 }
 
 fn markdown_answer() -> String {
@@ -194,18 +182,17 @@ fn first_frame_typing_slash_palette_and_model_picker() {
     session.send("\x7f\x7f\x7f");
     session.wait_until("the palette closed", STEP, |grid| !any_row(grid, "Switch model for subsequent turns"));
 
-    // /model opens the picker; a selection closes it.
+    // /model opens the Model panel on its provider list (`pickers/model/picker.rs`); Enter opens the provider's models, and a
+    // selection closes it.
     session.send("/model");
     session.wait_until("/model in the prompt", STEP, |grid| prompt_text(grid).contains("/model"));
+    // Enter on the palette's command row runs it (`accept_slash_palette`).
     session.send("\r");
-    if session.try_wait_until(Duration::from_secs(5), |grid| any_row(grid, "Select a model")).is_none() {
-        // The first Enter completed the palette's selection; the second runs it.
-        session.send("\r");
-    }
+    session.wait_until("the provider list of the Model panel", STEP, |grid| any_row(grid, "Choose a provider.") && any_row(grid, "Anthropic API"));
+    session.send("\r");
     session.wait_until("the model picker", STEP, |grid| any_row(grid, "Select a model"));
-    session.send("\x1b[B");
-    pause(Duration::from_millis(200));
-    session.send("\r");
+    // Keys that arrive in one read are taken in their order.
+    session.send("\x1b[B\r");
     session.wait_until("the picker closed", STEP, |grid| !any_row(grid, "Select a model"));
 
     exit_and_check(session);
@@ -260,22 +247,33 @@ fn streamed_markdown_answer_and_tool_card_expanded_with_ctrl_o() {
 #[test]
 fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copies() {
     let _gate = support::serial();
-    let workspace = Workspace::new(Setup::default());
+    let workspace = Workspace::new(Setup { ask_tool: Some("glob") });
     let session = boot(&workspace);
 
+    // The stand-in holds the answer after row-45, so the view is paged up while the rest is still to come. The answer ends with a
+    // call whose approval panel shows over the scrolled view only once the rows before it are in: the growth is on screen then.
+    // The answer after the call is held before its message ends, so the drag below is made on a screen nothing moves, and the
+    // turn then ends under the released selection.
     let answer: String = (1..=80).map(|n| format!("row-{n:02} stays where it was put\n")).collect();
-    workspace.provider.script(vec![Reply::streamed(&answer, 1, Duration::from_millis(40))]);
+    let (rest, end) = (Gate::default(), Gate::default());
+    let mut streamed = Reply::streamed(&answer, 1, Duration::ZERO);
+    streamed.holds = vec![(45, rest.clone())];
+    streamed.calls = vec![("toolu_glob_1".to_owned(), "glob".to_owned(), json!({ "pattern": "*.none" }))];
+    // A streaming answer shows its completed lines only (`mixdog-session-view` `live_fields`): the held one ends its line.
+    let after = Reply { chunks: vec!["rows-done\n".to_owned()], holds: vec![(1, end.clone())], ..Reply::default() };
+    workspace.provider.script(vec![streamed, after]);
     submit(&session, "stream the rows");
     // PageUp moves 60 percent of the screen: 18 rows of 30 (`use-global-key-input.mjs`). The view is read once the newest rows are
-    // far enough from the first for a page and then the wheel to still have rows to go up, and while the answer is still arriving.
-    session.wait_until("row-45 on screen", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n >= 45));
+    // far enough from the first for a page and then the wheel to still have rows to go up.
+    session.wait_until("row-45 on screen", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n == 45));
 
     // PageUp while the answer is still arriving: the row the user is looking at stays on its screen row.
     let top_before = session.with_grid(|grid| numbered_rows(grid).first().map(|(_, n)| *n).unwrap_or(0));
     session.send("\x1b[5~");
     session.wait_until("the view moved up", STEP, |grid| numbered_rows(grid).first().is_some_and(|(_, n)| *n < top_before));
     let (anchor_row, anchor_n) = session.with_grid(|grid| numbered_rows(grid).first().copied().expect("a numbered row"));
-    pause(Duration::from_millis(1200));
+    rest.open();
+    session.wait_until("the approval panel after the rest of the answer", STEP, |grid| any_row(grid, "Tool approval") && any_row(grid, "Approve once"));
     session.with_grid(|grid| {
         assert!(
             numbered_rows(grid).contains(&(anchor_row, anchor_n)),
@@ -283,6 +281,8 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
             dump_text(grid)
         );
     });
+    session.send("y");
+    session.wait_until("the approval panel closed", STEP, |grid| !any_row(grid, "Tool approval"));
 
     // The wheel scrolls too, and scrolling back down reaches the end of the answer.
     let top_now = session.with_grid(|grid| numbered_rows(grid).first().map(|(_, n)| *n).unwrap_or(0));
@@ -293,9 +293,11 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
     for _ in 0..40 {
         mouse(&session, 65, 40, 12, true);
     }
-    session.wait_until("the end of the answer", STEP, |grid| numbered_rows(grid).iter().any(|(_, n)| *n == 80));
+    session.wait_until("the end of the answer and the answer after the call", STEP, |grid| {
+        numbered_rows(grid).iter().any(|(_, n)| *n == 80) && any_row(grid, "rows-done")
+    });
 
-    // A drag over part of a row highlights it; Ctrl+C copies exactly that text.
+    // A drag over part of a row highlights it; the turn ends under the released selection, and Ctrl+C copies exactly that text.
     let (target_row, column) = session.with_grid(|grid| {
         let (y, _) = numbered_rows(grid).into_iter().find(|(_, n)| *n == 70).expect("row-70 on screen");
         let text = grid.row_text(y);
@@ -305,31 +307,34 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
     mouse(&session, 32, column + 4, target_row + 1, true);
     mouse(&session, 32, column + 6, target_row + 1, true);
     mouse(&session, 0, column + 6, target_row + 1, false);
-    session.wait_until("the selection highlighted", STEP, |grid| {
-        let style = |x: usize| grid.grid().cell(u16::try_from(x).unwrap_or(0), u16::try_from(target_row).unwrap_or(0)).map(|cell| cell.style);
+    let highlighted = |grid: &VtGrid, row: usize| {
+        let style = |x: usize| grid.grid().cell(u16::try_from(x).unwrap_or(0), u16::try_from(row).unwrap_or(0)).map(|cell| cell.style);
         style(column + 1) != style(column + 14)
+    };
+    session.wait_until("the selection highlighted", STEP, |grid| highlighted(grid, target_row));
+    // The turn ends: its completion line goes under the answer and the followed view moves row-70 up; the copy is made once the
+    // screen shows that, with the highlight on row-70 at its new row.
+    end.open();
+    session.wait_until("the turn ended with the selection on row-70 at its new row", STEP, |grid| {
+        let at = numbered_rows(grid).into_iter().find(|(_, n)| *n == 70).map(|(y, _)| usize::from(y));
+        any_row(grid, "Work complete") && at.is_some_and(|y| y != target_row && highlighted(grid, y))
     });
     #[cfg(unix)]
     {
+        // The fake helper writes into a pipe the test reads to its end: its whole input, whenever it runs.
+        let made = std::process::Command::new("mkfifo").arg(&workspace.clipboard_out).status().expect("mkfifo runs");
+        assert!(made.success(), "the clipboard pipe is made");
+        let (told, helper_input) = std::sync::mpsc::channel();
+        let pipe = workspace.clipboard_out.clone();
+        std::thread::spawn(move || told.send(std::fs::read_to_string(pipe)));
         let mark = session.raw_len();
         session.send("\x03");
-        let mut copied = None;
-        for _ in 0..100 {
-            copied = support::last_osc52_text(&session.raw_since(mark));
-            if copied.is_some() {
-                break;
-            }
-            pause(Duration::from_millis(50));
-        }
-        let copied = copied.unwrap_or_else(|| panic!("no OSC 52 sequence after Ctrl+C\n{}", session.screen_text()));
+        let copied = session
+            .try_wait_raw(mark, STEP, support::last_osc52_text)
+            .unwrap_or_else(|| panic!("no OSC 52 sequence after Ctrl+C\n{}", session.screen_text()));
         assert_eq!(copied.trim(), "row-70", "the OSC 52 bytes carry the selected text");
-        for _ in 0..100 {
-            if std::fs::read_to_string(&workspace.clipboard_out).is_ok_and(|text| text.trim() == "row-70") {
-                break;
-            }
-            pause(Duration::from_millis(50));
-        }
-        assert_eq!(std::fs::read_to_string(&workspace.clipboard_out).unwrap_or_default().trim(), "row-70", "the clipboard helper's input");
+        let given = helper_input.recv_timeout(STEP).expect("the clipboard helper ran").expect("the clipboard pipe is read");
+        assert_eq!(given.trim(), "row-70", "the clipboard helper's input");
     }
 
     exit_and_check(session);
@@ -341,8 +346,11 @@ fn escape_interrupts_a_turn_and_the_queued_steer_runs_next() {
     let workspace = Workspace::new(Setup::default());
     let session = boot(&workspace);
 
+    // The stand-in holds the answer after its second delta and is never let go: the turn runs until Escape ends it.
     let answer: String = (0..60).map(|n| format!("chunk-{n:02} of a slow answer\n")).collect();
-    workspace.provider.script(vec![Reply::streamed(&answer, 1, Duration::from_millis(250)), Reply::text("steer-answer-e2e")]);
+    let mut held = Reply::streamed(&answer, 1, Duration::ZERO);
+    held.holds = vec![(2, Gate::default())];
+    workspace.provider.script(vec![held, Reply::text("steer-answer-e2e")]);
     submit(&session, "start a slow answer");
     session.wait_until("the answer under way", STEP, |grid| any_row(grid, "chunk-01"));
 
@@ -409,7 +417,8 @@ fn a_question_of_ask_user_is_answered_by_key() {
     session.wait_until("the question panel", STEP, |grid| any_row(grid, "Which flavor do you want?") && any_row(grid, "Vanilla") && any_row(grid, "Mango"));
     // Down moves to the second option, Enter answers with it.
     session.send("\x1b[B");
-    pause(Duration::from_millis(300));
+    // The option rows lead with `› ` on the highlighted one (`question.rs`); the card above may name the options too.
+    session.wait_until("Mango highlighted", STEP, |grid| rows(grid).iter().any(|row| row.contains("Mango") && row.contains("\u{203a} ")));
     session.send("\r");
     session.wait_until("the turn finished after the answer", STEP, |grid| any_row(grid, "question-flow-done") && !any_row(grid, "Vanilla"));
     // The transcript records the answer that was given, the second option.
@@ -431,10 +440,11 @@ fn the_spinner_row_runs_above_the_prompt_while_a_turn_streams() {
     let session = boot(&workspace);
 
     // The model answers with blank deltas first: nothing readable is on screen yet, so the spinner row stays (it gives way to the
-    // answer once text shows, `live-spinner-visibility.mjs`).
+    // answer once text shows, `live-spinner-visibility.mjs`). The stand-in holds the answer until the row has moved with the clock.
     let mut chunks: Vec<String> = vec!["\n".to_owned(); 14];
     chunks.push("spinner-answer-done".to_owned());
-    workspace.provider.script(vec![Reply { chunks, calls: Vec::new(), pause: Duration::from_millis(700) }]);
+    let answer = Gate::default();
+    workspace.provider.script(vec![Reply { chunks, holds: vec![(14, answer.clone())], ..Reply::default() }]);
     submit(&session, "think for a while");
     session.wait_until("the spinner row with the interrupt hint", STEP, |grid| row_with(grid, "esc to interrupt").is_some());
     let first = session.with_grid(|grid| row_with(grid, "esc to interrupt")).expect("the spinner row");
@@ -446,6 +456,7 @@ fn the_spinner_row_runs_above_the_prompt_while_a_turn_streams() {
     });
     // The timer and the glyph move with the clock.
     session.wait_until("the row changed with the clock", STEP, |grid| row_with(grid, "esc to interrupt").is_some_and(|row| row != first));
+    answer.open();
     // The answer replaces it, and the row is gone once the turn is.
     session.wait_until("the answer", STEP, |grid| any_row(grid, "spinner-answer-done"));
     session.wait_until("the spinner row gone", STEP, |grid| !any_row(grid, "esc to interrupt"));
@@ -462,17 +473,11 @@ fn the_api_key_prompt_takes_typing_a_paste_and_escape_and_masks_the_key() {
     // /providers, the OpenAI API row, its "Add API key" action: the masked key prompt.
     session.send("/providers");
     session.wait_until("/providers in the prompt", STEP, |grid| prompt_text(grid).contains("/providers"));
+    // Enter on the palette's command row runs it (`accept_slash_palette`).
     session.send("\r");
-    if session.try_wait_until(Duration::from_secs(5), |grid| any_row(grid, "Choose a provider.")).is_none() {
-        // The first Enter completed the palette's selection; the second runs it.
-        session.send("\r");
-    }
     session.wait_until("the provider list", STEP, |grid| any_row(grid, "Choose a provider.") && any_row(grid, "OpenAI API"));
-    for _ in 0..6 {
-        session.send("\x1b[B");
-        pause(Duration::from_millis(100));
-    }
-    session.send("\r");
+    // Keys that arrive in one read are taken in their order.
+    session.send(&format!("{}\r", "\x1b[B".repeat(6)));
     session.wait_until("the API-key actions", STEP, |grid| any_row(grid, "Choose an API-key action.") && any_row(grid, "Add API key"));
     session.send("\r");
     session.wait_until("the key prompt", STEP, |grid| any_row(grid, "Set API key") && any_row(grid, "API key >"));

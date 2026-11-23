@@ -141,6 +141,21 @@ impl TuiSession {
         held(&self.shared.0).raw.get(mark..).unwrap_or_default().to_vec()
     }
 
+    /// Waits until `read` finds what it looks for in the bytes written after the first `mark` (read again as each chunk
+    /// arrives, so a sequence split across chunks is found whole); what it found, or `None` at the limit.
+    pub fn try_wait_raw<T>(&self, mark: usize, limit: Duration, read: impl Fn(&[u8]) -> Option<T>) -> Option<T> {
+        let deadline = Instant::now() + limit;
+        let (lock, wake) = &*self.shared;
+        let mut state = held(lock);
+        loop {
+            if let Some(found) = read(state.raw.get(mark..).unwrap_or_default()) {
+                return Some(found);
+            }
+            let left = deadline.checked_duration_since(Instant::now())?;
+            state = wake.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+    }
+
     /// When the child wrote its first byte.
     pub fn first_output(&self) -> Option<Instant> {
         held(&self.shared.0).first_output

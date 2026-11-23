@@ -186,6 +186,8 @@ struct TailEstimate {
     columns: usize,
     tool_expanded: bool,
     rows: usize,
+    /// The rows the whole text renders to, which `rows` never falls below.
+    whole: usize,
 }
 
 /// The caches of the heights of one transcript window.
@@ -279,6 +281,16 @@ impl ItemHeights {
         (lines, flags)
     }
 
+    /// The lines of an item with cells the clock drives (a tool card that is not done) at a fixed time: what the item reads
+    /// apart from its clock. None for any other item.
+    pub fn still_lines(&self, item: &Value, prev_kind: Option<&str>, params: &HeightParams) -> Option<(Arc<Vec<Line>>, Arc<Vec<bool>>)> {
+        if !is_pending_tool(item) {
+            return None;
+        }
+        let (lines, flags) = render_item_flagged(item, &item_ctx(params, prev_kind, SETTLED_CLOCK_MS));
+        Some((Arc::new(lines), Arc::new(flags)))
+    }
+
     /// `streamingEstimateRows`: the exact height of the trimmed live text, held at the highest this stream reached.
     fn streaming_rows(&mut self, item: &Value, params: &HeightParams) -> usize {
         let id = item_id(item);
@@ -313,8 +325,17 @@ impl ItemHeights {
                 quantized
             }
         };
-        self.cache_tail_estimate(id, TailEstimate { text: exact_text, columns: params.columns, tool_expanded: params.tool_output_expanded, rows });
+        self.cache_tail_estimate(
+            id,
+            TailEstimate { text: exact_text, columns: params.columns, tool_expanded: params.tool_output_expanded, rows, whole: quantized },
+        );
         rows
+    }
+
+    /// The rows the whole text of the streaming message `id` renders to, as [`Self::rows`] last measured it: what the rows of
+    /// its live window, which renders the end of the text only, count up to.
+    pub fn streaming_whole_rows(&self, id: &str) -> Option<usize> {
+        self.tail_estimates.iter().find(|(key, _)| key == id).map(|(_, estimate)| estimate.whole)
     }
 
     /// `cacheStreamingTailEstimate`: keeps the latest estimate of at most 8 streams; an evicted stream loses its water line
