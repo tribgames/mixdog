@@ -1728,6 +1728,8 @@ pub(crate) struct SessionActor {
     goal_watch: super::goal_lane::GoalWatch,
     /// A turn ended and its settlement (`turn_settled`) is not back yet: no turn starts.
     settling: bool,
+    /// The settling turn is a completion wake (see [`Self::ask_lock_held`]).
+    settling_wake: bool,
     /// A worker's settling turn, and the host submissions steered into it: its outcome, told once
     /// the settlement is back.
     agent_done: Vec<(oneshot::Sender<RunOutcome>, RunOutcome)>,
@@ -1736,6 +1738,8 @@ pub(crate) struct SessionActor {
     completed_reasons: Option<(String, Option<String>, Option<String>)>,
     /// A turn's input row facts are being read: it starts next, no other turn does.
     starting: bool,
+    /// The starting turn is a completion wake (see [`Self::ask_lock_held`]).
+    starting_wake: bool,
     /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
     /// prompt is admitted (`turn/start`, a queued entry that starts), read when the run's input row is built.
     submitter: Option<Submitter>,
@@ -2188,9 +2192,11 @@ impl SessionActor {
             goal_suppressed: String::new(),
             goal_scheduled: false,
             settling: false,
+            settling_wake: false,
             agent_done: Vec::new(),
             completed_reasons: None,
             starting: false,
+            starting_wake: false,
             submitter: None,
             submissions: Submissions::default(),
             submission_lookup: false,
@@ -4264,9 +4270,13 @@ impl SessionActor {
 
     /// What Node's ask lock is held for: [`Self::turn_held`] but for a completion wake, which Node
     /// runs only for its current session (`notification-bus.mjs:50`); the idle delete still
-    /// refuses such a run as `busy` from the run itself.
+    /// refuses such a run as `busy` from the run itself. A wake holds none from its start to its
+    /// settlement: the idle delete answers the same whichever of the wake's steps it meets.
     fn ask_lock_held(&self) -> bool {
-        self.run.as_ref().is_some_and(|run| !run.wake) || self.starting || self.settling || self.carrying()
+        self.run.as_ref().is_some_and(|run| !run.wake)
+            || (self.starting && !self.starting_wake)
+            || (self.settling && !self.settling_wake)
+            || self.carrying()
     }
 
     /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
@@ -5334,6 +5344,9 @@ impl SessionActor {
         self.pre_switch_compacted = None;
         let admitted_pick = self.admitted_pick.take().and_then(|(_, pick)| pick);
         self.starting = true;
+        self.starting_wake = wake;
+        #[cfg(any(test, feature = "test-support"))]
+        self.cell.start_fence("read");
         self.runs_begun += 1;
         self.pending_work = Some(work.clone());
         self.with_facts(body, move |read| match read {
@@ -5355,6 +5368,7 @@ impl SessionActor {
         };
         let jobs = self.jobs_tx.clone();
         self.starting = true;
+        self.starting_wake = wake;
         self.pending_work = Some(work.clone());
         tokio::spawn(async move {
             let messages: Vec<Value> = context.read().await.map(|rows| rows.into_iter().map(|(_, m)| m).collect()).unwrap_or_default();

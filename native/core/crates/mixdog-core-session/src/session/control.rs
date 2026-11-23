@@ -376,7 +376,7 @@ pub(crate) struct ControlCell {
     pub live_rows: LiveRowsCell,
     /// The directory's [`StopLatches`], shared by every cell.
     pub stop_latches: Arc<StopLatches>,
-    /// A test's hook at a run start's fences: `check` once the start passed its Stop check (before the start gate), `gate` once
+    /// A test's hook at a run start's fences: `read` as its input row's facts are sent to be read, `check` once the start passed its Stop check (before the start gate), `gate` once
     /// the gate registered it (before the spawn); and at a takeover's, `takeover`, once it passed its checks (before its abort).
     /// Called on the actor's own step, so what it does lands exactly there.
     #[cfg(any(test, feature = "test-support"))]

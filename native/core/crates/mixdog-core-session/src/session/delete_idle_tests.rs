@@ -88,6 +88,12 @@ impl World {
 
     /// A completion wakes the thread: its turn runs, until `release`.
     async fn wake(&self) {
+        self.notify().await;
+        eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
+    }
+
+    /// A completion is handed to the thread, which wakes for it.
+    async fn notify(&self) {
         self.handle
             .inbox
             .send(super::actor::Inbox::TaskNotification {
@@ -102,7 +108,6 @@ impl World {
             })
             .await
             .expect("the actor runs");
-        eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
     }
 
     /// The thread's turn runs, until `release`.
@@ -484,6 +489,84 @@ async fn each_refusal_of_the_idle_delete_gives_its_reason_and_deletes_nothing() 
         }
         assert!(lock(&world.rig.deletes.0).is_empty(), "{name}: a refusal deletes nothing");
     }
+}
+
+/// A delete that meets a completion wake between its input read and its run (held at the start's `check` fence, on the actor's
+/// step: the state is still the one published while the read ran) answers as it does once the run runs: a wake holds no ask lock
+/// at any of its steps, so an unarchived session is `not-archived`, never `busy`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wake_still_starting_holds_no_ask_lock_for_the_idle_delete() {
+    let world = world().await;
+    world.flags(false, false).await;
+    let id = world.handle.id.as_str().to_owned();
+    let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
+    let (reached_tx, reached) = tokio::sync::oneshot::channel();
+    let (go, go_rx) = std::sync::mpsc::channel::<()>();
+    let (reached_tx, go_rx) = (std::sync::Mutex::new(Some(reached_tx)), std::sync::Mutex::new(go_rx));
+    *lock(&world.handle.cell.start_fences) = Some(Arc::new(move |fence| {
+        if fence == "check"
+            && let Some(reached) = lock(&reached_tx).take()
+        {
+            tokio::task::block_in_place(|| {
+                let _ = reached.send(());
+                let _ = lock(&go_rx).recv();
+            });
+        }
+    }));
+    world.notify().await;
+    reached.await.expect("the wake's start reaches its check");
+    let reply = world.ask(&id, json!({ "lastUsedAt": used })).await;
+    go.send(()).expect("the start waits");
+    eventually_on!(&[&world.handle.cell.stepped], || world.handle.cell.run.load().is_some().then_some(())).await;
+    world.release.notify_one();
+    eventually_on!(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
+    *lock(&world.handle.cell.start_fences) = None;
+    assert_eq!(reply, json!({ "deleted": false, "reason": "not-archived" }));
+    assert!(lock(&world.rig.deletes.0).is_empty(), "a refusal deletes nothing");
+}
+
+/// The close of the retention's guarded idle delete meets a completion wake as it starts (its input row's facts sent to be read)
+/// and as it runs (the start's `check` fence): the actor takes each close next (its control lane comes first) and refuses both
+/// as `busy`, the reason the delete gives before the close while the wake runs, never the guard's `changed`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_guarded_close_meeting_a_wake_at_its_start_or_run_is_refused_as_busy() {
+    use super::control::Ctl;
+    use super::control::DeleteGuard;
+    type Refusal = tokio::sync::oneshot::Receiver<Result<(), &'static str>>;
+
+    let world = world().await;
+    world.flags(true, false).await;
+    let activity = world.activity();
+    let ctl = world.handle.cell.ctl_tx.clone();
+    let id = world.handle.id.as_str().to_owned();
+    let (refusals_tx, mut refusals) = tokio::sync::mpsc::unbounded_channel::<(&'static str, Refusal)>();
+    let close = move |fence: &'static str| {
+        let (closed, refused) = tokio::sync::oneshot::channel();
+        let (_mark, mark) = tokio::sync::oneshot::channel();
+        let (marked, _) = tokio::sync::oneshot::channel();
+        let guard = DeleteGuard { activity, cancel: mixdog_rt::CancellationToken::new(), peers: Vec::new(), opens: 0 };
+        let abort = mixdog_agent::cancel::Abort::close_session(&id, super::delete::AUTO_DELETE_REASON);
+        let delete = Ctl::Delete { abort, idle: true, guard: Some(guard), closed, mark, marked };
+        assert!(ctl.try_send(delete).is_ok(), "the control lane takes the close");
+        let _ = refusals_tx.send((fence, refused));
+    };
+    *lock(&world.handle.cell.start_fences) = Some(Arc::new(move |fence| {
+        if fence == "read" || fence == "check" {
+            close(fence);
+        }
+    }));
+    world.notify().await;
+    for expected in ["read", "check"] {
+        let (fence, refused) = refusals.recv().await.expect("the wake's start passes its fences");
+        assert_eq!(fence, expected);
+        assert_eq!(refused.await.expect("the actor answers the close"), Err("busy"), "the close at the wake's {fence}");
+    }
+    *lock(&world.handle.cell.start_fences) = None;
+    eventually_on!(&[&world.handle.cell.stepped], || world.handle.cell.run.load().is_some().then_some(())).await;
+    world.release.notify_one();
+    eventually_on!(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
+    assert!(lock(&world.rig.deletes.0).is_empty(), "a refusal deletes nothing");
+    assert!(world.directory.is_open(&world.handle.id), "the session stays");
 }
 
 /// A turn in flight with no run (the ask's mark) makes the session not idle for the desktop (`ui_busy`, the session working) until
