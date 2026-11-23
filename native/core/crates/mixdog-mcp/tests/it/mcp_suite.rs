@@ -13,7 +13,9 @@ use mixdog_mcp::admission::AdmissionError;
 use mixdog_mcp::result::OutputPolicy;
 use mixdog_mcp::result::Spiller;
 use mixdog_mcp::rpc::RpcError;
+use mixdog_mcp::rpc::RpcClient;
 use mixdog_mcp::server::CallError;
+use mixdog_mcp::server::ConnectStep;
 use mixdog_mcp::server::ServerState;
 use serde_json::Value;
 use serde_json::json;
@@ -360,6 +362,102 @@ async fn list_changed_relists_the_catalog() {
     assert_ne!(server.catalog().unwrap().digest, before);
     server.close().await;
 }
+fn client_of(server: &McpServer) -> Arc<RpcClient> {
+    match &*server.state() {
+        ServerState::Ready(ready) => Arc::clone(&ready.client),
+        other => panic!("{}", other.describe()),
+    }
+}
+
+/// A reconnect is asked for, and before its claim reads the state a relist of the connection publishes a new value
+/// for it. The claim retires the connection by its identity, not by that value: the reconnect makes a new connection
+/// and closes the one it replaced.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relist_published_before_a_reconnect_claims_does_not_answer_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = ready(json!({}), dir.path()).await;
+    let before = client_of(&server);
+    let asked = server.hold_connect(ConnectStep::BeforeClaim);
+    let listed = server.hold_connect(ConnectStep::AfterRelist);
+    let reconnect = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move { server.reconnect().await }
+    });
+    asked.reached.notified().await;
+    call(&server, "grow", json!({})).await.unwrap();
+    listed.reached.notified().await;
+    match &*server.state() {
+        ServerState::Ready(relisted) => {
+            assert!(Arc::ptr_eq(&relisted.client, &before));
+            assert_eq!(relisted.catalog.entries.len(), 10, "the relist published a new value for the connection");
+        }
+        other => panic!("{}", other.describe()),
+    }
+    listed.release();
+    asked.release();
+    reconnect.await.unwrap().unwrap();
+    let after = client_of(&server);
+    assert!(!Arc::ptr_eq(&before, &after), "the reconnect made a new connection");
+    assert!(before.is_closed(), "the replaced connection is closed");
+    assert!(!after.is_closed());
+    server.close().await;
+}
+
+/// A relist has its listing when a reconnect claims and takes the connection out of the state: the relist's publish,
+/// after the claim, is dropped, and the reconnect still makes a new connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relist_landing_after_a_reconnect_claimed_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = ready(json!({}), dir.path()).await;
+    let before = client_of(&server);
+    let retiring = server.hold_connect(ConnectStep::Retiring);
+    let relisting = server.hold_connect(ConnectStep::BeforeRelist);
+    let listed = server.hold_connect(ConnectStep::AfterRelist);
+    call(&server, "grow", json!({})).await.unwrap();
+    relisting.reached.notified().await;
+    let reconnect = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move { server.reconnect().await }
+    });
+    retiring.reached.notified().await;
+    relisting.release();
+    listed.reached.notified().await;
+    assert!(matches!(*server.state(), ServerState::Starting), "the retired connection's relist was published: {}", server.state().describe());
+    listed.release();
+    retiring.release();
+    reconnect.await.unwrap().unwrap();
+    let after = client_of(&server);
+    assert!(!Arc::ptr_eq(&before, &after), "the reconnect made a new connection");
+    assert!(before.is_closed(), "the replaced connection is closed");
+    assert!(!after.is_closed());
+    server.close().await;
+}
+
+/// A restart of a server this process runs claimed and is closing the process: a connect asked for meanwhile (a hub
+/// start, a call's connect) is not answered with the connection being retired, it joins the restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connect_while_a_restart_closes_the_process_joins_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = ready(json!({}), dir.path()).await;
+    let before = client_of(&server);
+    let retiring = server.hold_connect(ConnectStep::Retiring);
+    let reconnect = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move { server.reconnect().await }
+    });
+    retiring.reached.notified().await;
+    let joined = server.connect();
+    tokio::pin!(joined);
+    assert!(futures::poll!(joined.as_mut()).is_pending(), "the connect was answered with the connection being retired");
+    retiring.release();
+    reconnect.await.unwrap().unwrap();
+    joined.await.unwrap();
+    let after = client_of(&server);
+    assert!(!Arc::ptr_eq(&before, &after), "the restart made a new connection");
+    assert!(before.is_closed());
+    server.close().await;
+}
+
 /// `connectServer` (mcp/client.mjs:1501-1508) registers its `list_changed` handler only for a server that advertised
 /// `tools.listChanged`: another server's announcement is dropped and its listing stays as it was.
 #[tokio::test(flavor = "multi_thread")]
