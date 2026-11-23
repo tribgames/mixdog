@@ -23,10 +23,11 @@ function repository() {
     writeFileSync(join(root, path), text);
   };
   put('crate/src/lib.rs', 'pub fn f() {}\n');
-  put('crate/data/a.txt', 'a');
+  put('crate/data/a.txt', 'a\n');
   put('other/lib.rs', 'pub fn g() {}\n');
   put('.gitignore', 'target\n');
   git('init', '-q');
+  git('config', 'core.autocrlf', 'false');
   git('add', '-A');
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base');
   const commit = () => {
@@ -37,7 +38,7 @@ function repository() {
   put('target/debug/deps/libcrate.rlib', 'out');
   utimesSync(join(target, 'debug/deps/libcrate.rlib'), 1000, 1000);
   const time = (path) => statSync(join(root, path)).mtimeMs / 1000;
-  return { root, target, put, commit, time };
+  return { root, target, put, commit, time, git };
 }
 
 // A later run's checkout: every tracked file new, the build folder restored with its times.
@@ -77,6 +78,22 @@ test('core-target-cache: an unchanged file keeps its recorded time, a changed, a
   checkout(repo, 3000);
   stamp({ root: repo.root, target: repo.target, warm: true });
   assert.equal(repo.time('crate/src/lib.rs'), 3001);
+});
+
+test('core-target-cache: a file whose blob is unchanged but whose checkout bytes an attribute rule changed is newer than every restored file', () => {
+  const repo = repository();
+  const blob = () => repo.git('ls-files', '-s', 'crate/data/a.txt').toString();
+  const before = blob();
+  stamp({ root: repo.root, target: repo.target, warm: false });
+  repo.put('.gitattributes', '*.txt eol=crlf\n');
+  repo.commit();
+  rmSync(join(repo.root, 'crate/data/a.txt'));
+  repo.git('checkout', '--', 'crate/data/a.txt');
+  assert.equal(blob(), before, 'the index blob is the same');
+  checkout(repo, 2000);
+  stamp({ root: repo.root, target: repo.target, warm: true });
+  assert.equal(repo.time('crate/data/a.txt'), 2001);
+  assert.equal(repo.time('other/lib.rs'), 1001);
 });
 
 test('core-target-cache: a record that was not restored is not read', () => {

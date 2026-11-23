@@ -38,6 +38,8 @@ export const OTHER_LANES = new Set([
   'mobile-scripts',
   'rustfmt',
   'core-real',
+  // the nightly's writer of the workspace build cache: its build proves nothing the archive does not
+  'workspace-cache',
   'complete',
 ]);
 

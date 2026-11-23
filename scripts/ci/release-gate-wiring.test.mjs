@@ -91,7 +91,8 @@ for (const label of ['release-gate.yml', 'rust-core-unix.yml']) {
 }
 
 test('release-gate.yml: complete requires every other job, and checks the result of each it lists', () => {
-  const others = Object.keys(gate.jobs).filter((name) => name !== 'complete');
+  // but the nightly's writer of the workspace build cache, whose result proves nothing and which no verdict waits for
+  const others = Object.keys(gate.jobs).filter((name) => name !== 'complete' && name !== 'workspace-cache-linux');
   assert.deepEqual([...needsOf(gate.jobs.complete)].sort(), [...others].sort());
   const script = stepsOf(gate.jobs.complete)[0].run;
   const results = Object.values(stepsOf(gate.jobs.complete)[0].env).filter((value) =>
@@ -211,7 +212,7 @@ test('release-gate.yml: only a push to main writes the Rust dependency cache', (
   }
 });
 
-test('release-gate.yml: the workspace build cache is restored on Linux outside the full gate, checked and dated before the build, and saved before the dependency prune', () => {
+test('release-gate.yml: core-build restores the workspace build cache on Linux outside the full gate, checks and dates it before the build, and writes none', () => {
   const steps = stepsOf(gate.jobs['core-build-linux']);
   const at = (predicate) => steps.findIndex(predicate);
   const key = at((step) => step.id === 'ws-key');
@@ -220,27 +221,45 @@ test('release-gate.yml: the workspace build cache is restored on Linux outside t
   const deps = at((step) => step.id === 'deps');
   const dated = at((step) => /core-target-cache\.mjs stamp/.test(step.run ?? ''));
   const compile = at((step) => /cargo nextest archive/.test(step.run ?? ''));
-  const sealed = at((step) => step.id === 'ws-seal');
-  const saved = at((step) => step.uses?.startsWith('actions/cache/save@') && /steps\.ws-key\./.test(step.with.key));
-  const pruned = at((step) => /prune-core-target\.mjs/.test(step.run ?? ''));
   const wrapper = at((step) => step.uses === './.github/actions/rustc-threads');
   assert.ok(wrapper < key && key < restore && restore < checked && checked < deps && deps < dated && dated < compile);
-  assert.ok(compile < sealed && sealed < saved && saved < pruned);
   // the release's gate never starts from an entry; every key part cargo does not check is an exact part of the prefix
   assert.equal(steps[restore].if, "runner.os == 'Linux' && needs.changes.outputs.full != 'true'");
   assert.equal(steps[restore].with['restore-keys'], '${{ steps.ws-key.outputs.prefix }}');
-  assert.equal(steps[saved].with.key, steps[restore].with.key);
-  assert.equal(steps[saved].with.path, steps[restore].with.path);
   assert.match(steps[key].run, /\$ImageOS-\$ImageVersion-\$TOOLCHAIN-\$\{TOOLS:0:16\}-\$build_env-\$\{DEPS:0:16\}-/);
   assert.match(steps[key].env.TOOLS, /rustc-threads\.rs.*rustc-threads\/action\.yml.*core-target-cache\.mjs/);
   assert.equal(steps[key].env.DEPS, steps[deps].with.key.match(/\$\{\{ hashFiles\([^}]*\) \}\}/)[0]);
   assert.match(steps[checked].run, /--restored "\$RESTORED"/);
   assert.equal(steps[deps].with['lookup-only'], "${{ steps.ws-check.outputs.warm == 'true' }}");
   assert.equal(steps[dated].if, "runner.os == 'Linux'");
-  // written only by a build that started without an entry, never by a pull request
-  for (const step of [steps[sealed], steps[saved]])
-    assert.match(step.if, /^runner\.os == 'Linux' && github\.event_name != 'pull_request' && steps\.ws-check\.outputs\.warm != 'true'/);
-  assert.match(steps[saved].if, /steps\.ws-seal\.outputs\.save == 'true'$/);
+  assert.ok(!steps.some((step) => /core-target-cache\.mjs seal/.test(step.run ?? '') || /steps\.ws-key\./.test(step.with?.key ?? '') && step.uses?.startsWith('actions/cache/save@')));
+});
+
+test('release-gate.yml: the nightly full gate on main is the one writer of the workspace build cache, on a job nothing waits for', () => {
+  const writer = 'workspace-cache-linux';
+  const saves = Object.entries(gate.jobs).flatMap(([name, job]) =>
+    stepsOf(job)
+      .filter((step) => step.uses?.startsWith('actions/cache/save@') && /steps\.ws-key\./.test(step.with.key))
+      .map((step) => [name, step])
+  );
+  assert.deepEqual(saves.map(([name]) => name), [writer]);
+  const job = gate.jobs[writer];
+  // no push, pull request, manual run, other ref or gate call (inputs.ref is set for every call, a scheduled caller's too)
+  assert.equal(job.if, "github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.ref == ''");
+  assert.deepEqual(needsOf(job), ['changes']);
+  for (const [name, other] of Object.entries(gate.jobs)) assert.ok(!needsOf(other).includes(writer), `${name} waits for the cache's save`);
+  // the build of the nightly's core-build: the same key, dependency cache, dating and archive command, from no entry
+  const steps = stepsOf(job);
+  const build = stepsOf(gate.jobs['core-build-linux']);
+  for (const id of ['ws-key', 'deps']) assert.deepEqual(steps.find((step) => step.id === id), build.find((step) => step.id === id), id);
+  for (const pattern of [/core-target-cache\.mjs stamp/, /cargo nextest archive/])
+    assert.deepEqual(steps.find((step) => pattern.test(step.run ?? '')), build.find((step) => pattern.test(step.run ?? '')), String(pattern));
+  assert.ok(!steps.some((step) => step.id === 'ws'), 'the writer restores no entry');
+  const [, save] = saves[0];
+  assert.equal(save.with.key, build.find((step) => step.id === 'ws').with.key);
+  assert.equal(save.with.path, build.find((step) => step.id === 'ws').with.path);
+  assert.equal(save.if, "github.ref == 'refs/heads/main' && steps.ws-seal.outputs.save == 'true'");
+  assert.ok(steps.indexOf(save) > steps.findIndex((step) => step.id === 'ws-seal'));
 });
 
 test('release-gate.yml: the desktop replays and fast shards build no Rust and depend on no producer', () => {
@@ -602,7 +621,7 @@ test('release-gate.yml: the Postgres-backed tests run from the core-build archiv
 test('release-gate.yml: complete fails any job its own `if` selected that did not succeed, for every job of the graph', () => {
   const step = stepsOf(gate.jobs.complete)[0];
   const variable = (name) => name.toUpperCase().replace(/-/g, '_');
-  const jobs = Object.keys(gate.jobs).filter((name) => name !== 'complete' && name !== 'changes');
+  const jobs = Object.keys(gate.jobs).filter((name) => !['complete', 'changes', 'workspace-cache-linux'].includes(name));
   assert.deepEqual([...needsOf(gate.jobs.complete)].sort(), ['changes', ...jobs].sort());
   const flat = (text) => String(text).replace(/\s+/g, ' ').trim();
   for (const job of jobs) {
@@ -1082,7 +1101,7 @@ test('release-gate.yml: the core builds compile the workspace crates with the pa
   assert.ok(toolchain < wrapper && wrapper < compile && steps[wrapper].if === undefined);
   // the test archive alone: no program a job boots or a release ships goes through it, in this gate or any other workflow
   for (const [name, job] of Object.entries(gate.jobs))
-    if (!/^core-build-/.test(name)) assert.doesNotMatch(JSON.stringify(job), /rustc-threads|RUSTC_WORKSPACE_WRAPPER|RUSTC_BOOTSTRAP/, name);
+    if (!/^(core-build-|workspace-cache-linux$)/.test(name)) assert.doesNotMatch(JSON.stringify(job), /rustc-threads|RUSTC_WORKSPACE_WRAPPER|RUSTC_BOOTSTRAP/, name);
   for (const file of readdirSync(new URL('.github/workflows/', ROOT)).filter((name) => name !== 'release-gate.yml'))
     assert.doesNotMatch(read(`.github/workflows/${file}`), /rustc-threads|RUSTC_BOOTSTRAP/, file);
   // every run that builds an archive compiles the same selection on plain stable, on each system the archive is for

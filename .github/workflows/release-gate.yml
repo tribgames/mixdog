@@ -1917,8 +1917,7 @@ jobs:
   # cargo's, on modification times the script derives from content (a file or directory keeps the time recorded with it only
   # while its content is the recorded one; anything else is newer than every restored file). A miss, an eviction or an entry
   # that fails its own file list leaves the dependency cache's build, as without it. The full gate (every release, every night)
-  # builds without restoring one and writes the entry the next runs start from; another run writes one only when it started
-  # without one, and a pull request never.
+  # builds without restoring one. Entries are written by workspace-cache-linux alone, in the nightly full gate on main.
   #
   # One build job per system, and test jobs per system that need only that build: the legs of a system start when its own
   # archive is uploaded, not when the slowest system's is (run 44943772315: Linux's archive was ready at 19.5 minutes,
@@ -1975,7 +1974,8 @@ jobs:
       # plain stable on each system the archive is for.
       - uses: ./.github/actions/rustc-threads
       # After every step that sets the build's environment: the variables cargo, rustc and build scripts read are in the key.
-      - name: Key the workspace build cache (Linux)
+      - &ws-key
+        name: Key the workspace build cache (Linux)
         id: ws-key
         if: runner.os == 'Linux'
         env:
@@ -2005,7 +2005,8 @@ jobs:
           RESTORED: ${{ steps.ws.outputs.cache-matched-key }}
         run: node scripts/ci/core-target-cache.mjs check --paths native/core/target ~/.cargo/registry ~/.cargo/git --restored "$RESTORED"
       # Only looked up after a workspace build was restored: the deciding output is cache-hit, for the save of this entry below.
-      - name: Restore the compiled dependencies
+      - &deps-restore
+        name: Restore the compiled dependencies
         id: deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -2020,12 +2021,14 @@ jobs:
           lookup-only: ${{ steps.ws-check.outputs.warm == 'true' }}
       # Every run, the full gate's included: without a restored record every tracked file is newer than every restored file, as
       # after a checkout.
-      - name: Date the tracked sources by their content (Linux)
+      - &stamp-sources
+        name: Date the tracked sources by their content (Linux)
         if: runner.os == 'Linux'
         env:
           WARM: ${{ steps.ws-check.outputs.warm }}
         run: node scripts/ci/core-target-cache.mjs stamp --root . --target native/core/target --warm "$WARM"
-      - name: Build the test binaries once (nextest archive)
+      - &archive-build
+        name: Build the test binaries once (nextest archive)
         env:
           # The selection `changes` resolved against the whole build (core_build_args, core_build_features), which core-lint also
           # compiles on plain stable.
@@ -2060,23 +2063,6 @@ jobs:
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
-      # Before the dependency entry below prunes the folder. Only a build that started without an entry writes one (the full gate,
-      # which never restores one, every night; a key with no entry; an entry that failed its check): an entry is 2.8 GB of the
-      # repository's 10 GB, and each one written evicts the least recently used entries. A build that changed a tracked file
-      # saves nothing.
-      - name: List the files of the workspace build (Linux)
-        id: ws-seal
-        if: runner.os == 'Linux' && github.event_name != 'pull_request' && steps.ws-check.outputs.warm != 'true'
-        run: node scripts/ci/core-target-cache.mjs seal --root . --paths native/core/target ~/.cargo/registry ~/.cargo/git
-      - name: Save the workspace build (Linux)
-        if: runner.os == 'Linux' && github.event_name != 'pull_request' && steps.ws-check.outputs.warm != 'true' && steps.ws-seal.outputs.save == 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/core/target
-          key: ${{ steps.ws-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
       # Only a build of every crate writes the entry: a push's selection compiles the dependencies of its crates alone, and an
       # entry of those would be an exact hit that every later build compiles the rest after.
       - name: Keep only the third-party dependencies in the cache
@@ -2121,6 +2107,69 @@ jobs:
       run:
         shell: bash
     steps: *core-build-steps
+
+  # The one writer of the workspace build cache that core-build (linux) restores: the nightly full gate on main, on a runner of
+  # its own beside core-build, so the save (2.8 GB through tar, zstd and the upload) is on no path a test leg, `complete`, a
+  # release or a deploy waits for. It builds what the nightly's core-build builds (every crate: the full gate), from no entry,
+  # with the same key, dependency cache, dating of the sources and archive command (the YAML anchors), and saves the folder. No
+  # push, pull request, manual run or gate call writes an entry, so every entry is a build of every crate. Its result proves
+  # nothing about the core: `complete` does not wait for it and core-base.mjs does not read it, and a failure costs the next
+  # day's builds their head start only. The lowest free disk during the job is in its summary.
+  workspace-cache-linux:
+    name: workspace-cache (linux)
+    needs: changes
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.ref == ''
+    timeout-minutes: 90
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-22.04 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+      - name: Check that the build is a clean checkout
+        run: node scripts/ci/check-clean-checkout.mjs --build
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - uses: ./.github/actions/install-nextest
+      - uses: ./.github/actions/rustc-threads
+      - *ws-key
+      - *deps-restore
+      - *stamp-sources
+      - name: Sample the free disk until the job ends
+        run: |
+          nohup bash -c 'while :; do df -B1 --output=avail / | tail -n 1 >> "$RUNNER_TEMP/disk-free.txt"; sleep 2; done' > /dev/null 2>&1 &
+      - *archive-build
+      - name: Remove what the entry does not hold
+        run: rm -rf native/core/target/cargo-timings core-tests.tar.zst
+      - name: List the files of the workspace build
+        id: ws-seal
+        run: node scripts/ci/core-target-cache.mjs seal --root . --paths native/core/target ~/.cargo/registry ~/.cargo/git
+      - name: Save the workspace build
+        if: github.ref == 'refs/heads/main' && steps.ws-seal.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/core/target
+          key: ${{ steps.ws-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Report the disk
+        if: always()
+        run: |
+          {
+            echo "Lowest free disk during the job: $(sort -n "$RUNNER_TEMP/disk-free.txt" | head -n 1 | numfmt --to=iec) (disk $(df -B1 --output=size / | tail -n 1 | numfmt --to=iec))"
+            echo "Saved folders: $(du -sbc native/core/target ~/.cargo/registry ~/.cargo/git | tail -n 1 | cut -f1 | numfmt --to=iec)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The development mixdogd with every replay control (mixdog-cli/dev-controls): desktop replays, the Windows app boot and the
   # ignored core entry tests (core-entry) drive it. The terminal program and the ssh helper are built in the same invocation, with the

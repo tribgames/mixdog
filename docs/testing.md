@@ -341,17 +341,20 @@ consumes it (the test runs the selection over a table of paths).
   rustc wrapper and this cache's script, the build environment (every `RUST*`, `CARGO*`, `MIXDOG_*`, compiler and linker
   variable) and the dependency files, so cargo rebuilds the crates a change reaches and their dependents and reuses the other
   libraries and test binaries (`scripts/ci/core-target-cache.mjs`). Freshness stays cargo's own, on modification times the
-  script derives from content: a tracked file or directory keeps the time recorded with it only while its git blob or tracked
-  listing is the recorded one, and anything else gets a time newer than every restored file, so an output built from other
-  content is never fresh (cargo's `-Zchecksum-freshness` is not used: it leaves build-script inputs on modification times, and
-  the workspace-hack's build script, rerun on every checkout, would rebuild the 73 crates that depend on it). An entry that
-  lacks a file of its own list or has one at another size, a miss and an eviction remove the folders and the build starts
-  from the dependency cache as before; a build that changed a tracked file, a pull request and a save that fails write no
-  entry. The full gate, and with it every release, restores none; it writes the entry (2.8 GB compressed, one archive per
-  save, keyed by the run) that the next runs start from, and another run writes one only when it started without one (a key
-  with no entry, after a dependency or toolchain change, or an entry that failed its check). The repository is at GitHub's
-  10 GB already, so each entry written evicts the least recently used entries, first the previous entry of this cache, which
-  no run reads once a newer one exists, and the per-commit stores of older commits. The
+  script derives from content: a tracked file or directory keeps the time recorded with it only while its bytes in the
+  working tree (what cargo reads, after `.gitattributes`) or its tracked listing are the recorded ones, and anything else gets
+  a time newer than every restored file, so an output built from other content is never fresh (cargo's `-Zchecksum-freshness`
+  is not used: it leaves build-script inputs on modification times, and the workspace-hack's build script, rerun on every
+  checkout, would rebuild the 73 crates that depend on it). An entry that lacks a file of its own list or has one at another
+  size, a miss and an eviction remove the folders and the build starts from the dependency cache as before. The full gate,
+  and with it every release, deploy and mirror gate call, restores none. One job writes entries: `workspace-cache-linux`, in
+  the nightly full gate on main alone (`schedule`, `refs/heads/main`, no gate call), on a runner of its own beside
+  `core-build`; it builds every crate from no entry with `core-build`'s own key, dependency cache, dating and archive steps and
+  saves the folder (one archive, keyed by the run), so every entry is a build of every crate, and nothing waits for it:
+  `complete` does not need it and `core-base.mjs` does not read it, so its failure costs the next day's builds their head
+  start and nothing else. A push, a pull request, a manual run on any ref and a gate call write none; a push whose key has no
+  entry (a dependency, toolchain or runner-image change) builds cold, as without this cache, until the next night. The job's
+  summary gives the lowest free disk during its build and save. The
   doctests (`cargo test --doc` of `mixdog-core-api` and `mixdog-image-egress`, `run-doctest.mjs`) are `core-doctests`, leg
   `linux/core-doctests/1of1`, beside the build on its dependency cache. The development `mixdogd`, the release `mixdogd` of
   `core-real` and the relay of `relay-rust` are kept in a store (`actions/cache`) keyed by their inputs (`core-select.mjs`

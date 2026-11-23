@@ -5,7 +5,7 @@
 // cargo decides freshness by modification time: a unit is fresh when no input is newer than its output. A checkout gives
 // every file the time of the checkout, newer than any restored output, so every workspace crate would rebuild. `stamp` gives
 // each tracked file and directory a time decided by its content instead: the time recorded with it in the restored entry when
-// its content (git blob, or for a directory its tracked listing) is the one recorded, and otherwise T, a whole second later
+// its content (the bytes in the working tree, or for a directory its tracked listing) is the one recorded, and otherwise T, a whole second later
 // than every file of the restored entry. A recorded time is the T of the run in which that content first appeared, and every
 // later run of the entry's line had the same content (another content replaces the record), so an output older than the
 // recorded time is older than that content and stays stale, and an output newer than it was built from it. A changed,
@@ -21,7 +21,18 @@
 //        node scripts/ci/core-target-cache.mjs seal  --root <repo> --paths <target> <registry> <git>
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, lstatSync, lutimesSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  lutimesSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -31,18 +42,25 @@ const FILES = 'files.tsv';
 
 const git = (root, args) => execFileSync('git', args, { cwd: root, maxBuffer: 1 << 30 }).toString('utf8');
 
-// Every tracked file (key: mode and blob) and every directory holding one (key: its tracked entries), by repository path;
-// the repository's own directory is ''.
+// The bytes a build reads, not the index blob: .gitattributes (eol, filters) decides what a checkout writes for one blob.
+function contentKey(path) {
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) return `link:${readlinkSync(path)}`;
+  return `${stat.mode & 0o111 ? 'x' : '-'}:${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
+}
+
+// Every tracked file (key: its working-tree bytes and executable bit, or a link's target) and every directory holding one
+// (key: its tracked entries), by repository path; the repository's own directory is ''.
 export function trackedEntries(root) {
   const entries = new Map();
   const children = new Map();
   for (const record of git(root, ['ls-files', '-s', '-z']).split('\0')) {
     if (!record) continue;
     const tab = record.indexOf('\t');
-    const [mode, blob] = record.slice(0, tab).split(' ');
+    const mode = record.slice(0, tab).split(' ')[0];
     const path = record.slice(tab + 1);
     if (mode === '160000') continue;
-    entries.set(path, `${mode}:${blob}`);
+    entries.set(path, contentKey(join(root, path)));
     let child = path;
     while (child !== '') {
       const slash = child.lastIndexOf('/');
