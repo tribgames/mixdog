@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use crate::providers::openai::config::WireContext;
 use crate::providers::openai::continuation::ContinuationSpec;
-use crate::providers::openai::decoder::Framing;
+use crate::providers::openai::decoder::{Framing, ResponsesDecoder};
 use crate::providers::openai::profile::{
     BodyField, BuildInputs, ORDER_ROUTED, ParallelToolCalls, ReasoningSpec, ResponsesProfile, SystemPlacement, ToolLowering, build_body,
 };
@@ -418,6 +418,17 @@ impl WireCodec for CompatResponsesCodec {
     }
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+        Box::new(self.responses_decoder(request))
+    }
+
+    fn classify(&self, response: &ErrorResponse) -> ProviderError {
+        error::classify(&self.profile, response)
+    }
+}
+
+impl CompatResponsesCodec {
+    /// The neutral Responses decoder of this wire.
+    pub(crate) fn responses_decoder(&self, request: &ModelRequest) -> ResponsesDecoder {
         let framing = if self.is_socket() { Framing::WebSocket } else { Framing::Sse };
         let info = self.config.models.get(&request.model);
         let profile = self.responses_profile(request, info.as_deref());
@@ -426,10 +437,6 @@ impl WireCodec for CompatResponsesCodec {
         let decoder =
             profile.decoder_for(request, framing, Arc::new(ClockOnly)).with_label(label).with_known_tools(body_tool_names(self, request, ToolNames::Named));
         // Over HTTP/SSE a compatible route is folded by Node's compatible events collector; its socket by the WebSocket one.
-        Box::new(if self.is_socket() { decoder } else { decoder.compat_events() })
-    }
-
-    fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        error::classify(&self.profile, response)
+        if self.is_socket() { decoder } else { decoder.compat_events() }
     }
 }

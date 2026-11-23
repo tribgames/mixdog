@@ -516,7 +516,7 @@ fn producer_context_split(message: &AgentMessage, row: &Value) -> Option<(AgentM
             (mixdog_js::utf16_len(text) >= mixdog_js::utf16_len(prefix) + mixdog_js::utf16_len(suffix) && text.starts_with(prefix) && text.ends_with(suffix))
                 .then(|| {
                     let inner = text[prefix.len()..text.len() - suffix.len()].to_owned();
-                    (Content::Text(inner.clone()), Value::String(inner))
+                    (Content::Text(inner.clone().into()), Value::String(inner))
                 })
         }
         (Content::Parts(parts), Some(Value::Array(items))) => {
@@ -554,7 +554,7 @@ fn reminder_edge_split(message: &AgentMessage, row: &Value) -> Option<(AgentMess
     }
     let mut row = row.clone();
     row["content"] = json!(content);
-    Some((with_content(message, Content::Text(content.to_owned())), row, injected.join("\n")))
+    Some((with_content(message, Content::Text(content.to_owned().into())), row, injected.join("\n")))
 }
 
 /// `runtimeAuthored(message, text)`.
@@ -565,7 +565,7 @@ fn runtime_authored(message: &AgentMessage, text: &str) -> bool {
     if RUNTIME_CONTROL_OPEN.is_match(text) || parse_task_notification(text).is_some() {
         return true;
     }
-    classify_synthetic_user(&with_content(message, Content::Text(text.to_owned()))).is_some()
+    classify_synthetic_user(&with_content(message, Content::Text(text.to_owned().into()))).is_some()
 }
 
 /// The skill a user message carries as its body (`latestSkillBodies([message])[0].name`).

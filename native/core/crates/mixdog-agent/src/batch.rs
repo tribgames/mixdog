@@ -917,7 +917,7 @@ impl Run {
                     seen
                 });
                 m.message.native_tool_search = definitions.take_new(native);
-                m.message.content = Content::Text(summary);
+                m.message.content = Content::Text(summary.into());
             }
         }
     }
@@ -934,7 +934,7 @@ impl Run {
                     slots.push(i);
                     entries.push(crate::offload::BatchEntry {
                         tool: calls[i].name.strip_prefix("mcp__plugin_mixdog_mixdog__").unwrap_or(&calls[i].name).to_owned(),
-                        content: std::mem::replace(&mut m.message.content, Content::Text(String::new())),
+                        content: std::mem::replace(&mut m.message.content, Content::Text(String::new().into())),
                     });
                 }
             }
@@ -948,7 +948,7 @@ impl Run {
         if let Some(images) = self.env.images.clone() {
             for i in indices {
                 if let Some(m) = staged[*i].as_mut() {
-                    let body = std::mem::replace(&mut m.message.content, Content::Text(String::new()));
+                    let body = std::mem::replace(&mut m.message.content, Content::Text(String::new().into()));
                     m.message.content = crate::offload::compact_owned_images(images.as_ref(), body).await;
                 }
             }
@@ -1032,7 +1032,7 @@ fn classify_error_results(calls: &[ToolCall], staged: &mut [Option<AgentMessage>
 /// newlines, its images and other parts left out.
 fn trace_text(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {
@@ -1047,7 +1047,7 @@ fn trace_text(content: &Content) -> String {
 /// The result the trace is given: a text as a string, a structured result as its text parts (`{type, text}`).
 fn trace_result(content: &Content) -> serde_json::Value {
     match content {
-        Content::Text(text) => serde_json::Value::String(text.clone()),
+        Content::Text(text) => serde_json::Value::String(text.to_string()),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {
@@ -1086,7 +1086,7 @@ mod early_tests {
         let returned = {
             let mut executed = Executed::error("c1", String::new());
             executed.failed = false;
-            executed.message = AgentMessage::tool_result("c1", Content::Text("done".to_owned()), ToolKind::Normal);
+            executed.message = AgentMessage::tool_result("c1", Content::Text("done".to_owned().into()), ToolKind::Normal);
             early_result("c1", &executed)
         };
         assert_eq!(returned.text(), "done");

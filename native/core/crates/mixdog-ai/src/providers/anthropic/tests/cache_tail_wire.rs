@@ -145,10 +145,10 @@ impl Rig {
     fn request(&self, turns: usize) -> Arc<ModelRequest> {
         let mut messages = Vec::new();
         for n in 0..turns {
-            messages.push(Message::new(Role::User, Content::Text(format!("q{n}"))));
-            messages.push(Message::new(Role::Assistant, Content::Text(format!("a{n}"))));
+            messages.push(Message::new(Role::User, Content::Text(format!("q{n}").into())));
+            messages.push(Message::new(Role::Assistant, Content::Text(format!("a{n}").into())));
         }
-        messages.push(Message::new(Role::User, Content::Text(format!("q{turns}"))));
+        messages.push(Message::new(Role::User, Content::Text(format!("q{turns}").into())));
         let options = RequestOptions { tail_gate: self.gate.clone(), ..RequestOptions::default() };
         Arc::new(ModelRequest { model: "claude-x".into(), messages, tools: Vec::new(), options })
     }
@@ -243,7 +243,7 @@ async fn the_compressed_write_and_its_plain_resend_are_admitted_after_every_wait
     let rig = Rig::official("gzip", slow.clone());
     let big = |turns: usize| {
         let mut request = (*rig.request(turns)).clone();
-        request.messages[0] = Message::new(Role::User, Content::Text("x".repeat(20 * 1024)));
+        request.messages[0] = Message::new(Role::User, Content::Text("x".repeat(20 * 1024).into()));
         Arc::new(request)
     };
     rig.script(200, written(0, 9000), 0);

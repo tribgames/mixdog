@@ -1571,4 +1571,26 @@ mod tests {
         assert_eq!(stale(&p, 1_600_000 + 200_000, &agent), None, "the recovery's generation total is no head allowance");
         recovery.observe(Boundary::AttemptEnded);
     }
+
+    /// A Cursor think that streams only token counts reports semantic progress and stays alive past the idle budget; the
+    /// service's 10 s heartbeat is transport health and never holds a run with nothing else.
+    #[test]
+    fn a_token_only_stretch_is_progress_and_a_heartbeat_only_stretch_is_not() {
+        use mixdog_agent::agent_tool::progress::{WatchdogPolicy, stale_report};
+        let policy = WatchdogPolicy { first_transport_ms: 0, first_semantic_ms: 0, idle_stale_ms: 315_000 };
+        let stretch = |kind: StreamKind| {
+            let mut p = RunProgress::default();
+            p.ask_start(1_000);
+            p.stage_change("requesting", 1_000);
+            p.stream_delta(StreamKind::Reasoning, 2_000);
+            let mut at = 2_000;
+            while at < 2_000 + 900_000 {
+                at += 10_000;
+                p.stream_delta(kind, at);
+            }
+            stale_report(&p.snapshot(at).unwrap(), at, &policy)
+        };
+        assert_eq!(stretch(StreamKind::Semantic), None, "fifteen minutes of token deltas");
+        assert!(stretch(StreamKind::Transport).is_some_and(|s| s.contains("task stale")), "fifteen minutes of heartbeats");
+    }
 }

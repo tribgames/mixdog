@@ -291,7 +291,7 @@ mod tests {
     async fn a_large_result_becomes_a_pointer_and_a_head_tail_preview() {
         let store = Store(Mutex::new(Vec::new()));
         let text = format!("{}\n{}", "a".repeat(30_000), "z".repeat(30_000));
-        let out = offload_result(&store, "grep", &Content::Text(text.clone()), false).await;
+        let out = offload_result(&store, "grep", &Content::Text(text.clone().into()), false).await;
         let Content::Text(out) = out else { panic!() };
         assert!(out.starts_with("[tool output offloaded: grep → /art/x.txt (59 KB, 2 lines)]\n\n"));
         assert!(out.contains("\n... [preview middle omitted — 58 KB] ...\n"));
@@ -302,16 +302,16 @@ mod tests {
         assert_eq!(preview.sha256.len(), 64);
         assert_eq!(store.0.lock().unwrap().len(), 1);
         // read-like tools and small errors stay inline
-        let big = Content::Text("x".repeat(60_000));
+        let big = Content::Text("x".repeat(60_000).into());
         assert_eq!(offload_result(&store, "read", &big, false).await, big);
-        let error = Content::Text(format!("Error: {}", "e".repeat(30_000)));
+        let error = Content::Text(format!("Error: {}", "e".repeat(30_000)).into());
         assert_eq!(offload_result(&store, "grep", &error, false).await, error);
     }
     #[tokio::test]
     async fn an_offloaded_git_output_gives_no_second_narrowing_instruction() {
         let store = Store(Mutex::new(Vec::new()));
         let text = format!("{}\n{}", "a".repeat(30_000), "z".repeat(30_000));
-        let Content::Text(out) = offload_result(&store, "git", &Content::Text(text), false).await else { panic!() };
+        let Content::Text(out) = offload_result(&store, "git", &Content::Text(text.into()), false).await else { panic!() };
         assert!(out.ends_with("full output: /art/x.txt]"), "{out}");
         assert!(!out.contains("narrow:") && !out.contains("offset/limit"), "{out}");
     }
@@ -320,9 +320,9 @@ mod tests {
     #[tokio::test]
     async fn an_error_stays_inline_by_its_text() {
         let store = Store(Mutex::new(Vec::new()));
-        let error = Content::Text(format!("Error: {}", "e".repeat(25_000)));
+        let error = Content::Text(format!("Error: {}", "e".repeat(25_000)).into());
         assert_eq!(offload_result(&store, "grep", &error, false).await, error);
-        let dump = Content::Text("e".repeat(25_000));
+        let dump = Content::Text("e".repeat(25_000).into());
         let out = offload_result(&store, "grep", &dump, false).await;
         assert!(matches!(&out, Content::Text(t) if t.starts_with(OFFLOAD_PREFIX)));
     }
@@ -339,19 +339,19 @@ mod tests {
             }
         }
         let body = "result".repeat(10_000);
-        let mut entries = [BatchEntry { tool: "grep".into(), content: Content::Text(body.clone()) }];
+        let mut entries = [BatchEntry { tool: "grep".into(), content: Content::Text(body.clone().into()) }];
         tokio::select! {
             biased;
             _ = offload_batch(&Pending, &mut entries) => panic!("persistence is still pending"),
             _ = std::future::ready(()) => {}
         }
-        assert_eq!(entries[0].content, Content::Text(body));
+        assert_eq!(entries[0].content, Content::Text(body.into()));
     }
 
     #[tokio::test]
     async fn the_batch_budget_offloads_the_largest_eligible_results_first() {
         let store = Store(Mutex::new(Vec::new()));
-        let part = |n: usize| Content::Text("y".repeat(n));
+        let part = |n: usize| Content::Text("y".repeat(n).into());
         let mut entries = vec![
             BatchEntry { tool: "list".into(), content: part(49_000) },
             BatchEntry { tool: "glob".into(), content: part(49_000) },
@@ -392,7 +392,7 @@ fn setup_threshold() -> usize {
 pub async fn offload_result(store: &dyn ArtifactStore, tool: &str, content: &Content, force: bool) -> Content {
     match planned_offload(store, tool, content, force).await {
         None => content.clone(),
-        Some(Replacement::Text(text)) => Content::Text(text),
+        Some(Replacement::Text(text)) => Content::Text(text.into()),
         Some(Replacement::Parts(mut edits)) => {
             let Content::Parts(parts) = content else { unreachable!() };
             Content::Parts(parts.iter().enumerate().map(|(i, part)| edits.remove(&i).unwrap_or_else(|| part.clone())).collect())
@@ -403,7 +403,7 @@ pub async fn offload_result(store: &dyn ArtifactStore, tool: &str, content: &Con
 async fn offload_in_place(store: &dyn ArtifactStore, tool: &str, content: &mut Content, force: bool) {
     match planned_offload(store, tool, content, force).await {
         None => {}
-        Some(Replacement::Text(text)) => *content = Content::Text(text),
+        Some(Replacement::Text(text)) => *content = Content::Text(text.into()),
         Some(Replacement::Parts(edits)) => {
             let Content::Parts(parts) = content else { unreachable!() };
             for (i, part) in edits {

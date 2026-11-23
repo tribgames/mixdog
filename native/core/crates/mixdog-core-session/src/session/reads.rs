@@ -45,6 +45,7 @@ use mixdog_protocol::TurnEndStatus;
 use mixdog_protocol::TurnError;
 use mixdog_protocol::TurnStatus;
 use mixdog_rt::CancellationToken;
+use mixdog_store::schema::record::TurnEndForm;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
@@ -145,7 +146,7 @@ async fn display_rows(
 ) -> Result<Vec<(ThreadItem, usize)>, CoreError> {
     let token = CancellationToken::new();
     let transcript = deps.transcript.clone();
-    on_lane_wait(deps.lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record| transcript.rows(lane, record))).await
+    on_lane_wait(deps.lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record, end| transcript.rows_as(lane, record, end))).await
 }
 
 /// The rows of one stored page ([`ThreadStore::history_page`]), oldest first.
@@ -164,9 +165,8 @@ pub(super) struct Window {
     pub named: u64,
     /// The record id of each entry of `units`, in their order.
     pub iids: Vec<String>,
-    /// The result updates the page's records carry, in their order, each already merged into the row of the page it is
-    /// for; empty for a page read without them ([`page`]).
-    pub updates: Vec<ThreadItem>,
+    /// The compaction boundaries of a page of occurrences, oldest first ([`PageRows::boundaries`](super::seams::PageRows)).
+    pub boundaries: Vec<super::seams::PageBoundary>,
 }
 
 /// [`ThreadStore::history_page`] with its records shown as rows; `None` when the store cannot place the page. The wait for
@@ -181,7 +181,7 @@ pub(super) async fn page(
     records: usize,
     ctl: &ReadCtl,
 ) -> Result<Option<Window>, CoreError> {
-    page_shown(store, transcript, lanes, id, at, records, false, ctl).await
+    page_shown(store, transcript, lanes, id, at, records, false, false, ctl).await
 }
 
 /// The position of the record `iid`: the one position its occurrence has, whichever of its rows a reader holds.
@@ -207,13 +207,22 @@ pub(super) struct Units {
     pub reaches_end: bool,
 }
 
-/// The records after a page that may hold the results of the calls its rows opened.
-const RESULT_LOOKAHEAD: usize = 64;
+/// The unit of one compaction boundary.
+fn boundary_unit(boundary: &super::seams::PageBoundary) -> StoredUnit {
+    let items = super::transcript::boundary_items(&boundary.cid, boundary.at, &boundary.model_switches);
+    let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: record_position(items[0].id().as_str()), items, ordinal: Some(boundary.ordinal) };
+    let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
+    StoredUnit { ordinal: boundary.ordinal, unit, bytes }
+}
 
-/// [`page`] as units: the one producer of what a positioned subscription holds of a stored record, in a snapshot, in a
-/// range it asked for and when the record changes. A call a row of the page opened takes its result from the record
-/// that stores it, in the page or among the [`RESULT_LOOKAHEAD`] records after it.
-pub(super) async fn units(
+/// The one projector from a stored page to units: the one producer of what a positioned subscription holds of the
+/// transcript, in a snapshot, in a range it asked for and when a record changes. Each occurrence is a unit with a
+/// position of its own and its ordinal: the records that show rows, and each compaction that lists a divider as a unit
+/// at the compaction's record (its divider, then the model switches on its replacement). A divider rides no row here,
+/// and its position is a cursor like any other: `at` may name it, to read back from or on from, wherever it stands
+/// (first, last, directly after another). `records` counts occurrences. A call a row of the page opened takes its
+/// result from the record that stores it, in the page or however far after it ([`ThreadStore::call_results`]).
+pub(super) async fn transcript_units(
     store: &Arc<dyn ThreadStore>,
     transcript: &Arc<dyn Transcript>,
     lanes: SessionLanes,
@@ -222,18 +231,39 @@ pub(super) async fn units(
     records: usize,
     ctl: &ReadCtl,
 ) -> Result<Option<Units>, CoreError> {
-    let Some(mut read) = page_shown(store, transcript, lanes, id, at, records, true, ctl).await? else { return Ok(None) };
-    let open = |rows: &[(ThreadItem, usize)]| {
-        rows.iter().any(|(item, _)| matches!(item, ThreadItem::ToolCall { run, .. } if run.call_id.is_some() && run.result.is_none()))
-    };
-    if !read.reaches_end
-        && open(&read.rows)
-        && let Some(last) = read.iids.last()
-    {
-        let after = PageAt::After(record_position(last));
-        // A page of another history revision answers nothing of this one's rows.
-        if let Some(later) = page_shown(store, transcript, lanes, id, after, RESULT_LOOKAHEAD, true, ctl).await?.filter(|later| later.rev == read.rev) {
-            for update in &later.updates {
+    let Some(mut read) = page_shown(store, transcript, lanes, id, at, records, true, true, ctl).await? else { return Ok(None) };
+    // The calls the page shows without a result, each with the ordinal of the record that shows it.
+    let open: Vec<(u64, String)> = read
+        .units
+        .iter()
+        .flat_map(|(ordinal, rows)| {
+            read.rows[rows.clone()].iter().filter_map(move |(item, _)| match item {
+                ThreadItem::ToolCall { run, .. } if run.result.is_none() => run.call_id.clone().map(|call| (*ordinal, call)),
+                _ => None,
+            })
+        })
+        .collect();
+    // A page that reaches the newest record holds every record after its calls already.
+    if !read.reaches_end && !open.is_empty() {
+        store.unheld().await;
+        let (reading, thread) = (store.clone(), id.clone());
+        let (rev, records) = on_lane_wait(lanes.io, &ctl.cancel, move |lane| reading.call_results(lane, &thread, &open)).await??;
+        // Records of another history revision answer nothing of this one's rows.
+        if rev == read.rev && !records.is_empty() {
+            let (transcript, job) = (transcript.clone(), ctl.clone());
+            let updates = on_lane_wait(lanes.cpu, &ctl.cancel, move |lane| {
+                let mut updates = Vec::new();
+                for record in &records {
+                    job.check()?;
+                    updates.extend(transcript.items(lane, record).into_iter().filter_map(|shown| match shown {
+                        super::seams::Shown::Update(update) => Some(update),
+                        super::seams::Shown::Item(_) => None,
+                    }));
+                }
+                Ok::<_, CoreError>(updates)
+            })
+            .await??;
+            for update in &updates {
                 if let Some((row, _)) = read.rows.iter_mut().find(|(row, _)| super::seams::updates(row, update)) {
                     *row = super::seams::merge_update(row, update);
                 }
@@ -242,14 +272,20 @@ pub(super) async fn units(
     }
     let job = ctl.clone();
     let sized = on_lane_wait(lanes.cpu, &ctl.cancel, move |_lane| {
-        let mut units = Vec::with_capacity(read.units.len());
+        let mut units = Vec::with_capacity(read.units.len() + read.boundaries.len());
+        // Records and boundaries are one order by ordinal: a boundary stands where its compaction's record does.
+        let mut boundaries = read.boundaries.iter().peekable();
         for ((ordinal, rows), iid) in read.units.iter().zip(&read.iids) {
             job.check()?;
+            while let Some(boundary) = boundaries.next_if(|boundary| boundary.ordinal < *ordinal) {
+                units.push(boundary_unit(boundary));
+            }
             let items: Vec<ThreadItem> = read.rows[rows.clone()].iter().map(|(item, _)| item.clone()).collect();
-            let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: record_position(iid), items };
+            let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: record_position(iid), items, ordinal: Some(*ordinal) };
             let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
             units.push(StoredUnit { ordinal: *ordinal, unit, bytes });
         }
+        units.extend(boundaries.map(boundary_unit));
         Ok::<_, CoreError>(Units { rev: read.rev, units, reaches_start: read.reaches_start, reaches_end: read.reaches_end })
     });
     Ok(Some(sized.await??))
@@ -264,6 +300,7 @@ async fn page_shown(
     at: PageAt,
     records: usize,
     fold: bool,
+    occurrences: bool,
     ctl: &ReadCtl,
 ) -> Result<Option<Window>, CoreError> {
     ctl.trace.fetch(records);
@@ -283,7 +320,7 @@ async fn page_shown(
         let read = on_lane_wait(lanes.io, &ctl.cancel, move |lane| {
             let _running = job.trace.job();
             job.trace.enter(Stage::Io);
-            let read = reading.history_page(lane, &thread, &ask, &job);
+            let read = if occurrences { reading.unit_page(lane, &thread, &ask, &job) } else { reading.history_page(lane, &thread, &ask, &job) };
             job.trace.enter(Stage::Queue);
             read
         })
@@ -307,13 +344,12 @@ async fn page_shown(
         let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
         let mut units = Vec::new();
         let mut iids = Vec::new();
-        let mut updates = Vec::new();
         let mut named_rows = 0..0;
         let last = read.records.len().saturating_sub(1);
         for (at, record) in read.records.iter().enumerate() {
             job.check()?;
             let from = rows.len();
-            decorate(&mut rows, transcript.rows(lane, record), read.decor.get(at));
+            decorate(&mut rows, transcript.rows_as(lane, record, end_of(&read.decor, at)), read.decor.get(at));
             if let Some(ordinal) = read.ordinals.get(at).filter(|_| rows.len() > from) {
                 units.push((*ordinal, from..rows.len()));
                 iids.push(record.iid.as_str().to_owned());
@@ -329,13 +365,13 @@ async fn page_shown(
                     if let Some((row, _)) = rows.iter_mut().find(|(row, _)| super::seams::updates(row, &update)) {
                         *row = super::seams::merge_update(row, &update);
                     }
-                    updates.push(update);
                 }
             }
         }
         job.trace.enter(Stage::Queue);
         let (reaches_start, reaches_end) = (read.reaches_start, read.reaches_end);
-        Ok::<_, CoreError>(Window { rev: read.rev, rows, units, named_rows, reaches_start, reaches_end, named: read.named, iids, updates })
+        let boundaries = read.boundaries;
+        Ok::<_, CoreError>(Window { rev: read.rev, rows, units, named_rows, reaches_start, reaches_end, named: read.named, iids, boundaries })
     });
     Ok(Some(shown.await??))
 }
@@ -373,17 +409,24 @@ pub(super) fn decorate(shown: &mut Vec<(ThreadItem, usize)>, mut rows: Vec<(Thre
     ext.insert(DIVIDERS_AFTER.into(), Value::Array(after));
 }
 
-/// [`decorate`] over the records of a page, oldest first.
+/// [`decorate`] over the records of a page, oldest first: each record's `rows` are asked for with where its turn stores
+/// its end ([`RowDecor::end`](super::seams::RowDecor)).
 fn decorated_rows<'a>(
     records: impl IntoIterator<Item = &'a mixdog_store::schema::record::ItemRecord>,
     decor: &[super::seams::RowDecor],
-    rows: impl Fn(&mixdog_store::schema::record::ItemRecord) -> Vec<(ThreadItem, usize)>,
+    rows: impl Fn(&mixdog_store::schema::record::ItemRecord, Option<TurnEndForm>) -> Vec<(ThreadItem, usize)>,
 ) -> Vec<(ThreadItem, usize)> {
     let mut shown = Vec::new();
     for (at, record) in records.into_iter().enumerate() {
-        decorate(&mut shown, rows(record), decor.get(at));
+        decorate(&mut shown, rows(record, end_of(decor, at)), decor.get(at));
     }
     shown
+}
+
+/// Where the turn of record `at` of a page stores its end, as its `decor` says; on the message it ended on for a store
+/// that marks none.
+fn end_of(decor: &[super::seams::RowDecor], at: usize) -> Option<TurnEndForm> {
+    decor.get(at).and_then(|decor| decor.end)
 }
 
 /// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
@@ -399,7 +442,7 @@ pub(super) async fn history_tail(
     let (store, thread) = (store.clone(), id.clone());
     let (_, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
     let transcript = transcript.clone();
-    let rows = on_lane_wait(lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record| transcript.rows(lane, record))).await?;
+    let rows = on_lane_wait(lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record, end| transcript.rows_as(lane, record, end))).await?;
     Ok((History { rows }, complete))
 }
 
@@ -1026,14 +1069,14 @@ async fn read_turn_metadata(deps: &SessionDeps, id: &ThreadId, cancel: &Cancella
         let (store, thread) = (deps.store.clone(), id.clone());
         let io_cancel = cancel.clone();
         let chunk = on_lane_wait(deps.lanes.io, cancel, move |lane| store.turn_history_chunk(lane, &thread, after, &io_cancel)).await??;
-        let Some(super::seams::TurnHistoryChunk { records, next }) = chunk else { return Ok(None) };
+        let Some(super::seams::TurnHistoryChunk { records, ends, next }) = chunk else { return Ok(None) };
         let transcript = deps.transcript.clone();
         let cpu_cancel = cancel.clone();
         scan = on_lane_wait(deps.lanes.cpu, cancel, move |lane| {
-            for record in records {
+            for (at, record) in records.into_iter().enumerate() {
                 check_turn_read_cancel(&cpu_cancel)?;
                 // Page decoration changes only ext fields, not membership, timestamps, or terminal state.
-                for (item, _) in transcript.rows(lane, &record).into_iter().rev() {
+                for (item, _) in transcript.rows_as(lane, &record, ends.get(at).copied().flatten()).into_iter().rev() {
                     scan.push(&item);
                 }
             }
@@ -1307,7 +1350,7 @@ mod tests {
         // No decoration: the rows as they are.
         assert!(decorated(rows(1), None).iter().all(|(item, _)| ext(item).is_empty()));
         let divider = |cid: &str| WindowDivider { before: 1, ordinal: 9, cid: cid.into(), at: Some(5), model_switches: Vec::new() };
-        let decor = RowDecor { archived: true, dividers_after: vec![divider("k1")] };
+        let decor = RowDecor { archived: true, dividers_after: vec![divider("k1")], end: None };
         let mut shown = decorated(rows(2), Some(&decor));
         // Every row of the record is archived; the divider rides the last one, as the item the window would show.
         assert!(shown.iter().all(|(item, _)| ext(item).get("archived") == Some(&json!(true))));
@@ -1316,7 +1359,7 @@ mod tests {
         assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5))]));
         // A record that shows no row (a call's result, shown on its call's card): the divider that follows it follows the
         // row shown before it, after the dividers that row already carries.
-        decorate(&mut shown, Vec::new(), Some(&RowDecor { archived: false, dividers_after: vec![divider("k2")] }));
+        decorate(&mut shown, Vec::new(), Some(&RowDecor { archived: false, dividers_after: vec![divider("k2")], end: None }));
         assert_eq!(shown.len(), 2);
         let after = ext(&shown[1].0).get(DIVIDERS_AFTER).cloned().expect("both dividers");
         assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5)), crate::session::transcript::divider_item("k2", Some(5))]));
@@ -1344,7 +1387,14 @@ impl DirInner {
             // Kept until the request ends: the line of a slow read says that moment, and whether an answer was queued by it.
             req.ctx.after_answer.keep(ctl.trace.answered(req.ctx.after_answer.queued()));
             let (deps, ctl) = (&self.deps, &ctl);
-            let reply = list_from_tail(id, &p, |at, records| page(&deps.store, &deps.transcript, deps.lanes, id, at, records, ctl)).await?;
+            let fetch = |at, records| async move {
+                let mut read = page(&deps.store, &deps.transcript, deps.lanes, id, at, records, ctl).await?;
+                if let Some(read) = &mut read {
+                    self.open_running(id, read.rows.iter_mut().map(|(item, _)| item));
+                }
+                Ok::<_, CoreError>(read)
+            };
+            let reply = list_from_tail(id, &p, fetch).await?;
             let rows = match &reply {
                 Reply::Value(page) => page.get("data").and_then(Value::as_array).map_or(0, Vec::len),
                 _ => 0,
@@ -1359,7 +1409,8 @@ impl DirInner {
             return self.read_turns(id, params(req, "ThreadTurnsListParams")?, &req.ctx.cancel).await;
         }
         let History { rows } = history(&self.deps, id).await?;
-        let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
+        let mut items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
+        self.open_running(id, items.iter_mut());
         match req.method.as_str() {
             "thread/items/read" => items_read(id, &items, params(req, "ThreadItemsReadParams")?),
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
@@ -1406,17 +1457,28 @@ impl DirInner {
         let (store, thread, io_cancel) = (self.deps.store.clone(), id.clone(), cancel.clone());
         let (records, decor) = on_lane_wait(self.deps.lanes.io, cancel, move |lane| store.turn_history_full(lane, &thread, &io_cancel)).await??;
         let (transcript, cpu_cancel) = (self.deps.transcript.clone(), cancel.clone());
-        let items = on_lane_wait(self.deps.lanes.cpu, cancel, move |lane| {
+        let mut items = on_lane_wait(self.deps.lanes.cpu, cancel, move |lane| {
             let mut rows = Vec::new();
             for (at, record) in records.into_iter().enumerate() {
                 check_turn_read_cancel(&cpu_cancel)?;
-                decorate(&mut rows, transcript.rows(lane, &record), decor.get(at));
+                decorate(&mut rows, transcript.rows_as(lane, &record, end_of(&decor, at)), decor.get(at));
             }
             Ok::<_, CoreError>(rows.into_iter().map(|(item, _)| item).collect::<Vec<_>>())
         })
         .await??;
         check_turn_read_cancel(cancel)?;
+        self.open_running(id, items.iter_mut());
         turns_list(&items, p, self.active_turn(id))
+    }
+
+    /// The stored rows as they read while the loaded thread runs a turn: a call of that turn no record answers is
+    /// still running, and reads open as its live card does. Only a call whose turn has ended reads ended without a
+    /// result.
+    fn open_running<'a>(&self, id: &ThreadId, items: impl Iterator<Item = &'a mut ThreadItem>) {
+        let Some(turn) = self.active_turn(id) else { return };
+        for item in items.filter(|item| meta(item).turn_id.as_ref().is_some_and(|of| of.as_str() == turn)) {
+            super::live_end::open_call(item);
+        }
     }
 
     /// Whether the loaded thread is running a turn (`snapshot.busy`); an unloaded one is not.
@@ -1450,5 +1512,391 @@ impl DirInner {
         let rest = messages.get(start..).unwrap_or_default();
         let take = p.limit.map_or(rest.len(), |n| (n as usize).min(rest.len()));
         Ok(Reply::Value(json!({ "messageCount": messages.len(), "messages": rest[..take] })))
+    }
+}
+
+/// The units of a stored transcript against the log they are read from: every occurrence in log order, read back and
+/// read on in pages of every size, over logs of both turn formats.
+#[cfg(test)]
+mod occurrence_tests {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_rt::LaneToken;
+    use mixdog_rt::LaneTokens;
+    use mixdog_store::schema::record::Record;
+    use mixdog_store::sqlite::SqliteStore;
+
+    use super::super::seams::CommitRecord;
+    use super::super::seams::EncodedRecord;
+    use super::super::store::StoreThreads;
+    use super::super::transcript::RecordTranscript;
+    use super::*;
+
+    const LOG_ID: &str = "4f1c2a9e0b7d3c5a6e8f9012";
+
+    fn commit(value: &Value) -> CommitRecord {
+        let record: Record = serde_json::from_value(value.clone()).expect("a record");
+        let encoded = EncodedRecord(mixdog_store::encode::encode_record(record.clone()).expect("encodes"));
+        CommitRecord { record: Arc::new(record), encoded }
+    }
+
+    /// A thread store over a new data dir, and that dir.
+    async fn store(tokens: LaneTokens) -> (Arc<StoreThreads>, tempfile::TempDir) {
+        let data = tempfile::tempdir().expect("data dir");
+        let root = data.path().to_path_buf();
+        let index = LaneToken::submit(tokens.maintenance_io, &CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let threads =
+            StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
+        (Arc::new(threads), data)
+    }
+
+    /// `records` appended to a new log of `thread`: each with the ordinal the log gave it. The writer stays open with
+    /// the returned guard.
+    async fn written(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, records: Vec<Value>) -> (Vec<(u64, Value)>, Box<dyn std::any::Any + Send>) {
+        let (threads, id) = (threads.clone(), ThreadId::from(thread));
+        let session = commit(&json!({"k":"session","v":2,"id":thread,"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
+        LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
+            let (mut log, _) = threads.create_log(lane, &id, &session).expect("created");
+            let batch: Vec<CommitRecord> = records.iter().map(commit).collect();
+            let ordinals = log.commit(lane, &batch).expect("appended");
+            let held: Box<dyn std::any::Any + Send> = Box::new(std::sync::Mutex::new(log));
+            (ordinals.into_iter().zip(records).collect(), held)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+    }
+
+    fn started(turn: &str, display_end: bool) -> Value {
+        let mut run = json!({"k":"run","rid":turn,"phase":"started","at":1});
+        if display_end {
+            run["end"] = json!("display");
+        }
+        run
+    }
+
+    /// A reply of `turn` that records the turn's completion on itself, as a turn without a display end stores its end.
+    fn reply(iid: &str, turn: &str, elapsed: u64) -> Value {
+        let body = json!({"role":"assistant","content":format!("text of {iid}"),"meta":{"transcript":{"completion":{"status":"done","elapsedMs":elapsed}}}});
+        json!({"k":"item","iid":iid,"turn":turn,"role":"assistant","form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}})
+    }
+
+    /// The end of `turn` as a display item of its own.
+    fn display_end(iid: &str, turn: &str, elapsed: u64) -> Value {
+        let row = json!({"kind":"turndone","id":iid,"status":"done","elapsedMs":elapsed,"cause":"message","at":1_700,"toolCalls":3});
+        json!({"k":"item","iid":iid,"turn":turn,"form":"display","model":false,"visible":true,"refs":[],"body":{"inline":row}})
+    }
+
+    fn compaction(cid: &str, at: i64) -> Value {
+        json!({"k":"compacted","cid":cid,"at":at,"dropped_count":0,
+            "replacement":{"inline":[{"iid":format!("sum-{cid}"),"body":{"role":"user","content":"summary"}}]}})
+    }
+
+    fn silent(cid: &str) -> Value {
+        let mut record = compaction(cid, 9);
+        record["silent"] = json!(true);
+        record
+    }
+
+    /// The units the log holds, in its order, read from the records as they were written: what each occurrence is at
+    /// its ordinal, with the fields of its record that its items state.
+    fn logged(written: &[(u64, Value)]) -> Vec<Value> {
+        let mut display_turns: Vec<&str> = Vec::new();
+        let mut units = Vec::new();
+        for (ordinal, record) in written {
+            let items = match record["k"].as_str() {
+                Some("run") => {
+                    if record["end"] == "display" {
+                        display_turns.push(record["rid"].as_str().expect("a run id"));
+                    }
+                    continue;
+                }
+                Some("compacted") if record["silent"] == true => continue,
+                Some("compacted") => {
+                    vec![json!({"type":"contextCompaction","id":format!("divider:{}", record["cid"].as_str().unwrap()),"at":record["at"]})]
+                }
+                Some("item") if record["form"] == "display" => {
+                    let row = &record["body"]["inline"];
+                    vec![json!({"type":"turnEnd","id":row["id"],"status":row["status"],"elapsedMs":row["elapsedMs"],"turnId":record["turn"]})]
+                }
+                Some("item") => {
+                    let (iid, turn, body) = (record["iid"].as_str().unwrap(), record["turn"].as_str().unwrap(), &record["body"]["inline"]);
+                    let mut items = vec![json!({"type":"agentMessage","id":iid,"text":body["content"],"turnId":turn})];
+                    // The completion a message records is its turn's end only where the turn names no display end.
+                    if !display_turns.contains(&turn) {
+                        let done = &body["meta"]["transcript"]["completion"];
+                        items.push(json!({"type":"turnEnd","id":format!("{iid}:2"),"status":done["status"],"elapsedMs":done["elapsedMs"],"turnId":turn}));
+                    }
+                    items
+                }
+                other => panic!("no unit stated for {other:?}"),
+            };
+            let name = items[0]["id"].as_str().unwrap().to_owned();
+            let name = if record["k"] == "item" { record["iid"].as_str().unwrap().to_owned() } else { name };
+            units.push(json!({"ordinal":ordinal,"position":format!("h1:0:{name}"),"items":items}));
+        }
+        units
+    }
+
+    /// The same fields of the units a read answered.
+    fn shown(units: &[StoredUnit]) -> Vec<Value> {
+        units
+            .iter()
+            .map(|held| {
+                assert_eq!(held.unit.ordinal, Some(held.ordinal), "a unit states the ordinal it is held under");
+                let items: Vec<Value> = held
+                    .unit
+                    .items
+                    .iter()
+                    .map(|item| {
+                        let whole = serde_json::to_value(item).expect("an item");
+                        let mut stated = json!({"type":whole["type"],"id":whole["id"]});
+                        for (key, value) in [("text", &whole["text"]), ("status", &whole["status"]), ("elapsedMs", &whole["elapsedMs"])] {
+                            if !value.is_null() && !matches!(item, ThreadItem::ContextCompaction { .. }) {
+                                stated[key] = value.clone();
+                            }
+                        }
+                        for key in ["turnId", "at", "detail"] {
+                            let value = &whole["meta"][key];
+                            let own = match item {
+                                ThreadItem::ContextCompaction { .. } => key != "turnId",
+                                _ => key == "turnId",
+                            };
+                            if own && !value.is_null() {
+                                stated[key] = value.clone();
+                            }
+                        }
+                        stated
+                    })
+                    .collect();
+                json!({"ordinal":held.ordinal,"position":held.unit.position,"items":items})
+            })
+            .collect()
+    }
+
+    struct Reader {
+        store: Arc<dyn ThreadStore>,
+        tokens: LaneTokens,
+        id: ThreadId,
+    }
+
+    impl Reader {
+        async fn read(&self, at: PageAt, records: usize) -> Units {
+            let transcript: Arc<dyn Transcript> = Arc::new(RecordTranscript::new());
+            let lanes = SessionLanes { cpu: self.tokens.cpu_interactive, io: self.tokens.interactive_io, durability: self.tokens.durability_io };
+            let ctl = ReadCtl::untraced(CancellationToken::new());
+            transcript_units(&self.store, &transcript, lanes, &self.id, at, records, &ctl).await.expect("a read").expect("a page the store places")
+        }
+
+        /// Every unit, oldest first, read back from the newest in pages of `size`, each from the oldest position held.
+        async fn back(&self, size: usize) -> Vec<Value> {
+            let mut page = self.read(PageAt::Newest, size).await;
+            let mut all = shown(&page.units);
+            while !page.reaches_start {
+                let from = all[0]["position"].as_str().expect("a position").to_owned();
+                page = self.read(PageAt::Before(from.clone()), size).await;
+                let mut older = shown(&page.units);
+                assert_eq!(older.pop().map(|named| named["position"].clone()), Some(json!(from)), "a page read back from a position ends with it");
+                assert!(older.len() <= size);
+                older.append(&mut all);
+                all = older;
+            }
+            all
+        }
+
+        /// Every unit, oldest first, read on from the oldest in pages of `size`, each from the newest position held.
+        async fn on(&self, size: usize) -> Vec<Value> {
+            let mut page = self.read(PageAt::Oldest, size).await;
+            let mut all = shown(&page.units);
+            while !page.reaches_end {
+                let from = all.last().expect("a unit")["position"].as_str().expect("a position").to_owned();
+                page = self.read(PageAt::After(from.clone()), size).await;
+                let mut newer = shown(&page.units);
+                assert_eq!(newer.first().map(|named| named["position"].clone()), Some(json!(from)), "a page read on from a position starts with it");
+                newer.remove(0);
+                assert!(newer.len() <= size);
+                all.append(&mut newer);
+            }
+            all
+        }
+    }
+
+    /// `records` written as a log and read as units in both directions, in pages of every size and from every
+    /// position: always the units the log holds, in its order. Answers those units.
+    async fn paged(thread: &str, records: Vec<Value>) -> Vec<Value> {
+        let tokens = mixdog_rt::testing::tokens();
+        let (threads, _data) = store(tokens).await;
+        let (written, _log) = written(&threads, tokens, thread, records).await;
+        let want = logged(&written);
+        let reader = Reader { store: threads.clone(), tokens, id: ThreadId::from(thread) };
+        for size in 1..=want.len() + 1 {
+            assert_eq!(reader.back(size).await, want, "read back in pages of {size}");
+            assert_eq!(reader.on(size).await, want, "read on in pages of {size}");
+        }
+        // Every position is a cursor both ways: the unit alone, then with its neighbours.
+        for (at, unit) in want.iter().enumerate() {
+            let position = unit["position"].as_str().expect("a position").to_owned();
+            for (page, held) in [
+                (reader.read(PageAt::Before(position.clone()), 0).await, &want[at..=at]),
+                (reader.read(PageAt::After(position.clone()), 0).await, &want[at..=at]),
+                (reader.read(PageAt::Before(position.clone()), 1).await, &want[at.saturating_sub(1)..=at]),
+                (reader.read(PageAt::After(position.clone()), 1).await, &want[at..(at + 2).min(want.len())]),
+            ] {
+                assert_eq!(shown(&page.units), held, "at {position}");
+            }
+        }
+        want
+    }
+
+    /// A call's result is on its card whatever lies between the call and the record that stores it: more records
+    /// than any page of the read holds, of other turns too. A call of no turn takes the result its run of turn-less
+    /// records stores, and none from past the first record of a turn after it. A call no record answers stays open.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_takes_its_stored_result_at_any_distance() {
+        let tokens = mixdog_rt::testing::tokens();
+        let (threads, _data) = store(tokens).await;
+        let message = |iid: &str, turn: Option<&str>, body: Value| {
+            let mut record = json!({"k":"item","iid":iid,"role":body["role"],"form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}});
+            if let Some(turn) = turn {
+                record["turn"] = json!(turn);
+            }
+            record
+        };
+        let call = |id: &str| json!({"role":"assistant","content":"","toolCalls":[{"id":id,"name":"read","arguments":{}}]});
+        let result = |id: &str, text: &str| json!({"role":"tool","content":text,"toolCallId":id});
+        let mut log = vec![
+            started("t1", false),
+            message("c1", Some("t1"), call("far")),
+            message("c2", Some("t1"), call("never")),
+            // Calls of no turn, as imported history holds them.
+            message("c3", None, call("turnless")),
+            message("c4", None, call("cut")),
+        ];
+        log.extend((0..100).map(|n| message(&format!("n{n}"), None, json!({"role":"user","content":"n"}))));
+        log.push(message("r3", None, result("turnless", "the turnless result")));
+        log.push(started("t2", false));
+        log.extend((0..200).map(|n| reply(&format!("m{n}"), "t2", 1)));
+        log.push(message("r1", Some("t1"), result("far", "the far result")));
+        // Past the turn that ended the calls' run: another run's.
+        log.push(message("r4", None, result("cut", "the cut result")));
+        let (_written, _log) = written(&threads, tokens, "calls", log).await;
+        let reader = Reader { store: threads.clone(), tokens, id: ThreadId::from("calls") };
+        // Each call the units show, with whether its card holds a result and that result holds the stored text.
+        let results = |units: &[StoredUnit]| -> Vec<(String, Option<bool>)> {
+            units
+                .iter()
+                .flat_map(|held| held.unit.items.iter())
+                .filter_map(|item| match item {
+                    ThreadItem::ToolCall { run, .. } => {
+                        let call = run.call_id.clone().unwrap_or_default();
+                        let stored = format!("the {call} result");
+                        let held = run.result.as_ref().map(|result| serde_json::to_string(result).expect("a result").contains(&stored));
+                        Some((call, held))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let want = [("far".to_owned(), Some(true)), ("never".to_owned(), None), ("turnless".to_owned(), Some(true)), ("cut".to_owned(), None)];
+        let occurrences = reader.read(PageAt::Oldest, 4).await;
+        assert!(!occurrences.reaches_end);
+        assert_eq!(results(&occurrences.units), want);
+    }
+
+    fn kinds(units: &[Value]) -> Vec<String> {
+        units.iter().map(|unit| unit["items"].as_array().unwrap().iter().map(|item| item["type"].as_str().unwrap()).collect::<Vec<_>>().join("+")).collect()
+    }
+
+    /// A log written before turns named a display end: each turn's end is the one its message records, and each
+    /// divider is a unit at its compaction's record with no detail, as the first unit, as the last, and directly after
+    /// another.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_old_log_pages_its_dividers_as_units_and_its_ends_by_the_restore_rule() {
+        let log = vec![
+            compaction("k0", 10),
+            started("t1", false),
+            reply("m1", "t1", 5),
+            compaction("k1", 11),
+            compaction("k2", 12),
+            silent("k3"),
+            started("t2", false),
+            reply("m2", "t2", 6),
+            compaction("k4", 13),
+        ];
+        let units = paged("old", log).await;
+        assert_eq!(
+            kinds(&units),
+            ["contextCompaction", "agentMessage+turnEnd", "contextCompaction", "contextCompaction", "agentMessage+turnEnd", "contextCompaction"]
+        );
+        assert!(units.iter().all(|unit| unit["items"][0].get("detail").is_none()), "a divider has no detail");
+    }
+
+    /// A log whose turns name a display end: the end is the display item's unit, after the turn's output, and the
+    /// message shows none of its own though it records a completion; a divider has no detail.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_format_log_pages_the_display_end_and_its_dividers() {
+        let log = vec![
+            compaction("k0", 10),
+            started("t1", true),
+            reply("m1", "t1", 5),
+            display_end("e1", "t1", 7),
+            compaction("k1", 11),
+            compaction("k2", 12),
+            started("t2", true),
+            reply("m2", "t2", 6),
+            display_end("e2", "t2", 8),
+            compaction("k3", 13),
+        ];
+        let units = paged("new", log).await;
+        assert_eq!(
+            kinds(&units),
+            ["contextCompaction", "agentMessage", "turnEnd", "contextCompaction", "contextCompaction", "agentMessage", "turnEnd", "contextCompaction"]
+        );
+        assert_eq!(units[2]["items"][0], json!({"type":"turnEnd","id":"e1","status":"done","elapsedMs":7,"turnId":"t1"}));
+        assert!(units.iter().all(|unit| unit["items"][0].get("detail").is_none()), "a divider has no detail");
+    }
+
+    /// An old thread that gained new turns: each turn is read by the form its own `started` record names, in one log.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_mixed_log_reads_each_turn_by_its_own_format() {
+        let log = vec![
+            compaction("k0", 10),
+            started("t1", false),
+            reply("m1", "t1", 5),
+            compaction("k1", 11),
+            started("t2", true),
+            reply("m2", "t2", 6),
+            display_end("e2", "t2", 8),
+            compaction("k2", 12),
+            compaction("k3", 13),
+            started("t3", false),
+            reply("m3", "t3", 9),
+            started("t4", true),
+            reply("m4", "t4", 2),
+            display_end("e4", "t4", 3),
+            compaction("k4", 14),
+        ];
+        let units = paged("mixed", log).await;
+        assert_eq!(
+            kinds(&units),
+            [
+                "contextCompaction",
+                "agentMessage+turnEnd",
+                "contextCompaction",
+                "agentMessage",
+                "turnEnd",
+                "contextCompaction",
+                "contextCompaction",
+                "agentMessage+turnEnd",
+                "agentMessage",
+                "turnEnd",
+                "contextCompaction"
+            ]
+        );
     }
 }

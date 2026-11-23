@@ -360,10 +360,10 @@ impl Rig {
         let mut messages = vec![p::Message::new(p::Role::User, p::Content::Text("q-old".into()))];
         messages.push(p::Message::new(p::Role::Assistant, p::Content::Text("a-old".into())));
         for n in 0..turns {
-            messages.push(p::Message::new(p::Role::User, p::Content::Text(format!("q{n}"))));
-            messages.push(p::Message::new(p::Role::Assistant, p::Content::Text(format!("a{n}"))));
+            messages.push(p::Message::new(p::Role::User, p::Content::Text(format!("q{n}").into())));
+            messages.push(p::Message::new(p::Role::Assistant, p::Content::Text(format!("a{n}").into())));
         }
-        messages.push(p::Message::new(p::Role::User, p::Content::Text(format!("q{turns}"))));
+        messages.push(p::Message::new(p::Role::User, p::Content::Text(format!("q{turns}").into())));
         let options = p::RequestOptions {
             session_id: Some(self.session.clone()),
             tail_gate: Some(self.gate.clone()),

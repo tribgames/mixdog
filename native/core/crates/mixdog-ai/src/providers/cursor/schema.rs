@@ -156,6 +156,7 @@ pub struct UserImage {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     UserMessage { text: String, message_id: String, images: Vec<UserImage>, context: RequestContext },
+    /// Goes on with the open turn the conversation state holds.
     Resume { context: RequestContext },
 }
 
@@ -239,6 +240,8 @@ pub fn heartbeat_message() -> Vec<u8> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecResult {
     RequestContext(RequestContext),
+    /// The state of the MCP servers the tools were offered under: of those `asked` names, or of all.
+    McpState { tools: Vec<McpToolDefinition>, asked: Vec<String> },
     McpError(String),
     /// A native exec the environment does not serve: the `rejected`/`error`
     /// payload of its result type.
@@ -279,6 +282,28 @@ pub fn exec_client_message(id: u64, exec_id: &str, result: &ExecResult, detail: 
             let mut result = Writer::new();
             result.message(1, success);
             m.message(10, result);
+        }
+        ExecResult::McpState { tools, asked } => {
+            // One server per name the tools were offered under, each connected and holding its tools.
+            let mut names: Vec<&str> = tools.iter().map(|tool| tool.provider_identifier.as_str()).collect();
+            names.sort_unstable();
+            names.dedup();
+            let mut success = Writer::new();
+            for name in names.into_iter().filter(|name| asked.is_empty() || asked.iter().any(|a| a == name)) {
+                let mut server = Writer::new();
+                server.string(1, name);
+                server.string(2, name);
+                for tool in tools.iter().filter(|tool| tool.provider_identifier == name) {
+                    let mut t = Writer::new();
+                    tool.write(&mut t);
+                    server.message(5, t);
+                }
+                server.string(7, "connected");
+                success.message(1, server);
+            }
+            let mut result = Writer::new();
+            result.message(1, success);
+            m.message(36, result);
         }
         ExecResult::McpError(text) => {
             let mut error = Writer::new();
@@ -353,6 +378,17 @@ pub fn exec_throw(id: u64, error: &str) -> Vec<u8> {
     t.string(2, error);
     let mut control = Writer::new();
     control.message(2, t);
+    let mut message = Writer::new();
+    message.message(5, control);
+    message.finish()
+}
+
+/// `AgentClientMessage{execClientControlMessage{streamClose}}`: nothing more follows for exec `id`.
+pub fn exec_stream_close(id: u64) -> Vec<u8> {
+    let mut close = Writer::new();
+    close.varint(1, id);
+    let mut control = Writer::new();
+    control.message(1, close);
     let mut message = Writer::new();
     message.message(5, control);
     message.finish()
@@ -441,6 +477,21 @@ pub struct InteractionUpdate {
     pub token_delta: i64,
     pub turn_ended: bool,
     pub step_completed: bool,
+    pub heartbeat: bool,
+    /// The tool requests the step makes, when this update lists them.
+    pub listed: Option<u64>,
+    /// What the turn used, when this update ends it and says so.
+    pub usage: Option<TurnUsage>,
+}
+
+/// The token counts of a turn, as the update that ends it reports them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TurnUsage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub reasoning: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -448,6 +499,8 @@ pub struct ExecServer {
     pub id: u64,
     pub exec_id: String,
     pub request_context: bool,
+    /// The service asks for the state of the client's MCP servers: the ones it names, or all when it names none.
+    pub mcp_state: Option<Vec<String>>,
     pub mcp: Option<McpArgs>,
     pub read: Option<ReadArgs>,
     pub write: Option<WriteArgs>,
@@ -485,6 +538,8 @@ pub struct WriteArgs {
     pub file_text: String,
     pub tool_call_id: String,
     pub file_bytes: Vec<u8>,
+    /// The service asks for the file's content after the write.
+    pub return_content: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -501,6 +556,8 @@ pub struct GrepArgs {
     pub output_mode: String,
     pub head_limit: i64,
     pub tool_call_id: String,
+    /// Results to skip before the first one returned.
+    pub offset: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -584,8 +641,37 @@ fn decode_interaction(bytes: &[u8]) -> Result<InteractionUpdate, PbError> {
                     }
                 }
             }
-            14 => out.turn_ended = true,
+            13 => out.heartbeat = true,
+            14 => {
+                out.turn_ended = true;
+                let mut inner = Reader::new(v.bytes());
+                let mut usage = TurnUsage::default();
+                let mut told = false;
+                while let Some((m, w)) = inner.next_field()? {
+                    let count = (w.as_u64() as i64).max(0) as u64;
+                    match m {
+                        1 => usage.input = count,
+                        2 => usage.output = count,
+                        3 => usage.cache_read = count,
+                        4 => usage.cache_write = count,
+                        5 => usage.reasoning = Some(count),
+                        _ => continue,
+                    }
+                    told = true;
+                }
+                out.usage = told.then_some(usage);
+            }
             17 => out.step_completed = true,
+            27 => {
+                let mut inner = Reader::new(v.bytes());
+                let mut count = 0;
+                while let Some((m, w)) = inner.next_field()? {
+                    if m == 1 {
+                        count = w.as_u64();
+                    }
+                }
+                out.listed = Some(count);
+            }
             _ => {}
         }
     }
@@ -637,6 +723,16 @@ fn decode_exec(bytes: &[u8]) -> Result<ExecServer, PbError> {
             1 => out.id = v.as_u64(),
             15 => out.exec_id = v.text(),
             10 => out.request_context = true,
+            36 => {
+                let mut asked = Vec::new();
+                let mut f = Reader::new(b);
+                while let Some((m, w)) = f.next_field()? {
+                    if m == 1 {
+                        asked.push(w.text());
+                    }
+                }
+                out.mcp_state = Some(asked);
+            }
             11 => out.mcp = Some(decode_mcp(b)?),
             7 => {
                 let mut a = ReadArgs::default();
@@ -660,6 +756,7 @@ fn decode_exec(bytes: &[u8]) -> Result<ExecServer, PbError> {
                         1 => a.path = w.text(),
                         2 => a.file_text = w.text(),
                         3 => a.tool_call_id = w.text(),
+                        4 => a.return_content = w.as_bool(),
                         5 => a.file_bytes = w.bytes().to_vec(),
                         _ => {}
                     }
@@ -693,6 +790,7 @@ fn decode_exec(bytes: &[u8]) -> Result<ExecServer, PbError> {
                         3 => a.glob = w.text(),
                         4 => a.output_mode = w.text(),
                         10 => a.head_limit = w.as_u64() as i64,
+                        16 => a.offset = w.as_u64() as i64,
                         14 => a.tool_call_id = w.text(),
                         _ => {}
                     }

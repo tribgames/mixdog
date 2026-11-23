@@ -78,7 +78,7 @@ pub(crate) fn without_thinking_replay(message: &AgentMessage) -> Option<AgentMes
         let mut repaired = message.clone();
         repaired.message = next;
         repaired.stored = message.stored.as_ref().map(|row| {
-            let mut row = (**row).clone();
+            let mut row = row.to_map();
             row.shift_remove("thinkingBlocks");
             if let Some(JsonValue::Array(blocks)) = row.get_mut("assistantBlocks") {
                 blocks.retain(|b| !is_thinking_block(b) && !is_empty_text_block(b));
@@ -86,7 +86,7 @@ pub(crate) fn without_thinking_replay(message: &AgentMessage) -> Option<AgentMes
             if let Some(JsonValue::Array(items)) = row.get_mut("providerReplay").and_then(|r| r.get_mut("items")) {
                 items.retain(|b| !is_thinking_block(b) && !is_empty_text_block(b));
             }
-            std::sync::Arc::new(row)
+            std::sync::Arc::new(row.into())
         });
         repaired
     })

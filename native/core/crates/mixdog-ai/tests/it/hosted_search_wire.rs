@@ -149,7 +149,7 @@ fn api_body(declared: Option<bool>, messages: Vec<Message>) -> Value {
 }
 
 fn text(role: Role, text: &str) -> Message {
-    Message::new(role, Content::Text(text.to_owned()))
+    Message::new(role, Content::Text(text.to_owned().into()))
 }
 
 fn eager(name: &str) -> ToolDefinition {

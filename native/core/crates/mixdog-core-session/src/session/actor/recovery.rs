@@ -2,6 +2,47 @@
 
 use super::*;
 
+/// The end a crashed turn that stores its end as a record is closed with: the end its messages state, newest first
+/// (what it left, then its own stored messages `own`), which no reader shows from a message of such a turn. `None`
+/// when none states one.
+fn crashed_end(rid: &str, left: &super::super::seams::CrashedRows, own: &[(mixdog_core_api::ids::ItemId, Value)]) -> Option<serde_json::Map<String, Value>> {
+    let stated = |iid: &str, body: &Value| {
+        let record = ItemRecord {
+            iid: text(iid, "itemId").ok()?,
+            turn: Some(text(rid, "turnId").ok()?),
+            role: body.get("role").and_then(Value::as_str).and_then(|role| text(role, "role").ok()),
+            form: Form::Message,
+            model: true,
+            visible: true,
+            archive: None,
+            op: None,
+            prompt: None,
+            refs: Vec::new().try_into().expect("empty list fits"),
+            body: Slot::Inline(body.clone()),
+        };
+        super::super::transcript::restore(&record, body).into_iter().rev().find_map(|restored| match restored {
+            super::super::transcript::Restored::Row { row, .. } if row.get("kind").and_then(Value::as_str) == Some("turndone") => Some(row),
+            _ => None,
+        })
+    };
+    let left = left.rows.iter().rev().find_map(|row| stated(row.iid.as_str(), &row.body));
+    left.or_else(|| own.iter().rev().find_map(|(iid, body)| stated(iid.as_str(), body))).or_else(|| {
+        // The restart line an earlier recovery stored before it was cut: the context keeps its text, not its end.
+        let cut = own.iter().any(|(_, body)| {
+            body.get("role").and_then(Value::as_str) == Some("user")
+                && body.get("content").and_then(Value::as_str).is_some_and(mixdog_protocol::text_class::is_process_restart_status_text)
+        });
+        cut.then(|| {
+            let mut row = serde_json::Map::new();
+            row.insert("kind".into(), json!("turndone"));
+            row.insert("status".into(), json!("cancelled"));
+            row.insert("elapsedMs".into(), json!(0));
+            row.insert("cause".into(), json!(mixdog_protocol::message_class::RESTART_CAUSE));
+            row
+        })
+    })
+}
+
 impl SessionActor {
     /// `normalizeStaleCompactingStage` (`compaction-runner.mjs`): `compacting` is the transient stage written just
     /// before a compaction runs. A session opened with it (the process died, or only part of the pass was saved) is
@@ -33,11 +74,30 @@ impl SessionActor {
         // committed.
         self.recovering = true;
         let (store, lanes, thread, runs_host, jobs) = (self.deps.store.clone(), self.deps.lanes, self.id.clone(), self.deps.runs.clone(), self.jobs_tx.clone());
+        // The runs that store their end as a record of their own: recovery writes that record.
+        // One whose end a recovery cut short already stored (a kill between the end and the terminal record) has it.
+        let ended: std::collections::HashSet<&str> = self
+            .acked
+            .window
+            .iter()
+            .filter_map(|row| match row.item.as_ref() {
+                ThreadItem::TurnEnd { meta, .. } => meta.turn_id.as_ref().map(|turn| turn.as_str()),
+                _ => None,
+            })
+            .collect();
+        let marked: std::collections::HashSet<String> = self.acked.turn_ends.keys().filter(|rid| !ended.contains(rid.as_str())).cloned().collect();
         drop(mixdog_rt::spawn("session-recover", TaskClass::Work, async move {
             let context = super::super::run::read_context(&store, &lanes, &thread).await;
             let mut ended = Vec::new();
             for (rid, draft) in runs {
                 let context_tokens = draft.context_tokens;
+                // The run's own stored messages: what the context holds after its input row.
+                let own: Vec<(mixdog_core_api::ids::ItemId, Value)> = match (&context, &draft.input) {
+                    (Ok(context), Some(input)) if marked.contains(&rid) => {
+                        context.iter().skip_while(|(iid, _)| iid.as_str() != input).skip(1).cloned().collect()
+                    }
+                    _ => Vec::new(),
+                };
                 let crashed = match &context {
                     Ok(context) => {
                         let run = super::super::seams::CrashedRun {
@@ -57,7 +117,10 @@ impl SessionActor {
                 // unrecovered checkpoint aside, `setAsideUnrecoveredCheckpoint`).
                 match crashed {
                     Some(job) => match job.await {
-                        Ok(rows) => ended.push((rid, super::super::seams::CrashedRows { context_tokens, ..rows })),
+                        Ok(rows) => {
+                            let end = marked.contains(&rid).then(|| crashed_end(&rid, &rows, &own)).flatten();
+                            ended.push((rid, super::super::seams::CrashedRows { context_tokens, ..rows }, end));
+                        }
                         Err(error) => {
                             tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open: {error:?}", thread.as_str())
                         }
@@ -71,7 +134,7 @@ impl SessionActor {
 
     /// The crashed runs end: what each left is committed, then its end (`recoverTurnCheckpoint`: the record names
     /// the turn it covers, is stamped as used, and drops the provider continuation, `turn-checkpoint.mjs:545-554`).
-    pub(super) fn recovered(&mut self, ended: Vec<(String, super::super::seams::CrashedRows)>) {
+    pub(super) fn recovered(&mut self, ended: Vec<(String, super::super::seams::CrashedRows, Option<serde_json::Map<String, Value>>)>) {
         let at = self.deps.clock.now_ms();
         // The recovery is one unit, written whole or failed whole: a failed save shows nothing of it (the open is served the
         // log as it stands) and leaves the runs open, their drafts kept, for the next open, as an unreadable context does.
@@ -85,7 +148,7 @@ impl SessionActor {
         // `steering.mjs:241`).
         let delivered: std::collections::HashSet<String> = ended
             .iter()
-            .flat_map(|(_, left)| &left.rows)
+            .flat_map(|(_, left, _)| &left.rows)
             .filter(|item| item.role.as_deref() == Some("user"))
             .flat_map(|item| {
                 let meta = item.body.get("meta");
@@ -109,7 +172,7 @@ impl SessionActor {
         for qid in taken {
             self.accept_record(dequeue(&qid), Class::Control, Display::None, Vec::new(), Vec::new());
         }
-        for (rid, left) in ended {
+        for (rid, left, end) in ended {
             let turn = TurnId::from(rid.clone());
             for item in left.rows {
                 let display = self.row_display(item.role.as_deref(), &item.body);
@@ -131,11 +194,17 @@ impl SessionActor {
                 });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
             }
+            // The turn's end, where a turn that closes writes it: after what the run left, before its terminal record.
+            if let Some(mut end) = end {
+                end.insert("id".into(), json!(new_id()));
+                let _ = self.store_end(&turn, end, Vec::new());
+            }
             let record = Record::Run(RunRecord {
                 rid: id(&rid),
                 phase: if left.sealed { RunPhase::Completed } else { RunPhase::Interrupted },
                 attribution: None,
                 attempt: None,
+                end: None,
                 at: Some(at),
                 op: None,
                 detail: None,

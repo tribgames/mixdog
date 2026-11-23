@@ -98,7 +98,7 @@ mod prefix_guard_tests {
         ModelRequest {
             model: model.into(),
             messages: vec![
-                Message::new(Role::System, Content::Text(format!("Model: {provider}/{model}"))),
+                Message::new(Role::System, Content::Text(format!("Model: {provider}/{model}").into())),
                 Message::new(Role::User, Content::Text("Continue the conversation.".into())),
                 Message::new(Role::Assistant, Content::Text("Earlier answer.".into())),
             ],

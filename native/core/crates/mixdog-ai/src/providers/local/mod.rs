@@ -581,6 +581,35 @@ pub fn adapter(
 mod tests {
     use super::*;
 
+    /// The runtime's Chat Completions stream is consumed as the compat chat stream is (the inner `OpenAICompatProvider`,
+    /// mixdog-local.mjs:63): its first-byte and first-output windows end a silent stream, and a long prefill that has sent
+    /// its first record reports transport while the output is still to come.
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_local_stream_stalls_on_the_chat_windows_and_a_slow_prefill_reports_transport() {
+        use crate::providers::connect::rewrite::testing::{Paced, assert_stalls, chat};
+        struct NoModels;
+        #[async_trait]
+        impl InstalledModels for NoModels {
+            async fn installed(&self) -> Result<Vec<Value>, ProviderError> {
+                Ok(Vec::new())
+            }
+        }
+        let build = |streams| -> Arc<dyn ProviderAdapter> {
+            let policy = CompatProfile::plain(PROVIDER_ID, "http://127.0.0.1/v1", CredentialKind::Keyless).retry_policy();
+            Arc::new(adapter(Paced::new(streams), "http://127.0.0.1:8080/v1".into(), "", policy, Arc::new(NoModels), Vec::new()))
+        };
+        let request = ModelRequest {
+            model: "qwen".into(),
+            messages: vec![mixdog_core_api::domain::provider::Message::new(
+                mixdog_core_api::domain::provider::Role::User,
+                mixdog_core_api::domain::provider::Content::Text("hi".into()),
+            )],
+            tools: Vec::new(),
+            options: mixdog_core_api::domain::provider::RequestOptions::default(),
+        };
+        assert_stalls(build, &request, &chat()).await;
+    }
+
     #[tokio::test]
     async fn stopping_an_unpolled_stream_drops_the_body() {
         struct NoInference;

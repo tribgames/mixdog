@@ -245,7 +245,7 @@ fn a_tool_search_result_with_no_offered_tool_keeps_its_text_and_names_what_dropp
     let kept = lowered_result(json!({ "provider": "anthropic", "toolReferences": ["gone"] }), &["read"]);
     assert_eq!(kept, "loaded");
     let mut blank = tool_exchange(json!({ "provider": "anthropic", "toolReferences": ["gone", "also"] }), "  ");
-    blank[2].content = Content::Text(String::new());
+    blank[2].content = Content::Text(String::new().into());
     let sent = body(&api(), &request("claude-sonnet-4-6", blank, vec![tool("read", json!({ "type": "object", "properties": {} }))], RequestOptions::default()));
     assert_eq!(
         sent["messages"][2]["content"][0]["content"],

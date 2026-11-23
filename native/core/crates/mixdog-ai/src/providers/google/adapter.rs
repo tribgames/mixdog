@@ -735,7 +735,8 @@ impl ProviderAdapter for GoogleAdapter {
 
     /// `canFallbackNonStreaming` (retry-classification.mjs:402) of a stream-phase failure: nothing reached the caller,
     /// no call was cut or dispatched, and it is transient, stalled or a truncated stream.
-    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+    fn recovers_spent(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        let model = request.model.as_str();
         self.gemini_unary_supported(model) && (self.direct_gemini(model) || failure.delivery == DeliveryState::Accepted) && unary_recoverable(failure)
     }
 

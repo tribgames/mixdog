@@ -18,6 +18,7 @@ use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::TurnEndForm;
 use mixdog_store::summary::MessageStats;
 use serde_json::Value;
 use serde_json::json;
@@ -129,6 +130,8 @@ pub(super) use self::transcript_convert::displayed_id;
 pub(super) use self::transcript_convert::item_of as row_item;
 pub use self::transcript_convert::live_end;
 pub(super) use self::transcript_convert::position_of_id;
+pub(super) use self::transcript_divider::boundary_items;
+pub(super) use self::transcript_divider::divider_cid;
 pub(super) use self::transcript_divider::divider_item;
 pub(super) use self::transcript_live::compact_marker_item;
 pub(super) use self::transcript_response::has_body;
@@ -149,14 +152,14 @@ pub struct StoredRows {
 #[derive(Default)]
 struct Rows {
     /// Shared with the message's own `stored` row when it was registered from it ([`StoredRows::record_stored`]).
-    by_id: HashMap<String, std::sync::Arc<serde_json::Map<String, Value>>>,
+    by_id: HashMap<String, std::sync::Arc<mixdog_agent::message::StoredRow>>,
     unkeyed: Vec<(std::sync::Arc<AgentMessage>, Held)>,
 }
 
 /// The body of a message without an id: the message's own stored row, shared, the body it was registered with, or
 /// nothing where the body is the row the message itself converts to ([`StoredRows::record_turn`]).
 enum Held {
-    Shared(std::sync::Arc<serde_json::Map<String, Value>>),
+    Shared(std::sync::Arc<mixdog_agent::message::StoredRow>),
     Owned(Value),
     Converted,
 }
@@ -164,7 +167,7 @@ enum Held {
 impl Held {
     fn value(&self, message: &AgentMessage) -> Value {
         match self {
-            Self::Shared(body) => Value::Object(body.as_ref().clone()),
+            Self::Shared(body) => Value::Object(body.to_map()),
             Self::Owned(body) => body.clone(),
             Self::Converted => mixdog_agent::message_row::row_of(message),
         }
@@ -218,7 +221,7 @@ impl StoredRows {
                     Value::Object(map) => map,
                     other => serde_json::Map::from_iter([("body".to_owned(), other)]),
                 };
-                rows.by_id.insert(id.clone(), std::sync::Arc::new(body));
+                rows.by_id.insert(id.clone(), std::sync::Arc::new(body.into()));
             }
             None => rows.unkeyed.push((std::sync::Arc::new(message.clone()), Held::Owned(body))),
         }
@@ -249,7 +252,7 @@ impl StoredRows {
     }
 
     /// `f` over the stored body of the message whose `meta.transcript.messageId` is `message_id`.
-    pub fn with_body<R>(&self, message_id: &str, f: impl FnOnce(&serde_json::Map<String, Value>) -> R) -> Option<R> {
+    pub fn with_body<R>(&self, message_id: &str, f: impl FnOnce(&mixdog_agent::message::StoredRow) -> R) -> Option<R> {
         let rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         rows.by_id.get(message_id).map(|body| f(body))
     }
@@ -306,7 +309,7 @@ impl MessageRows for StoredRows {
         if let Some(id) = &message.message_id
             && let Some(body) = rows.by_id.get(id)
         {
-            return Value::Object(body.as_ref().clone());
+            return Value::Object(body.to_map());
         }
         rows.unkeyed.iter().rev().find(|(known, _)| **known == *message).map_or(Value::Null, |(known, body)| body.value(known))
     }
@@ -472,7 +475,15 @@ fn stored_attachments(input: &TurnInput) -> Vec<Value> {
 }
 
 impl Transcript for RecordTranscript {
-    fn items(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
+    fn items(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
+        self.items_as(lane, record, None)
+    }
+
+    fn rows(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)> {
+        self.rows_as(lane, record, None)
+    }
+
+    fn items_as(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord, end: Option<TurnEndForm>) -> Vec<Shown> {
         let Slot::Inline(body) = &record.body else {
             return Vec::new();
         };
@@ -480,12 +491,12 @@ impl Transcript for RecordTranscript {
             return Vec::new();
         }
         match record.form {
-            Form::Message => transcript_convert::message_items(record, body),
+            Form::Message => transcript_convert::message_items_as(record, body, end),
             Form::Display => transcript_convert::display_item(record, body).map(Shown::Item).into_iter().collect(),
         }
     }
 
-    fn rows(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)> {
+    fn rows_as(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord, end: Option<TurnEndForm>) -> Vec<(ThreadItem, usize)> {
         let Slot::Inline(body) = &record.body else {
             return Vec::new();
         };
@@ -493,7 +504,7 @@ impl Transcript for RecordTranscript {
             return Vec::new();
         }
         match record.form {
-            Form::Message => transcript_convert::message_shown(record, body)
+            Form::Message => transcript_convert::message_shown_as(record, body, end)
                 .into_iter()
                 .filter_map(|(shown, bytes)| match (shown, bytes) {
                     (Shown::Item(item), Some(bytes)) => Some((item, bytes)),

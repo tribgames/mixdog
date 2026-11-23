@@ -463,6 +463,12 @@ fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a 
     Ok(&tail[cursor..])
 }
 
+/// The server no longer holds the response a delta frame continued (`previous_response_not_found`): the request has to go
+/// again as a full frame.
+pub fn chain_refused(error: &mixdog_core_api::domain::provider::ProviderError) -> bool {
+    error.code.as_deref() == Some("previous_response_not_found")
+}
+
 /// `_computeDelta` under the resolved policy's delta switch (`delta.optIn`;
 /// only `refs` exists): a delta only when the request extends the exact
 /// previous request plus its response; otherwise a full frame with the

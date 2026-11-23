@@ -591,7 +591,7 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        Content::Text(joined)
+        Content::Text(joined.into())
     } else {
         Content::Parts(rendered)
     }
@@ -1698,9 +1698,9 @@ async fn cache_hit_result(env: &Arc<CallEnv>, call: &ToolCall, name: &str, args:
     if let (Some(hooks), Content::Text(body)) = (&env.hooks, &message.message.content) {
         let hook_call = GateCall::new(name, args.clone()).at(cwd);
         if let Some(Some(updated)) = hooked(&env.cancel, hooks.after_tool(&call.id, &hook_call, body)).await
-            && updated != *body
+            && *body != updated
         {
-            message.message.content = Content::Text(updated);
+            message.message.content = Content::Text(updated.into());
             rewritten = true;
         }
     }
@@ -1915,7 +1915,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
                 )
                 .await
             {
-                content = Content::Text(updated);
+                content = Content::Text(updated.into());
                 hook_refused = result_text_failed(&content, &name, output.explicit_success);
                 // A hook response depends on the current invocation, not
                 // just on the arguments and filesystem dependency proof.

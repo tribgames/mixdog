@@ -57,7 +57,12 @@ impl SessionStats {
         self.latest_output_tokens = output;
         self.latest_cached_tokens = cached;
         self.latest_cache_write_tokens = cache_write;
-        self.latest_prompt_tokens = prompt;
+        // A delta that bills several model calls at once counts their sum as its prompt; the prompt of the latest
+        // call is the one it measured the context on, where it states one.
+        self.latest_prompt_tokens = match field(delta, "contextPromptTokens").filter(|stated| !stated.is_null()) {
+            Some(stated) => finite_or_zero(Some(stated)),
+            None => prompt,
+        };
         self.cost_usd += finite_or_zero(field(delta, "costUsd"));
     }
 
@@ -109,6 +114,14 @@ mod tests {
         assert_eq!((stats.cache_write_tokens, stats.prompt_tokens, stats.cost_usd), (2.0, 15.0, 0.75));
         assert_eq!((stats.latest_input_tokens, stats.latest_output_tokens, stats.latest_cached_tokens), (5.0, 1.0, 0.0));
         assert_eq!((stats.latest_cache_write_tokens, stats.latest_prompt_tokens), (0.0, 0.0));
+    }
+
+    /// A delta of a whole turn adds its sum to the totals; the latest prompt is the context it measured, not the sum.
+    #[test]
+    fn the_latest_prompt_of_a_delta_that_bills_a_whole_turn_is_the_context_it_measured() {
+        let mut stats = SessionStats::new();
+        stats.apply_usage_delta(Some(&json!({ "deltaInput": 37108, "deltaPrompt": 37108, "contextPromptTokens": 9000 })));
+        assert_eq!((stats.prompt_tokens, stats.latest_prompt_tokens), (37108.0, 9000.0));
     }
 
     #[test]

@@ -1,12 +1,25 @@
 //! The stored records as the positioned subscriptions hold them.
 //!
-//! A positioned subscription is sent a record's rows from one producer only, the stored page of that record
-//! ([`reads::units`]): in its snapshot, in a range it asked for, and whenever the record is stored or then reads
-//! differently. The actor keeps one line of reads ([`UnitJob`]), run one at a time in the order they were asked: a
-//! record's unit read and sent ([`Feed::deliver`], by each subscription's grant alone), the ranges subscriptions hold
-//! read again after a change that reaches many records, the newest records a snapshot carries, and a subscription's
-//! demand ([`super::super::window`]). Because a demand is read in that line, the grant it makes is exactly the rows
-//! it carries: a unit stored before the read is in it, one stored after is sent behind its fence.
+//! The session log is what a positioned subscription holds a projection of: each occurrence of the transcript (a
+//! record that shows rows, a compaction's divider) is one unit at its own ordinal, the same in a snapshot, in a range
+//! asked for and live ([`reads::transcript_units`]). A record new to the log is sent as its unit from the commit the
+//! store acknowledged, with the rows that commit projected ([`UnitJob::Unit`]): nothing is read for it, its
+//! predecessor included. Only what changes how an occurrence already stored reads is read again (an amend, a call's
+//! result, the rows a compaction archived, a model switch on a divider).
+//!
+//! The actor keeps one line of these ([`UnitJob`]), run one at a time in the order they were asked: a committed unit
+//! sent ([`Feed::deliver`], by each subscription's grant alone, with the tail a snapshot carries in the same step), an
+//! occurrence read again, the newest records a snapshot carries, and a subscription's demand
+//! ([`super::super::window`]). Because a demand is read in that line, the grant it makes is exactly the rows it
+//! carries: a unit committed before the read is in it, one committed after is sent behind its fence, never both as
+//! two occurrences. A read that fails is not tried again: its demand fails, and for an occurrence read again every
+//! subscription is left holding nothing from its last fence on ([`SessionActor::unread`]), so none is sent a later
+//! change across the hole.
+//!
+//! A call of a running turn reads in every one of them as the session holds it ([`window::Calls`]), and each change
+//! of it (its result shown ahead of its row, its result stored, its turn ended without one) is a read of the record
+//! that made it in the line: a demand shows the calls as they stood when its read began, and a later change follows
+//! its fence.
 
 use mixdog_app_protocol::v2::thread::ThreadWindowSetParams;
 use mixdog_app_protocol::v2::thread::ThreadWindowSetResponse;
@@ -25,7 +38,10 @@ use super::*;
 
 /// One read of the line.
 pub(in crate::session) enum UnitJob {
-    /// The stored record `iid`, sent to the subscriptions that hold it.
+    /// An occurrence the store acknowledged, as its commit projected it: sent to the subscriptions that hold it,
+    /// with no read.
+    Unit(Box<StoredUnit>),
+    /// The stored record `iid`, read again and sent to the subscriptions that hold it.
     Record(String),
     /// Every range a subscription holds, read again: a change reached records the actor cannot name (a compaction's
     /// archived rows and its divider, a model switch on a divider).
@@ -35,8 +51,11 @@ pub(in crate::session) enum UnitJob {
     /// A subscription's demand.
     Demand(Box<WindowAsk>),
     /// Answered when its turn comes: every read asked before it is done, and a snapshot attached from then on carries
-    /// the records they read.
-    Ready(oneshot::Sender<()>),
+    /// the records they read. With the failure, when the newest records were not read.
+    Ready(oneshot::Sender<Result<(), CoreError>>),
+    /// A place in the line that what is released next waits for: behind a compaction's divider, and where the line
+    /// stood when a turn's terminal record was held for it, whatever was asked of the line since.
+    Closing,
 }
 
 pub(in crate::session) struct WindowAsk {
@@ -57,9 +76,9 @@ pub(in crate::session) struct Reading {
 
 /// What a job of the line read.
 pub(in crate::session) enum UnitsRead {
-    Record(Option<Reading>),
-    Held(u64, Vec<StoredUnit>),
-    Tail(Option<reads::Units>),
+    Record(Result<Option<Reading>, CoreError>),
+    Held(Result<(u64, Vec<StoredUnit>), CoreError>),
+    Tail(Result<Option<reads::Units>, CoreError>),
     Demand(Box<WindowAsk>, Box<Grant>, Result<window::Demand, CoreError>),
 }
 
@@ -71,7 +90,8 @@ async fn read_record(deps: &SessionDeps, id: &ThreadId, iid: &str) -> Result<Opt
     let ctl = ctl("thread/transcript/unit", id, "record", CancellationToken::new());
     let position = reads::record_position(iid);
     // The record, with the few before it: the one shown before it is where a follower of the tail places it.
-    let Some(page) = reads::units(&deps.store, &deps.transcript, deps.lanes, id, PageAt::Before(position.clone()), 4, &ctl).await? else { return Ok(None) };
+    let read = reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, id, PageAt::Before(position.clone()), 4, &ctl);
+    let Some(page) = read.await? else { return Ok(None) };
     let Some(at) = page.units.iter().position(|unit| unit.unit.position == position) else { return Ok(None) };
     let after = at.checked_sub(1).map(|before| page.units[before].unit.position.clone());
     let older = after.is_some() || !page.reaches_start;
@@ -87,7 +107,8 @@ async fn read_held(deps: &SessionDeps, id: &ThreadId, spans: Vec<(Arc<str>, u64)
         let mut at = from.to_string();
         let mut through = None;
         loop {
-            let Some(page) = reads::units(&deps.store, &deps.transcript, deps.lanes, id, PageAt::After(at.clone()), PAGE, &ctl).await? else { break };
+            let read = reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, id, PageAt::After(at.clone()), PAGE, &ctl);
+            let Some(page) = read.await? else { break };
             rev = page.rev;
             let fresh: Vec<StoredUnit> =
                 page.units.into_iter().filter(|unit| through.is_none_or(|through| unit.ordinal > through) && unit.ordinal <= last).collect();
@@ -102,41 +123,103 @@ async fn read_held(deps: &SessionDeps, id: &ThreadId, spans: Vec<(Arc<str>, u64)
     Ok((rev, units))
 }
 
-fn unread(id: &ThreadId, what: &str, error: &CoreError) {
-    tracing::warn!("session {}: {what} was not read, so a subscription that holds it shows it as it was: {error:?}", id.as_str());
+fn sized(ordinal: u64, position: String, items: Vec<ThreadItem>) -> StoredUnit {
+    let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position, items, ordinal: Some(ordinal) };
+    let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
+    StoredUnit { ordinal, unit, bytes }
 }
 
 impl SessionActor {
-    /// A record is stored: the stored records that read differently for it are read again, each sent as its unit to the
-    /// positioned subscriptions whose grants hold it.
-    pub(super) fn stored(&mut self, change: &Change) {
-        let Change::Record { record, .. } = change else { return };
+    /// A record is stored at `ordinal`. An occurrence it adds to the transcript (`unit`: the rows its commit projected,
+    /// or a compaction's divider) is sent as its unit to the positioned subscriptions whose grants hold it; the stored
+    /// occurrences that read differently for it are read again.
+    pub(super) fn stored(&mut self, change: &Change, unit: &[ThreadItem], ordinal: u64) {
+        let Change::Record { record, display } = change else { return };
         match &**record {
             Record::Item(row) => {
-                if let Slot::Inline(body) = &row.body {
-                    // A call's result is stored by a later record and shown on the card of the record that made the call.
-                    for call in body.get("toolCalls").and_then(Value::as_array).into_iter().flatten().filter_map(|call| call.get("id").and_then(Value::as_str))
-                    {
-                        if self.call_records.len() >= CALL_RECORDS {
-                            self.call_records.clear();
+                if let Some(turn) = self.running(row) {
+                    if let Slot::Inline(body) = &row.body {
+                        let made = body.get("toolCalls").and_then(Value::as_array).into_iter().flatten();
+                        for call in made.filter_map(|call| call.get("id").and_then(Value::as_str)) {
+                            Arc::make_mut(&mut self.calls).opened(call, turn, row.iid.as_str());
                         }
-                        self.call_records.insert(call.to_owned(), row.iid.as_str().to_owned());
                     }
-                    if let Some(owner) = body.get("toolCallId").and_then(Value::as_str).and_then(|call| self.call_records.remove(call)) {
-                        self.unit_job(UnitJob::Record(owner));
+                    // A call's result is stored by a later record and shown on the card of the record that made the call.
+                    if let Display::Items(shown) = display {
+                        for shown in shown {
+                            if let Shown::Update(update) = shown {
+                                self.call_ended(turn, update, true);
+                            }
+                        }
                     }
                 }
-                if row.visible {
-                    self.unit_job(UnitJob::Record(row.iid.as_str().to_owned()));
+                // A row that is no message of a turn a compaction ran in reads archived or not by what the compaction
+                // left of the turn, which the records tell: it is read, in its place in the line.
+                let by_compaction = row.form == Form::Display && row.turn.as_ref().is_some_and(|turn| self.compacted.iter().any(|run| run == turn.as_str()));
+                if !unit.is_empty() {
+                    self.unit_job(if by_compaction {
+                        UnitJob::Record(row.iid.as_str().to_owned())
+                    } else {
+                        UnitJob::Unit(Box::new(sized(ordinal, reads::record_position(row.iid.as_str()), unit.to_vec())))
+                    });
+                }
+            }
+            Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted) => {
+                self.compacted.retain(|turn| turn != run.rid.as_str());
+                if !self.calls.is_empty() {
+                    for record in Arc::make_mut(&mut self.calls).turn_ended(run.rid.as_str()) {
+                        self.unit_job(UnitJob::Record(record));
+                    }
                 }
             }
             Record::Amend(amend) => self.unit_job(UnitJob::Record(amend.iid.as_str().to_owned())),
-            Record::Compacted(_) | Record::ModelSwitch(_) => {
+            Record::Compacted(compacted) => {
+                // The divider is an occurrence of its own at the compaction's record, sent before anything committed
+                // after it; a rewrite that lists none adds no occurrence.
+                if compacted.silent != Some(true) {
+                    let divider = super::super::transcript::divider_item(compacted.cid.as_str(), compacted.at);
+                    let position = reads::record_position(divider.id().as_str());
+                    self.unit_job(UnitJob::Unit(Box::new(sized(ordinal, position, vec![divider]))));
+                    // Nothing released after the compaction's record goes out before its divider.
+                    self.closing_pending += 1;
+                    self.unit_job(UnitJob::Closing);
+                }
+                for turn in self.acked.runs.keys() {
+                    if !self.compacted.contains(turn) {
+                        self.compacted.push(turn.clone());
+                    }
+                }
+                // The rows it took out of the context read `archived` from here on.
                 self.unit_job(UnitJob::Tail);
                 self.unit_job(UnitJob::Held);
             }
-            Record::Rewind(_) => self.unit_job(UnitJob::Tail),
+            Record::ModelSwitch(_) => {
+                self.unit_job(UnitJob::Tail);
+                self.unit_job(UnitJob::Held);
+            }
+            Record::Rewind(_) => {
+                if !self.calls.is_empty() {
+                    Arc::make_mut(&mut self.calls).reread();
+                }
+                self.unit_job(UnitJob::Tail);
+            }
             _ => {}
+        }
+    }
+
+    /// The turn of `row`, when the released entries tell it running: its calls are held ([`window::Calls`]) until it
+    /// ends.
+    pub(super) fn running<'a>(&self, row: &'a ItemRecord) -> Option<&'a str> {
+        row.turn.as_ref().map(|turn| turn.as_str()).filter(|turn| self.acked.runs.contains_key(*turn))
+    }
+
+    /// A call of the running turn `turn` ended with the result `update` carries (`stored`: by its stored row, else
+    /// shown ahead of it): the record that made it is read again, for the subscriptions that hold it.
+    pub(super) fn call_ended(&mut self, turn: &str, update: &ThreadItem, stored: bool) {
+        let ThreadItem::ToolCall { run, .. } = update else { return };
+        let Some(call) = run.call_id.as_deref() else { return };
+        if let Some(record) = Arc::make_mut(&mut self.calls).ended(call, turn, update, stored) {
+            self.unit_job(UnitJob::Record(record));
         }
     }
 
@@ -158,21 +241,27 @@ impl SessionActor {
         self.next_unit_job();
     }
 
-    fn next_unit_job(&mut self) {
-        while !self.unit_reading {
+    pub(super) fn next_unit_job(&mut self) {
+        // A unit goes out behind the frames of the release that stored its record, which are published once that
+        // release is whole: a snapshot taken with it then states the feed position it stands at.
+        while !self.unit_reading && !self.releasing {
             let Some(job) = self.unit_jobs.pop_front() else { return };
             let (deps, id, jobs) = (self.deps.clone(), self.id.clone(), self.jobs_tx.clone());
             match job {
                 UnitJob::Ready(tx) => {
-                    let _ = tx.send(());
+                    let _ = tx.send(self.tail_unread.clone().map_or(Ok(()), Err));
+                }
+                UnitJob::Closing => self.closing_pending = self.closing_pending.saturating_sub(1),
+                UnitJob::Unit(unit) => {
+                    // The record before it is the newest the tail holds: known here, with no read.
+                    let before = self.tail.iter().rev().find(|held| held.ordinal < unit.ordinal).map(|held| held.unit.position.clone());
+                    let older = before.is_some() || self.tail_older;
+                    self.deliver_unit(self.acked.history_rev, *unit, before, older);
                 }
                 UnitJob::Record(iid) => {
                     self.unit_reading = true;
                     tokio::spawn(async move {
-                        let read = read_record(&deps, &id, &iid).await.unwrap_or_else(|error| {
-                            unread(&id, "a stored record", &error);
-                            None
-                        });
+                        let read = read_record(&deps, &id, &iid).await;
                         let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Record(read))));
                     });
                 }
@@ -199,23 +288,15 @@ impl SessionActor {
                     self.unit_reading = true;
                     tokio::spawn(async move {
                         let spans = merged.into_iter().map(|(_, from, last)| (from, last)).collect();
-                        let (rev, units) = read_held(&deps, &id, spans).await.unwrap_or_else(|error| {
-                            unread(&id, "a held range", &error);
-                            (0, Vec::new())
-                        });
-                        let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Held(rev, units))));
+                        let read = read_held(&deps, &id, spans).await;
+                        let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Held(read))));
                     });
                 }
                 UnitJob::Tail => {
                     self.unit_reading = true;
                     tokio::spawn(async move {
                         let ctl = ctl("thread/transcript/unit", &id, "tail", CancellationToken::new());
-                        let read = reads::units(&deps.store, &deps.transcript, deps.lanes, &id, PageAt::Newest, window::TAIL_RECORDS, &ctl)
-                            .await
-                            .unwrap_or_else(|error| {
-                                unread(&id, "the newest records", &error);
-                                None
-                            });
+                        let read = reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, &id, PageAt::Newest, window::TAIL_RECORDS, &ctl).await;
                         let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Tail(read))));
                     });
                 }
@@ -230,10 +311,10 @@ impl SessionActor {
                         continue;
                     }
                     self.unit_reading = true;
-                    let budget = self.feed.frame_budget();
+                    let (budget, calls) = (self.feed.frame_budget(), self.calls.clone());
                     tokio::spawn(async move {
                         let ctl = ctl("thread/window/set", &id, &ask.params.request_id, ask.cancel.clone());
-                        let read = window::demand(&deps, &id, &held, &ask.params.request_id, &ask.params.want, budget, &ctl).await;
+                        let read = window::demand(&deps, &id, &held, &ask.params.request_id, &ask.params.want, &calls, budget, &ctl).await;
                         let _ = jobs.send(JobDone::UnitsRead(Box::new(UnitsRead::Demand(ask, Box::new(held), read))));
                     });
                 }
@@ -244,20 +325,29 @@ impl SessionActor {
     pub(super) fn units_read(&mut self, read: UnitsRead) {
         self.unit_reading = false;
         match read {
-            UnitsRead::Record(Some(reading)) => self.deliver_unit(reading.rev, reading.unit, reading.after, reading.older),
-            UnitsRead::Record(None) => {}
-            UnitsRead::Held(rev, units) => {
+            UnitsRead::Record(Ok(Some(reading))) => self.deliver_unit(reading.rev, reading.unit, reading.after, reading.older),
+            UnitsRead::Record(Ok(None)) => {}
+            UnitsRead::Record(Err(error)) => self.unread("a stored record", error),
+            UnitsRead::Held(Ok((rev, units))) => {
                 for unit in units {
                     self.deliver_unit(rev, unit, None, true);
                 }
             }
-            UnitsRead::Tail(read) => self.tail_read(read),
+            UnitsRead::Held(Err(error)) => self.unread("a held range", error),
+            UnitsRead::Tail(Ok(read)) => self.tail_read(read),
+            UnitsRead::Tail(Err(error)) => self.unread("the newest records", error),
             UnitsRead::Demand(ask, held, read) => {
                 let WindowAsk { params, tx, .. } = *ask;
                 let _ = tx.send(read.and_then(|demand| self.install_demand(&params, &held, demand)));
             }
         }
         self.next_unit_job();
+    }
+
+    /// `unit` with the calls of the running turns as the session holds them ([`window::Calls`]): the unit itself when
+    /// it shows none.
+    pub(super) fn settled_unit(&self, unit: &Arc<StoredUnit>) -> Arc<StoredUnit> {
+        self.calls.settled(unit).map_or_else(|| unit.clone(), Arc::new)
     }
 
     /// The stored record as it reads now: to the snapshot's tail when it belongs there, and to every positioned
@@ -268,12 +358,17 @@ impl SessionActor {
         if rev != lineage {
             return;
         }
+        if !self.calls.is_empty() {
+            Arc::make_mut(&mut self.calls).read(&unit);
+        }
         let unit = Arc::new(unit);
         match self.tail.iter().position(|held| held.ordinal >= unit.ordinal) {
             Some(at) if self.tail[at].ordinal == unit.ordinal => self.tail[at] = unit.clone(),
             // Older than everything the tail holds: a page of it shows it.
             Some(0) => {}
             Some(at) => self.tail.insert(at, unit.clone()),
+            // Read again where the tail no longer reaches (it was let go after a read failed): a page of it shows it.
+            None if unit.ordinal < self.tail_next => {}
             None => {
                 self.tail.push(unit.clone());
                 if self.tail.len() > window::TAIL_RECORDS {
@@ -284,6 +379,7 @@ impl SessionActor {
         }
         self.tail_next = self.tail_next.max(unit.ordinal + 1);
         let view = self.swap_view();
+        let unit = self.settled_unit(&unit);
         let (thread, feed) = (self.id.clone(), self.feed_id.clone());
         let after = after.or_else(|| older.then(String::new));
         self.feed.deliver(lineage, unit.ordinal, &unit.unit.position, after.as_deref(), Some(view), &mut |held, at| {
@@ -301,6 +397,7 @@ impl SessionActor {
             self.tail_next = self.tail_next.max(read.units.last().map_or(0, |last| last.ordinal + 1));
             self.tail_older = !read.reaches_start;
             self.tail = read.units.into_iter().map(Arc::new).collect();
+            self.tail_unread = None;
             let view = self.swap_view();
             // The actor is the feed's only producer.
             let _ = self.feed.publish(&[], Some(view));
@@ -330,11 +427,49 @@ impl SessionActor {
     }
 
     /// Answers once the stored records asked for so far are read: a positioned subscription attached from then on is
-    /// sent them in its snapshot.
-    pub(super) fn tail_ready(&mut self, tx: oneshot::Sender<()>) {
+    /// sent them in its snapshot. Newest records that were not read are this demand's to read, once: it fails with
+    /// that read, and no snapshot is attached on a tail with a hole in it.
+    pub(super) fn tail_ready(&mut self, tx: oneshot::Sender<Result<(), CoreError>>) {
+        if self.tail_unread.is_some() && !self.unit_jobs.iter().any(|job| matches!(job, UnitJob::Tail)) {
+            self.unit_job(UnitJob::Tail);
+        }
         self.unit_job(UnitJob::Ready(tx));
     }
-}
 
-/// The calls whose records are remembered until their results are stored.
-const CALL_RECORDS: usize = 4096;
+    /// A read of occurrences already stored failed, and is not tried again. What the positioned subscriptions hold of
+    /// them is no longer known to be what the log says, so none of it is kept: each subscription holds nothing from its
+    /// last fence on and is told so (it asks again for what it shows), the tail a snapshot carries is let go, and a
+    /// snapshot is attached only once a read of the newest records succeeds.
+    fn unread(&mut self, what: &str, error: CoreError) {
+        tracing::warn!("session {}: {what} was not read, so the positioned subscriptions hold nothing until they ask again: {error:?}", self.id.as_str());
+        if !self.calls.is_empty() {
+            Arc::make_mut(&mut self.calls).reread();
+        }
+        self.tail.clear();
+        self.tail_older = self.tail_next > 0;
+        self.tail_unread = Some(error);
+        let view = self.swap_view();
+        // The actor is the feed's only producer.
+        let _ = self.feed.publish(&[], Some(view));
+        let lineage = self.acked.history_rev;
+        self.feed.rebase(&mut |sub, held, version, at| {
+            if held.ranges.is_empty() && held.tail_from.is_none() {
+                return None;
+            }
+            let params = mixdog_app_protocol::v2::thread::ThreadWindowChangedParams {
+                thread_id: self.id.clone(),
+                subscription_id: mixdog_protocol::SubscriptionId::from(sub.as_str()),
+                request_id: None,
+                window_version: version,
+                lineage,
+                at_feed_position: mixdog_app_protocol::v2::feed::FeedPosition { epoch: at.epoch.clone(), seq: at.seq },
+                ranges: Vec::new(),
+                removed: held.ranges.iter().map(|range| range.id.to_string()).collect(),
+                added: Vec::new(),
+                follow_tail: false,
+            };
+            let told = super::super::frames::frame(&Note::new(window::WINDOW_CHANGED, &params), &self.feed_id, &at.epoch, at.seq);
+            Some((GrantAsk { lineage, ranges: Vec::new(), tail_from: None }, told))
+        });
+    }
+}

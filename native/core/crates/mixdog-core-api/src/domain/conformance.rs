@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn replay_is_owner_scoped() {
-        let mut message = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut message = Message::new(Role::Assistant, Content::Text(String::new().into()));
         let anthropic = ProviderId::from("anthropic");
         let openai = ProviderId::from("openai");
         message.push_replay(ProviderReplay { owner: anthropic.clone(), items: serde_json::json!([1]) });

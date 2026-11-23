@@ -57,7 +57,7 @@ pub(super) struct StoredBodies;
 
 impl MessageRows for StoredBodies {
     fn row(&self, message: &mixdog_agent::message::AgentMessage) -> Value {
-        message.stored.as_ref().map_or_else(|| super::message_row::row_of(message), |row| Value::Object((**row).clone()))
+        message.stored.as_ref().map_or_else(|| super::message_row::row_of(message), |row| Value::Object(row.to_map()))
     }
 }
 

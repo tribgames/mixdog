@@ -11,7 +11,11 @@ pub const INDEX_APPLICATION_ID: i32 = 0x4D58_4958;
 /// brought to it in place at open (`sqlite.rs` `upgrade_from_18`).
 /// 20: the `history_turn` index, by which a transcript page finds the model messages of one turn; an index of version
 /// 19 gains it in place at open (`upgrade_from_19`), one `CREATE INDEX` over `history`.
-pub const INDEX_USER_VERSION: i32 = 20;
+/// 21: `turns.end_form` and `history.end_form` (where a turn's end is stored) and the
+/// `compactions_cid` index, by which a page lists a compaction's boundary as an occurrence of its own; an index of
+/// version 20 gains them in place at open (`upgrade_from_20`): no log an index of 20 was projected from holds an end
+/// form.
+pub const INDEX_USER_VERSION: i32 = 21;
 /// The first released index version: an index of it is brought to [`INDEX_USER_VERSION`] in place at open, never rebuilt
 /// from the logs (on a long-used data directory the rebuild held the first start after an update for minutes).
 pub const FIRST_RELEASED_INDEX_VERSION: i32 = 18;

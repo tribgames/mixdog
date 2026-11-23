@@ -21,7 +21,7 @@ fn tool_json(tool: &ToolDefinition) -> Value {
 
 fn text_of(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {

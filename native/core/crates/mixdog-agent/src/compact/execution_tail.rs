@@ -139,10 +139,10 @@ fn without_replay(m: &AgentMessage) -> AgentMessage {
         if !row.contains_key("providerReplay") && !row.contains_key("reasoningItems") {
             return row.clone();
         }
-        let mut row = (**row).clone();
+        let mut row = row.to_map();
         row.shift_remove("providerReplay");
         row.shift_remove("reasoningItems");
-        std::sync::Arc::new(row)
+        std::sync::Arc::new(row.into())
     });
     let source = &m.message;
     let mut message = Message::new(source.role, source.content.clone());
@@ -255,7 +255,7 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage], latest: Opti
     let mut message = AgentMessage::sourced(Source::CompactExecutionRecovery, text.clone());
     // Node writes this row as `{ role, meta, content }`; the key order is part of what the budget measures.
     let row = serde_json::json!({ "role": "user", "meta": { "source": "compact-execution-recovery", "synthetic": true }, "content": text });
-    message.stored = row.as_object().cloned().map(std::sync::Arc::new);
+    message.stored = row.as_object().cloned().map(|row| std::sync::Arc::new(row.into()));
     message
 }
 
@@ -282,7 +282,7 @@ fn shrink_group(ctx: &TailContext<'_>, group: &Group, archive: &Artifact, level:
                 let id = message.tool_call_id().unwrap_or_default();
                 let mut shrunk = message.clone();
                 shrunk.message.content =
-                    Content::Text(format!("{} Outcome must be read from the original result if needed.]", reference(offset, "Tool result body", id)));
+                    Content::Text(format!("{} Outcome must be read from the original result if needed.]", reference(offset, "Tool result body", id)).into());
                 return shrunk;
             }
             if level < 2 {

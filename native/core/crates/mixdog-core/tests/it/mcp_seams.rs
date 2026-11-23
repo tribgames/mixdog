@@ -146,7 +146,7 @@ fn tool_env() -> ToolEnv {
 
 fn content_of(prompt: &Value) -> Content {
     match prompt {
-        Value::String(text) => Content::Text(text.clone()),
+        Value::String(text) => Content::Text(text.clone().into()),
         Value::Array(parts) => Content::Parts(parts.iter().map(|p| ContentPart::Text(p["text"].as_str().unwrap().to_owned(), None)).collect()),
         other => panic!("{other}"),
     }
@@ -160,7 +160,7 @@ fn shown(message: &AgentMessage) -> (String, Value) {
         Some(Source::Skill) => json!("skill"),
         other => panic!("source {other:?}"),
     };
-    (text.clone(), meta)
+    (text.to_string(), meta)
 }
 
 fn named_tool(name: &str, aliases: &[&str]) -> Arc<dyn Tool> {
@@ -553,7 +553,7 @@ async fn no_more_than_five_skills_are_loaded_for_one_prompt() {
     let golden = golden();
     let (selector, tool) = selector(&golden, None, false);
     let mut transcript = Vec::new();
-    let applied = selector.select(&Content::Text("$skill-1 $skill-2 $skill-3 $skill-4 $skill-5 $skill-6".to_owned()), true, &mut transcript).await;
+    let applied = selector.select(&Content::Text("$skill-1 $skill-2 $skill-3 $skill-4 $skill-5 $skill-6".to_owned().into()), true, &mut transcript).await;
     assert_eq!(applied, ["skill-1", "skill-2", "skill-3", "skill-4", "skill-5"]);
     assert_eq!(tool.calls.lock().unwrap().len(), 5);
 }
@@ -567,28 +567,28 @@ async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
     golden["answers"] = json!({ "alpha": payload });
     let (selector, _) = selector(&golden, None, false);
     let mut transcript = Vec::new();
-    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    let applied = selector.select(&Content::Text("$alpha".to_owned().into()), true, &mut transcript).await;
     assert_eq!(applied, ["alpha"]);
     assert_eq!(transcript.len(), 2);
     assert_eq!(transcript[0].message.tool_calls[0].name, "Skill");
     let result = &transcript[1];
-    assert_eq!(result.message.content, Content::Text("Loaded skill: alpha".to_owned()));
+    assert_eq!(result.message.content, Content::Text("Loaded skill: alpha".to_owned().into()));
     let native = result.message.native_tool_search.as_ref().expect("the payload rides the result");
     assert_eq!(native["toolReferences"], json!(["mcp__x__y"]));
     assert_ne!(transcript[0].message.tool_calls[0].id, "skill-selection-0");
 
     // Once the history defines those tools, a later selection is the summary as a reminder (`nativeDefinitionsPresent`).
-    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    let applied = selector.select(&Content::Text("$alpha".to_owned().into()), true, &mut transcript).await;
     assert_eq!(applied, ["alpha"]);
     assert_eq!(transcript.len(), 3);
     assert_eq!(
         transcript[2].message.content,
         Content::Text(
-            "<system-reminder>
+            ("<system-reminder>
 Explicit skill selection result:
 Loaded skill: alpha
 </system-reminder>"
-                .to_owned()
+                .to_owned()).into()
         )
     );
 }
@@ -599,13 +599,13 @@ async fn a_trusted_selection_replaces_the_prompt_even_when_empty() {
     let (selector, tool) = selector(&golden, None, false);
     let selector = selector.with_selection(Some("$alpha".to_owned()));
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("no mention here".to_owned()), true, &mut transcript).await;
+    selector.select(&Content::Text("no mention here".to_owned().into()), true, &mut transcript).await;
     assert_eq!(*tool.calls.lock().unwrap(), ["alpha"]);
 
     let (selector, tool) = self::selector(&golden, None, false);
     let selector = selector.with_selection(Some(String::new()));
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    selector.select(&Content::Text("$alpha".to_owned().into()), true, &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -613,7 +613,7 @@ async fn a_session_that_cannot_call_skill_selects_nothing() {
     let golden = golden();
     let (selector, tool) = selector(&golden, Some("Skill is not available here"), false);
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
+    selector.select(&Content::Text("$alpha".to_owned().into()), false, &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -621,7 +621,7 @@ async fn an_unreadable_catalog_selects_nothing() {
     let golden = golden();
     let (selector, tool) = selector(&golden, None, true);
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
+    selector.select(&Content::Text("$alpha".to_owned().into()), false, &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 /// `appendSkillUpdateNotices` (`skill-update-notice.mjs`) over the real skill catalog: a turn's selector compares the body

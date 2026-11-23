@@ -392,6 +392,23 @@ fn provider_usage_reaches_pressure_status_as_prompt_and_output_evidence() {
             Value::Null,
             json!(0),
         ),
+        // A turn's counts, summed over its five model calls: the context is the occupancy the service measured.
+        (
+            "cursor-api",
+            false,
+            Usage {
+                input_tokens: 37_108,
+                cache_read_tokens: 19_933,
+                raw: Some(json!({
+                    "input_tokens_known": true, "cache_tokens_known": true, "input_tokens_scope": "turn",
+                    "context_tokens": 9_000, "completion_tokens": 0,
+                })),
+                ..Usage::default()
+            },
+            Value::Null,
+            json!(9_000),
+            json!(0),
+        ),
         ("cursor-api", false, Usage::default(), Value::Null, Value::Null, Value::Null),
     ] {
         let base = header(json!({ "id": "s1", "provider": provider, "contextWindow": 200_000 }));
@@ -410,6 +427,67 @@ fn provider_usage_reaches_pressure_status_as_prompt_and_output_evidence() {
             assert_eq!(result["measurement"]["tokens"], occupancy, "{provider}");
         }
     }
+}
+
+/// A provider whose usage is of a whole turn, summed over its model calls (the turn-ended counts of an open run),
+/// never anchors the pressure baseline or the meter by that sum, in any shape a turn takes: a turn of several
+/// batches, a turn that ends on a tool call with the run going on, and a run cut before its turn ended. Both read the
+/// occupancy the provider measured; the totals keep the sum.
+#[test]
+fn a_turns_summed_usage_never_anchors_the_pressure_baseline_or_the_meter() {
+    books!(meter, signer);
+    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &NoVars };
+    // A batch that handed over a tool call: output only, the checkpoint's occupancy beside it.
+    let batch = |occupancy: u64| Usage {
+        output_tokens: 134,
+        raw: Some(json!({ "input_tokens_known": false, "cache_tokens_known": false, "context_tokens": occupancy, "completion_tokens": 134 })),
+        ..Usage::default()
+    };
+    // The batch that ended the turn: the whole turn's counts, over its five model calls.
+    let ended = Usage {
+        input_tokens: 37_108,
+        cache_read_tokens: 19_933,
+        output_tokens: 377,
+        raw: Some(json!({
+            "input_tokens_known": true, "cache_tokens_known": true, "input_tokens_scope": "turn",
+            "context_tokens": 9_000, "completion_tokens": 377,
+        })),
+        ..Usage::default()
+    };
+    // One model call's report as the run host records it, the record's own counts as its context fields.
+    let call = |header: &Header, reported: &Usage, index: u64| {
+        let mut live = delta(reported.input_tokens, reported.cache_read_tokens, reported.cache_write_tokens, reported.output_tokens, index);
+        live["source"] = json!("provider_send");
+        live["contextInputTokens"] = json!(reported.input_tokens);
+        live["contextPromptTokens"] = json!(reported.input_tokens);
+        live["contextOutputTokens"] = json!(reported.output_tokens);
+        live["contextMeasuredTokens"] = json!(mixdog_agent::compact::pressure::measured_context_tokens(reported));
+        let evidence = with_prompt_cache_evidence(header, &live, reported);
+        applied(header, usage_change(header, &evidence, &[], &[], Some(&books), false, 100.0, 200.0))
+    };
+    let settle = |header: &Header, usage: &Usage, last: &Usage| {
+        let settled = Settled { transcript: &[], usage, last_turn_usage: last, tool_calls_total: 0, send_tools: &[] };
+        applied(header, settled_change(header, &settled, true, Some(&books), false, 300.0))
+    };
+    let base = header(json!({ "id": "s1", "provider": "cursor-oauth", "contextWindow": 200_000 }));
+    let reads = |header: &Header| (header.get("contextPressureBaselineTokens").cloned().unwrap_or_default(), header.get("lastContextTokens").cloned().unwrap_or_default());
+
+    // A turn of several batches: every call, and the settlement, read the occupancy.
+    let first = call(&base, &batch(8_000), 1);
+    assert_eq!(reads(&first), (json!(8_000), json!(8_000)));
+    let last = call(&first, &ended, 2);
+    assert_eq!(reads(&last), (json!(9_000), json!(9_000)), "the turn's end");
+    let after = settle(&last, &ended, &ended);
+    assert_eq!(reads(&after), (json!(9_000), json!(9_000)), "the settled ask");
+    assert_eq!(after["totalInputTokens"], json!(37_108), "the totals keep the turn's sum");
+
+    // A turn that ends on a tool call, the run going on: the batch's occupancy.
+    let waiting = settle(&call(&base, &batch(8_000), 1), &batch(8_000), &batch(8_000));
+    assert_eq!(reads(&waiting), (json!(8_000), json!(8_000)));
+
+    // A run cut before its turn ended reports nothing: the reading of the batch before it stands.
+    let cut = call(&first, &Usage::default(), 2);
+    assert_eq!(cut["contextPressureBaselineTokens"], json!(8_000));
 }
 
 #[test]

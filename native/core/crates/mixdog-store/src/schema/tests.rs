@@ -297,6 +297,28 @@ fn invalid_payloads_are_refused() {
     }
 }
 
+/// A turn's end form is optional: a record written without it reads as having none and encodes to the bytes it was
+/// read from, one with it keeps it in the declared order, and it admits no value outside its type. A reader whose
+/// record type has no such field refuses the record whole (the unknown field of `invalid_payloads_are_refused`): a log
+/// that holds it is not read by a build before it. A compaction holds no figures of its pass: a record naming them is
+/// refused.
+#[test]
+fn a_turn_end_form_is_optional_and_strict() {
+    use super::record::TurnEndForm;
+    let old_run = r#"{"k":"run","rid":"r1","phase":"started","at":5}"#;
+    let Record::Run(run) = round_trip::<Record>("run", old_run) else { panic!("a run") };
+    assert_eq!(run.end, None);
+    let new_run = r#"{"k":"run","rid":"r1","phase":"started","end":"display","at":5}"#;
+    let Record::Run(run) = round_trip::<Record>("run", new_run) else { panic!("a run") };
+    assert_eq!(run.end, Some(TurnEndForm::Display));
+    for refused in [
+        r#"{"k":"run","rid":"r1","phase":"started","end":"message"}"#,
+        r#"{"k":"compacted","cid":"c1","figures":{"elapsed_ms":40},"replacement":{"inline":[]}}"#,
+    ] {
+        assert!(serde_json::from_str::<Record>(refused).is_err(), "{refused}");
+    }
+}
+
 /// An out-of-line slot (body or prompt: one `Slot` type) admits only the protocol's digest
 /// form, `sha256:` and 64 lowercase hex, and refuses every other with the digest error.
 #[test]
@@ -368,7 +390,7 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
         json!({"k": "run", "rid": id, "phase": "interrupted",
                "attribution": {"provider": name, "model": name, "account": name, "route": name,
                                "preset": name, "effort": name},
-               "attempt": {"n": u32::MAX, "delivery": "ambiguous"}, "at": neg, "op": op, "detail": slot}),
+               "attempt": {"n": u32::MAX, "delivery": "ambiguous"}, "end": "display", "at": neg, "op": op, "detail": slot}),
         json!({"k": "approval", "aid": id, "rid": id, "phase": "requested", "by_client": id, "at": neg,
                "op": op, "body": slot}),
         json!({"k": "queue", "qid": id, "action": "enqueue", "reason": "cancelled", "op": op, "entry": slot}),

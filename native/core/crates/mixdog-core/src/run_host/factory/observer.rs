@@ -46,6 +46,29 @@ impl TaskWaits {
     }
 }
 
+/// Whether the stream of the current submission announces its chunks (`RunEvent::Chunk`): its text and reasoning deltas then
+/// report no progress of their own. Each submission's stream decides it anew, so a provider's way of reporting never outlives
+/// the request it came from: a fallback or a model switch to a provider that reports by its deltas has them counted.
+#[derive(Default)]
+pub(super) struct ChunkReporting(std::sync::atomic::AtomicBool);
+
+impl ChunkReporting {
+    pub(super) fn submission_started(&self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(super) fn chunk(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A text or reasoning delta of the current stream: progress of `kind` unless the stream reports by its chunks.
+    pub(super) fn delta(&self, progress: &ProgressPublisher, kind: StreamKind) {
+        if !self.0.load(std::sync::atomic::Ordering::Relaxed) {
+            progress.stream_delta(kind);
+        }
+    }
+}
+
 /// A test's notice that the observer handled a settlement of a call (by id), whichever send it belongs to.
 #[cfg(any(test, feature = "test-support"))]
 pub(super) static SETTLED_HOOKS: std::sync::Mutex<Vec<(String, Arc<tokio::sync::Notify>)>> = std::sync::Mutex::new(Vec::new());
@@ -61,9 +84,8 @@ pub(super) struct PortObserver {
     /// tool calls or its usage report.
     pub(super) reasoning: Mutex<Option<(ItemId, String)>>,
     /// The tools of the latest request (`result.lastSendTools`).
-    pub(super) last_send_tools: Mutex<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
-    /// The stream announces its chunks (`RunEvent::Chunk`): its deltas report no kind of their own.
-    pub(super) chunked: std::sync::atomic::AtomicBool,
+    pub(super) last_send_tools: Mutex<Arc<[mixdog_core_api::domain::provider::ToolDefinition]>>,
+    pub(super) chunked: ChunkReporting,
     /// The turn's live messages, which an early tool notice joins until its result commits.
     pub(super) live: LiveTurnPublisher,
     pub(super) rows: Arc<StoredRows>,
@@ -317,9 +339,7 @@ impl RunObserver for PortObserver {
             }
             RunEvent::TextDelta(text) => {
                 self.end_reasoning();
-                if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
-                    self.progress.stream_delta(StreamKind::Text);
-                }
+                self.chunked.delta(&self.progress, StreamKind::Text);
                 if !text.is_empty() {
                     let mut observed = lock(&self.observed);
                     observed.started = true;
@@ -333,9 +353,7 @@ impl RunObserver for PortObserver {
             // snapshot records).
             RunEvent::ProgressDelta(text) => {
                 self.end_reasoning();
-                if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
-                    self.progress.stream_delta(StreamKind::Text);
-                }
+                self.chunked.delta(&self.progress, StreamKind::Text);
                 if !text.is_empty() {
                     let mut observed = lock(&self.observed);
                     observed.started = true;
@@ -347,9 +365,7 @@ impl RunObserver for PortObserver {
                 self.text(text);
             }
             RunEvent::ReasoningDelta(text) => {
-                if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
-                    self.progress.stream_delta(StreamKind::Reasoning);
-                }
+                self.chunked.delta(&self.progress, StreamKind::Reasoning);
                 if !text.is_empty() {
                     let mut observed = lock(&self.observed);
                     observed.started = true;
@@ -394,9 +410,12 @@ impl RunObserver for PortObserver {
             RunEvent::ToolStream(kind) => self.model_progress(kind),
             RunEvent::Transport => self.progress.stream_delta(StreamKind::Transport),
             RunEvent::Boundary { submission, attempt, boundary } => self.progress.boundary(submission, attempt, boundary),
-            RunEvent::SubmissionStarted { id } => self.progress.submission_started(id),
+            RunEvent::SubmissionStarted { id } => {
+                self.chunked.submission_started();
+                self.progress.submission_started(id);
+            }
             RunEvent::Chunk(kind) => {
-                self.chunked.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.chunked.chunk();
                 match kind {
                     Some(kind) => self.model_progress(kind),
                     // A chunk that reports no kind is transport health (`onStreamDelta('transport')`).

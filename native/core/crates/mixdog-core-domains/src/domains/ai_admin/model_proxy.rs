@@ -114,7 +114,7 @@ fn message_out(m: &p::Message) -> w::ProxyMessage {
             p::Role::Developer => w::ProxyRole::Developer,
         },
         content: match &m.content {
-            p::Content::Text(t) => w::ProxyContent::Text(t.clone()),
+            p::Content::Text(t) => w::ProxyContent::Text(t.to_string()),
             p::Content::Parts(parts) => w::ProxyContent::Parts(parts.iter().map(part_out).collect()),
         },
         cache_tier: m.cache_tier.map(|t| match t {
@@ -253,7 +253,7 @@ fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
 
 fn message_in(m: w::ProxyMessage) -> Result<p::Message, Invalid> {
     let content = match m.content {
-        w::ProxyContent::Text(t) => p::Content::Text(t),
+        w::ProxyContent::Text(t) => p::Content::Text(t.into()),
         w::ProxyContent::Parts(parts) => p::Content::Parts(parts.into_iter().map(part_in).collect::<Result<_, _>>()?),
     };
     let role = match m.role {

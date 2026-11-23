@@ -386,14 +386,44 @@ pub struct OpenAiAdapter {
     compress_lane: CpuBulk,
     /// `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`: Node reads it once, when the provider's modules load.
     http_response_ms: f64,
-    /// `PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS` and `PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS` (read once, as the modules load); `None`
-    /// when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off.
+    /// `PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS` (read once, as the modules load); `None` when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns
+    /// the idle watchdog off.
     http_idle_ms: Option<f64>,
-    ws_idle_ms: Option<f64>,
-    /// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS` of each transport, and the WebSocket's no-first-frame window.
+    /// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS` of the HTTP transport.
     http_first_output_ms: f64,
-    ws_first_output_ms: f64,
-    ws_pre_stream_ms: Option<f64>,
+    ws_timers: WsTimers,
+}
+
+/// The windows of a Responses WebSocket stream (`openai-ws-watchdogs.mjs`), the same for every route that speaks it:
+/// `PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS` (`None` when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off), its
+/// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS`, and the no-first-frame window after the request frame.
+/// `streamStalledError('Responses WS', …)`: what a stalled socket stream is called, whichever route it serves.
+pub(crate) const WS_STREAM_LABEL: &str = "Responses WS";
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WsTimers {
+    idle_ms: Option<f64>,
+    first_output_ms: f64,
+    pre_stream_ms: Option<f64>,
+}
+
+impl WsTimers {
+    pub(crate) fn read(var: &dyn Fn(&str) -> Option<String>) -> Self {
+        use crate::providers::google::cache::policy;
+        let idle_ms = policy::ws_semantic_idle_ms(var);
+        Self { idle_ms, first_output_ms: policy::first_output_ms(var, idle_ms), pre_stream_ms: policy::ws_pre_stream_ms(var) }
+    }
+
+    pub(crate) fn windows(&self) -> PhaseWindows {
+        let millis = |ms: f64| Duration::from_millis(ms as u64);
+        PhaseWindows {
+            head: None,
+            payload: self.pre_stream_ms.map(millis),
+            first_output: self.idle_ms.is_some().then(|| millis(self.first_output_ms)),
+            idle: self.idle_ms.map(millis),
+            recovery: None,
+        }
+    }
 }
 
 /// The seams and sources an adapter runs on.
@@ -422,10 +452,8 @@ impl OpenAiAdapter {
         let pool = Arc::new(WsPool::with_events(links.context.clone()));
         let http_response_ms = crate::providers::google::cache::policy::http_response_ms(|name| links.context.var(name));
         let http_idle_ms = crate::providers::google::cache::policy::semantic_idle_ms(|name| links.context.var(name));
-        let ws_idle_ms = crate::providers::google::cache::policy::ws_semantic_idle_ms(|name| links.context.var(name));
         let http_first_output_ms = crate::providers::google::cache::policy::first_output_ms(|name| links.context.var(name), http_idle_ms);
-        let ws_first_output_ms = crate::providers::google::cache::policy::first_output_ms(|name| links.context.var(name), ws_idle_ms);
-        let ws_pre_stream_ms = crate::providers::google::cache::policy::ws_pre_stream_ms(|name| links.context.var(name));
+        let ws_timers = WsTimers::read(&|name| links.context.var(name));
         let ws_ping = crate::providers::google::cache::policy::ws_ping(|name| links.context.var(name), KeepaliveSchedule::SPEC.ws);
         let adapter = Self {
             id,
@@ -443,10 +471,8 @@ impl OpenAiAdapter {
             compress_lane: links.compress_lane,
             http_response_ms,
             http_idle_ms,
-            ws_idle_ms,
             http_first_output_ms,
-            ws_first_output_ms,
-            ws_pre_stream_ms,
+            ws_timers,
         };
         // The provider's constructor warms the socket (`openai-oauth.mjs:106`).
         adapter.preconnect();
@@ -554,15 +580,7 @@ impl OpenAiAdapter {
         let millis = |ms: f64| Duration::from_millis(ms as u64);
         let oauth = self.codec.route() != Route::ApiKey;
         let (windows, label) = if ws {
-            let watching = self.ws_idle_ms.is_some();
-            let windows = PhaseWindows {
-                head: None,
-                payload: self.ws_pre_stream_ms.map(millis),
-                first_output: watching.then(|| millis(self.ws_first_output_ms)),
-                idle: self.ws_idle_ms.map(millis),
-                recovery: None,
-            };
-            (windows, "Responses WS")
+            (self.ws_timers.windows(), WS_STREAM_LABEL)
         } else {
             let watching = self.http_idle_ms.is_some();
             let windows = PhaseWindows {
@@ -646,11 +664,9 @@ impl OpenAiAdapter {
         // A refusal on this socket is of the login its upgrade was authorized with, which a reused socket did not get
         // from this request.
         let authenticated = checkout.auth.clone();
-        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.responses_decoder(request))
-            .with_bound(request.options.send_identity.clone(), attempt);
+        let mut stream = ResponsesStream::socket(checkout, self.codec.responses_decoder(request), request.options.send_identity.clone(), attempt, body);
         stream.credential = authenticated;
         stream.updates = updates;
-        stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
         // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
         if let Some((scope, turn)) = scope_turn
             && token.is_none()
@@ -1255,7 +1271,7 @@ impl Source {
 /// The failure of `expiry` for a stream labelled `label`: the head is the transport's own timeout (`head`); the first-payload,
 /// first-output and idle windows are the stream stall (`streamStalledError`, `stall-policy.mjs:161`: `ESTREAMSTALL`, phase
 /// `idle`, unsafe to retry once a tool call was dispatched).
-fn expired(label: &str, head: Surface, expiry: Expiry, delivery: DeliveryState, exposure: Exposure) -> ProviderError {
+pub(crate) fn expired(label: &str, head: Surface, expiry: Expiry, delivery: DeliveryState, exposure: Exposure) -> ProviderError {
     match expiry.phase {
         AttemptPhase::Connect | AttemptPhase::Head | AttemptPhase::Recovery => {
             let mut err = deadline_error(Expired { after: expiry.window }, delivery, head);
@@ -1276,7 +1292,7 @@ fn expired(label: &str, head: Surface, expiry: Expiry, delivery: DeliveryState, 
     }
 }
 
-struct ResponsesStream {
+pub(crate) struct ResponsesStream {
     source: Option<Source>,
     /// The exchange runs on a WebSocket: a failure of it is a stream failure of that send (`wsFailurePhase`).
     ws: bool,
@@ -1350,6 +1366,20 @@ impl ResponsesStream {
         self
     }
 
+    /// The response to the request frame `body` a pooled socket took: its reads are bounded by `attempt`, and once it
+    /// completes the socket is parked with the chain the next request's delta extends.
+    pub(crate) fn socket(
+        checkout: Checkout,
+        decoder: ResponsesDecoder,
+        identity: mixdog_core_api::domain::provider::SendIdentity,
+        attempt: ModelAttempt,
+        body: serde_json::Map<String, Value>,
+    ) -> Self {
+        let mut stream = Self::new(Source::Ws { checkout, pending: None }, decoder).with_bound(identity, attempt);
+        stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
+        stream
+    }
+
     /// The stream of a WebSocket operation: its reads are bounded by `attempt`.
     fn with_bound(mut self, identity: mixdog_core_api::domain::provider::SendIdentity, attempt: ModelAttempt) -> Self {
         self.attempt = Some((identity, attempt.handle().clone()));
@@ -1369,7 +1399,7 @@ impl ResponsesStream {
 
     /// Reads a WebSocket's first frame ahead of the consumer, under the attempt's first-payload window. A socket that takes the
     /// request and sends nothing fails the stream as a stall, which the send's retry ladder takes.
-    async fn prime(&mut self) {
+    pub(crate) async fn prime(&mut self) {
         let (Some(attempt), Some(Source::Ws { checkout, pending })) = (&self.bound, &mut self.source) else { return };
         let Some(socket) = checkout.socket.as_mut() else { return };
         match attempt.bound(socket.recv()).await {

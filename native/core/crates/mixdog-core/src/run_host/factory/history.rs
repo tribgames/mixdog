@@ -7,7 +7,7 @@ use super::*;
 /// A message of the turn's context as the turn keeps it: its stored row, which the message shares, or the message itself
 /// when it has none.
 pub(super) enum HistoryRow {
-    Stored(Arc<serde_json::Map<String, Value>>),
+    Stored(Arc<mixdog_agent::message::StoredRow>),
     Message(Box<AgentMessage>),
 }
 
@@ -80,7 +80,7 @@ pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> 
     mixdog_core_prompt::prompt::blocks::request_system_messages(header)
         .into_iter()
         .map(|wire| {
-            let mut message = AgentMessage::user_content(Content::Text(String::new()));
+            let mut message = AgentMessage::user_content(Content::Text(String::new().into()));
             message.message = wire;
             message
         })

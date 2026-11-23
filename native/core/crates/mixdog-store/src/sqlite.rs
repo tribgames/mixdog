@@ -66,6 +66,7 @@ use crate::schema::record::ApprovalPhase;
 use crate::schema::record::Form;
 use crate::schema::record::ModelSwitchEntry;
 use crate::schema::record::RunPhase;
+use crate::schema::record::TurnEndForm;
 use crate::schema::sql::INDEX_APPLICATION_ID;
 use crate::schema::sql::INDEX_DDL;
 use crate::schema::sql::INDEX_USER_VERSION;
@@ -337,6 +338,38 @@ fn upgrade_from_19(path: &Path) -> Result<bool, DbError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(HISTORY_TURN_INDEX)?;
     tx.pragma_update(None, "user_version", 20)?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// The columns version 21 adds, as `sql/index.sql` declares them: `(table, column, declaration)`.
+const VERSION_21_COLUMNS: [(&str, &str, &str); 2] =
+    [("history", "end_form", "INTEGER NOT NULL DEFAULT 0"), ("turns", "end_form", "INTEGER NOT NULL DEFAULT 0")];
+
+/// Brings an index of version 20 to 21 in place, in one transaction: the rows of `history` and `turns` gain the
+/// columns of [`VERSION_21_COLUMNS`] at their defaults, which is what their logs say (a build that wrote an index of
+/// 20 reads no log holding a turn's end form), and `compactions` its `cid` index. A
+/// column that is there already is left. `Ok(false)`: the file is not an index of version 20, and is left as it is.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
+fn upgrade_from_20(path: &Path) -> Result<bool, DbError> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let mut conn = open_connection(path)?;
+    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if app != INDEX_APPLICATION_ID || version != 20 {
+        return Ok(false);
+    }
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    for (table, column, declaration) in VERSION_21_COLUMNS {
+        let held: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)", params![table, column], |r| r.get(0))?;
+        if !held {
+            tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {declaration}"))?;
+        }
+    }
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS compactions_cid ON compactions(session, cid)")?;
+    tx.pragma_update(None, "user_version", 21)?;
     tx.commit()?;
     Ok(true)
 }
@@ -2261,8 +2294,9 @@ impl Writer {
         let rewritten = crate::log_rewrite::recover(lane, data, &crate::log::OsIo, &blobs).map_err(|e| DbError::Write(e.to_string()))?;
         steps.push(("rewrites-recovered", Instant::now()));
         // An index the upgrade cannot read or write is the rebuild's, as any other it cannot open.
-        // Each step in turn: an index of version 18 takes both.
-        match upgrade_from_18(data, path).and_then(|from_18| Ok(upgrade_from_19(path)? || from_18)) {
+        // Each step in turn: an index of version 18 takes them all.
+        let steps_taken = upgrade_from_18(data, path).and_then(|from_18| Ok(upgrade_from_19(path)? || from_18));
+        match steps_taken.and_then(|earlier| Ok(upgrade_from_20(path)? || earlier)) {
             Ok(true) => steps.push(("upgraded-in-place", Instant::now())),
             Ok(false) => {}
             Err(_) => steps.push(("in-place-upgrade-refused", Instant::now())),
@@ -2735,8 +2769,9 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
             }
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO history (session, ordinal, iid, turn, form, model, visible, file_no,
-                 frame_offset, frame_len, amend_ordinal, superseded_rev, facets)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11)",
+                 frame_offset, frame_len, amend_ordinal, superseded_rev, facets, end_form)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11,
+                 coalesce((SELECT end_form FROM turns WHERE session = ?1 AND rid = ?4), 0))",
             )?
             .execute(params![
                 session,
@@ -2783,12 +2818,18 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
         }
         FrameKind::Compacted { cid, at, rows, mode, dropped, silent } => {
             // The divider sits at the compaction's own record (`archive_index::divider_place`).
-            let boundary = ordinal;
-            tx.prepare_cached(
-                "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
-                 boundary, at, drop_mode, silent, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)",
-            )?
-            .execute(params![session, ordinal, cid, file_no, offset, len, boundary, at, *mode as i64, i64::from(*silent)])?;
+            tx.prepare_cached(COMPACTION_ROW_SQL)?.execute(params![
+                session,
+                ordinal,
+                cid,
+                file_no,
+                offset,
+                len,
+                ordinal,
+                at,
+                *mode as i64,
+                i64::from(*silent)
+            ])?;
             if let Some(dropped) = dropped {
                 let mut put = tx.prepare_cached("INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)")?;
                 for id in &dropped.message_ids {
@@ -2801,13 +2842,18 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
             // The context restarts here: a new epoch whose totals count from the replacement.
             crate::message_index::add_compaction(tx, session, ordinal, (file_no, offset, len), rows)?;
         }
-        FrameKind::Run { rid, phase } => match phase {
+        FrameKind::Run { rid, phase, end } => match phase {
             RunPhase::Started => {
                 tx.prepare_cached(
-                    "INSERT OR REPLACE INTO turns (session, rid, started_ordinal, end_ordinal, phase, superseded_rev)
-                     VALUES (?1, ?2, ?3, NULL, 'started', NULL)",
+                    "INSERT OR REPLACE INTO turns (session, rid, started_ordinal, end_ordinal, phase, superseded_rev, end_form)
+                     VALUES (?1, ?2, ?3, NULL, 'started', NULL, ?4)",
                 )?
-                .execute(params![session, rid, ordinal])?;
+                .execute(params![session, rid, ordinal, i64::from(*end == Some(TurnEndForm::Display))])?;
+                // The turn's input row is written before this frame: it holds the turn's form too.
+                if *end == Some(TurnEndForm::Display) {
+                    tx.prepare_cached("UPDATE history INDEXED BY history_turn SET end_form = 1 WHERE session = ?1 AND turn = ?2 AND model = 1")?
+                        .execute(params![session, rid])?;
+                }
             }
             RunPhase::Attempt => {}
             ended => {
@@ -2915,6 +2961,12 @@ fn apply_frame_part(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame,
     }
 }
 
+/// The `compactions` row of a `compacted` frame: the divider sits at the compaction's own record, so `boundary` is its
+/// ordinal.
+const COMPACTION_ROW_SQL: &str = "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
+     boundary, at, drop_mode, silent, superseded_rev)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)";
+
 /// A compaction with more rows than one transaction holds, from part `done` on while `budget` has room: its own row, each
 /// dropped id, each replacement row, then its epoch with the frame's tail. Every part is written as the whole frame would
 /// write it, and a part written twice is the same row.
@@ -2931,11 +2983,18 @@ fn apply_compaction_part(tx: &Transaction<'_>, session: &str, frame: &ProjectedF
             return Ok((part, false));
         }
         if part == 0 {
-            tx.prepare_cached(
-                "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
-                 boundary, at, drop_mode, silent, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)",
-            )?
-            .execute(params![session, ordinal, cid, file_no, offset, len, ordinal, at, *mode as i64, i64::from(*silent)])?;
+            tx.prepare_cached(COMPACTION_ROW_SQL)?.execute(params![
+                session,
+                ordinal,
+                cid,
+                file_no,
+                offset,
+                len,
+                ordinal,
+                at,
+                *mode as i64,
+                i64::from(*silent)
+            ])?;
         } else if part <= ids.len() {
             let (kind, id) = ids[part - 1];
             tx.prepare_cached("INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)")?
@@ -3146,6 +3205,9 @@ pub struct HistoryRow {
     /// `meta.modelSwitches` of the message), in the order they were recorded: shown after
     /// the row's own items.
     pub model_switches: Vec<ModelSwitchEntry>,
+    /// Where the row's turn stores its end (its `started` record's `end`), when not on a message of the turn: such
+    /// a row shows no end of its own.
+    pub end: Option<TurnEndForm>,
 }
 
 /// One rewritten copy of a message: entry `idx` of the replacement of the `compacted`
@@ -4202,6 +4264,99 @@ impl SqliteStore {
         self.with_of(&levels(lineage), |c| counted(c, lineage, |c| page_after_on(c, lineage, cut, cursor, limit)))
     }
 
+    /// One page of occurrences, newest first: the rows of [`Self::history_page_on_lane`] and, with `boundaries`, the
+    /// boundary of each compaction that lists a divider, at the compaction's own ordinal among them (as first or last
+    /// occurrence of the lineage, and one directly after another, alike). A boundary counts for `limit` as a row does.
+    pub fn unit_page_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        cursor: Option<PageCursor>,
+        limit: usize,
+        boundaries: bool,
+    ) -> Result<(Vec<UnitRow>, Option<PageCursor>), DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| unit_page_on(c, lineage, cut, cursor, limit, boundaries)))
+    }
+
+    /// [`Self::unit_page_on_lane`] the other way: the occurrences from `cursor` on (the lineage's oldest when none),
+    /// oldest first, and where the next newer page starts (`None`: these reach the newest occurrence).
+    pub fn unit_page_after_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        cursor: Option<AfterCursor>,
+        limit: usize,
+        boundaries: bool,
+    ) -> Result<(Vec<UnitRow>, Option<AfterCursor>), DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| unit_page_after_on(c, lineage, cut, cursor, limit, boundaries)))
+    }
+
+    /// Where the occurrence a position names is: the row `ids` or `alias` name ([`Self::history_anchor_on_lane`]),
+    /// else the boundary of the compaction `boundary` (its `cid`). The cursor reads back from the occurrence, itself
+    /// first; one level and `before - 1` is where a read on from it starts.
+    pub fn unit_anchor_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        ids: &[String],
+        alias: &str,
+        boundary: Option<&str>,
+    ) -> Result<Option<HistoryAnchor>, DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| unit_anchor_on(c, lineage, cut, ids, alias, boundary)))
+    }
+
+    /// [`Self::unit_page_on_lane`], as a job of the read pool.
+    pub async fn unit_page(
+        &self,
+        lineage: Vec<LineageLevel>,
+        cut: Option<u64>,
+        cursor: Option<PageCursor>,
+        limit: usize,
+    ) -> Result<(Vec<UnitRow>, Option<PageCursor>), DbError> {
+        self.read_lineage(lineage, move |c, lineage| unit_page_on(c, lineage, cut, cursor, limit, true)).await
+    }
+
+    /// [`Self::unit_page_after_on_lane`], as a job of the read pool.
+    pub async fn unit_page_after(
+        &self,
+        lineage: Vec<LineageLevel>,
+        cut: Option<u64>,
+        cursor: Option<AfterCursor>,
+        limit: usize,
+    ) -> Result<(Vec<UnitRow>, Option<AfterCursor>), DbError> {
+        self.read_lineage(lineage, move |c, lineage| unit_page_after_on(c, lineage, cut, cursor, limit, true)).await
+    }
+
+    /// [`Self::unit_anchor_on_lane`], as a job of the read pool.
+    pub async fn unit_anchor(
+        &self,
+        lineage: Vec<LineageLevel>,
+        cut: Option<u64>,
+        ids: Vec<String>,
+        boundary: Option<String>,
+    ) -> Result<Option<HistoryAnchor>, DbError> {
+        self.read_lineage(lineage, move |c, lineage| unit_anchor_on(c, lineage, cut, &ids, "", boundary.as_deref())).await
+    }
+
+    /// The stored result of each tool call of `calls` (`(ordinal of the record that shows the call, call id)`), oldest
+    /// first: the first visible `tool` message after that record, in its turn, that answers the call, in the call's
+    /// own log or a later level's. A call's result is a message of the call's turn, so the lookup walks that turn's
+    /// model rows after the call by `history_turn`, however many records of other turns lie between; a call with no
+    /// stored result has no row. A call of no turn is answered within its run of turn-less rows, which the first row
+    /// of a turn after it ends.
+    pub fn call_results_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        calls: &[(u64, String)],
+    ) -> Result<Vec<HistoryRow>, DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| call_results_on(c, lineage, cut, calls)))
+    }
+
     /// `turn_messages_on` inside a job already on the read lane.
     pub fn turn_messages_on_lane(
         &self,
@@ -5163,6 +5318,23 @@ pub struct Divider {
     pub model_switches: Vec<ModelSwitchEntry>,
 }
 
+/// One occurrence of a transcript page: a history row, or the boundary of a compaction that lists a divider, at the
+/// compaction's own record. Both have an ordinal of their log, so the occurrences of a lineage are in one order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitRow {
+    Item(HistoryRow),
+    Boundary(Divider),
+}
+
+impl UnitRow {
+    pub fn ordinal(&self) -> u64 {
+        match self {
+            UnitRow::Item(row) => row.ordinal,
+            UnitRow::Boundary(divider) => divider.pos.ordinal,
+        }
+    }
+}
+
 fn clamp_i64(v: u64) -> i64 {
     v.min(i64::MAX as u64) as i64
 }
@@ -5191,13 +5363,24 @@ fn dividers_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, level
     let Some(home) = lineage.get(level) else { return Ok(Vec::new()) };
     let asof = home.end.map_or(i64::MAX, clamp_i64);
     let to = clamp_i64(to).min(crate::archive_index::level_bound(lineage, cut, level));
-    let mut stmt = c.prepare_cached(
-        "SELECT ordinal, file_no, frame_offset, frame_len, cid, at FROM compactions
-         WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
-         ORDER BY ordinal",
-    )?;
+    boundaries_on(c, lineage, level, (clamp_i64(from), to), asof, -1, false)
+}
+
+/// The boundaries of `lineage[level]`'s compactions that list a divider, with ordinals in `span` (`[from, to)`), live for
+/// the reader at `asof`: at most `limit` of them (`-1`: all), oldest first or `newest_first`.
+fn boundaries_on(
+    c: &Connection,
+    lineage: &[LineageLevel],
+    level: usize,
+    span: (i64, i64),
+    asof: i64,
+    limit: i64,
+    newest_first: bool,
+) -> Result<Vec<Divider>, DbError> {
+    let home = &lineage[level];
+    let mut stmt = c.prepare_cached(if newest_first { BOUNDARIES_NEWEST_SQL } else { BOUNDARIES_SQL })?;
     let found = stmt
-        .query_map(params![home.session, asof, clamp_i64(from), to], |r| {
+        .query_map(params![home.session, asof, span.0, span.1, limit], |r| {
             Ok((r.get::<_, i64>(0)?, (r.get::<_, u32>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?), r.get::<_, String>(4)?, r.get::<_, Option<i64>>(5)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -5217,6 +5400,24 @@ fn dividers_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, level
     }
     Ok(out)
 }
+
+/// The compactions of session `?1` in `[?3, ?4)` that list a divider, live for the reader at `?2`, oldest first, at most
+/// `?5` (`-1`: all).
+pub(crate) const BOUNDARIES_SQL: &str = "SELECT ordinal, file_no, frame_offset, frame_len, cid, at
+     FROM compactions
+     WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
+     ORDER BY ordinal LIMIT ?5";
+
+/// [`BOUNDARIES_SQL`], newest first.
+pub(crate) const BOUNDARIES_NEWEST_SQL: &str = "SELECT ordinal, file_no, frame_offset, frame_len, cid, at
+     FROM compactions
+     WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
+     ORDER BY ordinal DESC LIMIT ?5";
+
+/// The newest compaction `?2` of session `?1` below `?3` that lists a divider, live for the reader at `?4`.
+pub(crate) const BOUNDARY_NAMED_SQL: &str = "SELECT ordinal FROM compactions INDEXED BY compactions_cid
+     WHERE session = ?1 AND cid = ?2 AND ordinal < ?3 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?4)
+     ORDER BY ordinal DESC LIMIT 1";
 
 /// For each `(level, turn)`: whether a compaction took a model message of the turn out of the context, and whether one of
 /// its messages is left, over every message of the turn the reader of `lineage` sees. A page shows a turn's end as the
@@ -5255,6 +5456,103 @@ fn turn_messages_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, 
     }
     Ok(out)
 }
+
+/// The lineage level whose visible range holds the history row at `ordinal`, and that row's turn.
+fn row_home(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ordinal: u64) -> Result<Option<(usize, Option<String>)>, DbError> {
+    for level in (0..lineage.len()).rev() {
+        let (before, floor) = level_bounds(lineage, cut, level, u64::MAX);
+        if ordinal >= before {
+            continue;
+        }
+        let turn = c
+            .prepare_cached("SELECT turn FROM history WHERE session = ?1 AND ordinal = ?2 AND (superseded_rev IS NULL OR superseded_rev >= ?3)")?
+            .query_row(params![lineage[level].session, clamp_i64(ordinal), floor], |r| r.get::<_, Option<String>>(0))
+            .optional()?;
+        if let Some(turn) = turn {
+            return Ok(Some((level, turn)));
+        }
+    }
+    Ok(None)
+}
+
+fn call_results_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, calls: &[(u64, String)]) -> Result<Vec<HistoryRow>, DbError> {
+    // One walk per turn that holds asked calls, from the oldest record that shows one.
+    let mut walks: Vec<(usize, Option<String>, u64, Vec<&str>)> = Vec::new();
+    for (ordinal, call) in calls {
+        let Some((level, turn)) = row_home(c, lineage, cut, *ordinal)? else { continue };
+        match walks.iter_mut().find(|walk| walk.0 == level && walk.1 == turn) {
+            Some(walk) => {
+                walk.2 = walk.2.min(*ordinal);
+                walk.3.push(call.as_str());
+            }
+            None => walks.push((level, turn, *ordinal, vec![call.as_str()])),
+        }
+    }
+    let mut compactions = crate::archive_index::Compactions::new(c, lineage, cut);
+    let mut found: Vec<(usize, HistoryRow)> = Vec::new();
+    for (home, turn, after, mut left) in walks {
+        // The call's own log first, then each later level's, which continues it.
+        let mut home_done = false;
+        for level in (0..=home).rev() {
+            if left.is_empty() || home_done {
+                break;
+            }
+            let (before, floor) = level_bounds(lineage, cut, level, u64::MAX);
+            let from = if level == home { after + 1 } else { 0 };
+            // Rows of no turn answer one another only within their run: it ends at the first row of a turn.
+            let closed = match turn {
+                Some(_) => None,
+                None => c
+                    .prepare_cached(TURNLESS_RUN_END_SQL)?
+                    .query_row(params![lineage[level].session, clamp_i64(from), clamp_i64(before), floor], |r| r.get::<_, i64>(0))
+                    .optional()?,
+            };
+            let before = closed.map_or(before, |end| end as u64);
+            // A turn-less run that ended in this level does not continue in a later one.
+            if closed.is_some() {
+                home_done = true;
+            }
+            let mut stmt = c.prepare_cached(CALL_RESULTS_SQL)?;
+            let mut rows = stmt.query(params![lineage[level].session, clamp_i64(before), floor, turn, clamp_i64(from)])?;
+            while let Some(r) = rows.next()? {
+                let Some(facets) = r.get::<_, Option<String>>(12)?.and_then(|f| serde_json::from_str::<crate::message_facets::Facets>(&f).ok()) else {
+                    continue;
+                };
+                if facets.role != "tool" {
+                    continue;
+                }
+                let Some(at) = left.iter().position(|call| facets.calls.iter().any(|answered| answered.as_str() == *call)) else { continue };
+                left.swap_remove(at);
+                let (frame, _) = row_frame(r)?;
+                found.push((level, history_row(c, lineage, level, floor, &mut compactions, r, frame)?));
+                if left.is_empty() {
+                    break;
+                }
+            }
+        }
+    }
+    // Oldest first: the deepest level, then each level's rows in their order.
+    found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.ordinal.cmp(&b.1.ordinal)));
+    found.dedup_by(|a, b| a.0 == b.0 && a.1.ordinal == b.1.ordinal);
+    Ok(found.into_iter().map(|(_, row)| row).collect())
+}
+
+/// [`PAGE_AFTER_SQL`] over the model rows of turn `?4` (`NULL`: the rows of no turn) from `?5` on. The index is named:
+/// the walk costs the turn's own rows.
+pub(crate) const CALL_RESULTS_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
+       a.ordinal, a.file_no, a.frame_offset, a.frame_len,
+       h.facets, h.end_form
+     FROM history h INDEXED BY history_turn LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
+     WHERE h.session = ?1 AND h.turn IS ?4 AND h.ordinal < ?2 AND h.ordinal >= ?5 AND h.model = 1 AND h.visible = 1
+       AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
+     ORDER BY h.ordinal ASC";
+
+/// The first live row of a turn in `[?2, ?3)` of session `?1`, judged at fork point `?4`: where a run of turn-less rows
+/// that starts at `?2` ends. A walk of the log's own order, which stops at that row.
+pub(crate) const TURNLESS_RUN_END_SQL: &str = "SELECT ordinal FROM history
+     WHERE session = ?1 AND ordinal >= ?2 AND ordinal < ?3 AND turn IS NOT NULL
+       AND (superseded_rev IS NULL OR superseded_rev >= ?4)
+     ORDER BY ordinal ASC LIMIT 1";
 
 /// `read` with the steps of every statement it runs on `c` counted for the reader's session
 /// ([`read_count::take_steps`](crate::read_count::take_steps)): what a read costs its index, whichever statements serve
@@ -5355,6 +5653,33 @@ fn anchor_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ids: &[
     Ok(found.map(|(level, ordinal)| HistoryAnchor { cursor: PageCursor { history_rev: rev as u64, level, before: ordinal + 1 }, named }))
 }
 
+/// [`anchor_on`] over the occurrences of a unit page: the row `ids` or `alias` name, as there; else, with `boundary`,
+/// the boundary of the compaction with that `cid` (the newest the reader sees). A page from the cursor starts with the
+/// occurrence named, then runs older.
+fn unit_anchor_on(
+    c: &Connection,
+    lineage: &[LineageLevel],
+    cut: Option<u64>,
+    ids: &[String],
+    alias: &str,
+    boundary: Option<&str>,
+) -> Result<Option<HistoryAnchor>, DbError> {
+    if let Some(row) = anchor_on(c, lineage, cut, ids, alias)? {
+        return Ok(Some(row));
+    }
+    let Some(cid) = boundary else { return Ok(None) };
+    let rev = history_rev_on(c, lineage)?;
+    for level in 0..lineage.len() {
+        let (before, floor) = level_bounds(lineage, cut, level, u64::MAX);
+        let found: Option<i64> =
+            c.prepare_cached(BOUNDARY_NAMED_SQL)?.query_row(params![lineage[level].session, cid, clamp_i64(before), floor], |r| r.get(0)).optional()?;
+        if let Some(ordinal) = found {
+            return Ok(Some(HistoryAnchor { cursor: PageCursor { history_rev: rev, level, before: ordinal as u64 + 1 }, named: 1 }));
+        }
+    }
+    Ok(None)
+}
+
 fn kept_copies(c: &Connection, session: &str, iid: &str, ordinal: u64, floor: i64) -> Result<Vec<KeptCopy>, DbError> {
     let mut copies = c.prepare_cached(KEPT_SQL)?;
     let found = copies.query_map(params![session, iid, ordinal as i64, floor], |k| {
@@ -5425,12 +5750,49 @@ fn history_row(
         dropped_calls: verdict.calls,
         kept,
         model_switches,
+        end: (r.get::<_, i64>(13)? == 1).then_some(TurnEndForm::Display),
     })
 }
 
+/// The history rows of a page read without boundaries.
+fn items_of(units: Vec<UnitRow>) -> Vec<HistoryRow> {
+    units
+        .into_iter()
+        .filter_map(|unit| match unit {
+            UnitRow::Item(row) => Some(row),
+            UnitRow::Boundary(_) => None,
+        })
+        .collect()
+}
+
 fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: Option<PageCursor>, limit: usize) -> Result<Page, DbError> {
-    let rev: i64 = c.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
-    let rev = rev as u64;
+    let (units, next) = unit_page_on(c, lineage, cut, cursor, limit, false)?;
+    Ok((items_of(units), next))
+}
+
+/// The frame length and live amend of a `PAGE_SQL` row, and what the two cost a page's byte budget.
+fn row_frame(r: &rusqlite::Row<'_>) -> rusqlite::Result<((u64, Option<(FramePos, u64)>), u64)> {
+    let frame_len = r.get::<_, i64>(7)? as u64;
+    let amend = match r.get::<_, Option<i64>>(8)? {
+        Some(o) => Some((FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 }, r.get::<_, i64>(11)? as u64)),
+        None => None,
+    };
+    Ok(((frame_len, amend), frame_len + amend.map_or(0, |(_, l)| l)))
+}
+
+/// One page of occurrences, newest first: the history rows of [`history_page`](SqliteStore::history_page) and, with
+/// `boundaries`, the boundary of each compaction that lists a divider, each at its own ordinal among them. A boundary
+/// counts for `limit` as a row does and costs the byte budget nothing (its frame is not read). The cursor is the
+/// ordinal the next older occurrence lies below, a row's or a boundary's alike.
+fn unit_page_on(
+    c: &Connection,
+    lineage: &[LineageLevel],
+    cut: Option<u64>,
+    cursor: Option<PageCursor>,
+    limit: usize,
+    boundaries: bool,
+) -> Result<(Vec<UnitRow>, Option<PageCursor>), DbError> {
+    let rev = history_rev_on(c, lineage)?;
     let mut cur = match cursor {
         Some(c) if c.history_rev != rev => return Err(DbError::CursorStale),
         Some(c) => c,
@@ -5442,37 +5804,52 @@ fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: O
     while cur.level < lineage.len() && out.len() < limit {
         let level = &lineage[cur.level];
         let (before, floor) = level_bounds(lineage, cut, cur.level, cur.before);
-        let mut stmt = c.prepare_cached(PAGE_SQL)?;
         let want = (limit - out.len()) as i64;
-        let mut rows = stmt.query(params![level.session, before.min(i64::MAX as u64) as i64, floor, want])?;
+        let marks = if boundaries { boundaries_on(c, lineage, cur.level, (0, clamp_i64(before)), floor, want, true)? } else { Vec::new() };
+        let marks_full = marks.len() as i64 == want;
+        let mut marks = marks.into_iter().peekable();
+        let mut stmt = c.prepare_cached(PAGE_SQL)?;
+        let mut rows = stmt.query(params![level.session, clamp_i64(before), floor, want])?;
         let mut got = 0;
-        let mut full = false;
+        let mut stopped = false;
         while let Some(r) = rows.next()? {
             got += 1;
             #[cfg(any(test, feature = "test-support"))]
             crate::read_count::add(&lineage[0].session, 1);
-            let frame_len = r.get::<_, i64>(7)? as u64;
-            let amend = match r.get::<_, Option<i64>>(8)? {
-                Some(o) => Some((FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 }, r.get::<_, i64>(11)? as u64)),
-                None => None,
-            };
-            let cost = frame_len + amend.map_or(0, |(_, l)| l);
-            if !out.is_empty() && bytes + cost > PAGE_MAX_BYTES {
-                full = true;
+            let ordinal = r.get::<_, i64>(0)? as u64;
+            // The boundaries newer than the row come before it.
+            while out.len() < limit
+                && let Some(mark) = marks.next_if(|mark| mark.pos.ordinal > ordinal)
+            {
+                cur.before = mark.pos.ordinal;
+                out.push(UnitRow::Boundary(mark));
+            }
+            let (frame, cost) = row_frame(r)?;
+            if out.len() >= limit || (!out.is_empty() && bytes + cost > PAGE_MAX_BYTES) {
+                stopped = true;
                 break;
             }
             bytes += cost;
-            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, (frame_len, amend))?;
+            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, frame)?;
             cur.before = row.ordinal;
-            out.push(row);
+            out.push(UnitRow::Item(row));
         }
         drop(rows);
-        if full {
+        if stopped {
             break;
         }
         if (got as i64) < want {
-            cur.level += 1;
-            cur.before = u64::MAX;
+            // No row of the level is left: the boundaries left are older than every row of it.
+            while out.len() < limit
+                && let Some(mark) = marks.next()
+            {
+                cur.before = mark.pos.ordinal;
+                out.push(UnitRow::Boundary(mark));
+            }
+            if marks.peek().is_none() && !marks_full {
+                cur.level += 1;
+                cur.before = u64::MAX;
+            }
         }
     }
     let next = (cur.level < lineage.len()).then_some(cur);
@@ -5493,6 +5870,19 @@ fn page_after_on(
     cursor: Option<AfterCursor>,
     limit: usize,
 ) -> Result<(Vec<HistoryRow>, Option<AfterCursor>), DbError> {
+    let (units, next) = unit_page_after_on(c, lineage, cut, cursor, limit, false)?;
+    Ok((items_of(units), next))
+}
+
+/// [`unit_page_on`] from the other end: the occurrences from `cursor` on, oldest first, under the same limits.
+fn unit_page_after_on(
+    c: &Connection,
+    lineage: &[LineageLevel],
+    cut: Option<u64>,
+    cursor: Option<AfterCursor>,
+    limit: usize,
+    boundaries: bool,
+) -> Result<(Vec<UnitRow>, Option<AfterCursor>), DbError> {
     let rev = history_rev_on(c, lineage)?;
     let mut cur = match cursor {
         Some(c) if c.history_rev != rev => return Err(DbError::CursorStale),
@@ -5506,39 +5896,53 @@ fn page_after_on(
     while left && out.len() < limit {
         let level = &lineage[cur.level];
         let (before, floor) = level_bounds(lineage, cut, cur.level, u64::MAX);
-        let mut stmt = c.prepare_cached(PAGE_AFTER_SQL)?;
         let want = (limit - out.len()) as i64;
-        let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
-        let mut rows = stmt.query(params![level.session, clamp(before), floor, want, clamp(cur.from)])?;
+        let marks = if boundaries { boundaries_on(c, lineage, cur.level, (clamp_i64(cur.from), clamp_i64(before)), floor, want, false)? } else { Vec::new() };
+        let marks_full = marks.len() as i64 == want;
+        let mut marks = marks.into_iter().peekable();
+        let mut stmt = c.prepare_cached(PAGE_AFTER_SQL)?;
+        let mut rows = stmt.query(params![level.session, clamp_i64(before), floor, want, clamp_i64(cur.from)])?;
         let mut got = 0;
-        let mut full = false;
+        let mut stopped = false;
         while let Some(r) = rows.next()? {
             got += 1;
             #[cfg(any(test, feature = "test-support"))]
             crate::read_count::add(&lineage[0].session, 1);
-            let frame_len = r.get::<_, i64>(7)? as u64;
-            let amend = match r.get::<_, Option<i64>>(8)? {
-                Some(o) => Some((FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 }, r.get::<_, i64>(11)? as u64)),
-                None => None,
-            };
-            let cost = frame_len + amend.map_or(0, |(_, l)| l);
-            if !out.is_empty() && bytes + cost > PAGE_MAX_BYTES {
-                full = true;
+            let ordinal = r.get::<_, i64>(0)? as u64;
+            // The boundaries older than the row come before it.
+            while out.len() < limit
+                && let Some(mark) = marks.next_if(|mark| mark.pos.ordinal < ordinal)
+            {
+                cur.from = mark.pos.ordinal + 1;
+                out.push(UnitRow::Boundary(mark));
+            }
+            let (frame, cost) = row_frame(r)?;
+            if out.len() >= limit || (!out.is_empty() && bytes + cost > PAGE_MAX_BYTES) {
+                stopped = true;
                 break;
             }
             bytes += cost;
-            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, (frame_len, amend))?;
+            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, frame)?;
             cur.from = row.ordinal + 1;
-            out.push(row);
+            out.push(UnitRow::Item(row));
         }
         drop(rows);
-        if full {
+        if stopped {
             break;
         }
         if (got as i64) < want {
-            match cur.level.checked_sub(1) {
-                Some(newer) => (cur.level, cur.from) = (newer, 0),
-                None => left = false,
+            // No row of the level is left: the boundaries left are newer than every row of it.
+            while out.len() < limit
+                && let Some(mark) = marks.next()
+            {
+                cur.from = mark.pos.ordinal + 1;
+                out.push(UnitRow::Boundary(mark));
+            }
+            if marks.peek().is_none() && !marks_full {
+                match cur.level.checked_sub(1) {
+                    Some(newer) => (cur.level, cur.from) = (newer, 0),
+                    None => left = false,
+                }
             }
         }
     }
@@ -5571,7 +5975,7 @@ pub(crate) const ENTRY_SWITCHES_SQL: &str = "SELECT min(m.idx), s.ordinal, s.pro
 /// One history page level: visible rows below `?2`, live for the reader at `?3`.
 pub(crate) const PAGE_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
-       h.facets
+       h.facets, h.end_form
      FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
      WHERE h.session = ?1 AND h.ordinal < ?2 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
@@ -5586,7 +5990,7 @@ pub(crate) const TURN_MESSAGES_SQL: &str = "SELECT h.ordinal, h.iid, h.form, h.f
 /// [`PAGE_SQL`] the other way: the level's visible rows from `?5` on, oldest first.
 pub(crate) const PAGE_AFTER_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
-       h.facets
+       h.facets, h.end_form
      FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
      WHERE h.session = ?1 AND h.ordinal < ?2 AND h.ordinal >= ?5 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)

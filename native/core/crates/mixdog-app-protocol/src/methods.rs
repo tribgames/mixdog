@@ -493,6 +493,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// "Send now": a queued message takes over the running turn and starts the next one.
+    TurnTakeover => "turn/takeover" {
+        params: v2::thread::TurnTakeoverParams,
+        result: v2::thread::TurnTakeoverResponse,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: op(Thread),
+        origins: [Local, Ssh, Relay],
+    },
     /// Today's `retryFailedTurn`.
     TurnRetryFailed => "turn/retryFailed" {
         params: v2::thread::TurnRetryFailedParams,

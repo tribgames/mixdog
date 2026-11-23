@@ -1,15 +1,19 @@
 //! `cursor-oauth` / `cursor-api`: the Cursor agent run (`agent.v1.AgentService/Run`),
 //! a Connect+protobuf bidirectional stream over HTTP/2.
 //!
-//! One attempt is one run: the request carries the whole transcript, the
-//! server's text and thinking stream back, and a tool batch ends the attempt
-//! (the next request carries the results in the transcript). While the run is
+//! A run's request carries the whole transcript and the server's text and
+//! thinking stream back. A tool batch ends the attempt, not the run: the run
+//! waits for its results, which the next request of the scope writes back on
+//! it when its transcript ends in exactly them; any other continuation, and a
+//! run that is gone, is taken up by a new run carrying the transcript
+//! ([`open_run`], [`CursorAdapter::resume`]). While the run is
 //! open the client answers the server's own requests (request context, blob
 //! reads and writes, refused interactions) and sends the protocol's
 //! application heartbeat; the heartbeat is the run's liveness toward Cursor,
 //! never a judgement about the server.
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
+pub mod answer;
 pub mod auth;
 pub mod decoder;
 pub mod listing;
@@ -17,6 +21,9 @@ pub mod listing;
 mod listing_tests;
 pub mod login;
 pub mod models;
+mod open_run;
+#[cfg(test)]
+mod open_run_tests;
 pub mod request;
 pub mod schema;
 pub mod variants;
@@ -29,6 +36,10 @@ use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
+use bytes::Bytes;
+use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::MessageSource;
+use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
@@ -55,9 +66,16 @@ use serde_json::Value;
 
 use self::decoder::CursorDecoder;
 use self::models::CursorModel;
+use self::open_run::Fingerprint;
+use self::open_run::Kept;
+use self::open_run::Live;
+use self::open_run::Parked;
+use self::open_run::Runs;
 use self::models::ParameterAsk;
 use self::request::ModelSelection;
+use self::request::Prepared;
 use self::request::RunBuild;
+use self::request::build_prepared;
 use self::request::build_run;
 use self::request::conversation_id;
 use self::request::random_uuid;
@@ -67,8 +85,6 @@ use crate::providers::connect::provider_error;
 use crate::providers::listing_row;
 use crate::retry::advice;
 use crate::transport::http::BidiOpen;
-use crate::transport::http::BodyStream;
-use crate::transport::http::FrameSink;
 use crate::transport::http::HttpSend;
 
 pub const API_URL: &str = "https://api2.cursor.sh";
@@ -146,6 +162,11 @@ pub(crate) fn rpc_headers(access_token: &str, client_version: &str, unary: bool)
     ];
     if !unary {
         headers.push(("connect-protocol-version".to_owned(), "1".to_owned()));
+        // The tools of a run are the ones this side offers, which reach the service as MCP tools: its own file and
+        // shell tools, which only this side could run, are not offered to the model. One it asks for all the same
+        // is still served by the tool of this side that does the same. The service's own tool that lists the MCP
+        // tools is left out as well: the model has the list already, and spent a step of each run on asking for it.
+        headers.push(("x-cursor-agent-allowed-tools".to_owned(), "mcp_tool_call".to_owned()));
     }
     headers
 }
@@ -162,6 +183,13 @@ impl CursorCodec {
         // cursor-wire.mjs:`handleChatCompletion`): its message id is the send's, drawn by the first attempt.
         let message_id = request.options.send_identity.get_or_mint(random_uuid);
         let run = build_run(request, &target.selection, &target.conversation_id, &message_id)?;
+        Ok(Self { target, run })
+    }
+
+    /// [`Self::new`] for a request already read ([`request::prepare`]).
+    fn prepared(request: &ModelRequest, target: CursorTarget, prepared: Prepared) -> Result<Self, ProviderError> {
+        let message_id = request.options.send_identity.get_or_mint(random_uuid);
+        let run = build_prepared(prepared, &target.selection, &target.conversation_id, &message_id)?;
         Ok(Self { target, run })
     }
 
@@ -251,8 +279,12 @@ pub struct CursorAdapter {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     catalog: ArcSwapOption<Vec<CursorModel>>,
-    /// The conversations a throttle touched, by scope.
+    /// The conversations a completed run or a refusal touched, by scope.
     rotated: Arc<Conversations>,
+    /// The selections whose model id the service answered as not found, asked under their listed id since.
+    unknown_ids: std::sync::Mutex<Vec<ModelSelection>>,
+    /// The runs waiting for the results of the batch they handed over, by scope.
+    runs: Arc<Runs>,
     /// The rows the last listing stored, which `getCachedModelInfo` answers.
     rows: crate::catalog::RowStore,
     placeholder: CursorCodecStub,
@@ -279,6 +311,8 @@ impl CursorAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
             rotated: Arc::default(),
+            unknown_ids: Default::default(),
+            runs: Arc::default(),
             rows: crate::catalog::RowStore::default(),
             placeholder: CursorCodecStub,
         }
@@ -385,23 +419,35 @@ impl CursorAdapter {
         self.rotated.id_for(scope)
     }
 
-    async fn open(&self, request: &Arc<ModelRequest>, token: &str) -> Result<Box<CursorStream>, ProviderError> {
+    /// What `request` asks a run for: the catalog, the tools and the transcript are read once per attempt, whether the
+    /// attempt goes on the waiting run or opens one.
+    async fn asked(&self, request: &ModelRequest, token: &str) -> Result<Asked, ProviderError> {
         // A catalog failure never blocks a turn: the id is then sent as it is.
         let catalog = self.cached_models(token).await.unwrap_or_default();
-        let selection = self.selection(&catalog, request)?;
+        let mut selection = self.selection(&catalog, request)?;
+        let mut listed = models::listed_selection(&catalog, &selection);
+        let mut switched = None;
+        if listed.is_some() && self.unknown_ids.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&selection) {
+            switched = Some(std::mem::replace(&mut selection, listed.take().expect("checked")));
+        }
         // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries and after the catalog was read
         // and the model chosen (cursor.mjs:656).
         request.options.send_identity.raise_requesting_once();
+        Ok(Asked { selection, prepared: request::prepare(request)?, listed, switched })
+    }
+
+    async fn open(&self, request: &Arc<ModelRequest>, token: &str, asked: Asked) -> Result<Box<CursorStream>, ProviderError> {
         let scope = Self::scope_of(request).map_or_else(|| format!("cursor-call:{}", random_uuid()), str::to_owned);
-        let codec = CursorCodec::new(
+        let codec = CursorCodec::prepared(
             request,
             CursorTarget {
                 api_url: self.api_url.clone(),
                 access_token: token.to_owned(),
                 client_version: self.client_version.clone(),
-                selection,
+                selection: asked.selection,
                 conversation_id: self.conversation_of(&scope),
             },
+            asked.prepared,
         )?;
         let wire = codec.encode(request)?;
         let first = wire.body.clone();
@@ -410,11 +456,64 @@ impl CursorAdapter {
             let response = head.read_all().await?;
             return Err(codec.classify(&response));
         }
-        let mut stream = CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned());
+        let live = Live {
+            body: head.body,
+            sink,
+            decoder: codec.cursor_decoder(),
+            heartbeat_at: std::time::Instant::now() + CLIENT_HEARTBEAT,
+            secret: token.to_owned(),
+            fingerprint: Fingerprint { selection: codec.target.selection.clone(), tools: codec.run.tools.clone(), cloud_rule: codec.run.cloud_rule.clone() },
+        };
+        let mut stream = CursorStream::new(live, VecDeque::new(), request);
         if let Some(scope) = Self::scope_of(request) {
             stream.throttle = Some((self.rotated.clone(), scope.to_owned()));
         }
+        stream.waits = Some((self.runs.clone(), scope));
         Ok(Box::new(stream))
+    }
+
+    /// The step `request` takes on `waiting`, the scope's run that handed over a batch and waited for its results.
+    ///
+    /// A transcript that ends in exactly those results, asked of the same model, tools and rules, has them written back
+    /// on the run, each on its call and in the batch's order, and the run goes on; a failure it then answers with is the
+    /// attempt's, as the failure of any stream is. Any other request leaves the run: text of the user after the results,
+    /// a transcript that does not continue the batch, another model, other tools or rules. A run that is left is closed
+    /// with everything it held, a call it announced behind the batch among it: the model asked for that call before
+    /// what the new request says, and the new run decides again with the whole transcript. `None` leaves the step to
+    /// that new run.
+    fn resume(&self, request: &Arc<ModelRequest>, asked: &Asked, waiting: Kept, scope: &str) -> Option<Box<CursorStream>> {
+        let (mut live, replay) = waiting;
+        if asked.fingerprint() != live.fingerprint {
+            return None;
+        }
+        let results = results_for(&request.messages, live.decoder.handed())?;
+        for (call, result) in live.decoder.handed().iter().zip(&results) {
+            for message in answer::answer(&call.exec, result) {
+                live.sink.send(frame::encode(&message, 0)).ok()?;
+            }
+        }
+        live.decoder.resume();
+        let mut stream = CursorStream::new(live, replay, request);
+        stream.throttle = Some((self.rotated.clone(), scope.to_owned()));
+        stream.waits = Some((self.runs.clone(), scope.to_owned()));
+        Some(Box::new(stream))
+    }
+}
+
+/// What a request asks a run for.
+struct Asked {
+    selection: ModelSelection,
+    prepared: Prepared,
+    /// The same variant under the id the listing gave it, where that is another id: asked when the service does not
+    /// know the first.
+    listed: Option<ModelSelection>,
+    /// The selection this one was switched from, after the service did not know it.
+    switched: Option<ModelSelection>,
+}
+
+impl Asked {
+    fn fingerprint(&self) -> Fingerprint {
+        Fingerprint { selection: self.selection.clone(), tools: self.prepared.tools.clone(), cloud_rule: self.prepared.cloud_rule.clone() }
     }
 }
 #[async_trait]
@@ -439,6 +538,7 @@ impl ProviderAdapter for CursorAdapter {
     /// The scope is over: its conversation's throttle record goes with it.
     fn release_session(&self, session_id: &str) {
         self.rotated.release(session_id);
+        self.runs.release(session_id);
     }
     fn id(&self) -> &ProviderId {
         &self.id
@@ -468,17 +568,57 @@ impl ProviderAdapter for CursorAdapter {
         // Every in-place retry of Node's bridge force-refreshes the credentials. One decision either way: a token just
         // obtained has not been refused, and a sign-out seen while obtaining it ends the attempt.
         let mut access = if request.options.send_identity.next_attempt() > 0 { self.tokens.renewed().await? } else { self.tokens.access_token().await? };
+        // The scope's waiting run is this attempt's to continue or to close.
+        let waiting = match Self::scope_of(&request).and_then(|scope| self.runs.take(scope)) {
+            Some(parked) => parked.take().await,
+            None => None,
+        };
+        if let Some(scope) = Self::scope_of(&request)
+            && request.messages.iter().any(|message| message.role == Role::Assistant)
+        {
+            self.rotated.under_way(scope);
+        }
+        let mut asked = self.asked(&request, &access.token).await;
+        if let (Ok(asked), Some(waiting), Some(scope)) = (&asked, waiting, Self::scope_of(&request))
+            && let Some(mut stream) = self.resume(&request, asked, waiting, scope)
+        {
+            stream.prime().await;
+            // The run that was given its results answers for itself: a failure is the attempt's, and the retry that
+            // follows it finds no run waiting and carries the transcript on a new one.
+            return match stream.queue.pop_front() {
+                Some(Err(error)) => Err(with_failure_hint(error)),
+                Some(first) => {
+                    stream.queue.push_front(first);
+                    Ok(stream)
+                }
+                None => Ok(stream),
+            };
+        }
         let mut refreshed = false;
+        let mut by_listing = None;
+        let mut switched = None;
         loop {
-            let error = match self.open(&request, &access.token).await {
+            let opened = match asked {
+                Ok(mut asked) => {
+                    switched = asked.switched.take();
+                    by_listing = asked.listed.take().map(|selection| {
+                        let listed = Asked { selection, prepared: asked.prepared.clone(), listed: None, switched: Some(asked.selection.clone()) };
+                        (asked.selection.clone(), listed)
+                    });
+                    self.open(&request, &access.token, asked).await
+                }
+                Err(error) => Err(error),
+            };
+            // `(the failure, the service does not know the model id, the open itself was refused)`
+            let (error, unknown_model, unopened) = match opened {
                 Ok(mut stream) => {
                     stream.prime().await;
                     match stream.queue.front() {
-                        Some(Err(error)) => error.clone(),
+                        Some(Err(error)) => (error.clone(), stream.unknown_model, false),
                         _ => return Ok(stream),
                     }
                 }
-                Err(error) => error,
+                Err(error) => (error, false, true),
             };
             if !refreshed && is_auth_failure(&error) {
                 refreshed = true;
@@ -487,19 +627,50 @@ impl ProviderAdapter for CursorAdapter {
                 // The same rejected credential is not sent again.
                 if next.token != access.token {
                     access = next;
+                    asked = self.asked(&request, &access.token).await;
                     continue;
                 }
             }
-            // Cursor can pin `resource_exhausted` to one conversation id: the retry that follows a throttle starts a
-            // fresh one (`cursor-wire.mjs` restart with reason `throttle`).
-            if error.status == Some(429)
+            // The model id the catalog describes by parameters is not one the service knows (a not-found of anything
+            // else is the failure it is): the id the listing gave that variant is asked once, and from then on. When
+            // it is the listed id the service does not know, the switch to it is undone.
+            if unknown_model {
+                let mut unknown_ids = self.unknown_ids.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some((unknown, listed)) = by_listing.take() {
+                    unknown_ids.push(unknown);
+                    asked = Ok(listed);
+                    continue;
+                }
+                if let Some(original) = switched.take() {
+                    unknown_ids.retain(|selection| *selection != original);
+                }
+            }
+            // A throttle that refuses the open is before anything was shown too; one a run ended with was the run's to
+            // judge, by what the service said of it.
+            if unopened
+                && error.status == Some(429)
                 && let Some(scope) = Self::scope_of(&request)
             {
-                self.rotated.throttled(scope);
+                self.rotated.refused(scope);
             }
             return Err(with_failure_hint(error));
         }
     }
+}
+
+/// The result of each call of `handed`, in the batch's order, when the transcript ends in the batch and exactly its
+/// results. The tail reminder the agent puts last on every request ([`MessageSource::TailReminder`]) is no part of the
+/// transcript: the run was told it when it was opened. `None` for any other transcript: text of the user after the
+/// results, a call the run did not ask for, a result that is missing.
+fn results_for(messages: &[Message], handed: &[decoder::Pending]) -> Option<Vec<Message>> {
+    let messages = crate::providers::own_call_ids::own_call_ids(messages);
+    let last = messages.iter().rposition(|m| m.role == Role::Assistant)?;
+    let asked = &messages[last].tool_calls;
+    let tail: Vec<&Message> = messages[last + 1..].iter().filter(|m| m.source != Some(MessageSource::TailReminder)).collect();
+    if handed.is_empty() || asked.len() != handed.len() || tail.len() != handed.len() || tail.iter().any(|m| m.role != Role::Tool) {
+        return None;
+    }
+    handed.iter().map(|call| tail.iter().find(|m| m.tool_call_id.as_deref() == Some(call.tool_call_id.as_str())).map(|m| (*m).clone())).collect()
 }
 
 /// `session.selectedContextWindow`: the window of the route's saved `context` choice, which decides Max mode.
@@ -558,29 +729,44 @@ impl WireCodec for CursorCodec {
 // The open run
 
 struct CursorStream {
-    body: Box<dyn BodyStream>,
-    sink: Arc<dyn FrameSink>,
-    decoder: CursorDecoder,
+    /// The run's wire; `None` once the run ended or waits for its results.
+    live: Option<Live>,
+    /// What arrived on the run while it waited, read ahead of the wire.
+    replay: VecDeque<Bytes>,
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
     ended: bool,
     /// Resolves at the next client heartbeat; the core ticker owns the clock.
     heartbeat: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-    heartbeat_at: std::time::Instant,
-    /// The access token the run was opened with: a server error that echoes it is redacted.
-    secret: String,
+    /// Resolves at the quiet point of the calls announced for a step the service has not listed in full
+    /// ([`decoder::QUIET`] after the last frame that was no heartbeat); `None` while no such call waits.
+    quiet: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
     /// The conversations of the adapter and the scope this run belongs to, when it has one.
     throttle: Option<(Arc<Conversations>, String)>,
+    /// The send this attempt serves: the server's heartbeat is its transport health.
+    identity: mixdog_core_api::domain::provider::SendIdentity,
+    /// Where a run that hands over a batch waits, and under which scope.
+    waits: Option<(Arc<Runs>, String)>,
+    /// The run waiting for this batch's results: it lives as long as this stream.
+    parked: Option<Arc<Parked>>,
+    /// The run failed before showing anything because the service does not know the model id it was asked for.
+    unknown_model: bool,
 }
 
-/// The conversation ids Cursor's throttles rotated, by scope (`conversation.id = crypto.randomUUID()` of the `throttle`
-/// restart): a scope keeps its derived id until a throttle ends one of its runs, and the retry after it sends a fresh one.
+/// The conversation ids of the scopes, where they are not the derived one. The service can pin a refusal to a
+/// conversation it holds: a run of such a conversation that fails before any token, by a throttle or by the provider's
+/// own failure, makes the next run of the scope send a fresh id. A conversation no run has yet completed on is not one
+/// the service holds, so a first request's refusal stands as the service's verdict, and so does the refusal of the
+/// fresh id: one new id per streak of failures.
 #[derive(Default)]
 struct Conversations(std::sync::Mutex<std::collections::HashMap<String, Conversation>>);
 
 #[derive(Default)]
 struct Conversation {
     rotated: Option<String>,
-    throttled: bool,
+    /// The next run sends a fresh id.
+    refused: bool,
+    /// A run completed a batch or a turn under the current id.
+    held: bool,
 }
 
 impl Conversations {
@@ -592,14 +778,28 @@ impl Conversations {
     fn id_for(&self, scope: &str) -> String {
         let mut all = self.lock();
         let Some(entry) = all.get_mut(scope) else { return conversation_id(scope) };
-        if std::mem::take(&mut entry.throttled) {
+        if std::mem::take(&mut entry.refused) {
             entry.rotated = Some(random_uuid());
         }
         entry.rotated.clone().unwrap_or_else(|| conversation_id(scope))
     }
 
-    fn throttled(&self, scope: &str) {
-        self.lock().entry(scope.to_owned()).or_default().throttled = true;
+    fn held(&self, scope: &str) {
+        self.lock().entry(scope.to_owned()).or_default().held = true;
+    }
+
+    /// The transcript of a request holds turns of the assistant: a scope nothing is recorded of yet (the process
+    /// started with the conversation under way) has a conversation the service holds, as a completed run shows.
+    fn under_way(&self, scope: &str) {
+        self.lock().entry(scope.to_owned()).or_insert(Conversation { held: true, ..Conversation::default() });
+    }
+
+    fn refused(&self, scope: &str) {
+        if let Some(entry) = self.lock().get_mut(scope)
+            && std::mem::take(&mut entry.held)
+        {
+            entry.refused = true;
+        }
     }
 
     /// The scope ended.
@@ -647,55 +847,85 @@ impl WireCodec for CursorCodecStub {
 }
 
 impl CursorStream {
-    fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder, secret: String) -> Self {
-        let heartbeat_at = std::time::Instant::now() + CLIENT_HEARTBEAT;
-        Self {
-            secret,
-            throttle: None,
-            body,
-            sink,
-            decoder,
-            queue: VecDeque::new(),
-            ended: false,
-            heartbeat: Box::pin(mixdog_rt::ticker().wait_until(heartbeat_at)),
-            heartbeat_at,
-        }
+    /// The attempt of `request` reading `live`, `replay` first.
+    fn new(mut live: Live, replay: VecDeque<Bytes>, request: &Arc<ModelRequest>) -> Self {
+        live.decoder.attend(request.clone());
+        let heartbeat = Box::pin(mixdog_rt::ticker().wait_until(live.heartbeat_at));
+        let identity = request.options.send_identity.clone();
+        Self { live: Some(live), replay, throttle: None, queue: VecDeque::new(), ended: false, heartbeat, quiet: None, identity, waits: None, parked: None, unknown_model: false }
+    }
+
+    fn live(&mut self) -> &mut Live {
+        self.live.as_mut().expect("a stream that has not ended reads an open run")
     }
 
     fn rearm_heartbeat(&mut self) {
-        self.heartbeat_at += CLIENT_HEARTBEAT;
-        self.heartbeat = Box::pin(mixdog_rt::ticker().wait_until(self.heartbeat_at));
+        let live = self.live();
+        live.heartbeat_at += CLIENT_HEARTBEAT;
+        let at = live.heartbeat_at;
+        self.heartbeat = Box::pin(mixdog_rt::ticker().wait_until(at));
     }
 
     fn fail(&mut self, mut err: ProviderError) {
         self.ended = true;
-        err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&self.secret]);
-        // A throttle that ends the run after output (a `resource_exhausted` end frame) is retried by the broker like one
-        // that refused it: the retry must not reuse the conversation id Cursor pinned it to.
-        if err.status == Some(429)
-            && let Some((conversations, scope)) = &self.throttle
-        {
-            conversations.throttled(scope);
+        // A run ended before any token by a throttle or by the provider's own failure: the service may have pinned the
+        // refusal to the conversation.
+        // A limit of the account is no other conversation's to pass: it reaches the user as it is.
+        let said = self.live.as_ref().filter(|live| live.decoder.silent()).map(|live| live.decoder.refusal()).unwrap_or_default();
+        let refused = self.live.as_ref().is_some_and(|live| live.decoder.silent()) && ((err.status == Some(429) && !said.quota) || said.provider);
+        self.unknown_model = said.model;
+        let secret = self.live.take().map(|live| live.secret).unwrap_or_default();
+        err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&secret]);
+        if refused && let Some((conversations, scope)) = &self.throttle {
+            conversations.refused(scope);
         }
         self.queue.push_back(Err(err));
     }
 
+    /// Writes back what the decoder answered the server, and tells the send the server's heartbeat arrived.
     fn flush_outbound(&mut self) {
-        for message in self.decoder.take_outbound() {
+        let live = self.live();
+        let alive = live.decoder.take_liveness();
+        for message in live.decoder.take_outbound() {
             // A closed request body surfaces as the response's own fault.
-            let _ = self.sink.send(frame::encode(&message, 0));
+            let _ = live.sink.send(frame::encode(&message, 0));
+        }
+        if alive {
+            self.identity.raise_stage("transport");
         }
     }
 
-    fn push(&mut self, result: Result<Vec<StreamEvent>, ProviderError>) {
+    /// `open`: the wire can still carry the results of a batch handed over now.
+    fn push(&mut self, result: Result<Vec<StreamEvent>, ProviderError>, open: bool) {
         self.flush_outbound();
+        let reading = &mut self.live().decoder;
+        // The quiet stretch is counted from the last frame that was no heartbeat, whatever chunk carried it.
+        let (stirred, awaited) = (reading.take_stir(), reading.awaits_quiet());
+        if !awaited {
+            self.quiet = None;
+        } else if stirred {
+            self.quiet = Some(Box::pin(mixdog_rt::ticker().wait_until(std::time::Instant::now() + decoder::QUIET)));
+        }
         match result {
             Ok(events) => {
                 self.queue.extend(events.into_iter().map(Ok));
-                // A finished run is dropped: its request body ends and the
-                // response is reset, the server's parked work with it.
-                if self.decoder.terminal_seen() {
+                if self.live().decoder.terminal_seen() {
                     self.ended = true;
+                    if let Some((conversations, scope)) = &self.throttle {
+                        conversations.held(scope);
+                    }
+                    let mut live = self.live.take().expect("the run that answered");
+                    live.decoder.leave();
+                    match &self.waits {
+                        // The server waits on the calls just handed over: the run stays open for their results.
+                        Some((runs, scope)) if open && !live.decoder.handed().is_empty() => {
+                            let parked = Parked::start(live, std::mem::take(&mut self.replay));
+                            runs.insert(scope, &parked);
+                            self.parked = Some(parked);
+                        }
+                        // A finished run is dropped: its request body ends and the response is reset.
+                        _ => drop(live),
+                    }
                 }
             }
             Err(err) => self.fail(err),
@@ -710,28 +940,62 @@ impl CursorStream {
     }
 
     async fn step(&mut self) {
-        tokio::select! {
+        if self.live().decoder.has_waiting() {
+            let result = self.live().decoder.feed(&[]);
+            return self.push(result, true);
+        }
+        if let Some(bytes) = self.replay.pop_front() {
+            let result = self.live().decoder.feed(&bytes);
+            return self.push(result, true);
+        }
+        self.live().decoder.caught_up();
+        enum Woke {
+            Chunk(Option<Result<Bytes, mixdog_core_api::domain::provider::TransportFault>>),
+            Quiet,
+            Beat,
+        }
+        let live = self.live.as_mut().expect("a stream that has not ended reads an open run");
+        let quiet = &mut self.quiet;
+        let woke = tokio::select! {
             biased;
-            chunk = self.body.next() => match chunk {
-                Some(Ok(bytes)) => {
-                    let result = self.decoder.feed(&bytes);
-                    self.push(result);
+            chunk = live.body.next() => Woke::Chunk(chunk),
+            () = async {
+                match quiet {
+                    Some(quiet) => quiet.as_mut().await,
+                    None => std::future::pending().await,
                 }
-                Some(Err(fault)) => {
-                    let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
-                    err.exposure = self.decoder.exposure();
-                    err.connection = self.body.connection();
-                    self.fail(err);
-                }
-                None => {
-                    self.ended = true;
-                    let result = self.decoder.finish();
-                    self.push(result);
-                }
-            },
-            () = &mut self.heartbeat => {
-                let _ = self.sink.send(frame::encode(&schema::heartbeat_message(), 0));
-                self.rearm_heartbeat();
+            } => Woke::Quiet,
+            () = &mut self.heartbeat => Woke::Beat,
+        };
+        let chunk = match woke {
+            Woke::Chunk(chunk) => chunk,
+            Woke::Quiet => {
+                self.quiet = None;
+                let events = self.live().decoder.quiet();
+                return self.push(Ok(events), true);
+            }
+            Woke::Beat => {
+                let _ = self.live().sink.send(frame::encode(&schema::heartbeat_message(), 0));
+                return self.rearm_heartbeat();
+            }
+        };
+        match chunk {
+            Some(Ok(bytes)) => {
+                let result = self.live().decoder.feed(&bytes);
+                self.push(result, true);
+            }
+            Some(Err(fault)) => {
+                let live = self.live();
+                let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                err.exposure = live.decoder.exposure();
+                err.connection = live.body.connection();
+                self.fail(err);
+            }
+            None => {
+                let result = self.live().decoder.finish();
+                self.push(result, false);
+                self.ended = true;
+                self.live = None;
             }
         }
     }

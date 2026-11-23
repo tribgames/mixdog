@@ -6,7 +6,9 @@
 use std::collections::VecDeque;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::provider::AttemptHandle;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::SendIdentity;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
@@ -23,6 +25,15 @@ pub struct DecodedStream {
     fault_code: Option<&'static str>,
     fault_prefix: Option<&'static str>,
     billed: Option<Billed>,
+    attempt: Option<Driven>,
+}
+
+/// The driver's attempt a stream answers: each body chunk marks transport on the send, the decoded payload and output move
+/// the attempt's phase, and a body the driver ended at a deadline fails with the expiry's classification.
+struct Driven {
+    handle: AttemptHandle,
+    identity: SendIdentity,
+    had_output: bool,
 }
 
 struct Billed {
@@ -32,7 +43,28 @@ struct Billed {
 
 impl DecodedStream {
     pub fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
-        Self { body, decoder, queue: VecDeque::new(), ended: false, fault_code: None, fault_prefix: None, billed: None }
+        Self { body, decoder, queue: VecDeque::new(), ended: false, fault_code: None, fault_prefix: None, billed: None, attempt: None }
+    }
+
+    /// The stream of a driven attempt ([`crate::transport::model_driver::ModelDriver::send`]) of the send `identity`.
+    pub(crate) fn driven(mut self, handle: AttemptHandle, identity: SendIdentity) -> Self {
+        self.attempt = Some(Driven { handle, identity, had_output: false });
+        self
+    }
+
+    /// `onStreamDelta('transport')` for a chunk of the body, while the attempt it answers is the current one.
+    fn mark_transport(&self) {
+        if let Some(driven) = &self.attempt
+            && driven.handle.context().is_some()
+        {
+            driven.identity.raise_transport();
+        }
+    }
+
+    fn report(&mut self, events: &[StreamEvent]) {
+        if let Some(driven) = self.attempt.as_mut() {
+            crate::providers::compat::adapter::report_progress(&driven.handle, self.decoder.as_ref(), events, &mut driven.had_output);
+        }
     }
 
     /// The words put before a body fault's `terminated` (undici's error for a `fetch` body whose socket failed); without
@@ -113,7 +145,11 @@ impl ModelStream for DecodedStream {
             }
             match self.body.next().await {
                 Some(Ok(chunk)) => {
+                    self.mark_transport();
                     let result = self.decoder.feed(&chunk);
+                    if let Ok(events) = &result {
+                        self.report(events);
+                    }
                     self.push(result);
                     if self.billed.is_some() && !self.ended && self.decoder.terminal_seen() {
                         self.ended = true;
@@ -122,6 +158,11 @@ impl ModelStream for DecodedStream {
                     }
                 }
                 Some(Err(fault)) => {
+                    // A phase deadline of the driver ended the body: its one failure, as the wire classifies it.
+                    if let Some(timed) = self.body.expired(self.decoder.exposure()) {
+                        self.fail(timed);
+                        continue;
+                    }
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
                     err.connection = self.body.connection();

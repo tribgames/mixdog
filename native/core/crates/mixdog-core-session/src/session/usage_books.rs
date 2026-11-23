@@ -27,7 +27,7 @@ struct StoredRow;
 
 impl MessageRows for StoredRow {
     fn row(&self, message: &AgentMessage) -> Value {
-        message.stored.as_ref().map_or(Value::Null, |row| Value::Object((**row).clone()))
+        message.stored.as_ref().map_or(Value::Null, |row| Value::Object(row.to_map()))
     }
 }
 
@@ -144,7 +144,7 @@ pub(crate) fn gateway_facts(header: &Header, settled: &Settled, books: Option<&B
             pressure::estimate_transcript_context_usage(&settled.transcript, &tools, provider, books)
         })
     });
-    let effort = super::gateway_usage::turn_effort(settled.transcript.iter().filter_map(|message| message.stored.as_deref()));
+    let effort = super::gateway_usage::turn_effort(settled.transcript.iter().filter_map(|message| message.stored.as_deref().map(mixdog_agent::message::StoredRow::fields)));
     (estimate, effort)
 }
 
@@ -186,7 +186,7 @@ mod tests {
                 delta_tool_calls: 0,
                 request_ms: 0,
                 delta_prompt: 1205,
-                send_tools: Vec::new(),
+                send_tools: Default::default(),
                 reasoning_tokens: None,
                 reasoning_tokens_complete: false,
                 outgoing: Vec::new().into(),

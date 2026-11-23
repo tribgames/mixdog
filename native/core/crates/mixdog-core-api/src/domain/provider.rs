@@ -99,9 +99,11 @@ pub enum ContentPart {
     },
 }
 
+/// A message's content. A text is held once by everything that holds the message: the run's transcript, the rows
+/// registered for it and every request built from it share one allocation.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Content {
-    Text(String),
+    Text(mixdog_protocol::SharedText),
     Parts(Vec<ContentPart>),
 }
 
@@ -860,6 +862,9 @@ pub struct SendIdentity {
     /// history to: the re-issue after a spent ladder goes out on that row with that attribution, as Node's runs inside
     /// that row's send.
     account: std::sync::Arc<std::sync::Mutex<Option<SentOn>>>,
+    /// What the provider pinned this send's latest attempt to (a gateway's organisation sign-in), `None` when it pinned
+    /// nothing: a re-issue of the send goes out under that pin or not at all. Only the provider that set it reads it.
+    pin: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>>,
     /// The attempts of this send that began so far.
     attempts: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// The display stages the adapter raised from inside an attempt (`onStageChange`), in order, for the caller to take
@@ -1341,6 +1346,17 @@ impl SendIdentity {
     /// Where the send's latest attempt went out, once one did.
     pub fn account(&self) -> Option<SentOn> {
         self.account.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Records what the provider pinned the attempt going out now to, replacing the previous attempt's; `None` records
+    /// that it pinned nothing.
+    pub fn set_pin(&self, pin: Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>) {
+        *self.pin.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = pin;
+    }
+
+    /// The pin of the send's latest attempt, when one was recorded and it is a `T`.
+    pub fn pin<T: std::any::Any + Send + Sync>(&self) -> Option<std::sync::Arc<T>> {
+        self.pin.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()?.downcast().ok()
     }
 }
 impl PartialEq for SendIdentity {
@@ -2288,10 +2304,11 @@ pub trait ProviderAdapter: Send + Sync {
     fn retry_line(&self, _model: &str) -> Option<RetryLine> {
         None
     }
-    /// Whether the provider re-issues a send to `model` whose stream ladder ran out on `failure` (Gemini's
-    /// `_recoverGeminiNonStreaming`: once, without streaming). False by default; a wrapper forwards its inner
-    /// provider's.
-    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+    /// Whether the provider re-issues the send `request` whose stream ladder ran out on `failure` (Gemini's
+    /// `_recoverGeminiNonStreaming`: once, without streaming). `request` is the send's last request: its identity names
+    /// the wire its last attempt went out on, which a provider whose wires recover apart (a gateway) answers for.
+    /// False by default; a wrapper forwards its inner provider's.
+    fn recovers_spent(&self, _request: &ModelRequest, _failure: &ProviderError) -> bool {
         false
     }
     /// That re-issue, called only when [`Self::recovers_spent`] or [`Self::recovers_cut`] holds: its stream, or its
@@ -2300,13 +2317,13 @@ pub trait ProviderAdapter: Send + Sync {
     async fn recover_spent(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))
     }
-    /// Whether the provider answers a stream of a send to `model` that died on `failure` with its re-issue
+    /// Whether the provider answers a stream of the send `request` (as for [`Self::recovers_spent`]) that died on `failure` with its re-issue
     /// ([`Self::recover_spent`]) at once, in place of another attempt of the stream (the Anthropic routes'
     /// `decideStreamError`, anthropic-midstream-recovery.mjs: shown text or thinking is withdrawn and the request
     /// repeated without streaming; a stall that showed nothing is repeated without streaming too).
     /// `failure.exposure.text_emitted` states whether text or reasoning of the dead stream reached the caller, who
     /// withdraws it before the re-issue. False by default; a wrapper forwards its inner provider's.
-    fn recovers_cut(&self, _model: &str, _failure: &ProviderError) -> bool {
+    fn recovers_cut(&self, _request: &ModelRequest, _failure: &ProviderError) -> bool {
         false
     }
     /// The line the provider writes to stderr once its re-issue of a send to `model` that failed on `failure` answered

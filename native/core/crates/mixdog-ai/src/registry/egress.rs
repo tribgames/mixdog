@@ -206,11 +206,11 @@ impl ProviderAdapter for EgressGuard {
     fn retry_line(&self, model: &str) -> Option<RetryLine> {
         self.inner.retry_line(model)
     }
-    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        self.inner.recovers_spent(model, failure)
+    fn recovers_spent(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.inner.recovers_spent(request, failure)
     }
-    fn recovers_cut(&self, model: &str, failure: &ProviderError) -> bool {
-        self.inner.recovers_cut(model, failure)
+    fn recovers_cut(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.inner.recovers_cut(request, failure)
     }
     fn recovery_line(&self, model: &str, failure: &ProviderError) -> Option<String> {
         self.inner.recovery_line(model, failure)

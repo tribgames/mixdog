@@ -75,6 +75,8 @@ pub struct BlobStore {
     order: Vec<String>,
     blobs: HashMap<String, Vec<u8>>,
     bytes: usize,
+    /// The entries the run's own request names, which the bounds do not evict.
+    kept: std::collections::HashSet<String>,
 }
 
 impl BlobStore {
@@ -103,10 +105,9 @@ impl BlobStore {
         self.blobs.insert(key.clone(), data);
         self.order.push(key.clone());
         while self.order.len() > MAX_CONVERSATION_BLOB_ENTRIES || self.bytes > MAX_CONVERSATION_BLOB_BYTES {
-            if self.order.len() == 1 || self.order[0] == key {
-                break;
-            }
-            let oldest = self.order.remove(0);
+            // What the run's own request names stays; of what the service stored, the oldest goes first.
+            let Some(at) = self.order.iter().position(|k| *k != key && !self.kept.contains(k)) else { break };
+            let oldest = self.order.remove(at);
             if let Some(old) = self.blobs.remove(&oldest) {
                 self.bytes -= old.len();
             }
@@ -114,9 +115,12 @@ impl BlobStore {
         Ok(())
     }
 
-    /// Stores `data` under its own digest and returns the id.
+
+    /// Stores `data` under its own digest and returns the id. It is part of what the run's request names: it is
+    /// answered for as long as the run lives, and the bounds hold what the service stores besides.
     pub fn put_content(&mut self, data: Vec<u8>) -> Result<Vec<u8>, ProviderError> {
         let id = Sha256::digest(&data).to_vec();
+        self.kept.insert(hex(&id));
         self.put(&id, data)?;
         Ok(id)
     }
@@ -132,9 +136,9 @@ fn json_str(text: &str) -> String {
 
 // History entries (written with the key order the transcript blobs carry)
 
-fn text_of(content: &Content) -> String {
+pub(super) fn text_of(content: &Content) -> String {
     match content {
-        Content::Text(t) => t.clone(),
+        Content::Text(t) => t.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
@@ -208,6 +212,7 @@ fn tool_result_entry(message: &Message, tool_names: &HashMap<String, String>) ->
 }
 
 /// What the transcript lowers to.
+#[derive(Clone)]
 pub struct ParsedMessages {
     pub systems: Vec<String>,
     /// History entries as the JSON text of their blobs.
@@ -393,8 +398,97 @@ pub struct RunBuild {
     pub cloud_rule: Option<String>,
 }
 
-/// Builds the run request of one attempt.
-pub fn build_run(request: &ModelRequest, selection: &ModelSelection, conversation_id: &str, message_id: &str) -> Result<RunBuild, ProviderError> {
+/// What a request asks a run for, read from it once per attempt: the lowered transcript, the tools offered (their
+/// exclusions reported) and the rules.
+#[derive(Clone)]
+pub struct Prepared {
+    pub parsed: ParsedMessages,
+    pub tools: Vec<McpToolDefinition>,
+    pub cloud_rule: Option<String>,
+    /// The transcript's turns as the service records turns, for a request that goes on with the open one.
+    turns: Vec<TurnRecord>,
+}
+
+/// One turn as the service records it: the user's message, then a step per assistant text and per tool call, the
+/// call carrying its result.
+#[derive(Clone)]
+struct TurnRecord {
+    /// What the user said.
+    said: String,
+    steps: Vec<Vec<u8>>,
+}
+
+/// The step of `call` made as a call of the `mixdog` MCP server, with `result` when the transcript holds it.
+fn tool_step(call: &mixdog_core_api::domain::provider::ToolCall, result: Option<&Message>) -> Vec<u8> {
+    use crate::providers::connect::pb::Writer;
+    let mut args = Writer::new();
+    args.string(1, &format!("mixdog-{}", call.name));
+    // Arguments that are no object (a tool that takes one free text) are the one argument `input`.
+    let whole = [("input".to_owned(), call.arguments.clone())];
+    let named: Vec<(&String, &serde_json::Value)> = match call.arguments.as_object() {
+        Some(object) => object.iter().collect(),
+        None if call.arguments.is_null() => Vec::new(),
+        None => whole.iter().map(|(key, value)| (key, value)).collect(),
+    };
+    for (key, value) in named {
+        let mut entry = Writer::new();
+        entry.string(1, key);
+        entry.bytes(2, &super::schema::encode_json_value(value));
+        args.message(2, entry);
+    }
+    args.string(3, &call.id);
+    args.string(4, "mixdog");
+    args.string(5, &call.name);
+    args.string(9, "mixdog");
+    let mut mcp = Writer::new();
+    mcp.message(1, args);
+    if let Some(result) = result {
+        mcp.message(2, super::answer::mcp_result(result));
+    }
+    let mut tool = Writer::new();
+    tool.message(15, mcp);
+    tool.string(57, &call.id);
+    let mut step = Writer::new();
+    step.message(2, tool);
+    step.finish()
+}
+
+fn turn_records(messages: &[Message]) -> Vec<TurnRecord> {
+    use crate::providers::connect::pb::Writer;
+    let messages = crate::providers::own_call_ids::own_call_ids(messages);
+    let messages = crate::providers::file_text::files_as_text(&messages);
+    let mut turns: Vec<TurnRecord> = Vec::new();
+    for message in messages.iter() {
+        match message.role {
+            Role::User => turns.push(TurnRecord { said: text_of(&message.content), steps: Vec::new() }),
+            Role::Assistant => {
+                // What the assistant did before anything the user said (a transcript compacted down to its tail)
+                // has no turn to stand in: it is the steps of a turn that says nothing, so its calls and their
+                // results are still named.
+                if turns.is_empty() {
+                    turns.push(TurnRecord { said: String::new(), steps: Vec::new() });
+                }
+                let turn = turns.last_mut().expect("just ensured");
+                let text = text_of(&message.content);
+                if !text.is_empty() {
+                    let mut said = Writer::new();
+                    said.string(1, &text);
+                    let mut step = Writer::new();
+                    step.message(1, said);
+                    turn.steps.push(step.finish());
+                }
+                for call in &message.tool_calls {
+                    let result = messages.iter().find(|m| m.role == Role::Tool && m.tool_call_id.as_deref() == Some(call.id.as_str()));
+                    turn.steps.push(tool_step(call, result));
+                }
+            }
+            _ => {}
+        }
+    }
+    turns
+}
+
+pub fn prepare(request: &ModelRequest) -> Result<Prepared, ProviderError> {
     let parsed = parse_messages(&request.messages)?;
     if parsed.user_text.is_empty() && parsed.user_images.is_empty() && parsed.history.is_empty() {
         let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
@@ -403,19 +497,68 @@ pub fn build_run(request: &ModelRequest, selection: &ModelSelection, conversatio
     }
     let tools = selected_tools(request);
     let cloud_rule = (!parsed.systems.is_empty()).then(|| parsed.systems.join("\n\n"));
+    let turns = turn_records(&request.messages);
+    Ok(Prepared { parsed, tools, cloud_rule, turns })
+}
+
+/// Builds the run request of one attempt.
+pub fn build_run(request: &ModelRequest, selection: &ModelSelection, conversation_id: &str, message_id: &str) -> Result<RunBuild, ProviderError> {
+    build_prepared(prepare(request)?, selection, conversation_id, message_id)
+}
+
+/// The run request that asks for `prepared`.
+pub fn build_prepared(prepared: Prepared, selection: &ModelSelection, conversation_id: &str, message_id: &str) -> Result<RunBuild, ProviderError> {
+    let Prepared { parsed, tools, cloud_rule, turns } = prepared;
     let context = request_context(&tools, cloud_rule.as_deref());
     let mut blobs = BlobStore::default();
     let mut ids = Vec::new();
     for entry in &parsed.history {
         ids.push(blobs.put_content(entry.clone().into_bytes())?);
     }
-    let action = if parsed.user_text.is_empty() && parsed.user_images.is_empty() {
+    // A transcript that ends in tool results has no user message to ask with, and the service takes none that is
+    // empty without recording it as a turn. It goes on with the open turn instead: the state names the transcript's
+    // turns, the open one last with its steps and their results, and the action resumes it.
+    let resumes = parsed.user_text.is_empty() && parsed.user_images.is_empty();
+    let conversation_state = if resumes {
+        let mut state = crate::providers::connect::pb::Writer::new();
+        for id in &ids {
+            state.bytes(1, id);
+        }
+        // A turn's message id is of this conversation, of what was said and of the first thing done about it (and of
+        // the nth time both were the same), so it is the same id on every request that still holds the turn: another
+        // turn that says the same does not take it over when the turns before are compacted away.
+        let mut times: HashMap<Vec<u8>, usize> = HashMap::new();
+        for turn in &turns {
+            let mut keyed = Sha256::new();
+            keyed.update((turn.said.len() as u64).to_be_bytes());
+            keyed.update(turn.said.as_bytes());
+            keyed.update(turn.steps.first().map_or(&[][..], Vec::as_slice));
+            let digest = keyed.finalize().to_vec();
+            let nth = times.entry(digest.clone()).or_default();
+            *nth += 1;
+            let mut user = crate::providers::connect::pb::Writer::new();
+            user.string(1, &turn.said);
+            user.string(2, &deterministic_uuid(&format!("cursor-turn:{conversation_id}:{}:{nth}", hex(&digest))));
+            let mut agent = crate::providers::connect::pb::Writer::new();
+            agent.bytes(1, &blobs.put_content(user.finish())?);
+            for step in &turn.steps {
+                agent.bytes(2, &blobs.put_content(step.clone())?);
+            }
+            let mut record = crate::providers::connect::pb::Writer::new();
+            record.message(1, agent);
+            state.bytes(8, &blobs.put_content(record.finish())?);
+        }
+        state.finish()
+    } else {
+        conversation_state(&ids)
+    };
+    let action = if resumes {
         Action::Resume { context }
     } else {
         Action::UserMessage { text: parsed.user_text, message_id: message_id.to_owned(), images: parsed.user_images, context }
     };
     let message = RunRequest {
-        conversation_state: conversation_state(&ids),
+        conversation_state,
         action,
         conversation_id: conversation_id.to_owned(),
         model_id: if matches!(selection.model_id.to_ascii_lowercase().as_str(), "auto" | "default") {
@@ -442,11 +585,149 @@ mod tests {
         assert_eq!(conversation_id("thread-1"), "61c5169d-cd7d-48a5-9ddf-e5cb62e464dd");
     }
 
+    /// A transcript that ends in tool results sends no user message: it resumes the open turn, which the state names
+    /// with its user message and its steps, each tool step an MCP call carrying its result.
+    #[test]
+    fn a_transcript_ending_in_tool_results_resumes_its_open_turn() {
+        use crate::providers::connect::pb::Reader;
+
+        let mut call = Message::new(Role::Assistant, Content::Text(String::new().into()));
+        call.tool_calls =
+            vec![mixdog_core_api::domain::provider::ToolCall { id: "call-1".into(), name: "lookup".into(), arguments: serde_json::json!({}), native_type: None }];
+        let mut result = Message::new(Role::Tool, Content::Text("42".into()));
+        result.tool_call_id = Some("call-1".into());
+        let request = ModelRequest {
+            model: "m".into(),
+            messages: vec![Message::new(Role::User, Content::Text("look it up".into())), call, result],
+            tools: Vec::new(),
+            options: Default::default(),
+        };
+        let selection = ModelSelection { model_id: "m".into(), parameters: Vec::new(), max_mode: false, pricing_model: None };
+        let built = build_run(&request, &selection, "conversation", "message-1").unwrap();
+        let field = |bytes: &[u8], wanted: u32| {
+            let mut reader = Reader::new(bytes);
+            std::iter::from_fn(|| reader.next_field().unwrap()).find(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec())
+        };
+        let run = field(&built.message, 1).expect("run request");
+        let action = field(&run, 2).expect("action");
+        assert!(field(&action, 1).is_none(), "no user message, empty or not");
+        assert!(field(&action, 2).is_some(), "the open turn is resumed");
+        let state = field(&run, 1).expect("state");
+        let mut reader = Reader::new(&state);
+        let entries: Vec<u32> = std::iter::from_fn(|| reader.next_field().unwrap()).map(|(n, _)| n).collect();
+        assert_eq!(entries, [1, 1, 1, 8], "the transcript's three entries, then its one turn");
+        let turn = built.blobs.get(&field(&state, 8).expect("the turn")).expect("the turn's record").to_vec();
+        let agent = field(&turn, 1).expect("an agent turn");
+        let said = built.blobs.get(&field(&agent, 1).expect("the user's message")).expect("its record").to_vec();
+        assert_eq!(field(&said, 1).as_deref(), Some(b"look it up".as_slice()));
+        let step = built.blobs.get(&field(&agent, 2).expect("the step")).expect("its record").to_vec();
+        let mcp = field(&field(&step, 2).expect("a tool call"), 15).expect("an MCP call");
+        assert_eq!(field(&field(&mcp, 1).expect("args"), 3).as_deref(), Some(b"call-1".as_slice()));
+        let text = [1, 1, 1, 1].iter().fold(field(&mcp, 2).expect("its result"), |bytes, n| field(&bytes, *n).expect("the result's text"));
+        assert_eq!(text, b"42");
+        assert_eq!(built.blobs.len(), 6, "the transcript, the user's message, the step and the turn");
+
+        // A transcript that ends in what the user said asks with it, and names no turns.
+        let mut asked = request.clone();
+        asked.messages.push(Message::new(Role::User, Content::Text("and double it".into())));
+        let built = build_run(&asked, &selection, "conversation", "message-1").unwrap();
+        let run = field(&built.message, 1).expect("run request");
+        let user = field(&field(&field(&run, 2).expect("action"), 1).expect("a user message action"), 1).expect("user message");
+        assert_eq!((field(&user, 1).as_deref(), field(&user, 2).as_deref()), (Some(b"and double it".as_slice()), Some(b"message-1".as_slice())));
+        assert!(field(&field(&run, 1).expect("state"), 8).is_none());
+    }
+
+    /// The state a resumed request names is answered whole for the life of its run, however many steps it has, and a
+    /// rebuilt step says what the run was told when the call was answered on it: the images of a result that is only
+    /// images, a text held to the bound of a result's text, arguments that are no object as the one argument they
+    /// are, and what the assistant did before anything the user said. A turn's message id is of the conversation and
+    /// of what was said, not of the turn's place in the transcript.
+    #[test]
+    fn a_rebuilt_state_holds_every_step_as_the_run_was_told_it() {
+        use crate::providers::connect::pb::Reader;
+        use mixdog_core_api::domain::provider::ToolCall;
+
+        let all = |bytes: &[u8], wanted: u32| {
+            let mut reader = Reader::new(bytes);
+            std::iter::from_fn(|| reader.next_field().unwrap()).filter(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec()).collect::<Vec<_>>()
+        };
+        let first = |bytes: &[u8], path: &[u32]| path.iter().fold(bytes.to_vec(), |bytes, n| all(&bytes, *n).into_iter().next().expect("the field"));
+        let call = |id: &str, arguments: serde_json::Value| ToolCall { id: id.into(), name: "lookup".into(), arguments, native_type: None };
+        let made = |calls: Vec<ToolCall>| {
+            let mut made = Message::new(Role::Assistant, Content::Text(String::new().into()));
+            made.tool_calls = calls;
+            made
+        };
+        let result = |id: &str, content: Content| {
+            let mut result = Message::new(Role::Tool, content);
+            result.tool_call_id = Some(id.into());
+            result
+        };
+        let image = ContentPart::Image(ImageSource::Base64 { data: STANDARD.encode(b"png bytes"), mime_type: "image/png".into(), width: None, height: None });
+        let said = |text: &str| Message::new(Role::User, Content::Text(text.to_owned().into()));
+        let selection = ModelSelection { model_id: "m".into(), parameters: Vec::new(), max_mode: false, pricing_model: None };
+        let build = |messages: Vec<Message>, conversation: &str| {
+            let request = ModelRequest { model: "m".into(), messages, tools: Vec::new(), options: Default::default() };
+            build_run(&request, &selection, conversation, "message-1").unwrap()
+        };
+        // The turns of a built request: each its user message and its steps.
+        let turns = |built: &RunBuild| {
+            let state = first(&built.message, &[1, 1]);
+            let blob = |id: &Vec<u8>| built.blobs.get(id).expect("every blob the state names is held").to_vec();
+            all(&state, 1).iter().for_each(|id| drop(blob(id)));
+            all(&state, 8)
+                .iter()
+                .map(|id| {
+                    let agent = first(&blob(id), &[1]);
+                    (blob(&first(&agent, &[1])), all(&agent, 2).iter().map(blob).collect::<Vec<_>>())
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let long = "x".repeat(600 * 1024);
+        let mut messages = vec![made(vec![call("early", serde_json::json!({}))]), result("early", Content::Text("before the user".into())), said("go")];
+        messages.push(made(vec![call("seen", serde_json::json!({})), call("long", serde_json::json!({})), call("free", serde_json::json!("free text"))]));
+        messages.extend([result("seen", Content::Parts(vec![image])), result("long", Content::Text(long.into())), result("free", Content::Text("ok".into()))]);
+        let built = build(messages, "conversation");
+        let of = turns(&built);
+        assert_eq!(of.len(), 2, "what came before the user, and the user's turn");
+        assert_eq!((all(&of[0].0, 1).concat(), of[0].1.len()), (Vec::new(), 1), "a turn that says nothing holds the early call");
+        let steps = &of[1].1;
+        let shown = first(&steps[0], &[2, 15, 2, 1]);
+        assert_eq!(first(all(&shown, 1).last().expect("an item"), &[2, 1]), b"png bytes", "the image the result held");
+        assert!(first(&steps[1], &[2, 15, 2, 1, 1, 1, 1]).len() <= 512 * 1024, "the text bound of a result");
+        let argument = first(&steps[2], &[2, 15, 1, 2]);
+        assert_eq!(first(&argument, &[1]), b"input");
+
+        // More steps than the store keeps of what the service stores: all are held.
+        let mut many = vec![said("go")];
+        for n in 0..600 {
+            let id = format!("call-{n}");
+            many.push(made(vec![call(&id, serde_json::json!({"n": n}))]));
+            many.push(result(&id, Content::Text(format!("result {n}").into())));
+        }
+        assert_eq!(turns(&build(many, "conversation"))[0].1.len(), 600);
+
+        // The same turn has the same id with and without the turn before it, and another id in another conversation.
+        let id_of = |messages: Vec<Message>, conversation: &str| first(&turns(&build(messages, conversation)).last().expect("a turn").0, &[2]);
+        let tail = || vec![said("look"), made(vec![call("c", serde_json::json!({}))]), result("c", Content::Text("1".into()))];
+        let whole: Vec<Message> = [said("earlier"), Message::new(Role::Assistant, Content::Text("yes".into()))].into_iter().chain(tail()).collect();
+        assert_eq!(id_of(whole, "conversation"), id_of(tail(), "conversation"));
+        assert_ne!(id_of(tail(), "conversation"), id_of(tail(), "another"));
+        // Two turns that say the same: the later one keeps its own id when the earlier one is compacted away.
+        let again = |call_id: &str, answer: &str| vec![said("look"), made(vec![call(call_id, serde_json::json!({}))]), result(call_id, Content::Text(answer.into()))];
+        let both: Vec<Message> = again("c1", "1").into_iter().chain(again("c2", "2")).collect();
+        assert_eq!(id_of(both, "conversation"), id_of(again("c2", "2"), "conversation"));
+        assert_ne!(id_of(again("c1", "1"), "conversation"), id_of(again("c2", "2"), "conversation"));
+    }
+
     #[test]
     fn blob_store_evicts_oldest_first() {
         let mut store = BlobStore::default();
+        // What the service stores on the run is bounded, the oldest going first.
         for i in 0..(MAX_CONVERSATION_BLOB_ENTRIES + 2) {
-            store.put_content(format!("blob-{i}").into_bytes()).unwrap();
+            let data = format!("blob-{i}").into_bytes();
+            store.put(&Sha256::digest(&data), data).unwrap();
         }
         assert_eq!(store.len(), MAX_CONVERSATION_BLOB_ENTRIES);
         let first = Sha256::digest(b"blob-0");

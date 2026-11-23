@@ -357,7 +357,7 @@ pub struct Settled {
     /// `result.toolCallsTotal`.
     pub tool_calls_total: u64,
     /// `result.lastSendTools`: the tools of the last request.
-    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    pub send_tools: Arc<[mixdog_core_api::domain::provider::ToolDefinition]>,
     /// `result.model`: the model the last response named.
     pub response_model: String,
     /// `askStartedAt`, in wall-clock milliseconds.
@@ -382,7 +382,7 @@ pub struct UsageReport {
     /// `deltaPrompt`.
     pub delta_prompt: u64,
     /// `sendTools`.
-    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    pub send_tools: Arc<[mixdog_core_api::domain::provider::ToolDefinition]>,
     /// `reasoningUsage(usage)`: `None` when the provider reported none.
     pub reasoning_tokens: Option<u64>,
     pub reasoning_tokens_complete: bool,

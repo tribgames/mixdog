@@ -7,6 +7,8 @@ mod flatten_rules_tests;
 pub mod listing;
 #[cfg(test)]
 mod listing_tests;
+#[cfg(test)]
+mod stall_tests;
 mod tool_schema;
 #[cfg(test)]
 mod version_gate_tests;

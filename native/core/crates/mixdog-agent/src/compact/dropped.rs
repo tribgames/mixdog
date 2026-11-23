@@ -140,7 +140,7 @@ fn projection(before: &[AgentMessage], after: &[AgentMessage], stored: &dyn Mess
         }
         let mut part = message.clone();
         if !lost_text {
-            part.message.content = Content::Text(String::new());
+            part.message.content = Content::Text(String::new().into());
         }
         rows.push(lost_part_row(stored.row(message), lost_text, &lost));
         part.message.tool_calls = lost;

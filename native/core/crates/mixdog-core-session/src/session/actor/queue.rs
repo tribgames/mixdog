@@ -65,7 +65,14 @@ impl SessionActor {
             self.retry_due |= self.outbox.has_unsaved();
             return;
         }
-        if let Some(retry) = self.pending_retry.take() {
+        #[cfg(test)]
+        if let Some(retry) = self.cell.stop_latches.planted_retry(&self.id) {
+            self.pending_retry = Some(retry);
+        }
+        // The message of an accepted takeover is the next turn: a failed turn's retry that was already pending follows it.
+        if self.reserved_successor().is_none()
+            && let Some(retry) = self.pending_retry.take()
+        {
             return self.begin_retry(retry);
         }
         // A queued copy of work a user Stop froze is never taken (its Stop record removed it; one whose save failed is still

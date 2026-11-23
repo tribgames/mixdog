@@ -46,7 +46,7 @@ fn is_image_part(part: &ContentPart) -> bool {
 
 fn content_parts(content: &Content) -> Vec<ContentPart> {
     match content {
-        Content::Text(text) => vec![ContentPart::Text(text.clone(), None)],
+        Content::Text(text) => vec![ContentPart::Text(text.to_string(), None)],
         Content::Parts(parts) => parts.clone(),
     }
 }
@@ -55,14 +55,14 @@ fn content_parts(content: &Content) -> Vec<ContentPart> {
 fn with_parts(content: &Content, parts: Vec<ContentPart>) -> Content {
     match content {
         Content::Text(_) => Content::Text(
-            parts
+            (parts
                 .iter()
                 .map(|part| match part {
                     ContentPart::Text(text, _) => text.as_str(),
                     _ => "",
                 })
                 .collect::<Vec<_>>()
-                .join("\n"),
+                .join("\n")).into()
         ),
         Content::Parts(_) => Content::Parts(parts),
     }

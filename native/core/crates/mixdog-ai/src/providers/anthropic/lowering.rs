@@ -181,7 +181,7 @@ fn document_block(source: Value, title: Option<&str>) -> Value {
 
 fn normalize_content(content: &Content) -> WireContent {
     match content {
-        Content::Text(text) => WireContent::Text(text.clone()),
+        Content::Text(text) => WireContent::Text(text.to_string()),
         Content::Parts(parts) => WireContent::Blocks(parts.iter().map(part_to_block).collect()),
     }
 }
@@ -189,7 +189,7 @@ fn normalize_content(content: &Content) -> WireContent {
 /// The text of an assistant message (parts joined).
 fn assistant_text(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {

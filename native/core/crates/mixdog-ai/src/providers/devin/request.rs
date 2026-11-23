@@ -120,7 +120,7 @@ fn plain_text(content: &Content) -> String {
 /// model cannot be given is an error, never text.
 fn lowered_content(content: &Content, vision: bool) -> Result<(String, Vec<ImageData>), ProviderError> {
     let parts = match content {
-        Content::Text(text) => return Ok((text.clone(), Vec::new())),
+        Content::Text(text) => return Ok((text.to_string(), Vec::new())),
         Content::Parts(parts) => parts,
     };
     let mut text = String::new();
@@ -252,7 +252,7 @@ fn suffix_repeated_ids(messages: Vec<Message>) -> Vec<Message> {
 
 fn result_texts(content: &Content) -> Vec<String> {
     match content {
-        Content::Text(t) => (!t.trim().is_empty()).then(|| t.clone()).into_iter().collect(),
+        Content::Text(t) => (!t.trim().is_empty()).then(|| t.to_string()).into_iter().collect(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
@@ -264,7 +264,7 @@ fn result_texts(content: &Content) -> Vec<String> {
 }
 
 fn synthetic_result(call: &mixdog_core_api::domain::provider::ToolCall) -> Message {
-    let mut message = Message::new(Role::Tool, Content::Text(MISSING_TOOL_RESULT.to_owned()));
+    let mut message = Message::new(Role::Tool, Content::Text(MISSING_TOOL_RESULT.into()));
     message.tool_call_id = Some(call.id.clone());
     message.is_error = true;
     message
@@ -351,7 +351,7 @@ pub fn paired_transcript(messages: Vec<Message>) -> Vec<Message> {
                 let error_attr = if message.is_error { " is-error=\"true\"" } else { "" };
                 out.push(Message::new(
                     Role::User,
-                    Content::Text(format!("<stale-tool-result tool=\"\" id=\"{id}\"{error_attr}>\n{}\n</stale-tool-result>", texts.join("\n"))),
+                    Content::Text(format!("<stale-tool-result tool=\"\" id=\"{id}\"{error_attr}>\n{}\n</stale-tool-result>", texts.join("\n")).into()),
                 ));
             }
             _ => {
@@ -774,7 +774,7 @@ mod tests {
 
         let call = |id: &str| ToolCall { id: id.into(), name: "read".into(), arguments: json!({}), native_type: None };
         let assistant = |id: &str| {
-            let mut message = Message::new(Role::Assistant, Content::Text(String::new()));
+            let mut message = Message::new(Role::Assistant, Content::Text(String::new().into()));
             message.tool_calls = vec![call(id)];
             message
         };

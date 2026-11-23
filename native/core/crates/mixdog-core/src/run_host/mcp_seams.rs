@@ -104,7 +104,7 @@ impl PostToolDispatch for BusPostToolDispatch {
 /// The user's prompt as selection reads it.
 pub fn prompt_of(content: &Content) -> Prompt {
     match content {
-        Content::Text(text) => Prompt::Text(text.clone()),
+        Content::Text(text) => Prompt::Text(text.to_string()),
         Content::Parts(parts) => Prompt::Parts(
             parts
                 .iter()

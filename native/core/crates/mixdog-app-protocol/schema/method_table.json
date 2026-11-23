@@ -1140,6 +1140,29 @@
     },
     {
       "class": "C2",
+      "method": "turn/takeover",
+      "mutation": {
+        "domain": "thread",
+        "kind": "op"
+      },
+      "opScope": {
+        "field": "threadId",
+        "kind": "thread"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::thread::TurnTakeoverParams",
+      "result": "v2::thread::TurnTakeoverResponse",
+      "scope": {
+        "field": "threadId",
+        "kind": "thread"
+      }
+    },
+    {
+      "class": "C2",
       "method": "turn/retryFailed",
       "mutation": {
         "domain": "thread",

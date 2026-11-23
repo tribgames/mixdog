@@ -84,6 +84,73 @@ impl Source {
     }
 }
 
+/// The stored row a message was read from, as stored, with its text held once: a `content` that is a string, of any
+/// length, is the shared text the message's own content is, and the row keeps its place (`null` under the key) so the
+/// row made again ([`Self::to_map`]) is the stored one, key order included.
+#[derive(Clone, PartialEq, Debug)]
+pub struct StoredRow {
+    row: serde_json::Map<String, mixdog_protocol::JsonValue>,
+    text: Option<mixdog_protocol::SharedText>,
+}
+
+impl StoredRow {
+    pub fn new(mut row: serde_json::Map<String, mixdog_protocol::JsonValue>) -> Self {
+        let text = match row.get_mut("content") {
+            Some(content) if content.is_string() => match content.take() {
+                mixdog_protocol::JsonValue::String(text) => Some(mixdog_protocol::SharedText::from(text)),
+                _ => None,
+            },
+            _ => None,
+        };
+        Self { row, text }
+    }
+
+    /// A field of the row. The `content` held as the shared text is not one: [`Self::content`] reads it.
+    pub fn get(&self, key: &str) -> Option<&mixdog_protocol::JsonValue> {
+        if key == "content" && self.text.is_some() {
+            return None;
+        }
+        self.row.get(key)
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.row.contains_key(key)
+    }
+
+    /// The row's `content`, whichever way it is held.
+    pub fn content(&self) -> Option<std::borrow::Cow<'_, mixdog_protocol::JsonValue>> {
+        match &self.text {
+            Some(text) => Some(std::borrow::Cow::Owned(mixdog_protocol::JsonValue::String(text.to_string()))),
+            None => self.row.get("content").map(std::borrow::Cow::Borrowed),
+        }
+    }
+
+    /// The row as stored.
+    pub fn to_map(&self) -> serde_json::Map<String, mixdog_protocol::JsonValue> {
+        let mut row = self.row.clone();
+        if let Some(text) = &self.text {
+            row.insert("content".to_owned(), mixdog_protocol::JsonValue::String(text.to_string()));
+        }
+        row
+    }
+
+    /// The row's fields, without a content held as text (`null` in its place).
+    pub fn fields(&self) -> &serde_json::Map<String, mixdog_protocol::JsonValue> {
+        &self.row
+    }
+
+    /// The row without the content held as text, and that text.
+    pub(crate) fn parts(&self) -> (&serde_json::Map<String, mixdog_protocol::JsonValue>, Option<&mixdog_protocol::SharedText>) {
+        (&self.row, self.text.as_ref())
+    }
+}
+
+impl From<serde_json::Map<String, mixdog_protocol::JsonValue>> for StoredRow {
+    fn from(row: serde_json::Map<String, mixdog_protocol::JsonValue>) -> Self {
+        Self::new(row)
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct AgentMessage {
     pub message: Message,
@@ -129,7 +196,7 @@ pub struct AgentMessage {
     /// The stored row this message was read from, exactly as stored (see the host message codec):
     /// whatever the typed fields do not hold (timings, usage counters, envelope extras) is written
     /// back from it, and a field the run changed is written over it.
-    pub stored: Option<std::sync::Arc<serde_json::Map<String, mixdog_protocol::JsonValue>>>,
+    pub stored: Option<std::sync::Arc<StoredRow>>,
 }
 
 impl AgentMessage {
@@ -157,7 +224,7 @@ impl AgentMessage {
     }
 
     pub fn user(text: impl Into<String>) -> Self {
-        Self::new(Message::new(Role::User, Content::Text(text.into())))
+        Self::new(Message::new(Role::User, Content::Text(text.into().into())))
     }
 
     pub fn user_content(content: Content) -> Self {
@@ -176,7 +243,7 @@ impl AgentMessage {
     }
 
     pub fn assistant(content: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
-        let mut message = Message::new(Role::Assistant, Content::Text(content.into()));
+        let mut message = Message::new(Role::Assistant, Content::Text(content.into().into()));
         message.tool_calls = tool_calls;
         Self::new(message)
     }
@@ -191,7 +258,7 @@ impl AgentMessage {
     }
 
     pub fn tool_text(call_id: impl Into<String>, text: impl Into<String>, kind: ToolKind) -> Self {
-        Self::tool_result(call_id, Content::Text(text.into()), kind)
+        Self::tool_result(call_id, Content::Text(text.into().into()), kind)
     }
 
     pub fn role(&self) -> Role {
@@ -267,7 +334,7 @@ impl AgentMessage {
 /// dropped; joined with newlines.
 pub fn content_text(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {

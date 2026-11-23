@@ -22,6 +22,7 @@ use crate::schema::record::OpRef;
 use crate::schema::record::OpState;
 use crate::schema::record::Record;
 use crate::schema::record::RunPhase;
+use crate::schema::record::TurnEndForm;
 use crate::summary::CatalogHead;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +69,8 @@ pub enum FrameKind {
     Run {
         rid: String,
         phase: RunPhase,
+        /// Where the turn's end is stored (a `started` record's `end`).
+        end: Option<TurnEndForm>,
     },
     Approval {
         aid: String,
@@ -252,7 +255,7 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
             dropped: r.dropped.clone(),
             silent: r.silent == Some(true),
         },
-        Record::Run(r) => FrameKind::Run { rid: r.rid.as_str().to_owned(), phase: r.phase },
+        Record::Run(r) => FrameKind::Run { rid: r.rid.as_str().to_owned(), phase: r.phase, end: r.end },
         Record::Approval(r) => FrameKind::Approval { aid: r.aid.as_str().to_owned(), rid: r.rid.as_str().to_owned(), phase: r.phase },
         Record::ModelSwitch(r) => FrameKind::ModelSwitch { anchor: r.anchor.clone(), entry: resolve_slot(&r.entry, resolve)? },
         Record::Meta(_) | Record::Queue(_) | Record::Op(_) | Record::Checkpoint(_) | Record::Draft(_) | Record::WorkStop(_) => FrameKind::Other,

@@ -187,7 +187,7 @@ async fn a_burst_of_sends_all_reach_the_model_proxy_service_and_none_is_refused(
 /// still completes; once it has, the share it held is back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_call_that_would_take_the_data_held_past_the_bound_is_refused_as_busy() {
-    let big = || vec![p::Message::new(p::Role::User, p::Content::Text("x".repeat(2000)))];
+    let big = || vec![p::Message::new(p::Role::User, p::Content::Text("x".repeat(2000).into()))];
     let provider = answering(true);
     let rig = self::rig(provider.clone(), Some(3000)).await;
     let client = rig.ready(1, json!({}));

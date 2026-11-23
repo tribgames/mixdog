@@ -139,16 +139,15 @@ pub(crate) struct BodyConfig<'a> {
     pub flavor: Flavor,
     /// `anthropic` or `anthropic-oauth`.
     pub provider_name: &'a str,
+    /// The provider the capability floors are read under: the route's own name (an engine's is its provider's).
+    pub floors: &'a str,
     pub owner: &'a ProviderId,
     pub caps: Option<&'a ModelCaps>,
     pub cache: CacheStrategy,
     pub max_output_tokens: Option<u32>,
-    /// Fine-grained tool streaming and `updates` thinking display are
-    /// first-party features; a gateway base URL turns them off.
+    /// [`super::codec::first_party_route`]: turn-scoped reminders, fine-grained tool streaming and mid-conversation
+    /// effort updates go out only on it.
     pub first_party: bool,
-    /// The base URL is Anthropic's own origin (the OAuth route is first-party
-    /// whatever its base URL; mid-conversation effort updates are not).
-    pub official_url: bool,
     /// `disableBetaHeaders` is off.
     pub beta_headers: bool,
     /// The process-wide fast-mode state: a request is built at fast speed only while it allows.
@@ -485,7 +484,7 @@ fn input_schema(tool: &ToolDefinition, native: bool) -> Result<Value, Problem> {
 
 /// `ANTHROPIC_NATIVE_PROVIDERS`: the providers whose Messages wire takes the nested per-action
 /// input alternatives; a gateway on the same wire keeps the advertised flat schema.
-fn native_provider(provider: &str) -> bool {
+pub(super) fn native_provider(provider: &str) -> bool {
     matches!(provider, "anthropic" | "anthropic-oauth")
 }
 
@@ -662,7 +661,7 @@ fn reasoning(cfg: &BodyConfig<'_>, request: &ModelRequest, effort: Option<&str>,
         // A model that rejected the display is off for it on this route (`anthropicCapabilityEnabled`).
         let display_updates = (cfg.flavor == Flavor::OAuth || cfg.beta_headers)
             && caps.thinking_display_updates
-            && claude_floors::enabled(claude_floors::Feature::ProgressUpdates, cfg.provider_name, &request.model);
+            && claude_floors::enabled(claude_floors::Feature::ProgressUpdates, cfg.floors, &request.model);
         let thinking = if display_updates { json!({ "type": "adaptive", "display": "updates" }) } else { json!({ "type": "adaptive" }) };
         return Ok(Reasoning { output_config: effort.map(|level| json!({ "effort": level })), thinking: Some(thinking), effort_beta: true, display_updates });
     }
@@ -690,7 +689,7 @@ fn lower_conversation(
     reserved: usize,
 ) -> Vec<WireMessage> {
     let (history, reminder) = split_tail_reminder(&request.messages);
-    let turn_scoped = cfg.first_party && turn_scoped_model(cfg.provider_name, &request.model);
+    let turn_scoped = cfg.first_party && turn_scoped_model(cfg.floors, &request.model);
     let lower = |source: &[Message]| {
         let lowered = match updates {
             Some(projection) => {
@@ -733,10 +732,9 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             cfg.provider_name,
             &request.model,
             &Gate {
-                official_url: cfg.official_url,
+                first_party: cfg.first_party,
                 manual_budget: manual_budget(request).is_some(),
                 enabled: parameters.and_then(|p| p.get("effortConfigurationEnabled")) != Some(&Value::Bool(false)),
-                beta_headers: cfg.beta_headers,
             },
         )
     });

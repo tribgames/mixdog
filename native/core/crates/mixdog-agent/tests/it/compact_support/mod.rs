@@ -94,7 +94,7 @@ fn source_of(name: &str) -> Option<Source> {
 
 fn content_of(value: &Value) -> Content {
     match value {
-        Value::String(text) => Content::Text(text.clone()),
+        Value::String(text) => Content::Text(text.clone().into()),
         Value::Array(parts) => Content::Parts(
             parts
                 .iter()
@@ -188,7 +188,7 @@ fn source_name(source: Source) -> &'static str {
 
 fn content_row(content: &Content) -> Value {
     match content {
-        Content::Text(text) => Value::String(text.clone()),
+        Content::Text(text) => Value::String(text.to_string()),
         Content::Parts(parts) => Value::Array(
             parts
                 .iter()

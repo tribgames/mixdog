@@ -325,7 +325,7 @@ pub struct UsageDelta {
     /// The usage convention of the adapter that produced this call's usage (`providerInputExcludesCache`).
     pub input_excludes_cache: bool,
     /// `sendTools`: the tools the request carried.
-    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    pub send_tools: std::sync::Arc<[mixdog_core_api::domain::provider::ToolDefinition]>,
     /// `reasoningUsage(usage)`: `None` when the provider reported none (missing is not zero).
     pub reasoning_tokens: Option<u64>,
     pub reasoning_tokens_complete: bool,

@@ -249,7 +249,7 @@ impl ModelBroker {
                         && !failure.exposure.tool_input_cut
                         && (streamed || !stages.ladder_by_connection)
                         && !cancel.is_cancelled()
-                        && adapter.recovers_spent(&model, &failure) =>
+                        && adapter.recovers_spent(&send.request, &failure) =>
                 {
                     // The provider's last re-issue of a stream that died with nothing shown. The ladder's error
                     // still surfaces unless the adapter marks the unary answer as terminal.

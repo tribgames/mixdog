@@ -31,7 +31,7 @@ const SUMMARY_TOOL_OUTCOME_CHARS: usize = 300;
 /// The first text of a content (a string, or the first text part).
 fn first_text(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .find_map(|p| match p {

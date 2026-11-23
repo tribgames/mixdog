@@ -272,7 +272,7 @@ mod tests {
         convert(&mut session[1], &ids);
 
         // The migrated rows as the core's messages: stored ids raw, the envelope as written.
-        let text = |v: &Value| Content::Text(v["content"].as_str().unwrap().to_owned());
+        let text = |v: &Value| Content::Text(v["content"].as_str().unwrap().to_owned().into());
         let mut assistant = Message::new(Role::Assistant, text(&session[1]));
         for c in session[1]["toolCalls"].as_array().unwrap() {
             assistant.tool_calls.push(ToolCall {

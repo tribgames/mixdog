@@ -40,6 +40,7 @@ use mixdog_store::schema::record::ModelSwitchEntry;
 use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunRecord;
+use mixdog_store::schema::record::TurnEndForm;
 use mixdog_store::sqlite::CompactionEntry;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
@@ -332,6 +333,20 @@ pub struct OpenedLog {
 pub struct RowDecor {
     pub archived: bool,
     pub dividers_after: Vec<WindowDivider>,
+    /// Where the record's turn stores its end, when not on a message of the turn: the record is shown by
+    /// [`Transcript::rows_as`] with it.
+    pub end: Option<TurnEndForm>,
+}
+
+/// One compaction boundary of a page of occurrences ([`ThreadStore::unit_page`]): an occurrence of its own, at the
+/// compaction's record.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageBoundary {
+    /// The `compacted` frame's ordinal.
+    pub ordinal: u64,
+    pub cid: String,
+    pub at: Option<i64>,
+    pub model_switches: Vec<ModelSwitchEntry>,
 }
 
 /// Where in a thread's history a stored page is read.
@@ -393,6 +408,10 @@ pub struct PageRows {
     pub reaches_end: bool,
     /// How many rows the id can name (see `HistoryAnchor::named`); 1 for a page no id places.
     pub named: u64,
+    /// The compaction boundaries among `records` by ordinal, oldest first: those of a page of occurrences
+    /// ([`ThreadStore::unit_page`]), which counts each as it counts a record and whose `decor` lists no divider. Empty
+    /// for a page of records.
+    pub boundaries: Vec<PageBoundary>,
 }
 
 /// What [`ThreadStore::rewind_target`] found.
@@ -429,6 +448,8 @@ pub(super) fn check_turn_read_cancel(cancel: &CancellationToken) -> Result<(), C
 pub struct TurnHistoryChunk {
     /// Newest record first; each record's display rows still run oldest first.
     pub records: Vec<ItemRecord>,
+    /// Where each record's turn stores its end ([`RowDecor::end`]), in the order of `records`.
+    pub ends: Vec<Option<TurnEndForm>>,
     pub next: Option<TurnHistoryCursor>,
 }
 
@@ -556,7 +577,24 @@ pub trait ThreadStore: Send + Sync + 'static {
             return Ok(PageRead::Unplaced);
         }
         let (rev, records, decor, complete) = self.history_tail_decor(lane, id, ask.records)?;
-        Ok(PageRead::Rows(PageRows { rev, records, decor, ordinals: Vec::new(), reaches_start: complete, reaches_end: true, named: 1 }))
+        Ok(PageRead::Rows(PageRows { rev, records, decor, ordinals: Vec::new(), reaches_start: complete, reaches_end: true, named: 1, boundaries: Vec::new() }))
+    }
+
+    /// [`history_page`](Self::history_page) over the occurrences of the transcript: each record that is shown, and
+    /// each compaction that lists a divider as a boundary of its own at the compaction's ordinal
+    /// ([`PageRows::boundaries`]), in one log order. `ask.records` counts occurrences, and `ask.at` names one by its
+    /// position, a boundary's included, to read back from or on from. A store that numbers no records has no
+    /// boundaries to place: its page of records.
+    fn unit_page(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, ask: &PageAsk, ctl: &super::read_trace::ReadCtl) -> Result<PageRead, CoreError> {
+        self.history_page(lane, id, ask, ctl)
+    }
+
+    /// The record that stores the result of each tool call of `calls`, in the thread's current lineage, oldest first,
+    /// with the history revision they were read at: whatever distance lies between a call and its result. Each call
+    /// is named with the ordinal of the record that shows it (a page's unit), which places its turn; one with no
+    /// stored result has no record. A store without an index of its rows finds none.
+    fn call_results(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _calls: &[(u64, String)]) -> Result<(u64, Vec<ItemRecord>), CoreError> {
+        Ok((0, Vec::new()))
     }
 
     /// The thread's live prompts a rewind can name, older than the ordinal `before`, newest first, with the history
@@ -766,6 +804,21 @@ pub trait Transcript: Send + Sync + 'static {
     /// display row it stands for: what a history page's byte budget counts (Node measures
     /// `JSON.stringify` of the transcript row).
     fn rows(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)>;
+
+    /// [`items`](Self::items) of a record whose turn stores its end as `end` (the turn's `started` record,
+    /// `RunRecord::end`; `None`: on the message it ended on). The form is the turn's durable mark, whatever build
+    /// reads it: a message of a turn with a display end shows no end of its own, and the turn's end is the display
+    /// record written for it.
+    fn items_as(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord, end: Option<TurnEndForm>) -> Vec<Shown> {
+        let _ = end;
+        self.items(lane, record)
+    }
+
+    /// [`rows`](Self::rows), as [`items_as`](Self::items_as).
+    fn rows_as(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord, end: Option<TurnEndForm>) -> Vec<(ThreadItem, usize)> {
+        let _ = end;
+        self.rows(lane, record)
+    }
 
     /// The `queued` row of a queue entry (`thread/queue/changed`).
     fn queued(&self, qid: &str, entry: &Value) -> Value;

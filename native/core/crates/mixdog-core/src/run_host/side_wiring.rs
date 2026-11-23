@@ -76,7 +76,7 @@ mod tests {
     fn request(messages: usize) -> ModelRequest {
         ModelRequest {
             model: "mock-model".into(),
-            messages: (0..messages).map(|i| Message::new(Role::User, Content::Text(i.to_string()))).collect(),
+            messages: (0..messages).map(|i| Message::new(Role::User, Content::Text(i.to_string().into()))).collect(),
             tools: Vec::new(),
             options: RequestOptions::default(),
         }

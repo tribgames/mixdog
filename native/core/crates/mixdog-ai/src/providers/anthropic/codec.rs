@@ -139,17 +139,6 @@ impl AnthropicConfig {
         }
     }
 
-    /// Anthropic's own first-party Messages route (`anthropicFirstPartyRoute`): beta headers allowed and no
-    /// gateway base URL. Request features a proxy answers with a 400 are gated here.
-    pub(super) fn first_party_route(&self) -> bool {
-        !self.disable_beta_headers && self.official_origin()
-    }
-
-    /// Whether the endpoint is Anthropic's own: first-party-only request
-    /// features are sent only there.
-    fn first_party(&self, flavor: Flavor) -> bool {
-        flavor == Flavor::OAuth || (!self.disable_beta_headers && self.official_origin())
-    }
 
     /// Whether the base URL is Anthropic's own origin, whatever the route.
     pub fn official_origin(&self) -> bool {
@@ -167,16 +156,47 @@ impl AnthropicConfig {
     }
 }
 
+/// `anthropicFirstPartyRoute(provider, config = {})` (anthropic-request-utils.mjs:116-122), the one gate of every
+/// first-party-only request feature (threads, turn-scoped reminders, eager tool input streaming, effort updates): a
+/// native provider, beta headers allowed and Anthropic's own base URL. `None` is Node's empty config, the one the
+/// subscription route builds its body with (anthropic-oauth.mjs:236, its tools and its effort projection).
+pub(super) fn first_party_route(provider: &str, config: Option<&AnthropicConfig>) -> bool {
+    super::body::native_provider(provider) && config.is_none_or(|config| !config.disable_beta_headers && config.official_origin())
+}
+
 pub struct AnthropicCodec {
     flavor: Flavor,
     owner: ProviderId,
     config: AnthropicConfig,
     cli_version: Option<Arc<ClaudeClientVersion>>,
+    /// The provider the capability floors this codec reads are kept under (`anthropicCapabilityEnabled`).
+    floors: String,
 }
 
 impl AnthropicCodec {
     pub fn new(flavor: Flavor, config: AnthropicConfig) -> Self {
-        Self { flavor, owner: ProviderId::from("anthropic"), config, cli_version: None }
+        Self { flavor, owner: ProviderId::from("anthropic"), config, cli_version: None, floors: flavor.provider_name().to_owned() }
+    }
+
+    /// The capability floors of this codec are those kept under `provider`, apart from the native routes'.
+    pub(super) fn with_floors_of(mut self, provider: &str) -> Self {
+        provider.clone_into(&mut self.floors);
+        self
+    }
+
+    /// [`Self::with_floors_of`] in place.
+    pub(super) fn set_floors_of(&mut self, provider: &str) {
+        provider.clone_into(&mut self.floors);
+    }
+
+    /// The owner of the replay envelopes this wire writes and reads back.
+    pub(super) fn owner(&self) -> &ProviderId {
+        &self.owner
+    }
+
+    /// The provider the capability floors this codec reads are kept under.
+    pub(super) fn floors(&self) -> &str {
+        &self.floors
     }
 
     pub(super) fn with_cli_version_source(mut self, version: Option<Arc<ClaudeClientVersion>>) -> Self {
@@ -258,12 +278,12 @@ pub(crate) fn vertex_body(
     let cfg = BodyConfig {
         flavor: Flavor::ApiKey,
         provider_name: "vertex-ai",
+        floors: "vertex-ai",
         owner: &ProviderId::from("anthropic"),
         caps: caps.as_ref(),
         cache: CacheStrategy::default(),
         max_output_tokens: None,
-        first_party: false,
-        official_url: false,
+        first_party: first_party_route("vertex-ai", None),
         beta_headers: false,
         fast_mode: fast_mode::process(),
         gateway_effort: None,
@@ -280,8 +300,10 @@ pub(crate) fn vertex_body(
 pub(super) fn threaded(wire: &WireRequest, body: &Value, betas: &[String]) -> WireRequest {
     let mut request = wire.clone();
     request.body = serde_json::to_vec(body).expect("a JSON value serialises");
-    if let Some(header) = request.headers.iter_mut().find(|h| h.0 == "anthropic-beta") {
-        header.1 = betas.join(",");
+    // The thread field never goes out without its beta (`'anthropic-beta': thread.betas.join(',')`, anthropic.mjs:261).
+    match request.headers.iter_mut().find(|h| h.0 == "anthropic-beta") {
+        Some(header) => header.1 = betas.join(","),
+        None => request.headers.push(("anthropic-beta".to_owned(), betas.join(","))),
     }
     request
 }
@@ -313,9 +335,10 @@ impl AnthropicCodec {
     pub(super) fn thread_scope<'a>(&self, request: &'a ModelRequest) -> Option<&'a str> {
         let options = &request.options;
         let scope = options.session_id.as_deref().filter(|s| !s.is_empty())?;
-        let first_party = self.config.first_party_route();
+        // Threads read the route's own config on both routes (`planAnthropicThread({ config: this.config })`).
+        let first_party = first_party_route(self.floors(), Some(&self.config));
         // `carriesLegacyTailReminder`: a reminder with no text rides nothing, so it does not stop threading.
-        let provider = self.flavor.provider_name();
+        let provider = self.floors();
         let legacy_reminder = !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(provider, &request.model));
         (self.config.message_threads
             && options.model_parameters.as_ref().and_then(|p| p.get("messageThreads")).and_then(Value::as_bool) != Some(false)
@@ -360,12 +383,12 @@ impl AnthropicCodec {
             custom_endpoint: self.config.custom_endpoint,
             flavor: self.flavor,
             provider_name: self.flavor.provider_name(),
+            floors: self.floors(),
             owner: &self.owner,
             caps: caps.as_ref(),
             cache: self.config.cache,
             max_output_tokens: self.config.max_output_tokens,
-            first_party: self.config.first_party(self.flavor),
-            official_url: self.config.official_origin(),
+            first_party: first_party_route(self.floors(), (self.flavor != Flavor::OAuth).then_some(&self.config)),
             beta_headers: !self.config.disable_beta_headers,
             fast_mode: &self.config.fast_mode,
             message_slots: std::env::var("ANTHROPIC_MSG_SLOTS").ok(),

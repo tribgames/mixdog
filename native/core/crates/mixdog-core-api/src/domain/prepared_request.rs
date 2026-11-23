@@ -452,7 +452,7 @@ mod tests {
             .collect();
         let mut tool = Message::new(Role::Tool, Content::Parts(parts));
         tool.tool_call_id = Some("c1".into());
-        let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
         assistant.tool_calls.push(crate::domain::provider::ToolCall {
             id: "c1".into(),
             name: "Read".into(),

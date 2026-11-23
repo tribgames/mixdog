@@ -54,6 +54,8 @@ pub struct DevinDecoder {
     secrets: Vec<String>,
     frames: FrameReader,
     terminated: bool,
+    /// A whole response frame decoded.
+    payload: bool,
     pending_error: Option<ProviderError>,
     message_id: String,
     thinking: String,
@@ -94,6 +96,7 @@ impl DevinDecoder {
             secrets,
             frames: FrameReader::new(MAX_FRAME_BYTES),
             terminated: false,
+            payload: false,
             pending_error: None,
             message_id: String::new(),
             thinking: String::new(),
@@ -363,7 +366,9 @@ impl WireDecoder for DevinDecoder {
                 // Nothing after the trailer is part of the response.
                 continue;
             }
-            if let Err(mut error) = self.decode_frame(frame, &mut events) {
+            let decoded = self.decode_frame(frame, &mut events);
+            self.payload |= decoded.is_ok();
+            if let Err(mut error) = decoded {
                 error.exposure = self.exposure;
                 self.terminated = true;
                 if events.is_empty() {
@@ -403,6 +408,11 @@ impl WireDecoder for DevinDecoder {
 
     fn terminal_seen(&self) -> bool {
         self.terminated
+    }
+
+    /// A whole `GetChatMessageResponse` frame decoded: the stream's first event (`sawFirstEvent`), whatever it carries.
+    fn payload_seen(&self) -> bool {
+        self.payload
     }
 
     fn exposure(&self) -> Exposure {

@@ -112,7 +112,7 @@ impl SystemBlocks {
             .into_iter()
             .zip(tiers)
             .filter_map(|((_, text), tier)| {
-                let mut message = Message::new(Role::System, Content::Text(text?.to_owned()));
+                let mut message = Message::new(Role::System, Content::Text(text?.to_owned().into()));
                 message.cache_tier = tier;
                 Some(message)
             })

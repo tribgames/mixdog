@@ -682,11 +682,11 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
         self.pool.primary.retry_policy_of(request)
     }
-    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        self.pool.primary.recovers_spent(model, failure)
+    fn recovers_spent(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.pool.primary.recovers_spent(request, failure)
     }
-    fn recovers_cut(&self, model: &str, failure: &ProviderError) -> bool {
-        self.pool.primary.recovers_cut(model, failure)
+    fn recovers_cut(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.pool.primary.recovers_cut(request, failure)
     }
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let sent = match request.options.send_identity.account() {

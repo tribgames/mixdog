@@ -13767,6 +13767,33 @@
       ],
       "type": "object"
     },
+    "TurnTakeoverParams": {
+      "description": "\"Send now\" on a queued message: the turn the user saw running ends taken over by that message, and the message starts the next turn. One command: the thread decides it in one step against the turn that runs and the queue as they are then.",
+      "properties": {
+        "opId": {
+          "description": "The takeover's own id, the same for every send of it: a repeat is answered the first one's receipt.",
+          "type": "string"
+        },
+        "queuedId": {
+          "description": "The queued message: its queue id, or the submission it answers (`clientSubmissionId`).",
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "description": "The turn the user saw running. Any other turn, the one running now included, is left alone.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "queuedId",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
     "UiProviderModelsChangedParams": {
       "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
       "properties": {
@@ -14316,6 +14343,13 @@
           "minimum": 0.0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "turnWork": {
+          "description": "The running turn's own tab, shown at the user's request while the turn still writes it. Always `true` when present.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -15990,6 +16024,29 @@
         },
         "params": {
           "$ref": "#/definitions/TurnSteerParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "\"Send now\": a queued message takes over the running turn and starts the next one.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "turn/takeover"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TurnTakeoverParams"
         }
       },
       "required": [

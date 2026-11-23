@@ -93,6 +93,12 @@ fn kept(state: &Value) -> bool {
     len("tabs") > 0 || len("history") > 0
 }
 
+/// `held: true` on a snapshot's state or on an event: a turn of the session runs and the desktop keeps its work back. The mirror
+/// keeps such a session whatever its state holds, so a phone that reads it knows of the hold.
+fn held(value: &Value) -> bool {
+    value.get("held").and_then(Value::as_bool) == Some(true)
+}
+
 /// `path.resolve` without the file system: `.` and `..` folded.
 fn lexical(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
@@ -299,19 +305,20 @@ impl VisualizePanes {
                 *sessions = states
                     .iter()
                     .filter_map(host_state)
-                    .filter(|state| kept(state))
+                    .filter(|state| kept(state) || held(state))
                     .map(|state| (state["sessionId"].as_str().unwrap_or_default().to_owned(), state.clone()))
                     .collect();
             }
             Value::Object(event) => {
                 let Some(session) = event.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty()) else { return };
                 if let Some(state) = event.get("state").and_then(host_state) {
-                    if kept(state) {
+                    let event_held = held(value);
+                    if kept(state) || event_held {
                         let mut state = state.clone();
                         if let Some(fields) = state.as_object_mut() {
                             fields.swap_remove("held");
                             fields.swap_remove("heldSince");
-                            if event.get("held").and_then(Value::as_bool) == Some(true) {
+                            if event_held {
                                 fields.insert("held".to_owned(), Value::Bool(true));
                                 if let Some(since) = event.get("heldSince").filter(|since| since.is_i64()) {
                                     fields.insert("heldSince".to_owned(), since.clone());
@@ -353,5 +360,41 @@ impl VisualizePanes {
                     && pane_root.is_some_and(|pane_root| comparable(Path::new(pane_root)) == root_key)
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty(session: &str) -> Value {
+        json!({ "sessionId": session, "tabs": [], "active": null })
+    }
+
+    /// The first visual turn of a session: what it shows is still empty, and a phone that reconnects must read the hold.
+    #[test]
+    fn a_held_session_is_kept_whatever_its_state_holds_and_an_empty_one_that_is_not_held_is_dropped() {
+        let panes = VisualizePanes::default();
+        let held_empty = |session: &str| {
+            let mut state = empty(session);
+            state["held"] = json!(true);
+            state["heldSince"] = json!(1_000);
+            state
+        };
+
+        // A snapshot: the state's own `held`.
+        panes.fold(&json!([held_empty("held"), empty("idle")]));
+        assert_eq!(panes.remote_states(), vec![held_empty("held")], "the held session stays, the empty idle one is dropped");
+
+        // An event: the event's `held`, never one the state carries.
+        panes.fold(&json!([]));
+        panes.fold(&json!({ "sessionId": "turn", "state": empty("turn"), "held": true, "heldSince": 1_000 }));
+        assert_eq!(panes.remote_states(), vec![held_empty("turn")]);
+        panes.fold(&json!({ "sessionId": "other", "state": held_empty("other") }));
+        assert_eq!(panes.remote_states(), vec![held_empty("turn")], "an event that does not say held keeps no empty session");
+
+        // The turn's end with nothing to show: the session is neither held nor holding anything.
+        panes.fold(&json!({ "sessionId": "turn", "state": empty("turn") }));
+        assert_eq!(panes.remote_states(), Vec::<Value>::new());
     }
 }

@@ -711,14 +711,14 @@ mod liveness {
         assert_eq!(sent[0].url, streaming.url);
 
         let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-        assert!(adapter.recovers_spent("m", &cut));
+        assert!(adapter.recovers_spent(&base_request("m"), &cut));
         assert_eq!(adapter.recovery_line("m", &cut).as_deref(), Some("[deepseek] stream failed (unknown); recovered via non-streaming request"));
         let mut shown = cut.clone();
         shown.exposure.text_emitted = true;
-        assert!(!adapter.recovers_spent("m", &shown), "shown text is the loop's retraction replay");
+        assert!(!adapter.recovers_spent(&base_request("m"), &shown), "shown text is the loop's retraction replay");
         let mut refused = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
         refused.status = Some(400);
-        assert!(!adapter.recovers_spent("m", &refused));
+        assert!(!adapter.recovers_spent(&base_request("m"), &refused));
     }
 
     fn go_listing(config: JsonValue, models_dev: JsonValue) -> CompatAdapter {
@@ -803,7 +803,7 @@ mod liveness {
                     // (`openai-ws-pool.mjs:625`, `PROVIDER_WS_HANDSHAKE_TIMEOUT_MS` 30_000): it bounds the upgrade, before
                     // any content, and never decides when a response ends.
                     if path.file_name().is_some_and(|n| n == "xai_transport.rs") {
-                        const HANDSHAKE: &str = "mixdog_rt::time::timeout(Duration::from_secs(30), self.dial.dial(handshake))";
+                        const HANDSHAKE: &str = "mixdog_rt::time::timeout(Duration::from_secs(30), self.0.dial.dial(handshake))";
                         assert_eq!(text.matches(HANDSHAKE).count(), 1, "{}: the handshake deadline, once", path.display());
                         text = text.replacen(HANDSHAKE, "", 1);
                     }

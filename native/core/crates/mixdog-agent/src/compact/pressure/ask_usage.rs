@@ -109,6 +109,11 @@ fn prompt_evidence(usage: &Usage) -> Option<bool> {
     if raw["input_tokens_known"] == Value::Bool(false) || raw["cache_tokens_known"] == Value::Bool(false) {
         return Some(false);
     }
+    // Counts of a whole turn are the sum over its model calls: they bill the turn and are no prompt's size, so the
+    // context is read from the occupancy the provider measured, or not at all.
+    if super::counts_a_turn(usage) {
+        return Some(false);
+    }
     ["input_tokens", "prompt_tokens", "promptTokenCount"].iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some()).then_some(true)
 }
 
@@ -149,6 +154,7 @@ fn provider_send_usage(delta: &Value) -> Value {
         "cachedTokens": pick("contextCachedReadTokens", "deltaCachedRead"),
         "cacheWriteTokens": pick("contextCacheWriteTokens", "deltaCacheWrite"),
         "contextTokens": delta.get("contextMeasuredTokens").cloned().unwrap_or(Value::Null),
+        "contextPromptKnown": delta.get("contextPromptKnown").cloned().unwrap_or(Value::Null),
     })
 }
 

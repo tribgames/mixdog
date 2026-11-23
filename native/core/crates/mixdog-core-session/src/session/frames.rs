@@ -20,9 +20,10 @@ use serde::Serialize;
 pub(crate) struct Note {
     pub method: &'static str,
     pub params: Bytes,
-    /// For a note that tells a record's rows: the params of the `thread/transcript/changed` a positioned subscription
-    /// gets in its place, with no row. `method` and `params` are then what every other one gets.
-    pub positioned: Option<Bytes>,
+    /// What a positioned subscription gets in its place, as its method and params; `method` and `params` are then what
+    /// every other one gets. For a note that tells a settled row: a `thread/transcript/changed` with no row
+    /// ([`Note::of_record`]).
+    pub positioned: Option<(&'static str, Bytes)>,
 }
 
 /// The method of a positioned transcript frame.
@@ -44,17 +45,17 @@ impl Note {
             at_feed_position: None,
             room_view: None,
         };
-        self.positioned = Some(encode(&params));
+        self.positioned = Some((TRANSCRIPT_CHANGED, encode(&params)));
         self
     }
 
     /// The positioned form with `roomView` set: what an event carries beside the transcript reaches a positioned
     /// subscription too.
     pub fn with_room_view(&mut self, view: &serde_json::Value) {
-        let Some(params) = &self.positioned else { return };
+        let Some((method, params)) = &self.positioned else { return };
         if let Ok(mut params) = serde_json::from_slice::<serde_json::Value>(params) {
             params["roomView"] = view.clone();
-            self.positioned = Some(encode(&params));
+            self.positioned = Some((method, encode(&params)));
         }
     }
 }
@@ -85,7 +86,7 @@ pub(crate) fn frame(note: &Note, feed: &FeedId, epoch: &FeedEpoch, seq: u64) -> 
 
 /// The frame of `note` in every form a subscription may get it.
 pub(crate) fn feed_frame(note: &Note, feed: &FeedId, epoch: &FeedEpoch, seq: u64) -> FeedFrame {
-    let positioned = note.positioned.as_ref().map(|params| frame_of(TRANSCRIPT_CHANGED, params, feed, epoch, seq));
+    let positioned = note.positioned.as_ref().map(|(method, params)| frame_of(method, params, feed, epoch, seq));
     FeedFrame { seq, bytes: frame(note, feed, epoch, seq), positioned }
 }
 

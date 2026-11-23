@@ -262,7 +262,7 @@ impl super::cache::layer::CacheRuntime for TokioRuntime {
 }
 
 fn big_request() -> ModelRequest {
-    let say = |role, t: String| Message::new(role, Content::Text(t));
+    let say = |role, t: String| Message::new(role, Content::Text(t.into()));
     let mut request = fixture_request("gemini-2.5-pro");
     request.messages =
         vec![say(Role::System, "x".repeat(12_000)), say(Role::User, "first".into()), say(Role::Assistant, "second".into()), say(Role::User, "third".into())];
@@ -527,7 +527,7 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
     assert_eq!(replay.items["model"], "gemini-2.5-pro");
     let call = fold(&events).1.remove(0);
 
-    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
     assistant.tool_calls.push(call.clone());
     assistant.push_replay(replay);
     let mut result = Message::new(Role::Tool, Content::Text("42".into()));

@@ -49,7 +49,7 @@ static ASYNC_HEADER: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^Async .+ finis
 /// A user message's text: string content, or the text blocks joined.
 pub fn user_text(message: &AgentMessage) -> String {
     match &message.message.content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
@@ -217,7 +217,7 @@ pub(crate) fn strip_runtime_user_context(message: &AgentMessage) -> AgentMessage
     if meta.is_empty() {
         row.shift_remove("meta");
     }
-    out.stored = Some(std::sync::Arc::new(row));
+    out.stored = Some(std::sync::Arc::new(row.into()));
     out
 }
 
@@ -227,7 +227,7 @@ pub(crate) fn stripped_content(content: &Content, prefix: &str, suffix: &str) ->
         Content::Text(text) => {
             let inner = text.strip_prefix(prefix)?;
             (text.len() >= prefix.len() + suffix.len()).then_some(())?;
-            Some(Content::Text(inner.strip_suffix(suffix)?.to_owned()))
+            Some(Content::Text(inner.strip_suffix(suffix)?.to_owned().into()))
         }
         Content::Parts(parts) => {
             let is_text = |part: Option<&ContentPart>, want: &str| matches!(part, Some(ContentPart::Text(text, _)) if text == want);
@@ -379,7 +379,7 @@ fn close_tag() -> String {
 
 fn envelope_content(content: &Content, kind: SyntheticKind) -> Content {
     match content {
-        Content::Text(text) => Content::Text(format!("{}{text}{}", open_tag(kind), close_tag())),
+        Content::Text(text) => Content::Text(format!("{}{text}{}", open_tag(kind), close_tag()).into()),
         Content::Parts(parts) => {
             let texts: Vec<usize> = parts.iter().enumerate().filter(|(_, p)| matches!(p, ContentPart::Text(_, _))).map(|(i, _)| i).collect();
             let (Some(&first), Some(&last)) = (texts.first(), texts.last()) else {
@@ -414,7 +414,7 @@ pub fn project_for_wire(messages: &[AgentMessage]) -> Vec<Message> {
                 let restart = mixdog_js::js_trim(&user_text(m)) == PROCESS_RESTART_MARKER;
                 let restart_text;
                 let source = if restart {
-                    restart_text = Content::Text(PROCESS_RESTART_WIRE_TEXT.to_owned());
+                    restart_text = Content::Text(PROCESS_RESTART_WIRE_TEXT.to_owned().into());
                     &restart_text
                 } else {
                     &m.message.content
@@ -432,7 +432,7 @@ mod tests {
 
     fn wrapped(m: &AgentMessage) -> String {
         match project_for_wire(std::slice::from_ref(m)).remove(0).content {
-            Content::Text(t) => t,
+            Content::Text(t) => t.to_string(),
             Content::Parts(_) => String::new(),
         }
     }

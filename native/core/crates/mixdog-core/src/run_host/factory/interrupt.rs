@@ -138,6 +138,46 @@ pub(super) async fn close_cancelled(
     }
 }
 
+/// The result of each call of `turn` (the turn's committed messages) that none of them answers, in call order: the
+/// result `early` holds for it (settled, not yet committed in call order), else one that says the turn stalled.
+pub(super) fn stalled_results(turn: &[Arc<AgentMessage>], early: &[AgentMessage]) -> Vec<AgentMessage> {
+    use mixdog_agent::message::ToolKind;
+    let answered: Vec<&str> = turn.iter().filter(|message| message.role() == Role::Tool).filter_map(|message| message.tool_call_id()).collect();
+    let mut results: Vec<AgentMessage> = Vec::new();
+    for call in turn.iter().flat_map(|message| message.assistant_call_ids()) {
+        if answered.contains(&call.as_str()) || results.iter().any(|result| result.tool_call_id() == Some(call.as_str())) {
+            continue;
+        }
+        results.push(match early.iter().find(|result| result.tool_call_id() == Some(call.as_str())) {
+            Some(result) => {
+                let kind = result.tool_kind.or(result.message.is_error.then_some(ToolKind::Error));
+                let mut kept = AgentMessage::tool_result(call, result.message.content.clone(), kind.unwrap_or(ToolKind::Normal));
+                kept.tool_kind = kind;
+                kept
+            }
+            None => AgentMessage::tool_text(call, mixdog_agent::agent_tool::watchdog::WATCHDOG_STOP_ERROR, ToolKind::Error),
+        });
+    }
+    results
+}
+
+/// A turn the progress watchdog stopped: every call it left running is closed with a stored result
+/// ([`stalled_results`]), as [`close_cancelled`] closes a stopped turn's, so no call of an ended turn is without one.
+/// Nothing else is added: the turn failed, and its failure is its end.
+pub(super) async fn close_stalled(port: &RunPort, sink: &PortSink, rows: &StoredRows, observed: &Mutex<Observed>) {
+    use mixdog_agent::compact::execution_tail::MessageRows as _;
+    let early = std::mem::take(&mut lock(observed).results);
+    let results = stalled_results(&lock(&sink.turn), &early);
+    for message in results {
+        let body = row_of(&message);
+        rows.record(&message, body.clone());
+        let item = ItemCommit { iid: new_item_id(), role: Some("tool".to_owned()), model: true, visible: true, body, prompt: None };
+        if let Err(error) = port.commit_item(item).await {
+            tracing::warn!("[session] stalled turn result save failed: {error:?}");
+        }
+    }
+}
+
 /// `recoverTurnCheckpoint` of a run the process died in. A sealed turn (its answer committed, stamped with the turn's
 /// completion) stays as it is. Otherwise its draft is finalized as `finalizeTurnInterruptionSnapshot(.., 'process-crash')`
 /// finalizes the checkpoint: the partial reply, every unanswered call closed as cancelled and the restart line are

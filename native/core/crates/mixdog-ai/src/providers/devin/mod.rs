@@ -21,6 +21,8 @@ pub mod models;
 pub mod request;
 pub mod schema;
 pub mod session;
+#[cfg(test)]
+mod stall_tests;
 
 use crate::transport::deadlines::DEVIN_STREAM;
 use std::collections::HashMap;
@@ -57,8 +59,12 @@ use self::request::ChatParams;
 use self::request::build_chat_request;
 use self::session::Client;
 use self::session::UserSession;
+use crate::providers::compat::adapter::shared_first_byte_gate;
+use crate::providers::compat::adapter::stream_call;
 use crate::providers::connect::frame;
 use crate::providers::connect::stream::DecodedStream;
+use crate::providers::first_byte::FirstByteSettings;
+use crate::transport::model_driver::ModelDriver;
 use crate::providers::listing_row;
 use crate::transport::http::HttpSend;
 
@@ -150,7 +156,12 @@ fn random_uuid() -> String {
 pub struct DevinAdapter {
     id: ProviderId,
     base_url: String,
+    /// The transport of the unary RPCs (the JWT exchange, discovery, `AssignModel`).
     http: Arc<dyn HttpSend>,
+    /// The transport of the chat stream: its phase deadlines are the driver's.
+    driver: ModelDriver,
+    /// The stream windows, from the environment as Node reads it.
+    first_byte: FirstByteSettings,
     token: Arc<dyn SessionToken>,
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
@@ -179,6 +190,8 @@ impl DevinAdapter {
                 execution_id: String::new(),
             }),
             base_url,
+            driver: ModelDriver::new(http.clone()),
+            first_byte: FirstByteSettings::process(),
             http,
             token,
             policy: no_retry_policy(),
@@ -366,7 +379,12 @@ impl ProviderAdapter for DevinAdapter {
         // `_streamTurn` raises `requesting` once the chat request is built, before it is sent (devin.mjs:383).
         request.options.send_identity.raise_requesting_once();
         // `transportError` (`devin-wire-transport.mjs:243-261`) words what the raw `fetch` threw.
-        let head = self.http.send(wire, DEVIN_STREAM).await.map_err(|error| error::connection_failed(error, &[]))?;
+        // The chat stream is consumed as a Chat Completions stream (`consumeCompatChatCompletionStream`, devin.mjs:404):
+        // its first-byte, first-output and idle windows, labelled with the provider's name.
+        let identity = &request.options.send_identity;
+        let gate = shared_first_byte_gate(&self.first_byte, identity, PROVIDER_ID.to_owned());
+        let call = stream_call(PROVIDER_ID.to_owned(), &self.first_byte, identity, Some(gate), false);
+        let (head, handle) = self.driver.send(&call, wire, DEVIN_STREAM).await.map_err(|error| error::connection_failed(error, &[]))?;
         if (300..400).contains(&head.status) {
             let mut error = error::protocol_error("Devin server redirected the request; redirects are refused");
             error.status = Some(head.status);
@@ -376,8 +394,11 @@ impl ProviderAdapter for DevinAdapter {
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
+        // `reportTransport` as the stream opens (openai-compat-chat-stream.mjs:75).
+        identity.raise_transport();
         Ok(Box::new(
             DecodedStream::new(head.body, codec.decoder(&request))
+                .driven(handle, identity.clone())
                 .with_billed_usage(request.model.trim().to_owned())
                 .with_fault_code("unavailable")
                 .with_fault_prefix("Devin connection failed: "),

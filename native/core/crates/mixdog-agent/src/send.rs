@@ -163,6 +163,12 @@ impl Drop for SendGroup {
     }
 }
 
+/// A provider whose run stays open across a tool batch, owned by the stream that handed the batch over (Cursor's agent
+/// run): the turn keeps that stream until its next exchange, so the run outlives the tools and ends with the turn.
+pub(crate) fn keeps_its_run(provider: &str) -> bool {
+    provider.starts_with("cursor-")
+}
+
 /// An idle-window expiry of a stream that had started (`stallObserved`).
 fn is_stall(error: &ProviderError) -> bool {
     error.timeout_phase == Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Idle) || error.code.as_deref() == Some("ESTREAMSTALL")
@@ -286,7 +292,7 @@ pub fn wire_request(
 fn tail_reminder_message(text: &str) -> mixdog_core_api::domain::provider::Message {
     let mut reminder = mixdog_core_api::domain::provider::Message::new(
         mixdog_core_api::domain::provider::Role::User,
-        mixdog_core_api::domain::provider::Content::Text(text.to_owned()),
+        mixdog_core_api::domain::provider::Content::Text(text.to_owned().into()),
     );
     reminder.source = Some(mixdog_core_api::domain::provider::MessageSource::TailReminder);
     reminder
@@ -866,6 +872,8 @@ impl Run {
             }
         };
         let attempt = identity.deliver_stages(or_cancelled(&self.cancel, send), deliver).await;
+        // The attempt continued the waiting run or left it: the turn holds it no longer.
+        *self.open_run.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
             Some(Err(error)) => {
@@ -1014,6 +1022,9 @@ impl Run {
             return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
         }
         self.last_streamed_chars = shown_chars;
+        if keeps_its_run(provider.id().as_str()) {
+            *self.open_run.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stream);
+        }
         Ok(Ok(builder.finish()))
     }
 
@@ -1281,7 +1292,7 @@ impl Run {
             && self.eager.is_empty()
             && partial.tool_calls.is_empty()
             && (midstream || !self.provider.send_stages(&self.model).ladder_by_connection)
-            && self.provider.recovers_spent(&self.model, error)
+            && self.last_request.as_ref().is_some_and(|request| self.provider.recovers_spent(request, error))
     }
 
     /// The provider's answer to a stream that died mid-response (`decideStreamError`,
@@ -1296,7 +1307,7 @@ impl Run {
         let exposed = error.exposure.text_emitted || shown_chars > 0 || reasoning_shown;
         let mut seen = error.clone();
         seen.exposure.text_emitted = exposed;
-        if !self.provider.recovers_cut(&self.model, &seen) {
+        if !self.last_request.as_ref().is_some_and(|request| self.provider.recovers_cut(request, &seen)) {
             return false;
         }
         if exposed {

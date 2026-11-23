@@ -2,7 +2,6 @@
 //! by the actor at release and swapped into the feed by pointer (RL §5.1); encoded only on
 //! cpu-interactive, single-flighted and cached by the feed (SPEC R4).
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -46,7 +45,7 @@ pub(crate) struct SessionView {
     pub tail: StoredTail,
 }
 
-/// The newest stored records as a page of them reads ([`super::reads::units`]), oldest first.
+/// The newest stored records as a page of them reads ([`super::reads::transcript_units`]), oldest first.
 #[derive(Clone)]
 pub(crate) struct StoredTail {
     pub units: Arc<[Arc<StoredUnit>]>,
@@ -78,14 +77,6 @@ pub(crate) struct SnapshotParams<'a> {
 
 pub(crate) use mixdog_core_api::feed::TAIL_RANGE;
 
-/// The `ext` member a positioned snapshot states on a row no record holds: the position of the stored record it stands
-/// after in the transcript.
-pub(crate) const SHOWN_AFTER: &str = "shownAfter";
-/// As [`SHOWN_AFTER`], for a row no record of the view precedes: the position of the record it stands before.
-pub(crate) const SHOWN_BEFORE: &str = "shownBefore";
-/// Beside either: the record named lies above the records the snapshot carries, in the stored history.
-pub(crate) const SHOWN_STORED: &str = "shownStored";
-
 impl SessionView {
     pub fn build(feed: FeedId, summary: ThreadSummary, state: &SessionState, storage: StorageState, items: Option<Arc<[Arc<ThreadItem>]>>) -> Self {
         let items = items.unwrap_or_else(|| Self::items_of(state));
@@ -111,10 +102,10 @@ impl SessionView {
     }
 
     /// The positioned snapshot's rows and the range that holds them, as of feed seq `at`: the stored records it
-    /// carries, and every row no record holds (the in-progress items and the live-only rows), whatever the window asks
-    /// for, each with where it stands among the records ([`unrecorded`]). A record shown and not yet stored is in
-    /// neither: its unit follows once it is stored.
-    fn positioned(&self, rows: u16, at: u64) -> (Vec<Cow<'_, ThreadItem>>, bool, SnapshotWindow) {
+    /// carries, as units, and beside them only the output still in progress, whatever the window asks for. Every
+    /// settled row is an occurrence of the log and reaches the subscription as its unit: a record shown and not yet
+    /// stored is in neither, and its unit follows once it is stored.
+    fn positioned(&self, rows: u16, at: u64) -> (Vec<&ThreadItem>, bool, SnapshotWindow) {
         let (carried, has_older) = self.carried(rows);
         let older = match carried.first() {
             Some(first) if has_older => WindowEdge::Continuation { position: first.unit.position.clone() },
@@ -129,7 +120,10 @@ impl SessionView {
             added: held.then(|| WindowAdded { range: TAIL_RANGE.into(), units }).into_iter().collect(),
             follow_tail: true,
         };
-        (unrecorded(&self.items, carried), has_older, window)
+        // A record's row is its unit's, whatever its status says.
+        let in_progress =
+            |item: &&ThreadItem| matches!(meta(item).status, Some(ItemStatus::InProgress)) && !meta(item).ext.contains_key(super::reads::HISTORY_POSITION);
+        (self.items.iter().map(|item| item.as_ref()).filter(in_progress).collect(), has_older, window)
     }
 
     /// Window rows plus in-progress items (status `inProgress`).
@@ -175,47 +169,6 @@ impl SessionView {
     }
 }
 
-/// The rows of `items` (the view, oldest first) no record holds, every one of them, as a positioned snapshot that
-/// carries the records `carried` sends them: each names the record of the view it stands after ([`SHOWN_AFTER`]), or,
-/// with none before it, the one it stands before ([`SHOWN_BEFORE`]); one that stands above the oldest record carried
-/// says so ([`SHOWN_STORED`]), which tells its record from one shown and not yet stored. A view of no record names none.
-fn unrecorded<'a>(items: &'a [Arc<ThreadItem>], carried: &[Arc<StoredUnit>]) -> Vec<Cow<'a, ThreadItem>> {
-    let record_of = |item: &ThreadItem| {
-        let cursor = meta(item).ext.get(super::reads::HISTORY_POSITION)?.as_str()?;
-        super::reads::history_cursor_iid(cursor).map(super::reads::record_position)
-    };
-    let recorded = |item: &ThreadItem| meta(item).ext.contains_key(super::reads::HISTORY_POSITION);
-    let records: Vec<Option<String>> = items.iter().map(|item| record_of(item)).collect();
-    let oldest_carried = records.iter().position(|record| record.as_ref().is_some_and(|record| carried.iter().any(|unit| unit.unit.position == *record)));
-    let first = records.iter().flatten().next();
-    let mut after: Option<&str> = None;
-    let mut loose = Vec::new();
-    for (index, item) in items.iter().enumerate() {
-        if recorded(item) {
-            after = records[index].as_deref().or(after);
-            continue;
-        }
-        let named = match (after, first) {
-            (Some(record), _) => Some((SHOWN_AFTER, record)),
-            (None, Some(record)) => Some((SHOWN_BEFORE, record.as_str())),
-            (None, None) => None,
-        };
-        loose.push(match named {
-            Some((side, record)) => {
-                let mut item = item.as_ref().clone();
-                let ext = &mut meta_mut(&mut item).ext;
-                ext.insert(side.into(), serde_json::Value::String(record.to_owned()));
-                if oldest_carried.is_some_and(|oldest| index < oldest) {
-                    ext.insert(SHOWN_STORED.into(), serde_json::Value::Bool(true));
-                }
-                Cow::Owned(item)
-            }
-            None => Cow::Borrowed(item.as_ref()),
-        });
-    }
-    loose
-}
-
 /// Whether rows older than the snapshot's exist: the store has rows older than the view (`store_has_older`), or the
 /// window sent only the newest `sent` of the view's `held` rows.
 pub(crate) fn snapshot_has_older(store_has_older: bool, window: &Window, sent: usize, held: usize) -> bool {
@@ -224,12 +177,9 @@ pub(crate) fn snapshot_has_older(store_has_older: bool, window: &Window, sent: u
 
 impl FeedView for SessionView {
     fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, window: &Window) -> Bytes {
-        let placed;
         let params = match window {
             Window::Positioned(rows) => {
                 let (items, has_older, window) = self.positioned(*rows, at.seq);
-                placed = items;
-                let items = placed.iter().map(|item| item.as_ref()).collect();
                 SnapshotParams { thread: &self.summary, state: &self.state, has_older, items, window: Some(window) }
             }
             window => {
@@ -352,52 +302,5 @@ mod has_older_tests {
         assert!(snapshot_has_older(true, &Window::LastItems(32), 20, 20));
         // A header-only window sends no rows by design.
         assert!(!snapshot_has_older(false, &Window::HeaderOnly, 0, 150));
-    }
-}
-
-#[cfg(test)]
-mod unrecorded_tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn a_positioned_snapshot_sends_every_row_of_no_record_with_the_record_it_stands_beside() {
-        let stored = |id: &str| -> ThreadItem {
-            let mut item = serde_json::from_value(json!({ "type": "agentMessage", "id": id, "text": id })).expect("a reply");
-            super::super::reads::mark_history_position(&mut item, id, 0);
-            item
-        };
-        let end = |id: &str| -> ThreadItem {
-            serde_json::from_value(json!({ "type": "turnEnd", "id": id, "status": "done", "elapsedMs": 1, "meta": {} })).expect("a turn end")
-        };
-        // A row before every record, three turns closed live, each end a row of no record, and the row of a record shown
-        // and not yet stored.
-        let view: Vec<Arc<ThreadItem>> =
-            [end("e0"), stored("r1"), end("e1"), stored("r2"), end("e2"), stored("r3"), end("e3"), stored("r4"), end("e4")].into_iter().map(Arc::new).collect();
-        let unit = |id: &str, ordinal: u64| {
-            let unit = TranscriptUnit { position: super::super::reads::record_position(id), items: vec![stored(id)] };
-            Arc::new(StoredUnit { ordinal, unit, bytes: 0 })
-        };
-        // The snapshot carries the two newest stored records.
-        let sent = unrecorded(&view, &[unit("r2", 2), unit("r3", 3)]);
-        let shown: Vec<serde_json::Value> =
-            sent.iter().map(|item| json!({ "id": serde_json::to_value(item.as_ref()).expect("an item")["id"], "ext": meta(item).ext })).collect();
-        // No row is left out: the ones above the oldest record carried name a record of the stored history, the last
-        // one a record still to be stored.
-        assert_eq!(
-            json!(shown),
-            json!([
-                { "id": "e0", "ext": { "shownBefore": "h1:0:r1", "shownStored": true } },
-                { "id": "e1", "ext": { "shownAfter": "h1:0:r1", "shownStored": true } },
-                { "id": "e2", "ext": { "shownAfter": "h1:0:r2" } },
-                { "id": "e3", "ext": { "shownAfter": "h1:0:r3" } },
-                { "id": "e4", "ext": { "shownAfter": "h1:0:r4" } },
-            ])
-        );
-        // With no record carried, none is said to lie above.
-        assert!(unrecorded(&view, &[]).iter().all(|item| !meta(item).ext.contains_key(SHOWN_STORED)));
-        // A view of no record names none.
-        assert!(unrecorded(&view[..1], &[]).iter().all(|item| meta(item).ext.is_empty()));
     }
 }

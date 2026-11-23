@@ -1272,6 +1272,10 @@ fn every_interactive_query_is_index_backed() {
         check(&format!("search {query:?}"), &sql, trigram);
     }
     check("page", crate::sqlite::PAGE_SQL, false);
+    check("page after", crate::sqlite::PAGE_AFTER_SQL, false);
+    check("boundaries", crate::sqlite::BOUNDARIES_SQL, false);
+    check("boundaries newest first", crate::sqlite::BOUNDARIES_NEWEST_SQL, false);
+    check("boundary named", crate::sqlite::BOUNDARY_NAMED_SQL, false);
     check("live rows", crate::sqlite::LIVE_ROWS_SQL, false);
     check("previous compaction", crate::sqlite::LIVE_COMPACTION_SQL, false);
     check("projected", crate::sqlite::PROJECTED_SQL, false);
@@ -4621,4 +4625,328 @@ async fn a_log_and_checkpoint_an_earlier_build_wrote_open_unchanged_and_take_the
     );
     assert_eq!(reopened.fold.header.get("tools"), folded.get("tools"));
     assert_eq!(reopened.fold.header.get("compaction").and_then(|c| c.get("lastCheckedAt")), Some(&json!(1795310900000i64)));
+}
+
+/// A reply of turn `turn`.
+fn reply(iid: &str, turn: &str) -> Encoded {
+    rec(json!({"k":"item","iid":iid,"turn":turn,"role":"assistant","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":iid,"role":"assistant"}}}))
+}
+
+/// A compaction that lists a divider (or none, `silent`).
+fn boundary(cid: &str, silent: bool) -> Encoded {
+    let mut v = json!({"k":"compacted","cid":cid,"at":1792567960000_i64,"dropped_count":0,
+        "replacement":{"inline":[{"iid":format!("sum-{cid}"),"body":{"role":"user","content":"summary"}}]}});
+    if silent {
+        v["silent"] = json!(true);
+    }
+    rec(v)
+}
+
+/// The occurrences of a page as `(ordinal, name)`: a row by its `iid`, a boundary by `divider:<cid>`.
+fn occurrences(units: &[UnitRow]) -> Vec<(u64, String)> {
+    units
+        .iter()
+        .map(|unit| match unit {
+            UnitRow::Item(row) => (row.ordinal, row.iid.clone()),
+            UnitRow::Boundary(divider) => (divider.pos.ordinal, format!("divider:{}", divider.cid)),
+        })
+        .collect()
+}
+
+/// Every occurrence of `levels`, oldest first, read back from the newest in pages of `size`.
+async fn walked_back(env: &Env, levels: &[LineageLevel], size: usize) -> Vec<(u64, String)> {
+    let (mut all, mut cursor) = (Vec::new(), None);
+    loop {
+        let (units, next) = env.store.unit_page(levels.to_vec(), None, cursor, size).await.unwrap();
+        assert!(units.len() <= size);
+        all.extend(occurrences(&units));
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    all.reverse();
+    all
+}
+
+/// Every occurrence of `levels`, oldest first, read on from the oldest in pages of `size`.
+async fn walked_on(env: &Env, levels: &[LineageLevel], size: usize) -> Vec<(u64, String)> {
+    let (mut all, mut cursor) = (Vec::new(), None);
+    loop {
+        let (units, next) = env.store.unit_page_after(levels.to_vec(), None, cursor, size).await.unwrap();
+        assert!(units.len() <= size);
+        all.extend(occurrences(&units));
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    all
+}
+
+/// A compaction's boundary is an occurrence of a page at the compaction's own ordinal, read back and read on alike, in
+/// pages of every size: as the first occurrence of the log, as the last, and directly after another boundary. A silent
+/// compaction has none. Its position is a cursor in both directions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_compaction_boundary_is_an_occurrence_of_its_own_in_both_directions() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let written = [
+        ("divider:k0", boundary("k0", false)),
+        ("a", item("a")),
+        ("b", item("b")),
+        ("divider:k1", boundary("k1", false)),
+        ("divider:k2", boundary("k2", false)),
+        ("", boundary("k3", true)),
+        ("c", item("c")),
+        ("divider:k4", boundary("k4", false)),
+    ];
+    let names: Vec<&str> = written.iter().map(|(name, _)| *name).collect();
+    let (w, ordinals) = env.commit(w, written.into_iter().map(|(_, record)| record).collect()).await;
+    // What the log holds that a page lists, in its order: every row and every boundary but the silent one.
+    let logged: Vec<(u64, String)> =
+        ordinals.iter().zip(&names).filter(|(_, name)| !name.is_empty()).map(|(ordinal, name)| (*ordinal, (*name).to_owned())).collect();
+    assert_eq!(logged.first().map(|o| o.1.as_str()), Some("divider:k0"));
+    assert_eq!(logged.last().map(|o| o.1.as_str()), Some("divider:k4"));
+    let levels = lineage(&[("s1", None)]);
+    for size in 1..=logged.len() + 1 {
+        assert_eq!(walked_back(&env, &levels, size).await, logged, "read back in pages of {size}");
+        assert_eq!(walked_on(&env, &levels, size).await, logged, "read on in pages of {size}");
+    }
+    // The rows alone are the rows a page without boundaries lists.
+    let (rows, _) = env.store.history_page(levels.clone(), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
+    // Each occurrence is found by its name, and is the first of a page read back from it and of one read on from it.
+    for (at, (ordinal, name)) in logged.iter().enumerate() {
+        let cid = name.strip_prefix("divider:").map(str::to_owned);
+        let anchor = env.store.unit_anchor(levels.clone(), None, vec![name.clone()], cid).await.unwrap().unwrap_or_else(|| panic!("{name} is an occurrence"));
+        assert_eq!((anchor.cursor.level, anchor.cursor.before, anchor.named), (0, ordinal + 1, 1), "{name}");
+        let (back, _) = env.store.unit_page(levels.clone(), None, Some(anchor.cursor), logged.len()).await.unwrap();
+        let mut older = logged[..=at].to_vec();
+        older.reverse();
+        assert_eq!(occurrences(&back), older, "back from {name}");
+        let from = AfterCursor { history_rev: anchor.cursor.history_rev, level: anchor.cursor.level, from: anchor.cursor.before - 1 };
+        let (on, _) = env.store.unit_page_after(levels.clone(), None, Some(from), logged.len()).await.unwrap();
+        assert_eq!(occurrences(&on), logged[at..], "on from {name}");
+    }
+    assert_eq!(
+        env.store.unit_anchor(levels.clone(), None, vec!["divider:k3".into()], Some("k3".into())).await.unwrap(),
+        None,
+        "a silent compaction has no boundary"
+    );
+    assert_eq!(env.store.unit_anchor(levels.clone(), None, vec!["divider:nope".into()], Some("nope".into())).await.unwrap(), None);
+    // A rewind before a compaction takes its boundary with its rows.
+    let to = logged.iter().find(|(_, name)| name == "divider:k1").map(|(ordinal, _)| *ordinal).unwrap();
+    let (_w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":to,"reason":"edit"}))]).await;
+    let kept: Vec<(u64, String)> = logged.iter().filter(|(ordinal, _)| *ordinal < to).cloned().collect();
+    assert_eq!(walked_back(&env, &levels, 2).await, kept);
+    assert_eq!(walked_on(&env, &levels, 2).await, kept);
+}
+
+/// A fork lists the boundaries of the compactions it inherited where they stand among the inherited rows, then its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_forks_occurrences_are_its_bases_then_its_own() {
+    let env = Env::new();
+    let base = env.create("b0", None).await;
+    let (_base, at) = env.commit(base, vec![item("a"), boundary("k1", false), item("b"), boundary("late", false)]).await;
+    // The fork continues the base before `late`.
+    let fork = env.create("c0", Some(("b0", at[3]))).await;
+    let (_fork, own) = env.commit(fork, vec![boundary("k2", false), item("c")]).await;
+    let levels = lineage(&[("c0", None), ("b0", Some(at[3]))]);
+    let logged =
+        vec![(at[0], "a".to_owned()), (at[1], "divider:k1".to_owned()), (at[2], "b".to_owned()), (own[0], "divider:k2".to_owned()), (own[1], "c".to_owned())];
+    for size in 1..=logged.len() + 1 {
+        assert_eq!(walked_back(&env, &levels, size).await, logged, "read back in pages of {size}");
+        assert_eq!(walked_on(&env, &levels, size).await, logged, "read on in pages of {size}");
+    }
+    let inherited = env.store.unit_anchor(levels.clone(), None, vec!["divider:k1".into()], Some("k1".into())).await.unwrap().expect("the base's boundary");
+    assert_eq!((inherited.cursor.level, inherited.cursor.before), (1, at[1] + 1));
+    assert_eq!(env.store.unit_anchor(levels, None, vec!["divider:late".into()], Some("late".into())).await.unwrap(), None, "past the fork point");
+}
+
+/// A model message of `turn` (or of none) with `body`.
+fn message_of(iid: &str, turn: Option<&str>, body: serde_json::Value) -> Encoded {
+    let mut v = json!({"k":"item","iid":iid,"role":body["role"],"form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}});
+    if let Some(turn) = turn {
+        v["turn"] = json!(turn);
+    }
+    rec(v)
+}
+
+fn call_of(iid: &str, turn: Option<&str>, call: &str) -> Encoded {
+    message_of(iid, turn, json!({"role":"assistant","content":"","toolCalls":[{"id":call,"name":"read","arguments":{}}]}))
+}
+
+fn result_of(iid: &str, turn: Option<&str>, call: &str) -> Encoded {
+    message_of(iid, turn, json!({"role":"tool","content":iid,"toolCallId":call}))
+}
+
+async fn call_results(env: &Env, levels: &[LineageLevel], cut: Option<u64>, calls: &[(u64, &str)]) -> Vec<String> {
+    let (store, levels) = (env.store.clone(), levels.to_vec());
+    let calls: Vec<(u64, String)> = calls.iter().map(|(at, call)| (*at, (*call).to_owned())).collect();
+    let rows = tokens()
+        .interactive_io
+        .submit(&CancellationToken::new(), move |l| store.call_results_on_lane(l, &levels, cut, &calls).unwrap())
+        .unwrap()
+        .await
+        .unwrap();
+    iids(&rows)
+}
+
+/// A call's stored result is found from the record that shows the call, whatever lies between them: the rows of other
+/// turns, a call of the same turn answered later, a call of no turn. A call nothing answers has none, and neither has
+/// an ordinal that holds no row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_calls_result_is_read_from_its_turn_at_any_distance() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let mut batch = vec![call_of("c1", Some("t1"), "far"), call_of("c2", Some("t1"), "never"), call_of("c3", None, "loose"), result_of("r3", None, "loose")];
+    batch.extend((0..120).map(|n| reply(&format!("m{n}"), "t2")));
+    batch.push(result_of("r1", Some("t1"), "far"));
+    // A result of another turn that names the same call id answers nothing of this one.
+    batch.push(result_of("other", Some("t2"), "never"));
+    let (_w, at) = env.commit(w, batch).await;
+    let levels = lineage(&[("s1", None)]);
+    assert_eq!(call_results(&env, &levels, None, &[(at[0], "far"), (at[1], "never"), (at[2], "loose")]).await, ["r3", "r1"], "oldest first");
+    assert_eq!(call_results(&env, &levels, None, &[(at[1], "never")]).await, Vec::<String>::new());
+    assert_eq!(call_results(&env, &levels, None, &[(at[0] + 10_000, "far")]).await, Vec::<String>::new(), "no row there");
+    // A result stored before the record that shows the call is not that call's.
+    assert_eq!(call_results(&env, &levels, None, &[(*at.last().unwrap(), "far")]).await, Vec::<String>::new());
+}
+
+/// A fork reads the result of a call it inherited from its base when the base stored it before the fork point, from its
+/// own log when the fork stored it, and never from what the base wrote past the fork point.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_reads_a_calls_result_through_its_lineage() {
+    let env = Env::new();
+    let base = env.create("b0", None).await;
+    let (_base, at) = env
+        .commit(
+            base,
+            vec![
+                call_of("c1", Some("t1"), "kept"),
+                call_of("c2", Some("t1"), "split"),
+                call_of("c3", Some("t1"), "lost"),
+                result_of("r1", Some("t1"), "kept"),
+                // Past the fork point: the base's own continuation.
+                result_of("base-split", Some("t1"), "split"),
+                result_of("base-lost", Some("t1"), "lost"),
+            ],
+        )
+        .await;
+    let fork = env.create("c0", Some(("b0", at[4]))).await;
+    let (_fork, _) = env.commit(fork, vec![reply("x", "t9"), result_of("fork-split", Some("t1"), "split")]).await;
+    let asked = [(at[0], "kept"), (at[1], "split"), (at[2], "lost")];
+    let levels = lineage(&[("c0", None), ("b0", Some(at[4]))]);
+    assert_eq!(call_results(&env, &levels, None, &asked).await, ["r1", "fork-split"], "the base's rows, then the fork's");
+    assert_eq!(call_results(&env, &lineage(&[("b0", None)]), None, &asked).await, ["r1", "base-split", "base-lost"], "the base's own lineage");
+    // A fork rewound into its base, below the base's result, holds none of it.
+    assert_eq!(call_results(&env, &levels, Some(at[3]), &[(at[0], "kept")]).await, Vec::<String>::new());
+}
+
+/// A call of no turn that nothing answers costs its run of turn-less rows, which the first row of a turn ends: the
+/// same however long the thread runs on after it, and a result past that row is not the call's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unanswered_turnless_call_costs_its_own_run() {
+    let env = Env::new();
+    let mut steps = Vec::new();
+    for (id, later) in [("short", 10), ("long", 600)] {
+        let w = env.create(id, None).await;
+        let mut batch = vec![call_of("c", None, "open"), message_of("n1", None, json!({"role":"user","content":"n1"}))];
+        batch.extend((0..later).map(|n| reply(&format!("m{n}"), "t1")));
+        // Turn-less rows after the run ended: another run.
+        batch.extend((0..later).map(|n| message_of(&format!("l{n}"), None, json!({"role":"user","content":"l"}))));
+        batch.push(result_of("late", None, "open"));
+        let (_w, at) = env.commit(w, batch).await;
+        let levels = lineage(&[(id, None)]);
+        crate::read_count::take_steps(id);
+        assert_eq!(call_results(&env, &levels, None, &[(at[0], "open")]).await, Vec::<String>::new());
+        steps.push(crate::read_count::take_steps(id));
+    }
+    assert_eq!(steps[0], steps[1], "the walk ends with the run");
+    let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    for sql in [crate::sqlite::TURNLESS_RUN_END_SQL, crate::sqlite::CALL_RESULTS_SQL] {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let args: Vec<rusqlite::types::Value> = (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
+        let plan: Vec<String> = stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(plan.iter().all(|s| !s.starts_with("SCAN") && !s.contains("TEMP B-TREE")), "{plan:?}");
+    }
+}
+
+/// A row holds where its turn stores its end: a turn whose `started` record names a display end marks its rows, the
+/// input row written before that record too, and a turn without the mark, earlier or later in the same log, marks none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_holds_the_end_form_of_its_turn() {
+    use crate::schema::record::TurnEndForm;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let started = |rid: &str, display: bool| {
+        let mut v = json!({"k":"run","rid":rid,"phase":"started","at":1});
+        if display {
+            v["end"] = json!("display");
+        }
+        rec(v)
+    };
+    let end = rec(json!({"k":"item","iid":"e2","turn":"t2","form":"display","model":false,"visible":true,"refs":[],
+        "body":{"inline":{"kind":"turndone","id":"e2","status":"done","elapsedMs":5}}}));
+    let batch = vec![
+        started("t1", false),
+        reply("r1", "t1"),
+        prompt_of("u2", "t2", "sub2"),
+        started("t2", true),
+        reply("r2", "t2"),
+        end,
+        started("t3", false),
+        reply("r3", "t3"),
+    ];
+    let (_w, _) = env.commit(w, batch).await;
+    let forms = |rows: Vec<HistoryRow>| rows.into_iter().map(|row| (row.iid, row.end)).collect::<Vec<_>>();
+    let want = [
+        ("r3".to_owned(), None),
+        ("e2".to_owned(), Some(TurnEndForm::Display)),
+        ("r2".to_owned(), Some(TurnEndForm::Display)),
+        ("u2".to_owned(), Some(TurnEndForm::Display)),
+        ("r1".to_owned(), None),
+    ];
+    let (rows, _) = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(forms(rows), want);
+    // An index rebuilt from the log holds the same.
+    env.store.close();
+    let fresh = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &fresh.path().join("sessions"));
+    let rebuilt = open_index(fresh.path()).unwrap();
+    rebuilt.reconciled().await.unwrap();
+    let (rows, _) = rebuilt.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(forms(rows), want);
+    rebuilt.close();
+}
+
+/// An index of version 20 is brought to this version in place: its rows stay, and its compactions are listed as
+/// boundaries.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_index_of_version_20_gains_the_boundary_columns_in_place() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    drop(env.commit(w, vec![item("a"), boundary("k1", false), item("b")]).await);
+    env.store.close();
+    {
+        let old = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+        old.execute_batch(
+            "DROP INDEX compactions_cid;
+             ALTER TABLE history DROP COLUMN end_form;
+             ALTER TABLE turns DROP COLUMN end_form;
+             PRAGMA user_version = 20;",
+        )
+        .unwrap();
+    }
+    let reopened = open_index(&env.data).unwrap();
+    assert!(reopened.boot_steps().iter().any(|(step, _)| *step == "upgraded-in-place"), "{:?}", reopened.boot_steps().iter().map(|s| s.0).collect::<Vec<_>>());
+    assert!(!reopened.rebuilding(), "the index is brought up in place, not rebuilt");
+    let version: i64 = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap().pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    assert_eq!(version, i64::from(crate::schema::sql::INDEX_USER_VERSION));
+    let (units, _) = reopened.unit_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(occurrences(&units).into_iter().map(|o| o.1).collect::<Vec<_>>(), ["b", "divider:k1", "a"]);
+    assert!(reopened.unit_anchor(lineage(&[("s1", None)]), None, vec!["divider:k1".into()], Some("k1".into())).await.unwrap().is_some());
+    reopened.close();
 }

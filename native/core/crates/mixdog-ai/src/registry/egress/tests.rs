@@ -304,7 +304,7 @@ async fn an_unreadable_image_is_refused_naming_it_before_the_adapter_sees_anythi
 async fn every_blocker_of_the_request_is_reported_together_with_its_place() {
     let (recording, provider, _) = registered().await;
     let mut request = user_with(vec![inline(&picture(Format::Png), "image/png"), inline(HEIC, "image/heic")]);
-    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
     assistant.tool_calls.push(ToolCall { id: "c1".into(), name: "Read".into(), arguments: Value::Null, native_type: None });
     let mut tool = Message::new(
         Role::Tool,

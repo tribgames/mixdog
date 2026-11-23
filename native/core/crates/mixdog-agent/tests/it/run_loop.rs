@@ -3755,7 +3755,7 @@ async fn a_failed_tool_snapshot_fails_the_request() {
 
 fn system_message(text: &str) -> AgentMessage {
     use mixdog_core_api::domain::provider::{Content, Message, Role};
-    AgentMessage::new(Message::new(Role::System, Content::Text(text.to_owned())))
+    AgentMessage::new(Message::new(Role::System, Content::Text(text.to_owned().into())))
 }
 
 /// Migrates at the first boundary, before the loop has a settled request of its own.
@@ -4371,10 +4371,10 @@ impl ProviderAdapter for Reissuing {
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.inner.attempt(request).await
     }
-    fn recovers_cut(&self, _model: &str, failure: &ProviderError) -> bool {
+    fn recovers_cut(&self, _request: &ModelRequest, failure: &ProviderError) -> bool {
         self.cut && failure.exposure.text_emitted
     }
-    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+    fn recovers_spent(&self, _request: &ModelRequest, _failure: &ProviderError) -> bool {
         self.spent
     }
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

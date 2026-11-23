@@ -109,7 +109,7 @@ fn usage() -> crate::session::UsageReport {
         delta_tool_calls: 2,
         request_ms: 0,
         delta_prompt: 10,
-        send_tools: Vec::new(),
+        send_tools: Default::default(),
         reasoning_tokens: None,
         reasoning_tokens_complete: false,
         outgoing: Vec::new().into(),

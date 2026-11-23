@@ -17,6 +17,7 @@ use mixdog_js::utf16_len;
 use mixdog_store::routine_result::is_routine_result_message;
 use mixdog_store::routine_result::routine_result_notice_text;
 use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::TurnEndForm;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -253,6 +254,7 @@ pub fn metadata(message: &Value) -> Metadata {
             entry.insert("elapsedMs".into(), num_value(elapsed.max(0.0)));
             put_text(&mut entry, "verb", done);
             put_text(&mut entry, "checkpointId", done);
+            put_text(&mut entry, "cause", done);
             entry.extend(failure_fields(done));
             let attempt = non_empty(done, "attemptId").or_else(|| non_empty(value, "attemptId"));
             if let Some(attempt) = attempt {
@@ -487,8 +489,9 @@ fn result_fact(message: &Value) -> Option<ResultFact> {
     })
 }
 
-/// `restoredAssistantTranscriptItems` and the message's tool calls.
-fn assistant_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
+/// `restoredAssistantTranscriptItems` and the message's tool calls. `own_end`: the message shows the end recorded on it;
+/// not so in a turn that stores its end as a display item, where it shows none and takes no id for one.
+fn assistant_rows(message: &Value, own_end: bool, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let Metadata { fields, completion } = metadata(message);
     let runs = imported_tool_runs(message);
     if let Some(runs) = runs {
@@ -550,9 +553,9 @@ fn assistant_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
         out.push(Restored::Row { row, source: None });
         last = Some(id);
     }
-    if let Some(id) = last {
-        // A failed end follows the message's tool calls (`restoredFailedTurnItems`).
-        if let Some(done) = completion.filter(|c| c.get("status").and_then(Value::as_str) != Some("failed")) {
+    if let Some(id) = last.filter(|_| own_end) {
+        // A failed or cancelled end follows the message's tool calls (`restoredFailedTurnItems`).
+        if let Some(done) = completion.filter(|c| !ends_after_calls(c)) {
             let end = turn_done(&done, &meta, ids.next(), Some(&id));
             out.push(Restored::Row { row: end, source: None });
         }
@@ -626,9 +629,14 @@ fn failed_turn_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>)
             }
         }
     }
-    if let Some(done) = completion.filter(|c| c.get("status").and_then(Value::as_str) == Some("failed")) {
+    if let Some(done) = completion.filter(ends_after_calls) {
         out.push(Restored::Row { row: turn_done(&done, &meta, ids.next(), None), source: None });
     }
+}
+
+/// A failed or cancelled completion: an end recorded on whatever row the turn ended on, shown after all of that row's rows.
+fn ends_after_calls(completion: &Row) -> bool {
+    matches!(completion.get("status").and_then(Value::as_str), Some("failed" | "cancelled"))
 }
 
 fn status_done(id: String, status: &str, label: &str) -> Row {
@@ -780,8 +788,9 @@ fn last_image_metadata_line(text: &str) -> String {
     if is_line { last.to_owned() } else { String::new() }
 }
 
-/// A user-role message: `restoredUserTranscriptItems`.
-fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
+/// A user-role message: `restoredUserTranscriptItems`. `own_end` as [`assistant_rows`] takes it: the line that marks
+/// a cut turn (`meta.turnEnd`) is its end only in a turn whose end is recorded on a message.
+fn user_rows(record: &ItemRecord, message: &Value, own_end: bool, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let meta = message.get("meta");
     if matches!(meta, Some(Value::String(kind)) if kind == "skill" || kind == "hook") {
         return;
@@ -799,8 +808,10 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         return;
     }
     if let Some(end) = meta.and_then(|m| m.get("turnEnd")).filter(|end| end.is_object()) {
-        let row = interrupted_end_row(end, message, &fields, ids);
-        out.push(Restored::Row { row, source: None });
+        if own_end {
+            let row = interrupted_end_row(end, message, &fields, ids);
+            out.push(Restored::Row { row, source: None });
+        }
         return;
     }
     let Some(text) = record.prompt_text() else {
@@ -1002,6 +1013,14 @@ fn held_request_text(message: &Value) -> String {
 
 /// The rows of one stored message record, in order. `None` for a record that shows nothing.
 pub fn restore(record: &ItemRecord, message: &Value) -> Vec<Restored> {
+    restore_as(record, message, None)
+}
+
+/// [`restore`] of a record whose turn stores its end as `end` (its `started` record's mark, never the reader's
+/// build). Without one the end is the message's own, recorded on it and shown here. With a display end the turn's
+/// end is a record of its own: this message shows no end, whatever completion it carries.
+pub fn restore_as(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>) -> Vec<Restored> {
+    let own_end = end.is_none();
     let iid = record.iid.as_str();
     let mut ids = Ids::new(iid);
     let mut out = Vec::new();
@@ -1010,13 +1029,15 @@ pub fn restore(record: &ItemRecord, message: &Value) -> Vec<Restored> {
         return out;
     }
     match text_field(message, "role") {
-        "user" => user_rows(record, message, &mut ids, &mut out),
-        "assistant" if !is_context_ack(message) => assistant_rows(message, &mut ids, &mut out),
+        "user" => user_rows(record, message, own_end, &mut ids, &mut out),
+        "assistant" if !is_context_ack(message) => assistant_rows(message, own_end, &mut ids, &mut out),
         "tool" => out.extend(result_fact(message).map(Restored::Result)),
         _ => {}
     }
     let event_start = out.len();
-    failed_turn_rows(message, &mut ids, &mut out);
+    if own_end {
+        failed_turn_rows(message, &mut ids, &mut out);
+    }
     boundary_rows(message, &mut ids, &mut out);
     let has_previous = message.pointer("/meta/transcript/previousCompletions").and_then(Value::as_array).is_some_and(|list| !list.is_empty());
     if has_previous {
@@ -1070,7 +1091,7 @@ mod tests {
     /// An assistant record's rows as `(kind, id, text or tool name)`.
     fn shown(message: &Value) -> Vec<(String, String, String)> {
         let mut out = Vec::new();
-        assistant_rows(message, &mut Ids::new("itm_a"), &mut out);
+        assistant_rows(message, true, &mut Ids::new("itm_a"), &mut out);
         out.iter()
             .filter_map(|restored| match restored {
                 Restored::Row { row, .. } => Some((
@@ -1226,7 +1247,7 @@ mod tests {
     /// The record's rows as `(kind, id, text or tool name)`, for a record id of the live form (`itm_` and 32 hex digits).
     fn shown_live(message: &Value) -> Vec<(String, String, String)> {
         let mut out = Vec::new();
-        assistant_rows(message, &mut Ids::new(LIVE), &mut out);
+        assistant_rows(message, true, &mut Ids::new(LIVE), &mut out);
         out.iter()
             .filter_map(|restored| match restored {
                 Restored::Row { row, .. } => Some((

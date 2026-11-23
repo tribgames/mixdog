@@ -81,6 +81,9 @@ pub use usage_metrics::bump_epoch;
 pub use usage_metrics::bump_turn_id;
 pub use usage_metrics::fold_usage_readout;
 pub use usage_metrics::iteration_metrics;
+pub use usage_metrics::ContextSize;
+pub use usage_metrics::context_size;
+pub use usage_metrics::counts_a_turn;
 pub use usage_metrics::measured_context_tokens;
 pub use usage_metrics::terminal_usage;
 pub use usage_metrics::uncached_input_tokens;
@@ -410,7 +413,10 @@ fn provider_pressure_tokens(usage: &Value, input_excludes_cache: bool) -> f64 {
     let cache_write = non_negative("cacheWriteTokens");
     let explicit_prompt = if context_input != 0.0 { context_input } else { non_negative("promptTokens") };
     let normalized_prompt = if input_excludes_cache { input + cached_read + cache_write } else { input };
-    let prompt = explicit_prompt.max(normalized_prompt);
+    // A record whose counts are no one prompt's (`context_size` decided it, and the record says so) anchors nothing by
+    // them: the measured occupancy is its reading.
+    let prompt_known = field("contextPromptKnown") != Some(&Value::Bool(false));
+    let prompt = if prompt_known { explicit_prompt.max(normalized_prompt) } else { 0.0 };
     let output = non_negative("outputTokens");
     if prompt <= 0.0 {
         // A provider that reports checkpoint occupancy (prompt and response together).
