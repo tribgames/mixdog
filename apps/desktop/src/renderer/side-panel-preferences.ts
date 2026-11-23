@@ -95,34 +95,34 @@ export function subscribeSidePanelPosition(listener: () => void): () => void {
   return () => window.removeEventListener(POSITION_CHANGE_EVENT, onChange);
 }
 
-/** How a session's info shows on desktop: chosen automatically, in the
- *  island, or not at all. */
-export type SessionInfoDisplay = 'auto' | 'island' | 'none';
-
+/** Whether a session's info shows in the session panel on desktop (the pane
+ *  header's toggle); not shown, the composer island carries it. Opened or
+ *  closed by hand only: an open panel shows at every pane width, in the
+ *  presentation that width gives. Stored as 'auto' (shown) or 'island' (not
+ *  shown), the values earlier builds wrote; their 'none' reads as not shown. */
 const SESSION_INFO_DISPLAY_KEY = 'mixdog.desktop.session-info-display.v1';
 const SESSION_INFO_DISPLAY_CHANGE_EVENT = 'mixdog:session-info-display-changed';
-const DEFAULT_SESSION_INFO_DISPLAY: SessionInfoDisplay = 'auto';
-let fallbackSessionInfoDisplay: SessionInfoDisplay = DEFAULT_SESSION_INFO_DISPLAY;
+let fallbackSessionPanelShown = true;
 
-/** Unknown or missing stored values fall back to Automatic. */
-export function normalizeSessionInfoDisplay(value: unknown): SessionInfoDisplay {
-  return value === 'auto' || value === 'island' || value === 'none' ? value : DEFAULT_SESSION_INFO_DISPLAY;
+/** A missing or unknown stored value shows the panel. */
+function storedSessionPanelShown(value: string | null): boolean {
+  return value !== 'island' && value !== 'none';
 }
 
-export function getSessionInfoDisplay(): SessionInfoDisplay {
+export function getSessionPanelShown(): boolean {
   try {
-    fallbackSessionInfoDisplay = normalizeSessionInfoDisplay(window.localStorage.getItem(SESSION_INFO_DISPLAY_KEY));
+    fallbackSessionPanelShown = storedSessionPanelShown(window.localStorage.getItem(SESSION_INFO_DISPLAY_KEY));
   } catch {
     // Desktop-local layout preferences degrade to the in-memory value.
   }
-  return fallbackSessionInfoDisplay;
+  return fallbackSessionPanelShown;
 }
 
-export function setSessionInfoDisplay(display: SessionInfoDisplay): boolean {
-  fallbackSessionInfoDisplay = normalizeSessionInfoDisplay(display);
+export function setSessionPanelShown(shown: boolean): boolean {
+  fallbackSessionPanelShown = shown;
   let persisted = false;
   try {
-    window.localStorage.setItem(SESSION_INFO_DISPLAY_KEY, fallbackSessionInfoDisplay);
+    window.localStorage.setItem(SESSION_INFO_DISPLAY_KEY, shown ? 'auto' : 'island');
     persisted = true;
   } catch {
     // The current renderer still applies the in-memory preference.
@@ -135,7 +135,7 @@ export function setSessionInfoDisplay(display: SessionInfoDisplay): boolean {
   return persisted;
 }
 
-export function subscribeSessionInfoDisplay(listener: () => void): () => void {
+export function subscribeSessionPanelShown(listener: () => void): () => void {
   const onChange = () => listener();
   // Another window of the app changed the choice.
   const onStorage = (event: StorageEvent) => {

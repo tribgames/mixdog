@@ -54,6 +54,17 @@ function waitUnit(value: number, unit: 'minute' | 'second'): string {
 // The wait tail of an engine retry status line (`… in 210s`, `… in 3m`).
 const RETRY_WAIT_TAIL = /\s+in (\d+)(ms|s|m)$/;
 
+// The engine's reason phrases (`reason_text` in the core's retry stage); anything else is a lost connection.
+const RETRY_REASONS: [RegExp, string][] = [
+  [/^Rate limited by the provider\b/, 'Waiting on the provider’s request limit…'],
+  [/^Provider overloaded\b/, 'Provider overloaded…'],
+  [/^Provider server error\b/, 'Provider server error…'],
+  [/^Provider rejected the sign-in\b/, 'Provider rejected the sign-in…'],
+  [/^Safety filter refused the reply\b/, 'Safety filter refused the reply…'],
+  [/^(Model still thinking|No first response)\b/, 'No response from the provider yet…'],
+  [/^No progress\b/, 'Provider stopped sending data…'],
+];
+
 function waitLabel(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
@@ -111,12 +122,19 @@ export function reconnectActivityVerb(
     return text.replace(RETRY_WAIT_TAIL, seconds > 0 ? ` in ${seconds}s` : '');
   }
   const attempt = /(\d+)\s*\/\s*(\d+)/.exec(text);
-  const base = t('Reconnecting…');
-  if (!attempt) return base;
-  const counter = `${attempt[1]}/${attempt[2]}`;
-  return seconds
-    ? t('Reconnecting… {{attempt}} · retry in {{time}}', { attempt: counter, time: waitLabel(seconds) })
-    : `${base} ${counter}`;
+  const reason = RETRY_REASONS.find(([pattern]) => pattern.test(text))?.[1];
+  const base = reason ? t(reason) : t('Reconnecting…');
+  const counter = attempt ? `${attempt[1]}/${attempt[2]}` : /\bretry (\d+)\b/.exec(text)?.[1];
+  if (!counter) return base;
+  if (!seconds) return `${base} ${counter}`;
+  const time = waitLabel(seconds);
+  if (!reason || reason === RETRY_REASONS[0][1]) {
+    const key = reason
+      ? 'Waiting on the provider’s request limit… {{attempt}} · retry in {{time}}'
+      : 'Reconnecting… {{attempt}} · retry in {{time}}';
+    return t(key, { attempt: counter, time });
+  }
+  return `${base} ${counter} · ${t('retry in {{time}}', { time })}`;
 }
 
 export function activityVerb({

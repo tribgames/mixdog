@@ -723,6 +723,12 @@
 .pane-side-dock:has(> .pane-side-dock-header[data-surface-expanded="true"]) {
   z-index: 4;
 }
+/* The session panel (session-rail.css, 3) shows beside a dock only below the
+   conversation (a dock open at the side covers it): the dock's height edge,
+   reaching up over the panel, stays above it. */
+.pane-cell:has(> .session-rail) > .pane-side-dock:not([data-expanded="true"]) {
+  z-index: 4;
+}
 /* Mica clears --mx-window-band inside the main panel; the widened header must
    stay opaque over the pane strip, so it takes the dock's own solid plate. */
 html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-header[data-surface-expanded="true"] {
@@ -864,8 +870,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
   display: flex;
   flex-direction: column;
 }
+.pane-side-file-tab > .side-file-persistent-surface {
+  flex-direction: column;
+}
 .pane-side-file-editor > .editor-pane,
-.pane-side-file-tab > .editor-pane {
+.side-file-persistent-surface > .editor-pane {
   flex: 1 1 0;
   height: auto;
   min-height: 0;

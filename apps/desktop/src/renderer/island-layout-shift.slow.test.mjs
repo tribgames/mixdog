@@ -87,6 +87,33 @@ const PAGE = `
     }
     return out;
   };
+  // Folds or unfolds the kind line at \`index\` and reads, every frame of the
+  // glide that follows, the island's box, its head's and foot's, and the rows
+  // of the kinds after it.
+  window.__foldFrames = async (index) => {
+    await window.__calm();
+    const island = document.querySelector('.composer-island');
+    const fold = island.querySelectorAll('.composer-island-agent-fold')[index];
+    const group = fold.closest('.composer-island-agent-group');
+    const later = () => {
+      const children = [...group.parentElement.children];
+      const next = children.findIndex((child, at) => at > children.indexOf(group) && child.matches('.composer-island-agent-group'));
+      return next < 0 ? [] : children.slice(next).flatMap((child) => [...child.querySelectorAll('.agent-pool-row')]);
+    };
+    const read = () => ({
+      island: rect(island),
+      head: rect(island.querySelector('.composer-island-phead')),
+      foot: rect(island.querySelector('.composer-island-panel-foot')),
+      rows: Object.fromEntries(later().map((row) => [row.dataset.agentTag, rect(row)])),
+    });
+    const frames = [read()];
+    fold.click();
+    for (let i = 0; i < 24; i += 1) {
+      await frame();
+      frames.push(read());
+    }
+    return { frames, glided: frames.some((at, i) => i > 0 && Math.abs(at.island[3] - frames[0].island[3]) > 0.5) };
+  };
   // Applies a change, lets its observers run, and reads it painted at the
   // glides' start and at their end.
   window.__change = async (apply) => {
@@ -101,6 +128,75 @@ const PAGE = `
     for (const glide of glides) glide.finish();
     await window.__calm();
     return { before, start, end: window.__painted(), glides: glides.length };
+  };
+`;
+
+// The real tabs of each panel family: a panel of the island's own (shells),
+// one a segment carries inside the pill (git), and the Goal drawer.
+const PANELS_PAGE = `
+  import React from 'react';
+  import { flushSync } from 'react-dom';
+  import { createRoot } from 'react-dom/client';
+  import { ComposerDock } from './ComposerDock.tsx';
+  import { SessionGoalIsland } from './SessionGoalIsland.tsx';
+  import { defaultSessionLaneStore } from './session-lane-store.ts';
+  const id = 'panels';
+  const cwd = '/repo/wt';
+  const status = { repository: true, root: cwd, branch: 'feature/panels', detached: false, unborn: false, upstream: true,
+    upstreamName: 'o/m', remote: true, ahead: 0, behind: 0, operation: '',
+    files: ['a.ts', 'b.ts', 'c.ts'].map((path) => ({ path, status: 'M', additions: 11, deletions: 2 })) };
+  const workspace = { projectPath: '/repo', repoCommonDir: '/repo/.git', cwd, worktreeId: null, branch: 'feature/panels',
+    baseCommit: 'abc', mergeTarget: null, revision: 1, transition: { state: 'idle', txId: null } };
+  window.mixdogDesktop = new Proxy({
+    sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: [] }] }), subscribe: () => () => {} },
+    gitStatus: async () => status,
+    gitReview: async () => ({ repository: true, root: cwd, base: 'HEAD', files: status.files.map((f) => ({ ...f, untracked: false })) }),
+    invokeCapability: async (request) => request.capability === 'getBranchMenu'
+      ? { value: { workspace, branches: [], occupancy: [], retainedWorktree: null } }
+      : { value: { supported: true, authoritative: true, files: [], patch: '', historyTurns: 1 } },
+  }, { get: (target, name) => (name in target ? target[name] : String(name).startsWith('subscribe') ? () => () => {} : async () => []) });
+  const todo = { phases: [{ name: 'Plan', tasks: ['Read the files', 'Edit three files', 'Check the agents', 'Review the diff', 'Write the summary']
+    .map((content, index) => ({ content, status: index === 0 ? 'completed' : index === 1 ? 'in_progress' : 'pending' })) }],
+    completed: 1, abandoned: 0, total: 5 };
+  const goal = { id: 'g', title: 'Polish the notes', objective: 'Polish the demo notes, keep a long watch running and report what changed once both helper agents have finished.',
+    status: 'active', timeUsedMs: 76 * 60_000, startedAt: Date.now() - 76 * 60_000 };
+  defaultSessionLaneStore.apply({ sessionId: id, snapshot: { sessionId: id, goal, todo,
+    shellJobs: { count: 2, jobs: ['npm test', 'npm run watch'].map((command, index) => ({ taskId: 'j' + index, command, startedAt: Date.now() })) } } });
+  flushSync(() => createRoot(document.getElementById('dock')).render(
+    React.createElement(ComposerDock, {
+      sessionId: id, reviewSessionId: id, goalSubmissionId: '', showProjectSelector: false,
+      goalIsland: React.createElement(SessionGoalIsland, { snapshot: { sessionId: id, goal, todo } }),
+      reviewItems: [{ kind: 'turndone', id: 'done' }], reviewActive: true, reviewBusy: false,
+      reviewCwd: cwd, workspace, onOpenSessionDiff: () => {},
+      children: React.createElement('form', { className: 'composer', style: { height: '96px' } }),
+    })));
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const box = (node) => { const b = node.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; };
+  const shown = (selector) => [...document.querySelectorAll(selector)].find((node) => node.getClientRects().length > 0);
+  // The dock's floor (the input's height), then the tab opened from its
+  // segment, read each frame from its first laid out one, and closed again.
+  window.__openTab = async (trigger, floor) => {
+    document.querySelector('form.composer').style.height = floor + 'px';
+    for (let i = 0; i < 10; i += 1) await frame();
+    const island = document.querySelector('.composer-island');
+    const pill = box(island);
+    document.querySelector(trigger).click();
+    const frames = [];
+    // Past the opening's rise and a glide (240 and 200ms).
+    for (let i = 0; i < 24; i += 1) {
+      await frame();
+      // Something in the open tab updates in place, as a clock does.
+      if (i === 1) shown('.composer-island :is(.composer-island-pbody, .session-goal-content)').append('');
+      const at = box(island);
+      // The panel's first part (its head) and its last (the foot, or the list).
+      const panel = shown('.composer-island :is(.composer-island-panel, .session-goal-panel)');
+      const head = box(panel.firstElementChild);
+      const end = box(panel.lastElementChild);
+      frames.push({ island: at, overflow: island.scrollHeight - island.clientHeight, head: head.top - at.top, end: at.bottom - end.bottom });
+    }
+    shown('.composer-island-close').click();
+    for (let i = 0; i < 20; i += 1) await frame();
+    return { pill, frames, back: box(island), room: parseFloat(island.closest('.composer-island-slot').style.getPropertyValue('--island-panel-room')) };
   };
 `;
 
@@ -137,8 +233,9 @@ function sharedBrowser() {
         plugins,
         loader: { ...loader, '.jpg': 'dataurl' },
       });
-    const [script, styles] = await Promise.all([
+    const [script, panels, styles] = await Promise.all([
       bundle(PAGE, 'tsx'),
+      bundle(PANELS_PAGE, 'tsx'),
       bundle('@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";', 'css'),
     ]);
     const browser = await puppeteer.launch({
@@ -148,6 +245,7 @@ function sharedBrowser() {
     return {
       browser,
       js: script.outputFiles.find((file) => file.path.endsWith('.out')).text,
+      panelsJs: panels.outputFiles.find((file) => file.path.endsWith('.out')).text,
       css: styles.outputFiles.find((file) => file.path.endsWith('.out')).text,
     };
   })();
@@ -162,8 +260,9 @@ const SURFACES = [
   { name: 'phone 360', viewport: { width: 360, height: 740, isMobile: true, hasTouch: true }, phone: true },
 ];
 
-async function islandPage(t, surface) {
-  const { browser, js, css } = await sharedBrowser();
+async function islandPage(t, surface, script = 'js') {
+  const { browser, css, ...scripts } = await sharedBrowser();
+  const js = scripts[script];
   const page = await browser.newPage();
   t.after(() => page.close());
   const errors = [];
@@ -241,6 +340,34 @@ for (const surface of SURFACES) {
     }
   });
 
+  test(`agents panel (${surface.name}): folding or unfolding a kind moves only the body's room: the foot and head ride the island's edges, the foot and the later kinds' rows never move`, async (t) => {
+    const page = await islandPage(t, surface);
+    await page.evaluate(() =>
+      window.__pool([
+        window.__agent('r1', { agent: 'reviewer' }),
+        window.__agent('r2', { agent: 'reviewer' }),
+        window.__agent('w1'),
+        window.__agent('w2'),
+        window.__agent('w3'),
+      ])
+    );
+    await page.click('.composer-island-seg-agents');
+    for (const label of ['fold', 'unfold']) {
+      const { frames, glided } = await page.evaluate(() => window.__foldFrames(0));
+      assert.ok(glided, `${label}: the island's height changes`);
+      const [first] = frames;
+      assert.ok(Object.keys(first.rows).length === 3, `${label}: the later kind's rows are read`);
+      for (const [index, at] of frames.entries()) {
+        const where = `${label}, frame ${index}`;
+        const bottom = (box) => box[1] + box[3];
+        assert.ok(Math.abs(bottom(at.foot) - bottom(at.island)) <= 0.5, `${where}: the foot off the island's bottom`);
+        assert.ok(Math.abs(at.head[1] - at.island[1]) <= 0.5, `${where}: the head off the island's top`);
+        assert.deepEqual(moved({ foot: first.foot }, { foot: at.foot }), [], `${where}: the foot moved`);
+        assert.deepEqual(moved(first.rows, at.rows), [], `${where}: a later kind's row moved`);
+      }
+    }
+  });
+
   test(`agents panel (${surface.name}): a row's state, clock or list overflow moves no other row's columns`, async (t) => {
     const page = await islandPage(t, surface);
     await page.evaluate(() => window.__pool(['a', 'b', 'c'].map((tag) => window.__agent(tag))));
@@ -281,3 +408,93 @@ for (const surface of SURFACES) {
     }
   });
 }
+
+test("the island's one-line rows stand on the 32px pitch, agents' and shells' alike, and a shell's Stop or Dismiss is a 16px mark in the strong ink", async (t) => {
+  const agents = await islandPage(t, SURFACES[0]);
+  await agents.evaluate(() => window.__pool(['a', 'b'].map((tag) => window.__agent(tag))));
+  await agents.click('.composer-island-seg-agents');
+  await agents.waitForSelector('.composer-island-panel .agent-pool-row');
+  const agentRows = await agents.$$eval('.composer-island-panel .agent-pool-row', (rows) =>
+    rows.map((row) => row.getBoundingClientRect().height)
+  );
+  assert.ok(agentRows.length === 2);
+  for (const height of agentRows) assert.ok(Math.abs(height - 32) <= 0.5, `an agent row ${height}px`);
+  const shells = await islandPage(t, SURFACES[0], 'panelsJs');
+  await shells.waitForSelector('.composer-island-seg-shell');
+  await shells.click('.composer-island-seg-shell');
+  await shells.waitForSelector('.composer-island-panel .composer-island-row');
+  const read = await shells.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--mx-text)';
+    document.querySelector('.composer-island-panel').append(probe);
+    const strong = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      strong,
+      rows: [...document.querySelectorAll('.composer-island-panel .composer-island-row')].map(
+        (row) => row.getBoundingClientRect().height
+      ),
+      marks: [...document.querySelectorAll('.composer-island-panel .composer-island-row-actions > [data-icon]')].map(
+        (button) => {
+          const svg = button.querySelector('svg').getBoundingClientRect();
+          return { size: [svg.width, svg.height], color: getComputedStyle(button).color };
+        }
+      ),
+    };
+  });
+  assert.ok(read.rows.length === 2 && read.marks.length > 0, JSON.stringify(read));
+  for (const height of read.rows) assert.ok(Math.abs(height - 32) <= 0.5, `a shell row ${height}px`);
+  for (const mark of read.marks) {
+    assert.deepEqual(mark.size, [16, 16], "a shell mark's size");
+    assert.equal(mark.color, read.strong, "a shell mark's ink at rest");
+  }
+});
+
+test('each panel family opens at its final size and place, and closes back to the pill where it was', async (t) => {
+  const page = await islandPage(t, SURFACES[0], 'panelsJs');
+  for (const [family, trigger] of [
+    ['a panel of its own (shells)', '.composer-island-seg-shell'],
+    ['a panel carried in the pill (git)', '.composer-island-git-main'],
+    ['the Goal drawer', '.session-goal-trigger'],
+  ]) {
+    await t.test(family, async () => {
+      // A tall room first, then a floor so high the panel is held under its
+      // content: the room the panel opens into moved while the pill rested.
+      const free = await page.evaluate((selector) => window.__openTab(selector, 96), trigger);
+      const natural = free.frames[0].island.height;
+      const floor = 96 + free.room - natural + 40;
+      const held = await page.evaluate((selector, height) => window.__openTab(selector, height), trigger, floor);
+      assert.ok(
+        held.frames[0].island.height < natural - 20,
+        `held under its content: ${natural} -> ${held.frames[0].island.height}`
+      );
+      for (const [label, run] of [
+        ['free', free],
+        ['held', held],
+      ]) {
+        const [first] = run.frames;
+        for (const [index, at] of run.frames.entries()) {
+          const where = `${label}, frame ${index}`;
+          assert.ok(at.overflow <= 0, `${where}: the island scrolls itself by ${at.overflow}px`);
+          assert.ok(
+            Math.abs(at.island.width - first.island.width) <= 0.5,
+            `${where}: width ${first.island.width} -> ${at.island.width}`
+          );
+          assert.ok(
+            Math.abs(at.island.height - first.island.height) <= 0.5,
+            `${where}: height ${first.island.height} -> ${at.island.height}`
+          );
+          assert.ok(
+            Math.abs(at.head - first.head) <= 0.5 && Math.abs(at.end - first.end) <= 0.5,
+            `${where}: head or foot slid`
+          );
+        }
+        assert.deepEqual(
+          moved({ pill: Object.values(run.pill) }, { pill: Object.values(run.back) }),
+          [],
+          `${label}: the pill comes back where it was`
+        );
+      }
+    });
+  }
+});

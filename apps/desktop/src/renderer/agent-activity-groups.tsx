@@ -51,7 +51,7 @@ export function AgentRowElapsed({
   state: DesktopAgentActivityState;
   agent: DesktopAgentPoolRow;
   clock?: number;
-  /** How a working row's time reads; default the words ("1m 1s"). */
+  /** How the running clock reads; the Agents pane's full clock by default. */
   format?: (elapsed: number) => string;
 }): React.ReactElement {
   const elapsed = agentElapsedText(state, agent, useRowClock(state, clock), format);
@@ -110,16 +110,22 @@ export function AgentRowFrame({
   setSize,
   tabIndex,
   describedBy,
-  className = 'schedules-row workflows-agent-summary-row agent-pool-row',
+  title,
+  level,
+  working,
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
   children,
 }: AgentRowFrameProps & {
-  /** The element that reads the row's state. */
+  /** The elements that describe the row: its state, and what a one-line row keeps out of sight. */
   describedBy: string;
-  /** The row's box: an agents list's row unless the surface draws its own. */
-  className?: string;
+  /** The row's tooltip. */
+  title?: string;
+  /** Its tree level when its list nests by something other than the pool's depth (a kind's group). */
+  level?: number;
+  /** The agent is at work: the row is marked as the To-do step in progress (data-working). */
+  working?: boolean;
   children: React.ReactNode;
 }): React.ReactElement {
   const role = agentRoleLabel(agent.agent || agent.tag);
@@ -133,21 +139,23 @@ export function AgentRowFrame({
   return (
     <button
       type="button"
-      className={className}
+      className="schedules-row workflows-agent-summary-row agent-pool-row"
       data-agent-tag={agent.tag || undefined}
       data-agent-session-id={sessionId || undefined}
       data-agent-parent-session-id={parentSessionId || undefined}
       data-agent-depth={depth}
+      data-working={working || undefined}
       // Flat-tree ARIA: the DOM stays one row per control, so the hierarchy is
       // carried by level/position, and the tree owns arrow-key navigation.
       role="treeitem"
-      aria-level={depth + 1}
+      aria-level={level ?? depth + 1}
       aria-posinset={posInSet}
       aria-setsize={setSize}
       aria-expanded={hasChildren ? expanded !== false : undefined}
       tabIndex={tabIndex}
       aria-label={agentRowName(agent, lead)}
       aria-describedby={describedBy}
+      title={title || undefined}
       disabled={!sessionId}
       {...dragProps}
       onPointerEnter={prefetch}

@@ -27,6 +27,7 @@ import { serveFrameZoom, withFrameZoomBridge } from './visualize-frame-zoom';
 import { useMediaSessionEpoch } from './remote-file-preview';
 import { serveBlockedNetwork, withBlockedNetwork, withBlockedNetworkReporter } from './visualize-blocked-network';
 import { DockHeaderRow } from './pane-dock-chrome';
+import { markTabStripFades, scrollTabStripByWheel } from './tab-strip-fades';
 import { InlinePaneContent } from './VisualizeInline';
 import { useVisualizePanelExtras } from './VisualizePanelExtras';
 import { VisualizeSource } from './VisualizeSource';
@@ -715,13 +716,6 @@ export function visualizeKeptTabs(shown: string, recent: readonly string[]): str
   return ids.slice(0, VISUALIZE_KEPT_TABS);
 }
 
-/** The tab strip fades an edge only while tabs lie past it (visualize.css). */
-export function markVisualizeStripFades(strip: HTMLElement): void {
-  const rest = strip.scrollWidth - strip.clientWidth - strip.scrollLeft;
-  strip.toggleAttribute('data-fade-start', strip.scrollLeft > 1);
-  strip.toggleAttribute('data-fade-end', rest > 1);
-}
-
 /** A split-view cell's tooltip: its file name, behind "vN" for a kept version
  *  (and "Live" beside one when comparing), then the full target. */
 export function visualizePaneTitle(tab: Pick<VisualizeTab, 'compare' | 'panes'>, pane: VisualizePaneView): string {
@@ -973,14 +967,8 @@ function VisualizeTabStrip({
       className="visualize-tabs"
       role="tablist"
       aria-label={t('Visualize')}
-      onScroll={(event) => markVisualizeStripFades(event.currentTarget)}
-      onWheel={(event) => {
-        // The vertical wheel drives the horizontal run, as on the pane strip
-        // (a sideways wheel or trackpad already scrolls it natively).
-        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-          event.currentTarget.scrollBy?.({ left: event.deltaY, behavior: 'auto' });
-        }
-      }}
+      onScroll={(event) => markTabStripFades(event.currentTarget)}
+      onWheel={scrollTabStripByWheel}
     >
       {tabs.map((candidate) => {
         const selected = candidate.id === activeId;
@@ -1134,7 +1122,7 @@ function useVisualizeStripReveal(active: boolean, tabId: string, stripTabs: numb
           .querySelector<HTMLElement>('.browser-tab.is-active')
           ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
-      markVisualizeStripFades(element);
+      markTabStripFades(element);
     };
     reveal();
     const observer = new ResizeObserver(reveal);

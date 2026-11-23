@@ -1,4 +1,6 @@
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import {
+  Fragment,
   memo,
   useEffect,
   useMemo,
@@ -22,6 +24,7 @@ import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import {
   agentPoolStore,
+  agentRoleLabel,
   islandAgentRows,
   poolRowKey,
   startAgentPool,
@@ -33,10 +36,14 @@ import {
   EMPTY_SHELL_ROW_RETENTION,
   expiredShellRows,
   retainVanishedShellRows,
+  shellFinishedLabel,
   type JobKind,
   type JobRow,
   type ShellStopState,
 } from './background-jobs-model';
+import { agentStateWords } from './agent-row-meta';
+import { useSharedRouteText } from './agent-row-parts';
+import { modelDisplayName } from './provider-display';
 import {
   type IslandUsageSummary,
   islandUsageCue,
@@ -53,7 +60,7 @@ import {
   readoutVariants,
   tokensReadoutItem,
 } from './composer-usage-readout';
-import { floorFigure, floorNote, hitRateNote, statsCount } from './usage-stats-model';
+import { hitRateNote, plainFloorNote } from './usage-stats-model';
 import { useWholeRowList } from './whole-row-list';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
@@ -68,12 +75,13 @@ import { desktopHeaderSnapshotsEqual, paneHeaderView } from './desktop-snapshot-
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
 import { IslandColumnSizer, IslandPanelFoot, IslandPanelHead, TidyButton } from './IslandPanelFoot';
-import { formatWorkElapsed } from './transcript-primitives';
+import { formatWorkClock, formatWorkElapsed, timeMs } from './transcript-primitives';
 import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
 import { useClock } from './use-clock';
 import { useSurfaceActive } from './surface-activity';
+import { releasePointerFocus, useSessionRailFolds } from './session-rail-folds';
 
 /** A short notice the island shows in place of its pill, then returns.
  *  `icon`: the glyph before the text (default the check). */
@@ -146,7 +154,7 @@ function StateMark({ working }: { working: boolean }) {
 
 /** A jobs panel title's leading mark: agent activity, a live pulse while a
  *  shell runs, or an idle dot when only finished shells remain. */
-function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShells: number): ReactNode {
+export function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShells: number): ReactNode {
   if (kind === 'agent') {
     return (
       <AgentMark
@@ -156,6 +164,217 @@ function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShells: num
     );
   }
   return <StateMark working={runningShells > 0} />;
+}
+
+/** A panel title's or a category head's figures, written as its island segment writes them after its label ("Agents
+ *  2 ●"): how many it lists, then `mark` while any works or waits. */
+export function HeadFigures({ count, mark }: { count: number; mark: ReactNode }) {
+  return (
+    <>
+      <span className="composer-island-head-count">{count}</span>
+      {mark}
+    </>
+  );
+}
+
+/** The agents' state mark for a head: while any is not finished (works or waits), none otherwise. */
+export function agentsHeadMark(agents: IslandAgentRow[]): ReactNode {
+  return agents.some((row) => !row.finished) ? jobsTabMark('agent', agents, 0) : null;
+}
+
+export type AgentKindGroup = {
+  /** The kind, provider and model together: one fold each. */
+  key: string;
+  kind: string;
+  provider: string;
+  model: string;
+  rows: IslandAgentRow[];
+};
+
+/** The listed agents by kind (Worker, Reviewer, …) and the provider and model they run on, each group's rows in the
+ *  list's order. The groups stand in the order their first agent appeared (started), so work starting or ending moves
+ *  no group. */
+export function agentKindGroups(agents: readonly IslandAgentRow[]): AgentKindGroup[] {
+  const groups = new Map<string, AgentKindGroup & { first: number }>();
+  const routed = (row: IslandAgentRow) => {
+    const { agent } = row.node;
+    return {
+      kind: agentRoleLabel(agent.agent || agent.tag),
+      provider: String(agent.provider || ''),
+      model: String(agent.model || ''),
+    };
+  };
+  // An agent whose route is not known yet stands with the first of its kind whose route is.
+  const known = new Map<string, { provider: string; model: string }>();
+  for (const row of agents) {
+    const { kind, provider, model } = routed(row);
+    if ((provider || model) && !known.has(kind)) known.set(kind, { provider, model });
+  }
+  for (const row of agents) {
+    const { agent } = row.node;
+    const own = routed(row);
+    const { kind } = own;
+    const { provider, model } = own.provider || own.model ? own : (known.get(kind) ?? own);
+    const key = [kind, provider, model].join('/');
+    const appeared = timeMs(agent.createdAt) || timeMs(agent.startedAt) || Number.POSITIVE_INFINITY;
+    const group = groups.get(key);
+    if (group) {
+      group.rows.push(row);
+      group.first = Math.min(group.first, appeared);
+    } else {
+      groups.set(key, { key, kind, provider, model, rows: [row], first: appeared });
+    }
+  }
+  // Groups that started together, or with no start time, stand by name: the input's order follows activity.
+  return [...groups.values()]
+    .sort((a, b) => (a.first === b.first ? a.key.localeCompare(b.key) : a.first < b.first ? -1 : 1))
+    .map(({ first: _first, ...group }) => group);
+}
+
+/** The short model name a kind line adds where another listed group shares its kind and provider on another model
+ *  ("Worker · Opus 5.5"): the model's display name less the brand word they all lead with. Keyed by group. */
+export function kindModelLabels(groups: readonly AgentKindGroup[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  const named = new Map<string, AgentKindGroup[]>();
+  for (const group of groups) {
+    const same = `${group.kind}/${group.provider}`;
+    named.set(same, [...(named.get(same) ?? []), group]);
+  }
+  for (const same of named.values()) {
+    if (same.length < 2) continue;
+    const names = same.map(({ model, provider }) => modelDisplayName(model, provider));
+    const brand = names[0].split(' ')[0];
+    const shared = names.every((name) => name.includes(' ') && name.split(' ')[0] === brand);
+    for (const [index, group] of same.entries()) {
+      labels.set(group.key, shared ? names[index].slice(brand.length + 1) : names[index]);
+    }
+  }
+  return labels;
+}
+
+/** A kind's fold, one line, as To-do's "Remaining 6" line: the kind (and the short model where another listed kind
+ *  shares its name and provider), the chevron, then at the line's end the mark of whether any is not finished and how
+ *  many, as a section head reads. The route (model and effort) is the line's tooltip. */
+function AgentKindFold({
+  group,
+  model,
+  foldKey,
+  open,
+  onToggle,
+}: {
+  group: AgentKindGroup;
+  /** The short model name, only where it tells two kinds of one name apart. */
+  model: string;
+  foldKey: string;
+  open: boolean;
+  onToggle(): void;
+}) {
+  const { kind, rows } = group;
+  const route = useSharedRouteText(rows.map(({ node }) => node.agent)) || modelDisplayName(group.model, group.provider);
+  const active = rows.filter((row) => !row.finished).length;
+  const needs = rows.filter((row) => row.state === 'needs-user').length;
+  const Chevron = open ? ChevronDown : ChevronRight;
+  const label = t('{{kind}}: {{count}} agents, {{active}} not finished', {
+    kind: model ? `${kind} · ${model}` : kind,
+    count: rows.length,
+    active,
+  });
+  return (
+    <div className="composer-island-agent-group" role="none">
+      <button
+        type="button"
+        className="composer-island-agent-fold"
+        data-fold={foldKey}
+        role="treeitem"
+        aria-level={1}
+        aria-expanded={open}
+        // Folded, the head stands for its rows: one that waits on the user is named, as its mark shows.
+        aria-label={!open && needs > 0 ? `${label}, ${t('Needs you {{needs}}', { needs })}` : label}
+        title={route || undefined}
+        onClick={(event) => {
+          onToggle();
+          releasePointerFocus(event);
+        }}
+      >
+        <span className="composer-island-agent-fold-name">{kind}</span>
+        {model && <span className="composer-island-agent-fold-model">{` · ${model}`}</span>}
+        <Chevron size={12} className="composer-island-agent-fold-cv" aria-hidden="true" />
+        {/* At the line's end, as a section head writes its own: the mark while any is not finished, then how many. */}
+        {active > 0 && jobsTabMark('agent', rows, 0)}
+        <span className="composer-island-agent-fold-count">{rows.length}</span>
+      </button>
+    </div>
+  );
+}
+
+/** An agents list (the island's Agents tab, the session panel's Agents
+ *  section), built as the To-do list: one fold a kind and route
+ *  (AgentKindFold), its agents one line each under it. A fold is remembered
+ *  per session; a kind the user never folded or opened is open as
+ *  `kindsOpen` says. `sizer` holds the state column's width. */
+export function AgentGroupList({
+  sessionId,
+  agents,
+  usage,
+  clock,
+  listRef,
+  className,
+  sizer,
+  kindsOpen = true,
+  onOpenSession,
+}: {
+  sessionId: string;
+  agents: IslandAgentRow[];
+  /** A kind's fold before the user sets it: open on the island, folded in the session panel. */
+  kindsOpen?: boolean;
+  usage: Pick<IslandUsageSummary, 'agentRowTokens' | 'agentRowFloors'>;
+  clock: number;
+  listRef?: RefObject<HTMLDivElement | null>;
+  className: string;
+  sizer: ReactNode;
+  onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+}) {
+  const folds = useSessionRailFolds(sessionId);
+  const groups = agentKindGroups(agents);
+  const models = kindModelLabels(groups);
+  return (
+    <div ref={listRef} className={className} role="tree" aria-label={t('Agents')}>
+      {groups.map((group) => {
+        const { rows } = group;
+        const key = `agents:${group.key}`;
+        const open = folds.groupOpen(key, kindsOpen);
+        return (
+          <Fragment key={group.key}>
+            <AgentKindFold
+              group={group}
+              model={models.get(group.key) ?? ''}
+              foldKey={key}
+              open={open}
+              onToggle={() => folds.setGroups({ [key]: !open })}
+            />
+            {open &&
+              rows.map(({ node, state, finished }, index) => (
+                <div key={poolRowKey(node.agent, index)} className="composer-island-agent-item" role="none">
+                  <AgentIslandRow
+                    node={node}
+                    state={state}
+                    finished={finished}
+                    clock={clock}
+                    tokens={usage.agentRowTokens.get(node.sessionId)}
+                    tokensFloor={usage.agentRowFloors.has(node.sessionId)}
+                    posInSet={index + 1}
+                    setSize={rows.length}
+                    ownerSessionId={sessionId}
+                    onOpenSession={onOpenSession}
+                  />
+                </div>
+              ))}
+          </Fragment>
+        );
+      })}
+      {sizer}
+    </div>
+  );
 }
 
 export function ShellJobItem({
@@ -184,116 +403,69 @@ export function ShellJobItem({
   );
 }
 
-/** The listed agents tallied by state, read by both the pill segment and the
- *  panel head. An agent waiting on its own tasks is still at work (its
- *  timer runs), so it counts as running; `waiting` is queued only; `idle` rests. */
+/** The listed agents at work, read by the pill segment and the session
+ *  panel's Agents section. An agent waiting on its own tasks is still at work
+ *  (its timer runs), so it counts as running; `waiting` is queued only. */
 export function islandAgentCounts(agents: readonly IslandAgentRow[]) {
   const count = (...states: DesktopAgentActivityState[]) => agents.filter(({ state }) => states.includes(state)).length;
   return {
     running: count('running', 'waiting', 'cancel-unconfirmed'),
-    needsUser: count('needs-user'),
-    failed: count('failed'),
     waiting: count('queued'),
-    idle: count('idle'),
   };
-}
-
-/** How many listed agents run, need the user, failed or wait: beside the
- *  title, which already carries the total. When every listed agent runs, the
- *  state alone says so instead of repeating the total. */
-function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
-  const { running, needsUser, failed, waiting: queued, idle } = islandAgentCounts(agents);
-  const waiting = queued + idle;
-  return (
-    <>
-      {running > 0 ? (
-        <span>
-          {t('Island: Running')}
-          {running === agents.length ? null : (
-            <>
-              {' '}
-              <b>{statsCount(running)}</b>
-            </>
-          )}
-        </span>
-      ) : null}
-      {needsUser > 0 ? <span>{t('Needs you {{needs}}', { needs: needsUser })}</span> : null}
-      {failed > 0 ? <span className="composer-island-failed">{t('{{failed}} failed', { failed })}</span> : null}
-      {waiting > 0 ? <span>{t('Island: {{waiting}} waiting', { waiting })}</span> : null}
-    </>
-  );
 }
 
 /** A clock under an hour and one under ten hours, at their widest digits. */
 export const widestClocks = () => [formatWorkElapsed(3_599_000), formatWorkElapsed(35_999_000)];
 
+/** An agent row's clock (minutes past a minute) under an hour and under ten hours, at their widest digits. */
+export const widestAgentClocks = () => [formatWorkClock(3_599_000), formatWorkClock(35_999_000)];
+
 /** Everything an agent row's state column can read (agentElapsedText). */
 export function agentStateLabels(): string[] {
-  return [
-    ...widestClocks(),
-    t('Queued'),
-    t('Waiting for approval'),
-    t('Cancel unconfirmed'),
-    t('Cancelled'),
-    t('Failed'),
-    t('Completed'),
-    t('Idle'),
-  ];
+  return [...widestAgentClocks(), ...agentStateWords()];
+}
+
+/** Every word a shell row's state column can read besides its clock (ShellJobContent): how it finished, or that
+ *  its stop is not confirmed. */
+export function shellStateWords(): string[] {
+  const finished = [{ status: 'cancelled' as const }, { exitCode: 0 }, { exitCode: 1 }].map(shellFinishedLabel);
+  return [...new Set([...finished, t('Termination unconfirmed')])];
 }
 
 /** Everything a shell row's state column can read (ShellJobContent). */
-export function shellStateLabels(): string[] {
-  return [...widestClocks(), t('Island: Exited'), t('Island: Stopped'), t('Failed'), t('Termination unconfirmed')];
+function shellStateLabels(): string[] {
+  return [...widestClocks(), ...shellStateWords()];
 }
 
-/** Shown for a figure the ledger has not answered yet or cannot attribute
- *  exactly: never an invented zero. */
-const SUMMARY_UNKNOWN = '-';
 /** Narrowing drops the cache hit first, as the composer's readout does, then
  *  the cost (which that line lacks); the token total stays longest. */
 const SUMMARY_KEEP_ORDER = ['total', 'cost', 'hit'];
 const SUMMARY_DISPLAY_ORDER = ['total', 'hit', 'cost'];
 
+/** The agents' usage line: what every agent the Lead ran used together, in
+ *  the composer readout's wording; the Lead's own is that readout. A figure
+ *  the ledger has not answered or cannot attribute exactly is left out, never
+ *  written as a placeholder or an invented zero; with none known there is no
+ *  line. */
 export function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
-  const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd, costFloor, leadFloor, agentsFloor } = usage;
-  const floor = leadFloor || agentsFloor;
-  const shown = (value: number | null, format: (value: number) => string, isFloor: boolean) =>
-    value === null ? SUMMARY_UNKNOWN : floorFigure(format(value), isFloor);
-  const split = `(${t('Lead {{lead}} · Agents {{agents}}', {
-    lead: totalTokens === null ? SUMMARY_UNKNOWN : shown(leadTokens, formatCompactTokens, leadFloor),
-    agents: totalTokens === null ? SUMMARY_UNKNOWN : shown(agentTokens, formatCompactTokens, agentsFloor),
-  })})`;
-  const total = tokensReadoutItem(shown(totalTokens, formatCompactTokens, floor));
+  const { agentTokens, cacheHitRate, costUsd, costFloor, agentsFloor } = usage;
   const noted = (item: ReadoutItem, note: string | null): ReadoutItem =>
     note ? { ...item, label: `${item.label}\n${note}` } : item;
+  // The line's figures stand plain; that one is a floor is its tooltip's to say.
+  const total = agentTokens === null ? null : tokensReadoutItem(formatCompactTokens(agentTokens));
+  // The amount alone on the line, in every form; its tooltip names it.
+  const costItem = costUsd === null ? null : costReadoutItem(usageMoney(costUsd));
   const parts = {
-    total: noted(
-      { ...total, label: `${total.label} ${split}`, word: `${total.word} ${split}` },
-      floor && totalTokens !== null ? floorNote() : null
-    ),
-    hit: noted(
-      cacheHitReadoutItem(shown(cacheHitRate, formatHitPercent, false)),
-      floor && cacheHitRate !== null ? hitRateNote() : null
-    ),
-    cost: noted(
-      costReadoutItem(shown(costUsd, usageMoney, costFloor)),
-      costFloor && costUsd !== null ? floorNote() : null
-    ),
+    total: total && noted(total, agentsFloor ? plainFloorNote() : null),
+    hit:
+      cacheHitRate === null
+        ? null
+        : noted(cacheHitReadoutItem(formatHitPercent(cacheHitRate)), agentsFloor ? hitRateNote() : null),
+    cost: costItem && noted({ ...costItem, word: costItem.text }, costFloor ? plainFloorNote() : null),
   };
-  const [detailed, ...icons] = readoutVariants(parts, SUMMARY_KEEP_ORDER, SUMMARY_DISPLAY_ORDER);
-  // The composer's own wording (`11.6B tokens · Cache hit 92.0% · $6,216.60`) for a footer too narrow for the split.
-  const [worded] = readoutVariants(
-    { ...parts, total: { ...parts.total, word: total.word }, cost: { ...parts.cost, word: parts.cost.text } },
-    SUMMARY_KEEP_ORDER,
-    SUMMARY_DISPLAY_ORDER
-  );
-  return (
-    <FittedReadout
-      variants={[detailed, worded, ...icons]}
-      title={t('Session usage')}
-      className="composer-island-summary"
-    />
-  );
+  const variants = readoutVariants(parts, SUMMARY_KEEP_ORDER, SUMMARY_DISPLAY_ORDER);
+  if (variants.length === 0) return null;
+  return <FittedReadout variants={variants} title={t('Agents usage')} className="composer-island-summary" />;
 }
 
 function AgentsPanel({
@@ -320,36 +492,22 @@ function AgentsPanel({
       <IslandPanelHead
         chip={
           <>
-            {jobsTabMark('agent', agents, 0)}
-            {t('Agent {{agent}}', { agent: agents.length })}
+            {t('Agents')}
+            <HeadFigures count={agents.length} mark={agentsHeadMark(agents)} />
           </>
         }
-        meta={<AgentsStateCounts agents={agents} />}
         onClose={onClose}
       />
-      {/* The Agents window's own tree, in the island's row (AgentIslandRow). */}
-      <div
-        ref={list}
+      <AgentGroupList
+        sessionId={sessionId}
+        agents={agents}
+        usage={usage}
+        clock={clock}
+        listRef={list}
         className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list agent-pool-list"
-        role="tree"
-      >
-        {agents.map(({ node, state }, index) => (
-          <div key={poolRowKey(node.agent, index)} className="composer-island-agent-item" role="none">
-            <AgentIslandRow
-              node={node}
-              state={state}
-              clock={clock}
-              tokens={usage.agentRowTokens.get(node.sessionId)}
-              tokensFloor={usage.agentRowFloors.has(node.sessionId)}
-              posInSet={index + 1}
-              setSize={agents.length}
-              ownerSessionId={sessionId}
-              onOpenSession={onOpenSession}
-            />
-          </div>
-        ))}
-        <IslandColumnSizer labels={agentStateLabels()} />
-      </div>
+        sizer={<IslandColumnSizer labels={agentStateLabels()} />}
+        onOpenSession={onOpenSession}
+      />
       <IslandPanelFoot
         end={
           <TidyButton
@@ -357,7 +515,6 @@ function AgentsPanel({
             kind="clear-finished"
             label={t('Clean up')}
             description={t('Clear finished')}
-            named
             disabled={clearable.length === 0}
             onClick={() => clearFinishedAgents(sessionId, agents, shellKeys)}
           />
@@ -395,11 +552,10 @@ function ShellsPanel({
       <IslandPanelHead
         chip={
           <>
-            {jobsTabMark('shell', [], runningShells)}
-            {runningShells > 0 ? t('Shell {{shell}}', { shell: runningShells }) : t('Shell')}
+            {t('Shell')}
+            <HeadFigures count={shells.length} mark={runningShells > 0 && jobsTabMark('shell', [], runningShells)} />
           </>
         }
-        meta={finished.length > 0 ? <span>{t('Island: Ended {{count}}', { count: finished.length })}</span> : undefined}
         onClose={onClose}
       />
       <ul ref={list} className="composer-island-pbody composer-island-jobs">
@@ -424,7 +580,6 @@ function ShellsPanel({
               kind="close-all"
               label={t('Clean up')}
               description={t('Clear ended shells')}
-              named
               onClick={() => onDismissAll(finished)}
             />
           ) : undefined

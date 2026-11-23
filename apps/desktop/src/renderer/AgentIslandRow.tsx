@@ -1,20 +1,41 @@
 import { useId } from 'react';
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
+import type { DesktopAgentPoolRow } from '../shared/contract';
 import { AgentRowElapsed, AgentRowFrame } from './agent-activity-groups';
-import type { AgentActivityNode } from './agent-activity-model';
-import { agentRowName } from './agent-chat-summary';
-import { AgentProviderMark, AgentRouteSummary } from './agent-row-parts';
-import { AgentTodoMark } from './AgentTodoMark';
-import { formatCompactTokens } from './composer-usage-readout';
+import { type AgentActivityNode, agentRoleLabel } from './agent-activity-model';
+import { useAgentRouteText } from './agent-row-parts';
+import { AgentTodoRing, agentTodoFigure, agentTodoLabel } from './AgentTodoMark';
+import { formatCompactTokens, tokensReadoutItem } from './composer-usage-readout';
 import { t } from './i18n';
-import { floorFigure, floorNote } from './usage-stats-model';
+import { formatWorkClock, formatWorkElapsed, timeMs } from './transcript-primitives';
+import { plainFloorNote } from './usage-stats-model';
 
-/** One agent in the composer island's panel: the Agents window's row with the
- *  step mark after the model (the panel has no room for a column of its own)
- *  and the row's token total under its state. */
+/** An agent's own name under its kind's group: its tag, or its kind when the tag says no more (the Lead). */
+export function agentOwnName(agent: DesktopAgentPoolRow, lead: boolean): string {
+  const role = agentRoleLabel(agent.agent || agent.tag);
+  const tag = String(agent.tag || '').trim();
+  return !lead && tag && tag.toLowerCase() !== role.toLowerCase() ? tag : role;
+}
+
+/** How long a finished agent's last turn ran; 0 unless the pool still holds that turn's start. */
+function workedMs(agent: DesktopAgentPoolRow): number {
+  const start = timeMs(agent.turnStartedAt);
+  const end = timeMs(agent.settledAt) || timeMs(agent.idleSince);
+  return start && end > start ? end - start : 0;
+}
+
+/** One agent in an agents list (the island's Agents tab, the session panel's
+ *  Agents section), built as a to-do row: one line under its kind's group
+ *  (level 2 of the tree, whatever its depth in the pool), its step ring where
+ *  a to-do's state circle stands, its own name, then its step figure and its
+ *  state in two right-aligned columns. An agent at work is marked as the step
+ *  in progress (data-working). Its tooltip and description say the rest: the
+ *  model, the step in hand, a finished agent's worked time and the ledger
+ *  total. */
 export function AgentIslandRow({
   node,
   state,
+  finished,
   clock,
   tokens,
   tokensFloor,
@@ -26,6 +47,8 @@ export function AgentIslandRow({
   node: AgentActivityNode;
   /** The lifecycle state the island resolved (it merges worker and job entries). */
   state: DesktopAgentActivityState;
+  /** Idle, done or cancelled. */
+  finished: boolean;
   clock: number;
   /** The row's ledger total; undefined while the ledger has no figure for it. */
   tokens: number | undefined;
@@ -38,45 +61,69 @@ export function AgentIslandRow({
 }) {
   const { agent } = node;
   const statusId = useId();
+  const detailId = useId();
+  const worked = finished ? workedMs(agent) : 0;
+  const detail = [
+    useAgentRouteText(agent),
+    agent.todo?.current ? agentTodoLabel(agent.todo) : '',
+    worked ? t('Worked {{time}}', { time: formatWorkElapsed(worked) }) : '',
+    agentRowTokensText(tokens, tokensFloor),
+  ]
+    .filter(Boolean)
+    .join('\n');
   return (
     <AgentRowFrame
       agent={agent}
       depth={node.depth}
+      level={2}
       parentSessionId={node.parentSessionId}
       posInSet={posInSet}
       setSize={setSize}
       ownerSessionId={ownerSessionId}
-      describedBy={statusId}
+      describedBy={detail ? `${statusId} ${detailId}` : statusId}
+      title={detail}
+      working={state === 'running' || state === 'waiting'}
       onOpenSession={onOpenSession}
     >
-      <AgentProviderMark agent={agent} />
-      <span className="schedules-row-copy">
-        <span className="agent-pool-heading">
-          <b className="agent-pool-name">{agentRowName(agent, node.sessionId === ownerSessionId)}</b>
-        </span>
-        <span className="island-agent-route">
-          <AgentRouteSummary agent={agent} />
-          <AgentTodoMark todo={agent.todo} />
-        </span>
+      {/* The ring in the column of a to-do's state circle, with or without a step list. */}
+      <span className="agent-row-ring" aria-hidden="true">
+        <AgentTodoRing
+          todo={agent.todo}
+          glyph={state === 'cancelled' ? 'dropped' : finished ? 'complete' : 'active'}
+          size={14}
+        />
       </span>
-      <span className="agent-pool-figures">
-        <span className="agent-activity-status" id={statusId}>
-          <AgentRowElapsed state={state} agent={agent} clock={clock} />
-        </span>
-        <AgentRowTokens tokens={tokens} floor={tokensFloor} />
+      <span className="schedules-row-copy agent-pool-heading">
+        <b className="agent-pool-name">{agentOwnName(agent, node.sessionId === ownerSessionId)}</b>
       </span>
+      {agent.todo ? (
+        <span
+          className="agent-row-steps"
+          role="img"
+          aria-label={agentTodoLabel(agent.todo)}
+          title={agentTodoLabel(agent.todo)}
+        >
+          {agentTodoFigure(agent.todo)}
+        </span>
+      ) : (
+        <span className="agent-row-steps" />
+      )}
+      <span className="agent-activity-status" id={statusId}>
+        <AgentRowElapsed state={state} agent={agent} clock={clock} format={formatWorkClock} />
+      </span>
+      {detail && (
+        <span id={detailId} hidden>
+          {detail}
+        </span>
+      )}
     </AgentRowFrame>
   );
 }
 
-/** An agent row's ledger total, marked when it is a floor; nothing while the ledger has no figure for it. */
-export function AgentRowTokens({ tokens, floor }: { tokens: number | undefined; floor: boolean }) {
-  if (tokens === undefined) return null;
-  const text = floorFigure(formatCompactTokens(tokens), floor);
-  const label = t('Total {{tokens}} tokens', { tokens: text });
-  return (
-    <span className="composer-island-agent-tokens" title={floor ? `${label}\n${floorNote()}` : label}>
-      {text}
-    </span>
-  );
+/** An agent row's ledger total in words ("1.6k tokens"), a floor's note on a line of its own; empty while the
+ *  ledger has no figure for it. */
+function agentRowTokensText(tokens: number | undefined, floor: boolean): string {
+  if (tokens === undefined) return '';
+  const { word } = tokensReadoutItem(formatCompactTokens(tokens));
+  return floor ? `${word}\n${plainFloorNote()}` : word;
 }

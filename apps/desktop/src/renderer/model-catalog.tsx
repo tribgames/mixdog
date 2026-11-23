@@ -108,6 +108,8 @@ export function filterConfiguredModels(
   if (providerSetup == null || providerSetupError) return models;
   const entries = providerSetupEntries(providerSetup);
   return models.filter((model) => {
+    // An external agent is no provider of the setup: the core lists its models only while it can run them.
+    if (agentEntry(model)) return true;
     const provider = entries.find((entry) => String(entry.id || entry.provider || '') === model.provider);
     if (!provider) return false;
     // Hidden by the effective row or by the model's own v2 override (a server
@@ -159,6 +161,22 @@ function emptyCatalogText(loading: boolean, hasQuery: boolean): string {
   return hasQuery ? t('No matching models.') : t('No connected provider models.');
 }
 
+/** An external agent's entry: it runs its own loop instead of a provider's model. */
+function agentEntry(option: DesktopModelOption): boolean {
+  return option.runner === 'acp';
+}
+
+function rowModelName(option: DesktopModelOption): string {
+  return modelDisplayName(option.model, option.provider, option.display);
+}
+
+/** Where an agent's group stands: below the OAuth group of the same service, else below the last OAuth group. */
+function agentGroupIndex(entries: Array<[string, DesktopModelOption[]]>, agent: string | undefined): number {
+  const sibling = entries.findIndex(([id]) => id === `${agent}-oauth`);
+  if (sibling >= 0) return sibling + 1;
+  return entries.reduce((index, [id], at) => (id.endsWith('-oauth') ? at + 1 : index), 0);
+}
+
 function sortedProviderEntries(
   models: DesktopModelOption[],
   resolveProviderLabel: (id: string) => string
@@ -169,12 +187,17 @@ function sortedProviderEntries(
     options.push(option);
     entries.set(option.provider, options);
   }
-  return [...entries].sort(
+  const sorted = [...entries].sort(
     ([left], [right]) =>
       providerDisplayRank(left) - providerDisplayRank(right) ||
       resolveProviderLabel(left).localeCompare(resolveProviderLabel(right)) ||
       left.localeCompare(right)
   );
+  const providers = sorted.filter(([, options]) => !agentEntry(options[0]));
+  for (const group of sorted.filter(([, options]) => agentEntry(options[0]))) {
+    providers.splice(agentGroupIndex(providers, group[1][0].agent), 0, group);
+  }
+  return providers;
 }
 
 function selectCatalogGroups(
@@ -424,7 +447,7 @@ export function ModelCatalog({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchesQuery = (option: DesktopModelOption) =>
     !normalizedQuery ||
-    `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)} ${modelOptionDescription(option)} ${resolveProviderLabel(option.provider)}`
+    `${option.model} ${option.display} ${rowModelName(option)} ${modelOptionDescription(option)} ${resolveProviderLabel(option.provider)}`
       .toLocaleLowerCase()
       .includes(normalizedQuery);
   const { favoriteModels, recentModels, visibleProviderEntries, renderedKeys } = selectCatalogGroups(
@@ -484,7 +507,7 @@ export function ModelCatalog({
     // press that opened it never focused the button.
     row.focus({ preventScroll: true });
     setActiveRowKey(rowKey);
-    setRowMenu({ label: modelDisplayName(option.model, option.provider, option.display), ...point, items });
+    setRowMenu({ label: rowModelName(option), ...point, items });
   };
   const renderModelOption = (option: DesktopModelOption, scope = '') => {
     const selected = option.provider === provider && option.model === model;
@@ -514,7 +537,7 @@ export function ModelCatalog({
         <span className="model-row-copy">
           <span className="model-row-title">
             <strong>
-              {modelDisplayName(option.model, option.provider, option.display)}
+              {rowModelName(option)}
               {(scope === 'recent:' || scope === 'favorite:') && (
                 <span className="model-row-source">{` (${resolveProviderLabel(option.provider)})`}</span>
               )}

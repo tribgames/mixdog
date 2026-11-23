@@ -291,20 +291,20 @@ test('menu structure: search, grouped branches, a footer with New branch · New 
   assert.equal(list.querySelectorAll('.branch-row-more').length, 4, 'every branch exposes its own actions');
   const rows = items(list);
   assert.equal(list.querySelector('[data-kind="worktree"]'), null, 'no "Worktree" row in the list');
-  assert.equal(list.querySelector('h3').textContent, 'Current branch');
   assert.equal(rows[0].dataset.mark, 'current', 'the current branch is the first row');
+  // A row ends in the current branch's check or a plain branch's age (none here), nothing else.
   assert.deepEqual(
     rows.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
     [
-      ['main', 'Current'],
-      ['feat/ssh-remote', 'Worktree'],
+      ['main', ''],
+      ['feat/ssh-remote', ''],
       ['next-patch', ''],
-      ['ext-branch', '/elsewhere/ext'],
+      ['ext-branch', ''],
     ]
   );
   assert.deepEqual(
     [...list.querySelectorAll('h3')].map((label) => label.textContent),
-    ['Current branch', 'Worktrees', 'Other branches', 'Other worktrees'],
+    ['Worktrees', 'Other branches', 'Other worktrees'],
     'without commit times nothing folds away'
   );
   assert.deepEqual(
@@ -324,7 +324,14 @@ test('menu structure: search, grouped branches, a footer with New branch · New 
     ],
     'the footer holds New branch, New worktree and Clean up, outside the list'
   );
+  // Named by their own words, so an icon alone still reads as them; what they do is the description.
+  assert.equal(worktreeButton(menu).getAttribute('aria-label'), 'New worktree');
   assert.equal(worktreeButton(menu).title, 'New branch · separate folder');
+  const prune = menu.querySelector('[data-kind="prune"]');
+  assert.equal(prune.getAttribute('aria-label'), 'Clean up');
+  assert.equal(prune.title, 'Remove clean, merged worktrees no session keeps, and forget deleted worktree folders');
+  // A holder whose title is not loaded is still named.
+  assert.equal(list.querySelector('[data-branch="feat/ssh-remote"]').title, 'Another session');
   const folderIcon = 'svg[class*="lucide-folder-git"]';
   assert.ok(worktreeButton(menu).querySelector(folderIcon));
   assert.ok(list.querySelector(`[data-branch="feat/ssh-remote"] ${folderIcon}`), 'worktree rows show a folder');
@@ -341,6 +348,116 @@ test('menu opens above the chip, left-aligned with the shared 6px gap', async (t
   assert.equal(parseFloat(menu.style.bottom), 900 - rect().top + 6);
   assert.equal(parseFloat(menu.style.left), rect().left);
   assert.ok(parseFloat(menu.style.maxHeight) <= 320);
+});
+
+/** A New Task draft's chip under the session panel's Branch row (`.probe-row`). */
+async function mountDraftRow(t) {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  projectMenuReply = draftMenu();
+  calls.length = 0;
+  handlers = {};
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  clearBranchMenuCache();
+  await act(async () =>
+    root.render(
+      React.createElement(BranchChip, {
+        sessionId: '',
+        draftId: 'd-row',
+        projectPath: '/p',
+        renderTrigger: (button) =>
+          React.createElement('button', { ...button, type: 'button', className: 'probe-row' }, 'Branch'),
+      })
+    )
+  );
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  return { row: () => host.querySelector('.probe-row'), popup: () => document.querySelector('.branch-tab-host') };
+}
+
+test("under the session panel's Branch row a draft's menu is that row's popup; a pick or Escape closes it", async (t) => {
+  const { row, popup } = await mountDraftRow(t);
+  await act(async () => row().click());
+  // The session's own popup: the island panel in the body, no head, the same foot; never the chip's menu.
+  assert.equal(document.querySelector('.branch-menu'), null);
+  assert.equal(popup().parentElement, document.body);
+  assert.ok(popup().querySelector(':scope > section.composer-island-panel.composer-island-branch-panel'));
+  assert.equal(popup().querySelector('.composer-island-phead, .composer-island-close'), null);
+  assert.deepEqual(
+    [...popup().querySelectorAll('.branch-menu-foot button')].map((button) => button.dataset.kind),
+    ['create', 'worktree', 'prune']
+  );
+  await act(async () => popup().querySelector('[data-branch="dev"]').click());
+  assert.equal(popup(), null, 'a pick closes it');
+  assert.deepEqual(model.getBranchIntent('d-row'), { branch: 'dev', create: false });
+  model.setBranchIntent('d-row', null);
+
+  await act(async () => row().click());
+  await act(async () =>
+    popup()
+      .querySelector('section')
+      .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  );
+  assert.equal(popup(), null, 'Escape closes it');
+  assert.equal(document.activeElement, row(), 'and hands focus back to the row');
+});
+
+test("a row action confirmed in the Branch row's popup leaves the popup open on the refreshed list", async (t) => {
+  const { row, popup } = await mountDraftRow(t);
+  overrideConfirmAction(null);
+  handlers.inspectProjectBranch = () => ({
+    branch: 'dev',
+    commit: 'a'.repeat(40),
+    target: 'main',
+    targetCommit: 'b'.repeat(40),
+    path: null,
+    kind: 'branch',
+  });
+  handlers.manageProjectBranch = () => ({});
+  await act(async () => row().click());
+  const wait = () => act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+  await act(async () => popup().querySelector('[aria-label="Actions for dev"]').click());
+  await wait();
+  const remove = [...document.querySelectorAll('[role="menuitem"]')].find(
+    (item) => item.textContent === 'Delete branch'
+  );
+  await act(async () => remove.click());
+  // The user presses the confirmation's own button, drawn over the popup.
+  let confirm = null;
+  for (let tries = 0; tries < 50 && !confirm; tries += 1) {
+    await wait();
+    confirm = document.querySelectorAll('.settings-confirm-dialog footer button')[1] ?? null;
+  }
+  assert.ok(confirm, 'the confirmation is shown');
+  projectMenuReply = menuFor({
+    workspace: workspace({ revision: 0 }),
+    branches: [branch('main', true), branch('mixdog/held')],
+    occupancy: [
+      { branch: 'main', kind: 'current' },
+      { branch: 'mixdog/held', kind: 'session', sessionId: 'holder' },
+    ],
+  });
+  const reads = calls.filter((call) => call.capability === 'getProjectBranchMenu').length;
+  await act(async () => {
+    confirm.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    confirm.click();
+  });
+  await wait();
+  await wait();
+  assert.deepEqual(
+    calls.filter((call) => call.capability === 'manageProjectBranch').map((call) => call.args[0].action),
+    ['delete-branch']
+  );
+  assert.ok(popup(), 'the popup stays open');
+  assert.ok(
+    calls.filter((call) => call.capability === 'getProjectBranchMenu').length > reads,
+    'and reads its list again'
+  );
+  assert.equal(popup().querySelector('[data-branch="dev"]'), null, 'on the refreshed list');
 });
 
 test('a remounted chip shows the cached menu at once; the fresh list updates the same rows in place', async (t) => {
@@ -424,7 +541,6 @@ test('chip state: a draft shows the Project menu from the runtime, and "Worktree
   assert.equal(selected.hasAttribute('data-selected'), true);
   assert.equal(selected.getAttribute('aria-pressed'), 'true', 'the chosen New worktree stays pressed');
   assert.equal(menu.querySelectorAll('.branch-menu-check').length, 0);
-  assert.equal(menu.querySelector('[data-branch="main"] small').textContent, 'Current');
   assert.equal(menu.querySelector('[data-branch="main"] .branch-menu-check'), null, 'the check moved to the worktree');
   assert.equal(menu.querySelector('[data-branch="main"]').hasAttribute('data-selected'), false);
   assert.equal(model.takeWorktreeIntent('d1'), true);
@@ -448,10 +564,13 @@ test('chip state: a worktree-bound session shows its generated branch with the f
   assert.equal(bound.trigger.querySelector('.branch-chip-label').textContent, 'mixdog/fix-bom');
   assert.ok(bound.trigger.querySelector('.branch-chip-fork'));
   const boundMenu = await openMenu(bound.trigger);
-  assert.deepEqual(
-    items(boundMenu.querySelector('.branch-menu-list')).map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['Current', 'Project folder']
-  );
+  const [own, project] = items(boundMenu.querySelector('.branch-menu-list'));
+  // The worktree's branch leads with the folder mark and the check; the project folder's follows it, unlabelled.
+  assert.equal(own.dataset.branch, 'mixdog/fix-bom');
+  assert.ok(own.querySelector('svg[class*="lucide-folder-git"]'));
+  assert.ok(own.querySelector('.branch-menu-check'));
+  assert.equal(project.dataset.branch, 'main');
+  assert.equal(project.title, 'Project folder', 'its tooltip and description say whose branch it is');
 });
 
 test('occupancy: shared worktrees move this session; an unmanaged worktree branch is shown, not pickable', async (t) => {
@@ -1102,11 +1221,11 @@ test('Korean copy', async (t) => {
   const { trigger } = await mount(t);
   const menu = await openMenu(trigger);
   const list = menu.querySelector('.branch-menu-list');
-  assert.equal(list.querySelector('h3').textContent, '현재 브랜치');
   assert.deepEqual(
-    items(list).map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['현재', '워크트리', '', '/elsewhere/ext']
+    [...list.querySelectorAll('h3')].map((label) => label.textContent),
+    ['워크트리', '다른 브랜치', '다른 워크트리']
   );
+  assert.equal(list.querySelector('.branch-menu-check').getAttribute('aria-label'), '현재');
   assert.equal(menu.querySelector('input').placeholder, '브랜치 검색');
   assert.deepEqual(
     [...menu.lastElementChild.querySelectorAll('button')].map((button) => button.textContent),
@@ -1255,7 +1374,7 @@ test('older branches fold under "Other branches: N"; search and toggle show them
   assert.deepEqual(shown(), ['main', 'fresh']);
   assert.deepEqual(
     [...list.querySelectorAll('h3')].map((label) => label.textContent),
-    ['Current branch', 'Recent', 'Other branches: 2']
+    ['Recent', 'Other branches: 2']
   );
   assert.match(list.querySelector('[data-branch="fresh"] small').textContent, /2 days ago/);
   const toggle = list.querySelector('.branch-menu-group-toggle');
@@ -1298,14 +1417,14 @@ test('"Clean up worktrees" is a footer button with a cleanup icon', async (t) =>
   const { trigger } = await mount(t);
   const menu = await openMenu(trigger);
   const prune = menu.querySelector('[data-kind="prune"]');
-  assert.ok(prune.closest('.branch-menu-actions'), 'in the footer, after New branch and New worktree');
-  assert.equal(prune.previousElementSibling?.dataset.kind, 'worktree');
+  assert.ok(prune.closest('.branch-menu-foot'), 'in the footer, after New branch and New worktree');
+  assert.equal(prune.parentElement.previousElementSibling?.dataset.kind, 'worktree');
   assert.equal(prune.closest('.branch-menu-list'), null);
   assert.ok(prune.querySelector('svg.lucide-brush-cleaning'), 'a broom, never the close mark');
   assert.equal(prune.querySelector('svg.lucide-x'), null);
 });
 
-test('worktree rows name their session; a search highlights the hit and offers to create the name', async (t) => {
+test('worktree rows name their session in the tooltip; a search highlights the hit and offers to create the name', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();
   publishSessionGlances([{ id: 'other-session', title: 'Place dev', preview: '', working: false }]);
@@ -1313,10 +1432,8 @@ test('worktree rows name their session; a search highlights the hit and offers t
   menuReply = menuFor();
   const { trigger } = await mount(t);
   const menu = await openMenu(trigger);
-  const label = (name) => menu.querySelector(`[data-branch="${name}"] small`)?.textContent;
-  assert.equal(label('feat/ssh-remote'), 'Place dev', "the owning session's name");
-  assert.equal(label('main'), 'Current');
-  assert.ok(menu.querySelector('[data-branch="main"] .branch-menu-check'), 'the current row keeps its check');
+  const held = menu.querySelector('[data-branch="feat/ssh-remote"]');
+  assert.equal(held.title, 'Place dev', "the owning session's name, in its tooltip");
 
   const input = menu.querySelector('input[type="search"]');
   await typeBranchName(input, 'SSH');
@@ -1367,8 +1484,8 @@ test('a draft defers its branch selection until first send without changing the 
   const menu = await openMenu(trigger);
   const rows = items(menu.querySelector('.branch-menu-list'));
   assert.deepEqual(
-    rows.map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['Current', 'Worktree', ''],
+    rows.map((row) => Boolean(row.querySelector('svg[class*="lucide-folder-git"]'))),
+    [false, true, false],
     'the real occupancy, not a guess from the branch list (the held branch leads as a worktree)'
   );
   assert.deepEqual(

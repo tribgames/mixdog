@@ -44,6 +44,11 @@ export function floorNote(): string {
   return t('Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.');
 }
 
+/** The tooltip of a lower bound shown without a mark (the composer island's and the session panel's figures). */
+export function plainFloorNote(): string {
+  return t('Some usage was not reported by its provider or has no known price; this figure is a lower bound.');
+}
+
 /** The tooltip of a cache hit rate while part of the usage is unmeasured. */
 export function hitRateNote(): string {
   return t('The rate covers only the calls whose usage was reported.');

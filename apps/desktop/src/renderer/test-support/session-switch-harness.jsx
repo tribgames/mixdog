@@ -25,7 +25,7 @@ import { DESKTOP_TRANSCRIPT_TAIL_ITEMS } from '../../shared/desktop-transcript-l
 import { desktopSessionState, sessionReducer, windowWant } from '../../../../../packages/protocol-client/src/index.ts';
 import { installChatTextSize, setChatTextSize } from '../chat-text-size-preference';
 import { requestTranscriptJump } from '../transcript-jump';
-import { readerPlace, readerPlaceCount } from '../transcript-list-reader-place';
+import { readerPlaceCount } from '../transcript-list-reader-place';
 import { transcriptVirtualCacheStats } from '../transcript-virtual-cache';
 
 const pos = (id) => `h1:0:${id}`;
@@ -947,6 +947,4 @@ window.rig = {
     watched = key;
   },
   store: defaultSessionLaneStore,
-  /** Where the pane's reader of the session is, as kept (transcript-list-reader-place.ts). */
-  place: (id, leafId = 'pane-1') => readerPlace(leafId, id),
 };

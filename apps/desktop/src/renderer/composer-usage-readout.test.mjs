@@ -19,6 +19,7 @@ const {
   outputTokensPerSecond,
   totalTokens,
   usageReadoutText,
+  usageWithCostVariants,
   textWidths,
   FittedReadout,
 } = await import('./composer-usage-readout.tsx');
@@ -406,6 +407,33 @@ test('a narrowing line drops cache hit first, then the token total, tok/s last',
   assert.equal(fittingVariant([300, 200, 80], 250), 1);
   assert.equal(fittingVariant([300, 200, 80], 80), 2);
   assert.equal(fittingVariant([300, 200, 80], 79), -1);
+});
+
+test("the session panel's usage row: its worded line always carries the cache hit; the cost goes first, the words after it", () => {
+  const texts = (list) =>
+    list.map((items) => items.map((item) => (item.separator ? `${item.text} ·` : item.text)).join(' '));
+  // Before any cache read the hit reads 0.0%, so the worded line has its three parts; no cost, no cost variants.
+  const cold = { stats: { usageReadout: { ...totals, cacheRead: 0 } } };
+  assert.deepEqual(texts(usageWithCostVariants(cold)), [
+    '4.1k tokens · 48 tok/s · Cache hit 0.0%',
+    '4.1k 48/s 0.0%',
+    '4.1k 48/s',
+    '48/s',
+  ]);
+  // With a cost: worded with it, worded without it, the icon form with it, then the icon forms without it.
+  const priced = usageWithCostVariants({ stats: { usageReadout: totals, costUsd: 1.25 } });
+  assert.deepEqual(texts(priced), [
+    '42.1k tokens · 48 tok/s · Cache hit 92.0% · $1.25',
+    '42.1k tokens · 48 tok/s · Cache hit 92.0%',
+    '42.1k 48/s 92.0% $1.25',
+    '42.1k 48/s 92.0%',
+    '42.1k 48/s',
+    '48/s',
+  ]);
+  assert.deepEqual(
+    priced.map((items) => items.some((item) => item.icon)),
+    [false, false, true, true, true, true]
+  );
 });
 
 test('each coding item carries its full words as tooltip and accessible name', () => {

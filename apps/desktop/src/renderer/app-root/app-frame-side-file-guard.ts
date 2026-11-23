@@ -2,7 +2,9 @@ import { navigationKey } from '../text-format';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import type { useAppSideDocks } from '../use-app-side-docks';
 import { getLinkPreview } from '../link-preview-preference';
-import { paneDockActiveFile } from '../pane-side-dock';
+import { paneDockActiveFile, paneDockOwnerOf } from '../pane-side-dock';
+import { paneActiveSelection } from '../pane-layout';
+import { paneDockOwnedBy } from '../session-side-surface-policy';
 import { bindSideFileGuard } from './use-side-file-guard';
 
 type SideFileGuardDeps = Parameters<typeof bindSideFileGuard>[1];
@@ -32,7 +34,15 @@ export function bindAppFrameSideFileGuard({
     sideFiles: () =>
       Object.entries(paneSideDocks.docks).flatMap(([leafId, entry]) => {
         const active = paneDockActiveFile(entry);
-        return (entry.files ?? []).map((file) => ({ leafId, file, active: file === active }));
+        const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
+        // The front's file tabs are another tab's while the pane shows a tab that does not own them.
+        const foreign = !paneDockOwnedBy(entry.owner, paneDockOwnerOf(leaf ? paneActiveSelection(leaf) : null));
+        return [
+          ...(entry.files ?? []).map((file) => ({ leafId, file, active: file === active, held: foreign })),
+          ...Object.values(entry.held ?? {}).flatMap((part) =>
+            (part.files ?? []).map((file) => ({ leafId, file, held: true }))
+          ),
+        ];
       }),
     mainTabKeys: () =>
       new Set(

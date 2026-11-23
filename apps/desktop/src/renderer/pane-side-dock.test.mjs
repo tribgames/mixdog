@@ -25,6 +25,11 @@ import { usePublishDockPanelActions } from './dock-panel-actions.ts';
 import { sessionSideDockEntryForSession } from './session-side-surface-policy.ts';
 import { sideFileKey } from './side-file-tabs.ts';
 import { navigationKey } from './text-format.ts';
+import { SideFileEditorPortals } from './side-file-editor-portals.tsx';
+
+/** A dock as the app draws it: its file editors come from the app's one portal host. */
+const withEditors = (dock) =>
+  React.createElement(React.Fragment, null, dock, React.createElement(SideFileEditorPortals, { kept: () => false }));
 
 // The formatter wraps long selectors across lines; compare them as single-spaced text.
 
@@ -274,16 +279,14 @@ test('closing the last file tab ends the dock unless the Changes tab remains', (
   const b = { project: 'C:/p', rel: 'src/b.ts' };
   let entry = withPaneDockFileOpened(closed(), a, 1, { now: 1 });
   const keyA = sideFileKey(entry.files[0]);
-  assert.equal(paneDockFileCloseEndsDock(entry, keyA, true), true);
-  assert.equal(paneDockFileCloseEndsDock({ ...entry, view: 'session-diff' }, keyA, true), false);
-  // Without a session there is no Changes tab, so the view never counts.
-  assert.equal(paneDockFileCloseEndsDock({ ...entry, view: 'session-diff' }, keyA, false), true);
-  entry = withPaneDockFileOpened(entry, b, 2, { now: 2 });
+  assert.equal(paneDockFileCloseEndsDock(entry, keyA, false), true);
   assert.equal(paneDockFileCloseEndsDock(entry, keyA, true), false);
+  entry = withPaneDockFileOpened(entry, b, 2, { now: 2 });
+  assert.equal(paneDockFileCloseEndsDock(entry, keyA, false), false);
   entry = withPaneDockFileClosed(entry, keyA);
   assert.equal(entry.open, true);
   assert.equal(paneDockActiveFile(entry).rel, 'src/b.ts');
-  assert.equal(paneDockFileCloseEndsDock(entry, sideFileKey(entry.files[0]), true), true);
+  assert.equal(paneDockFileCloseEndsDock(entry, sideFileKey(entry.files[0]), false), true);
 });
 
 test('the side files persist, restore, and stay in front of a session surface', () => {
@@ -324,10 +327,11 @@ test("owned dock state follows its session's tab between panes and is released w
   assert.deepEqual(moved.L1, { ...closed(), surface: '', open: false });
   // A pane that closed while its session moved hands it over too.
   assert.equal(reconcilePaneDockOwners({ L1: owned }, { L2: ['s1'] }).L2.owner, 's1');
-  // The destination keeps its own file tabs; the moved ones are released.
+  // The destination keeps its own file tabs in front; the moved ones go along, held for s1.
   const busy = { ...withPaneDockFileOpened(closed(), { project: 'C:/p', rel: 'b.ts' }, 2, { now: 2 }), owner: 's2' };
   const kept = reconcilePaneDockOwners({ L1: owned, L2: busy }, { L1: [], L2: ['s2', 's1'] });
-  assert.strictEqual(kept.L2, busy);
+  assert.deepEqual({ ...kept.L2, held: undefined }, { ...busy, held: undefined });
+  assert.deepEqual(kept.L2.held.s1.files, owned.files);
   assert.equal(kept.L1.files, undefined);
   // Last tab gone (closed, archived, deleted): released, never stranded.
   const gone = reconcilePaneDockOwners(
@@ -335,21 +339,19 @@ test("owned dock state follows its session's tab between panes and is released w
     { L1: [] }
   );
   assert.deepEqual(gone.L1, { ...closed(), surface: '', open: false });
-  // An entry with unsaved file tabs stays exactly where it is: not released,
-  // not moved to a free pane holding its session, not joined into another pane.
+  // Unsaved file tabs are never released: with no pane holding their tab they stay where they are.
   const dirty = { L1: owned };
-  for (const panes of [{ L1: [] }, { L1: [], L2: ['s1'] }, { L2: ['s1'] }, { L2: ['s2'] }]) {
-    assert.strictEqual(
-      reconcilePaneDockOwners(dirty, panes, () => true),
-      dirty,
-      JSON.stringify(panes)
-    );
+  for (const panes of [{ L1: [] }, { L2: ['s2'] }]) {
+    assert.strictEqual(reconcilePaneDockOwners(dirty, panes, () => true), dirty, JSON.stringify(panes));
   }
-  const crowded = { L1: owned, L2: { ...withPaneDockFileOpened(closed(), fileLink, 3, { now: 3 }), owner: 's2' } };
-  assert.strictEqual(
-    reconcilePaneDockOwners(crowded, { L2: ['s2', 's1'] }, (leafId) => leafId === 'L1'),
-    crowded
-  );
+  // They follow their tab like clean ones (the editor follows the file, not the pane).
+  for (const panes of [{ L1: [], L2: ['s1'] }, { L2: ['s1'] }]) {
+    const moved = reconcilePaneDockOwners(dirty, panes, () => true);
+    assert.deepEqual([moved.L2.owner, moved.L2.files], ['s1', owned.files], JSON.stringify(panes));
+  }
+  const crowded = { L1: owned, L2: { ...withPaneDockFileOpened(closed(), { project: 'C:/p', rel: 'b.ts' }, 3, { now: 3 }), owner: 's2' } };
+  const joined = reconcilePaneDockOwners(crowded, { L2: ['s2', 's1'] }, () => true);
+  assert.deepEqual(joined.L2.held.s1.files, owned.files);
   // Unowned entries are left alone.
   const free = { L1: file };
   assert.strictEqual(reconcilePaneDockOwners(free, { L1: [] }), free);
@@ -574,7 +576,7 @@ async function mountSideFileDock(calls) {
   const root = createRoot(document.getElementById('root'));
   await act(async () =>
     root.render(
-      React.createElement(PaneSideDock, {
+      withEditors(React.createElement(PaneSideDock, {
         leafId: 'pane-1',
         groups: [['source-control']],
         descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
@@ -592,7 +594,7 @@ async function mountSideFileDock(calls) {
           React.createElement('div', { 'data-testid': 'side-problems' }, `problems:${file.rel}`),
         renderView: () => null,
         entry: withPaneDockFileOpened(closed(), { ...fileLink, accessToken: 'tok' }, 1, { now: 2 }),
-      })
+      }))
     )
   );
   return {
@@ -696,7 +698,7 @@ test('phone sheet: the pane header row is the top row and its ⋯ menu switches 
   const render = (entry) =>
     act(async () =>
       root.render(
-        React.createElement(PaneSideDock, {
+        withEditors(React.createElement(PaneSideDock, {
           leafId: 'pane-1',
           groups: [['session-diff'], ['terminal']],
           descriptors,
@@ -714,7 +716,7 @@ test('phone sheet: the pane header row is the top row and its ⋯ menu switches 
           renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
           renderView: () => null,
           entry,
-        })
+        }))
       )
     );
   try {
@@ -1439,7 +1441,7 @@ test('expanded surfaces stay inside the main panel frame (no overlap of its bord
 function mountResizableDock({ stored = {}, cellWidth = 0, pointerType = 'mouse' } = {}) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
-    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MouseEvent'],
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MouseEvent', 'MutationObserver'],
   });
   dom.window.requestAnimationFrame = (callback) => {
     callback(16);
@@ -1654,7 +1656,7 @@ async function mountFileSurface() {
     entry: next,
   });
   const root = createRoot(document.getElementById('root'));
-  const render = (next) => act(async () => root.render(React.createElement(PaneSideDock, props(next))));
+  const render = (next) => act(async () => root.render(withEditors(React.createElement(PaneSideDock, props(next)))));
   await render(entry);
   return {
     entry,
@@ -1690,6 +1692,7 @@ test('file surface (rendered): header → editor → problems → footer, one mo
       tabs.map((tab) => tab.hidden),
       [true, false]
     );
+    assert.ok(view.editor('src/b.ts').closest('.pane-side-file-tab') === tabs[1], "each editor sits in its tab's slot");
     assert.equal(view.editor('src/a.ts').dataset.active, 'false');
     assert.equal(view.editor('src/b.ts').dataset.active, 'true');
   } finally {
@@ -1920,6 +1923,7 @@ function pngDockProps() {
   return phoneDockProps('A', {
     focused: true,
     sessionBound: true,
+    changesTab: true,
     groups: [['session-diff'], ['terminal']],
     descriptors: new Map([
       ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
@@ -1950,31 +1954,7 @@ test('phone sheet: a PNG opened beside Changes is headed by its file name, Chang
   }
 });
 
-test('desktop dock: the Changes tab still leads the file tabs', async () => {
-  const { dom, restore } = installTestDom(null, {
-    html: '<!doctype html><html><body><main id="root"></main></body></html>',
-    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MutationObserver'],
-  });
-  dom.window.requestAnimationFrame = (callback) => {
-    callback(16);
-    return 1;
-  };
-  dom.window.cancelAnimationFrame = () => {};
-  const root = createRoot(document.getElementById('root'));
-  try {
-    await act(async () => root.render(React.createElement(PaneSideDock, pngDockProps())));
-    const header = document.querySelector('[data-pane-id="A"] .side-file-header');
-    assert.deepEqual(
-      [...header.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent),
-      ['Changes', 'Screenshot 2025-10-18.png']
-    );
-  } finally {
-    await act(async () => root.unmount());
-    restore();
-  }
-});
-
-test("a New Task's pane draws no session panel; its session's pane does", async () => {
+test("a New Task's pane draws the session panel as a session's does, and its first message keeps it", async () => {
   const { restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
@@ -1999,18 +1979,386 @@ test("a New Task's pane draws no session panel; its session's pane does", async 
   };
   const pane = (selection) =>
     renderPaneSideDockView({ id: 'pane-draft', activeKey: navigationKey(selection), tabs: [selection] }, true, context);
-  const root = createRoot(document.getElementById('root'));
+  const { sessionRailSlot } = await import('./session-rail-layout.ts');
+  const cell = document.getElementById('root');
+  const root = createRoot(cell);
   try {
     await act(async () => root.render(pane({ kind: 'new', draftId: 'd1' })));
     assert.ok(document.querySelector('.pane-side-dock'), 'the pane dock is drawn');
-    assert.equal(document.querySelector('.session-rail'), null, 'no card, no resize edge');
-    assert.equal(document.getElementById('root').style.getPropertyValue('--session-rail-reserve'), '', 'no reserve');
+    const card = document.querySelector('.session-rail');
+    assert.ok(card, "the draft's panel");
+    const slot = sessionRailSlot('pane-draft');
+    assert.deepEqual([slot.sessionId, slot.draftId], ['', 'd1'], "only the draft's conversation draws in it");
+    assert.equal(slot.element, card.querySelector('.session-rail-body'));
+    const width = card.style.width;
+    const reserve = cell.style.getPropertyValue('--session-rail-reserve');
+    assert.notEqual(reserve, '');
+    // The first message makes the tab the session's: the same panel, as wide, with the same reserve.
     await act(async () => root.render(pane({ kind: 'session', id: 's1' })));
-    assert.ok(document.querySelector('.session-rail'), 'the panel comes with the session');
+    assert.equal(document.querySelector('.session-rail'), card, 'the same element');
+    assert.equal(card.style.width, width);
+    assert.equal(cell.style.getPropertyValue('--session-rail-reserve'), reserve);
+    const next = sessionRailSlot('pane-draft');
+    assert.deepEqual([next.sessionId, next.draftId], ['s1', ''], "now the session's");
+    assert.equal(next.element, slot.element);
   } finally {
     await act(async () => root.unmount());
     restore();
   }
+});
+
+/** A pane as the app draws it: its tab strip's trailing buttons and its dock with the session panel; with
+ *  `composer`, its conversation's composer, whose island goes where the composer dock sends it
+ *  (sessionRailPlace: the panel takes it while it draws in this conversation's pane). */
+async function stripAndPanel(selection, { entry = closed(), closePaneRightRegion = () => {}, composer = false } = {}) {
+  const { renderPaneSideDockView, renderPaneDockStripTrailing } = await import('./app-shell-side-dock.tsx');
+  const { ComposerDock } = await import('./ComposerDock.tsx');
+  const { sessionRailPlace, useSessionRailSlot } = await import('./session-rail-layout.ts');
+  const Icon = () => React.createElement('span');
+  const leaf = { id: 'pane-strip', activeKey: navigationKey(selection), tabs: [selection] };
+  function Conversation() {
+    const place = sessionRailPlace(useSessionRailSlot(leaf.id), {
+      sessionId: selection.id ?? '',
+      draftId: selection.draftId ?? '',
+      onScreen: true,
+      handOver: null,
+    });
+    return React.createElement(
+      ComposerDock,
+      {
+        sessionId: selection.id ?? '',
+        goalSubmissionId: '',
+        goalIsland: React.createElement('span', { className: 'probe-goal' }, 'goal'),
+        showProjectSelector: false,
+        reviewItems: [],
+        reviewActive: false,
+        reviewBusy: false,
+        reviewSessionId: selection.id ?? '',
+        reviewCwd: 'C:/work/app',
+        islandHidden: place.taken,
+      },
+      React.createElement('form', { className: 'composer' })
+    );
+  }
+  const context = {
+    paneWorkspace: { focusLeaf() {} },
+    paneSideDocks: { entryFor: () => entry },
+    sessionSurfaces: {
+      sessionSideSurfaces: new Map(),
+      sessionDiffs: new Map(),
+      sessionPanelViews: new Map(),
+      sessionSurfaceSources: new Map(),
+      panelViewFronts: new Set(),
+      // An open dock mounts the session's browser and terminal slots; their bodies are not drawn here.
+      terminalSurfaces: { prewarm() {}, registerSlot() {}, unregisterSlot() {}, refresh() {} },
+      browserSurfaces: { registerSlot() {}, unregisterSlot() {}, refresh() {} },
+    },
+    workbenchSideLayout: { layout: { left: [], right: [['source-control']] } },
+    sideViewDescriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
+    paneProjectPathFor: () => '',
+    renderRightView: () => null,
+    selectWorkbenchSideView() {},
+    closePaneRightRegion,
+    focusLeaf() {},
+  };
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement('div', { className: 'workspace-tabs-trailing' }, renderPaneDockStripTrailing(leaf, context)),
+    composer && React.createElement(Conversation),
+    renderPaneSideDockView(leaf, true, context)
+  );
+}
+
+test('a dock at the side covering the session panel: the toggle reads Show, and pressing it folds the dock and puts the panel in the island’s place; off, the island is back', async () => {
+  const { setSessionPanelShown, getSessionPanelShown } = await import('./side-panel-preferences.ts');
+  const { resetSessionRailWidth } = await import('./session-rail-layout.ts');
+  const selection = { kind: 'session', id: 's-cover' };
+  const toggle = () => document.querySelector('.workspace-tabs-trailing [data-view="session-panel"]');
+  const panel = () => document.querySelector('.session-rail')?.dataset.presentation ?? null;
+  const island = () => Boolean(document.querySelector('.probe-goal'));
+  const seen = () => ({
+    label: toggle().getAttribute('aria-label'),
+    pressed: toggle().getAttribute('aria-pressed'),
+    panel: panel(),
+    island: island(),
+  });
+  const SHOWN = { label: 'Hide session panel', pressed: 'true', panel: 'beside', island: false };
+  const COVERED = { label: 'Show session panel', pressed: 'false', panel: null, island: true };
+  for (const stored of [true, false]) {
+    const dock = mountResizableDock({ cellWidth: 1400 });
+    // The composer island's layout reads the window's media queries.
+    window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+    resetSessionRailWidth();
+    setSessionPanelShown(stored);
+    // Source Control open at the pane's side.
+    let entry = { ...closed(), open: true };
+    let folds = 0;
+    const render = () =>
+      act(async () =>
+        dock.root.render(
+          await stripAndPanel(selection, {
+            entry,
+            composer: true,
+            closePaneRightRegion: () => {
+              folds++;
+              entry = closed();
+            },
+          })
+        )
+      );
+    try {
+      await render();
+      assert.deepEqual(seen(), COVERED, `stored ${stored}: covered`);
+      await act(async () => toggle().click());
+      await render();
+      assert.equal(folds, 1, 'the covering dock folds');
+      assert.equal(getSessionPanelShown(), true);
+      assert.deepEqual(seen(), SHOWN, `stored ${stored}: shown`);
+      await act(async () => toggle().click());
+      await render();
+      assert.equal(getSessionPanelShown(), false);
+      assert.deepEqual(seen(), COVERED, 'off: no panel, and the composer draws the island');
+      assert.equal(folds, 1, 'hiding folds nothing');
+    } finally {
+      setSessionPanelShown(true);
+      await act(async () => dock.root.unmount());
+      dock.restore();
+    }
+  }
+});
+
+test("the strip's last toggle hides the session panel and shows it again, on a session and a draft", async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MutationObserver'],
+  });
+  const { getSessionPanelShown, setSessionPanelShown } = await import('./side-panel-preferences.ts');
+  setSessionPanelShown(true);
+  const root = createRoot(document.getElementById('root'));
+  const toggle = () => document.querySelector('.workspace-tabs-trailing [data-view="session-panel"]');
+  const state = () => {
+    const button = toggle();
+    return {
+      label: button.getAttribute('aria-label'),
+      tooltip: button.dataset.tooltip,
+      pressed: button.getAttribute('aria-pressed'),
+      icon: button.querySelector('svg').classList[1],
+    };
+  };
+  try {
+    for (const selection of [{ kind: 'session', id: 's-hide' }, { kind: 'new', draftId: 'd-hide' }]) {
+      await act(async () => root.render(await stripAndPanel(selection)));
+      assert.ok(document.querySelector('.session-rail'), 'the panel');
+      const button = toggle();
+      assert.ok(button.classList.contains('pane-dock-toggle'), 'a button of the strip toggles’ own kind');
+      assert.equal(button.parentElement.lastElementChild, button, 'at their end');
+      assert.deepEqual(state(), {
+        label: 'Hide session panel',
+        tooltip: 'Hide session panel',
+        pressed: 'true',
+        icon: 'lucide-panel-right-close',
+      });
+      await act(async () => button.click());
+      assert.equal(getSessionPanelShown(), false);
+      assert.equal(document.querySelector('.session-rail'), null, 'the panel leaves');
+      assert.deepEqual(state(), {
+        label: 'Show session panel',
+        tooltip: 'Show session panel',
+        pressed: 'false',
+        icon: 'lucide-panel-right-open',
+      });
+      await act(async () => toggle().click());
+      assert.equal(getSessionPanelShown(), true);
+      assert.ok(document.querySelector('.session-rail'), 'the panel is back');
+      assert.equal(state().label, 'Hide session panel');
+    }
+  } finally {
+    setSessionPanelShown(true);
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test("in every pane width the session panel shows, beside, over the conversation or over the pane, and the strip's toggle hides and shows it", async () => {
+  const { setSessionPanelShown, getSessionPanelShown } = await import('./side-panel-preferences.ts');
+  const { resetSessionRailWidth } = await import('./session-rail-layout.ts');
+  const { PANE_SIDE_DOCK_MIN_WIDTH, PANE_SIDE_DOCK_SHEET_FRAME_WIDTH, PANE_SIDE_OVERLAY_INSET } = await import(
+    './pane-side-dock-model.ts'
+  );
+  const { DESKTOP_WORKSPACE_MIN_WIDTH } = await import('../shared/window-layout.ts');
+  const beside = DESKTOP_WORKSPACE_MIN_WIDTH + PANE_SIDE_DOCK_SHEET_FRAME_WIDTH + PANE_SIDE_DOCK_MIN_WIDTH;
+  const overlay = PANE_SIDE_OVERLAY_INSET + PANE_SIDE_DOCK_MIN_WIDTH;
+  const toggle = () => document.querySelector('.workspace-tabs-trailing [data-view="session-panel"]');
+  const panel = () => document.querySelector('.session-rail')?.dataset.presentation ?? null;
+  const cases = [
+    [beside, 'beside'],
+    [beside - 1, 'overlay'],
+    [overlay, 'overlay'],
+    [overlay - 1, 'full'],
+  ];
+  for (const [cellWidth, presentation] of cases) {
+    const dock = mountResizableDock({ cellWidth });
+    resetSessionRailWidth();
+    setSessionPanelShown(true);
+    try {
+      await act(async () => dock.root.render(await stripAndPanel({ kind: 'session', id: `s-${cellWidth}` })));
+      assert.equal(panel(), presentation, `${cellWidth}px`);
+      assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+      assert.equal(toggle().getAttribute('aria-disabled'), null, `${cellWidth}px: the toggle is offered`);
+      assert.equal(toggle().dataset.tooltip, 'Hide session panel');
+      await act(async () => toggle().click());
+      assert.equal(getSessionPanelShown(), false);
+      assert.equal(panel(), null, `${cellWidth}px: hidden`);
+      await act(async () => toggle().click());
+      assert.equal(getSessionPanelShown(), true);
+      assert.equal(panel(), presentation, `${cellWidth}px: shown again`);
+    } finally {
+      setSessionPanelShown(true);
+      await act(async () => dock.root.unmount());
+      dock.restore();
+    }
+  }
+});
+
+test('the session panel changes presentation at the pane widths every side-dock surface does, for the same width', async () => {
+  const { paneDockRailLayout } = await import('./pane-side-dock.tsx');
+  const {
+    PANE_SIDE_DOCK_DEFAULT_WIDTH,
+    PANE_SIDE_DOCK_MIN_WIDTH,
+    PANE_SIDE_DOCK_SHEET_FRAME_WIDTH,
+    PANE_SIDE_OVERLAY_INSET,
+  } = await import('./pane-side-dock-model.ts');
+  const { DESKTOP_WORKSPACE_MIN_WIDTH } = await import('../shared/window-layout.ts');
+  const besideFrom = DESKTOP_WORKSPACE_MIN_WIDTH + PANE_SIDE_DOCK_SHEET_FRAME_WIDTH + PANE_SIDE_DOCK_MIN_WIDTH;
+  const overlayFrom = PANE_SIDE_OVERLAY_INSET + PANE_SIDE_DOCK_MIN_WIDTH;
+  const expected = (cellWidth) => {
+    if (cellWidth >= besideFrom) return 'beside';
+    return cellWidth >= overlayFrom ? 'overlay' : 'full';
+  };
+  for (const width of [PANE_SIDE_DOCK_DEFAULT_WIDTH, PANE_SIDE_DOCK_MIN_WIDTH]) {
+    const layout = (cellWidth, openNow, sessionSurfaceShowing) =>
+      paneDockRailLayout({
+        cellWidth,
+        bottom: false,
+        sheetFrame: PANE_SIDE_DOCK_SHEET_FRAME_WIDTH,
+        rail: width,
+        dock: {
+          openNow,
+          mobileSheet: false,
+          diffShowing: false,
+          sessionSurfaceShowing,
+          sessionMin: PANE_SIDE_DOCK_MIN_WIDTH,
+          sessionPref: width,
+          panelPref: width,
+          diffPref: width,
+        },
+      });
+    for (let cellWidth = 200; cellWidth <= 1400; cellWidth += 1) {
+      const label = `${width}px wide in a ${cellWidth}px pane`;
+      assert.equal(
+        layout(cellWidth, false, false).rail.presentation,
+        expected(cellWidth),
+        `${label}: the session panel`
+      );
+      // Browser, terminal and visualize (a session surface) and the panel views.
+      for (const surface of [true, false]) {
+        const { overlay, baseAsideWidth } = layout(cellWidth, true, surface).dock;
+        let dock = 'beside';
+        if (overlay) dock = baseAsideWidth === cellWidth ? 'full' : 'overlay';
+        assert.equal(dock, expected(cellWidth), `${label}: the dock${surface ? "'s session surface" : ''}`);
+      }
+    }
+  }
+});
+
+test("a dock open at the pane's side covers the session panel, whose composer keeps the island; closing it or a dock below brings the panel back", async () => {
+  const { resetSessionRailWidth, sessionRailSlot } = await import('./session-rail-layout.ts');
+  const { setSessionPanelShown, setSidePanelPosition } = await import('./side-panel-preferences.ts');
+  const dock = mountResizableDock({ cellWidth: 1400 });
+  resetSessionRailWidth();
+  setSessionPanelShown(true);
+  const render = (entry) =>
+    act(async () =>
+      dock.root.render(React.createElement(PaneSideDock, { ...resizableDockProps(entry), sessionId: 's1' }))
+    );
+  const panel = () => document.querySelector('.session-rail');
+  try {
+    await render(closed());
+    assert.equal(panel()?.dataset.presentation, 'beside', 'no dock: the panel');
+    assert.ok(sessionRailSlot('pane-1').element, 'its slot takes the composer island');
+    await render({ ...closed(), open: true });
+    assert.equal(panel(), null, 'a dock at the side: no panel');
+    assert.equal(sessionRailSlot('pane-1').element, null, 'the composer keeps its island');
+    assert.equal(document.getElementById('root').style.getPropertyValue('--session-rail-reserve'), '');
+    await render(closed());
+    assert.equal(panel()?.dataset.presentation, 'beside', 'closed: back');
+    await act(async () => setSidePanelPosition('bottom'));
+    await render({ ...closed(), open: true });
+    assert.equal(panel()?.dataset.presentation, 'beside', 'a dock below covers nothing');
+  } finally {
+    setSidePanelPosition('right');
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('the phone strip has no session panel toggle', async () => {
+  const { root, restore } = mountPhoneDock();
+  const { setSessionPanelShown } = await import('./side-panel-preferences.ts');
+  try {
+    for (const shown of [true, false]) {
+      setSessionPanelShown(shown);
+      await act(async () => root.render(await stripAndPanel({ kind: 'session', id: `s-phone-${shown}` })));
+      assert.ok(document.querySelector('.workspace-tabs-trailing .pane-dock-toggle'), 'the strip has its toggles');
+      assert.equal(document.querySelector('[data-view="session-panel"]'), null, `shown: ${shown}`);
+      assert.equal(document.querySelector('.session-rail'), null, `no panel on the phone (shown: ${shown})`);
+    }
+  } finally {
+    setSessionPanelShown(true);
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+// What a new pane's first frame paints: read once the first commit's task, with the renders its layout effects asked
+// for, is done (not under act, which flushes the passive effects too).
+async function firstFrame(cellWidth, props, read) {
+  const dock = mountResizableDock({ cellWidth });
+  const { resetSessionRailWidth } = await import('./session-rail-layout.ts');
+  resetSessionRailWidth();
+  const cell = document.getElementById('root');
+  const frames = [];
+  function FirstFrame(shown) {
+    React.useLayoutEffect(() => {
+      queueMicrotask(() => frames.push(read(cell)));
+    }, []);
+    return React.createElement(PaneSideDock, shown);
+  }
+  const actEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = false;
+  try {
+    dock.root.render(React.createElement(FirstFrame, props));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return { frames, settled: read(cell) };
+  } finally {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = actEnvironment;
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+}
+
+test("a new pane's first painted frame has the dock and the session panel laid out for the measured cell", async () => {
+  // 500px: no room for the dock beside the conversation, so it floats over it.
+  const overlay = await firstFrame(500, resizableDockProps({ ...closed(), open: true }), (cell) =>
+    cell.querySelector('.pane-side-dock').dataset.overlay
+  );
+  assert.deepEqual(overlay, { frames: ['true'], settled: 'true' });
+  // 1,300px: a 300px panel, and the conversation re-centred left of its 308px band (sessionRailFit).
+  const rail = await firstFrame(1300, { ...resizableDockProps(closed()), sessionId: 's1' }, (cell) =>
+    cell.style.getPropertyValue('--session-rail-reserve')
+  );
+  assert.deepEqual(rail, { frames: ['308px'], settled: '308px' });
 });
 
 test('panel resize (rendered): a touch drag on the handle previews and commits like the mouse', async () => {

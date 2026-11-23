@@ -124,7 +124,7 @@ function harness({ sideFiles = {}, mainTabs = [], dirty = [], linkPreview = true
   return { guard, state };
 }
 
-const dk = (leafId, rel) => sideFileDirtyKey(leafId, file(rel));
+const dk = (_leafId, rel) => sideFileDirtyKey(file(rel));
 const preview = (rel) => ({ ...file(rel), preview: true });
 
 test('closing a clean side file closes it at once', () => {

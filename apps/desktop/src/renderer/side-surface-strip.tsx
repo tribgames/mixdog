@@ -18,6 +18,7 @@ import { EditorViewSwitch, type EditorViewControls } from './editor-view-switch'
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
+import { markTabStripFades, scrollTabStripByWheel, useTabStripFades } from './tab-strip-fades';
 import './tab-strip.css';
 
 /** What the side-dock file editor reports upward so the dock can draw the
@@ -234,12 +235,21 @@ export function SideFileStrip({
   const phone = useMobileRemoteSurface();
   const activePreview = files.find((file) => file.preview && sideFileKey(file) === activeKey);
   const menuFile = menu ? files.find((file) => sideFileKey(file) === menu.key) : undefined;
+  const strip = useRef<HTMLDivElement | null>(null);
+  useTabStripFades(strip, `${leadingTab && !phone ? 'changes|' : ''}${activeKey}|${files.map(sideFileKey).join('|')}`);
   return (
     <>
       <DockHeaderRow
         className="side-file-header"
         left={
-          <div className="browser-tab-list" role="tablist" aria-label={t('Files')}>
+          <div
+            ref={strip}
+            className="browser-tab-list"
+            role="tablist"
+            aria-label={t('Files')}
+            onScroll={(event) => markTabStripFades(event.currentTarget)}
+            onWheel={scrollTabStripByWheel}
+          >
             {leadingTab && !phone && (
               <div className="browser-tab dock-header-chip" data-side-leading-tab="">
                 <button

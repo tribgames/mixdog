@@ -99,12 +99,15 @@ export function useSelectionDrag({
   rowsRef,
   setSelectionPin,
   onSelectionAutoScroll,
+  onSelectionHold,
 }: {
   viewport: { readonly current: HTMLDivElement | null };
   sessionKey: string;
   rowsRef: MutableRefObject<readonly TranscriptRowModel[]>;
   setSelectionPin: (next: TranscriptSelectionPin | null) => void;
   onSelectionAutoScroll(delta: number): void;
+  /** A selection covers transcript text (true), or no longer does (false). */
+  onSelectionHold(held: boolean): void;
 }) {
   // An off-screen transcript (retained or parked conversation) watches no
   // document pointer or selection: every selection made in the shown one
@@ -119,6 +122,7 @@ export function useSelectionDrag({
       rowKeyAt: (index) => rowsRef.current[index]?.key,
       setPin: setSelectionPin,
       onAutoScroll: onSelectionAutoScroll,
+      onHold: onSelectionHold,
     });
-  }, [onSelectionAutoScroll, sessionKey, setSelectionPin, surfaceActive, viewport]);
+  }, [onSelectionAutoScroll, onSelectionHold, sessionKey, setSelectionPin, surfaceActive, viewport]);
 }

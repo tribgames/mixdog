@@ -1,5 +1,7 @@
 import { FileDiff, FileText, X } from 'lucide-react';
+import { useRef } from 'react';
 import { t } from './i18n';
+import { markTabStripFades, scrollTabStripByWheel, useTabStripFades } from './tab-strip-fades';
 import { fileBaseName } from './text-format';
 import type { SessionDiffFileTabs } from './use-session-diff-tabs';
 
@@ -31,14 +33,28 @@ export function SessionDiffTabStrip({
   onOpenDiffTab(path: string): void;
   onCloseDiffTab(path: string): void;
 }) {
+  const strip = useRef<HTMLDivElement | null>(null);
+  useTabStripFades(
+    strip,
+    [
+      pendingPath,
+      showChanges ? 'changes' : '',
+      focusRow?.id ?? '',
+      ...tabRows.map((row) => row.id),
+      ...(fileTabs?.tabs.map((tab) => tab.key) ?? []),
+    ].join('|')
+  );
   return (
     // While a file is read the list is busy: its placeholder cell is not a
     // tab, so assistive technology hears the loading state, not a dead tab.
     <div
+      ref={strip}
       className="browser-tab-list session-diff-tabs"
       role="tablist"
       aria-label={t('Files')}
       aria-busy={pendingPath ? true : undefined}
+      onScroll={(event) => markTabStripFades(event.currentTarget)}
+      onWheel={scrollTabStripByWheel}
     >
       {pendingPath && (
         <div

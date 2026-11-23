@@ -1,5 +1,5 @@
 import type { DesktopApi, DesktopModelOption } from '../shared/contract';
-import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
+import { agentRouteFields, normalizedProviderModels } from '../shared/desktop-transcript-limits';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { isSshConnectionWindow } from './desktop-connection';
 import { requireDesktopProviders } from './desktop-provider-retry';
@@ -102,6 +102,7 @@ function modelOption(value: unknown): DesktopModelOption | null {
     ...(typeof option.defaultEffort === 'string' ? { defaultEffort: option.defaultEffort } : {}),
     ...(typeof option.defaultFast === 'boolean' ? { defaultFast: option.defaultFast } : {}),
     ...(option.autoEffortCapable === true ? { autoEffortCapable: true } : {}),
+    ...agentRouteFields(option),
     modelParameterOptions: parameterOptions(option.modelParameterOptions),
     parameterVariants: parameterVariants(option.parameterVariants),
     defaultModelParameters: stringRecord(option.defaultModelParameters),
@@ -136,6 +137,114 @@ export function cachedModelCatalogRevision(): number {
   return cachedCatalogRevision;
 }
 
+interface AgentTierRoute {
+  row: DesktopModelOption;
+  effort: string;
+}
+
+let cachedRows: {
+  revision: number;
+  scope: string;
+  rows: Map<string, DesktopModelOption>;
+  tiers: Map<string, AgentTierRoute>;
+} | null = null;
+
+function cachedRowMaps(): NonNullable<typeof cachedRows> {
+  const scope = catalogStorageScope();
+  if (cachedRows?.revision !== cachedCatalogRevision || cachedRows.scope !== scope) {
+    const models = readCachedModelCatalog().models;
+    const rows = new Map(models.map((row) => [`${row.provider}:${row.model}`, row]));
+    // An external agent runs one model at several tiers under ids of its own ("<model>-<tier>"); the core lists
+    // the model once with the tiers as its efforts.
+    const tiers = new Map<string, AgentTierRoute>();
+    for (const row of models) {
+      if (row.runner !== 'acp') continue;
+      for (const option of row.effortOptions ?? []) {
+        const key = `${row.provider}:${row.model}-${option.value}`;
+        if (!rows.has(key)) tiers.set(key, { row, effort: option.value });
+      }
+    }
+    cachedRows = { revision: cachedCatalogRevision, scope, rows, tiers };
+  }
+  return cachedRows;
+}
+
+/** A route saved under an external agent's own id of one tier of a model: the model's row and that tier as the
+ *  route's effort. Undefined for any other route. */
+export function cachedAgentTierRoute(provider: string, model: string): AgentTierRoute | undefined {
+  return cachedRowMaps().tiers.get(`${provider}:${model}`);
+}
+
+/** The cached catalog's row of a route, read once per catalog write; a route under an agent's tier id reads as
+ *  its model's row. */
+export function cachedModelRow(provider: string, model: string): DesktopModelOption | undefined {
+  const key = `${provider}:${model}`;
+  const maps = cachedRowMaps();
+  return maps.rows.get(key) ?? maps.tiers.get(key)?.row;
+}
+
+/** The agent's own name for a model in an external agent's picker row ("<agent> · <model>"); '' for the agent's own
+ *  entry or any other text. */
+export function agentNameInDisplay(display: string): string {
+  const separator = display.indexOf(' · ');
+  return separator >= 0 ? display.slice(separator + 3) : '';
+}
+
+const AGENT_MODEL_NAMES_STORAGE_KEY = 'mixdog.desktop-agent-model-names.v1';
+let agentModelNames: { key: string; raw: string | null; names: Record<string, string> } | null = null;
+
+// The catalog lists an agent's rows only while it is ready, and each answer replaces the cached catalog: the names
+// are kept apart, never dropped, so a route on the agent stays named after a restart and with the agent off.
+function storedAgentModelNames(scope = catalogStorageScope()): Record<string, string> {
+  const key = catalogStorageKey(AGENT_MODEL_NAMES_STORAGE_KEY, scope);
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(key);
+  } catch {
+    // Names stay in memory when browser storage is unavailable.
+    return agentModelNames?.key === key ? agentModelNames.names : {};
+  }
+  if (agentModelNames?.key === key && agentModelNames.raw === raw) return agentModelNames.names;
+  let names: Record<string, string> = {};
+  try {
+    names = Object.fromEntries(
+      Object.entries(record(JSON.parse(raw || 'null'))).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    );
+  } catch {
+    names = {};
+  }
+  agentModelNames = { key, raw, names };
+  return names;
+}
+
+/** An external agent's own name for `model`, as its picker row last carried it; '' when none was ever listed. */
+export function agentModelName(provider: string, model: string): string {
+  return storedAgentModelNames()[`${provider}:${model}`] || '';
+}
+
+function rememberAgentModelNames(models: readonly DesktopModelOption[], scope: string): void {
+  const names = { ...storedAgentModelNames(scope) };
+  let changed = false;
+  for (const option of models) {
+    const name = option.runner === 'acp' ? agentNameInDisplay(option.display) : '';
+    const key = `${option.provider}:${option.model}`;
+    if (!name || names[key] === name) continue;
+    names[key] = name;
+    changed = true;
+  }
+  if (!changed) return;
+  const storageKey = catalogStorageKey(AGENT_MODEL_NAMES_STORAGE_KEY, scope);
+  const raw = JSON.stringify(names);
+  agentModelNames = { key: storageKey, raw, names };
+  try {
+    window.localStorage.setItem(storageKey, raw);
+  } catch {
+    // The names stay in memory for this window.
+  }
+}
+
 export function subscribeCachedModelCatalog(listener: () => void): () => void {
   cachedCatalogListeners.add(listener);
   return () => void cachedCatalogListeners.delete(listener);
@@ -146,6 +255,7 @@ export function writeCachedModelCatalog(
   scope = catalogStorageScope()
 ): CachedModelCatalog {
   const catalog = { models: normalizeModelCatalog(models), updatedAt: Date.now() };
+  rememberAgentModelNames(catalog.models, scope);
   try {
     window.localStorage.setItem(catalogStorageKey(MODEL_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
   } catch {
@@ -218,9 +328,11 @@ function providerModelsFetchState(api: object): ProviderModelsFetchState {
 /** A quick answer is the full catalog only when the daemon says so on every
  *  row; an older daemon never does, and its caller keeps the full follow-up. */
 function completeQuickAnswer(models: readonly unknown[]): boolean {
+  // An external agent's entries are no provider's catalog: they never carry the mark.
+  const catalog = models.filter((row) => (row as { runner?: unknown } | null)?.runner !== 'acp');
   return (
-    models.length > 0 &&
-    models.every((row) => Boolean(row) && (row as { catalogComplete?: unknown }).catalogComplete === true)
+    catalog.length > 0 &&
+    catalog.every((row) => Boolean(row) && (row as { catalogComplete?: unknown }).catalogComplete === true)
   );
 }
 

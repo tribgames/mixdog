@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { createBootSurfaceBarrier, desktopBootCoverTimeoutAllowed, markBootStage } from './boot-metrics';
 import { useBootFailure, useBootProgress } from './boot-progress';
 import { useLocalCoreLink } from './local-core-link';
+import { ownScrollWrites } from './own-scroll-writes';
 import { DesktopBootFailure, DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
 import { RemoteConnectionBanner } from './RemoteConnectionBanner';
@@ -474,7 +475,8 @@ function movePersistentPaneHost(
       scrollOffsets.delete(element);
       continue;
     }
-    if (element.scrollTop !== offset.top) element.scrollTop = offset.top;
+    // The saved offset trails by up to a frame: a transcript that pinned its end since must not read it as its reader's.
+    if (element.scrollTop !== offset.top) ownScrollWrites(element, () => (element.scrollTop = offset.top));
     if (element.scrollLeft !== offset.left) element.scrollLeft = offset.left;
   }
   if (refocus && document.activeElement !== refocus) {

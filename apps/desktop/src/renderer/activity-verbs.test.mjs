@@ -48,6 +48,15 @@ test('every localized spinner key exists in all 11 locales', () => {
     'Working',
     'Reconnecting…',
     'Reconnecting… {{attempt}} · retry in {{time}}',
+    'Waiting on the provider’s request limit…',
+    'Waiting on the provider’s request limit… {{attempt}} · retry in {{time}}',
+    'Provider overloaded…',
+    'Provider server error…',
+    'Provider rejected the sign-in…',
+    'Safety filter refused the reply…',
+    'No response from the provider yet…',
+    'Provider stopped sending data…',
+    'retry in {{time}}',
     'Compacting conversation',
     'Auto-clearing conversation',
     'Resuming conversation',
@@ -114,8 +123,57 @@ test('reconnect text keeps English as authored and localizes the counter and an 
     await switchLanguage('ko');
     assert.equal(reconnectActivityVerb('Reconnecting... 2/3'), `${catalog('ko')['Reconnecting…']} 2/3`);
     assert.equal(
-      reconnectActivityVerb('Rate limited by the provider · retry 1/5 in 210s'),
+      reconnectActivityVerb('Connection interrupted · retry 1/5 in 210s'),
       '다시 연결하는 중… 1/5 · 3분 30초 후 다시 시도'
+    );
+    assert.equal(
+      reconnectActivityVerb('Rate limited by the provider · retry 9/10 in 5s'),
+      '프로바이더 요청 한도를 기다리는 중… 9/10 · 5초 후 다시 시도'
+    );
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('each retry reason has its own wording and only a lost connection says reconnecting', async () => {
+  try {
+    await switchLanguage('ko');
+    const reconnecting = catalog('ko')['Reconnecting…'];
+    const reasons = {
+      'Provider overloaded': '프로바이더 과부하… 2/5 · 15초 후 다시 시도',
+      'Provider server error': '프로바이더 서버 오류… 2/5 · 15초 후 다시 시도',
+      'Provider rejected the sign-in': '프로바이더가 로그인을 거부했습니다… 2/5 · 15초 후 다시 시도',
+      'No progress 10m': '프로바이더가 데이터를 보내지 않는 중… 2/5 · 15초 후 다시 시도',
+      'No first response 30s': '프로바이더 응답을 기다리는 중… 2/5 · 15초 후 다시 시도',
+      'Connection interrupted': '다시 연결하는 중… 2/5 · 15초 후 다시 시도',
+    };
+    for (const [reason, expected] of Object.entries(reasons)) {
+      const verb = reconnectActivityVerb(`${reason} · retry 2/5 in 15s`);
+      assert.equal(verb, expected, reason);
+      assert.equal(verb.startsWith(reconnecting), reason === 'Connection interrupted', reason);
+    }
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('a retry after a safety-filter refusal reads as a refusal, not a lost connection', async () => {
+  try {
+    await switchLanguage('ko');
+    const verb = reconnectActivityVerb('Safety filter refused the reply · retry 1/3 in 2s');
+    assert.equal(verb, '안전 필터가 응답을 거부했습니다… 1/3 · 2초 후 다시 시도');
+    assert.ok(!verb.includes(catalog('ko')['Reconnecting…']));
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('a retry with no end shows the attempt number alone', async () => {
+  try {
+    await switchLanguage('ko');
+    assert.equal(
+      reconnectActivityVerb('Connection interrupted · retry 7 in 60s'),
+      '다시 연결하는 중… 7 · 1분 후 다시 시도'
     );
   } finally {
     await i18n.changeLanguage('en');
@@ -125,7 +183,7 @@ test('reconnect text keeps English as authored and localizes the counter and an 
 test('a reconnect countdown anchors to the local clock whatever the runtime clock skew', async () => {
   try {
     await switchLanguage('ko');
-    const published = 'Rate limited by the provider · retry 1/5 in 210s';
+    const published = 'Connection interrupted · retry 1/5 in 210s';
     const runtimeRetryAt = 9_000_000 + 210_000;
     for (const skew of [0, -300_000, 300_000]) {
       const start = 9_000_000 + skew;
@@ -154,7 +212,7 @@ test('a reconnect countdown anchors to the local clock whatever the runtime cloc
 test('a later publication of the same retry keeps its anchor', async () => {
   try {
     await switchLanguage('ko');
-    const published = 'Rate limited by the provider · retry 1/5 in 210s';
+    const published = 'Connection interrupted · retry 1/5 in 210s';
     const late = (now, retryInMs) =>
       activityVerb({ mode: 'reconnecting', runtimeVerb: published, retryKey: 'late', retryInMs, anchor: 1, now });
     assert.equal(late(100_000, 60_000), '다시 연결하는 중… 1/5 · 1분 후 다시 시도');

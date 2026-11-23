@@ -214,16 +214,37 @@ export function composerDraftAfterScopeChange({
 }
 
 const promotedDraftSessions = new Map<string, string>();
+// The same record, kept for the side docks: the composer spends its own.
+const draftSessions = new Map<string, string>();
 const PROMOTED_DRAFT_LIMIT = 64;
+
+function remember(record: Map<string, string>, scope: string, sessionId: string): void {
+  record.delete(scope);
+  record.set(scope, sessionId);
+  if (record.size > PROMOTED_DRAFT_LIMIT) record.delete(record.keys().next().value as string);
+}
 
 export function noteDraftPromotion(draftId: string, sessionId: string): void {
   if (!sessionId) return;
   const scope = `draft:${draftId || 'default'}`;
-  promotedDraftSessions.delete(scope);
-  promotedDraftSessions.set(scope, sessionId);
-  if (promotedDraftSessions.size > PROMOTED_DRAFT_LIMIT) {
-    promotedDraftSessions.delete(promotedDraftSessions.keys().next().value as string);
+  remember(promotedDraftSessions, scope, sessionId);
+  remember(draftSessions, scope, sessionId);
+}
+
+/** The session the draft `scope` (`draft:<id>`) became on its first message; '' for none. */
+export function sessionOfPromotedDraft(scope: string): string {
+  return draftSessions.get(scope) ?? '';
+}
+
+/** The promotions one pass over the side docks reads (draft scope to session). A promotion has landed once the
+ *  draft's tab is gone and its session's tab stands (`tabbed`): it ends with this reading, so a draft opened later
+ *  under the same scope is not that session's. */
+export function takeLandedDraftPromotions(tabbed: (owner: string) => boolean): ReadonlyMap<string, string> {
+  const read = new Map(draftSessions);
+  for (const [scope, sessionId] of read) {
+    if (!tabbed(scope) && tabbed(sessionId)) draftSessions.delete(scope);
   }
+  return read;
 }
 
 /** Whether `nextScope` is the session `previousScope`'s draft became. The

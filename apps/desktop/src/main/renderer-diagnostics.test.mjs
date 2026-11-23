@@ -8,6 +8,8 @@ import { createDesktopDiagnostics } from './desktop-diagnostics.ts';
 import {
   normalizeRendererComposerActionDiagnostic,
   normalizeRendererDiagnostic,
+  normalizeRendererFollowReleaseDiagnostic,
+  normalizeRendererFollowRearmDiagnostic,
   normalizeRendererWhatsNewDiagnostic,
 } from './renderer-recovery.ts';
 
@@ -45,6 +47,33 @@ test('a composer Stop record keeps what the core answered', () => {
   const escaped = normalizeRendererComposerActionDiagnostic({ ...stop, source: 'escape', stopOutcome: 'bogus' });
   assert.equal(escaped.action, 'stop');
   assert.equal('stopOutcome' in escaped, false, 'an unknown outcome is dropped, the record kept');
+});
+
+test('a follow release is recorded with its reason and where the view stood', () => {
+  assert.deepEqual(
+    normalizeRendererFollowReleaseDiagnostic({
+      kind: 'follow-release',
+      reason: 'scroll',
+      top: 1200.4,
+      delta: -31.6,
+      distance: 31.6,
+      windowFocused: true,
+      pageHidden: false,
+      extra: 'dropped',
+    }),
+    { reason: 'scroll', top: 1200, delta: -32, distance: 32, windowFocused: true, pageHidden: false }
+  );
+  assert.equal(normalizeRendererFollowReleaseDiagnostic({ kind: 'follow-release', reason: '' }), null);
+  assert.equal(normalizeRendererFollowReleaseDiagnostic({ kind: 'long-task' }), null);
+});
+
+test('a follow re-arm is recorded with its reason and where the view stood', () => {
+  assert.deepEqual(
+    normalizeRendererFollowRearmDiagnostic({ kind: 'follow-rearm', reason: 'scroll', top: 1800.6, distance: 149.4 }),
+    { reason: 'scroll', top: 1801, distance: 149 }
+  );
+  assert.equal(normalizeRendererFollowRearmDiagnostic({ kind: 'follow-rearm', reason: '' }), null);
+  assert.equal(normalizeRendererFollowRearmDiagnostic({ kind: 'follow-release', reason: 'wheel' }), null);
 });
 
 test("what's-new diagnostics keep a bounded event record and reject unknown events", () => {

@@ -1,6 +1,6 @@
 /* The approval card (approval-prompt.tsx; design/mockups/approval-buttons):
    content centred, decided with buttons. Docked in the composer island the
-   island is its frame (the islands' neutral edge, 560px); elsewhere (a held request in the
+   island is its frame (the islands' neutral edge, 680px); elsewhere (a held request in the
    transcript, a browser prompt no chat docks) it carries its own. Nothing in
    it may widen it: long names ellipsize, URLs and paths wrap, a long preview
    scrolls inside, and the button row stacks when the card gets narrow. */

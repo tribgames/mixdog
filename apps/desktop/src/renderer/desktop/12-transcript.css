@@ -370,13 +370,22 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell
 .transcript-virtual-row-content[data-band-lead="true"] {
   padding-top: 16px;
 }
-/* A compaction's divider stands in the band's seat (data-band-seat): the band's own 24px row with nothing of its own
-   around it, so the band's compacting state ending for it moves nothing. */
+/* A divider (a compaction's, or a session-level change's) stands in the band's seat (data-band-seat): the band's
+   own 24px row with nothing of its own around it. */
 .transcript-virtual-row-content[data-band-seat="true"] .compaction-divider {
   min-height: 24px;
   padding-block: 0;
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
+}
+/* It splits the thread, so the row under it stands a full 24px away (data-divider-step) where a part steps 8px,
+   and a turn gap under it grows to the same 24px. Above, it stands as the band stood (16px lead): with the room
+   the row above keeps under its own text, the divider reads as far from that row as from the one below. */
+.transcript-virtual-row-content[data-divider-step="true"] {
+  padding-top: 24px;
+}
+.transcript-virtual-row-content[data-divider-gap="true"] .transcript-turn-gap {
+  height: 24px;
 }
 /* A row that renders nothing (an agent chat's tool round or unfinished reply,
    TranscriptList.tsx) takes no room: the row below steps from the row above. */

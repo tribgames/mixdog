@@ -1,5 +1,5 @@
 import { CapabilityIcon } from '../CapabilityIcon';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopGitCliStatus, DesktopLibreOfficeStatus } from '../../shared/contract';
 import { t } from '../i18n';
@@ -12,7 +12,13 @@ import { publishAutoEffort } from '../auto-effort-store';
 import { useSection } from '../section-store';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
-import { sectionError, sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
+import {
+  invalidateCapabilitySettings,
+  sectionError,
+  sectionLoaded,
+  type PanelContext,
+  type RecordValue,
+} from './capability-data';
 import {
   ExtensionAction,
   ExtensionDetailDialog,
@@ -21,6 +27,7 @@ import {
   ExtensionSection,
 } from './extension-detail';
 import { BUILT_IN_FEATURES, type BuiltInFeatureDefinition, type BuiltInFeatureId } from './built-in-feature-registry';
+import { subscribeBuiltInFeatureRequest, takeRequestedBuiltInFeature } from './built-in-feature-request';
 import { SlotProgress } from './built-in-install-progress';
 import { LocalProviderModels } from './local-provider-models';
 import { BuiltInFeatureInfo, featureRequirement } from './built-in-feature-info';
@@ -52,6 +59,7 @@ import {
 import { computerReadinessBlocking } from './computer-readiness';
 import { ComputerReadinessSection, useComputerReadiness } from './computer-readiness-section';
 import { isSshConnectionWindow } from '../desktop-connection';
+import { AcpAgentsSection, acpAgentsBlocking } from './acp-agents';
 
 /** Browser Use and Computer Use drive this PC's browser and screen; a server
  *  window does not offer them. */
@@ -261,9 +269,11 @@ function FeatureDetailDialog({
   onInstallTidyEngine,
   computerReadiness,
   media,
+  acpAgents,
 }: {
   api: PanelContext['api'];
   media: MediaGenerationData;
+  acpAgents: Omit<ComponentProps<typeof AcpAgentsSection>, 'busy'>;
   state: FeatureState;
   computerReadiness: ReturnType<typeof useComputerReadiness>;
   gitStatus: DesktopGitCliStatus | null;
@@ -360,6 +370,7 @@ function FeatureDetailDialog({
       {/* Provider accounts live on the desktop, so a server window has no
           generators or accounts to choose from. */}
       {feature.id === 'media' && !serverWindow && <MediaGenerationSettings data={media} />}
+      {ready && state.enabled && feature.id === 'acpAgents' && <AcpAgentsSection {...acpAgents} busy={state.busy} />}
       <BuiltInFeatureInfo
         state={state}
         gitStatus={gitStatus}
@@ -398,6 +409,7 @@ export function BuiltInFeaturesPanel({
   active = true,
   run: runCapability,
   api,
+  confirm,
   initialFeature = null,
   onDetailClose,
 }: PanelContext & {
@@ -414,7 +426,18 @@ export function BuiltInFeaturesPanel({
     return value;
   };
   const localActions = useLocalProviderActions(run, pending || (!api.invokeCapability ? 'unavailable' : ''));
-  const [openId, setOpenId] = useState<BuiltInFeatureId | null>(initialFeature);
+  // The list itself (no page's own feature, no caller's detail) opens on a feature asked for from elsewhere.
+  const listed = !initialFeature && !onDetailClose;
+  const [openId, setOpenId] = useState<BuiltInFeatureId | null>(
+    () => initialFeature ?? (listed ? takeRequestedBuiltInFeature() : null)
+  );
+  useEffect(() => {
+    if (!listed) return undefined;
+    return subscribeBuiltInFeatureRequest(() => {
+      const asked = takeRequestedBuiltInFeature();
+      if (asked) setOpenId(asked);
+    });
+  }, [listed]);
   const {
     settings,
     setSettings,
@@ -484,6 +507,8 @@ export function BuiltInFeaturesPanel({
       // Visualize ships with the app and has no install step: toggle only.
       visualize: true,
       voice: voice.installed === true,
+      // Turned on and off only; each agent's CLI has its own readiness.
+      acpAgents: true,
     }),
     [gitStatus?.installed, settings, toolModules, localProvider, autoEffort, voice.installed]
   );
@@ -500,6 +525,7 @@ export function BuiltInFeaturesPanel({
       autoEffort: autoEffort.enabled === true,
       visualize: record(toolModules.visualize).enabled !== false,
       voice: voice.enabled === true && installed.voice,
+      acpAgents: record(toolModules.acpAgents).enabled === true,
     }),
     [installed.voice, settings, toolModules, localProvider, autoEffort, voice.enabled]
   );
@@ -541,7 +567,8 @@ export function BuiltInFeaturesPanel({
       id === 'localProvider' ||
       id === 'tidy' ||
       id === 'autoEffort' ||
-      id === 'visualize'
+      id === 'visualize' ||
+      id === 'acpAgents'
     ) {
       const result = record(await run('setBuiltinToolEnabled', [id, next], `built-in-${id}`));
       if (result[id]) rememberModuleAnswer(result);
@@ -573,7 +600,7 @@ export function BuiltInFeaturesPanel({
     if (dependency?.installed !== true) throw new Error(t('LibreOffice installation did not complete.'));
   };
   const install = (id: BuiltInFeatureId) => {
-    if (id === 'localProvider' || id === 'visualize' || id === 'media') return;
+    if (id === 'localProvider' || id === 'visualize' || id === 'media' || id === 'acpAgents') return;
     if ((action && action.status !== 'failed') || pending) return;
     setAction({ id, status: 'installing' });
     runFailed.current = false;
@@ -628,6 +655,33 @@ export function BuiltInFeaturesPanel({
         showDesktopToast(t('Could not install {{name}}: {{error}}', { name, error: reason(error) }), 'error');
     });
   };
+  // The agents' install or update: the core turns the feature on, fetches the CLIs and answers at the end, its
+  // progress showing as each agent's state. It is sent outside the panel's queued commands, so turning the
+  // feature off (which ends the install) is not held behind it.
+  const [acpInstall, setAcpInstall] = useState({ running: false, error: '' });
+  const acpEnabled = useRef(false);
+  acpEnabled.current = record(toolModules.acpAgents).enabled === true;
+  // A failure belongs to the agents it was about: turning the feature off ends them, and the failure with them.
+  const acpOn = acpEnabled.current;
+  useEffect(() => {
+    if (!acpOn) setAcpInstall((current) => (current.error ? { ...current, error: '' } : current));
+  }, [acpOn]);
+  const installAcpAgents = () => {
+    if (acpInstall.running || !api.invokeCapability) return;
+    setAcpInstall({ running: true, error: '' });
+    void Promise.resolve(
+      api.invokeCapability<RecordValue>({ capability: 'installBuiltinFeature', args: ['acpAgents'] })
+    ).then(
+      (response) => {
+        invalidateCapabilitySettings(api, 'installBuiltinFeature');
+        const result = record(response?.value);
+        if (result.acpAgents) rememberModuleAnswer(result);
+        setAcpInstall({ running: false, error: '' });
+      },
+      // An install ended by turning the feature off is no failure to report.
+      (error: unknown) => setAcpInstall({ running: false, error: acpEnabled.current ? reason(error) : '' })
+    );
+  };
   // Retry/Install for one missing Code Tidy engine: only that engine is
   // downloaded, and the feature's installed/enabled state is left alone.
   const installTidyEngine = (engine: string) => {
@@ -668,7 +722,8 @@ export function BuiltInFeaturesPanel({
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
     const module = record(toolModules[feature.id]);
-    let ready = typeof module.enabled === 'boolean' && typeof module.installed === 'boolean';
+    let ready =
+      typeof module.enabled === 'boolean' && (feature.id === 'acpAgents' || typeof module.installed === 'boolean');
     let statusError = ready ? '' : sectionError(data, 'toolModules');
     if (!ready && (requestedModules || (!api.invokeCapability && !api.readCapabilities))) {
       statusError ||= t('This host did not provide feature status.');
@@ -734,8 +789,13 @@ export function BuiltInFeaturesPanel({
           ? { generators: mediaGeneratorNames(media.lanes) }
           : feature.id === 'memory'
             ? { ...record(module.info), supported: module.semanticSearchSupported ?? record(module.info).supported }
-            : record(feature.id === 'voice' ? voice.info : module.info),
-      readinessBlocking: feature.id === 'computer' && computerReadinessBlocking(computerReadiness.rows),
+            : feature.id === 'acpAgents'
+              ? // The Info list names each agent's CLI version from the agents themselves.
+                record(module)
+              : record(feature.id === 'voice' ? voice.info : module.info),
+      readinessBlocking:
+        (feature.id === 'computer' && computerReadinessBlocking(computerReadiness.rows)) ||
+        (feature.id === 'acpAgents' && acpAgentsBlocking(module)),
       enginesMissing:
         feature.id === 'tidy' &&
         tidy.status?.engines.some((engine) => engine.core && engine.installable && engine.source === 'missing'),
@@ -757,6 +817,16 @@ export function BuiltInFeaturesPanel({
       onInstallTidyEngine={installTidyEngine}
       computerReadiness={computerReadiness}
       media={media}
+      acpAgents={{
+        value: toolModules.acpAgents,
+        installRequested: acpInstall.running,
+        error: acpInstall.error,
+        // Turning the feature on while it is on has the core look at every agent's CLI again.
+        onCheckAgain: () => toggle('acpAgents', true),
+        onInstall: installAcpAgents,
+        run,
+        confirm,
+      }}
       onInstall={() => install(open.id)}
       onToggle={(next) => toggle(open.id, next)}
       onClose={onDetailClose ?? (() => setOpenId(null))}

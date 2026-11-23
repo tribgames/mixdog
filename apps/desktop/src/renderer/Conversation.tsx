@@ -22,6 +22,7 @@ import { useConversationSubmission } from './use-conversation-submission';
 import { useConversationTranscriptSource } from './use-conversation-transcript-source';
 import { useConversationViewport } from './use-conversation-viewport';
 import { SteerContext, useSteerActions } from './steer-actions';
+import { useSessionEntry } from './transcript-list-reader-place';
 
 export function Conversation(props: ConversationProps) {
   const {
@@ -49,6 +50,7 @@ export function Conversation(props: ConversationProps) {
   const botDeleted = useDeletedBotSession(draftMode ? '' : routeSessionId);
   const readOnly = readOnlyView || botDeleted;
   const transcriptSessionKey = draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task');
+  useSessionEntry(draftMode ? '' : routeSessionId);
   const view = useConversationViewport({ transcriptSessionKey, transcriptPending });
   // Pane-local session runtime addressing: abort and tool approvals always target the
   // session THIS surface renders, never the globally active route.

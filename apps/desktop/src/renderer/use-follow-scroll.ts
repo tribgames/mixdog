@@ -1,10 +1,14 @@
 import { type RefObject, useCallback, useRef } from 'react';
+import { takeScrollWrite, type ToldScrollWrite } from './own-scroll-writes';
 import {
+  attributeWrite,
   chromePressHeld,
   distanceFromBottom,
   judgeScrollEvent,
   keyUpRecent,
+  moveArrivesNearEnd,
   mutationExplainsScroll,
+  reportRearm,
   scrollMetrics,
   touchEndRecent,
   transcriptScrollDeviation,
@@ -13,6 +17,12 @@ import {
 } from './transcript-follow-rules';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import type { FollowSignals } from './use-follow-signals';
+
+/** Is this scroll event the one the reader's key focus made? */
+function attributeKeyFocus(told: ToldScrollWrite, top: number, now: number): boolean {
+  const write = attributeWrite({ lastWriteAt: told.at, writtenTops: [told.top], top, now });
+  return write.recent || write.exact;
+}
 
 /** What the last scroll event saw: the baselines every direction judgement is
  *  made against. */
@@ -67,7 +77,7 @@ export function useFollowScrollJudge({
   lastNativeTop: { current: number };
   scheduleScrollState(element: HTMLDivElement): void;
   noteScroll(): void;
-  attributeScroll(top: number): { recent: boolean; exact: boolean };
+  attributeScroll(top: number, own?: { at: number; top: number }): { recent: boolean; exact: boolean };
   settleWrites(): void;
   fingerOnGlass(): boolean;
   hasReaderScroll(): boolean;
@@ -96,7 +106,12 @@ export function useFollowScrollJudge({
       const previousTop = top - (nativeTop - lastNativeTop.current);
       lastNativeTop.current = nativeTop;
       lastTop.current = top;
-      const write = scrollEvent ? attributeScroll(nativeTop) : { recent: false, exact: false };
+      const told = scrollEvent ? takeScrollWrite(element) : undefined;
+      const write = scrollEvent
+        ? attributeScroll(nativeTop, told && !told.reader ? told : undefined)
+        : { recent: false, exact: false };
+      // A focus a reader's key moved (own-scroll-writes.ts `readerKeyFocus`) vouches for this move as a scroll key does.
+      const toldByKey = told?.reader === true && attributeKeyFocus(told, nativeTop, now);
       let distance = distanceFromBottom(metrics);
       // A viewport that grew (the dock shrank) is clamped by the browser onto
       // its new end before the timeline observes the new height, so its cached
@@ -105,7 +120,9 @@ export function useFollowScrollJudge({
       if (top < previousTop && followingRef.current && element.clientHeight > 0) {
         distance = Math.min(distance, element.scrollHeight - element.clientHeight - nativeTop);
       }
-      if (top !== previousTop) state.direction = top > previousTop ? 1 : -1;
+      if (top !== previousTop) {
+        state.arrived = moveArrivesNearEnd({ previousTop, top, distance, written: write.exact });
+      }
       const zoom = window.devicePixelRatio || 1;
       const zoomChanged = zoom !== state.zoom;
       state.zoom = zoom;
@@ -116,13 +133,13 @@ export function useFollowScrollJudge({
         previousTop,
         top,
         distance,
-        lastDirection: state.direction,
+        arrived: state.arrived,
         touchDown,
         wheelUpRecent: wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }),
         inWriteWindow: write.recent,
         atWrittenTop: write.exact,
         pressHeld: chromePressHeld({ pressedAt: state.pressAt, now }),
-        keyUpRecent: keyUpRecent({ keyUpAt: state.keyUpAt, now }),
+        keyUpRecent: keyUpRecent({ keyUpAt: state.keyUpAt, now }) || toldByKey,
         touchEndRecent: touchEndRecent({ touchEndUpAt: state.touchEndUpAt, now }),
         zoomChanged,
         zoom,
@@ -144,7 +161,10 @@ export function useFollowScrollJudge({
       }
       if (top !== previousTop && !write.recent && !write.exact && hasReaderScroll()) markReaderMotion();
       if (verdict === 'pin') {
-        if (!followingRef.current) publish(true);
+        reportRearm('scroll', metrics);
+        publish(true);
+        // The end pin waits out the reader's gesture before it writes.
+        restore();
       } else if (verdict === 'unpin') {
         stop('scroll', previousTop);
       } else if (verdict === 'restore') {

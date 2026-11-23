@@ -18,6 +18,8 @@ import {
   paneDockForeign,
   reconcilePaneDockOwners,
   ownedBy,
+  sameHeld,
+  withPaneLocalOwner,
   withPaneDockFileOpened,
   withPaneDockFileActivated,
   withPaneDockFileKept,
@@ -34,6 +36,7 @@ import type { WorkbenchSideViewGroup, WorkbenchSideViewId } from './workbench-si
 import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode } from './side-panel-preferences';
 import { getLinkPreview, subscribeLinkPreview } from './link-preview-preference';
 import { sameSideFiles, sideFileTabDirtyKey } from './side-file-tabs';
+import { takeLandedDraftPromotions } from './composer-draft';
 
 function readStoredPaneSideDocks(): unknown {
   try {
@@ -75,7 +78,7 @@ function usePaneSideDockShape({
   leafIdsRef: { current: readonly string[] };
   groupsRef: { current: readonly WorkbenchSideViewGroup[] };
   paneSessionsRef: { current: Readonly<Record<string, readonly string[]>> | undefined };
-  isDirty: (leafId: string, fileKey: string) => boolean;
+  isDirty: (fileKey: string) => boolean;
   ownerOf: PaneDockOwnerOf;
   setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
 }): void {
@@ -84,22 +87,30 @@ function usePaneSideDockShape({
   // dragged to the left sidebar can never linger as a pane's active view.
   // Owned entries follow their session's tab first, so a pane that closes
   // while its session moves hands the owned state over before it drops; an
-  // owner shown again then takes its parked front back.
-  const followOwners = (current: Record<string, PaneSideDockEntry>) => {
+  // owner shown again then takes its held file tabs and parked front back.
+  const followOwners = () => {
     const paneSessions = paneSessionsRef.current;
-    const owned = paneSessions ? reconcilePaneDockOwners(current, paneSessions, isDirty) : current;
-    let restored = owned;
-    for (const [leafId, entry] of Object.entries(owned)) {
-      const back = paneDockRestored(entry, ownerOf(leafId));
-      if (back !== entry) restored = { ...restored, [leafId]: back };
-    }
-    return restored;
+    const tabbed = (owner: string) => Object.values(paneSessions ?? {}).some((ids) => ids.includes(owner));
+    // Read once per pass, outside the updater: the pass that sees a promotion land is its last reader.
+    const promoted = takeLandedDraftPromotions(tabbed);
+    return (current: Record<string, PaneSideDockEntry>) => {
+      const owned = paneSessions
+        ? reconcilePaneDockOwners(current, paneSessions, isDirty, (owner) => promoted.get(owner) ?? '')
+        : current;
+      let restored = owned;
+      for (const [leafId, entry] of Object.entries(owned)) {
+        const back = paneDockRestored(entry, ownerOf(leafId));
+        if (back !== entry) restored = { ...restored, [leafId]: back };
+      }
+      return restored;
+    };
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: leafKey/groupsKey are the change triggers for the ref-held leaf ids and groups
   useEffect(() => {
+    const follow = followOwners();
     setDocks((current) => {
       const next = normalizePaneSideDocks(
-        followOwners(current),
+        follow(current),
         leafIdsRef.current,
         groupsRef.current,
         modeDefaultOpen(),
@@ -114,7 +125,7 @@ function usePaneSideDockShape({
   // restart but must survive a tab switch).
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionsKey is the change trigger for the ref-held pane sessions and shown sessions
   useEffect(() => {
-    setDocks(followOwners);
+    setDocks(followOwners());
   }, [sessionsKey]);
   // The side-panel mode policy still owns the dock half of its contract:
   // switching to open-both expands every pane dock, close-* folds them.
@@ -185,7 +196,8 @@ function usePaneSideDockPatch({
           (next.activeFile ?? null) === (entry.activeFile ?? null) &&
           (next.folder ?? null) === (entry.folder ?? null) &&
           (next.owner ?? '') === (entry.owner ?? '') &&
-          sameParked(next.parked, entry.parked);
+          sameParked(next.parked, entry.parked) &&
+          sameHeld(next.held, entry.held);
         return same && current[leafId] ? current : { ...current, [leafId]: next };
       });
     },
@@ -287,7 +299,7 @@ function usePaneDockDiffCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwne
       const owner = ownerOf(leafId);
       patch(leafId, (entry) =>
         ownedBy(
-          withPaneDockDiffOpened(entry, {
+          withPaneDockDiffOpened(withPaneLocalOwner(entry, owner), {
             kind: 'diff',
             project: cleanProject,
             rel: cleanRel,
@@ -332,7 +344,7 @@ function usePaneDockFileCommands(
       patch(leafId, (entry) =>
         ownedBy(
           withPaneDockFileOpened(
-            entry,
+            withPaneLocalOwner(entry, owner),
             {
               project: cleanProject,
               rel: cleanRel,
@@ -346,7 +358,7 @@ function usePaneDockFileCommands(
               from: request?.from,
               sidePreview: request?.sidePreview,
               now: nonce,
-              isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
+              isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(fileKey)),
             }
           ),
           owner
@@ -393,7 +405,10 @@ function usePaneDockFolderCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOw
       const nonce = Date.now();
       const owner = ownerOf(leafId);
       patch(leafId, (entry) =>
-        ownedBy(withPaneDockFolderOpened(entry, { project: cleanProject, rel: cleanRel }, nonce), owner)
+        ownedBy(
+          withPaneDockFolderOpened(withPaneLocalOwner(entry, owner), { project: cleanProject, rel: cleanRel }, nonce),
+          owner
+        )
       );
     },
     [patch, ownerOf]
@@ -481,10 +496,7 @@ export function usePaneSideDocks({
         .join('|')
     : '';
   const dirtyKeysRef = useRef<ReadonlySet<string>>(new Set());
-  const isDirty = useCallback(
-    (leafId: string, fileKey: string) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
-    []
-  );
+  const isDirty = useCallback((fileKey: string) => dirtyKeysRef.current.has(sideFileTabDirtyKey(fileKey)), []);
   const sessionOfRef = useRef(sessionOf);
   sessionOfRef.current = sessionOf;
   const ownerOf = useCallback((leafId: string) => sessionOfRef.current?.(leafId) ?? '', []);

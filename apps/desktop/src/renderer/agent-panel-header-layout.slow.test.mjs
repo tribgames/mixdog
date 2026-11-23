@@ -8,6 +8,7 @@ import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
+import { PANEL_TYPE_ROLES, typeOffTier } from './test-support/panel-type-roles.mjs';
 
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const HOST =
@@ -61,7 +62,7 @@ const PAGE = `
   };
   // The agent pool is one shared snapshot, so every lead's 17 agents are in
   // it from the start and a case picks its own by the session it renders.
-  for (let n = 0; n < 24; n++) { LEAD = 'lead-' + n; build(); }
+  for (let n = 0; n < 48; n++) { LEAD = 'lead-' + n; build(); }
   LEAD = 'lead-0';
   const sessions = Object.fromEntries(rows.map((r, i) => [r.sessionId, {
     turns: 3, tokens: 67_751_234 + i, input: 1000, cacheRead: 5000, cacheWrite: 10, unmeasuredTurns: 0, costUsd: 1, costUnpricedTurns: 0,
@@ -72,7 +73,7 @@ const PAGE = `
     sessions,
   };
   // The same session with figures the ledger can only bound: unmeasured and unpriced turns on both parts and on
-  // every other row, so every item of the footer and those rows carry the ≥ mark.
+  // every other row, so every item of the footer and those rows are floors, which their tooltips say.
   const exact = usage;
   const floored = {
     ...exact,
@@ -82,6 +83,19 @@ const PAGE = `
     sessions: Object.fromEntries(Object.entries(sessions).map(([id, s], i) => [id, i % 2 ? s : { ...s, unmeasuredTurns: 1 }])),
   };
   window.__floors = (on) => { usage = on ? floored : exact; };
+  // A long-running session as reported: its agents at 23B tokens beside a Lead at 5.1B, a high cache hit, a four-figure cost.
+  const large = {
+    ...exact, tokens: 5_100_000_000, input: 3_000_000, cacheRead: 97_000_000, costUsd: 4_000,
+    agents: { ...exact.agents, tokens: 23_000_000_000, costUsd: 8_724.54 },
+  };
+  window.__large = (on) => { usage = on ? large : exact; };
+  // The phone's report: a Lead at 5.3B tokens whose agents' aggregate holds calls that reported no usage or price,
+  // while each agent's own row is exact.
+  const reported = {
+    ...large, tokens: 5_300_000_000,
+    agents: { ...large.agents, turns: 121_873, unmeasuredTurns: 68, costUnpricedTurns: 68 },
+  };
+  window.__reported = (on) => { usage = on ? reported : exact; };
   window.__lead = (n) => { LEAD = 'lead-' + n; };
   // __usageGate holds getSessionUsage so the loading footer can be measured.
   window.mixdogDesktop = new Proxy({
@@ -108,12 +122,13 @@ const PAGE = `
     }
   };
   const loaded = () => /\\d/.test(document.querySelector('.composer-island-summary')?.textContent ?? '');
-  // Resting: no animation running, no island easing, and the panel, its first
-  // row and the footer on the same boxes for three frames in a row.
+  // Resting: no animation running toward an end (a working kind's pulse never ends), no island easing, and the
+  // panel, its first row and the footer on the same boxes for three frames in a row.
   const calm = async () => {
     const signature = () => {
       const slot = document.querySelector('.composer-island-slot');
-      const rest = !document.getAnimations().length && !slot?.hasAttribute('data-motion') && slot?.getAttribute('data-presence') !== 'grace';
+      const moving = document.getAnimations().some((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      const rest = !moving && !slot?.hasAttribute('data-motion') && slot?.getAttribute('data-presence') !== 'grace';
       const boxes = ['.composer-island-panel', '.composer-island-agent-item', '.composer-island-summary']
         .map((selector) => document.querySelector(selector)?.getBoundingClientRect())
         .map((b) => (b ? [b.left, b.top, b.width, b.height].join() : ''));
@@ -137,13 +152,21 @@ const PAGE = `
     return {
       panel: rect(panel),
       firstRow: rect(panel.querySelector('.composer-island-agent-item')),
+      // Each row's height and its name column's width with what it reads, to name a row that grows or whose
+      // figures column widens.
+      rowHeights: [...panel.querySelectorAll('.composer-island-agent-item')].map((item) => [
+        Math.round(item.getBoundingClientRect().height),
+        item.textContent,
+        item.querySelector('.schedules-row-copy').getBoundingClientRect().width,
+      ]),
       foot: rect(panel.querySelector('.composer-island-panel-foot')),
-      text: summary.textContent,
-      overflow: summary.scrollWidth - summary.clientWidth,
+      line: Boolean(summary),
+      text: summary?.textContent ?? '',
+      overflow: summary ? summary.scrollWidth - summary.clientWidth : 0,
     };
   };
   // Opens the panel with getSessionUsage held, records the footer's geometry
-  // (the "-" placeholders), releases the answer and records it again.
+  // (Clean up alone, no usage line yet), releases the answer and records it again.
   window.__renderHeld = async (language) => {
     let release;
     window.__usageGate = new Promise((r) => { release = r; });
@@ -171,9 +194,33 @@ const PAGE = `
       }))));
     await until('the Agents segment', () => document.querySelector('.composer-island-seg-agents'));
     document.querySelector('.composer-island-seg-agents').click();
-    if (held) { await until('the footer', () => document.querySelector('.composer-island-summary')); return; }
+    if (held) { await until('the footer', () => document.querySelector('.composer-island-panel-foot')); return; }
     await until('the usage figures', loaded);
     await calm();
+  };
+  // The foot at the pane's width: its usage line and Clean up on one row, Clean up in its last slot at the row's end,
+  // the line clear of it.
+  window.__footRow = async (width) => {
+    document.querySelector('#host').style.width = width + 'px';
+    await calm();
+    const box = (node) => node.getBoundingClientRect();
+    const panel = document.querySelector('.composer-island-panel');
+    const foot = panel.querySelector('.composer-island-panel-foot');
+    const summary = foot.querySelector('.composer-island-summary');
+    const end = foot.querySelector('.composer-island-panel-foot-end');
+    const [s, e, f] = [box(summary), box(end), box(foot)];
+    const centre = (b) => (b.top + b.bottom) / 2;
+    return {
+      panel: box(panel).width,
+      shown: !summary.hidden,
+      text: summary.textContent,
+      parts: summary.children.length,
+      sameRow: Math.abs(centre(s) - centre(e)) <= 1,
+      footHeight: f.height,
+      last: foot.lastElementChild === end,
+      atEnd: Math.abs(e.right - (f.right - Number.parseFloat(getComputedStyle(foot).paddingRight))) <= 0.5,
+      clear: s.right <= e.left + 0.5,
+    };
   };
   window.__measure = () => {
     const box = (node) => node.getBoundingClientRect();
@@ -181,12 +228,7 @@ const PAGE = `
     const name = (node) => (node.className?.baseVal ?? node.className) + ':' + (node.textContent || '').trim().slice(0, 24);
     const panel = document.querySelector('.composer-island-panel');
     const head = panel.querySelector('.composer-island-phead');
-    const meta = head.querySelector('.composer-island-phead-meta');
-    const leaves = [
-      head.querySelector('.composer-island-tab'),
-      ...(meta ? [...meta.children] : []),
-      head.querySelector('.composer-island-close'),
-    ].filter(Boolean);
+    const leaves = [...head.children];
     const overlaps = [];
     for (let i = 0; i < leaves.length; i++) for (let j = i + 1; j < leaves.length; j++) {
       if (overlap(box(leaves[i]), box(leaves[j]))) overlaps.push(name(leaves[i]) + ' × ' + name(leaves[j]));
@@ -198,7 +240,6 @@ const PAGE = `
       const m = box(head);
       return r.left < m.left - 0.5 || r.right > m.right + 0.5 || node.scrollWidth > node.clientWidth + 1;
     }).map(name);
-    const metaClipped = meta ? meta.scrollWidth > meta.clientWidth + 1 || box(meta).right > box(head).right + 0.5 : false;
     const hiddenByAncestor = (node) => {
       for (let a = node.parentElement; a && a !== panel; a = a.parentElement) {
         if (getComputedStyle(a).overflowX === 'hidden') return true;
@@ -215,42 +256,109 @@ const PAGE = `
     const close = head.querySelector('.composer-island-close');
     const size = (node) => node ? { w: box(node).width, h: box(node).height } : null;
     const items = [...panel.querySelectorAll('.composer-island-agent-item')];
+    const touch = document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
     const rowOverlaps = [];
     for (const item of items) {
       const it = box(item);
-      const copy = item.querySelector('.schedules-row-copy');
       const status = item.querySelector('.agent-activity-status');
-      const tokens = item.querySelector('.composer-island-agent-tokens');
-      const parts = [status, tokens].filter(Boolean);
-      for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
-        // Line boxes touch by a pixel or two; only real vertical sharing counts.
-      const core = (n) => { const r = box(n); return { left: r.left, right: r.right, top: r.top + 3, bottom: r.bottom - 3 }; };
-      if (overlap(core(parts[i]), core(parts[j]))) rowOverlaps.push(name(parts[i]) + ' × ' + name(parts[j]));
-      }
-      // The text itself (not just its flex box) must stay clear of the right column.
-      const right = [status, tokens].filter(Boolean).map(box);
-      for (const text of item.querySelectorAll('.agent-pool-name, .model-route-label, .agent-todo-mark')) {
+      // The name's text itself (not just its flex box) must stay clear of the step and state columns.
+      const right = box(status);
+      for (const text of item.querySelectorAll('.agent-pool-name')) {
         const range = document.createRange();
         range.selectNodeContents(text);
         const t = range.getBoundingClientRect();
         const visible = { left: t.left, right: Math.min(t.right, box(text).right), top: t.top, bottom: t.bottom };
-        if (right.some((r) => overlap(visible, r))) rowOverlaps.push('text ' + name(text));
+        for (const column of [right, box(item.querySelector('.agent-row-steps'))]) {
+          if (overlap(visible, column)) rowOverlaps.push('text ' + name(text));
+        }
       }
-      if (box(status).right > it.right + 0.5 || (tokens && box(tokens).right > it.right + 0.5)) rowOverlaps.push('right column leaves the row');
+      if (right.right > it.right + 0.5) rowOverlaps.push('the state leaves the row');
+      // One line: no model line or figure under the name (on touch, the 44px touch row).
+      if (it.height > (touch ? 44 : 37) || item.querySelector('.model-route-label, .composer-island-agent-tokens')) {
+        const row = item.querySelector('.agent-pool-row');
+        rowOverlaps.push('more than one line: ' + it.height + 'px: ' + name(row) + ' [' +
+          [...row.querySelectorAll('*')].filter((node) => box(node).height > 24)
+            .map((node) => (node.className?.baseVal ?? node.className) + ' ' + Math.round(box(node).height) + '/' + Math.round(box(node).width)).join('; ') + ']');
+      }
     }
-    // A step mark sits after its row's model, on the model's line.
-    const marks = [...panel.querySelectorAll('.agent-todo-mark')].map((node) => {
+    // The step figures, each in its row's step column, on the name's line.
+    const marks = [...panel.querySelectorAll('.agent-row-steps')].filter((node) => node.textContent).map((node) => {
       const mark = box(node);
-      const model = box(node.parentElement.querySelector('.model-route-label'));
-      return mark.left >= model.right - 0.5 && Math.abs((mark.top + mark.bottom) / 2 - (model.top + model.bottom) / 2) <= 3;
+      const nameBox = box(node.parentElement.querySelector('.agent-pool-name'));
+      return Math.abs((mark.top + mark.bottom) / 2 - (nameBox.top + nameBox.bottom) / 2) <= 3;
     });
+    // The rows' rings: each a 16px slot centred on its line's text, on one left line.
+    const centre = (b) => (b.top + b.bottom) / 2;
+    const slotLines = (slots) => {
+      const left = slots.length ? box(slots[0][0]).left : 0;
+      return slots.map(([slot, text]) => {
+        const mark = box(slot);
+        return mark.width === 16 && Math.abs(mark.left - left) <= 0.5 && Math.abs(centre(mark) - centre(box(text))) <= 0.5
+          ? null
+          : [name(slot), mark.width, mark.left - left, centre(mark) - centre(box(text))].join('/');
+      });
+    };
+    const brands = slotLines(
+      items.map((item) => [item.querySelector('.agent-row-ring'), item.querySelector('.agent-pool-name')])
+    ).filter(Boolean);
+    // Touch rows: every fold head and agent row at least the 44px touch floor.
+    const shortRows = touch
+      ? [...panel.querySelectorAll('.composer-island-agent-fold, .composer-island-agent-item > .agent-pool-row')]
+          .filter((node) => box(node).height < 44)
+          .map(name)
+      : [];
+    // The panel's type on its tokens: a state, a clock and a step mark in the regular weight, the foot's usage line
+    // at the supporting size, regular, muted.
+    const token = (property, value) => {
+      const probe = document.createElement('span');
+      probe.style[property] = value;
+      panel.append(probe);
+      const read = getComputedStyle(probe)[property];
+      probe.remove();
+      return read;
+    };
+    const regular = token('fontWeight', 'var(--mx-weight-regular)');
+    const type = {
+      heavy: [...panel.querySelectorAll('.composer-island-agent-item :is(.agent-activity-elapsed, .agent-row-steps)')]
+        .filter((node) => getComputedStyle(node).fontWeight !== regular)
+        .map(name),
+    };
     const list = panel.querySelector('.composer-island-jobs');
     const shown = box(list);
+    // Frameless: no rule under the head or between the list's groups and rows; the one rule stands above the foot's
+    // actions, between the text insets.
+    const edge = (node, side) => Number.parseFloat(getComputedStyle(node)['border' + side + 'Width']) || 0;
+    const footStyle = getComputedStyle(foot);
+    const inset = Number.parseFloat(getComputedStyle(panel).getPropertyValue('--island-panel-inset'));
+    const rules = {
+      head: edge(head, 'Bottom'),
+      list: [...list.children].filter((child) => edge(child, 'Top') || edge(child, 'Bottom')).map(name),
+      footBorder: edge(foot, 'Top'),
+      footRule:
+        footStyle.backgroundImage.startsWith('linear-gradient') &&
+        footStyle.backgroundSize.startsWith('calc(100% - ' + 2 * inset + 'px) '),
+      footSize: footStyle.backgroundSize,
+    };
     const cutRows = items
       .filter((item) => box(item).top < shown.bottom - 0.5 && box(item).bottom > shown.bottom + 0.5)
       .map(name);
     const names = [...panel.querySelectorAll('.agent-pool-name')];
     const summary = panel.querySelector('.composer-island-summary');
+    const summaryStyle = getComputedStyle(summary);
+    type.summary =
+      summaryStyle.fontSize === token('fontSize', 'var(--mx-font-supporting)') &&
+      summaryStyle.fontWeight === regular &&
+      summaryStyle.color === token('color', 'var(--mx-text-muted)')
+        ? null
+        : [summaryStyle.fontSize, summaryStyle.fontWeight, summaryStyle.color].join(' ');
+    // The list starts right under the head; the foot 4px under the last whole row shown.
+    const lastShown = Math.max(...[...list.children].map((child) => box(child).bottom).filter((bottom) => bottom <= shown.bottom + 0.5));
+    const spacing = {
+      top: box(list.firstElementChild).top - box(head).bottom,
+      foot: box(foot).top - lastShown,
+      headHeight: box(head).height,
+      footHeight: box(foot).height,
+    };
     const parts = summary.hidden ? [] : [...summary.children];
     const summaryOverlaps = [];
     for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
@@ -270,14 +378,16 @@ const PAGE = `
       pageOverflow: document.documentElement.scrollWidth - innerWidth,
       panel: { width: p.width, frame: frame.width, left: p.left, overflow: panel.scrollWidth - panel.clientWidth },
       head: { height: box(head).height, overflow: head.scrollWidth - head.clientWidth },
-      metaTexts: meta ? [...meta.children].map((n) => n.textContent) : [],
+      headParts: leaves.map((node) => node.className),
       actionLabel: action?.textContent ?? null,
-      overlaps, clipped, metaClipped, outside,
+      overlaps, clipped, outside,
+      brands, shortRows, type, spacing,
       footAction,
       close: size(close),
       rows: items.length,
       rowOverlaps,
       marks,
+      rules,
       cutRows,
       moreBelow: list.hasAttribute('data-more'),
       namesEllipsize: names.every((n) => getComputedStyle(n).textOverflow === 'ellipsis' && getComputedStyle(n).overflow === 'hidden'),
@@ -285,10 +395,15 @@ const PAGE = `
         overflow: summary.scrollWidth - summary.clientWidth,
         overlaps: summaryOverlaps,
         text: summary.textContent,
+        parts: parts.map((part) => part.textContent.replace(/·$/, '')),
         lines: new Set(parts.map((part) => Math.round(box(part).top))).size,
         clipped: parts.some((part) => part.scrollWidth > part.clientWidth + 1 || box(part).right > box(summary).right + 0.5),
+        titles: parts.map((part) => part.title),
       },
-      markedRows: items.filter((item) => item.querySelector('.composer-island-agent-tokens')?.textContent.startsWith('≥')).length,
+      markedRows: items.filter((item) => item.querySelector('.agent-pool-row').textContent.includes('≥')).length,
+      // A floor's tooltip carries the note on a line of its own, after the model and the total.
+      flooredRows: items.filter((item) => item.querySelector('.agent-pool-row').title.split('\\n').length > 2).length,
+      rowNotesNamingMark: items.filter((item) => item.querySelector('.agent-pool-row').title.includes('≥')).length,
     };
   };
 `;
@@ -299,16 +414,33 @@ function problems(label, m, phone) {
   const expect = (ok, what) => {
     if (!ok) found.push(`${label}: ${what}`);
   };
-  expect(m.rows === 17 && m.metaTexts.length >= 2, `the agents and their counts show (${m.rows} rows)`);
+  expect(m.rows === 17, `the agents show (${m.rows} rows)`);
+  expect(
+    m.headParts.join() === 'composer-island-tab,composer-island-close',
+    `the head is the chip and the close button: ${m.headParts}`
+  );
   expect(m.overlaps.length === 0, `header children overlap: ${m.overlaps}`);
   expect(m.clipped.length === 0, `header text or button clipped: ${m.clipped}`);
-  expect(!m.metaClipped, `the counts are clipped (${m.metaTexts})`);
+  expect(m.brands.length === 0, `rings not a 16px slot on one left line (w/left/offset): ${m.brands}`);
+  expect(m.type.heavy.length === 0, `states, clocks or step marks not regular: ${m.type.heavy}`);
+  expect(m.type.summary === null, `the usage line is not supporting, regular, muted: ${m.type.summary}`);
+  // The head 40px and the foot 44px on a desktop pane (on a phone the touch targets set them).
+  expect(
+    Math.abs(m.spacing.top) <= 0.5 &&
+      Math.abs(m.spacing.foot - 4) <= 0.5 &&
+      (phone || (m.spacing.headHeight === 40 && m.spacing.footHeight === 44)),
+    `the head 40px, the list under it, the foot 44px and 4px under the last row: ${JSON.stringify(m.spacing)}`
+  );
   expect(m.pageOverflow <= 0, `the page overflows by ${m.pageOverflow}px`);
   expect(m.panel.overflow <= 0 && m.head.overflow <= 0, `panel/header overflow ${m.panel.overflow}/${m.head.overflow}`);
   expect(m.outside.length === 0, `pokes out of the panel: ${m.outside}`);
   expect(m.rowOverlaps.length === 0, `row text under the right column: ${m.rowOverlaps}`);
   expect(m.namesEllipsize, 'row titles ellipsize');
-  expect(m.marks.length === 3 && m.marks.every(Boolean), `step marks do not follow their models: ${m.marks}`);
+  expect(m.marks.length === 3 && m.marks.every(Boolean), `step figures off their names' line: ${m.marks}`);
+  expect(
+    m.rules.head === 0 && m.rules.list.length === 0 && m.rules.footBorder === 0 && m.rules.footRule,
+    `rules: one above the foot between the insets, none else: ${JSON.stringify(m.rules)}`
+  );
   expect(m.cutRows.length === 0 && m.moreBelow, `the list ends mid-row or without its shadow: ${m.cutRows}`);
   expect(m.summary.overflow <= 0 && m.summary.overlaps.length === 0, `footer overflow/overlap ${m.summary.overlaps}`);
   const a = m.footAction;
@@ -318,13 +450,14 @@ function problems(label, m, phone) {
   );
   if (phone) {
     expect(m.close && m.close.w >= 44 && m.close.h >= 44, `Close is ${JSON.stringify(m.close)}, not a 44px target`);
+    expect(m.shortRows.length === 0, `heads or rows under the 44px touch floor: ${m.shortRows}`);
   }
   return found;
 }
 
-/** The footer is laid out before getSessionUsage answers: the same boxes hold
- *  its "-" placeholders and then the measured figures, nothing moves, and
- *  nothing overflows sideways. */
+/** The footer is laid out before getSessionUsage answers: Clean up alone in
+ *  it, no usage line and no placeholder; the answer adds the line in the same
+ *  footer box, nothing moves, and nothing overflows sideways. */
 function stabilityProblems(label, { loading, data }) {
   const found = [];
   const same = (a, b) => a.length === b.length && a.every((n, i) => Math.abs(n - b[i]) <= 0.5);
@@ -333,10 +466,19 @@ function stabilityProblems(label, { loading, data }) {
   };
   // The usage line fits like the composer's readout (it may drop items as
   // the figures widen), but the footer row keeps its place and height.
-  expect(/-/.test(loading.text) && !/\d/.test(loading.text), `loading footer is "-" placeholders: ${loading.text}`);
-  expect(!/\d/.test(loading.text) && /\d/.test(data.text), `data footer carries the figures: ${data.text}`);
+  expect(!loading.line, `loading footer holds no usage line: ${loading.text}`);
+  expect(
+    data.line && /\d/.test(data.text) && !/(^|[\s·])-([\s·]|$)/.test(data.text),
+    `data footer carries the figures: ${data.text}`
+  );
   expect(same(loading.panel, data.panel), `panel moved ${loading.panel} -> ${data.panel}`);
   expect(same(loading.firstRow, data.firstRow), `rows moved ${loading.firstRow} -> ${data.firstRow}`);
+  for (const [index, [height, text, copy]] of data.rowHeights.entries()) {
+    const [before, , copyBefore] = loading.rowHeights[index] ?? [];
+    expect(before === height, `row ${index} grew ${before} -> ${height}: ${text}`);
+    // The token figures arriving add nothing to the figures column: the names keep their room.
+    expect(Math.abs(copyBefore - copy) <= 0.5, `row ${index}'s names narrowed ${copyBefore} -> ${copy}: ${text}`);
+  }
   expect(same(loading.foot, data.foot), `footer moved ${loading.foot} -> ${data.foot}`);
   expect(loading.overflow <= 0 && data.overflow <= 0, `footer overflows ${loading.overflow}/${data.overflow}`);
   return found;
@@ -374,8 +516,10 @@ async function bundle(entry, loader) {
   });
 }
 
-// One bundle build and one Chrome for the whole file: both tests open pages
-// on the same browser and the same script and stylesheet text.
+// One bundle build and one Chrome for the whole file, and one page for each
+// form, a 360px phone (the touch layout) and a desktop pane: each case sets
+// the pane's width and renders a lead of its own.
+const errors = [];
 let shared = null;
 function sharedBrowser() {
   shared ??= (async () => {
@@ -395,125 +539,210 @@ function sharedBrowser() {
   })();
   return shared;
 }
+const pages = new Map();
+function formPage(phone) {
+  if (!pages.has(phone)) {
+    pages.set(
+      phone,
+      (async () => {
+        const { browser, js, css } = await sharedBrowser();
+        const tab = await browser.newPage();
+        tab.on('pageerror', (error) => errors.push(error.message));
+        await tab.setViewport(
+          phone
+            ? { width: 360, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }
+            : { width: 1400, height: 900 }
+        );
+        await tab.setContent(
+          phone
+            ? `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>${HOST}</body></html>`
+            : `<!doctype html><html><head><style>${css}</style></head><body>${HOST}</body></html>`
+        );
+        await tab.addScriptTag({ content: js });
+        return tab;
+      })()
+    );
+  }
+  return pages.get(phone);
+}
 
 after(async () => {
   if (shared) await (await shared).browser.close();
 });
 
+let leads = 0;
+/** The phone's page, or the desktop's with its pane `paneWidth` wide. */
+async function sized(paneWidth) {
+  const tab = await formPage(!paneWidth);
+  // A page behind the other gets no animation frames, and the harness waits on them.
+  await tab.bringToFront();
+  if (paneWidth)
+    await tab.evaluate((width) => {
+      document.querySelector('#host').style.width = `${width}px`;
+    }, paneWidth);
+  return tab;
+}
+/** A lead no case has used: the island remembers a session's last usage answer, which would hide the loading state
+ *  and a changed answer on a re-render. */
+const freshLead = (tab) => tab.evaluate((n) => window.__lead(n), ++leads);
+
 // Width is the only thing that makes a label too long, so the narrowest size
-// takes every language and the roomier ones the three longest catalogs plus
-// the reported one (ko, de, ru); en is the baseline on the desktop pane.
+// takes every language and a roomier one the longest catalogs plus the
+// reported one (ko, de, ru); en is the baseline on the desktop pane.
 const LONGEST = ['ko', 'de', 'ru'];
 
 test('the Agents popover header never overlaps or clips on a phone, in any language', async () => {
-  const { browser, js, css } = await sharedBrowser();
-  const tab = await browser.newPage();
-  const errors = [];
   const failures = [];
-  let leads = 0;
-  tab.on('pageerror', (error) => errors.push(error.message));
-  const mobileHtml = `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>${HOST}</body></html>`;
   if (process.env.AGENT_PANEL_SHOT_TAG) mkdirSync(SHOTS, { recursive: true });
-
-  try {
-    for (const [width, height, languages] of [
-      [360, 800, LANGUAGES],
-      [412, 915, LONGEST],
-      [430, 932, LONGEST],
-    ]) {
-      await tab.setViewport({ width, height, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-      await tab.setContent(mobileHtml);
-      await tab.addScriptTag({ content: js });
-      for (const language of languages) {
-        // A lead no case has used: the island remembers a session's last usage
-        // answer, which would hide the loading state on a re-render.
-        await tab.evaluate((n) => window.__lead(n), ++leads);
-        const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
-        failures.push(...stabilityProblems(`${language} @${width} loading->data`, held));
-        // The settled data state is measured as it stands; the first language
-        // of each size also takes the other road, a fresh mount that already
-        // has the answer cached.
-        if (language === languages[0]) await tab.evaluate((lang) => window.__render(lang), language);
-        const m = await tab.evaluate(() => window.__measure());
-        if (process.env.AGENT_PANEL_SHOT_TAG) {
-          await tab.screenshot({ path: join(SHOTS, `${TAG}-${language}-${width}x${height}.png`) });
-        }
-        failures.push(...problems(`${language} @${width}`, m, true));
-      }
+  const tab = await sized(0);
+  for (const language of LANGUAGES) {
+    await freshLead(tab);
+    const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
+    failures.push(...stabilityProblems(`${language} @360 loading->data`, held));
+    // The settled data state is measured as it stands; the first language also takes the other road, a fresh mount
+    // that already has the answer cached.
+    if (language === LANGUAGES[0]) await tab.evaluate((lang) => window.__render(lang), language);
+    const m = await tab.evaluate(() => window.__measure());
+    if (process.env.AGENT_PANEL_SHOT_TAG) {
+      await tab.screenshot({ path: join(SHOTS, `${TAG}-${language}-360x800.png`) });
     }
-    assert.deepEqual(failures, []);
-    assert.deepEqual(errors, []);
-  } finally {
-    await tab.close();
+    failures.push(...problems(`${language} @360`, m, true));
   }
+  assert.deepEqual(failures, []);
+  assert.deepEqual(errors, []);
 });
 
-test('figures marked as lower bounds keep the footer on one unclipped line and the rows clear, in every language', async () => {
-  const { browser, js, css } = await sharedBrowser();
-  const tab = await browser.newPage();
+test('figures that are lower bounds stand plain, their tooltips saying so, and keep the footer on one unclipped line and the rows clear, in every language', async () => {
   const failures = [];
-  const mobileHtml = `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>${HOST}</body></html>`;
-  const desktopHtml = `<!doctype html><html><head><style>${css}</style></head><body>${HOST}</body></html>`;
-  try {
-    for (const [label, html, paneWidth, phone] of [
-      ['phone', mobileHtml, 0, true],
-      ['desktop', desktopHtml, 340, false],
-      ['desktop', desktopHtml, 560, false],
-    ]) {
-      await tab.setViewport(phone ? { width: 360, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { width: 1400, height: 900 });
-      await tab.setContent(html);
-      await tab.addScriptTag({ content: js });
-      if (paneWidth) await tab.evaluate((width) => { document.querySelector('#host').style.width = `${width}px`; }, paneWidth);
-      await tab.evaluate(() => window.__floors(true));
-      // The page holds agents for 24 leads; a fresh page starts the island's answers over, so each size reuses them.
-      let leads = 0;
-      for (const language of ['en', ...LANGUAGES]) {
-        await tab.evaluate((n) => window.__lead(n), ++leads);
+  for (const [label, paneWidth, languages] of [
+    ['phone', 0, ['en', ...LANGUAGES]],
+    ['desktop', 340, ['en', ...LONGEST]],
+  ]) {
+    const phone = !paneWidth;
+    const tab = await sized(paneWidth);
+    await tab.evaluate(() => window.__floors(true));
+    try {
+      for (const language of languages) {
+        await freshLead(tab);
         await tab.evaluate((lang) => window.__render(lang), language);
         const m = await tab.evaluate(() => window.__measure());
         const at = `${label} ${language} @${paneWidth || 360}`;
         failures.push(...problems(`${at} floors`, m, phone));
-        if (!m.summary.text.includes('≥')) failures.push(`${at}: the footer carries no mark: ${m.summary.text}`);
-        if (m.summary.lines !== 1 || m.summary.clipped) failures.push(`${at}: the footer wraps or clips: ${m.summary.text}`);
-        if (m.markedRows === 0) failures.push(`${at}: no row shows its marked total`);
+        if (m.summary.text.includes('≥')) failures.push(`${at}: the footer marks a figure: ${m.summary.text}`);
+        if (!m.summary.titles.some((title) => title.includes('\n'))) {
+          failures.push(`${at}: no footer tooltip says a figure is a floor: ${m.summary.titles}`);
+        }
+        // The note names no mark: the figures carry none.
+        if (m.summary.titles.some((title) => title.includes('≥')) || m.rowNotesNamingMark > 0) {
+          failures.push(`${at}: a tooltip names the ≥ mark: ${m.summary.titles}`);
+        }
+        if (m.summary.lines !== 1 || m.summary.clipped)
+          failures.push(`${at}: the footer wraps or clips: ${m.summary.text}`);
+        if (m.markedRows > 0) failures.push(`${at}: ${m.markedRows} rows mark their total`);
+        if (m.flooredRows === 0) failures.push(`${at}: no row's tooltip says its total is a floor`);
       }
+    } finally {
+      await tab.evaluate(() => window.__floors(false));
     }
-    assert.deepEqual(failures, []);
-  } finally {
-    await tab.close();
   }
+  assert.deepEqual(failures, []);
+  assert.deepEqual(errors, []);
+});
+
+test("the foot's usage line and Clean up share one row at every pane width, Clean up in the row's last slot, the line fitted to the room it leaves and its cost the amount alone", async () => {
+  const failures = [];
+  const tab = await sized(900);
+  await tab.evaluate(() => window.__large(true));
+  try {
+    await freshLead(tab);
+    await tab.evaluate(() => window.__render('en'));
+    const forms = new Set();
+    for (let width = 900; width >= 340; width -= 10) {
+      const row = await tab.evaluate((next) => window.__footRow(next), width);
+      const at = `@${width} (panel ${row.panel}px, "${row.text}")`;
+      forms.add(row.parts);
+      if (!row.shown) failures.push(`${at}: no usage line`);
+      if (!row.sameRow || row.footHeight > 44.5) {
+        failures.push(`${at}: the line and Clean up on two rows (${row.footHeight}px)`);
+      }
+      if (!row.last || !row.atEnd) failures.push(`${at}: Clean up not in the row's last slot at its end`);
+      if (!row.clear) failures.push(`${at}: the line runs under Clean up`);
+      if (/est\. cost/.test(row.text)) failures.push(`${at}: the cost is labelled`);
+    }
+    // Wide, the whole line of the agents' own figures (the Lead's 5.1B and $4,000 are its readout's); narrow, parts dropped.
+    assert.ok(forms.size > 1, `the line keeps one form at every width: ${[...forms]}`);
+    const wide = await tab.evaluate(() => window.__footRow(900));
+    assert.match(wide.text, /^23B tokens.*\$8,724\.54$/);
+    assert.doesNotMatch(wide.text, /Lead|5\.1B|12,724/);
+  } finally {
+    await tab.evaluate(() => window.__large(false));
+    await tab.evaluate(() => {
+      document.querySelector('#host').style.width = '';
+    });
+  }
+  assert.deepEqual(failures, []);
+  assert.deepEqual(errors, []);
+});
+
+test("on a 412px phone, agents whose usage is a floor get their figures on one line, never a placeholder, the cache hit dropped first and the cost next", async () => {
+  const tab = await sized(0);
+  await tab.setViewport({ width: 412, height: 915, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await tab.evaluate(() => window.__reported(true));
+  try {
+    await freshLead(tab);
+    await tab.evaluate(() => window.__render('ko'));
+    const { summary } = await tab.evaluate(() => window.__measure());
+    assert.ok(summary.parts.length > 0, `no usage line: ${summary.text}`);
+    assert.doesNotMatch(summary.text, /(^|[\s·])-([\s·]|$)/, 'no placeholder');
+    assert.match(summary.parts[0], /^23B/);
+    const kind = (text) => (text.includes('$') ? 'cost' : text.includes('%') ? 'hit' : 'total');
+    const kept = ['total', 'cost', 'hit'].slice(0, summary.parts.length);
+    assert.deepEqual(
+      summary.parts.map(kind),
+      ['total', 'hit', 'cost'].filter((name) => kept.includes(name))
+    );
+    assert.ok(summary.lines === 1 && !summary.clipped && summary.overflow <= 0, `wraps or clips: ${summary.text}`);
+  } finally {
+    await tab.evaluate(() => window.__reported(false));
+    await tab.setViewport({ width: 360, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  }
+  assert.deepEqual(errors, []);
+});
+
+test("the agents panel's type on the session panel's tiers: each role (title, kind line, row name at rest and at work, state and clock, foot line, button) one size, line height and weight token", async () => {
+  const tab = await sized(560);
+  await freshLead(tab);
+  await tab.evaluate(() => window.__render('en'));
+  const off = await tab.evaluate(typeOffTier, PANEL_TYPE_ROLES, {
+    title: '.composer-island-panel .composer-island-tab',
+    kind: '.composer-island-panel .composer-island-agent-fold',
+    name: '.composer-island-panel .agent-pool-row:not([data-working]) .agent-pool-name',
+    working: '.composer-island-panel .agent-pool-row[data-working] .agent-pool-name',
+    state: '.composer-island-panel .agent-pool-row .agent-activity-elapsed',
+    foot: '.composer-island-panel .composer-island-summary',
+    button: '.composer-island-panel-foot .composer-island-button',
+  });
+  assert.deepEqual(off, []);
+  assert.deepEqual(errors, []);
 });
 
 test('a narrow desktop pane gets the same header', async () => {
-  const { browser, js, css } = await sharedBrowser();
-  const tab = await browser.newPage();
   const failures = [];
-  let leads = 0;
-  await tab.setViewport({ width: 1400, height: 900 });
-  const desktopHtml = `<!doctype html><html><head><style>${css}</style></head><body>${HOST}</body></html>`;
-  try {
-    // 560 is the panel's own width; the narrower ones are split panes and side panels.
-    for (const [paneWidth, languages] of [
-      [560, ['en', ...LONGEST]],
-      [480, ['en', ...LONGEST]],
-      [340, ['en', ...LANGUAGES]],
-    ]) {
-      await tab.setContent(desktopHtml);
-      await tab.addScriptTag({ content: js });
-      await tab.evaluate((width) => {
-        document.querySelector('#host').style.width = `${width}px`;
-      }, paneWidth);
-      for (const language of languages) {
-        await tab.evaluate((n) => window.__lead(n), ++leads);
-        const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
-        failures.push(...stabilityProblems(`desktop ${language} @${paneWidth} loading->data`, held));
-        if (language === languages[0]) await tab.evaluate((lang) => window.__render(lang), language);
-        const m = await tab.evaluate(() => window.__measure());
-        failures.push(...problems(`desktop ${language} @${paneWidth}`, m, false));
-      }
+  // 560 is the panel's own width; 340 a split pane or side panel's.
+  for (const [paneWidth, languages] of [
+    [560, ['en']],
+    [340, ['en', ...LANGUAGES]],
+  ]) {
+    const tab = await sized(paneWidth);
+    for (const language of languages) {
+      await freshLead(tab);
+      const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
+      failures.push(...stabilityProblems(`desktop ${language} @${paneWidth} loading->data`, held));
+      if (language === languages[0]) await tab.evaluate((lang) => window.__render(lang), language);
+      const m = await tab.evaluate(() => window.__measure());
+      failures.push(...problems(`desktop ${language} @${paneWidth}`, m, false));
     }
-    assert.deepEqual(failures, []);
-  } finally {
-    await tab.close();
   }
+  assert.deepEqual(failures, []);
+  assert.deepEqual(errors, []);
 });

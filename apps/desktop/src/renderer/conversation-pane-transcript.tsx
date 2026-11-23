@@ -15,7 +15,6 @@ import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './trans
 import type { TranscriptRowModel } from './transcript-rows';
 import { useScrollProgress } from './scroll-progress';
 import { TranscriptList } from './TranscriptList';
-import { useTranscriptJump } from './transcript-jump';
 import {
   TurnCardsWithheldContext,
   TurnChangesContext,
@@ -203,7 +202,6 @@ export function ConversationTranscript({
   const { viewport, content, follow } = view;
   useScrollProgress(viewport, ':scope > .transcript-scroll-fade');
   const { requestEarlierTranscript, requestLaterTranscript, transcriptHistoryActive } = source;
-  useTranscriptJump({ sessionId: draftMode ? '' : routeSessionId, leaveTail: follow.pause });
   const revealed = timeline.transcriptRevealed;
   const agentSurface = roomIdOfSession(routeSessionId) ? 'room' : 'agent';
   const showWelcome = conversationShowsWelcome({
@@ -304,6 +302,7 @@ export function ConversationTranscript({
                 hasTouchScroll={follow.holdsScrollCorrections}
                 touchHoldsCorrections={follow.touchHoldsCorrections}
                 onSelectionAutoScroll={follow.handleSelectionAutoScroll}
+                onSelectionHold={follow.handleSelectionHold}
                 setAnchorBottomRef={view.setTranscriptAnchorBottomRef}
                 scrollToEndRef={view.scrollToEndRef}
                 renderRow={renderRow}

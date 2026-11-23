@@ -17,6 +17,7 @@ type RouteSheetRefs = {
  *  sheet and flyout occupy, and the refs the panes share. */
 export function useRouteSheet({
   dropdown,
+  rowWide = false,
   placement,
   align,
   sheetHeight,
@@ -25,6 +26,8 @@ export function useRouteSheet({
   onOpenSheet,
 }: {
   dropdown: boolean;
+  /** The trigger is a session panel row: the sheet stands on its edges (useRouteLayout). */
+  rowWide?: boolean;
   placement: 'above' | 'below';
   align: 'start' | 'end';
   sheetHeight: number;
@@ -110,6 +113,7 @@ export function useRouteSheet({
     setFlyoutBox,
     setDrill,
     dropdown,
+    rowWide,
   });
   const paneRow = () => (pane ? rowButtons.current[pane] : null);
   useRouteFlyoutFit(modelFlyout, pane === 'model' ? flyoutBox : null, setFlyoutBox, paneRow);

@@ -1,3 +1,4 @@
+import { ownScrollWrites } from './own-scroll-writes';
 import { modalDialogPresented } from './surface-input-focus';
 
 const cards = new Set<HTMLElement>();
@@ -113,5 +114,5 @@ export function focusCardWhenIdle(card: HTMLElement): void {
   if (active && active !== document.body) return;
   card.focus({ preventScroll: true });
   // Long tool output above can leave the new card below the fold.
-  card.scrollIntoView({ block: 'nearest' });
+  ownScrollWrites(card, () => card.scrollIntoView({ block: 'nearest' }));
 }

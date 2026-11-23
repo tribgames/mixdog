@@ -18,21 +18,17 @@ interface MeasuredUsage {
   floor: boolean;
 }
 
+/** The agents' own usage: the Lead's is the session's readout (the composer's and Info's line), never added here. */
 export interface IslandUsageSummary {
-  /** Lead + agents; null before both parts are answered or when nothing was measured. */
-  totalTokens: number | null;
-  leadTokens: number | null;
-  /** Every agent session the Lead ran, together. */
+  /** Every agent session the Lead ran, together; null before the ledger answers or when nothing was measured. */
   agentTokens: number | null;
-  /** Share of prompt tokens read from cache over the same sessions as the total. */
+  /** Share of the agents' prompt tokens read from cache. */
   cacheHitRate: number | null;
-  /** Estimated value over the same sessions' priced turns; null when none is priced. */
+  /** Estimated value of the agents' priced turns; null when none is priced. */
   costUsd: number | null;
   /** `costUsd` leaves out a turn without a known price or without measured usage. */
   costFloor: boolean;
-  /** The Lead's figures are a floor (`leadTokens`). */
-  leadFloor: boolean;
-  /** The agents' figures are a floor (`agentTokens`); either part makes the combined figures one. */
+  /** The agents' figures are a floor (`agentTokens`). */
   agentsFloor: boolean;
   /** Each agent session's own total, keyed by session id. */
   agentRowTokens: ReadonlyMap<string, number>;
@@ -92,7 +88,6 @@ export function islandUsageSessionIds(sessionIds: readonly string[]): string[] {
 
 export function islandUsageSummary(value: unknown, agentSessionIds: readonly string[]): IslandUsageSummary {
   const result = record(value);
-  const lead = value ? measuredUsage(result) : null;
   const agents = value ? measuredUsage(result.agents) : null;
   const sessions = record(result.sessions);
   const agentRowTokens = new Map<string, number>();
@@ -104,23 +99,14 @@ export function islandUsageSummary(value: unknown, agentSessionIds: readonly str
     agentRowTokens.set(id, tokens);
     if (usage.floor) agentRowFloors.add(id);
   }
-  const all = lead && agents ? [lead, agents] : null;
-  const sum = (field: 'tokens' | 'prompt' | 'cacheRead' | 'costUsd' | 'turns' | 'unpricedTurns') =>
-    (all ?? []).reduce((total, usage) => total + usage[field], 0);
-  const floor = Boolean(lead?.floor || agents?.floor);
-  const prompt = sum('prompt');
-  const turns = sum('turns');
-  const unpriced = sum('unpricedTurns');
-  const costFloor = floor || unpriced > 0;
+  const floor = Boolean(agents?.floor);
+  const costFloor = floor || (agents?.unpricedTurns ?? 0) > 0;
   return {
-    totalTokens: all ? figure(sum('tokens'), floor) : null,
-    leadTokens: lead ? figure(lead.tokens, lead.floor) : null,
-    agentTokens: agents ? figure(agents.tokens, agents.floor) : null,
-    cacheHitRate: all && prompt > 0 ? sum('cacheRead') / prompt : null,
-    costUsd: all && unpriced < turns ? figure(sum('costUsd'), costFloor) : null,
+    agentTokens: agents ? figure(agents.tokens, floor) : null,
+    cacheHitRate: agents && agents.prompt > 0 ? agents.cacheRead / agents.prompt : null,
+    costUsd: agents && agents.unpricedTurns < agents.turns ? figure(agents.costUsd, costFloor) : null,
     costFloor,
-    leadFloor: Boolean(lead?.floor),
-    agentsFloor: Boolean(agents?.floor),
+    agentsFloor: floor,
     agentRowTokens,
     agentRowFloors,
   };

@@ -160,6 +160,16 @@ export function anchoredPanelStyle(
   return { ...horizontal, top: geometry.top, maxHeight: geometry.maxHeight, transformOrigin: `top ${side}` };
 }
 
+/** The session panel's row menus (project, branch, model, workflow, delegation): a panel standing on its anchor
+ *  row's own edges, as wide as the row from its left whatever its content or its menu class's cap asks; above or
+ *  below as placed. */
+export function onAnchorEdges<T extends object>(
+  box: T,
+  anchor: { left: number; width: number }
+): T & { left: number; right: undefined; width: number; maxWidth: number } {
+  return { ...box, left: anchor.left, right: undefined, width: anchor.width, maxWidth: anchor.width };
+}
+
 /** Bounds = the allowed area intersected with the window. */
 export const intersectRects = (first: AnchorRect, second: AnchorRect): AnchorRect => {
   const left = Math.max(first.left, second.left);

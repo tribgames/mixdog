@@ -11,9 +11,12 @@ import { reportRendererFailure } from './RendererRecovery';
 import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalImeGuard } from './terminal-ime-guard';
+import { attachTerminalClipboardKeys } from './terminal-clipboard-keys';
+import { copyTextToClipboard } from './text-format';
 
 const IS_LINUX =
   typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 import { TerminalWritePump } from './terminal-write-pump';
 import { trackReplay, viewPaintsAtOnce } from './terminal-replay-state';
 import { createTerminalConnectGate, type TerminalConnectMode } from './terminal-connect-gate';
@@ -244,6 +247,7 @@ function terminalView(key: string): TerminalView {
     cursorInactiveStyle: 'bar',
     theme: terminalTheme(),
   });
+  attachTerminalClipboardKeys(term, IS_MAC, copyTextToClipboard);
   const fit = new FitAddon();
   term.loadAddon(fit);
   const writer = new TerminalWritePump((data, complete) => term.write(data, complete), acknowledgeTerminalOutput);

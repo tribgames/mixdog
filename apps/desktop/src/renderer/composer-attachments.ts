@@ -257,8 +257,9 @@ async function resizedImage(
   originalRef?: string;
 }> {
   // Browser-selected files and keyboard/clipboard screenshots already live in
-  // this process. Resize them here instead of sending the full original over
-  // the relay and waiting for a second RPC before the attachment chip appears.
+  // this process. Resize them here, so the model's copy is the small one; the
+  // original still goes to the PC (`imageAttachment` stages it beside this
+  // resize) and the chip waits for that upload.
   if (isRemoteBrowserRenderer()) return browserResizedImage(file, displayName);
   const invokeResize = window.mixdogDesktop?.invokeCapability;
   if (typeof invokeResize !== 'function') return { data, mimeType, metadataText: '' };
@@ -303,13 +304,15 @@ async function imageAttachment({
   // is judged (attachmentPolicyError); a local raw attach is judged here.
   const raw = await base64Payload(file, `${displayName}: could not read image.`);
   if (cancelled()) return null;
+  // A browser resizes the image itself, so its original goes up beside that resize.
+  const staging = isRemoteBrowserRenderer() ? stageOriginalImage(raw, file, displayName) : null;
   const image = await resizedImage(file, raw, file.type, displayName);
   if (cancelled()) return null;
   // A resized copy goes to the model; the picked bytes are kept for the PC file
   // (the desktop engine already did that while resizing). A payload that is the
-  // file itself needs no second copy.
+  // file itself needs no second copy, so an upload started for it is unused.
   const originalRef =
-    image.originalRef ?? (image.data === raw ? null : await stageOriginalImage(raw, file, displayName));
+    image.originalRef ?? (image.data === raw ? null : await (staging ?? stageOriginalImage(raw, file, displayName)));
   if (cancelled()) return null;
   return {
     ...(originalRef ? { originalRef, originalMimeType: file.type } : {}),

@@ -23,6 +23,7 @@ const CAPABILITY_ARTWORK = {
   skill: '#a8afbf',
   tidy: '#2ec4b6',
   visualize: '#f2a65a',
+  agent: '#7d9cf0',
 } as const;
 
 type CapabilityArtwork = keyof typeof CAPABILITY_ARTWORK;
@@ -38,6 +39,7 @@ const BUILT_IN_ARTWORK: Record<string, CapabilityArtwork> = {
   voice: 'voice',
   tidy: 'tidy',
   visualize: 'visualize',
+  acpAgents: 'agent',
 };
 const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
   'browser-use': 'browser',
@@ -228,6 +230,15 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="M7 8.5h6M7 11.5h3" />
           <path d="M12.5 12.5 21 15.6l-3.6 1.5-1.5 3.6Z" {...PLATE} />
           <path d="M12.5 12.5 21 15.6l-3.6 1.5-1.5 3.6Z" />
+        </>
+      );
+    // ACP agents: a terminal window with its prompt, an agent that runs as a CLI.
+    case 'agent':
+      return (
+        <>
+          <rect x="3" y="4.5" width="18" height="15" rx="2.5" {...PLATE} />
+          <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+          <path d="m7.5 10 2.5 2.25-2.5 2.25M12.5 15h4" />
         </>
       );
     default:

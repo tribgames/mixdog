@@ -491,9 +491,30 @@ export interface DesktopRendererWhatsNewDiagnostic {
   message?: string;
 }
 
+/** The transcript stopped following its end: what decided it and where the view stood. */
+export interface DesktopRendererFollowReleaseDiagnostic {
+  kind: 'follow-release';
+  reason: string;
+  top: number;
+  delta: number;
+  distance: number;
+  windowFocused: boolean;
+  pageHidden: boolean;
+}
+
+/** The transcript took following its end back after a release: what took it and where the view stood. */
+export interface DesktopRendererFollowRearmDiagnostic {
+  kind: 'follow-rearm';
+  reason: string;
+  top: number;
+  distance: number;
+}
+
 export type DesktopRendererDiagnostic =
   | DesktopRendererFailureDiagnostic
   | DesktopRendererWhatsNewDiagnostic
+  | DesktopRendererFollowReleaseDiagnostic
+  | DesktopRendererFollowRearmDiagnostic
   | DesktopRendererLongTaskDiagnostic
   | DesktopRendererComposerActionDiagnostic
   | import('./transcript-read-diagnostics').TranscriptReadDiagnostic;

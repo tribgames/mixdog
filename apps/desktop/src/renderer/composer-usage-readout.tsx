@@ -1,5 +1,5 @@
-import { CircleDollarSign, Coins, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
-import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
+import { createLucideIcon, DatabaseZap, DollarSign, Gauge, type LucideIcon } from 'lucide-react';
+import { type CSSProperties, type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
@@ -127,11 +127,18 @@ export function formatHitPercent(share: number): string {
   return `${(share * 100).toFixed(1)}%`;
 }
 
+/** One coin, face on: tokens. */
+const Coin = createLucideIcon('coin', [
+  ['circle', { cx: '12', cy: '12', r: '9', key: 'rim' }],
+  ['path', { d: 'M10.5 9H12v6', key: 'one' }],
+  ['path', { d: 'M10.5 15h3', key: 'foot' }],
+]);
+
 /** The token-total item (`730.5M tokens`) for an already formatted value;
  *  the composer agents panel's footer shows its total through it too. */
 export function tokensReadoutItem(tokens: string): ReadoutItem {
   return {
-    icon: Coins,
+    icon: Coin,
     text: tokens,
     label: t('Total tokens {{tokens}}', { tokens }),
     word: t('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' }),
@@ -182,18 +189,33 @@ const DISPLAY_ORDER = ['total', 'speed', 'hit'];
 /** The estimated-cost item for an already formatted amount (`$6,216.60`). */
 export function costReadoutItem(cost: string): ReadoutItem {
   const label = t('Island: {{cost}} est. cost', { cost });
-  return { icon: CircleDollarSign, text: cost, label, word: label };
+  return { icon: DollarSign, text: cost, label, word: label };
 }
 
-/** The usage readout's variants with the session's estimated cost after its
- *  items (the session panel's Usage row); the cost is the first to go. */
+/** The session panel's Usage row: the usage readout's worded line, always
+ *  with its cache hit (0.0% until a cache read lands), and the session's
+ *  estimated cost after it where the row has the room. The cost is the first
+ *  to go: the worded line without it comes before any icon form. */
 export function usageWithCostVariants(snapshot: Snapshot): ReadoutItem[][] {
-  const cost = Number(asRecord(snapshot.stats)?.costUsd);
-  const parts = {
-    ...usageReadoutParts(sessionUsageTotals(snapshot.stats), liveTokensPerSecond(snapshot.spinner)),
-    cost: Number.isFinite(cost) && cost > 0 ? costReadoutItem(usageMoney(cost)) : null,
-  };
-  return readoutVariants(parts, [...KEEP_ORDER, 'cost'], [...DISPLAY_ORDER, 'cost']);
+  const parts = usageReadoutParts(sessionUsageTotals(snapshot.stats), liveTokensPerSecond(snapshot.spinner));
+  if (parts.total && !parts.hit) parts.hit = cacheHitReadoutItem(formatHitPercent(0));
+  const variants = readoutVariants(parts);
+  const usd = Number(asRecord(snapshot.stats)?.costUsd);
+  if (!variants.length || !Number.isFinite(usd) || usd <= 0) return variants;
+  const cost = costReadoutItem(usageMoney(usd));
+  const [worded, icons, ...fewer] = variants;
+  return [
+    [
+      ...worded.slice(0, -1),
+      { ...worded[worded.length - 1], separator: true },
+      // The amount alone: its tooltip names it.
+      { ...cost, icon: null },
+    ],
+    worded,
+    [...icons, cost],
+    icons,
+    ...fewer,
+  ];
 }
 
 function pickItems(
@@ -320,11 +342,14 @@ export function FittedReadout({
   onClick,
   title,
   className = '',
+  gap = ITEM_GAP,
 }: {
   variants: ReadoutItem[][];
   onClick?(): void;
   title: string;
   className?: string;
+  /** The room between items and around a `·`, in px (--readout-gap): a word space where the line is read as text. */
+  gap?: number;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [shown, setShown] = useState(0);
@@ -358,17 +383,20 @@ export function FittedReadout({
       const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
       const itemWidth = (item: ReadoutItem) =>
         textWidth(font, fitText(item)) +
-        (item.separator ? ITEM_GAP + textWidth(font, '·') : 0) +
+        (item.separator ? gap + textWidth(font, '·') : 0) +
         (item.icon === 'dot' ? DOT_WIDTH + ICON_GAP : item.icon ? ICON_WIDTH + ICON_GAP : 0);
       // The `font` shorthand reads back empty when the element sets other
       // font properties (numeric variants), so the canvas gets its parts.
       const widths = variants.map(
-        (items) => items.reduce((sum, item) => sum + itemWidth(item), 0) + ITEM_GAP * (items.length - 1) + padding + 2
+        (items) => items.reduce((sum, item) => sum + itemWidth(item), 0) + gap * (items.length - 1) + padding + 2
       );
       // The worded form (variant 0): what the PC's one-line layout needs
       // before the card takes over (useOneLineOverflow).
       button.dataset.fullWidth = String(Math.ceil(widths[0] ?? 0) + 8);
-      setShown(fittingVariant(widths, available - 8));
+      // The room kept between the line and what stands beside it: 8px, or the row's own gap where it is wider (the
+      // island panels' foot), so the fitted line and its neighbours share the row.
+      const beside = others > 0 ? Math.max(8, Number.parseFloat(lineStyle.columnGap) || 0) : 8;
+      setShown(fittingVariant(widths, available - beside));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -396,10 +424,11 @@ export function FittedReadout({
       siblings.disconnect();
       document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
     };
-  }, [key]);
+  }, [key, gap]);
   if (!variants.length) return null;
   const index = shown < 0 ? -1 : Math.min(shown, variants.length - 1);
   const classes = `composer-usage-readout ${className}`.trim();
+  const style = gap === ITEM_GAP ? undefined : ({ '--readout-gap': `${gap}px` } as CSSProperties);
   const items = <ReadoutItems items={variants[Math.max(index, 0)]} />;
   if (!onClick) {
     return (
@@ -407,6 +436,7 @@ export function FittedReadout({
       <span
         ref={ref as RefObject<HTMLSpanElement>}
         className={classes}
+        style={style}
         role="group"
         aria-label={title}
         hidden={index < 0}
@@ -420,6 +450,7 @@ export function FittedReadout({
       ref={ref as RefObject<HTMLButtonElement>}
       type="button"
       className={classes}
+      style={style}
       hidden={index < 0}
       onClick={onClick}
       title={title}

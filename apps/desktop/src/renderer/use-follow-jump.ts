@@ -5,6 +5,7 @@ import {
   JUMP_PIN_SETTLE_FRAMES,
   jumpButtonVisible,
   scrollMetrics,
+  standsAtEnd,
   transcriptScrollGeometryRegistered,
 } from './transcript-follow-rules';
 
@@ -65,33 +66,56 @@ export function useJumpPin({
   return { cancelJumpPin, startJumpPin };
 }
 
-/** Whether the jump-to-latest button shows, refreshed at most once a frame. */
-export function useJumpButtonState(followingRef: RefObject<boolean>) {
+/** Whether the jump-to-latest button shows, refreshed at most once a frame, wherever the distance to the end changes
+ *  (a scroll, the content or the viewport resizing, follow turning on or off). Standing at the end is following: a view
+ *  with follow off that stands there takes it back (`atEnd`). */
+export function useJumpButtonState({
+  followingRef,
+  holds,
+  atEnd,
+}: {
+  followingRef: RefObject<boolean>;
+  /** A selection holds follow: the end is not kept while it lasts. */
+  holds(): boolean;
+  /** Follow is off and the view stands at the end: takes follow back, or answers true while the reader's input still
+   *  in flight has to end first. */
+  atEnd: RefObject<() => boolean>;
+}) {
   const [showJump, setShowJump] = useState(false);
   const scrollStateFrame = useRef(0);
   const scrollStateTarget = useRef<HTMLDivElement | null>(null);
 
+  /** Answers true when the view has to be looked at again next frame. */
   const updateScrollState = useCallback(
-    (element: HTMLDivElement) => {
+    (element: HTMLDivElement): boolean => {
       // No timeline mounted yet: nothing to jump to, and the DOM fallback would
       // force a layout of the opening pane from this animation frame.
-      const jump =
-        transcriptScrollGeometryRegistered(element) && jumpButtonVisible(scrollMetrics(element), followingRef.current);
+      if (!transcriptScrollGeometryRegistered(element)) {
+        setShowJump(false);
+        return false;
+      }
+      const metrics = scrollMetrics(element);
+      const wait = !followingRef.current && standsAtEnd(metrics) && atEnd.current();
+      const jump = jumpButtonVisible(metrics, followingRef.current && !holds());
       setShowJump((current) => (current === jump ? current : jump));
+      return wait;
     },
-    [followingRef]
+    [atEnd, followingRef, holds]
   );
 
   const scheduleScrollState = useCallback(
     (element: HTMLDivElement) => {
       scrollStateTarget.current = element;
       if (scrollStateFrame.current) return;
-      scrollStateFrame.current = window.requestAnimationFrame(() => {
+      const frame = (): void => {
         scrollStateFrame.current = 0;
         const target = scrollStateTarget.current;
         scrollStateTarget.current = null;
-        if (target) updateScrollState(target);
-      });
+        if (!target || !updateScrollState(target)) return;
+        scrollStateTarget.current ??= target;
+        scrollStateFrame.current ||= window.requestAnimationFrame(frame);
+      };
+      scrollStateFrame.current = window.requestAnimationFrame(frame);
     },
     [updateScrollState]
   );

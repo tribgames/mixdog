@@ -1,4 +1,4 @@
-import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds } from './anchored-panel';
+import { anchoredPanelGeometry, anchoredPanelStyle, onAnchorEdges, paneBounds } from './anchored-panel';
 import React, { type CSSProperties, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
@@ -31,6 +31,8 @@ interface OpenSelectProps {
   displayValue?: string;
   tooltip?: string;
   leading?: React.ReactNode;
+  /** Shown after the trigger's value (a pending change's note). */
+  trailing?: React.ReactNode;
   onChange?: (value: string) => void;
   /** Multi-select: `values` are the checked options, a choice toggles one and
    *  the menu stays open; `onChange` still receives the toggled option's value. */
@@ -40,6 +42,8 @@ interface OpenSelectProps {
    *  the trigger (the browser viewport picker: a 44px button listing
    *  "iPhone 14 Pro Max · 430×932"). Default follows the trigger width. */
   menuMinWidth?: number;
+  /** 'anchor': the menu stands on the trigger's own edges at its width (the session panel's rows). */
+  menuWidth?: 'anchor';
 }
 
 type MenuPosition = CSSProperties & { transformOrigin?: string };
@@ -57,7 +61,9 @@ export function OpenSelect({
   displayValue,
   tooltip,
   leading,
+  trailing,
   menuMinWidth = 160,
+  menuWidth,
   multiple = false,
   values = [],
   onChange,
@@ -115,17 +121,19 @@ export function OpenSelect({
     // they open above (the whole pill is the anchor) and fall below only
     // when above cannot hold the menu.
     const estimatedHeight = Math.min(240, options.length * 30 + 8);
+    const rowWide = menuWidth === 'anchor';
     const geometry = anchoredPanelGeometry({
       trigger: anchorRect,
       bounds: paneBounds(trigger.current),
-      preferredWidth: Math.max(menuMinWidth, Math.min(368, anchorRect.width)),
+      preferredWidth: rowWide ? anchorRect.width : Math.max(menuMinWidth, Math.min(368, anchorRect.width)),
       naturalHeight: estimatedHeight,
       align: settingsStyle ? 'end' : 'start',
       placement: contextPillStyle ? 'above' : 'below',
     });
     const style = anchoredPanelStyle(geometry, anchorRect);
-    return { ...style, width: geometry.width, maxHeight: Math.min(240, style.maxHeight) };
-  }, [contextPillStyle, menuMinWidth, options.length, settingsStyle]);
+    const placed = { ...style, width: geometry.width, maxHeight: Math.min(240, style.maxHeight) };
+    return rowWide ? onAnchorEdges(placed, anchorRect) : placed;
+  }, [contextPillStyle, menuMinWidth, menuWidth, options.length, settingsStyle]);
   const rememberPosition = useCallback(() => {
     const next = readPosition();
     if (next) preparedPosition.current = next;
@@ -366,6 +374,7 @@ export function OpenSelect({
       >
         {leading && <span className="mx-select-leading">{leading}</span>}
         <span className="mx-select-value">{triggerLabel}</span>
+        {trailing}
         {chevron}
       </button>
       {menuOpen &&

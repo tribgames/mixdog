@@ -226,16 +226,17 @@
   column-gap: 12px;
   row-gap: 12px;
   padding: 10px 0 10px 4px;
-  isolation: isolate;
 }
 /* Hover plate behind the name line only (the switch target), bled past the
-   card's content edge so the grip and the buttons keep room around them. */
+   card's content edge so the grip and the buttons keep room around them.
+   The first grid item already paints under the rest; no z-index, since the
+   stacking context it needs would hold the sign-in popup (rendered in the
+   row's actions) under every row after it. */
 .provider-account-row::before {
   content: "";
   grid-row: 1;
   grid-column: 1 / -1;
   align-self: stretch;
-  z-index: -1;
   margin: -6px -12px -6px -16px;
   border-radius: var(--mx-radius-lg);
   pointer-events: none;

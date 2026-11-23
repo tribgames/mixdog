@@ -11,6 +11,7 @@ import { t } from './i18n';
 import { usePhoneSurfaceMarked } from './mobile-surface';
 import { bindCardKeys, focusCardWhenIdle, isImeKey, isTypingTarget } from './question-card-keys';
 import { getQuestionConfirm } from './question-confirm-preference';
+import { readerKeyFocus } from './own-scroll-writes';
 import { useSurfaceActive } from './surface-activity';
 import {
   buildAnswers,
@@ -73,7 +74,7 @@ function routeCardKey(event: globalThis.KeyboardEvent, { live, stateRef, rowRefs
       chooseOption(number - 1);
     } else if (number === optionCount + 1) {
       handled();
-      inputRef.current?.focus();
+      readerKeyFocus(inputRef.current);
     }
   } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     handled();
@@ -81,7 +82,7 @@ function routeCardKey(event: globalThis.KeyboardEvent, { live, stateRef, rowRefs
     const step = event.key === 'ArrowDown' ? 1 : -1;
     const entry = step > 0 ? 0 : optionCount;
     const next = active < 0 ? entry : Math.min(optionCount, Math.max(0, active + step));
-    rowRefs.current[next]?.focus();
+    readerKeyFocus(rowRefs.current[next]);
   } else if (event.key === ' ' && multiSelect && !onButton) {
     const active = rowRefs.current.indexOf(document.activeElement as HTMLElement | null);
     if (active >= 0 && active < optionCount) {
@@ -195,7 +196,7 @@ export function QuestionCard({
 
   const live = useRef({ advance, choose, close, questions });
   live.current = { advance, choose, close, questions };
-  const focusRow = (row: number) => rowRefs.current[row]?.focus();
+  const focusRow = (row: number) => readerKeyFocus(rowRefs.current[row]);
   // The card takes focus when nothing else holds it, so the shortcuts work at
   // once; a user already typing in the composer keeps typing there (sending
   // from it closes the question).

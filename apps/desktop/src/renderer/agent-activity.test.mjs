@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { installTestDom } from './test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from './test-support/test-dom.mjs';
 
 import {
   AgentActivityPane,
@@ -369,7 +369,9 @@ test('the context card offers only compaction, also after the model changed', as
   };
   const dom = installDom();
   const requests = [];
+  // Whether Compact applies to the route is read from the core's `toolModules` section.
   window.mixdogDesktop = {
+    sections: toolModulesSource().sections,
     invokeCapability: async (request) => {
       requests.push(request);
     },
@@ -534,7 +536,18 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
       /^In progress·\d+m \/ 1h 0m · \d+m remaining$/
     );
     assert.equal(document.querySelectorAll('.session-goal-task-list > li').length, 3);
-    assert.equal(document.querySelectorAll('.session-goal-task-list > li .mx-icon').length, 3);
+    // Remaining steps first, then the done ones; each row holds one state ring, empty while the step waits.
+    assert.deepEqual(
+      [...document.querySelectorAll('.session-goal-task-list > li')].map((row) => [
+        row.dataset.status,
+        [...row.querySelectorAll('.step-ring')].map((ring) => ring.getAttribute('data-state')),
+      ]),
+      [
+        ['in_progress', ['active']],
+        ['pending', [null]],
+        ['completed', ['complete']],
+      ]
+    );
     assert.equal(
       [...document.querySelectorAll('.session-goal-task-list > li > span')].some((marker) =>
         /[✓◐○]/u.test(marker.textContent || '')

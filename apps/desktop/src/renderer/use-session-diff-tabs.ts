@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { pendingSessionDiffFileRequest, type SessionDiffFileRequest } from './session-diff-focus';
 import type { SessionDiffRow } from './session-diff-model';
 import { rowListIndex } from './session-diff-row-index';
@@ -13,11 +13,28 @@ export type SessionDiffFileTabs = {
 
 /** Sessions whose strip shows neither "Changes" nor a diff file tab. */
 const emptyStrips = new Set<string>();
+const emptyStripListeners = new Set<() => void>();
+function setStripEmpty(sessionId: string, empty: boolean): void {
+  if (empty) emptyStrips.add(sessionId);
+  else emptyStrips.delete(sessionId);
+  for (const listener of emptyStripListeners) listener();
+}
+function subscribeEmptyStrips(listener: () => void): () => void {
+  emptyStripListeners.add(listener);
+  return () => {
+    emptyStripListeners.delete(listener);
+  };
+}
 
 /** False once the session's "Changes" and diff file tabs are all closed, so
  *  closing the last side file tab ends the dock. */
 export function sessionDiffStripHasTabs(sessionId: string): boolean {
   return !emptyStrips.has(sessionId);
+}
+
+/** `sessionDiffStripHasTabs`, re-rendering when it changes. */
+export function useSessionDiffStripHasTabs(sessionId: string): boolean {
+  return useSyncExternalStore(subscribeEmptyStrips, () => sessionDiffStripHasTabs(sessionId));
 }
 
 /** The pane's tab strip state. A file opened from the transcript gets its own
@@ -106,10 +123,8 @@ export function useSessionDiffTabs({
   const stripEmpty = !changesOpen && diffTabs.length === 0;
   useEffect(() => {
     if (!stripEmpty) return undefined;
-    emptyStrips.add(sessionId);
-    return () => {
-      emptyStrips.delete(sessionId);
-    };
+    setStripEmpty(sessionId, true);
+    return () => setStripEmpty(sessionId, false);
   }, [sessionId, stripEmpty]);
   return {
     diffTabs,

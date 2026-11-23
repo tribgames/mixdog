@@ -190,6 +190,35 @@ test('a compaction divider takes the working band’s seat, under a prompt and u
   });
 });
 
+test('the row under a divider stands a full step away, and a turn gap under a divider grows to that step', async () => {
+  await withList(async ({ render, marks }) => {
+    const statusRow = (id, item) => ({ _tag: 'AssistantPart', key: `s:${id}`, turnKey: 't', item: { kind: 'statusdone', id, ...item } });
+    const compacted = statusRow('compacted', { status: 'compacted', label: 'Conversation compacted' });
+    const switched = statusRow('switched', { status: 'model-switched', modelId: 'm', provider: 'p' });
+    const gap = (id) => ({ _tag: 'TurnGap', key: `s:gap:${id}`, turnKey: 't2' });
+    const user2 = { _tag: 'UserMessage', key: 's:u2', turnKey: 't2', item: { kind: 'user', id: 'u2', text: 'next' } };
+    // Inside a turn: the divider keeps the band's lead, and the reply under it carries the step in place of the part step.
+    await render([user, reply, tools, compacted, final]);
+    assert.equal(marks(3), 'bandLead bandSeat');
+    assert.equal(marks(4), 'dividerStep');
+    // Between turns: the gap above the divider stays as it stood, the one under it grows to the step, and neither
+    // the divider nor the prompt adds one.
+    await render([user, reply, gap(1), compacted, gap(2), user2]);
+    assert.equal(marks(2), '');
+    assert.equal(marks(3), 'bandSeat');
+    assert.equal(marks(4), 'dividerGap');
+    assert.equal(marks(5), 'turnEnd');
+    // A session-level change is the same divider: a model switch above the prompt that follows it.
+    await render([user, reply, gap(1), switched, user2]);
+    assert.equal(marks(2), '');
+    assert.equal(marks(3), 'bandSeat');
+    assert.equal(marks(4), 'dividerStep turnEnd');
+    // A gap between two ordinary turns keeps its own height.
+    await render([user, reply, gap(1), user2]);
+    assert.equal(marks(2), '');
+  });
+});
+
 test('the reply that takes the leaving band slot is re-measured in the same commit', async () => {
   await withList(async ({ render, heights, spacerHeight }) => {
     await render([user, final, thinking]);

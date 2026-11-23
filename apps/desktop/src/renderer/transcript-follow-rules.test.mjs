@@ -7,6 +7,7 @@ import {
   judgeScrollEvent,
   jumpButtonVisible,
   keyUpRecent,
+  moveArrivesNearEnd,
   mutationExplainsScroll,
   touchEndRecent,
   touchLiftNeedsJudgement,
@@ -75,7 +76,7 @@ const base = {
   previousTop: 2_000,
   top: 1_900,
   distance: 100,
-  lastDirection: -1,
+  arrived: false,
   touchDown: false,
   wheelUpRecent: false,
   inWriteWindow: false,
@@ -111,27 +112,38 @@ test('a clamp or move within two pixels of the end is never a leave; an unpinned
   assert.equal(judge({ distance: 2 }), 'none');
   assert.equal(judge({ distance: 3 }), 'unpin');
   assert.equal(judge({ pinned: false }), 'none');
-  assert.equal(judge({ top: 2_050, previousTop: 2_000, lastDirection: 1 }), 'none', 'downward');
+  assert.equal(judge({ top: 2_050, previousTop: 2_000, arrived: true }), 'none', 'downward');
 });
 
-test('arriving at the end re-engages follow at once, unless a gesture or a write is behind it', () => {
-  const arrive = { pinned: false, previousTop: 1_900, top: 2_000, distance: 1, lastDirection: 1 };
+test('arriving where the jump control would not show re-engages follow at once, unless a gesture or a write is behind it', () => {
+  const arrive = { pinned: false, previousTop: 1_900, top: 2_000, distance: 1, arrived: true };
   assert.equal(judge(arrive), 'pin');
-  assert.equal(judge({ ...arrive, distance: 2 }), 'none', 'two pixels short is not the end');
-  assert.equal(judge({ ...arrive, lastDirection: -1 }), 'none', 'the last move was up');
+  assert.equal(judge({ ...arrive, distance: 200 }), 'pin', '200px short: the jump control would not show');
+  assert.equal(judge({ ...arrive, distance: 201 }), 'none', 'the jump control would show');
+  assert.equal(judge({ ...arrive, arrived: false }), 'none', 'the last move did not bring the reader near the end');
   assert.equal(judge({ ...arrive, touchDown: true }), 'none', 'a finger is still down');
+  assert.equal(judge({ ...arrive, pressHeld: true }), 'none', 'the thumb is still held');
   assert.equal(judge({ ...arrive, wheelUpRecent: true }), 'none');
   assert.equal(judge({ ...arrive, inWriteWindow: true, previousTop: 2_000 }), 'none', 'the timeline wrote it');
   assert.equal(judge({ ...arrive, atWrittenTop: true }), 'none');
   assert.equal(judge({ ...arrive, inWriteWindow: true, atWrittenTop: true }), 'none', 'exactly the written offset');
 });
 
-test('a downward arrival at the end inside the write window, off the written offset, is the reader and re-pins', () => {
-  const arrive = { pinned: false, previousTop: 1_900, top: 2_000, distance: 1, lastDirection: 1, inWriteWindow: true };
+test('a downward arrival near the end inside the write window, off the written offset, is the reader and re-pins', () => {
+  const arrive = { pinned: false, previousTop: 1_900, top: 2_000, distance: 1, arrived: true, inWriteWindow: true };
   assert.equal(judge(arrive), 'pin');
   assert.equal(judge({ ...arrive, touchDown: true }), 'none', 'a finger still down is not an arrival yet');
-  assert.equal(judge({ ...arrive, distance: 2 }), 'none', 'short of the end');
+  assert.equal(judge({ ...arrive, distance: 201 }), 'none', 'short of the band');
   assert.equal(judge({ ...arrive, top: 1_900, previousTop: 1_900 }), 'none', 'no downward move');
+});
+
+test('only a downward move off any written offset, ending within 200px of the end, is the reader coming back', () => {
+  const move = { previousTop: 1_700, top: 1_850, distance: 150, written: false };
+  assert.equal(moveArrivesNearEnd(move), true);
+  assert.equal(moveArrivesNearEnd({ ...move, distance: 200 }), true);
+  assert.equal(moveArrivesNearEnd({ ...move, distance: 201 }), false, 'it ended where the band begins');
+  assert.equal(moveArrivesNearEnd({ ...move, top: 1_600 }), false, 'upward');
+  assert.equal(moveArrivesNearEnd({ ...move, written: true }), false, 'the timeline wrote it');
 });
 
 test('a finger lift is judged after a native scroll, or after a travelled or unwritten move', () => {
@@ -150,10 +162,11 @@ test('a width change is pending until a restore has spent it', () => {
   assert.equal(widthShiftPending({ client: 900, spent: 840 }, 840), false);
 });
 
-test('the jump control needs follow off and the end more than 200px below', () => {
+test('the jump control shows whenever the end is not kept and the view does not stand at it', () => {
   const at = (top) => ({ top, maxScrollTop: 1_000, viewportHeight: 600 });
-  assert.equal(jumpButtonVisible(at(700), false), true);
-  assert.equal(jumpButtonVisible(at(800), false), false, 'exactly 200px');
-  assert.equal(jumpButtonVisible(at(799), false), true);
-  assert.equal(jumpButtonVisible(at(0), true), false, 'following hides it');
+  assert.equal(jumpButtonVisible(at(1_000), false), false, 'at the end');
+  assert.equal(jumpButtonVisible(at(998), false), false, 'two pixels short still stands at the end');
+  assert.equal(jumpButtonVisible(at(997), false), true, 'three pixels short does not');
+  assert.equal(jumpButtonVisible(at(900), false), true, 'inside the band that takes follow back');
+  assert.equal(jumpButtonVisible(at(0), true), false, 'a kept end hides it however far');
 });

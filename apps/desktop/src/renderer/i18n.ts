@@ -130,7 +130,6 @@ void i18next.init({
 i18next.addResourceBundle('en', 'translation', {
   'Goal state: In progress': 'In progress',
   'State: Open': 'Open',
-  'Island: {{waiting}} waiting': '{{waiting}} waiting',
   'Island: {{count}} agents': '{{count}} agents',
   'Island: {{count}} agents_other': '{{count}} agents',
   'Island: {{count}} shells': '{{count}} shells',
@@ -140,14 +139,11 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: View changes': 'View changes',
   'Island: Running': 'Running',
   'Island: Exited': 'Exited',
-  'Island: Ended {{count}}': 'Ended {{count}}',
   'Island: Close all': 'Close all',
-  'Island: Source Control': 'Source Control',
   'Island: Git actions': 'Git actions',
   'Island: {{cost}} est. cost': '{{cost}} est. cost',
   'Turn changes: {{count}} files changed': '{{count}} files changed',
   'Preview badge: New': 'New',
-  'Session info: Hidden': 'Hidden',
   'Session send: Sent to {{name}}': 'Sent to {{name}}',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
   // A settled tool group's past tense where English spells it apart (context "done").

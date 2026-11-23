@@ -1,7 +1,7 @@
 // Where the reader of a session is in a pane, kept apart from the rows that show it: the list that shows the session
-// tells it as the reader moves and when it leaves, and the list that shows the session next (the same one coming back
-// on screen, or one built anew over rows read again) puts the reader back there before it is presented.
-import { type MutableRefObject, useLayoutEffect, useSyncExternalStore } from 'react';
+// tells it as the reader moves and when it leaves, and the same list coming back on screen puts the reader back there
+// before it is presented. A session entered anew follows its end and lets go of the place (`useSessionEntry`).
+import { type MutableRefObject, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 import { usePaneKey } from './pane-key-context';
 import { useSurfaceActive } from './surface-activity';
@@ -121,14 +121,14 @@ export function sessionHasTab(session: string): boolean | null {
   return false;
 }
 
-/** The records the panes' readers of `session` are on, for whoever decides which of its rows to keep. */
-export function readerPositionsOf(session: string): string[] {
-  const positions: string[] = [];
-  for (const ofPane of places.values()) {
-    const place = ofPane.get(session)?.place;
-    if (place) positions.push(place.position);
-  }
-  return positions;
+/** The conversation of a pane comes to show `session`: it enters it at its end, so the place a list of the session left
+ *  in the pane is let go in the render that enters it, before anything below reads it. */
+export function useSessionEntry(session: string): void {
+  const pane = usePaneKey();
+  const entered = useRef<string | null>(null);
+  if (entered.current === session) return;
+  entered.current = session;
+  keep(pane, session, null);
 }
 
 /** Re-renders the caller when a place is opened or voided from outside its list. */

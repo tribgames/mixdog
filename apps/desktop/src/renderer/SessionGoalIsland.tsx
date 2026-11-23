@@ -3,6 +3,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'r
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, Snapshot, TodoSnapshot, TodoStatus, TodoTask } from './desktop-types';
 import { t } from './i18n';
+import { StepRing } from './AgentTodoMark';
 import { MxIcon } from './MxIcon';
 import { useComposerIslandTab } from './composer-island-state';
 import { useSurfaceActive } from './surface-activity';
@@ -133,11 +134,11 @@ export function GoalRing({
 }
 
 const TODO_GLYPHS = {
-  completed: 'check',
-  in_progress: 'in-progress',
-  // Abandoned work is retired, not finished: an X separates it from a check
+  completed: 'complete',
+  in_progress: 'active',
+  // Abandoned work is retired, not finished: a cross separates it from a check
   // so a scoped-out row never reads as an accomplishment.
-  abandoned: 'close-small',
+  abandoned: 'dropped',
 } as const;
 
 const REMAINING_VISIBLE = 5;
@@ -217,9 +218,10 @@ function TodoRows({
   );
 }
 
+/** A step's state mark: a ring in the state's ink, empty while the step waits. */
 export function TodoGlyph({ status }: { status: TodoStatus }) {
-  const name = (status && TODO_GLYPHS[status as keyof typeof TODO_GLYPHS]) || 'pending';
-  return <MxIcon name={name} size={14} />;
+  const glyph = (status && TODO_GLYPHS[status as keyof typeof TODO_GLYPHS]) || null;
+  return <StepRing fraction={1} glyph={glyph} size={14} />;
 }
 
 /** A plan's steps in plan order, split into what remains and what is done
@@ -461,7 +463,15 @@ export function useSessionGoal(snapshot: Snapshot) {
     ? goalStateLabel(goal, kind, displayStatus)
     : t(kind === 'complete' ? 'Complete' : 'In progress');
   const objective = String(goal?.objective || '');
+  const shortTitle = String(goal?.title || '');
   return {
+    // A title that is only the objective cut short ("Tidy the…") says less than the objective: surfaces read
+    // the objective in its place.
+    cutObjective:
+      Boolean(objective) &&
+      shortTitle !== objective &&
+      shortTitle.endsWith('…') &&
+      objective.startsWith(shortTitle.slice(0, -1).trimEnd()),
     goal,
     todo,
     sessionId,
@@ -504,6 +514,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     kind,
     stateLabel,
     objective,
+    cutObjective,
     title,
     elapsedLabel,
     terminal,
@@ -571,7 +582,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const progressLabel = todo ? `${progress.completed}/${progress.total}` : '';
   const segmentTime = goal ? goalSegmentTimeLabel(goal, clock) : '';
   // Without a distinct short title the objective is the title itself.
-  const showObjective = Boolean(objective) && Boolean(goal?.title) && title !== objective;
+  const showObjective = Boolean(objective) && Boolean(goal?.title) && title !== objective && !cutObjective;
   const budget = goal ? goalBudgetFraction(goal, clock) : null;
   const confirming = confirmStop && !terminal;
   const primary = active ? 'pause' : 'resume';
@@ -662,7 +673,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                       className="session-goal-title"
                       data-clamped={!showObjective && !objectiveExpanded ? 'true' : 'false'}
                     >
-                      {title}
+                      {cutObjective ? objective : title}
                     </p>
                     {showObjective && (
                       <p

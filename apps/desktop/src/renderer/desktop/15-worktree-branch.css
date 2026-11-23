@@ -51,9 +51,11 @@
   color: var(--mx-warning);
 }
 
-/* Wide enough for every label on one line ("Worktree · New branch ·
-   separate folder"); long branch names ellipsize at the cap. */
+/* Sized by its rows; long branch names ellipsize at the cap. The foot wears
+   the island panels' buttons, so their tokens are set here too. */
 .branch-menu {
+  --composer-island-wash: var(--mx-hover);
+  --composer-island-rule: var(--mx-border-muted);
   position: fixed;
   z-index: var(--mx-menu-z-index);
   width: max-content;
@@ -82,10 +84,9 @@
 .schedules-search.branch-menu-search-frame {
   background: transparent;
 }
-/* The "…" trigger sits inside the row's right end: shown on hover or focus
-   (the row's label steps aside); right-click opens the same menu. */
+/* The "…" trigger takes the end mark's place on hover or focus, the name
+   staying where it is; right-click opens the same menu. */
 .branch-row-shell {
-  --branch-row-h: 30px;
   position: relative;
 }
 .branch-row-shell > .branch-menu-item {
@@ -93,10 +94,11 @@
 }
 .branch-row-more {
   position: absolute;
-  top: calc((var(--branch-row-h) - 26px) / 2);
-  right: 6px;
+  inset-block: 0;
+  right: 4px;
   width: 26px;
   height: 26px;
+  margin-block: auto;
   display: grid;
   place-items: center;
   padding: 0;
@@ -112,9 +114,12 @@
   opacity: 1;
   pointer-events: auto;
 }
-/* The trailing label or check moves left of the "…" instead of hiding. */
 .branch-row-shell:is(:hover, :focus-within) > .branch-menu-item > :is(small, .branch-menu-check) {
-  margin-right: 28px;
+  visibility: hidden;
+}
+/* A row with no end mark keeps the "…" off the name's end. */
+.branch-row-shell:is(:hover, :focus-within) > .branch-menu-item:not(:has(> small, > .branch-menu-check)) {
+  padding-right: 34px;
 }
 /* Touch has no hover: a long-press opens the row's menu, so no "…" sits next
    to the check. */
@@ -125,7 +130,10 @@
     pointer-events: none;
   }
   .branch-row-shell:is(:hover, :focus-within) > .branch-menu-item > :is(small, .branch-menu-check) {
-    margin-right: 0;
+    visibility: visible;
+  }
+  .branch-row-shell:is(:hover, :focus-within) > .branch-menu-item:not(:has(> small, > .branch-menu-check)) {
+    padding-right: 8px;
   }
 }
 .branch-row-more:hover,
@@ -170,35 +178,44 @@
 html[data-mixdog-mobile-tabs] .branch-menu-item {
   min-height: var(--mx-touch, 44px);
 }
+/* A row is one line at the panel's row height: its mark, the name (the only
+   thing cut), and at the end the current branch's check or a plain branch's
+   age. */
 .branch-menu-item {
   width: 100%;
-  min-height: 30px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: transparent;
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
   text-align: left;
 }
 .branch-menu-item > svg {
   flex: 0 0 auto;
-  color: var(--mx-icon-muted);
+  color: var(--mx-text-muted);
 }
 .branch-menu-item > span {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* At least the "…"'s width, so it never lands on the name. */
 .branch-menu-item > small {
-  margin-left: auto;
+  flex: 0 0 auto;
+  min-width: 26px;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-supporting);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
   white-space: nowrap;
 }
 .branch-menu-item:hover:not([aria-disabled="true"]),
@@ -206,28 +223,21 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   outline: 0;
   background: var(--mx-hover);
 }
-.branch-menu-item[data-selected] {
-  background: var(--mx-pressed);
-}
-.branch-menu-item[data-mark="inUse"] > span,
-.branch-menu-item[data-mark="external"] > span {
-  color: var(--mx-text-muted);
-}
+/* A row that cannot be picked (an unmanaged worktree's, a switch during a
+   transition) reads as unavailable. */
 .branch-menu-item[aria-disabled="true"] {
   cursor: default;
-}
-.branch-menu-item[data-mark="external"] {
   opacity: var(--mx-op-disabled);
 }
 /* Groups are told apart by spacing and this small muted label, never rules. */
 .branch-menu-label {
-  height: 22px;
+  height: 24px;
   display: flex;
   align-items: center;
   margin: 6px 0 0;
-  padding: 0 10px;
+  padding: 0 8px;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-regular);
 }
 /* "Other branches: N": the header of the folded group is its toggle. */
@@ -253,28 +263,44 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
 .branch-menu-group-toggle > svg {
   flex: none;
 }
-/* The popup's footer: New branch · New worktree, then the quiet Clean up
-   pushed to the right; short labels keep them on one line at 280px, and
-   longer translations wrap to a second line instead of cutting a label. */
-.branch-menu-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-.branch-menu-actions > .branch-menu-item {
-  width: auto;
-  min-width: 0;
-  flex: 0 0 auto;
+/* The foot, the same in every host: one line of buttons at any width, Clean
+   up at its end. A label the line cannot hold gives way to its icon
+   (useOneLineFoot), never to a second line. */
+.composer-island-panel-foot.branch-menu-foot {
+  flex-wrap: nowrap;
   gap: 6px;
-  padding-inline: 8px;
 }
-.branch-menu-actions > [data-kind="prune"] {
-  margin-left: auto;
+.composer-island-panel-foot.branch-menu-foot .composer-island-button {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  font-size: var(--mx-font-supporting);
+  white-space: nowrap;
 }
-/* The current branch: the first row, pressed; its icon stays monochrome. */
+.composer-island-panel-foot.branch-menu-foot .composer-island-button[data-icon-only] {
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+}
+html[data-mixdog-mobile-tabs] .composer-island-panel-foot.branch-menu-foot .composer-island-button[data-icon-only] {
+  width: 40px;
+}
+.composer-island-panel-foot.branch-menu-foot .composer-island-button[data-icon-only] > span {
+  display: none;
+}
+.composer-island-panel-foot.branch-menu-foot .composer-island-button[data-pending][aria-disabled="true"] {
+  opacity: 1;
+}
+/* In the chip's popup the foot sits inside its padding and never sizes it. */
+.branch-menu > .branch-menu-foot {
+  width: 0;
+  min-width: 100%;
+  min-height: 0;
+  margin-top: 6px;
+  padding: 8px 2px 2px;
+}
+/* The current branch: the first row, washed; its icon stays monochrome. */
 .branch-menu-item[data-mark="current"] {
-  background: var(--mx-pressed);
+  background: var(--mx-hover);
 }
 .branch-menu-match {
   color: var(--mx-accent);
@@ -283,17 +309,6 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
 .branch-menu-empty {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-}
-.branch-menu-rule {
-  height: 1px;
-  flex: 0 0 1px;
-  margin: 4px 0;
-  border: 0;
-  background: var(--mx-border-muted);
-}
-.branch-menu-item > span,
-.branch-menu-item > small {
-  white-space: nowrap;
 }
 /* Work is running: the reason leads the menu and no switch can start. */
 .branch-menu-notice[data-kind="locked"] {
@@ -305,10 +320,6 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
 }
-.branch-menu-item[aria-disabled="true"]:not([data-mark="external"]) {
-  opacity: var(--mx-op-disabled);
-}
-.branch-menu-item[data-selected][aria-disabled="true"],
 .branch-menu-item[data-mark="current"][aria-disabled="true"],
 .branch-menu-item[data-pending][aria-disabled="true"] {
   opacity: 1;
@@ -318,17 +329,12 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   color: var(--mx-accent);
 }
 .branch-menu-item > .branch-menu-check {
-  flex: 0 0 auto;
-  margin-left: auto;
   color: var(--mx-accent);
 }
-.branch-menu-item > small + .branch-menu-check {
-  margin-left: 0;
-}
 /* The composer island's branch tab (BranchIslandPanel): the same body in the
-   island's panel grammar — compact 40px rows grouped by spacing, the list
-   capped like the island's other tab lists, New branch or a worktree
-   session's actions (View changes · Merge · Remove) in the footer. */
+   island's panel grammar, the list capped like the island's other tab lists,
+   New branch or a worktree session's actions (View changes · Merge · Remove)
+   in the footer. */
 .branch-menu-body {
   display: flex;
   flex-direction: column;
@@ -348,43 +354,17 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
-/* No list read or remembered yet (the segment reads it ahead, so this is
-   rare): the list holds its full height while loading, so the island never
-   grows when the rows land. A remembered height (inline) wins. */
+/* No list read yet (the segment reads it ahead, so this is rare): the list
+   holds its full height while loading rather than growing from one line. The
+   height its rows had when it was last open (inline, useStableMenuList)
+   wins. */
 .branch-menu-body > .branch-menu-list:has(> [data-loading]) {
   min-height: min(320px, 40dvh);
-}
-.branch-menu-body .branch-menu-item {
-  min-height: 40px;
-  gap: 10px;
-  padding: 6px;
-}
-/* The island's rows read like its agents panel's: a 16px mark in the soft
-   ink, the name in the name weight and ink (a worktree's too: it is told
-   apart by its mark and group), the trailing label in the state column's
-   type. */
-.branch-menu-body .branch-menu-item > svg:first-child:not(.progress-spinner-turn) {
-  width: 16px;
-  height: 16px;
-  color: var(--mx-text-soft);
-}
-.branch-menu-body .branch-menu-item > span {
-  color: var(--mx-text);
-  font-size: var(--mx-font-item);
-  font-weight: var(--mx-weight-semibold);
-}
-.branch-menu-body .branch-menu-item > small {
-  font-size: var(--mx-font-supporting);
-  font-weight: var(--mx-weight-semibold);
-  font-variant-numeric: tabular-nums;
 }
 /* While work runs no row can switch, which is most of the time: the list
    stays in its ink instead of going grey, and a pressed row says why. */
 .branch-menu-body .branch-menu-item[data-locked][aria-disabled="true"] {
   opacity: 1;
-}
-.branch-menu-body .branch-row-shell {
-  --branch-row-h: 40px;
 }
 .branch-row-shell:hover > .branch-menu-item:not([aria-disabled="true"]) {
   background: var(--mx-hover);
@@ -394,18 +374,10 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
 }
 .branch-menu-body .branch-menu-item:hover:not([aria-disabled="true"]),
 .branch-menu-body .branch-menu-item:focus-visible,
-.branch-menu-body .branch-menu-item[data-selected],
 .branch-menu-body .branch-menu-item[data-mark="current"],
 .branch-menu-foot > .composer-island-button[data-selected] {
   background: var(--composer-island-wash);
 }
-.branch-menu-body .branch-menu-label {
-  height: auto;
-  margin-top: 8px;
-  padding: 6px 6px 2px;
-}
-.branch-menu-item[data-danger],
-.branch-menu-item[data-danger] > svg,
 .branch-menu-foot > [data-danger] {
   color: var(--mx-danger);
 }

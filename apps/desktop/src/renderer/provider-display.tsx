@@ -4,6 +4,7 @@ import type { DesktopModelOption } from '../shared/contract';
 
 import { useAutoEffortShown } from './auto-effort-store';
 import { t } from './i18n';
+import { agentModelName, agentNameInDisplay } from './model-catalog-cache';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
 import { canonicalModelDisplay } from '../../../../packages/protocol-client/src/rows/model-display.mjs';
 
@@ -21,6 +22,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   'command-code-oauth': 'Command Code',
   'mimo-oauth': 'MiMo',
   'antigravity-oauth': 'Antigravity OAuth',
+  'acp-antigravity': 'Antigravity ACP',
   'cursor-oauth': 'Cursor OAuth',
   'devin-oauth': 'Devin',
   'mixdog-local': 'Local Provider',
@@ -278,10 +280,27 @@ function displayKey(text: string) {
     .replace(/[^a-z0-9]+/g, '');
 }
 
+/** A route on an external agent (`acp-<agent>`): it runs the agent's own model settings, never a provider's. */
+export function agentRouteProvider(provider: string | null | undefined): boolean {
+  return String(provider || '')
+    .toLowerCase()
+    .startsWith('acp-');
+}
+
+/** An external agent's model named as a provider's is: by the name the core lists it under, never built from its id.
+ *  A model the agent runs at several tiers is listed once, its tier being the route's effort. Its own entry runs the
+ *  agent's default model. */
+function agentModelDisplayName(model: string, provider: string, hint: string): string {
+  if (!model) return '';
+  if (model === 'default') return t('Default');
+  return agentNameInDisplay(hint) || agentModelName(provider, model) || hint || model;
+}
+
 export function modelDisplayName(model: string | null | undefined, provider = '', displayHint = '') {
   const raw = String(model || '').trim();
   const id = raw.includes('/') ? raw.split('/').filter(Boolean).at(-1) || raw : raw;
   const hint = String(displayHint || '').trim();
+  if (agentRouteProvider(provider)) return agentModelDisplayName(raw, provider, hint);
   if (String(provider || '').toLowerCase() === 'cursor-oauth' && hint) return hint;
   if (hint && id && displayKey(hint) !== displayKey(id)) return hint;
   if (id) {
@@ -414,7 +433,7 @@ function providerIconKind(provider: string): ProviderIconKind {
   if (normalized.startsWith('muse-code')) return 'meta';
   if (normalized.startsWith('mimo')) return 'xiaomi';
   if (normalized === 'command-code-oauth') return 'commandcode';
-  if (normalized === 'antigravity-oauth') return 'antigravity';
+  if (normalized === 'antigravity-oauth' || normalized === 'acp-antigravity') return 'antigravity';
   if (normalized === 'opencode-go-oauth') return 'opencode';
   if (normalized === 'openrouter') return 'openrouter';
   if (normalized === 'mixdog-local') return 'local';

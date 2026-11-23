@@ -82,25 +82,19 @@ test('a read of a shown session (its newest rows, no window) never takes the pla
   assert.equal(store.get('s').items.length, 10);
 });
 
-test('rows of sessions no pane shows follow the readers: none without a tab, from the reader down within the budget, none beyond it', () => {
+test('rows of sessions no pane shows are kept for an entry at their end: none without a tab, the tail within the budget, none beyond it, wherever a reader was', () => {
   const store = createSessionLaneStore();
-  keepReaderPlaces(tabs({ one: ['end', 'near', 'far'] }));
+  keepReaderPlaces(tabs({ one: ['end', 'read'] }));
   store.apply(positioned('closed', rows(50)));
   store.apply(positioned('end', rows(200)));
-  store.apply(positioned('near', rows(800)));
-  store.apply(positioned('far', rows(800)));
-  openReaderPlace('one', 'near', { position: 'p:r500', top: 0 });
-  openReaderPlace('one', 'far', { position: 'p:r100', top: 0 });
-  assert.equal(store.hiddenRows(), 1850);
+  store.apply(positioned('read', rows(800)));
+  openReaderPlace('one', 'read', { position: 'p:r500', top: 0 });
+  assert.equal(store.hiddenRows(), 1050);
   store.sweepHidden();
   assert.equal(store.get('closed'), null, 'no pane holds a tab of it');
-  assert.equal(store.get('end').items.length, 200, 'a reader at the end: the rows held fit the budget');
-  const near = store.get('near');
-  assert.equal(near.items.length, 300, 'from the reader down');
-  assert.equal(near.items[0].id, 'r500');
-  assert.equal(near.transcriptPreview, true, 'part of a state is shown as a preview, never taken for the window');
-  assert.equal(store.get('far'), null, `from the reader down is more than ${HIDDEN_SESSION_ROW_BUDGET} rows: read again`);
-  assert.equal(store.hiddenRows(), 500);
+  assert.equal(store.get('end').items.length, 200, 'the rows held fit the budget');
+  assert.equal(store.get('read'), null, `a tail of more than ${HIDDEN_SESSION_ROW_BUDGET} rows is read again, a reader's place in it or not`);
+  assert.equal(store.hiddenRows(), 200);
   // A session a pane shows is not swept.
   const off = store.subscribe('shown', () => {});
   store.apply(positioned('shown', rows(900)));

@@ -19,6 +19,7 @@ import { publishReviewInvalidation } from './review-invalidation';
 import { SetiFileIcon } from './SetiFileIcon';
 import { requestSessionDiffTurn } from './session-diff-focus';
 import { DiffStats } from './diff-stats';
+import { ownedFocus } from './own-scroll-writes';
 import { isAbsolutePath } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { MarkdownProjectContext } from './MarkdownLink';
@@ -192,17 +193,17 @@ function FileActionControl({
     cardRef.current = (triggerRef.current ?? groupRef.current)?.closest('.turn-changes-card') ?? cardRef.current;
     if (showConfirm) {
       restoreFocus.current = true;
-      if (!groupRef.current?.contains(document.activeElement)) groupRef.current?.querySelector('button')?.focus();
+      if (!groupRef.current?.contains(document.activeElement)) ownedFocus(groupRef.current?.querySelector('button'));
     } else if (restoreFocus.current && triggerRef.current && !triggerRef.current.disabled) {
       restoreFocus.current = false;
-      triggerRef.current.focus();
+      ownedFocus(triggerRef.current);
     }
   });
   // The row went away (the file left the list) while focus was owed to it:
   // land on the card's header button instead of the document.
   useEffect(
     () => () => {
-      if (restoreFocus.current) cardRef.current?.querySelector<HTMLElement>('.turn-changes-summary')?.focus();
+      if (restoreFocus.current) ownedFocus(cardRef.current?.querySelector<HTMLElement>('.turn-changes-summary'));
     },
     []
   );

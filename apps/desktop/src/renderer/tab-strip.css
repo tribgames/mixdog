@@ -351,17 +351,73 @@
 .dock-header-chip .browser-tab-select {
   cursor: default;
 }
-/* Several chips in one strip (changes + opened files), and the changes pane's
-   own tabs: each keeps its whole label and the strip scrolls sideways, instead
-   of the tabs shrinking until names are cut. Off the phone only: the phone
-   sheet is too narrow for that, so its tabs keep the pane strip's grammar
-   (`.browser-tab`: share the width from 160px, ellipsize, floors 30px / 56px
-   active, scroll only past the floors). */
-:root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
-:root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab {
-  flex: 0 0 auto;
-  min-width: 0;
-  max-width: none;
+/* The Visualize strip, several chips in one side strip (Changes + opened
+   files) and the Changes pane's own tabs: tabs shrink together from 160px,
+   each ellipsizing its own label, down to a floor that still reads a few
+   characters; the selected tab keeps a wider floor with its close button.
+   Past the floors the strip scrolls with faded edges. Off the phone only for
+   the side strips: the phone sheet keeps the pane strip's grammar
+   (`.browser-tab`: floors 30px / 56px active). */
+:is(
+    .visualize-tabs .dock-header-chip,
+    :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
+    :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
+  ) {
+  container-type: inline-size;
+  /* The container drops the label from the tab's own size: without this a
+     content-sized strip collapses every tab to its floor. */
+  contain-intrinsic-inline-size: 160px;
+  flex: 0 1 160px;
+  min-width: 88px;
+}
+:is(
+    .visualize-tabs .dock-header-chip,
+    :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
+    :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
+  ).is-active {
+  min-width: 136px;
+}
+/* A shrunk unselected tab gives its close slot to the label (the pane strip's
+   first rung); selecting the tab brings the X back. */
+@container (max-width: 104px) {
+  :is(
+      .visualize-tabs .dock-header-chip,
+      :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
+      :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
+    ):not(.is-active)
+    .browser-tab-close {
+    display: none;
+  }
+}
+/* A scrolling strip's edge with tabs past it dissolves over 20px
+   (data-fade-start/-end, set from its scroll position: tab-strip-fades.ts). A
+   scroll timeline was tried: once the run fit again Chromium held its last
+   fade, so the first tab stayed half-masked. */
+:is(.browser-tab-list, .visualize-tabs) {
+  --tab-strip-fade-start: 0px;
+  --tab-strip-fade-end: 0px;
+}
+:is(.browser-tab-list, .visualize-tabs)[data-fade-start] {
+  --tab-strip-fade-start: 20px;
+}
+:is(.browser-tab-list, .visualize-tabs)[data-fade-end] {
+  --tab-strip-fade-end: 20px;
+}
+:is(.browser-tab-list, .visualize-tabs):is([data-fade-start], [data-fade-end]) {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--tab-strip-fade-start),
+    #000 calc(100% - var(--tab-strip-fade-end)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--tab-strip-fade-start),
+    #000 calc(100% - var(--tab-strip-fade-end)),
+    transparent 100%
+  );
 }
 /* `.dock-header-chip` released the floor for a lone chip; with several the
    inactive ones get the pane strip's 30px floor back (active keeps 56px). */

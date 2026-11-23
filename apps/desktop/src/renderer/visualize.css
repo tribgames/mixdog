@@ -27,36 +27,6 @@
   overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
-/* An edge with tabs past it dissolves over 20px (data-fade-start/-end, set
-   from the strip's scroll position in VisualizePane). A scroll timeline was
-   tried: once the run fit again Chromium held its last fade, so the first tab
-   stayed half-masked. */
-.visualize-tabs {
-  --visualize-tabs-fade-start: 0px;
-  --visualize-tabs-fade-end: 0px;
-}
-.visualize-tabs[data-fade-start] {
-  --visualize-tabs-fade-start: 20px;
-}
-.visualize-tabs[data-fade-end] {
-  --visualize-tabs-fade-end: 20px;
-}
-.visualize-tabs:is([data-fade-start], [data-fade-end]) {
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--visualize-tabs-fade-start),
-    #000 calc(100% - var(--visualize-tabs-fade-end)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--visualize-tabs-fade-start),
-    #000 calc(100% - var(--visualize-tabs-fade-end)),
-    transparent 100%
-  );
-}
 /* The strip never yields below one readable chip (the active tab's label);
    the header folds its secondary buttons into ⋯ to leave this room. */
 .visualize-pane .dock-header-left {
@@ -65,23 +35,7 @@
 .visualize-tabs::-webkit-scrollbar {
   display: none;
 }
-/* Shrink together from 160px down to a floor that still reads a few
-   characters; the active tab keeps a wider floor with its close button. */
-.visualize-tabs .dock-header-chip {
-  container-type: inline-size;
-  flex: 0 1 160px;
-  min-width: 88px;
-}
-.visualize-tabs .dock-header-chip.is-active {
-  min-width: 136px;
-}
-/* A shrunk inactive tab gives its close slot to the label (the pane strip's
-   first rung); selecting the tab brings the X back. */
-@container (max-width: 104px) {
-  .visualize-tabs .dock-header-chip:not(.is-active) .browser-tab-close {
-    display: none;
-  }
-}
+/* Tab widths, floors and the narrow tab's X: the shared rule in tab-strip.css. */
 .visualize-tabs .dock-header-chip .browser-tab-select {
   cursor: pointer;
 }

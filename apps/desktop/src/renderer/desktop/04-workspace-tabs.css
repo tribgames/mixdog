@@ -306,11 +306,10 @@
 .pane-cell .workspace-tab:last-child {
   background-image: none;
 }
-/* Idle tabs rest on a very faint plate of the same shape, so every cell reads as a tab; hover and the selection
-   steps below lift it. */
+/* The plate every cell can wear. An idle tab wears none: its seam and label say it is a tab, and a plate under
+   every cell made the selection need a louder one to stand out. */
 .pane-cell .workspace-tab:not(.drop-target-right)::before {
   content: "";
-  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
   position: absolute;
   /* 30px plate in the 43px row. */
   inset: 7px 3px 6px;
@@ -328,35 +327,25 @@
   left: 7px;
 }
 .pane-cell .workspace-tab:not(.active):is(:hover, :focus-within):not(.drop-target-right)::before {
-  background: var(--mx-hover);
+  background: color-mix(in srgb, var(--mx-text) 5%, transparent);
 }
-/* Focus reads by BRIGHTNESS, not color:
-   the selection plate is a neutral ink step — the same neutral family as the
-   side panel's selected row. Three steps:
-   the focused pane's selection — 14% plate, full ink; a background pane's
-   selection — 7% plate, 83% ink; idle tabs — a 3% plate, the strip's idle
-   ink (--mx-tab-idle-ink, 67%) on every pane. The inks sit an even ~16% apart so the
-   three steps read in the labels too, not only in the plates; 75% / 70% had left the lower two nearly equal. */
+/* Focus reads by BRIGHTNESS, not color: the selection plate is a neutral wash with no ring, the same family as
+   the side panel's selected row and a step quieter, since the strip sits over the conversation. Three steps:
+   the focused pane's selection — 8% plate, full ink; a background pane's selection — 5% plate, 83% ink; idle
+   tabs — no plate, the strip's idle ink (--mx-tab-idle-ink, 67%) on every pane. The inks sit an even ~16% apart
+   so the three steps read in the labels too, not only in the plates. */
 .pane-cell .workspace-tab.active:not(.drop-target-right)::before {
-  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
-}
-/* The focused pane's selection alone adds a quiet 1px ring — the one extra
-   accent on the strip. A
-   lone pane is always focused, so it wears the ring too. */
-.workspace-tabs-shell[data-focused="true"] .workspace-tab.active:not(.drop-target-right)::before {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 18%, transparent);
+  background: color-mix(in srgb, var(--mx-text) 8%, transparent);
 }
 .pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active:not(.drop-target-right)::before {
-  background: color-mix(in srgb, var(--mx-text) 7%, transparent);
+  background: color-mix(in srgb, var(--mx-text) 5%, transparent);
 }
 .pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active {
   color: color-mix(in srgb, var(--mx-text) 83%, transparent);
 }
-/* Paper chrome stays subordinate to the conversation. Selection uses a
-   neutral fill instead of a second outline; keyboard focus keeps its ring. */
+/* On paper the same wash needs a little more ink to read. */
 :root[data-mixdog-theme="light"] .pane-cell .workspace-tab.active:not(.drop-target-right)::before {
   background: color-mix(in srgb, var(--mx-text) 10%, transparent);
-  box-shadow: none;
 }
 :root[data-mixdog-theme="light"]
   .pane-split

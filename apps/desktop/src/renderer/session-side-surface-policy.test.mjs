@@ -142,11 +142,12 @@ test('file tabs, a Files tree or a git diff show beside the session they opened 
     assert.equal(shown.open, false, `no foreign panel beside ${other || 'a draft'}`);
     assert.equal(shown.surface, '');
   }
-  // Its own panel still opens there; the file tabs stay for their session.
+  // Its own panel still opens there; the file tabs stay held for their session, never in beta's strip.
   const beta = sessionSideDockEntryForSession(file, 'beta', null, null, 'visualize');
   assert.equal(beta.open, true);
   assert.equal(beta.surface, '');
-  assert.deepEqual(beta.files, files);
+  assert.equal(beta.files, undefined);
+  assert.deepEqual(beta.held.alpha.files, files);
   for (const surface of ['files', 'diff']) {
     const entry = { ...file, surface, folder: { project: 'C:/p', rel: '', nonce: 1 }, diff: { kind: 'diff' } };
     assert.equal(sessionSideDockEntryForSession(entry, 'beta', null).open, false, surface);

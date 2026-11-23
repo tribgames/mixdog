@@ -37,6 +37,7 @@ import {
 import { PixelIcon, type PixelIconName } from './pixel-icon';
 import { carriedLatest } from './list-carry';
 import { asRecord } from './text-format';
+import { ownedFocus } from './own-scroll-writes';
 import {
   type CardRow,
   actionLabel,
@@ -1020,7 +1021,7 @@ function ToolApprovalCard({
       const field = secretRef.current;
       const value = field?.value ?? '';
       const otpShort = model.secretForm === 'otp' && value.length < model.secretLength;
-      if (!field || !value || otpShort) return void field?.focus();
+      if (!field || !value || otpShort) return void ownedFocus(field);
       const login = model.secretForm === 'login';
       const name = login ? (usernameRef.current?.value ?? '').trim() : '';
       const save = login && name !== '' && (saveLogin ?? saveDefault) === true;
@@ -1052,7 +1053,7 @@ function ToolApprovalCard({
   // The friendly service name; the raw tool id stays as its tooltip.
   let rawTool = model.tool || (model.kind === 'outbound' ? String(approval.name || '') : '');
   if (model.connector) rawTool = `mcp__${model.connector.server}__${model.connector.tool}`;
-  const service = connectorServiceLabel(rawTool) || rawTool;
+  const service = model.agentLabel || connectorServiceLabel(rawTool) || rawTool;
   const ownSession = String(approval.sessionId || '');
   const surface = String(approval.surfaceSessionId || '');
   const sessionLink =

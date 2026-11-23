@@ -20,6 +20,7 @@ import {
   rowOfPlace,
   useReaderPlaceVersion,
 } from './transcript-list-reader-place';
+import { useTranscriptJump } from './transcript-jump';
 
 const firstItemId = (row: TranscriptRowModel | undefined): string | undefined => {
   const item = row?._tag === 'ToolActivity' ? row.items[0] : row && 'item' in row ? row.item : undefined;
@@ -92,7 +93,7 @@ export function useConversationTimeline({
   const identity = source.transcriptIdentity.current;
   const liveItem = source.activeStreamingTail;
   const showTimeline = source.showTranscriptTimeline;
-  const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow, pause: releaseFollow } = follow;
+  const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow } = follow;
   const { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd } = useTranscriptRows({
     identity,
     sessionKey,
@@ -188,8 +189,6 @@ export function useConversationTimeline({
   }, [jumpToLatest, sessionKey]);
   const shouldAnchorTranscriptBottom = useConversationFollowEffects({
     armFollow,
-    releaseFollow,
-    entryReader: () => !draftMode && pendingReaderPlace(pane, sessionKey) !== null,
     following,
     scrollToEndRef,
     settledItems,
@@ -202,6 +201,8 @@ export function useConversationTimeline({
         : 0
       : undefined,
   });
+  // A jump the entry brings opens its place after the entry's arm, so it is called here, after it.
+  useTranscriptJump({ sessionId: draftMode || sessionKey === 'new-task' ? '' : sessionKey, leaveTail: follow.pause });
   return {
     settledTurnKeys,
     /** What runs is past the last turn's end and has settled no row yet (use-conversation-rows.ts). */

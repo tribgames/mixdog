@@ -48,6 +48,20 @@ export function formatWorkElapsed(value: unknown): string {
   return uiTimeUnit(seconds, 'second');
 }
 
+/** A running clock read at a glance: seconds under a minute, then minutes alone ("24m"), hours and minutes past an
+ *  hour, days and hours past a day. */
+export function formatWorkClock(value: unknown): string {
+  const elapsed = Math.max(0, Number(value) || 0);
+  if (!Number.isFinite(elapsed) || elapsed < 1_000) return '';
+  const days = Math.floor(elapsed / 86_400_000);
+  const hours = Math.floor((elapsed % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((elapsed % 3_600_000) / 60_000);
+  if (days > 0) return `${uiTimeUnit(days, 'day')} ${uiTimeUnit(hours, 'hour')}`;
+  if (hours > 0) return `${uiTimeUnit(hours, 'hour')} ${uiTimeUnit(minutes, 'minute')}`;
+  if (minutes > 0) return uiTimeUnit(minutes, 'minute');
+  return uiTimeUnit(Math.floor(elapsed / 1_000), 'second');
+}
+
 // CSS measures the shimmer in terminal cells, where CJK characters are wide.
 const WIDE_CELL =
   /[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
@@ -153,6 +167,20 @@ export function isTakenOverTurnEnd(item: TranscriptItem): boolean {
 /** A compaction's divider (or the status line its check leaves): it lands where the working band stood. */
 export function isCompactionDivider(item: TranscriptItem | undefined): boolean {
   return item?.kind === 'statusdone' && completionTone(item) === 'compaction';
+}
+
+const SESSION_CHANGE_STATUSES = new Set([
+  'inherited',
+  'model-switched',
+  'workflow-switched',
+  'orchestration-mode-switched',
+]);
+
+/** A row that draws a divider across the thread: a compaction's, or a session-level change's (fork, model,
+ *  workflow or delegation switch). */
+export function isThreadDivider(item: TranscriptItem | undefined): boolean {
+  if (item?.kind !== 'statusdone') return false;
+  return SESSION_CHANGE_STATUSES.has(String(item.status || '')) || completionTone(item) === 'compaction';
 }
 
 /** The id of the compaction divider standing directly above the working band; '' when another row does. */

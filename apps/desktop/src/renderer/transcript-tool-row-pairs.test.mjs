@@ -347,7 +347,7 @@ test(
     assert.equal(row('setup', { action: 'save_automation' }).subject, '자동화 저장');
     const goal = row('goal', { action: 'update_tasks' });
     assert.deepEqual([goal.verb, goal.subject], ['목표', '작업 업데이트']);
-    assert.equal(row('visualize', { action: 'act', input: { tab: 'v1' } }).subject, '조작함');
+    assert.equal(row('visualize', { action: 'act', input: { tab: 'v1' } }).subject, '조작');
     assert.equal(row('github', { action: 'release.list' }).subject, '릴리스 목록');
     assert.equal(row('github', { action: 'workflow.run', workflow: 'ci.yml' }).subject, '워크플로우 실행 · ci.yml');
     assert.equal(row('github', { action: 'pr.comments', number: 4 }).subject, '댓글 읽기 · #4');

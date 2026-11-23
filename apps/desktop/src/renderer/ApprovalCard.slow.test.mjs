@@ -2221,6 +2221,31 @@ test('the requester chip names the connector, not the raw tool id (kept as the t
   }
 });
 
+test("an external agent's untitled call is worded on the card, named by the agent, and can be allowed for the conversation", async () => {
+  // mixdog-acp turn.rs: no title, so no reason; the agent and `untitled` are the card's to word.
+  const request = {
+    id: 'acp1',
+    kind: 'approval',
+    name: 'antigravity_execute',
+    args: { command: 'npm test' },
+    reason: null,
+    agent: { id: 'antigravity', label: 'Antigravity' },
+    untitled: true,
+    remember: ['session'],
+  };
+  const ui = await mount(card(request).element);
+  try {
+    assert.equal(ui.doc.querySelector('.approval-text').textContent, 'Antigravity asks to run a tool');
+    assert.equal(ui.doc.querySelector('.approval-detail').textContent, 'npm test');
+    const service = ui.doc.querySelector('.approval-service');
+    assert.equal(service.textContent, 'Antigravity');
+    assert.equal(service.title, 'antigravity_execute');
+    assert.ok(ui.rows().includes('Allow for this conversation'));
+  } finally {
+    await ui.done();
+  }
+});
+
 const knownApprovalReasons = [
   'This sends or posts on your behalf; it needs your approval.',
   "This agent's permission blocks this action.",

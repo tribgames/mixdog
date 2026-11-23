@@ -124,7 +124,14 @@ export function toolActivityCodeLanguage(pathText: string): string {
   return extension ? TOOL_ACTIVITY_CODE_LANGUAGES.get(extension[1].toLowerCase()) || '' : '';
 }
 
-export const TOOL_ACTIVITY_INTERNAL_ARGS = new Set(['categoryOrder', 'loadingTargets', 'agentBatch', 'verifyShell']);
+// `resultOf`: the earlier call a late result belongs to (mixdog-acp), named by the row's verb instead.
+export const TOOL_ACTIVITY_INTERNAL_ARGS = new Set([
+  'categoryOrder',
+  'loadingTargets',
+  'agentBatch',
+  'verifyShell',
+  'resultOf',
+]);
 
 /** Knobs that bound a call (how much, how long) rather than say what it did.
  *  They are never shown: a row of "Limit 45 · Timeout 10s" told the reader

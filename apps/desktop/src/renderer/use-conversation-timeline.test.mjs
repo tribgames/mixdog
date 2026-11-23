@@ -5,13 +5,15 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { useConversationTimeline } from './use-conversation-timeline';
 import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
 import { forgetTranscriptVirtualSnapshot, rememberTranscriptVirtualMeasurements } from './transcript-virtual-cache';
+import { PaneKeyContext } from './pane-key-context';
+import { openReaderPlace, readerPlace, useSessionEntry } from './transcript-list-reader-place';
 
 const ITEMS = [
   { id: 'u1', kind: 'user', text: 'hello' },
   { id: 'a1', kind: 'assistant', text: 'hi' },
 ];
 
-function mount(t, { showTimeline = true, items = ITEMS } = {}) {
+function mount(t, { showTimeline = true, items = ITEMS, pane = '' } = {}) {
   let now = 0;
   let frameId = 0;
   const frames = new Map();
@@ -47,10 +49,15 @@ function mount(t, { showTimeline = true, items = ITEMS } = {}) {
       resume() {
         calls.resumed += 1;
       },
-      arm() {},
+      arm() {
+        calls.armed += 1;
+      },
+      pause() {
+        calls.paused += 1;
+      },
     },
   };
-  const calls = { revealed: [], hidden: [], resumed: 0 };
+  const calls = { revealed: [], hidden: [], resumed: 0, armed: 0, paused: 0, anchored: [] };
   const identity = { current: 'entry' };
   const props = {
     view,
@@ -71,10 +78,13 @@ function mount(t, { showTimeline = true, items = ITEMS } = {}) {
     onEntryRevealed: (key) => calls.revealed.push(key),
     onTranscriptHiddenChange: (hidden) => calls.hidden.push(hidden),
   };
-  function Harness() {
-    useConversationTimeline(props);
+  // In the order Conversation.tsx calls them: the entry, then the timeline.
+  function Timeline() {
+    useSessionEntry(props.sessionKey);
+    calls.anchored.push(useConversationTimeline(props).shouldAnchorTranscriptBottom);
     return null;
   }
+  const Harness = () => React.createElement(PaneKeyContext.Provider, { value: pane }, React.createElement(Timeline));
   act(() => root.render(React.createElement(Harness)));
   const tick = (time) => {
     now = time;
@@ -155,6 +165,16 @@ test('a warm revisit reports hidden only until its first frame, with its dock se
   await Promise.resolve();
   entry.tick(80);
   assert.equal(entry.hidden(), false, 'released in the first frame, inside the cover grace');
+});
+
+test('entering a session follows its end: the place its reader left in the pane is let go, not put back', (t) => {
+  // What a list of the session tells as it leaves with its reader off the end: a place for the next list to put back.
+  openReaderPlace('pane-1', 'session-a', { position: 'p:r10', top: -40 });
+  const entry = mount(t, { pane: 'pane-1' });
+  assert.equal(entry.calls.anchored[0], true, 'the entry commit anchors the list to the end');
+  assert.ok(entry.calls.armed > 0, 'the entry arms follow');
+  assert.equal(entry.calls.paused, 0, 'and never lets go of it');
+  assert.equal(readerPlace('pane-1', 'session-a'), null, 'the old place is gone');
 });
 
 test('a tapped notification for this session returns the pane to its latest row; others do not', (t) => {

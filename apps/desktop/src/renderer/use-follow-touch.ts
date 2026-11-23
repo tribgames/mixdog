@@ -1,10 +1,11 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { isIOSWebSurface } from './mobile-surface';
 import {
-  boundaryGestureReached,
-  boundaryTarget,
+  type GestureScroller,
   IOS_TOUCH_SETTLE_MS,
+  gestureScroller,
   scrollMetrics,
+  scrollerTakes,
   touchScrollLatchOpen,
   touchTravelled,
   type TouchLike,
@@ -67,6 +68,7 @@ export function useFollowTouch({
   onLift(): void;
 }) {
   const touchGesture = useRef<number | undefined>(undefined);
+  const touchScroller = useRef<GestureScroller>(null);
   const touchLatched = useRef(false);
   // The identifiers of the contacts that started on the transcript: the page's
   // `touches` also lists fingers elsewhere (the composer), whose ends never
@@ -140,8 +142,7 @@ export function useFollowTouch({
       if (touchTravelled(signals.current.touchStartY, next)) signals.current.touchMoved = true;
       const delta = previous - next;
       if (!delta) return;
-      const target = boundaryTarget(event.currentTarget, event.target);
-      const transcriptReached = target === event.currentTarget || boundaryGestureReached(target, delta);
+      const transcriptReached = !scrollerTakes(touchScroller.current, delta);
       if (transcriptReached) {
         markGesture();
         // This drag is moving the transcript itself: ownership now belongs to
@@ -187,6 +188,7 @@ export function useFollowTouch({
         state.touchStartTop = root ? scrollMetrics(root).top : 0;
         state.touchStartY = event.touches[0]?.clientY ?? 0;
         state.touchStartWriteAt = lastWriteAt();
+        touchScroller.current = gestureScroller(event.currentTarget, event.target);
         state.touchMoved = false;
         state.touchScrolled = false;
         state.touchEndUpAt = 0;

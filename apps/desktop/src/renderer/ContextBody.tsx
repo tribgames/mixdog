@@ -156,8 +156,12 @@ function estimatedCategories(semantic: Row, schema: Row, request: Row): Estimate
 
 /** The estimated composition of a context status: each category's tokens,
  *  their sum, the free space left in a window of `windowTokens`, and the
- *  window the shares are of (never less than what the categories hold). */
-export function contextMix(status: unknown, windowTokens: number) {
+ *  window the shares are of (never less than what is held). With the
+ *  window's measured total (`used`) the free space is what the measurement
+ *  leaves, and `unattributed` is what it holds beyond the categories'
+ *  estimates: the estimates stay as they are, and the parts still add up to
+ *  the reading beside them. */
+export function contextMix(status: unknown, windowTokens: number, used: number | null = null) {
   const context = record(status);
   const request = record(context.request);
   const categories = estimatedCategories(
@@ -166,11 +170,14 @@ export function contextMix(status: unknown, windowTokens: number) {
     request
   );
   const categorized = categories.reduce((sum, category) => sum + category.tokens, 0);
+  const held = used ?? categorized;
   return {
     categories,
     categorized,
-    free: Math.max(0, windowTokens - categorized),
-    windowTokens: Math.max(windowTokens, categorized),
+    held,
+    unattributed: Math.max(0, held - categorized),
+    free: Math.max(0, windowTokens - held),
+    windowTokens: Math.max(windowTokens, held, categorized),
   };
 }
 

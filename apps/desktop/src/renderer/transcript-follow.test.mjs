@@ -102,33 +102,41 @@ async function mountFollowHook({
   navigator,
   mutationObserver = false,
   hookOptions = {},
+  globals = {},
+  pane = '',
 }) {
-  const [React, { createRoot }, followModule] = await Promise.all([
+  const [React, { createRoot }, followModule, { PaneKeyContext }] = await Promise.all([
     import('react'),
     import('react-dom/client'),
     import('./use-transcript-follow.ts'),
+    import('./pane-key-context.ts'),
   ]);
   const { restore } = installTestDom(null, {
     html: "<div id='root'></div>",
     jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
     expose: mutationObserver ? ['Element', 'MutationObserver'] : ['Element'],
-    ...(navigator ? { globals: { navigator } } : {}),
+    globals: { ...globals, ...(navigator ? { navigator } : {}) },
   });
   const realNow = Date.now;
   if (clock) Date.now = () => clock.now;
   const root = createRoot(document.getElementById('root'));
   let follow = null;
+  let session = sessionKey;
   function Harness() {
     const viewport = React.useRef(null);
     const content = React.useRef(null);
-    follow = followModule.useTranscriptFollow({ viewport, content, sessionKey, ...hookOptions });
+    follow = followModule.useTranscriptFollow({ viewport, content, sessionKey: session, ...hookOptions });
     return React.createElement(
       'div',
       { ref: viewport },
       React.createElement('div', { ref: content }, React.createElement(leafTag, { id: leafId }, 'rows'))
     );
   }
-  await React.act(async () => root.render(React.createElement(Harness)));
+  const render = () =>
+    React.act(async () =>
+      root.render(React.createElement(PaneKeyContext.Provider, { value: pane }, React.createElement(Harness)))
+    );
+  await render();
   const leaf = document.getElementById(leafId);
   return {
     React,
@@ -137,6 +145,11 @@ async function mountFollowHook({
     registerGeometry: followModule.registerTranscriptScrollGeometry,
     get follow() {
       return follow;
+    },
+    /** The pane goes on to show another session. */
+    enter: (next) => {
+      session = next;
+      return render();
     },
     frame: () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve()))),
     async dispose() {
@@ -476,34 +489,66 @@ async function mountReturningReader() {
   };
 }
 
-// The view is the reader's while they scroll back down: entering the old
-// re-attach band (32px, 12% of the pane) snapped them the rest of the way to
-// the bottom and pinned new output up under their hand.
-test('a reader scrolling back down near the bottom is never moved, and follow stays released', async () => {
+// The band is the jump control's: where it would not show, a reader coming back down is following again.
+test('a reader scrolling back down to where the jump control would not show follows again, pinned once the scroll is over', async () => {
   for (const input of ['wheel', 'touch']) {
     const reader = await mountReturningReader();
     try {
-      const near = reader.max() - 20;
+      const near = reader.max() - 150;
       if (input === 'wheel') {
         await reader.wheel(100);
         await reader.scroll(near);
+        assert.equal(reader.follow.followingRef.current, true, `${input}: 150px above the end takes follow back`);
       } else {
         await reader.touch.start(300);
         await reader.touch.move(200);
         await reader.scroll(near);
+        assert.equal(reader.follow.followingRef.current, false, `${input}: not while the finger is down`);
         await reader.touch.end();
-        await reader.touch.scrollend();
+        assert.equal(reader.follow.followingRef.current, true, `${input}: the lift 150px above the end takes it back`);
       }
-      assert.equal(reader.follow.followingRef.current, false, `${input}: 20px above the end is not the end`);
-      await reader.idle();
       await reader.grow(40);
+      assert.deepEqual(reader.writes, [], `${input}: nothing is written under the reader's hand`);
+      if (input === 'touch') await reader.touch.scrollend();
       await reader.idle();
-      assert.equal(reader.follow.followingRef.current, false, `${input}: follow stays released`);
-      assert.deepEqual(reader.writes, [], `${input}: the app writes no scrollTop`);
-      assert.equal(reader.native(), near, `${input}: the reader's offset is untouched`);
+      assert.equal(reader.native(), reader.max(), `${input}: the end is pinned once the reader is done`);
+      await reader.grow(40);
+      assert.equal(reader.native(), reader.max(), `${input}: and new output follows`);
     } finally {
       await reader.cleanup();
     }
+  }
+});
+
+test('a scroll up into the band, or one resting there, does not take follow back', async () => {
+  const rig = await mountFollowRig({ sessionKey: 'band-upward', startedAt: 500_000 });
+  const { React, viewport, state, writes, flush, frame, grow, advance } = rig;
+  const scroll = (to) => {
+    state.native = to;
+    return React.act(async () => rig.follow.handleScroll());
+  };
+  try {
+    await scroll(state.native);
+    advance(1_000);
+    // One notch up from the end: the reader leaves, 100px above it.
+    await React.act(async () => rig.follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    await scroll(state.native - 100);
+    assert.equal(rig.follow.followingRef.current, false, 'a single upward notch at the end releases follow');
+    const reading = state.native;
+    advance(1_000);
+    await frame();
+    await flush();
+    // A scroll event with no move (a layout pass) while the view rests in the band.
+    await scroll(reading);
+    await grow(40);
+    advance(1_000);
+    await frame();
+    await flush();
+    assert.equal(rig.follow.followingRef.current, false, 'resting in the band without moving down keeps it released');
+    assert.deepEqual(writes, [], 'nothing is written');
+    assert.equal(state.native, reading, "the reader's offset is untouched");
+  } finally {
+    await rig.cleanup();
   }
 });
 
@@ -999,7 +1044,7 @@ async function tailHarness(sessionKey) {
   };
 }
 
-test('a wheel releases follow only as a vertical upward notch, over a nested scroller too', async () => {
+test('a wheel releases follow only as a vertical upward notch the transcript itself takes, not one a scroller inside it with room takes', async () => {
   const harness = await tailHarness('wheel-intent');
   const { state } = harness;
   try {
@@ -1011,62 +1056,103 @@ test('a wheel releases follow only as a vertical upward notch, over a nested scr
     state.native = 0;
     harness.wheel({ deltaY: -3 });
     assert.equal(state.hook.followingRef.current, true, 'a notch with no room above is not a leave');
-    state.native = 2000;
-    // A code block with room left takes the notch itself; the notch still counts.
+    await harness.scroll(2000);
+    state.now += 1_000;
+    // A diff frame that scrolls on its own (overflow auto, no marker) with room above takes the notch: the transcript
+    // does not move. The notch lands on a field inside it that scrolls too but has nothing to scroll.
+    let blockTop = 400;
     const block = document.createElement('div');
-    block.setAttribute('data-scrollable', '');
+    block.className = 'tool-diff-frame';
+    block.style.overflowY = 'auto';
     Object.defineProperty(block, 'scrollHeight', { value: 900 });
     Object.defineProperty(block, 'clientHeight', { value: 300 });
-    Object.defineProperty(block, 'scrollTop', { value: 400 });
+    Object.defineProperty(block, 'scrollTop', { get: () => blockTop });
+    const field = document.createElement('dd');
+    field.style.overflowY = 'auto';
+    Object.defineProperty(field, 'scrollHeight', { value: 96 });
+    Object.defineProperty(field, 'clientHeight', { value: 96 });
+    block.appendChild(field);
     harness.viewport.appendChild(block);
+    harness.wheel({ deltaY: -120, target: field });
+    assert.equal(state.hook.followingRef.current, true, 'the diff frame scrolls; follow is kept');
+    // Nor does that notch vouch for a move of the transcript the page makes right after it.
+    await harness.mutate();
+    state.now += 50;
+    await harness.scroll(1990);
+    assert.equal(state.hook.followingRef.current, true, "a layout move after the block's notch is put back");
+    await harness.scroll(2000);
+    state.now += 1_000;
+    // At its top the block hands the notch to the transcript, which moves up: that leaves.
+    blockTop = 0;
     harness.wheel({ deltaY: -120, target: block });
-    assert.equal(state.hook.followingRef.current, false, 'a plain upward notch leaves at once, wherever it lands');
+    assert.equal(state.hook.followingRef.current, false, 'a notch the block cannot take leaves');
+    // A box that overflows without scrolling takes nothing.
+    await harness.rearm();
+    const clipped = document.createElement('div');
+    clipped.style.overflowY = 'hidden';
+    Object.defineProperty(clipped, 'scrollHeight', { value: 900 });
+    Object.defineProperty(clipped, 'clientHeight', { value: 300 });
+    Object.defineProperty(clipped, 'scrollTop', { value: 400 });
+    harness.viewport.appendChild(clipped);
+    harness.wheel({ deltaY: -120, target: clipped });
+    assert.equal(state.hook.followingRef.current, false, 'a notch over a clipped box leaves');
+    // A single upward notch on the text at the end leaves too.
+    await harness.rearm();
+    harness.wheel({ deltaY: -100 });
+    assert.equal(state.hook.followingRef.current, false, 'a single upward notch at the end leaves');
   } finally {
     await harness.dispose();
   }
 });
 
-test("a selection begun on a row's content lets go of the tail; a click there, a finger's press and one on chrome do not", async () => {
-  const harness = await tailHarness('press-row-content');
-  const { state, viewport } = harness;
-  const selectionChanged = () =>
-    harness.act(async () => {
-      document.dispatchEvent(new window.Event('selectionchange'));
-    });
+test('a selection dragged out on a row holds follow: no end is written under it while output streams, and its collapse pins the end', async () => {
+  const rig = await mountFollowRig({ sessionKey: 'selection-hold', startedAt: 600_000 });
+  const { React, viewport, VIEWPORT, state, writes, flush, grow, advance } = rig;
+  const hold = (held) => React.act(async () => rig.follow.handleSelectionHold(held));
   try {
-    const content = document.createElement('div');
-    content.className = 'transcript-virtual-row-content';
+    await React.act(async () => rig.follow.handleScroll());
+    advance(1_000);
+    await grow(40);
+    assert.deepEqual(writes, [state.content - VIEWPORT], 'a following tail is pinned on growth');
+    writes.length = 0;
+    // The press on the reply's text and the selection it drags out (TranscriptList reports the selection's rows).
     const prose = document.createElement('p');
-    prose.textContent = 'A streamed reply the reader clicks on.';
-    content.appendChild(prose);
-    const kept = document.createElement('span');
-    kept.setAttribute('data-transcript-keeps-follow', '');
-    content.appendChild(kept);
-    const chrome = document.createElement('div');
-    viewport.append(content, chrome);
-    await harness.pointerDown(chrome);
-    await harness.pointerDown(kept);
-    await harness.pointerDown(prose, { pointerType: 'touch' });
-    await harness.pointerDown(prose, { button: 2 });
-    assert.equal(state.hook.followingRef.current, true, 'none of these begins a selection in a row');
-    // A click on the text (the window brought forward, a caret placed): the press ends with nothing selected.
-    await harness.pointerDown(prose, { pointerType: 'mouse' });
-    await selectionChanged();
-    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
-    assert.equal(state.hook.followingRef.current, true, 'a click on the text keeps the tail followed');
-    // A selection made after the press ended is not one this press began.
-    window.getSelection().selectAllChildren(prose);
-    await selectionChanged();
-    assert.equal(state.hook.followingRef.current, true, 'a selection made by no press in the row keeps it');
-    window.getSelection().removeAllRanges();
-    // The press drags out a selection: the text being selected is not scrolled away.
-    await harness.pointerDown(prose, { pointerType: 'mouse' });
-    window.getSelection().selectAllChildren(prose);
-    await selectionChanged();
-    assert.equal(state.hook.followingRef.current, false, 'the text being selected is not scrolled away');
+    prose.className = 'transcript-virtual-row-content';
+    prose.textContent = 'A streamed reply the reader selects.';
+    viewport.appendChild(prose);
+    await React.act(async () =>
+      rig.follow.handlePointerDown({ target: prose, currentTarget: viewport, button: 0, pointerType: 'mouse' })
+    );
+    await hold(true);
+    const selectedAt = state.native;
+    for (let token = 0; token < 4; token += 1) {
+      advance(50);
+      await grow(40);
+    }
+    assert.equal(rig.follow.followingRef.current, true, 'the selection never releases follow');
+    assert.deepEqual(writes, [], 'no end is written under the selected text');
+    assert.equal(state.native, selectedAt, 'the selected text does not move');
+    // The selection collapses: the end is pinned again, and new output follows.
+    await hold(false);
+    await flush();
+    assert.deepEqual(writes, [state.content - VIEWPORT], 'its collapse pins the end');
+    advance(1_000);
+    await grow(40);
+    assert.equal(state.native, state.content - VIEWPORT, 'and new output follows');
+    assert.equal(rig.follow.followingRef.current, true);
+    // A selection made after the reader left holds nothing to take back.
+    writes.length = 0;
+    await React.act(async () => rig.follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    state.native -= 600;
+    await React.act(async () => rig.follow.handleScroll());
+    assert.equal(rig.follow.followingRef.current, false);
+    await hold(true);
+    await hold(false);
+    advance(1_000);
+    await grow(40);
+    assert.deepEqual(writes, [], 'a released transcript is not pinned when its selection collapses');
   } finally {
-    window.getSelection().removeAllRanges();
-    await harness.dispose();
+    await rig.cleanup();
   }
 });
 
@@ -1185,6 +1271,116 @@ test('a delayed upward event on the exact written offset stays pinned', async ()
     assert.equal(state.hook.followingRef.current, false, 'a spent value excuses nothing');
   } finally {
     await harness.dispose();
+  }
+});
+
+test('a question card brought into view as it takes focus moves a followed transcript as the app, not as its reader', async () => {
+  const { focusCardWhenIdle } = await import('./question-card-keys.ts');
+  const harness = await tailHarness('card-into-view');
+  const { state, row: card } = harness;
+  try {
+    card.scrollIntoView = () => (state.native = 1700);
+    const before = state.restores;
+    await harness.act(async () => {
+      focusCardWhenIdle(card);
+      state.hook.handleScroll();
+    });
+    assert.equal(state.hook.followingRef.current, true, 'the card scrolled into view keeps follow');
+    assert.equal(state.restores, before + 1, 'and the end is put back');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a focus that scrolls a row of a followed transcript into view is the app, not its reader', async () => {
+  const { ownedFocus } = await import('./own-scroll-writes.ts');
+  const harness = await tailHarness('focus-scrolls');
+  const { state, row } = harness;
+  try {
+    row.focus = () => (state.native = 1700);
+    const before = state.restores;
+    await harness.act(async () => {
+      ownedFocus(row);
+      state.hook.handleScroll();
+    });
+    assert.equal(state.hook.followingRef.current, true, 'the focused row scrolled into view keeps follow');
+    assert.equal(state.restores, before + 1, 'and the end is put back');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('an arrow key in a question card that moves the focus to an option above the view scrolls as the reader: the option stays in view and follow lets go', async () => {
+  const state = { native: 2000, now: 400_000, restores: 0 };
+  const { restore, window } = installTestDom(null, {
+    html: "<div id='root'></div>",
+    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
+    expose: ['Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLButtonElement', 'Node', 'navigator'],
+  });
+  window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  window.Element.prototype.scrollIntoView = () => {};
+  const realNow = Date.now;
+  Date.now = () => state.now;
+  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }, { QuestionCard }] =
+    await Promise.all([
+      import('react'),
+      import('react-dom/client'),
+      import('./use-transcript-follow.ts'),
+      import('./QuestionCard.tsx'),
+    ]);
+  const scrollToEndRef = { current: () => (state.restores += 1) };
+  const questions = [{ question: 'Which?', header: 'W', options: ['A', 'B', 'C'].map((label) => ({ label, description: '' })) }];
+  let follow = null;
+  function Harness() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content, sessionKey: 'card-keys', scrollToEndRef });
+    return React.createElement(
+      'div',
+      { ref: viewport, className: 'conversation' },
+      React.createElement(
+        'div',
+        { ref: content },
+        React.createElement(QuestionCard, { questions, resolve: async () => true })
+      )
+    );
+  }
+  const root = createRoot(document.getElementById('root'));
+  await React.act(async () => root.render(React.createElement(Harness)));
+  const viewport = document.querySelector('.conversation');
+  Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => state.native, set: () => {} });
+  const release = registerTranscriptScrollGeometry(viewport, {
+    viewportHeight: () => 400,
+    contentHeight: () => 2400,
+    scrollTop: () => state.native,
+    deviation: () => 0,
+  });
+  try {
+    await React.act(async () => follow.handleScroll());
+    state.now += 1_000;
+    const card = document.activeElement;
+    assert.ok(card?.matches('.question-card'), `the card took focus when it appeared (${card?.className})`);
+    // The card is taller than the pane: its first option sits above the view, and focusing it scrolls up to it.
+    const first = document.querySelector('.question-option');
+    const focus = first.focus.bind(first);
+    first.focus = () => {
+      focus();
+      state.native = 1700;
+    };
+    const before = state.restores;
+    await React.act(async () => {
+      card.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+      follow.handleScroll();
+    });
+    assert.equal(document.activeElement, first, 'the key moved the focus to the first option');
+    assert.equal(follow.followingRef.current, false, "the reader's key scroll lets go of the end");
+    assert.equal(state.restores, before, 'the view is not put back at the end');
+    assert.equal(state.native, 1700, 'the focused option stays in view');
+  } finally {
+    release();
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    restore();
   }
 });
 
@@ -1482,6 +1678,404 @@ test('a zoom change rounding the offset by a device pixel is put back, not a lea
   } finally {
     if (realRatio) Object.defineProperty(window, 'devicePixelRatio', realRatio);
     else delete window.devicePixelRatio;
+    await harness.dispose();
+  }
+});
+
+/** The follow hook over a 400px viewport whose offset (`state.native`) and content height (`state.content`) the test
+ *  owns. `resize` changes the content as a folding row, a closing dock or a growing window does: no scroll event, only
+ *  the content observer. The end pin is a counter (`restores`); anchor flips are recorded (`anchors`). */
+async function endHarness(sessionKey, { pane = '' } = {}) {
+  const observers = new Set();
+  class ContentObserver {
+    constructor(callback) {
+      this.callback = callback;
+      observers.add(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {
+      observers.delete(this);
+    }
+  }
+  const state = { native: 2000, content: 2400, now: 900_000, restores: 0, anchors: [] };
+  const mount = await mountFollowHook({
+    sessionKey,
+    clock: state,
+    pane,
+    globals: { ResizeObserver: ContentObserver },
+    hookOptions: {
+      scrollToEndRef: { current: () => (state.restores += 1) },
+      setAnchorBottomRef: { current: (bottom) => state.anchors.push(bottom) },
+    },
+  });
+  const { React, viewport } = mount;
+  Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => state.native, set: () => {} });
+  const release = mount.registerGeometry(viewport, {
+    viewportHeight: () => 400,
+    contentHeight: () => state.content,
+    scrollTop: () => state.native,
+    deviation: () => 0,
+  });
+  await React.act(async () => mount.follow.handleScroll());
+  await mount.frame();
+  state.now += 1_000;
+  return {
+    state,
+    viewport,
+    get follow() {
+      return mount.follow;
+    },
+    enter: mount.enter,
+    frame: mount.frame,
+    act: (callback) => React.act(callback),
+    /** A scroll event at `top`, then a frame. */
+    scroll: async (top) => {
+      state.native = top;
+      await React.act(async () => mount.follow.handleScroll());
+      await mount.frame();
+    },
+    resize: async (content) => {
+      state.content = content;
+      await React.act(async () => {
+        for (const observer of [...observers]) observer.callback([]);
+      });
+      await mount.frame();
+    },
+    /** The jump control and follow as the reader sees them. */
+    shown: () => ({ following: mount.follow.following, jump: mount.follow.showJump }),
+    dispose: async () => {
+      release();
+      await mount.dispose();
+    },
+  };
+}
+
+test('the jump control shows exactly when the end is not kept: 0, 1, 100 and 300px from it, with follow on, off and held', async () => {
+  const h = await endHarness('jump-control');
+  try {
+    const seen = {};
+    for (const distance of [0, 1, 100, 300]) {
+      await h.resize(2400 + distance);
+      await h.act(async () => h.follow.arm());
+      await h.frame();
+      seen[`on ${distance}`] = h.shown();
+      await h.act(async () => h.follow.handleSelectionHold(true));
+      await h.frame();
+      seen[`held ${distance}`] = h.shown();
+      await h.act(async () => h.follow.handleSelectionHold(false));
+      await h.act(async () => h.follow.pause());
+      await h.frame();
+      seen[`off ${distance}`] = h.shown();
+    }
+    const kept = { following: true, jump: false };
+    assert.deepEqual(seen, {
+      'on 0': kept,
+      'held 0': kept,
+      // Standing at the end is following: let go there, the view takes follow back.
+      'off 0': kept,
+      'on 1': kept,
+      'held 1': kept,
+      'off 1': kept,
+      'on 100': kept,
+      'held 100': { following: true, jump: true },
+      'off 100': { following: false, jump: true },
+      'on 300': kept,
+      'held 300': { following: true, jump: true },
+      'off 300': { following: false, jump: true },
+    });
+  } finally {
+    await h.dispose();
+  }
+});
+
+test('the distance changing with no scroll event: into the band shows the jump control, onto the end follows again', async () => {
+  const h = await endHarness('resize-band');
+  const { state } = h;
+  try {
+    // The reader scrolls 600px up, then back down to 400px above the end: outside the band, so still let go.
+    await h.act(async () => h.follow.handleWheel({ deltaY: -100, target: h.viewport, currentTarget: h.viewport }));
+    await h.scroll(1400);
+    state.now += 1_000;
+    await h.act(async () => h.follow.handleWheel({ deltaY: 100, target: h.viewport, currentTarget: h.viewport }));
+    await h.scroll(1600);
+    state.now += 1_000;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: false, jump: true });
+    // A row below folds: the end comes 100px below the view, though the reader did not scroll there.
+    await h.resize(2100);
+    assert.deepEqual(h.shown(), { following: false, jump: true }, 'in the band: the jump control says the end is not kept');
+    // A scroll event that moves nothing (a layout pass) does not count as the reader coming back.
+    await h.scroll(1600);
+    assert.deepEqual(h.shown(), { following: false, jump: true }, 'resting in the band is not coming back');
+    // The timeline writes the view down into the band: not the reader either.
+    await h.resize(2400);
+    h.follow.markProgrammaticScroll(1850);
+    await h.scroll(1850);
+    state.now += 1_000;
+    await h.scroll(1850);
+    assert.deepEqual(h.shown(), { following: false, jump: true }, "the timeline's own write is not the reader coming back");
+    // The dock closes and the window grows: the view stands at the end. It follows, and nothing is shown.
+    await h.resize(2250);
+    assert.deepEqual(h.shown(), { following: true, jump: false }, 'standing at the end is following');
+  } finally {
+    await h.dispose();
+  }
+});
+
+test('a search hit opened from the end: follow waits while the place is opened, then the view at the end follows and one in the band shows the jump control', async () => {
+  const { openReaderPlace, voidReaderPlace } = await import('./transcript-list-reader-place.ts');
+  const h = await endHarness('hit-session', { pane: 'hit-pane' });
+  const { state } = h;
+  try {
+    // useTranscriptJump: the pane leaves the tail and the list is handed the hit's place.
+    await h.act(async () => {
+      h.follow.pause();
+      openReaderPlace('hit-pane', 'hit-session', { position: 'p1', top: 'center' });
+    });
+    for (let frame = 0; frame < 3; frame += 1) await h.frame();
+    assert.deepEqual(h.shown(), { following: false, jump: false }, 'the place being opened is the reader’s, still in flight');
+    // The hit's row lies at the end: the list puts the reader there (the place is taken).
+    await h.act(async () => voidReaderPlace('hit-pane', 'hit-session'));
+    await h.scroll(2000);
+    assert.deepEqual(h.shown(), { following: true, jump: false }, 'a hit at the end follows');
+    // A hit centred 100px above the end.
+    await h.act(async () => {
+      h.follow.pause();
+      openReaderPlace('hit-pane', 'hit-session', { position: 'p2', top: 'center' });
+    });
+    h.follow.markProgrammaticScroll(1900);
+    await h.scroll(1900);
+    await h.act(async () => voidReaderPlace('hit-pane', 'hit-session'));
+    state.now += 1_000;
+    await h.scroll(1900);
+    assert.deepEqual(h.shown(), { following: false, jump: true }, 'a hit in the band shows the jump control');
+  } finally {
+    await h.dispose();
+  }
+});
+
+test('a press on a control at the end lets go until its click has landed: what the click grew shows the jump control, a click that changed nothing follows again', async () => {
+  const h = await endHarness('press-at-end');
+  const { state } = h;
+  const expander = document.createElement('button');
+  h.viewport.appendChild(expander);
+  const press = () =>
+    h.act(async () =>
+      h.follow.handlePointerDown({ target: expander, currentTarget: h.viewport, button: 0, pointerType: 'mouse' })
+    );
+  const lift = () => h.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+  try {
+    await press();
+    state.now += 500;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: false, jump: false }, 'held: the press is the reader’s, in flight');
+    await lift();
+    await h.resize(2600);
+    state.now += 1_000;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: false, jump: true }, 'the row it expanded pushed the end down');
+    // Back at the end; a press whose click changes nothing.
+    await h.act(async () => h.follow.arm());
+    await h.scroll(2200);
+    await press();
+    await lift();
+    await h.frame();
+    assert.equal(h.shown().following, false, 'the click is still landing');
+    state.now += 1_000;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: true, jump: false }, 'then the view at the end follows again');
+  } finally {
+    await h.dispose();
+  }
+});
+
+test('entering another session starts with no selection hold: its end is anchored from the entry', async () => {
+  const h = await endHarness('held-before');
+  const { state } = h;
+  try {
+    await h.act(async () => h.follow.handleSelectionHold(true));
+    assert.equal(state.anchors.at(-1), false, 'the selection holds the end');
+    // The pane enters another session; its arm runs before the old list lets go of its selection.
+    await h.enter('entered');
+    await h.act(async () => h.follow.arm());
+    assert.equal(state.anchors.at(-1), true, 'the entered session is anchored at its end');
+    // The old list's late report of its selection ending changes nothing.
+    await h.act(async () => h.follow.handleSelectionHold(false));
+    assert.equal(state.anchors.at(-1), true);
+    assert.deepEqual(h.shown(), { following: true, jump: false });
+  } finally {
+    await h.dispose();
+  }
+});
+
+test('a pressed scrollbar whose release is lost ends when chromePressHeld lets go of it: corrections land, and a view at the end follows', async () => {
+  const harness = await tailHarness('lost-thumb');
+  const { state, viewport } = harness;
+  try {
+    await harness.pointerDown(viewport, { pointerType: 'mouse' });
+    // Let go at the end under the held thumb: the press is the reader's, in flight.
+    await harness.act(async () => state.hook.pause());
+    state.now += 14_000;
+    await harness.frame();
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'a thumb held a long time is still held');
+    assert.equal(state.hook.followingRef.current, false, 'the view at the end waits for the thumb');
+    // No pointerup ever comes.
+    state.now += 1_000;
+    await harness.frame();
+    assert.equal(state.hook.holdsScrollCorrections(), false, 'the press ends as chromePressHeld ends it');
+    assert.equal(state.hook.followingRef.current, true, 'and the view at the end follows again');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a thumb dragged down near the end takes follow back when it is let go, not while it is held', async () => {
+  const harness = await tailHarness('thumb-into-band');
+  const { state, viewport } = harness;
+  try {
+    await harness.act(async () => state.hook.pause());
+    await harness.scroll(1400);
+    state.now += 1_000;
+    await harness.pointerDown(viewport, { pointerType: 'mouse' });
+    state.now += 50;
+    await harness.scroll(1850);
+    assert.equal(state.hook.followingRef.current, false, 'held 150px above the end: not yet');
+    const before = state.restores;
+    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    assert.equal(state.hook.followingRef.current, true, 'let go there: follow is taken back');
+    assert.equal(state.restores, before + 1, 'and the end is asked for');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('Space held on a control at the end is in flight until the key is released, there or elsewhere, and its click has landed', async () => {
+  const h = await endHarness('space-held');
+  const { state } = h;
+  const expander = document.createElement('button');
+  h.viewport.appendChild(expander);
+  const keyDown = () =>
+    h.act(async () => h.follow.handleKeyDown({ key: ' ', target: expander, currentTarget: h.viewport }));
+  const keyUp = (target, key = ' ') =>
+    h.act(async () => target.dispatchEvent(new window.KeyboardEvent('keyup', { key, bubbles: true })));
+  try {
+    await keyDown();
+    state.now += 2_000;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: false, jump: false }, 'held: the key is the reader’s, in flight');
+    await keyUp(expander);
+    await h.resize(2600);
+    state.now += 1_000;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: false, jump: true }, 'the row its click expanded pushed the end down');
+    // Back at the end; the key is released after focus moved elsewhere.
+    await h.act(async () => h.follow.arm());
+    await h.scroll(2200);
+    await keyDown();
+    await keyUp(document.body, 'a');
+    state.now += 2_000;
+    await h.frame();
+    assert.equal(h.shown().following, false, 'another key released ends nothing');
+    await keyUp(document.body);
+    await h.frame();
+    assert.equal(h.shown().following, false, 'the click is still landing');
+    state.now += 1_000;
+    await h.frame();
+    assert.deepEqual(h.shown(), { following: true, jump: false }, 'then the view at the end follows again');
+  } finally {
+    await h.dispose();
+  }
+});
+
+test('a selection autoscroll released over the composer ends its press there: a scroll back into the band follows again', async () => {
+  const harness = await tailHarness('selection-release-outside');
+  const { state, row } = harness;
+  const composer = document.createElement('div');
+  document.body.appendChild(composer);
+  try {
+    await harness.act(async () => state.hook.pause());
+    await harness.scroll(1400);
+    state.now += 1_000;
+    await harness.pointerDown(row);
+    await harness.act(async () => state.hook.handleSelectionAutoScroll(8));
+    state.now += 50;
+    await harness.act(async () => composer.dispatchEvent(new window.Event('pointerup', { bubbles: true })));
+    state.now += 1_000;
+    await harness.scroll(1850);
+    assert.equal(state.hook.followingRef.current, true, 'the press ended at its release: the band takes follow back');
+  } finally {
+    composer.remove();
+    await harness.dispose();
+  }
+});
+
+test('a touch drag and a run of wheel notches each resolve their scroller once, where they begin', async () => {
+  const harness = await tailHarness('gesture-scroller');
+  const { state, viewport } = harness;
+  const realStyle = window.getComputedStyle;
+  let styleReads = 0;
+  window.getComputedStyle = (...args) => {
+    styleReads += 1;
+    return realStyle.apply(window, args);
+  };
+  try {
+    let blockTop = 400;
+    let blockReads = 0;
+    const block = document.createElement('div');
+    block.style.overflowY = 'auto';
+    Object.defineProperty(block, 'scrollHeight', { value: 900 });
+    Object.defineProperty(block, 'clientHeight', { value: 300 });
+    Object.defineProperty(block, 'scrollTop', {
+      get: () => {
+        blockReads += 1;
+        return blockTop;
+      },
+    });
+    const line = document.createElement('span');
+    block.appendChild(line);
+    viewport.appendChild(block);
+    const touch = (clientY) => ({
+      target: line,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
+    await harness.act(async () => state.hook.handleTouchStart(touch(100)));
+    const atStart = styleReads;
+    assert.ok(atStart > 0, 'the touch start resolves its scroller');
+    blockReads = 0;
+    for (const y of [110, 120, 130, 140]) await harness.act(async () => state.hook.handleTouchMove(touch(y)));
+    assert.equal(styleReads, atStart, 'no move of the drag reads style again');
+    assert.equal(blockReads, 4, 'each move reads only the block’s offset');
+    assert.equal(state.hook.hasTouchScroll(), false, 'the block takes the drag');
+    blockTop = 0;
+    await harness.act(async () => state.hook.handleTouchMove(touch(150)));
+    assert.equal(state.hook.hasTouchScroll(), true, 'at its top the drag reaches the transcript');
+    await harness.act(async () => state.hook.handleTouchEnd(lift()));
+    await harness.rearm();
+    blockTop = 400;
+    const beforeWheel = styleReads;
+    harness.wheel({ deltaY: -120, target: line });
+    const firstNotch = styleReads;
+    assert.ok(firstNotch > beforeWheel, 'the first notch resolves its scroller');
+    for (let notch = 0; notch < 3; notch += 1) {
+      state.now += 16;
+      harness.wheel({ deltaY: -120, target: line });
+    }
+    assert.equal(styleReads, firstNotch, 'the later notches of the run read no style');
+    assert.equal(state.hook.followingRef.current, true, 'the block takes the run');
+    // A run that begins over no scroller reads nothing on its later notches.
+    state.now += 1_000;
+    harness.wheel({ deltaY: 120, target: harness.row });
+    const overText = styleReads;
+    for (let notch = 0; notch < 3; notch += 1) {
+      state.now += 16;
+      harness.wheel({ deltaY: 120, target: harness.row });
+    }
+    assert.equal(styleReads, overText, 'its later notches read no style');
+  } finally {
+    window.getComputedStyle = realStyle;
     await harness.dispose();
   }
 });

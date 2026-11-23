@@ -6,6 +6,7 @@ import { DesktopBootGate } from '../PaneSurfaceGate';
 import { RemoteConnectionBanner } from '../RemoteConnectionBanner';
 import { SessionBrowserParkingHost } from '../session-browser-surfaces';
 import { SessionTerminalParkingHost } from '../session-terminal-surfaces';
+import { SideFileEditorPortals } from '../side-file-editor-portals';
 import { PanelBackdrop, SidebarBackdrop } from './app-backdrops';
 import { AppShellOverlays } from './AppShellOverlays';
 import { AppWorkspaceMain } from './AppWorkspaceMain';
@@ -165,6 +166,7 @@ export function AppShellLayout({
           <PanelBackdrop open={bottomPanel.open} onClose={() => bottomPanel.setOpen(false)} />
         </div>
         {paneUtilitySurfacePortals}
+        <SideFileEditorPortals kept={views.sideFileEditorKept} />
         {renderAppShellOverlays({ shell, nav, lifecycle, commands, tabWorkflow, hubs })}
         {projectEditorHost}
         {projectAddHost}

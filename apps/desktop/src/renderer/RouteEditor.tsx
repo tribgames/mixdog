@@ -240,6 +240,8 @@ export function RouteEditor({
     (sessionChoices.length ? sessionChoices.length * ROUTE_SHEET_ROW_HEIGHT + ROUTE_SEPARATOR_HEIGHT : 0);
   const sheetState = useRouteSheet({
     dropdown,
+    // A trigger that is a session panel row opens its sheet on the row's edges.
+    rowWide: Boolean(triggerRowLabel),
     placement,
     align,
     sheetHeight,
