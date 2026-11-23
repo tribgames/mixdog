@@ -1519,7 +1519,11 @@ mod engine_recoveries {
         let sent = http.requests.lock().unwrap();
         assert!(!sent.is_empty());
         // The provider names no `baseURL`: its Messages endpoint is DeepSeek's own.
-        assert!(sent.iter().all(|request| request.url == "https://api.deepseek.com/anthropic/v1/messages"), "{:?}", sent.iter().map(|r| &r.url).collect::<Vec<_>>());
+        assert!(
+            sent.iter().all(|request| request.url == "https://api.deepseek.com/anthropic/v1/messages"),
+            "{:?}",
+            sent.iter().map(|r| &r.url).collect::<Vec<_>>()
+        );
         assert!(sent.iter().all(|request| body_of(request)["stream"] == Value::Bool(true)), "no request without streaming went out");
     }
 

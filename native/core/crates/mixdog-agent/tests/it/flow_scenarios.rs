@@ -285,10 +285,10 @@ impl Sessions for Closer {
         }
         Ok(closed)
     }
-    fn descendant_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
+    async fn descendant_session_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
-    fn child_session_ids(&self, parent: &str) -> Vec<String> {
+    async fn child_session_ids(&self, parent: &str) -> Vec<String> {
         self.0.children.iter().filter(|(_, p)| p == parent).map(|(id, _)| id.clone()).collect()
     }
     fn clear_statusline_route(&self, _: &str) {}
@@ -310,7 +310,7 @@ struct Slot;
 /// A slot that hands nothing back: the task just runs.
 struct Immediate;
 
-struct Open;
+pub(crate) struct Open;
 #[async_trait]
 impl Admission for Open {
     async fn acquire(&self, _: &str, _: Option<&str>, cancel: &mixdog_agent::cancel::Cancel) -> Result<Box<dyn Lease>, String> {
@@ -324,7 +324,7 @@ impl Admission for Open {
 /// Every start a job starter recorded, as (tool call, task) pairs.
 static RECORDED_STARTS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
-struct NoStarts;
+pub(crate) struct NoStarts;
 impl TaskStarts for NoStarts {
     fn record(&self, call: &str, task: &str) {
         lock(&RECORDED_STARTS).push((call.to_owned(), task.to_owned()));
@@ -365,22 +365,22 @@ impl TurnOwner for TurnsOwner {
         true
     }
 }
-struct Reg(Arc<Shared>);
+pub(crate) struct Reg(pub(crate) Arc<Shared>);
 #[async_trait]
 impl Registry for Reg {
-    fn resolve_tombstone_owners(&self) {}
+    async fn resolve_tombstone_owners(&self) {}
     async fn refresh_tags_from_sessions(&self, _: bool, _: &Scope) -> Result<(), String> {
         log(&self.0.log, json!("refresh"));
         Ok(())
     }
-    fn resolve_tag(&self, tag: &str, _: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
+    async fn resolve_tag(&self, tag: &str, _: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
         log(&self.0.log, json!(format!("resolveTag:{tag}:{}", options.scan_sessions)));
         match lock(&self.0.tags).get(tag).map(String::as_str) {
             Some("THROW") => Err(format!("tag \"{tag}\" is ambiguous")),
             other => Ok(other.map(str::to_owned)),
         }
     }
-    fn live_session(&self, _: &str) -> Option<SessionFacts> {
+    async fn live_session(&self, _: &str) -> Option<SessionFacts> {
         None
     }
     fn tag_session(&self, _: &str) -> Option<String> {
@@ -389,11 +389,11 @@ impl Registry for Reg {
     fn has_tag_agent(&self, _: &str) -> bool {
         false
     }
-    fn tag_for_session(&self, _: &str) -> Option<String> {
+    async fn tag_for_session(&self, _: &str) -> Option<String> {
         Some("scout".into())
     }
     fn unbind_tag(&self, _: &str) {}
-    fn bind_tag(&self, _: &str, _: &SessionFacts, _: &str) {}
+    async fn bind_tag(&self, _: &str, _: &SessionFacts, _: &str) {}
     fn forget_terminal_session(&self, tag: Option<&str>, session_id: &str) {
         log(&self.0.log, json!(format!("forget:{}:{session_id}", tag.unwrap_or_default())));
     }
@@ -427,7 +427,7 @@ impl Registry for Reg {
         None
     }
     fn consume_tag_tombstone(&self, _: &TagRecord) {}
-    fn last_tag_session(&self, _: &str, _: &Scope) -> Option<TagRecord> {
+    async fn last_tag_session(&self, _: &str, _: &Scope) -> Option<TagRecord> {
         None
     }
     async fn resumable_tag_session(&self, _: &str, _: &str, _: &Scope) -> Result<Option<Resumable>, String> {
@@ -452,7 +452,7 @@ impl Environment for Env {
     }
 }
 
-struct NoWorkers;
+pub(crate) struct NoWorkers;
 #[async_trait]
 impl Workers for NoWorkers {
     async fn session(&self, _: &str) -> Option<WorkerFacts> {
@@ -507,7 +507,7 @@ impl SpawnWorld for SpawnHost {
     fn is_contact_agent(&self, _: &str, _: Option<&str>) -> bool {
         self.host["agent"]["contact"] == true
     }
-    fn delegation(&self, _: &str) -> Delegation {
+    async fn delegation(&self, _: &str) -> Delegation {
         Delegation {
             chain: self.host["delegation"]["chain"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_owned()).collect(),
             acting: s(&self.host["delegation"], "acting"),
@@ -584,16 +584,16 @@ struct SendHost {
 
 #[async_trait]
 impl SendWorld for SendHost {
-    fn session(&self, id: &str) -> Option<Value> {
+    async fn session(&self, id: &str) -> Option<Value> {
         Some(lock(&self.shared.session).clone()).filter(|session| session["id"] == id)
     }
-    fn surface_runs(&self, _: &Value) -> bool {
+    async fn surface_runs(&self, _: &Value) -> bool {
         self.scenario["surface"] == "canonical"
     }
     fn canonical_surface(&self) -> bool {
         self.scenario["surface"] == "canonical"
     }
-    fn is_busy(&self, _: &str) -> bool {
+    async fn is_busy(&self, _: &str) -> bool {
         self.scenario["busy"] == true || self.shared.in_flight.load(std::sync::atomic::Ordering::SeqCst) > 0
     }
     async fn load_config(&self) -> Result<Option<Obj>, String> {
@@ -767,11 +767,12 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
 
 /// No terminal trace, no caller scope: the flows under test never reach them.
 struct NoTrace;
+#[async_trait]
 impl TerminalTrace for NoTrace {
-    fn has_terminal_trace(&self, _: &str, _: &Scope) -> Result<bool, String> {
+    async fn has_terminal_trace(&self, _: &str, _: &Scope) -> Result<bool, String> {
         Ok(false)
     }
-    fn reap_terminal_trace_for_tag(&self, _: &str, _: &Scope) {}
+    async fn reap_terminal_trace_for_tag(&self, _: &str, _: &Scope) {}
 }
 
 struct NoScopes;
@@ -865,9 +866,9 @@ fn a_contact_agent_may_not_hand_work_to_itself() {
 /// Closes recorded with their options, the turn closes with their turn, and a signal when one arrives. A turn close
 /// waits for `hold`, when one is set, before it ends.
 #[derive(Default)]
-struct RecordedCloses {
-    calls: Mutex<Vec<(String, String, bool, bool)>>,
-    turns: Mutex<Vec<(String, String, String)>>,
+pub(crate) struct RecordedCloses {
+    pub(crate) calls: Mutex<Vec<(String, String, bool, bool)>>,
+    pub(crate) turns: Mutex<Vec<(String, String, String)>>,
     hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
     ended: std::sync::atomic::AtomicUsize,
     arrived: tokio::sync::Notify,
@@ -896,11 +897,8 @@ impl Sessions for RecordedCloses {
         self.ended.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         true
     }
-    fn descendant_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
-    }
-    fn child_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
+    async fn descendant_session_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
     fn clear_statusline_route(&self, _: &str) {}
     async fn hide_sessions(&self, hides: &[mixdog_agent::agent_tool::host::Hide]) -> Vec<mixdog_tools::orch::agent::HideFailed> {
@@ -1314,13 +1312,13 @@ async fn waking_an_idle_worker_reveals_its_session_and_runs_a_turn_with_an_empty
     let mut scenario = send_world("wake", "woken");
     scenario["steps"] = json!([{ "return": { "content": "woken" } }]);
     let rig = rig(&scenario, None);
-    assert!(rig.send.wake_idle_worker("sess_w1"));
+    assert!(rig.send.wake_idle_worker("sess_w1").await);
     settle().await;
     settle().await;
     assert_eq!(*lock(&rig.shared.revealed), [json!("sess_w1")]);
     let asked = lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("a turn ran");
     assert_eq!(asked, "");
-    assert!(!rig.send.wake_idle_worker(""), "no session, no wake");
+    assert!(!rig.send.wake_idle_worker("").await, "no session, no wake");
 }
 
 #[tokio::test(start_paused = true)]

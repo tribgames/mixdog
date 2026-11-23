@@ -789,10 +789,8 @@ mod tests {
     /// a directly defined one.
     #[tokio::test]
     async fn a_read_only_sessions_unknown_name_is_answered_with_what_call_tool_runs() {
-        let mut session = catalog_session(
-            &["read", "edit", "shell", "web_fetch", "recall", "computer", "memory"],
-            Some(super::super::tool_exposure::TOOL_EXPOSURE_BRIDGE),
-        );
+        let mut session =
+            catalog_session(&["read", "edit", "shell", "web_fetch", "recall", "computer", "memory"], Some(super::super::tool_exposure::TOOL_EXPOSURE_BRIDGE));
         session["deferredSurfaceMode"] = json!("readonly");
         session["disallowedTools"] = json!(["memory"]);
         let host = Arc::new(Without("computer"));

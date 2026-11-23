@@ -14976,7 +14976,7 @@
       "type": "object"
     },
     {
-      "description": "One upload chunk; content-addressed, not a mutation.",
+      "description": "One upload chunk; content-addressed, not a mutation. The chunks of one blob are applied one at a time in arrival order.",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"

@@ -132,7 +132,7 @@ pub(crate) fn prepare(agent: &Doc, provider: &Value, changes: &Value, host: &dyn
     let custom = is_custom_provider_id(&provider);
     let full = Value::Object(agent.clone());
     let known_proxy = custom && changes.iter().all(|change| change.hidden.is_none()) && host.proxy_provider_registered(&provider);
-    if !known_proxy && !is_known_provider(&provider, &full, &|id| host.provider_available(id)) {
+    if !known_proxy && !host.agent_provider(&provider) && !is_known_provider(&provider, &full, &|id| host.provider_available(id)) {
         return Err(format!("unknown provider \"{provider}\""));
     }
     let mut after = agent.clone();

@@ -96,7 +96,7 @@ pub trait SpawnWorld: Send + Sync {
     /// `isContactAgentId(agent, kind)`.
     fn is_contact_agent(&self, agent: &str, kind: Option<&str>) -> bool;
     /// The delegation chain `caller_id` acts in and the agent it acts as.
-    fn delegation(&self, caller_id: &str) -> Delegation;
+    async fn delegation(&self, caller_id: &str) -> Delegation;
     /// The definition's permission, normalized; `None` when it sets none.
     async fn agent_permission(&self, agent: &str) -> Result<Option<Value>, String>;
     fn next_tag(&self, agent: &str, context: &SpawnContext) -> String;
@@ -137,13 +137,13 @@ pub trait SpawnAdmission: Send + Sync {
 #[async_trait]
 pub trait SendWorld: Send + Sync {
     /// `mgr.getSession(id)`: the session as the runtime holds it.
-    fn session(&self, session_id: &str) -> Option<Value>;
+    async fn session(&self, session_id: &str) -> Option<Value>;
     /// `canUseSessionSurface(session)`: the surface runs this session.
-    fn surface_runs(&self, session: &Value) -> bool;
+    async fn surface_runs(&self, session: &Value) -> bool;
     /// `sessionSurface.canonical === true`.
     fn canonical_surface(&self) -> bool;
     /// `views.isSessionBusy(id)`.
-    fn is_busy(&self, session_id: &str) -> bool;
+    async fn is_busy(&self, session_id: &str) -> bool;
     /// `cfgMod.loadConfig()` after the pending writes are flushed; `None` without a config module.
     async fn load_config(&self) -> Result<Option<Obj>, String>;
     /// `configuredAgentRouteCandidates(config, agent)`, as [`SpawnWorld::route_candidates`].

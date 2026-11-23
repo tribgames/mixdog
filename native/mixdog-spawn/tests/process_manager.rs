@@ -382,12 +382,17 @@ async fn explicit_pause_stops_the_reader_and_resume_releases_it() {
 /// A process that exits by itself while its output is paused still publishes its exit and frees
 /// its admission slot: the exit opens the reader's flow gate (it used to join a reader parked on
 /// the gate). The script waits for a line of input between its two outputs, which the test sends once the output is paused.
+///
+/// The Unix terminal does not echo that line: a session leader's exit on macOS first waits until its terminal's output has been read
+/// (XNU `proc_exit` → `ttywait`), so with the echo parked at the gate, `last` would stay unread in the terminal and the root would
+/// never exit while paused. Without the echo, `last` is the one output after the pause, and the parked reader holds all of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn natural_exit_behind_paused_output_is_published_and_frees_the_slot() {
     let m = manager_with(ProcessConfig { max_processes: 1, ..ProcessConfig::default() });
     for (name, pty) in [("paused-pipe", false), ("paused-pty", true)] {
         let h = handle(name);
-        let cmd = shell("echo first& set /p line=& echo last", "echo first; read line; echo last");
+        let unix = if pty { "stty -echo; echo first; read line; echo last" } else { "echo first; read line; echo last" };
+        let cmd = shell("echo first& set /p line=& echo last", unix);
         let req = if pty { pty_request(&h, cmd, PtySize { cols: 100, rows: 30 }) } else { SpawnRequest { stdin_piped: true, ..request(&h, cmd) } };
         m.spawn(req).await.unwrap();
         while m.output_pushed(&h).unwrap() == 0 {

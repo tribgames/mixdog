@@ -14,6 +14,7 @@ use crate::env::Yielder;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use super::stages::StageCallback;
 use crate::response::Termination;
 
 /// What a finished ask hands its caller: the fields the flow reads of Node's result.
@@ -82,6 +83,8 @@ pub struct TurnHooks {
     /// Set for a job's turn only: told the id of the turn this request started, once the session started it. The job's
     /// cancellation stops that turn and no other.
     pub on_submitted: Option<Arc<SubmittedCallback>>,
+    /// Set for a job's turn only: told each stage the turn enters before the session started it.
+    pub on_stage: Option<Arc<StageCallback>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,6 +112,8 @@ pub struct TurnRequest {
     pub hooks: TurnHooks,
     /// The job's admitted slot, for the loop to hand back during provider requests.
     pub slot: Option<Arc<dyn Yielder>>,
+    /// The job's cancellation: it ends every wait of the turn before the session started it.
+    pub cancel: Option<Cancel>,
 }
 
 /// One assistant row a session gained during a turn, as text: its own content and, when that is
@@ -277,6 +282,12 @@ pub struct RowUpdate {
     pub failure_reason: Option<String>,
 }
 
+#[async_trait]
 pub trait WorkerRows: Send + Sync {
     fn upsert(&self, session_id: &str, tag: Option<&str>, update: RowUpdate);
+    /// What [`Self::upsert`] and [`SessionNames`] read of `session_id` stays at hand until the returned guard drops: a
+    /// dispatch takes it before its turn, whose row writes come from the turn's events with nothing to await.
+    async fn hold(&self, _session_id: &str) -> Box<dyn Send> {
+        Box::new(())
+    }
 }

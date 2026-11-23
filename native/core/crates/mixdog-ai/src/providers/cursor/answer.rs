@@ -394,8 +394,11 @@ fn count_row(line: &str) -> Option<(&str, u64)> {
 
 fn grep_success(text: &str, args: &GrepArgs) -> Writer {
     let mode = if args.output_mode.is_empty() { "content" } else { args.output_mode.as_str() };
-    let lines: Vec<&str> =
-        text.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line)).filter(|line| !line.is_empty() && !line.starts_with("[total ") && !line.starts_with("... [")).collect();
+    let lines: Vec<&str> = text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .filter(|line| !line.is_empty() && !line.starts_with("[total ") && !line.starts_with("... ["))
+        .collect();
     // The results the search skipped at the request's offset, said where the result kind says it.
     let offset_applied = |result: &mut Writer, field: u32| {
         if args.offset > 0 {
@@ -628,11 +631,21 @@ mod tests {
             assert_eq!(written.len(), 5, "{text}: start, output, exit, the result, the close");
             let exit = fields(&exec_result(&written[2])).into_iter().find(|(n, _)| *n == 14).expect("stream").1.bytes().to_vec();
             let event = fields(&exit).into_iter().find(|(n, _)| *n == 3).expect("the exit event").1.bytes().to_vec();
-            assert_eq!(fields(&event).into_iter().find(|(n, _)| *n == 1).map(|(_, v)| v.as_u64()), Some(u64::from(code as u32)), "{text}: unsigned on the stream");
+            assert_eq!(
+                fields(&event).into_iter().find(|(n, _)| *n == 1).map(|(_, v)| v.as_u64()),
+                Some(u64::from(code as u32)),
+                "{text}: unsigned on the stream"
+            );
         }
         // A command that did not start is still a rejection.
         let exec = ExecServer { id: 4, shell: Some(args()), ..Default::default() };
-        let result = fields(&exec_result(&answer(&exec, &failed("Error: shell is not available here"))[0])).into_iter().find(|(n, _)| *n == 2).expect("result").1.bytes().to_vec();
+        let result = fields(&exec_result(&answer(&exec, &failed("Error: shell is not available here"))[0]))
+            .into_iter()
+            .find(|(n, _)| *n == 2)
+            .expect("result")
+            .1
+            .bytes()
+            .to_vec();
         assert_eq!(shell_case(&result).0, 4);
     }
 
@@ -656,7 +669,12 @@ mod tests {
     /// Content past the bound of a result's text is not echoed after a write.
     #[test]
     fn a_write_echoes_no_content_past_the_text_bound() {
-        let args = super::super::schema::WriteArgs { path: "a.txt".into(), file_text: "x".repeat(MAX_TOOL_TEXT_BYTES + 1), return_content: true, ..Default::default() };
+        let args = super::super::schema::WriteArgs {
+            path: "a.txt".into(),
+            file_text: "x".repeat(MAX_TOOL_TEXT_BYTES + 1),
+            return_content: true,
+            ..Default::default()
+        };
         let exec = ExecServer { id: 1, write: Some(args), ..Default::default() };
         let success = fields(&answered(&exec, "done", 3)).into_iter().find(|(n, _)| *n == 1).expect("success").1.bytes().to_vec();
         assert!(fields(&success).into_iter().all(|(n, _)| n != 4));

@@ -147,3 +147,53 @@ async fn another_upload_is_not_held_behind_a_busy_one() {
     finished.await.unwrap();
     release.send(()).unwrap();
 }
+
+#[tokio::test]
+async fn the_chunks_of_one_blob_upload_apply_in_arrival_order_and_the_blob_completes() {
+    use mixdog_app_protocol::limits::Limits;
+    use mixdog_core_api::CallContext;
+    use mixdog_core_api::CoreRequest;
+    use mixdog_core_api::Reply;
+    use mixdog_core_api::ids::Method;
+    use mixdog_core_api::service::DomainService;
+    use mixdog_core_domains::domains::blob::BlobService;
+    use mixdog_store::blobs::BlobStore;
+
+    mixdog_rt::testing::tokens();
+    let dir = std::env::temp_dir().join(format!(
+        "mixdog-blob-put-order-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let limits = Limits { max_blob_page_bytes: 64, max_blob_put_chunk_bytes: 3, ..Limits::default() };
+    let service = BlobService::new(BlobStore::new(&dir), &mixdog_rt::testing::tokens(), &limits);
+    let bytes = b"abc".repeat(8);
+    let digest = mixdog_store::blobs::digest_of(&bytes).as_str().to_owned();
+    let queues = KeyedQueues::new();
+    let mut finished = Vec::new();
+    for index in 0..8u64 {
+        let params = json!({ "digest": digest, "offset": index * 3, "bytesB64": "YWJj" });
+        let (key, access) = key_of(&request("blob/put", params.clone()));
+        let (done, finish) = oneshot::channel::<Result<(), String>>();
+        finished.push(finish);
+        let service = service.clone();
+        queues.enqueue(
+            key,
+            access,
+            CancellationToken::new(),
+            Box::pin(async move {
+                let req = CoreRequest { method: Method("blob/put"), params, op: None, ctx: CallContext::internal("test") };
+                let _ = done.send(service.call(req).await.map(|_| ()).map_err(|e| format!("{e:?}")));
+            }),
+        );
+    }
+    for finish in finished {
+        let outcome = finish.await.unwrap();
+        assert!(outcome.is_ok(), "a chunk dispatched with its neighbours is never refused: {outcome:?}");
+    }
+    let read = CoreRequest { method: Method("blob/read"), params: json!({ "digest": digest }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(page) = service.call(read).await.unwrap() else { panic!("blob/read answers a value") };
+    assert_eq!(page, json!({ "bytesB64": "YWJj".repeat(8) }));
+    let _ = std::fs::remove_dir_all(&dir);
+}

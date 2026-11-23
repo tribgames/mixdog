@@ -139,7 +139,6 @@ impl AnthropicConfig {
         }
     }
 
-
     /// Whether the base URL is Anthropic's own origin, whatever the route.
     pub fn official_origin(&self) -> bool {
         self.base_url == DEFAULT_BASE_URL || self.base_url.starts_with("https://api.anthropic.com/")

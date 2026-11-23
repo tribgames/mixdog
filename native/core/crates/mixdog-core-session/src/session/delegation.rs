@@ -122,16 +122,23 @@ impl TurnState {
     }
 }
 
+/// `getSession(id)` (`mgr.getSession`): the session as the agent registry answers it, read from the index when it is
+/// neither loaded nor held.
+#[async_trait]
+pub trait SessionLookup: Send + Sync {
+    async fn session(&self, session_id: &str) -> Option<Value>;
+}
+
 /// `delegationChainOf(sessionId, getSession)` (`bot-chain.mjs:21`): the chain the session acts
 /// in, oldest first, ending with the agent it acts as. Walks `parentSessionId` / `ownerSessionId`
 /// up from it; each session contributes its current turn's chain (`turn_bots`), then the agent it
 /// acts as. The visited set ends a malformed cycle.
-pub fn delegation_chain(session_id: &str, get_session: &dyn Fn(&str) -> Option<Value>, turn_bots: &dyn Fn(&str) -> Vec<String>) -> Vec<String> {
+pub async fn delegation_chain(session_id: &str, sessions: &dyn SessionLookup, turn_bots: &(dyn Fn(&str) -> Vec<String> + Sync)) -> Vec<String> {
     let mut chain: Vec<String> = Vec::new();
     let mut seen = HashSet::new();
     let mut id = clean_str(session_id);
     while !id.is_empty() && seen.insert(id.clone()) {
-        let session = get_session(&id);
+        let session = sessions.session(&id).await;
         let acting = acting_agent_of(session.as_ref(), &id);
         let mut part = turn_bots(&id);
         if !acting.is_empty() {
@@ -412,15 +419,21 @@ mod tests {
     }
 
     /// `delegationChainOf`: the ancestry's turn chains and acting agents, oldest first.
-    #[test]
-    fn the_chain_walks_the_ancestry_and_ends_at_the_acting_agent() {
-        let sessions = json!({
+    #[async_trait]
+    impl SessionLookup for Fixed {
+        async fn session(&self, session_id: &str) -> Option<Value> {
+            self.0.get(session_id).cloned()
+        }
+    }
+
+    #[tokio::test]
+    async fn the_chain_walks_the_ancestry_and_ends_at_the_acting_agent() {
+        let sessions = Fixed(json!({
             "child": { "owner": "agent", "agent": "worker", "parentSessionId": "sess_home_b" },
             "sess_home_b": { "id": "sess_home_b" },
-        });
-        let get = |id: &str| sessions.get(id).cloned();
+        }));
         let bots = |id: &str| if id == "child" { strings(&["a"]) } else { Vec::new() };
-        assert_eq!(delegation_chain("child", &get, &bots), strings(&["b", "a", "worker"]));
+        assert_eq!(delegation_chain("child", &sessions, &bots).await, strings(&["b", "a", "worker"]));
     }
 
     #[tokio::test]

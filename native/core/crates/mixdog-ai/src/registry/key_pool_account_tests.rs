@@ -53,6 +53,8 @@ struct Engine {
     keepalive: KeepaliveSchedule,
     /// The provider's own listing, when this engine is the provider's own adapter that lists.
     listing: Option<Arc<Live>>,
+    /// Held once by the engine and once by each of its answers not yet dropped.
+    held: Arc<()>,
 }
 
 /// A listing whose credential names no account (an imported Claude CLI login without `identity.id`): it lists live.
@@ -83,15 +85,20 @@ fn engine(text: &'static str, refusal: Option<ProviderError>) -> Arc<Engine> {
         policy: CompatProfile::plain("custom", "http://127.0.0.1/v1", CredentialKind::Keyless).retry_policy(),
         keepalive: KeepaliveSchedule::SPEC,
         listing: None,
+        held: Arc::default(),
     })
 }
 
-struct Events(VecDeque<StreamEvent>);
+/// An answer's events; `_held` counts the answers of its engine that are not yet dropped.
+struct Events {
+    events: VecDeque<StreamEvent>,
+    _held: Arc<()>,
+}
 
 #[async_trait]
 impl ModelStream for Events {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        self.0.pop_front().map(Ok)
+        self.events.pop_front().map(Ok)
     }
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
@@ -153,7 +160,7 @@ impl Engine {
             StreamEvent::ProviderState(state),
             StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None },
         ];
-        Box::new(Events(events.into()))
+        Box::new(Events { events: events.into(), _held: Arc::clone(&self.held) })
     }
 }
 
@@ -624,4 +631,25 @@ async fn entering_a_loop_reaches_the_roster_provider_once() {
 
     assert_eq!(*primary.loops.lock().unwrap(), 1);
     assert!(!rotation.probe_paced(PROVIDER, ID_A), "a new loop measures again");
+}
+
+/// The serving account's stream lives as long as the stream the pool handed out, past its last event: a provider that
+/// keeps a run open for the batch it handed over ends that run when its stream is dropped, and the turn holds the
+/// pool's stream until its next request.
+#[tokio::test]
+async fn the_serving_accounts_stream_lives_as_long_as_the_pools() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_store, rotation) = roster(&dir).await;
+    let (primary, a) = (engine("primary", None), engine("a", None));
+    let pool = KeyPoolAdapter::with_engines(PROVIDER, primary, engines(Some(rotation), &[(ID_A, &a)]));
+
+    let mut stream = pool.attempt(request()).await.expect("the account answers");
+    let mut completed = false;
+    while let Some(event) = stream.next().await {
+        completed |= matches!(event.expect("an event"), StreamEvent::Completed { .. });
+    }
+    assert!(completed);
+    assert_eq!(Arc::strong_count(&a.held), 2, "the answer is still held after its last event");
+    drop(stream);
+    assert_eq!(Arc::strong_count(&a.held), 1, "and goes with the pool's stream");
 }

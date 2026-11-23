@@ -52,6 +52,10 @@ struct State {
     logs: Vec<String>,
     /// Listings read: one per pass.
     listings: usize,
+    /// The agent-only rows the listing reads.
+    agent_rows: AgentRows,
+    /// Each read of a session's sub-agent sessions: the ids of the listing's rows it read from, none when it read afresh.
+    sub_reads: Vec<(String, Option<Vec<String>>)>,
     /// While set, an archive waits for `gate` (a pass held mid-way).
     hold: bool,
     gate: Arc<tokio::sync::Notify>,
@@ -83,10 +87,10 @@ impl AutoRetentionHost for Fake {
     async fn record(&self) -> Result<RetentionRecord, String> {
         Ok(self.state().record.clone())
     }
-    async fn sessions(&self) -> Result<Vec<Session>, String> {
+    async fn sessions(&self) -> Result<Listing, String> {
         let mut state = self.state();
         state.listings += 1;
-        Ok(state.sessions.clone())
+        Ok(Listing { sessions: state.sessions.clone(), agent_rows: state.agent_rows.clone() })
     }
     async fn session(&self, id: &str) -> Result<Option<Session>, String> {
         Ok(self.state().sessions.iter().find(|s| s.id == id).cloned())
@@ -97,9 +101,10 @@ impl AutoRetentionHost for Fake {
     async fn background_jobs(&self, id: &str) -> Result<bool, String> {
         Ok(self.state().background.contains(id))
     }
-    async fn sub_sessions(&self, id: &str, _now: f64, _window: f64, fresh: bool) -> Result<Option<Vec<(String, f64)>>, String> {
-        let state = self.state();
-        if state.live_sub.contains(id) || (fresh && state.live_sub_fresh.contains(id)) {
+    async fn sub_sessions(&self, id: &str, _now: f64, _window: f64, listed: Option<&AgentRows>) -> Result<Option<Vec<(String, f64)>>, String> {
+        let mut state = self.state();
+        state.sub_reads.push((id.to_owned(), listed.map(|rows| rows.iter().map(|(row, _)| row.clone()).collect())));
+        if state.live_sub.contains(id) || (listed.is_none() && state.live_sub_fresh.contains(id)) {
             return Ok(None);
         }
         Ok(Some(state.children.get(id).cloned().unwrap_or_default()))
@@ -166,7 +171,7 @@ async fn verdict(s: &Session) -> Option<Action> {
 }
 
 async fn verdict_with(host: &Fake, s: &Session, record: &RetentionRecord, policy: Policy) -> Option<Action> {
-    judge(host, s, NOW, policy, record, false).await.unwrap().map(|verdict| verdict.action)
+    judge(host, s, NOW, policy, record, Some(&AgentRows::new())).await.unwrap().map(|verdict| verdict.action)
 }
 
 async fn pass(host: &Fake) -> Option<Report> {
@@ -404,7 +409,7 @@ impl AutoRetentionHost for Opens {
     async fn record(&self) -> Result<RetentionRecord, String> {
         self.0.record().await
     }
-    async fn sessions(&self) -> Result<Vec<Session>, String> {
+    async fn sessions(&self) -> Result<Listing, String> {
         self.0.sessions().await
     }
     async fn session(&self, id: &str) -> Result<Option<Session>, String> {
@@ -416,8 +421,8 @@ impl AutoRetentionHost for Opens {
     async fn background_jobs(&self, id: &str) -> Result<bool, String> {
         self.0.background_jobs(id).await
     }
-    async fn sub_sessions(&self, id: &str, now: f64, window: f64, fresh: bool) -> Result<Option<Vec<(String, f64)>>, String> {
-        self.0.sub_sessions(id, now, window, fresh).await
+    async fn sub_sessions(&self, id: &str, now: f64, window: f64, listed: Option<&AgentRows>) -> Result<Option<Vec<(String, f64)>>, String> {
+        self.0.sub_sessions(id, now, window, listed).await
     }
     async fn archive_tree(&self, id: &str, now: f64, policy: Policy, admit: Admit) -> Result<TreeOutcome, String> {
         self.0.archive_tree(id, now, policy, admit).await
@@ -605,6 +610,24 @@ async fn a_child_that_completed_a_turn_just_before_the_final_judgment_keeps_pare
     let report = pass(&host).await.unwrap();
     assert_eq!(report.skipped, ["parent"]);
     assert!(host.state().archived.is_empty(), "neither the parent nor its child is archived");
+}
+
+/// Each pass plans over the agent-only rows its own listing read, never an earlier pass's, and every judgment before an action
+/// reads them afresh.
+#[tokio::test]
+async fn each_plan_reads_sub_sessions_from_its_own_listing_and_each_action_afresh() {
+    let host = Fake::with(vec![session("parent", 40.0)]);
+    host.state().agent_rows = vec![("child".into(), Map::new())];
+    pass(&host).await.unwrap();
+    host.state().sessions.push(session("late", 40.0));
+    host.state().agent_rows = vec![("child2".into(), Map::new())];
+    pass(&host).await.unwrap();
+    let listed = |ids: &[&str]| Some(ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>());
+    assert_eq!(
+        host.state().sub_reads,
+        [("parent".to_owned(), listed(&["child"])), ("parent".to_owned(), None), ("late".to_owned(), listed(&["child2"])), ("late".to_owned(), None)]
+    );
+    assert_eq!(host.state().archived, ["parent", "late"]);
 }
 
 #[tokio::test]

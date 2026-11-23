@@ -586,6 +586,8 @@ struct RunSlot {
     live_call: super::live_call::LiveCall,
     /// The session's input and output tokens as the turn began (`turn.inputBaseline`, `turn.outputBaseline`).
     tokens_at_start: (u64, u64),
+    /// The port's first-output mark ([`RunPort::schedule_title`]), set when the run ends.
+    shown: Arc<watch::Sender<bool>>,
     /// The run's registration with the core's lifecycle ([`super::BusyHold::run`]), held for the run's life: a confirmed stop's abort
     /// cancels it.
     _core_abort: Box<dyn Send + Sync>,
@@ -1145,6 +1147,9 @@ impl Drop for DecisionEnd {
     }
 }
 
+/// A crashed run's id, what it left, and the end it is closed with when it stores its end as a record.
+pub(crate) type RecoveredRun = (String, super::seams::CrashedRows, Option<serde_json::Map<String, Value>>);
+
 /// Results of lane jobs the actor submitted.
 #[allow(
     clippy::large_enum_variant,
@@ -1157,7 +1162,7 @@ pub(crate) enum JobDone {
     ProjectMoved(Result<(), CoreError>),
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
     /// Each crashed run with what it left, and the end it is closed with when it stores its end as a record.
-    Recovered(Vec<(String, super::seams::CrashedRows, Option<serde_json::Map<String, Value>>)>),
+    Recovered(Vec<RecoveredRun>),
     /// A send of submission `id` got its answer ([`Submissions::admit`]): `answer` when it succeeded, its receipt.
     SubmissionSettled {
         id: String,
@@ -4049,6 +4054,9 @@ impl SessionActor {
             Ctl::CwdApplied { changed } => self.cwd_applied(changed),
             Ctl::Unsubscribed => self.try_unload(),
             Ctl::Closed(taken) => {
+                if let Some(titles) = &self.deps.titles {
+                    titles.session_disposed(self.id.as_str());
+                }
                 self.tombstoned = true;
                 self.closed_acks.push(taken);
                 self.try_unload();
@@ -4273,10 +4281,7 @@ impl SessionActor {
     /// refuses such a run as `busy` from the run itself. A wake holds none from its start to its
     /// settlement: the idle delete answers the same whichever of the wake's steps it meets.
     fn ask_lock_held(&self) -> bool {
-        self.run.as_ref().is_some_and(|run| !run.wake)
-            || (self.starting && !self.starting_wake)
-            || (self.settling && !self.settling_wake)
-            || self.carrying()
+        self.run.as_ref().is_some_and(|run| !run.wake) || (self.starting && !self.starting_wake) || (self.settling && !self.settling_wake) || self.carrying()
     }
 
     /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
@@ -5647,6 +5652,7 @@ impl SessionActor {
         let prompt_state = prompt_state(&input, submitter.as_ref(), wake);
         // The run is the busy session's running work, which a confirmed stop's abort cancels.
         let core_abort = self.hold_core().run(&token);
+        let shown = Arc::new(watch::channel(false).0);
         #[cfg(any(test, feature = "test-support"))]
         self.ledger(format!("run:admitted:{}", work.id));
         self.deps.wakes.reset(&self.id);
@@ -5684,6 +5690,7 @@ impl SessionActor {
             verb: super::live_end::done_verb(self.turns_closed),
             live_call: Default::default(),
             tokens_at_start: self.stats.tokens(),
+            shown: shown.clone(),
             _core_abort: core_abort,
         });
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
@@ -5745,6 +5752,8 @@ impl SessionActor {
                 let cell = self.cell.clone();
                 Arc::new(move || cell.header.load().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned())
             },
+            shown,
+            titles: self.deps.titles.clone(),
             #[cfg(feature = "replay-settled")]
             replay_run: replay_run.clone(),
         };

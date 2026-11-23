@@ -27,6 +27,7 @@ use crate::client_versions::Live;
 use crate::providers::cursor::API_URL;
 use crate::providers::cursor::AccessToken;
 use crate::providers::cursor::http_status_error;
+use crate::providers::cursor::is_sign_in_refusal;
 use crate::providers::cursor::rpc_headers;
 use crate::providers::cursor::unwrap_unary_body;
 use crate::transport::deadlines::CURSOR_USAGE;
@@ -437,9 +438,21 @@ impl CursorUsage {
 
     /// `getUsageSnapshot()`.
     pub async fn read(&self) -> Result<Value, UsageError> {
-        let token = self.tokens.access_token().await.map_err(failure)?.token;
+        let access = self.tokens.access_token().await.map_err(failure)?;
+        let token = access.token.clone();
         let (usage, plan) = futures::future::join(self.call(&token, USAGE_PATH), self.call(&token, PLAN_PATH)).await;
-        let usage_body = usage.map_err(failure)?;
+        let usage_body = match usage {
+            Ok(body) => body,
+            // The refusal is of the sign-in this reading was sent on, as a send's is: that one is renewed, or marked for a
+            // new sign-in when its renewal is refused too.
+            Err(error) if is_sign_in_refusal(&error) => {
+                return Err(failure(match self.tokens.after_rejection(&access).await {
+                    Err(renewal) if renewal.reauth_required => renewal,
+                    _ => error,
+                }));
+            }
+            Err(error) => return Err(failure(error)),
+        };
         let unwrapped = unwrap_unary_body(&usage_body);
         let usage = decode_message(unwrapped, 0, unwrapped.len(), CURRENT_PERIOD_USAGE).map_err(UsageError::new)?;
         // The plan call may fail; its answer, once received, must decode.
@@ -459,6 +472,105 @@ impl CursorUsage {
             stamp_reading(&mut reading, sent_credential_stamp(&token));
         }
         Ok(reading)
+    }
+}
+
+#[cfg(test)]
+mod rejection_tests {
+    use std::sync::atomic::AtomicU16;
+    use std::sync::atomic::Ordering;
+
+    use base64::Engine;
+
+    use super::*;
+    use crate::oauth::CredentialFile;
+    use crate::oauth::CredentialIo;
+    use crate::providers::cursor::auth::EXCHANGE_URL;
+    use crate::providers::cursor::auth::FileAccess;
+    use crate::providers::listing_row::testing::Replay;
+
+    /// What Settings shows for the account: the stored sign-in, read as the account roster reads it.
+    #[allow(clippy::disallowed_methods, reason = "test: reads the fixture credential file synchronously")]
+    fn signed_in(path: &std::path::Path) -> bool {
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        crate::accounts::validity::credential_valid(PROVIDER_ID, doc.as_object().unwrap(), 0.0)
+    }
+
+    /// A usage reading the service refuses marks the sign-in it was sent on for a new sign-in once that sign-in's renewal
+    /// is refused too; a reading that fails for any other reason marks nothing.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes a fixture credential file synchronously")]
+    async fn a_refused_usage_reading_marks_the_account_for_a_new_sign_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cursor-oauth.json");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"exp":4000000000}"#);
+        let token = format!("h.{payload}.s");
+        std::fs::write(
+            &path,
+            serde_json::json!({ "access_token": token, "refresh_token": "fixture-refresh", "expires_at": 4_000_000_000_000_u64 }).to_string(),
+        )
+        .unwrap();
+        let status = Arc::new(AtomicU16::new(503));
+        let answered = status.clone();
+        let http =
+            Arc::new(Replay::new(move |request: &WireRequest| (if request.url == EXCHANGE_URL { 401 } else { answered.load(Ordering::SeqCst) }, Vec::new())));
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(path.clone(), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let usage = CursorUsage::new(
+            PROVIDER_ID,
+            http.clone(),
+            None,
+            crate::providers::cursor::CLIENT_VERSION_FLOOR.into(),
+            Arc::new(FileAccess::new(http.clone(), file)),
+        );
+
+        for answer in [503, 403] {
+            status.store(answer, Ordering::SeqCst);
+            assert!(usage.read().await.is_err());
+            assert!(signed_in(&path), "a {answer} is not a refusal of the sign-in");
+            assert!(!http.requests.lock().unwrap().iter().any(|request| request.url == EXCHANGE_URL), "a {answer} renewed the sign-in");
+        }
+
+        status.store(401, Ordering::SeqCst);
+        let error = usage.read().await.expect_err("the reading is refused");
+        assert!(error.message.contains(crate::providers::cursor::auth::REAUTH_GUIDANCE), "{}", error.message);
+        assert!(!signed_in(&path), "the refused sign-in still reads as signed in");
+    }
+
+    /// A sign-in marked as refused sends nothing until the user signs in again: the usage reading answers with the
+    /// sign-in-again message and the listing with the static list, neither with a request.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes a fixture credential file synchronously")]
+    async fn a_marked_sign_in_sends_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cursor-oauth.json");
+        std::fs::write(&path, serde_json::json!({ "access_token": "marked-access", "refresh_token": "marked-refresh", "reauth_required": true }).to_string())
+            .unwrap();
+        let http = Arc::new(Replay::new(|_request: &WireRequest| (200, Vec::new())));
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(path, CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let access: Arc<FileAccess> = Arc::new(FileAccess::new(http.clone(), file));
+        let version = || -> Live { crate::providers::cursor::CLIENT_VERSION_FLOOR.into() };
+
+        let error = CursorUsage::new(PROVIDER_ID, http.clone(), None, version(), access.clone()).read().await.expect_err("nothing is read");
+        assert!(error.message.contains(crate::providers::cursor::auth::REAUTH_GUIDANCE), "{}", error.message);
+
+        struct NoRun;
+        #[async_trait::async_trait]
+        impl crate::transport::http::BidiOpen for NoRun {
+            async fn open(
+                &self,
+                _request: WireRequest,
+                _first: Vec<u8>,
+                _exchange: crate::transport::Exchange,
+            ) -> Result<(crate::transport::http::HttpResponse, Arc<dyn crate::transport::http::FrameSink>), ProviderError> {
+                unreachable!("a listing opens no run")
+            }
+        }
+        let adapter = crate::providers::cursor::CursorAdapter::new(PROVIDER_ID, None, Some(version()), http.clone(), Arc::new(NoRun), access);
+        let records = mixdog_core_api::domain::provider::ModelListing::list_models(&adapter).await.expect("the static list answers");
+        assert!(records.iter().any(|record| record.id == "composer-2.5"));
+        assert!(http.requests.lock().unwrap().is_empty(), "a request went out on the refused sign-in");
     }
 }
 

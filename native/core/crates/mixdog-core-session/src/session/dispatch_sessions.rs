@@ -136,8 +136,11 @@ impl DispatchThreads {
                 on_tool_result: Arc::new(|_| {}),
                 on_terminal_result: None,
                 on_submitted: None,
+                on_stage: None,
             },
             slot: Some(slot),
+            // The dispatch ends its own turn below, with the session's text for where the abort met it.
+            cancel: None,
         };
         let turn = self.turns.run_watched_turn(request);
         tokio::pin!(turn);

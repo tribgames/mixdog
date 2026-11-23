@@ -36,6 +36,39 @@ pub trait ModelCatalog: Send + Sync {
     /// `listProviderModels(options)`; `Err` is the throw of a provider load, which the caller's
     /// resolution does not catch.
     async fn list(&self, options: ListOptions) -> Result<Vec<ModelRow>, String>;
+
+    /// The provider of the agent's saved route, when it has one.
+    async fn agent_provider(&self, _agent: &str) -> Option<String> {
+        None
+    }
+
+    /// Why the provider cannot run a task now (signed out, no key, ACP agent off); `None` when it can.
+    async fn provider_state(&self, _provider: &str) -> Option<String> {
+        None
+    }
+}
+
+/// The agent's own provider decides among several that offer the model: it wins when it can run;
+/// when it cannot, the others stand in and the note says why.
+async fn prefer_agent_provider(catalog: &dyn ModelCatalog, agent: &str, model: &str, hits: Vec<ModelRow>) -> Result<(Vec<ModelRow>, Option<String>), String> {
+    let Some(own) = catalog.agent_provider(agent).await.filter(|p| !p.is_empty()) else { return Ok((hits, None)) };
+    let wanted = norm(&own);
+    let (mine, others): (Vec<ModelRow>, Vec<ModelRow>) = hits.iter().cloned().partition(|r| norm(&r.provider) == wanted);
+    if mine.is_empty() {
+        return Ok((hits, None));
+    }
+    let Some(state) = catalog.provider_state(&mine[0].provider).await else { return Ok((mine, None)) };
+    let mut runnable = Vec::new();
+    for row in others {
+        if catalog.provider_state(&row.provider).await.is_none() {
+            runnable.push(row);
+        }
+    }
+    if runnable.is_empty() {
+        return Err(format!("agent spawn: model \"{model}\" is offered by provider \"{}\", which cannot run: {state}", mine[0].provider));
+    }
+    let note = format!("provider \"{}\" offers \"{model}\" but cannot run: {state}", mine[0].provider);
+    Ok((runnable, Some(note)))
 }
 
 /// `String(value).toLowerCase().replace(/[^a-z0-9]+/g, '')`.
@@ -163,14 +196,28 @@ fn with_model_settings(args: &Value, hit: &ModelRow) -> Result<Value, String> {
 
 /// Resolves `args.provider`/`args.model` to one exact catalog route. Without a catalog
 /// (headless/daemon surfaces) exact provider + model pass through.
-pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCatalog>) -> Result<Value, String> {
+/// The second value is the spawn result's note naming the provider and model the task runs on
+/// (and why the agent's own provider was passed over); empty when no model was pinned.
+pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCatalog>) -> Result<(Value, String), String> {
+    let (routed, note) = resolve_route(args, catalog).await?;
+    let note = match (clean(routed.get("provider")), clean(routed.get("model"))) {
+        (p, m) if !m.is_empty() && !p.is_empty() => {
+            let runs = format!("runs on {p}/{m}");
+            note.map_or(runs.clone(), |n| format!("{n}; {runs} instead"))
+        }
+        _ => String::new(),
+    };
+    Ok((routed, note))
+}
+
+async fn resolve_route(args: &Value, catalog: Option<&dyn ModelCatalog>) -> Result<(Value, Option<String>), String> {
     let model = clean(args.get("model"));
     let provider = clean(args.get("provider"));
     if model.is_empty() {
         if !provider.is_empty() {
             return Err("agent spawn: provider requires model".into());
         }
-        return Ok(args.clone());
+        return Ok((args.clone(), None));
     }
     let Some(catalog) = catalog else {
         if provider.is_empty() {
@@ -180,7 +227,7 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
         if terms(&model).is_empty() {
             return Err(format!("agent spawn: model \"{model}\" for provider \"{provider}\" not found"));
         }
-        return Ok(args.clone());
+        return Ok((args.clone(), None));
     };
     let quick_rows = catalog.list(ListOptions { quick: true, ..ListOptions::default() }).await?;
     let mut pool = provider_rows(quick_rows.clone(), &provider);
@@ -194,8 +241,13 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
         pool = provider_rows(refreshed, &provider);
         hits = match_models(&pool, &model);
     }
+    let mut note = None;
+    let agent = clean(args.get("agent"));
+    if provider.is_empty() && !agent.is_empty() && !hits.is_empty() {
+        (hits, note) = prefer_agent_provider(catalog, &agent, &model, hits).await?;
+    }
     if hits.len() == 1 {
-        return with_model_settings(args, &hits[0]);
+        return Ok((with_model_settings(args, &hits[0])?, note));
     }
     let scope = if provider.is_empty() { String::new() } else { format!(" for provider \"{provider}\"") };
     if hits.len() > 1 {
@@ -205,4 +257,63 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
         return Err(format!("agent spawn: provider \"{provider}\" has no available models"));
     }
     Err(format!("agent spawn: model \"{model}\"{scope} not found; available: {}", candidates(&pool)))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    struct Fake {
+        own: &'static str,
+        down: Vec<(&'static str, &'static str)>,
+        providers: Vec<&'static str>,
+    }
+
+    #[async_trait]
+    impl ModelCatalog for Fake {
+        async fn list(&self, _options: ListOptions) -> Result<Vec<ModelRow>, String> {
+            Ok(self
+                .providers
+                .iter()
+                .map(|p| ModelRow { provider: (*p).into(), id: "gemini-4-neon".into(), display: "Neon".into(), catalog_complete: true, row: json!({}) })
+                .collect())
+        }
+        async fn agent_provider(&self, _agent: &str) -> Option<String> {
+            Some(self.own.into())
+        }
+        async fn provider_state(&self, provider: &str) -> Option<String> {
+            self.down.iter().find(|(p, _)| *p == provider).map(|(_, s)| (*s).into())
+        }
+    }
+
+    fn args() -> Value {
+        json!({ "agent": "writer", "model": "gemini-4-neon" })
+    }
+
+    #[tokio::test]
+    async fn the_agents_own_runnable_provider_wins_among_several() {
+        let fake = Fake { own: "cursor-oauth", down: vec![], providers: vec!["gemini", "cursor-oauth"] };
+        let (routed, _) = resolve_requested_model(&args(), Some(&fake)).await.unwrap();
+        assert_eq!(routed["provider"], "cursor-oauth");
+    }
+
+    #[tokio::test]
+    async fn an_own_provider_that_cannot_run_is_named_and_replaced_or_refused() {
+        let fake = Fake { own: "cursor-oauth", down: vec![("cursor-oauth", "signed out")], providers: vec!["gemini", "cursor-oauth"] };
+        let (routed, note) = resolve_requested_model(&args(), Some(&fake)).await.unwrap();
+        assert_eq!(routed["provider"], "gemini");
+        assert!(note.contains("cursor-oauth") && note.contains("signed out") && note.contains("gemini/gemini-4-neon"), "{note}");
+        let only = Fake { own: "cursor-oauth", down: vec![("cursor-oauth", "signed out")], providers: vec!["cursor-oauth"] };
+        let err = resolve_requested_model(&args(), Some(&only)).await.unwrap_err();
+        assert!(err.contains("cursor-oauth") && err.contains("signed out"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_result_note_names_the_provider_and_model_it_runs_on() {
+        let fake = Fake { own: "", down: vec![], providers: vec!["gemini"] };
+        let (_, note) = resolve_requested_model(&args(), Some(&fake)).await.unwrap();
+        assert_eq!(note, "runs on gemini/gemini-4-neon");
+    }
 }

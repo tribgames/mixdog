@@ -180,7 +180,9 @@ fn summed(rows: &[i32]) -> (i32, i32) {
 
 fn stored_bytes(dir: &std::path::Path) -> u64 {
     std::fs::read_dir(dir)
-        .map(|entries| entries.flatten().map(|entry| if entry.path().is_dir() { stored_bytes(&entry.path()) } else { entry.metadata().map_or(0, |meta| meta.len()) }).sum())
+        .map(|entries| {
+            entries.flatten().map(|entry| if entry.path().is_dir() { stored_bytes(&entry.path()) } else { entry.metadata().map_or(0, |meta| meta.len()) }).sum()
+        })
         .unwrap_or(0)
 }
 
@@ -224,7 +226,12 @@ async fn worked(turns: usize, ring: usize) -> Measured {
             for call in 0..CALLS {
                 let n = (turn * ROUNDS + round) * CALLS + call;
                 transcript += ROW_BASE + ROW_STEP * n;
-                events.push(StreamEvent::ToolCallDone(ToolCall { id: format!("call-{n}"), name: "wide".into(), arguments: json!({ "n": n }), native_type: None }));
+                events.push(StreamEvent::ToolCallDone(ToolCall {
+                    id: format!("call-{n}"),
+                    name: "wide".into(),
+                    arguments: json!({ "n": n }),
+                    native_type: None,
+                }));
             }
             events.push(tool_use());
             rounds.push(events);
@@ -248,7 +255,13 @@ async fn worked(turns: usize, ring: usize) -> Measured {
         deps.runs = Arc::new(RunHostFactory::new(
             mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
             mixdog_tools::web::NativeSearchUsageSinks::new(),
-            Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(Wide(spec.clone(), thread))], settle: None, effort: None }),
+            Arc::new(Parts {
+                provider,
+                workspace: workspace.path().to_path_buf(),
+                more: vec![Arc::new(Wide(spec.clone(), thread))],
+                settle: None,
+                effort: None,
+            }),
         ));
         SessionDirectory::new(Arc::new(deps))
     };
@@ -266,8 +279,12 @@ async fn worked(turns: usize, ring: usize) -> Measured {
         transcript += prompt.len();
         handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
         let left = (turns - turn - 1) * (ROUNDS + 1);
-        eventually_on_awaiting(|| format!("the end of turn {turn}"), &[handle.stepped()], || (lock(&provider.script).len() == left && !handle.turn_busy()).then_some(()))
-            .await;
+        eventually_on_awaiting(
+            || format!("the end of turn {turn}"),
+            &[handle.stepped()],
+            || (lock(&provider.script).len() == left && !handle.turn_busy()).then_some(()),
+        )
+        .await;
     }
     // The scripted provider keeps the last request it was sent: the test's, not the session's.
     lock(&provider.requests).clear();

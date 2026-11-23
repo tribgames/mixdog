@@ -70,6 +70,10 @@ fn cancel_hook(token: Cancel, status_changed: Arc<dyn Fn() + Send + Sync>) -> Ar
 /// ([`JobHandle::turns`]), named by its id, and nothing else on the session: before the job submitted a turn and once
 /// its turn is over it has nothing there to stop, whatever runs on the session by then. A close that began is carried
 /// to its end, also when the work ends first.
+///
+/// The work is never dropped here: it holds its claim, its review and its row, which it settles itself. A turn that was
+/// not submitted ends by the same cancellation ([`JobHandle::cancel`], which the turn's waits race:
+/// [`super::turn::TurnRunner`]), and the work returns.
 async fn work_until_cancelled<Fut>(work: Fut, cancelled: &Cancel, job: &JobHandle, sessions: &dyn Sessions) -> Fut::Output
 where
     Fut: Future,
@@ -163,11 +167,13 @@ impl JobStarter {
                 },
                 move |id| {
                     let job = Arc::new(JobHandle::new(board, id.clone(), operation_for_run, notify_for_run.client_host_pid));
+                    job.set_cancel(admission_cancel.clone());
                     let _ = handle.set(job.clone());
                     async move {
                         let _ = announced.await;
                         let lease = admission.acquire(&label, owner_key.as_deref(), &admission_cancel).await?;
                         job.set_slot(lease.yielder());
+                        job.set_stage(super::stages::TurnStage::Admitted);
                         mixdog_rt::time::immediate().await;
                         let outcome = if job.is_cancelled() {
                             Ok(None)

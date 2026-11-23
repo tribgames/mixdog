@@ -101,6 +101,8 @@ pub struct ConfigHosts {
     pub ready: Arc<dyn ProvidersReady>,
     pub refresh: Arc<dyn AuthRefresh>,
     pub env: Env,
+    /// Whether a route provider is an outside agent's (`WorkflowHost::agent_provider`).
+    pub agent_providers: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     /// `surfaceGeneration`, moved when onboarding saves a Lead route (`onboarding.mjs:122`).
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
 }
@@ -162,6 +164,10 @@ impl WorkflowHost for ConfigHosts {
     fn provider_available(&self, provider: &str) -> bool {
         let developer = self.config.agent().get("developer").cloned().unwrap_or(Value::Null);
         provider_available(provider, model_proxy_client_mode(&*self.env), &developer)
+    }
+
+    fn agent_provider(&self, provider: &str) -> bool {
+        (self.agent_providers)(provider)
     }
 
     fn proxy_provider_registered(&self, provider: &str) -> bool {

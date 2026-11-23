@@ -386,6 +386,63 @@ pub(crate) mod tests {
     async fn world(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> ProcessCompactionWorld {
         ProcessCompactionWorld::new(services(dir, agent, sensitive).await)
     }
+    /// An agent outside the loop that answers for the route provider `acp-agent`, and says what it was asked.
+    struct Agent;
+    #[async_trait]
+    impl crate::run_host::factory::OutsideAgents for Agent {
+        fn serves(&self, _: &Header) -> bool {
+            false
+        }
+        fn prompts(&self, _: &Value) -> bool {
+            true
+        }
+        async fn run(&self, _: crate::run_host::factory::OutsideTurn) -> mixdog_core_session::session::RunOutcome {
+            mixdog_core_session::session::RunOutcome::Interrupted
+        }
+        async fn unrun(&self, _: &ThreadId, _: &str) {}
+        fn loop_turn(&self, _: &ThreadId, _: &Header) -> Option<mixdog_store::schema::record::HeaderChange> {
+            None
+        }
+        fn answers(&self, provider: &str) -> bool {
+            provider == "acp-agent"
+        }
+        async fn ask(&self, ask: crate::run_host::factory::OutsideAsk) -> Result<crate::run_host::factory::OutsideAnswer, String> {
+            Ok(crate::run_host::factory::OutsideAnswer {
+                text: format!("{}|{}|{}|{}", ask.provider, ask.model, ask.system, ask.prompt),
+                stop_reason: Some("end_turn".to_owned()),
+                ..Default::default()
+            })
+        }
+    }
+
+    /// With no Maintainer route the summary is the session's own model's to write, and a session on an agent outside
+    /// the loop has that agent for its model: the session step resolves to it with no provider of that name in the
+    /// registry, and its request is asked of the agent. Before the agents are bound, and for a provider no agent
+    /// answers for, the route is unavailable as it was.
+    #[tokio::test]
+    async fn a_session_on_an_outside_agent_has_its_summary_written_by_that_agent() {
+        use mixdog_agent::compact::summary_run::{RouteResolver, RouteStep, SummaryCall, SummaryFailure};
+        use mixdog_agent::one_shot::CallShape;
+        let dir = tempfile::tempdir().unwrap();
+        let services = services(dir.path(), json!({}), Arc::default()).await;
+        let routes = |provider: &str| SummaryRoutes::new(services.summaries.host(&thread(), &header(provider)));
+        let Err(SummaryFailure::Failed(unbound)) = routes("acp-agent").resolve(RouteStep::Session).await else { panic!("no agent is bound yet") };
+        assert_eq!(unbound, "compact summary route unavailable: acp-agent/m");
+
+        services.summaries.bind_outside(Arc::new(Agent));
+        assert!(routes("acp-agent").resolve(RouteStep::Maintainer).await.unwrap().is_none(), "no Maintainer route is configured");
+        let route = routes("acp-agent").resolve(RouteStep::Session).await.unwrap().expect("the session's own route");
+        assert_eq!((route.step, route.provider_name.as_str(), route.model.as_str()), (RouteStep::Session, "acp-agent", "m"));
+        let call = SummaryCall { model: route.model.clone(), max_output_tokens: None, fast: false, shape: CallShape::compaction() };
+        let response = route.sender.send("SYSTEM", "PROMPT", &call).await.expect("the agent's answer");
+        assert_eq!(response.text, "acp-agent|m|SYSTEM|PROMPT");
+        assert_eq!(response.stop, Some(mixdog_core_api::domain::provider::StopReason::EndTurn));
+        assert!(!response.tool_call);
+
+        let Err(SummaryFailure::Failed(other)) = routes("never-registered").resolve(RouteStep::Session).await else { panic!("nobody answers for it") };
+        assert_eq!(other, "compact summary route unavailable: never-registered/m");
+    }
+
     #[tokio::test]
     async fn the_compaction_config_is_the_saved_agent_configs() {
         let dir = tempfile::tempdir().unwrap();
@@ -672,5 +729,9 @@ impl CompactionWorld for ProcessCompactionWorld {
 
     fn retire_fork(&self, thread: &ThreadId) {
         self.services.requests.saved.retire_compaction_fork(thread);
+    }
+
+    fn bind_outside(&self, agents: Arc<dyn super::factory::OutsideAgents>) {
+        self.services.summaries.bind_outside(agents);
     }
 }

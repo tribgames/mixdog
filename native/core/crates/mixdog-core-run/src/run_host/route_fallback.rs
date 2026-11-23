@@ -170,6 +170,11 @@ pub trait HopHost: Send + Sync {
     /// the provider is not available. `Err` is what `initProviders` throws (its message escapes
     /// the hop as it is).
     async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String>;
+    /// Why `provider` is not available: the cause its readiness recorded, and whether the user switched it off.
+    async fn unavailable_cause(&self, provider: &str) -> (Option<String>, bool) {
+        let _ = provider;
+        (None, false)
+    }
     /// `resolveSessionContextMeta(provider, model, route).rawContextWindow`, with the route's own
     /// `selectedContextWindow` as the fallback Node reads for the current model.
     fn raw_context_window(&self, provider: &str, model: &str, route: &Value) -> Option<u64>;
@@ -358,16 +363,16 @@ impl RouteHop {
     /// readiness failure.
     async fn next_present(&self, tried: &Value, chain: &[Value]) -> Result<Candidate, String> {
         let mut passed = tried.clone();
-        let mut first_absent = None;
+        let mut absent = Vec::new();
         loop {
             let index = next_route_fallback_index(&passed, chain);
             let Some(next) = chain.get(index) else {
-                return Ok(first_absent.map_or(Candidate::None, Candidate::Absent));
+                return Ok(if absent.is_empty() { Candidate::None } else { Candidate::Absent(absent) });
             };
             if let Some(provider) = self.lookup(&text(next.get("provider"))).await? {
                 return Ok(Candidate::Present(index, provider));
             }
-            first_absent.get_or_insert(index);
+            absent.push(index);
             match passed.get_mut("routeFallbackFailures").and_then(Value::as_array_mut) {
                 Some(failures) => failures.push(next.clone()),
                 None => passed["routeFallbackFailures"] = Value::Array(vec![next.clone()]),
@@ -408,8 +413,8 @@ fn has_checkpoint(session: &Value) -> bool {
 enum Candidate {
     /// The chain index of the first present route, and its readied provider.
     Present(usize, Arc<dyn ProviderAdapter>),
-    /// Only absent routes are left; the chain index of the first.
-    Absent(usize),
+    /// Only absent routes are left; the chain indexes of all of them, in order.
+    Absent(Vec<usize>),
     /// No route is left to try.
     None,
 }
@@ -471,10 +476,20 @@ impl RouteHop {
         let (index, provider) = match self.next_present(&tried, &chain).await {
             Ok(Candidate::Present(index, provider)) => (index, provider),
             Ok(Candidate::None) => return RouteDecision::Surface(Box::new(self.annotate(&tried, error, None))),
-            Ok(Candidate::Absent(index)) if verdict == RouteVerdict::Context => {
-                return RouteDecision::Surface(Box::new(self.annotate(&tried, error, Some(&chain[index]))));
+            Ok(Candidate::Absent(skipped)) if verdict == RouteVerdict::Context => {
+                return RouteDecision::Surface(Box::new(self.annotate(&tried, error, Some(&chain[skipped[0]]))));
             }
-            Ok(Candidate::Absent(index)) => return RouteDecision::Fail(format!("Provider \"{}\" not available", text(chain[index].get("provider")))),
+            // The failure stays the turn's error; every fallback that could not take over is named beside it with its reason.
+            Ok(Candidate::Absent(skipped)) => {
+                let mut surfaced = error;
+                for index in skipped {
+                    let provider = text(chain[index].get("provider"));
+                    let (cause, switched_off) = self.host.unavailable_cause(&provider).await;
+                    let reason = mixdog_ai::service::error_text::provider_unavailable_text(&provider, cause.as_deref(), switched_off);
+                    surfaced.message = format!("{}\nSkipped fallback {}: {reason}", surfaced.message, self.label(&chain[index]));
+                }
+                return plain(surfaced);
+            }
             Err(message) => return RouteDecision::Fail(message),
         };
         let next = &chain[index];
@@ -1050,6 +1065,34 @@ mod reconsider_tests {
         let RouteDecision::Fail(message) = route.decide(overloaded(), None).await else { panic!("the hop fails") };
         assert_eq!(message, "the token store is locked");
         assert!(host.writes.lock().unwrap().is_empty());
+    }
+
+    /// A mid-turn failure whose every remaining fallback is absent keeps the turn's own error, with the fallback that was skipped
+    /// and why on a line beside it.
+    #[tokio::test]
+    async fn a_mid_turn_failure_with_no_present_fallback_keeps_its_error_and_names_the_skipped_one() {
+        let mut error = ProviderError::new(ErrorKind::Transient, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+        error.status = Some(503);
+        error.message = "overloaded".into();
+        let (route, host) = hop_over(stub(fresh(), &["openai-oauth", "google"], &[]));
+        let RouteDecision::Surface(surface) = route.decide(error, None).await else { panic!("the original failure surfaces") };
+        assert_eq!(surface.error.status, Some(503));
+        assert!(surface.error.message.starts_with("overloaded\nSkipped fallback "), "{}", surface.error.message);
+        assert!(surface.error.message.contains("OpenAI OAuth is not available"), "{}", surface.error.message);
+        assert_eq!(surface.error.message.matches("Skipped fallback ").count(), 2, "every skipped fallback is named: {}", surface.error.message);
+        assert!(host.writes.lock().unwrap().is_empty());
+    }
+
+    /// An absent first fallback does not end the chain: the later one that is connected takes the turn.
+    #[tokio::test]
+    async fn an_absent_fallback_is_passed_over_for_a_later_present_one() {
+        let mut error = ProviderError::new(ErrorKind::Transient, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+        error.status = Some(503);
+        error.message = "overloaded".into();
+        let (route, host) = hop_over(stub(fresh(), &["openai-oauth"], &[]));
+        let RouteDecision::Switch(switch) = route.decide(error, None).await else { panic!("the present fallback takes the turn") };
+        assert_eq!(switch.model, "gem");
+        assert_eq!(host.writes.lock().unwrap().len(), 1);
     }
 
     /// Only the reason of the current diversion counts: an older unavailable or quota entry of the primary does not bring the

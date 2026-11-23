@@ -482,7 +482,9 @@ mod unloading {
         assert_eq!(folded["bp3CoreContext"], "new core");
         let after = stored();
         assert_eq!(after["bp3CoreContext"], "new core");
-        for mark in ["compactionFoldPending", "promptFoldPending", "thinkingRebindPending", "pendingCacheBreakIntent", "promptSettingsTold", "promptSettingsNotice"] {
+        for mark in
+            ["compactionFoldPending", "promptFoldPending", "thinkingRebindPending", "pendingCacheBreakIntent", "promptSettingsTold", "promptSettingsNotice"]
+        {
             assert!(after.get(mark).is_none(), "{mark} survives the fold that applied it");
         }
 

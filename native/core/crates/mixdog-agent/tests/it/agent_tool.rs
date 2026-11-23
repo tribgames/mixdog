@@ -91,14 +91,14 @@ pub(crate) struct Fakes(pub(crate) Arc<World>);
 
 #[async_trait]
 impl Registry for Fakes {
-    fn resolve_tombstone_owners(&self) {
+    async fn resolve_tombstone_owners(&self) {
         self.0.log(json!(["resolveTombstoneOwners"]));
     }
     async fn refresh_tags_from_sessions(&self, scan: bool, scope: &Scope) -> Result<(), String> {
         self.0.log(json!(["refreshTags", scan, scope_json(scope)]));
         Ok(())
     }
-    fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
+    async fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
         self.0.log(json!(["resolveTag", tag, scope_json(scope), { "scan": options.scan_sessions, "traces": options.exclude_terminal_traces }]));
         let named = |key: &str| self.0.list(key).iter().any(|t| t.as_str() == Some(tag));
         if named("ambiguous") {
@@ -112,7 +112,7 @@ impl Registry for Fakes {
         }
         Ok(self.0.live(tag).map(|_| tag.to_owned()))
     }
-    fn live_session(&self, id: &str) -> Option<SessionFacts> {
+    async fn live_session(&self, id: &str) -> Option<SessionFacts> {
         self.0.live(id)
     }
     fn tag_session(&self, tag: &str) -> Option<String> {
@@ -121,7 +121,7 @@ impl Registry for Fakes {
     fn has_tag_agent(&self, tag: &str) -> bool {
         self.0.tag_agents.lock().unwrap().contains(tag)
     }
-    fn tag_for_session(&self, session_id: &str) -> Option<String> {
+    async fn tag_for_session(&self, session_id: &str) -> Option<String> {
         self.0.tags.lock().unwrap().iter().find(|(_, id)| id == session_id).map(|(t, _)| t.clone())
     }
     fn unbind_tag(&self, tag: &str) {
@@ -129,7 +129,7 @@ impl Registry for Fakes {
         self.0.tags.lock().unwrap().retain(|(t, _)| t != tag);
         self.0.tag_agents.lock().unwrap().remove(tag);
     }
-    fn bind_tag(&self, tag: &str, session: &SessionFacts, _turn_started_at: &str) {
+    async fn bind_tag(&self, tag: &str, session: &SessionFacts, _turn_started_at: &str) {
         self.0.log(json!(["bindTag", tag, session.id]));
     }
     fn forget_terminal_session(&self, tag: Option<&str>, session_id: &str) {
@@ -174,7 +174,7 @@ impl Registry for Fakes {
     fn consume_tag_tombstone(&self, tombstone: &TagRecord) {
         self.0.log(json!(["consumeTagTombstone", tombstone.tag, tombstone.session_id]));
     }
-    fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord> {
+    async fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord> {
         let row = record(self.0.json.get("lastSessions")?.get(tag)?);
         scope.owns(&row.owner).then_some(row)
     }
@@ -248,11 +248,12 @@ impl SpawnFlow for Fakes {
     }
 }
 
+#[async_trait]
 impl TerminalTrace for Fakes {
-    fn has_terminal_trace(&self, tag: &str, _scope: &Scope) -> Result<bool, String> {
+    async fn has_terminal_trace(&self, tag: &str, _scope: &Scope) -> Result<bool, String> {
         Ok(self.0.list("traces").iter().any(|t| t.as_str() == Some(tag)))
     }
-    fn reap_terminal_trace_for_tag(&self, tag: &str, _scope: &Scope) {
+    async fn reap_terminal_trace_for_tag(&self, tag: &str, _scope: &Scope) {
         self.0.log(json!(["reapTrace", tag]));
     }
 }
@@ -279,18 +280,15 @@ impl Sessions for Fakes {
         self.0.log(json!(["closeTurn", session_id, turn_id, reason]));
         false
     }
-    fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
-        self.0
+    async fn descendant_session_ids(&self, session_id: &str) -> Result<Vec<String>, String> {
+        Ok(self
+            .0
             .json
             .get("descendants")
             .and_then(|d| d.get(session_id))
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
-            .unwrap_or_default()
-    }
-    // The recorder's `closeSession` is one logged call: it walks no tree.
-    fn child_session_ids(&self, _session_id: &str) -> Vec<String> {
-        Vec::new()
+            .unwrap_or_default())
     }
     fn clear_statusline_route(&self, _session_id: &str) {}
     // The recorder's manager answers these from the world and logs none of them; the hidden set is the daemon's own.
@@ -310,7 +308,7 @@ impl Sessions for Fakes {
     fn turn_in_flight(&self, session_id: &str) -> bool {
         self.0.names("inFlight", session_id)
     }
-    fn open_sessions(&self) -> Vec<OpenSession> {
+    async fn open_sessions(&self) -> Vec<OpenSession> {
         self.0
             .list("sessions")
             .iter()

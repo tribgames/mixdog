@@ -48,8 +48,6 @@ fn trimmed(value: Option<&Value>) -> String {
 enum Route {
     /// `null`: no route.
     None,
-    /// A truthy candidate that is no object (a preset name): `typeof route !== 'object'`.
-    NotAnObject,
     /// An array candidate passes through unnormalized and has no provider or model.
     Incomplete,
     Complete {
@@ -69,8 +67,9 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-/// `normalizeMaintenanceCandidate`, then the route checks of `generateSessionTitle`.
-fn candidate_route(candidate: &Value) -> Option<Route> {
+/// `normalizeMaintenanceCandidate`, then the route checks of `generateSessionTitle`. A candidate that names a preset is
+/// that preset's route, as the config's every other route reader takes it.
+fn candidate_route(config: &Map<String, Value>, candidate: &Value) -> Option<Route> {
     if !truthy(candidate) {
         return None;
     }
@@ -83,7 +82,7 @@ fn candidate_route(candidate: &Value) -> Option<Route> {
             }
             Some(Route::Complete { provider, model, effort: trimmed(route.get("effort")), fast: route.get("fast") == Some(&Value::Bool(true)) })
         }
-        _ => Some(Route::NotAnObject),
+        named => mixdog_core_config::config::agent_routes::route_of(config, named).filter(Value::is_object).and_then(|route| candidate_route(config, &route)),
     }
 }
 
@@ -94,7 +93,7 @@ fn title_route(config: &Map<String, Value>) -> Route {
         return Route::None;
     }
     let stored = config.get("agents").and_then(Value::as_object).and_then(|agents| agents.get(MAINTAINER_ROLE)).filter(|route| truthy(route));
-    stored.into_iter().chain(config.get("default")).find_map(candidate_route).unwrap_or(Route::None)
+    stored.into_iter().chain(config.get("default")).find_map(|candidate| candidate_route(config, candidate)).unwrap_or(Route::None)
 }
 
 fn title_tool_env(deps: &SummaryDeps, session_id: &str) -> ToolEnv {
@@ -146,6 +145,10 @@ impl TitleCompletion {
 
 #[async_trait]
 impl TitleModel for TitleCompletion {
+    fn routed(&self) -> bool {
+        title_route(&(self.deps.config)()) != Route::None
+    }
+
     async fn generate(&self, source: &str, session_id: &str, locale: &str, cancel: &CancellationToken) -> Result<String, TitleError> {
         let text = mixdog_js::js_trim(source);
         if text.is_empty() {
@@ -154,7 +157,7 @@ impl TitleModel for TitleCompletion {
         let deps = &self.deps;
         let config = (deps.config)();
         let (provider_name, model, effort, fast) = match title_route(&config) {
-            Route::None | Route::NotAnObject => return Err(TitleError::RouteUnresolved),
+            Route::None => return Err(TitleError::RouteUnresolved),
             Route::Incomplete => return Err(TitleError::Failed("Error: Session title maintenance route requires provider and model.".into())),
             Route::Complete { provider, model, effort, fast } => (provider, model, effort, fast),
         };
@@ -235,7 +238,23 @@ mod tests {
             complete("anthropic", "haiku", "", false)
         );
         assert_eq!(title_route(&config(json!({ "default": { "provider": "anthropic", "model": " " } }))), Route::None);
-        assert_eq!(title_route(&config(json!({ "default": "preset" }))), Route::NotAnObject);
+        assert_eq!(title_route(&config(json!({ "default": "no-such-preset" }))), Route::None);
         assert_eq!(title_route(&config(json!({ "default": [1] }))), Route::Incomplete);
+    }
+
+    #[test]
+    fn a_title_route_that_names_a_preset_is_that_presets_route() {
+        let presets = json!([
+            { "id": "main", "name": "main", "provider": "anthropic", "model": "claude-x" },
+            { "id": "light", "name": "light", "provider": "openai", "model": "gpt-mini" },
+        ]);
+        let provider_model = |route: Route| match route {
+            Route::Complete { provider, model, .. } => Some((provider, model)),
+            _ => None,
+        };
+        let by_default = title_route(&config(json!({ "presets": presets, "default": "main" })));
+        assert_eq!(provider_model(by_default), Some(("anthropic".to_owned(), "claude-x".to_owned())));
+        let by_maintainer = title_route(&config(json!({ "presets": presets, "default": "main", "agents": { "maintainer": "light" } })));
+        assert_eq!(provider_model(by_maintainer), Some(("openai".to_owned(), "gpt-mini".to_owned())));
     }
 }

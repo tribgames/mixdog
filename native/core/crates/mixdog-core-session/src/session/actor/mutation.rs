@@ -699,11 +699,25 @@ impl SessionActor {
         Some(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }))
     }
 
+    /// The `meta` record that takes the external agent's session out of the header, or `None` when it holds none.
+    fn agent_session_reset(&self) -> Option<Record> {
+        let key = crate::session::turn_ops::AGENT_SESSION;
+        self.projected.header.contains_key(key).then(|| {
+            Record::Meta(MetaRecord {
+                op: None,
+                change: Slot::Inline(HeaderChange { set: serde_json::Map::new(), unset: vec![key.into()], patch: Default::default() }),
+            })
+        })
+    }
+
     /// What [`Inbox::ForkPlan`] answers.
     pub(super) fn fork_plan(&self, idle: bool) -> Result<ForkSource, CoreError> {
+        // The fork is a conversation of its own: the external agent's session stays the source's.
+        let mut header = Header::clone(&self.acked.header);
+        header.shift_remove(crate::session::turn_ops::AGENT_SESSION);
         self.history_revision(idle).map(|revision| ForkSource {
             revision,
-            header: Header::clone(&self.acked.header),
+            header,
             active_input: self.run.as_ref().map(|run| run.input_item.clone()),
             _hold: None,
         })
@@ -763,6 +777,10 @@ impl SessionActor {
         if let Some(reset) = self.provider_state_change(None) {
             records.push((reset, Class::Normal, Display::None, Vec::new()));
         }
+        // An external agent's session still holds the turns that were removed.
+        if let Some(reset) = self.agent_session_reset() {
+            records.push((reset, Class::Normal, Display::None, Vec::new()));
+        }
         Ok(Plan { kind: PlanKind::Records(records, vec![Change::PromptWithout(text)]), value, after: Some(false), prompt: None })
     }
 
@@ -783,6 +801,14 @@ impl SessionActor {
             change.set.shift_remove(PROVIDER_STATE);
             if !change.unset.iter().any(|key| key == PROVIDER_STATE) {
                 change.unset.push(PROVIDER_STATE.into());
+            }
+        }
+        // An external agent's session still holds the cleared conversation.
+        let agent_session = crate::session::turn_ops::AGENT_SESSION;
+        if self.projected.header.contains_key(agent_session) {
+            change.set.shift_remove(agent_session);
+            if !change.unset.iter().any(|key| key == agent_session) {
+                change.unset.push(agent_session.into());
             }
         }
         // The clear's own facts (`clearSessionMessages`, `session-crud.mjs`): its stage and when it happened. The

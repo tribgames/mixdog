@@ -3,6 +3,7 @@ mod effort;
 mod forwarding;
 #[cfg(feature = "live-bytes-probe")]
 mod live_bytes;
+mod outside_tests;
 mod pinned_account;
 mod restart;
 mod snapshot;
@@ -2051,7 +2052,8 @@ async fn turn_world_routed(
     let hook_bus = mixdog_mcp::hook_bus::HookBus::new(data.clone(), tokens.maintenance_io, processes.clone(), None, None, None);
     let next = super::super::next_request_source::NextRequestSource::new();
     let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
-    let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
+    let liveness =
+        outside_tests::LIVENESS.with(|slot| slot.borrow_mut().take()).unwrap_or_else(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new);
     let asked = Arc::new(AskedFor::default());
     let exclusions: Arc<mixdog_core_session::session::SessionToolExclusions> = Arc::default();
     let surfaces_from = exclusions.clone();
@@ -2148,6 +2150,7 @@ async fn turn_world_routed(
         liveness,
         search_usage: mixdog_tools::web::NativeSearchUsageSinks::new(),
         reuses: Arc::default(),
+        outside: outside_tests::OUTSIDE.with(|slot| slot.borrow_mut().take()),
         deps: Box::new({
             // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
             let production_surface = threads.is_some();
@@ -2236,7 +2239,7 @@ async fn turn_world_routed(
     let settings = Arc::new(Mutex::new(serde_json::Map::new()));
     assert!(!lead, "a Lead surface host needs the recorded tool pool, which only the local comparison build has");
     assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
-    World { workspace, rig, ledger, asked, store, next, directory, registry: world_registry }
+    World { workspace, rig, ledger, asked, store, next, directory, registry: world_registry, live_settings: settings }
 }
 
 /// The two providers of a switched-off test: `primary` and the Codex fallback `openai-oauth`, each answering `answers`
@@ -2333,6 +2336,8 @@ struct World {
     directory: Arc<SessionDirectory>,
     /// The turns' provider registry, which the cache warmer's ports read too.
     registry: Arc<mixdog_ai::registry::providers::ProviderRegistry>,
+    /// The live settings a turn start brings the header to ([`LiveSettings`]); empty moves nothing.
+    live_settings: Arc<Mutex<serde_json::Map<String, Value>>>,
 }
 
 async fn started_thread(world: &World, header: Value) -> (ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {

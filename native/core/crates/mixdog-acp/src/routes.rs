@@ -1,0 +1,196 @@
+//! A route on an agent, for the services that adopt and list routes: the agent is no provider of
+//! the catalog, so what those services ask the catalog is answered here for an agent's route.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use mixdog_core_api::call::CoreRequest;
+use mixdog_core_api::call::Reply;
+use mixdog_core_api::error::CoreError;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::service::Admit;
+use mixdog_core_api::service::DomainService;
+use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
+use mixdog_core_ports::ports::route::Route;
+use mixdog_core_ports::ports::route_write::RouteWriter;
+use mixdog_protocol::ThreadId;
+use mixdog_tools::orch::util::PortError;
+use serde_json::Map;
+use serde_json::Value;
+
+use crate::agents::Agents;
+
+/// [`RouteFacts`] that knows the agents' routes; every other provider is the catalog's.
+pub struct AgentRouteFacts {
+    pub inner: Arc<dyn RouteFacts>,
+    pub agents: Arc<Agents>,
+}
+
+#[async_trait]
+impl RouteFacts for AgentRouteFacts {
+    fn is_known(&self, provider: &str, config: &Map<String, Value>) -> bool {
+        // A saved route on an agent stays the agent's while its CLI is off or signed out, as a signed-out provider's
+        // does: picking it is refused by `ensure_ready`, and a turn on it fails saying the agent's state.
+        self.agents.preset_of_route(provider).is_some() || self.inner.is_known(provider, config)
+    }
+
+    async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
+        match self.agents.preset_of_route(provider) {
+            Some(preset) => self.agents.selectable(preset).map_err(|refusal| refusal.message(preset)),
+            None => self.inner.ensure_ready(config, provider).await,
+        }
+    }
+
+    fn model_meta(&self, provider: &str, model: &str) -> Value {
+        match self.agents.preset_of_route(provider) {
+            Some(preset) => self.agents.model_row(preset, model),
+            None => self.inner.model_meta(provider, model),
+        }
+    }
+
+    async fn model_meta_fetching(&self, provider: &str, model: &str) -> Value {
+        match self.agents.preset_of_route(provider) {
+            Some(_) => self.model_meta(provider, model),
+            None => self.inner.model_meta_fetching(provider, model).await,
+        }
+    }
+
+    fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+        match self.agents.preset_of_route(provider) {
+            Some(_) => None,
+            None => self.inner.window_meta(provider, model, meta),
+        }
+    }
+
+    fn catalog_knows(&self, model: &str, provider: &str) -> bool {
+        self.agents.preset_of_route(provider).is_some() || self.inner.catalog_knows(model, provider)
+    }
+
+    fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
+        self.agents.preset_of_route(provider).is_none() && self.inner.fast_capable(provider, meta, effort, params)
+    }
+
+    fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
+        self.agents.preset_of_route(provider).is_none() && self.inner.ultrafast_capable(provider, meta)
+    }
+}
+
+/// [`RouteWriter`] that leaves an agent's route as it was adopted: it has no effort, Fast or
+/// window fields to fill from a model row, and no provider usage to read.
+pub struct AgentRouteWriter {
+    pub inner: Arc<dyn RouteWriter>,
+    pub agents: Arc<Agents>,
+}
+
+impl AgentRouteWriter {
+    fn on_agent(&self, route: &Route) -> bool {
+        route.get("provider").and_then(Value::as_str).is_some_and(|provider| self.agents.preset_of_route(provider).is_some())
+    }
+}
+
+#[async_trait]
+impl RouteWriter for AgentRouteWriter {
+    fn route(&self, thread: &ThreadId) -> Route {
+        self.inner.route(thread)
+    }
+
+    /// A session that leaves an agent's route has no use for the agent's process from that moment: it is ended here,
+    /// not at the session's next turn, which may never come.
+    fn set_route_state(&self, thread: &ThreadId, route: Route) {
+        if !self.on_agent(&route) {
+            self.agents.end_process(thread);
+        }
+        self.inner.set_route_state(thread, route);
+    }
+
+    fn generation(&self, thread: &ThreadId) -> u64 {
+        self.inner.generation(thread)
+    }
+
+    async fn refresh_route_effort(
+        &self,
+        thread: &ThreadId,
+        meta: Option<Value>,
+        guard_supersede: bool,
+        lease: Option<u64>,
+    ) -> Result<Option<Route>, PortError> {
+        let route = self.inner.route(thread);
+        // An agent's model with no efforts of its own has nothing to fill; one the agent runs at several is filled
+        // from its row as a provider's is.
+        let efforts = meta.as_ref().and_then(|meta| meta.get("reasoningLevels")).and_then(Value::as_array).is_some_and(|levels| !levels.is_empty());
+        if self.on_agent(&route) && !efforts {
+            return Ok(Some(route));
+        }
+        self.inner.refresh_route_effort(thread, meta, guard_supersede, lease).await
+    }
+
+    fn refresh_statusline_usage(&self, thread: &ThreadId, route: &Route) {
+        if !self.on_agent(route) {
+            self.inner.refresh_statusline_usage(thread, route);
+        }
+    }
+
+    fn boot(&self, thread: &ThreadId, request: &Route) {
+        self.inner.boot(thread, request);
+    }
+}
+
+/// `model/list` with the agents' entries after the catalog's rows.
+pub struct AgentModelList {
+    pub inner: Arc<dyn DomainService>,
+    pub agents: Arc<Agents>,
+    /// The saved `modelSettings` (`"<provider>/<model>"` → the model's favourite and hidden marks).
+    pub settings: Arc<dyn Fn() -> Map<String, Value> + Send + Sync>,
+}
+
+impl AgentModelList {
+    /// The agents' rows with the marks the user saved for them, under the keys a provider's row carries them.
+    fn rows(&self) -> Vec<Value> {
+        let settings = (self.settings)();
+        let mut rows = self.agents.picker_rows();
+        for row in &mut rows {
+            let key = format!("{}/{}", row["provider"].as_str().unwrap_or_default(), row["id"].as_str().unwrap_or_default());
+            let (Some(saved), Some(row)) = (settings.get(&key), row.as_object_mut()) else { continue };
+            if let Some(hidden @ Value::Bool(_)) = saved.get("hidden") {
+                row.insert("savedHidden".to_owned(), hidden.clone());
+            }
+            if saved.get("favorite") == Some(&Value::Bool(true)) {
+                row.insert("favorite".to_owned(), Value::Bool(true));
+            }
+            if row.contains_key("effortOptions") {
+                row.insert("savedEffort".to_owned(), saved.get("effort").cloned().unwrap_or(Value::Null));
+            }
+        }
+        rows
+    }
+}
+
+#[async_trait]
+impl DomainService for AgentModelList {
+    fn methods(&self) -> &'static [&'static str] {
+        self.inner.methods()
+    }
+
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let reply = self.inner.call(req).await?;
+        let rows = self.rows();
+        Ok(match reply {
+            Reply::Value(Value::Array(mut models)) => {
+                models.extend(rows);
+                Reply::Value(Value::Array(models))
+            }
+            Reply::Value(Value::Object(mut read)) => {
+                if let Some(Value::Array(models)) = read.get_mut("models") {
+                    models.extend(rows);
+                }
+                Reply::Value(Value::Object(read))
+            }
+            other => other,
+        })
+    }
+
+    fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
+        self.inner.notify(method, params, from)
+    }
+}

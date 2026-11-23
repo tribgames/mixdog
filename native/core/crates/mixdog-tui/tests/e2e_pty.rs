@@ -329,9 +329,8 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
         std::thread::spawn(move || told.send(std::fs::read_to_string(pipe)));
         let mark = session.raw_len();
         session.send("\x03");
-        let copied = session
-            .try_wait_raw(mark, STEP, support::last_osc52_text)
-            .unwrap_or_else(|| panic!("no OSC 52 sequence after Ctrl+C\n{}", session.screen_text()));
+        let copied =
+            session.try_wait_raw(mark, STEP, support::last_osc52_text).unwrap_or_else(|| panic!("no OSC 52 sequence after Ctrl+C\n{}", session.screen_text()));
         assert_eq!(copied.trim(), "row-70", "the OSC 52 bytes carry the selected text");
         let given = helper_input.recv_timeout(STEP).expect("the clipboard helper ran").expect("the clipboard pipe is read");
         assert_eq!(given.trim(), "row-70", "the clipboard helper's input");

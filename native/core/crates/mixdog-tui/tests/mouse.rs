@@ -1414,7 +1414,6 @@ fn a_selection_on_the_last_items_row_under_the_hint_of_the_prompt_is_kept_and_co
     assert_eq!(screen.selected_text().as_deref(), Some("last line of the answer"));
 }
 
-
 fn wheel(up: bool, ctrl: bool) -> MouseReport {
     MouseReport {
         kind: if up { MouseKind::WheelUp } else { MouseKind::WheelDown },

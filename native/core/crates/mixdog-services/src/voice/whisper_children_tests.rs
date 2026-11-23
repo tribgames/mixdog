@@ -88,13 +88,14 @@ async fn one_transcription_converts_the_audio_starts_the_server_and_posts_the_wa
     assert_eq!((&args[2..4], args[6], args[7]), (&["--host", "127.0.0.1"][..], "-t", "3"));
 
     let requests = manager.requests_shared.lock().unwrap().clone();
-    assert_eq!(requests.len(), 1);
+    // The first request is the warm-up the start runs; the transcription is the second.
+    assert_eq!(requests.len(), 2);
     assert_eq!(
-        (requests[0]["method"].as_str(), requests[0]["url"].as_str(), requests[0]["multipart"].as_bool()),
+        (requests[1]["method"].as_str(), requests[1]["url"].as_str(), requests[1]["multipart"].as_bool()),
         (Some("POST"), Some("/inference"), Some(true))
     );
     let fields: Vec<(&str, Option<&str>)> =
-        requests[0]["fields"].as_array().unwrap().iter().map(|f| (f["name"].as_str().unwrap(), f["value"].as_str())).collect();
+        requests[1]["fields"].as_array().unwrap().iter().map(|f| (f["name"].as_str().unwrap(), f["value"].as_str())).collect();
     assert_eq!(fields, vec![("file", None), ("response_format", Some("json")), ("language", Some("ko"))]);
 
     // The pid file records the child while it runs and goes with it when it dies on its own.
@@ -118,7 +119,7 @@ async fn a_second_transcription_of_the_same_attachment_starts_no_child() {
     let second = pipeline.transcribe(&audio, Some("att-1"), &CancellationToken::new()).await.unwrap();
     assert_eq!((first, second), (Some("hello world".to_owned()), Some("hello world".to_owned())));
     assert_eq!(manager.calls.lock().unwrap().len(), children);
-    assert_eq!(manager.requests_shared.lock().unwrap().len(), 1);
+    assert_eq!(manager.requests_shared.lock().unwrap().len(), 2, "the warm-up and one transcription");
     server.stop().await;
 }
 

@@ -74,11 +74,11 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
-    /// One upload chunk; content-addressed, not a mutation.
+    /// One upload chunk; content-addressed, not a mutation. The chunks of one blob are applied one at a time in arrival order.
     BlobPut => "blob/put" {
         params: v2::op::BlobPutParams,
         result: v2::feed::EmptyResult,
-        scope: none,
+        scope: keyed("blobUpload", digest),
         class: C2,
         mutation: none,
         origins: [Local, Ssh, Relay],

@@ -32,7 +32,7 @@ use serde_json::{Map, Value, json};
 
 use super::agent_dispatch::PrepareSpec;
 use super::agent_world::{RouteWindows, resolve_runtime_spec};
-use super::dispatch_sessions::stamped_header;
+use super::dispatch_sessions::{AgentRoutes, admit_route, stamped_header};
 use super::unattended::UnattendedRunRegistry;
 
 /// `runOfSession(creator)` (`human-gate/delegation.mjs:96`): the schedule or webhook run a
@@ -68,6 +68,8 @@ pub struct DirectorySpawnWorld {
     pub sessions: Arc<dyn Sessions>,
     pub directory: Arc<SessionDirectory>,
     pub providers: Arc<ProviderRegistry>,
+    /// The ACP agents a child's route can name.
+    pub agents: Option<Arc<dyn AgentRoutes>>,
     pub windows: Arc<dyn RouteWindows>,
     pub statusline: Arc<dyn RouteStatusline>,
     pub runs: Arc<dyn SessionRuns>,
@@ -174,7 +176,7 @@ impl DirectorySpawnWorld {
                 .and_then(Value::as_array)
                 .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
         };
-        let mut header = stamped_header(&prepare, |name| self.providers.registered_for_route(name).is_some())?;
+        let mut header = stamped_header(&prepare, |name| admit_route(&self.providers, self.agents.as_deref(), name).map(|_| ()))?;
         header.insert("visibility".into(), json!("agent-only"));
         super::session_cache_opts::stamp_cache_opts(&mut header, &self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null));
         let tag = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
@@ -250,11 +252,10 @@ impl SpawnWorld for DirectorySpawnWorld {
 
     /// `delegationChainOf(callerId, getSession)` and `actingAgentOf(getSession(callerId), callerId)`
     /// (`spawn-plan.mjs:60-63`, `bot-chain.mjs`).
-    fn delegation(&self, caller_id: &str) -> Delegation {
-        let get = |id: &str| self.registry.session_row(id).map(Value::Object);
+    async fn delegation(&self, caller_id: &str) -> Delegation {
         let turn_bots = |id: &str| self.directory.turn_bot_chain(&ThreadId::from(id));
-        let chain = delegation_chain(caller_id, &get, &turn_bots);
-        let acting = acting_agent_of(get(caller_id).as_ref(), caller_id);
+        let chain = delegation_chain(caller_id, &*self.registry, &turn_bots).await;
+        let acting = acting_agent_of(self.registry.session_row(caller_id).await.map(Value::Object).as_ref(), caller_id);
         Delegation { chain, acting }
     }
 
@@ -304,9 +305,11 @@ impl SpawnWorld for DirectorySpawnWorld {
         // `registry.assertAdmission(parentSessionId)` (`agent-child.mjs:11`): a parent being
         // cancelled gets no new child.
         let parent_epoch = self.registry.assert_admission(&parent, None)?;
-        let owner = nonempty(text(spec.get("ownerSessionId")))
-            .or_else(|| self.registry.session_row(&parent).and_then(|session| nonempty(text(session.get("ownerSessionId")))))
-            .unwrap_or_else(|| parent.clone());
+        let owner = match nonempty(text(spec.get("ownerSessionId"))) {
+            Some(owner) => Some(owner),
+            None => self.registry.session_row(&parent).await.and_then(|session| nonempty(text(session.get("ownerSessionId")))),
+        }
+        .unwrap_or_else(|| parent.clone());
         let mut header = self.child_header(spec, &parent, &owner, tag).await?;
         let now = json!(self.directory.deps().clock.now_ms());
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {

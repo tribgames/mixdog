@@ -234,8 +234,7 @@ fn lead_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header
     surface.rebuild_for_provider(&mut session, &provider);
     let messages = session.as_object_mut().expect("session object").shift_remove("messages").expect("system messages");
     let mut after = session.as_object().expect("session object").clone();
-    let mut rebuilt = SystemBlocks::from_node_messages(messages.as_array().expect("system messages"))
-        .expect("surface preserves system blocks");
+    let mut rebuilt = SystemBlocks::from_node_messages(messages.as_array().expect("system messages")).expect("surface preserves system blocks");
     rebuilt.combined = blocks.combined;
     if rebuilt != blocks {
         rebuilt.write(&mut after);
@@ -589,7 +588,8 @@ mod tests {
     fn an_agents_move_to_a_bridge_route_rewrites_the_prompts_roster_and_guidance() {
         use super::super::tool_exposure::TOOL_BRIDGE_GUIDANCE;
 
-        let tool = |name: &str| json!({"name": name, "description": format!("{name}."), "inputSchema": {"type": "object", "properties": {name: {"type": "string"}}}});
+        let tool =
+            |name: &str| json!({"name": name, "description": format!("{name}."), "inputSchema": {"type": "object", "properties": {name: {"type": "string"}}}});
         let call_tool = json!({"name": "call_tool", "description": "Run a deferred tool.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "arguments": {"type": "object"}}}});
         let host = Host(vec![tool("load_tool"), call_tool]);
         let surface = ToolSurface { host: &host, clock: &Fixed };
@@ -620,7 +620,8 @@ mod tests {
             header.insert("provider".into(), json!(provider));
             let change = route_surface_change(&surface, &Fixed, &header, &route("openai-oauth"), prepared(), false);
             let bridged = applied(header, change);
-            let defined: Vec<(&str, bool)> = bridged["tools"].as_array().unwrap().iter().map(|t| (t["name"].as_str().unwrap(), t["inputSchema"].is_object())).collect();
+            let defined: Vec<(&str, bool)> =
+                bridged["tools"].as_array().unwrap().iter().map(|t| (t["name"].as_str().unwrap(), t["inputSchema"].is_object())).collect();
             assert_eq!(defined, [("read", true), ("load_tool", true), ("call_tool", true)], "{provider}: defined on the wire, each with its schema");
             let stable = bridged["promptStable"].as_str().unwrap();
             assert!(stable.starts_with("skills\n\n---\n\n<available-deferred-tools>\n"), "{provider}: {stable}");
@@ -675,7 +676,8 @@ mod tests {
         let mut session = json!({"owner": "agent", "provider": "openai-oauth", "model": "m", "tools": catalog});
         surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
         let mut header = session.as_object().unwrap().clone();
-        header.extend(json!({"bp3EnvSplit": true, "promptBase": "rules", "promptStable": "skills", "deferredToolBp2Applied": true}).as_object().unwrap().clone());
+        header
+            .extend(json!({"bp3EnvSplit": true, "promptBase": "rules", "promptStable": "skills", "deferredToolBp2Applied": true}).as_object().unwrap().clone());
         header.insert("deferredSelectedTools".into(), json!(["read", "load_tool", "gone"]));
         assert!(surface.retired_names(&Value::Object(header.clone())).is_empty(), "no stored definition is retired");
         let prepared = PreparedTools { tools: json!(catalog), tool_spec: json!("full") };

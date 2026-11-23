@@ -33,6 +33,9 @@ use super::seams::TurnRequest;
 use super::seams::TurnReviews;
 use super::seams::TurnSessions;
 use super::seams::WorkerInbox;
+use super::stages::StageCallback;
+use super::stages::TurnStage;
+use super::stages::TurnStages;
 use super::worker_turns::TurnOwner;
 use crate::agent_tool::watchdog::is_watchdog_abort;
 use crate::agent_tool::watchdog::stopped_handoff;
@@ -118,7 +121,25 @@ impl TurnRunner {
         submission_id: String,
         status: &mut FinalStatus,
     ) -> Result<WorkerResult, String> {
-        let start = self.sessions.message_count(&plan.session_id).await;
+        let cancel = job.and_then(|job| job.cancel());
+        let on_stage = job.map(|job| {
+            let job = job.clone();
+            Arc::new(move |stage: TurnStage| job.set_stage(stage)) as Arc<StageCallback>
+        });
+        let stages = TurnStages::new(&plan.session_id, on_stage.clone(), cancel.clone());
+        let start = match stages.pass(TurnStage::CountingBeforeOpen, self.sessions.message_count(&plan.session_id)).await {
+            Ok(start) => start,
+            Err(reason) => {
+                // Nothing of the turn reached the session: there is no output of it to hand over.
+                if let Some(job) = job {
+                    reconcile_cancelled(job, &plan.identity, "");
+                }
+                *status = FinalStatus::Cancelled;
+                return Err(reason);
+            }
+        };
+        // From here the stage is the one the session's route reports.
+        stages.enter(TurnStage::Admitted);
         let on_terminal_result = job.map(|job| {
             let hook = Arc::new(TerminalHook {
                 job: job.clone(),
@@ -152,9 +173,18 @@ impl TurnRunner {
             context: plan.context.clone(),
             cwd: plan.cwd.clone(),
             skill_selection: plan.skill_selection.clone(),
-            hooks: TurnHooks { submission_id, notify: worker_notify(self.inbox.clone(), &plan.session_id), on_tool_result, on_terminal_result, on_submitted },
+            hooks: TurnHooks {
+                submission_id,
+                notify: worker_notify(self.inbox.clone(), &plan.session_id),
+                on_tool_result,
+                on_terminal_result,
+                on_submitted,
+                on_stage,
+            },
             slot: job.and_then(|j| j.slot()),
+            cancel: cancel.clone(),
         };
+        // The route ends its own turn on the job's cancellation (`TurnRequest::cancel`).
         let ran = self.sessions.run_turn(request).await;
         // The turn is over: the job has nothing on the session from here.
         if let Some(job) = job {
@@ -181,8 +211,12 @@ impl TurnRunner {
             }
             Err(error) => error,
         };
-        if job.is_some_and(|j| j.is_cancelled()) {
-            self.settle_cancelled(plan, job.map(|j| &**j), start, Some(&failure), None).await;
+        if job.is_some_and(|j| j.is_cancelled()) || cancel.as_ref().is_some_and(|cancel| cancel.is_aborted()) {
+            match job {
+                // The session never started the turn: it has no rows to read a handoff from.
+                Some(job) if job.stage().is_some_and(TurnStage::unstarted) => reconcile_cancelled(job, &plan.identity, ""),
+                _ => self.settle_cancelled(plan, job.map(|j| &**j), start, Some(&failure), None).await,
+            }
             *status = FinalStatus::Cancelled;
             return Err(failure.message);
         }
@@ -217,6 +251,8 @@ impl TurnRunner {
             self.sessions.carry_marks(owner, &plan.session_id);
             plan.prompt = self.sessions.redact_text(owner, &plan.prompt);
         }
+        // Held through the claim's release: a turn that never opened still settles its row.
+        let _held = self.turns.hold(&plan.session_id).await;
         let claim = self.turns.claim(&plan.session_id, job.clone());
         let spawn = plan.kind == TurnKind::Spawn;
         // A send's follow-up is reviewed like a spawn's: its edits join the owner's turn review.

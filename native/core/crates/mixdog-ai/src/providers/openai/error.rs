@@ -237,7 +237,7 @@ pub(super) fn classify(failure: &Failure<'_>) -> ProviderError {
         .map(str::to_owned)
         .unwrap_or_else(|| truncated(failure.message_fallback));
     // `providerErrorKind`'s wording fallback: a 400 whose only signal is its text.
-    err.kind = crate::retry::classify::wording_kind(err.kind, &err.message);
+    err.kind = crate::retry::classify::wording_kind_scoped(err.kind, &err.message, err.quota_scope, err.retry_after);
     err
 }
 

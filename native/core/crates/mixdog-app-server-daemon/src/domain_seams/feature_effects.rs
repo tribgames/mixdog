@@ -22,6 +22,7 @@ pub struct DaemonFeatureEffects {
     registry: Arc<ProviderRegistry>,
     context_status: Arc<dyn ContextStatusCaches>,
     surface: mixdog_core::run_host::surface_host::SurfaceGeneration,
+    acp_agents: Arc<mixdog_acp::agents::Agents>,
 }
 
 impl DaemonFeatureEffects {
@@ -32,8 +33,9 @@ impl DaemonFeatureEffects {
         registry: Arc<ProviderRegistry>,
         context_status: Arc<dyn ContextStatusCaches>,
         surface: mixdog_core::run_host::surface_host::SurfaceGeneration,
+        acp_agents: Arc<mixdog_acp::agents::Agents>,
     ) -> Arc<Self> {
-        Arc::new(Self { fonts, config, readiness, registry, context_status, surface })
+        Arc::new(Self { fonts, config, readiness, registry, context_status, surface, acp_agents })
     }
 }
 
@@ -66,5 +68,17 @@ impl FeatureEffects for DaemonFeatureEffects {
     /// does move is `surfaceGeneration`, which an empty thread's surface is checked against.
     fn invalidate_pre_session_tool_surface(&self) {
         self.surface.bump();
+    }
+
+    fn acp_agents_status(&self) -> Option<Value> {
+        Some(self.acp_agents.status())
+    }
+
+    async fn verify_acp_agents(&self) {
+        self.acp_agents.recheck();
+    }
+
+    async fn install_acp_agents(&self) -> Result<(), String> {
+        self.acp_agents.install().await
     }
 }

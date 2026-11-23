@@ -13,6 +13,7 @@ use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
@@ -95,6 +96,29 @@ impl SessionUsageService {
         Ok(session_usage_snapshot(&bucket))
     }
 
+    /// A session on an ACP agent's route is counted by what the agent says its context holds, as the session's own
+    /// readout is: the turns' token sums are no size of it. An agent that reported nothing countable leaves the
+    /// session no figure, not zero.
+    async fn read_as_agent_reports(&self, session_id: &str, totals: &mut Value) {
+        let Ok(header) = self.threads.header(&ThreadId::from(session_id)).await else { return };
+        if !header.get("provider").and_then(Value::as_str).is_some_and(|provider| provider.starts_with("acp-")) {
+            return;
+        }
+        let Some(totals) = totals.as_object_mut() else { return };
+        let stale = header.get("lastContextTokensStaleAfterCompact") == Some(&Value::Bool(true));
+        let reported = header.get("lastContextTokens").and_then(Value::as_f64).filter(|used| *used > 0.0 && !stale);
+        match reported {
+            Some(used) => {
+                totals.insert("tokens".into(), serde_json::json!(used));
+                totals.insert("unmeasuredTurns".into(), serde_json::json!(0));
+            }
+            None if totals.get("tokens").and_then(Value::as_f64).is_none_or(|tokens| tokens == 0.0) => {
+                totals.shift_remove("tokens");
+            }
+            None => {}
+        }
+    }
+
     pub async fn read(&self, session_id: &str, options: Option<&Value>) -> Result<Value, CoreError> {
         let others = other_session_ids(options, session_id);
         let agents = options.and_then(|o| o.get("agents")) == Some(&Value::Bool(true));
@@ -113,7 +137,9 @@ impl SessionUsageService {
         }
         let mut sessions = Map::new();
         for id in &others {
-            sessions.insert(id.clone(), self.totals(Self::ids_for(&scopes, id), vec![]).await?);
+            let mut totals = self.totals(Self::ids_for(&scopes, id), vec![]).await?;
+            self.read_as_agent_reports(id, &mut totals).await;
+            sessions.insert(id.clone(), totals);
         }
         result.insert("sessions".into(), Value::Object(sessions));
         Ok(Value::Object(result))

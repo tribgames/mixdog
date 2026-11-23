@@ -76,6 +76,9 @@ impl SessionActor {
             None => self.cell.close(),
         }
         self.deleting = true;
+        if let Some(titles) = &self.deps.titles {
+            titles.session_disposed(self.id.as_str());
+        }
         self.cell.abort_compaction(abort);
         (self.delete_closed, self.delete_mark, self.delete_marked) = (Some(closed), Some(mark), Some(marked));
         if let Some(run) = &self.run {

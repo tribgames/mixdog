@@ -16,6 +16,7 @@ use mixdog_ai::service::error_text::ErrorView;
 use mixdog_ai::service::error_text::PresentOptions;
 use mixdog_ai::service::error_text::TimeoutPhase;
 use mixdog_ai::service::error_text::present_error_text;
+use mixdog_ai::service::error_text::provider_display_name;
 use mixdog_ai::service::error_text::provider_error_text;
 use mixdog_ai::service::error_text::safe_error_details;
 use mixdog_ai::service::error_text::sent_code;
@@ -304,33 +305,6 @@ pub fn provider_turn_error(error: &ProviderError, provider: &str, data: Value) -
     }
 }
 
-/// `providerDisplayName` (`shared/provider-display-name.mjs`): a known provider id's display name, any other id as
-/// itself.
-fn provider_display_name(provider: &str) -> String {
-    let name = match provider.to_lowercase().as_str() {
-        "openai-oauth" => "OpenAI OAuth",
-        "anthropic-oauth" => "Anthropic OAuth",
-        "grok-oauth" => "Grok OAuth",
-        "muse-code-oauth" => "Muse Code",
-        "command-code-oauth" => "Command Code",
-        "mimo-oauth" => "MiMo",
-        "cursor-oauth" => "Cursor OAuth",
-        "devin-oauth" => "Devin",
-        "antigravity-oauth" => "Antigravity OAuth",
-        "openai" | "openai-api" => "OpenAI API",
-        "anthropic" | "anthropic-api" => "Anthropic API",
-        "gemini" | "gemini-api" => "Gemini API",
-        "xai" | "xai-api" => "xAI API",
-        "deepseek" | "deepseek-api" => "DeepSeek API",
-        "opencode-go-oauth" => "OpenCode Go OAuth",
-        "openrouter" => "OpenRouter",
-        "mixdog-local" => "Local Provider",
-        "default" => "Default",
-        _ => provider,
-    };
-    name.to_owned()
-}
-
 /// `toolErrorDisplay`'s no-prefix cases (`tool-result-text.mjs:121-128`).
 static SPECIAL: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(
@@ -480,6 +454,38 @@ pub(crate) fn failure_text(error: &TurnError, route: &Route<'_>) -> String {
     failure_record(error, route).ok().and_then(|record| record.get("detail").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default()
 }
 
+/// The text an agent task hands its spawner: [`failure_text`], and for a rate limit or a spent quota the provider by name with its
+/// own message, so the spawner can tell what to do about it.
+pub(crate) fn task_failure_text(error: &TurnError, route: &Route<'_>) -> String {
+    let text = failure_text(error, route);
+    let Some(detail) = &error.provider_error else { return text };
+    let record = failure_record(error, route).ok();
+    let typed = record.as_ref().and_then(|record| record.get("detail")).and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| text.clone());
+    if text.contains("fallback chain") {
+        return typed;
+    }
+    match detail.kind.as_str() {
+        "rate_limited" | "quota_exhausted" => {
+            let line = mixdog_ai::service::error_text::provider_limit_line(&provider_display_name(&detail.provider), &text);
+            let reset = record.as_ref().and_then(|record| record["errorKind"]["resetAt"].as_u64()).filter(|at| *at > 0);
+            match reset.and_then(|at| at.checked_sub(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64)) {
+                Some(left) if left > 0 => format!("{line} (resets in {})", wait_text(left / 1_000)),
+                _ => line,
+            }
+        }
+        _ => typed,
+    }
+}
+
+fn wait_text(seconds: u64) -> String {
+    match (seconds / 3_600, seconds % 3_600 / 60) {
+        (0, 0) => format!("{seconds}s"),
+        (0, minutes) => format!("{minutes}m"),
+        (hours, 0) => format!("{hours}h"),
+        (hours, minutes) => format!("{hours}h {minutes}m"),
+    }
+}
+
 /// Writes [`failure_log_line`] to the daemon log (`process.stderr.write`, the shard host's mirror into `daemon.log`): `ask-error`
 /// for a failed turn, `agent-task-error` for a failed agent task.
 pub(crate) fn log_failure(tag: &str, session: &str, turn: &str, error: &TurnError, route: &Route<'_>) {
@@ -566,6 +572,32 @@ mod tests {
         let data = ProviderFacts { code: Some("x".into()), ..ProviderFacts::default() }.into_data(Value::Null);
         let typed = TurnError { message: "You hit your usage limit.".into(), data, provider_error: None };
         assert_eq!(failure_record(&typed, &route).unwrap()["providerKind"], json!("unknown"));
+    }
+
+    #[test]
+    fn a_task_rate_limit_failure_names_the_provider_and_keeps_its_message() {
+        let body = r#"Gemini REST streamGenerateContent 429: { "error": { "code": 429, "message": "Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage it.", "status": "RESOURCE_EXHAUSTED" } }"#;
+        let detail = ProviderErrorDetail { provider: "my-gateway".into(), status: Some(429), kind: "quota_exhausted".into(), delivery: None };
+        let error = TurnError { message: body.into(), data: Value::Null, provider_error: Some(detail) };
+        let text = task_failure_text(&error, &Route { provider: "", model: "" });
+        assert!(text.starts_with("my-gateway quota/rate limit hit: Your project has exceeded its monthly spending cap."), "{text}");
+        let handed = present_error_text(&ErrorView::message(text.clone()), &PresentOptions { surface: "agent".into(), ..PresentOptions::default() });
+        assert_eq!(handed, text);
+    }
+
+    #[test]
+    fn a_task_failure_keeps_its_kind_and_the_fallback_chain_for_the_spawner() {
+        let route = Route { provider: "", model: "" };
+        let failed = |kind: &str, message: &str| {
+            let detail = ProviderErrorDetail { provider: "my-gateway".into(), status: Some(402), kind: kind.into(), delivery: None };
+            task_failure_text(&TurnError { message: message.into(), data: Value::Null, provider_error: Some(detail) }, &route)
+        };
+        assert_eq!(failed("billing", "402 insufficient credits, quota exceeded"), "Out of credits or at spend limit.");
+        let chain = "429 rate limit\nEvery model in the fallback chain failed — A: Provider is rate-limited.; B: Out of credits or at spend limit.";
+        assert_eq!(
+            failed("rate_limited", chain),
+            "Every model in the fallback chain failed — A: Provider is rate-limited.; B: Out of credits or at spend limit."
+        );
     }
 
     #[test]

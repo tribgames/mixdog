@@ -138,6 +138,11 @@ impl Cancel {
         self.token.is_cancelled()
     }
 
+    /// The signal as a token, for a wait that takes one: cancelled when this aborts.
+    pub fn token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+
     /// Resolves when aborted.
     pub async fn cancelled(&self) {
         self.token.cancelled().await;

@@ -157,7 +157,9 @@
       "params": "v2::op::BlobPutParams",
       "result": "v2::feed::EmptyResult",
       "scope": {
-        "kind": "none"
+        "field": "digest",
+        "kind": "keyed",
+        "namespace": "blobUpload"
       }
     },
     {

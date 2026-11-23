@@ -750,6 +750,8 @@ pub struct Built {
     pub runtime_root: std::path::PathBuf,
     pub package_root: std::path::PathBuf,
     pub js_runtime: crate::compose::JsRuntime,
+    /// `ComposeConfig::agent_presets`.
+    pub agent_presets: Vec<mixdog_acp::preset::AgentPreset>,
     #[cfg(test)]
     pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
     pub env: mixdog_core::run_host::run_seams::EnvReader,
@@ -970,6 +972,15 @@ pub struct Real {
     pub turn_review: Arc<mixdog_core_review::turn_review::TurnReview>,
     #[cfg(test)]
     pub tool_pool: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>,
+    /// The ACP agents and the session tools they are handed, as composed. Kept for the tests that read a session's handed surface off
+    /// the composition; a release core does not carry them.
+    #[cfg(test)]
+    pub handed_tools: Arc<crate::acp_tools::AgentSessionTools>,
+    #[cfg(test)]
+    pub acp_agents: Arc<mixdog_acp::agents::Agents>,
+    /// The agent registry, as composed: a test reads the worker rows through it, as the pool and the status do.
+    #[cfg(test)]
+    pub agent_registry: Arc<mixdog_core_session::session::agent_registry::AgentRegistry>,
 }
 
 impl Real {
@@ -1877,6 +1888,45 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let gauge = mixdog_core::run_host::live_gauge::LiveGauge::new(); // wu-context-status-13 (FILED)
 
     // ---- 5. the agents, the hosts and the domain seams ------------------------------------------------------------------
+    // The ACP agents (the `acpAgents` built-in feature): the one object behind the feature's switch that the run backend, the route services, `model/list`,
+    // the settings value and a closing session share. Its processes run under the one process manager, so the daemon's stop ends them.
+    let acp_agents = mixdog_acp::agents::Agents::new(mixdog_acp::agents::AgentsParts {
+        // An agent's refusal of the signed-in account stands across a restart: it is kept in the data folder.
+        refusals: Arc::new(crate::acp_tools::KeptRefusals::in_data_dir(&b.data_dir, b.tokens.durability_io)),
+        presets: b.agent_presets.clone(),
+        processes: b.process_manager.clone(),
+        files: Arc::new(mixdog_acp::files::ServiceFiles { files: b.files.clone(), lane: b.tokens.interactive_io }),
+        enabled: {
+            let (config, env) = (config.clone(), b.env.clone());
+            Arc::new(move || mixdog_core_config::tool_modules::builtin_feature_active(&config.agent(), mixdog_acp::FEATURE, &|name| env(name), false))
+        },
+        changed: {
+            let tick = b.models.tick.clone();
+            Arc::new(move || tick.bump())
+        },
+        // A CLI's version, check, install, update and sign-in runs start in the system's temp folder, none of Mixdog's own.
+        probe_cwd: std::env::temp_dir(),
+        env: b.env.clone(),
+        // An agent that takes no HTTP MCP server starts this program, in its bridge mode, as its session's tool server.
+        mcp_bridge: std::env::current_exe().ok().map(|program| mixdog_acp::preset::Command {
+            program: program.to_string_lossy().into_owned(),
+            args: vec![crate::acp_tools::BRIDGE_SUBCOMMAND.to_owned()],
+        }),
+    });
+    // The turn path's own request source, for the tools an agent is handed (bound to the agents once the dispatcher is).
+    let acp_next = side_wiring.next();
+    // A reply an agent begins with no prompt open gets a turn of its own, queued as a notification of the thread.
+    acp_agents.bind_wake({
+        let late = late.clone();
+        Arc::new(move |thread: &mixdog_core_api::ids::ThreadId| {
+            let (late, thread) = (late.clone(), thread.clone());
+            drop(mixdog_rt::spawn("acp.wake", mixdog_rt::TaskClass::Work, async move {
+                if let Some(directory) = late.directory() {
+                    directory.queue_channel_notification(&thread, mixdog_acp::runs::WAKE_TEXT.to_owned()).await;
+                }
+            }));
+        })
+    });
     let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts {
         catalog: b.catalog.clone(),
         readiness: readiness.clone(),
@@ -1970,7 +2020,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }))
         .map_err(|_| ComposeError::AlreadyBound("readiness re-warm"))?;
     // `model/list` and `account/listWebSearchModels` are registered with the domains at the flip (`model_list` / `web_search_models` are the services).    // `resolveRoute(config, {})` for the agent definitions: the same Main route the chain resolves (`CatalogRouteContext`).
-    let route_context = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext { config: config.clone(), facts: facts.clone() });
+    // An agent's (worker's, reviewer's) route may name an ACP agent's model as a session's does: the catalog is asked through the same facts.
+    let route_context = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext {
+        config: config.clone(),
+        facts: Arc::new(mixdog_acp::routes::AgentRouteFacts { inner: facts.clone(), agents: acp_agents.clone() }),
+    });
     // flip-gaps-agent: `AgentEffects`. Two cycles are cut by late cells: effects -> `ServiceChannels` -> `DefinitionAgents(definitions)` (the channel stack is bound once it exists)
     // and effects -> `ChatRoutes(route_service)` -> `SessionRouteAdapter(directory)` (bound once `route_service` exists). Both are in `verify_bound`.
     let agent_profile = Arc::new(crate::domain_seams::profile_changes::AgentProfileChanges::default()); // also `InstructionsAnnounce` and the session layer's `ProfileListener`
@@ -2042,6 +2096,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         facts: facts.clone(),
         refresh: refresh.clone(),
         env: b.env.clone(),
+        agent_providers: {
+            let agents = acp_agents.clone();
+            Arc::new(move |provider: &str| agents.preset_of_route(provider).is_some())
+        },
         surface: surface_generation.clone(),
     });
 
@@ -2316,6 +2374,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             registry.clone(),
             gauge.clone(),
             surface_generation.clone(),
+            acp_agents.clone(),
         ),
         local: crate::compose_domains::LocalSeams {
             media_generator,
@@ -3358,9 +3417,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         reap.clone(),
         clock.clone(),
     ));
-    // A start whose index is being rebuilt holds the worker rows until the rebuild has them all and the restart has settled them
-    // (below): no reader sees a worker before that, nor the rows of part of the index.
-    if catalog_index.rebuilding() {
+    // A start whose index owes sessions their rows (a rebuild, or the repair of sessions an unclean exit left behind their
+    // log) holds the worker rows until the index has them all and the restart has settled them (below): no reader sees a
+    // worker before that, nor the rows of part of the index. Decided once, here: the hold and the settlement that opens it
+    // go together, whatever the repairs do meanwhile.
+    let worker_rows_held = catalog_index.rebuilding() || catalog_index.owes_projection();
+    if worker_rows_held {
         agent_registry.hold_worker_rows();
     }
     // `sweepRestartFailures`: the recover call and every maintenance pass run it (the pass's timer is started below).
@@ -3438,6 +3500,22 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     }));
     // The Goal runtime was built before the providers: its title model (`wireGoalRuntime`'s `generateTitle`) is bound here.
     early.goal_titles.bind(Arc::new(summaries.title_completion()));
+    // The automatic session titles (`createSessionTitleController`): the title model on the maintainer route, promoted over the stored sessions, its
+    // outcomes in the core's log. The sessions' turns reach it through `SessionDeps.titles`; the shutdown of the session directory disposes it.
+    let session_titles = {
+        use mixdog_core_session::session::session_title::{LineTitleLog, SessionTitles, StoredTitles, TitleDeps, TitleHooks};
+        let stored = Arc::new(StoredTitles::new(thread_state.clone(), thread_state.clone(), clock_agent.clone()));
+        let deps =
+            TitleDeps::new(Arc::new(summaries.title_completion()), stored, Arc::new(LineTitleLog(b.log.line_log())), Arc::new(mixdog_js::default_locale_tag));
+        Arc::new(TitleHooks::new(SessionTitles::new(deps)))
+    };
+    {
+        let (titles, closing) = (session_titles.clone(), close_requested.clone());
+        drop(mixdog_rt::spawn("session-titles-dispose", mixdog_rt::TaskClass::Work, async move {
+            closing.cancelled().await;
+            titles.dispose();
+        }));
+    }
     // The attachment ports are shared by the compaction world and the context world's per-thread lowering (flip-attach).
     let route_traits = Arc::new(mixdog_core::run_host::compaction_world::RegisteredRouteTraits::new(registry.clone()));
     let compaction_services = mixdog_core::run_host::compaction_world::CompactionServices {
@@ -3777,6 +3855,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         liveness: liveness.clone(),
         search_usage,
         reuses: reuses.clone(),
+        // A session whose route names an ACP agent preset runs its turns in that agent, each begun by the turn path as every turn is.
+        outside: Some(Arc::new(crate::acp_tools::AgentTurns {
+            agents: acp_agents.clone(),
+            now_ms: now_ms.clone(),
+            blobs: blobs.clone(),
+            interactive: b.tokens.interactive_io,
+        })),
         tokens: b.tokens,
         clock: clock_agent.clone(),
         paths: mixdog_store::paths::Paths { plugin_root: b.package_root.join("src"), data_dir: b.data_dir.clone() },
@@ -3890,6 +3975,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let agents = agents.clone();
             // A warm of a session that is not loaded leaves its book's evidence in the warmer's touch file, which the next load reads.
             let kept_books = warm_touches.clone();
+            let acp_processes: Arc<dyn mixdog_core_session::session::purge::SessionAgentProcesses> = acp_agents.clone();
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),
                 completion_holders: Arc::default(),
@@ -3935,6 +4021,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
                     read_state: read_state.clone(),
                     agents: Some(Arc::new(RetiredAgentPurge(agents.clone()))),
+                    agent_processes: Some(acp_processes), // a closed, deleted or unloaded session's ACP agent ends with it
                 }),
                 purge,
                 // A Goal record written before the todo list still carries its tasks: the session's list adopts them (`goal-facade-api.mjs` `adoptLegacyTasks`).
@@ -3946,6 +4033,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 agent_names,
                 warm: Arc::new(mixdog_core::run_host::warm_ports::WarmedTurns::new(warmer.clone())), // flip-channel-router-2: the turn-start warmer note (`ask-session.mjs:198-201,313`); the one `Arc<Warmer>`
                 notices: Arc::new(mixdog_core::run_host::desktop_notices::SessionDesktopNotices(desktop_notices.clone())), // flip-gaps-ai-3
+                titles: Some(session_titles),
                 settings_changed: {
                     let config = config.clone();
                     Arc::new(move |scope: &str| config.announce(mixdog_core_config::config::SETTINGS_CHANGED, serde_json::json!({ "scope": scope })))
@@ -4123,24 +4211,35 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         let evidence = mixdog_core_session::session::agent_evidence::SessionAgentEvidence::new(directory.clone(), routine_evidence);
         let evidence = if let Some(cutover) = legacy { evidence.with_legacy_homes(cutover.legacy_homes.clone()) } else { evidence };
         boot.boot_mark("before-agent-store-migrate");
-        let outcome = agents
-            .migrate_agent_store(
-                &evidence,
-                Arc::new(move |lane, reason| {
-                    if let Err(error) = guard.backup_user_data(lane, &data, reason, &mixdog_core_config::user_data::BOT_SPLIT_BACKUP_DIRS) {
-                        tracing::warn!("[user-data-backup] {reason}: {error:?}");
-                    }
-                }),
-            )
-            .await;
-        boot.boot_mark("agent-store-migrated");
-        match outcome {
-            Ok((kinds, split)) if legacy.is_some() && (kinds.failed || split.failed || split.busy) => {
-                return Err(ComposeError::BotCutover("the agent store migration did not finish; retry startup before converting home histories".into()));
+        let backup = Arc::new(move |lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, reason: &str| {
+            if let Err(error) = guard.backup_user_data(lane, &data, reason, &mixdog_core_config::user_data::BOT_SPLIT_BACKUP_DIRS) {
+                tracing::warn!("[user-data-backup] {reason}: {error:?}");
             }
-            Err(error) if legacy.is_some() => return Err(ComposeError::BotCutover(error.to_string())),
-            Err(error) => tracing::warn!("[bot-split] the agent store migrations did not run: {error}"),
-            Ok(_) => {}
+        });
+        // The evidence is the context of each agent's home thread, read through the index: a home session owed its rows
+        // answers once its repair ends, and the start does not wait with it. Outside a cutover (whose home conversion
+        // needs the outcome) the migrations then run behind the serving core, so a first request may be served before
+        // them; a failure is retried at the next start either way.
+        if legacy.is_none() && catalog_index.owes_projection() {
+            let (agents, log) = (agents.clone(), b.log.clone());
+            drop(mixdog_rt::spawn("agent-store-migrate", mixdog_rt::TaskClass::Work, async move {
+                let outcome = agents.migrate_agent_store(&evidence, backup).await;
+                log.boot_mark("agent-store-migrated");
+                if let Err(error) = outcome {
+                    tracing::warn!("[bot-split] the agent store migrations did not run: {error}");
+                }
+            }));
+        } else {
+            let outcome = agents.migrate_agent_store(&evidence, backup).await;
+            boot.boot_mark("agent-store-migrated");
+            match outcome {
+                Ok((kinds, split)) if legacy.is_some() && (kinds.failed || split.failed || split.busy) => {
+                    return Err(ComposeError::BotCutover("the agent store migration did not finish; retry startup before converting home histories".into()));
+                }
+                Err(error) if legacy.is_some() => return Err(ComposeError::BotCutover(error.to_string())),
+                Err(error) => tracing::warn!("[bot-split] the agent store migrations did not run: {error}"),
+                Ok(_) => {}
+            }
         }
     }
     let switches = Arc::new(mixdog_core_session::session::thread_switches::SessionSwitchAdapter::new(directory.clone(), run_workflow_surface.clone()));
@@ -4191,6 +4290,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .with_mcp(path.turn_settings.clone()),
         ))
         .map_err(|_| ComposeError::AlreadyBound("tool dispatcher"))?;
+    // An ACP agent is listed its session's tool surface; a call of one runs in the turn that made it (the `acpAgents` feature, phase 2).
+    let handed_tools = Arc::new(crate::acp_tools::AgentSessionTools(mixdog_core::run_host::assemble::handed_tools::HandedTools::new(acp_next)));
+    #[cfg(test)]
+    let kept_handed_tools = handed_tools.clone();
+    acp_agents.bind_tools(handed_tools);
     late_catalog
         .bind(Arc::new({
             let threads = Arc::new(LateThreads(late.clone()));
@@ -4281,6 +4385,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             Some(b.shell_control.clone()),
         )),
         registry.clone(),
+        Some(Arc::new(crate::acp_tools::AgentAdmission(acp_agents.clone()))),
         config.clone(),
     ));
     let hidden_runner = Arc::new(mixdog_core::run_host::agent_dispatch::HiddenRoleRunner::new(agent_admission.clone(), dispatch_sessions, agent_world));
@@ -4361,12 +4466,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The routine sessions of the channel stack (`LateRoutineSessions`): `CoreRoutineSessions::new(directory, unattended, spawn_flow, attachment_files, delivery)`.
     // Daemon start (`settleAgentResults`, `daemon.mjs:1108`): dead-owner worker rows are settled here; their failure notices are
     // queued at the end of the composition (below `verify_bound`), awaited (Node's resolves once the notices are queued).
-    // While the index is rebuilt behind the serving core, the settlement runs behind it too: its read of the stored worker
+    // While the index projects sessions behind the serving core (a rebuild, or the repairs of a start: one session replayed
+    // from its first frame held `ready` back by minutes), the settlement runs behind it too: its read of the stored worker
     // rows is answered by the index once every session that could hold one is projected (or with the failure of one that
     // was not), and the held rows open with the settlement's own result.
-    if catalog_index.rebuilding() {
+    if worker_rows_held {
         let (registry, directory, reap, clock, log) = (agent_registry.clone(), directory.clone(), reap.clone(), clock.clone(), b.log.clone());
-        drop(mixdog_rt::spawn("agent-stale-rows-after-rebuild", mixdog_rt::TaskClass::Work, async move {
+        drop(mixdog_rt::spawn("agent-stale-rows-behind-index", mixdog_rt::TaskClass::Work, async move {
             let live = mixdog_core_session::session::agent_registry::restart::Liveness {
                 probe: &crate::os_probe::OsProbe,
                 own_pid: u64::from(std::process::id()),
@@ -4377,9 +4483,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let settled = registry.recover_held_worker_rows(true, &live).await;
             log.boot_mark("catalog-index-worker-rows-settled");
             match settled {
-                Ok(_) => tracing::info!("[agent] worker rows settled after the index rebuild"),
+                Ok(_) => tracing::info!("[agent] worker rows settled once the index held them"),
                 // Every reader of the worker rows (the pool, a spawn's tag, the status) reports this failure from here on.
-                Err(error) => tracing::warn!("[agent] restart settlement after the index rebuild failed; the worker rows answer with its failure: {error}"),
+                Err(error) => {
+                    tracing::warn!("[agent] restart settlement behind the index's projection failed; the worker rows answer with its failure: {error}")
+                }
             }
         }));
     } else {
@@ -4706,10 +4814,26 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .with_routes(late_route_session.clone()),
     );
     boot.boot_mark("before-room-hidden-import");
-    if let Err(error) = room_sessions.import_node_hidden(b.data_dir.clone(), b.tokens.interactive_io).await {
-        tracing::warn!("[session-hidden] the Node daemon's hidden set was not imported: {error:?}");
+    let hidden_import = {
+        let (room_sessions, data_dir, io) = (room_sessions.clone(), b.data_dir.clone(), b.tokens.interactive_io);
+        async move {
+            if let Err(error) = room_sessions.import_node_hidden(data_dir, io).await {
+                tracing::warn!("[session-hidden] the Node daemon's hidden set was not imported: {error:?}");
+            }
+        }
+    };
+    // The import reads and marks each hidden session, and a session owed its rows answers once its repair ends: while the
+    // index owes projections it runs behind the serving core. Cut off, it runs again at the next start.
+    if catalog_index.owes_projection() {
+        let log = b.log.clone();
+        drop(mixdog_rt::spawn("room-hidden-import", mixdog_rt::TaskClass::Work, async move {
+            hidden_import.await;
+            log.boot_mark("room-hidden-import-attempted");
+        }));
+    } else {
+        hidden_import.await;
+        boot.boot_mark("room-hidden-import-attempted");
     }
-    boot.boot_mark("room-hidden-import-attempted");
     // Node's supervisor step logs one line per step with `process.stderr.write` (`room-supervisor-completion.mjs` default `log`): the daemon's raw stderr.
     let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(
         Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
@@ -5090,6 +5214,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             sessions: agent_sessions.clone(),
             directory: directory.clone(),
             providers: registry.clone(),
+            agents: Some(Arc::new(crate::acp_tools::AgentAdmission(acp_agents.clone()))),
             windows: Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())),
             statusline: Arc::new(gateway_routes.clone()),
             runs: unattended.clone(),
@@ -5098,7 +5223,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         send_world: agent_send_world.clone(),
         terminal_trace: agent_registry.clone(),
         env: Arc::new(mixdog_core::run_host::agent_inputs::FileEnvironment::new(b.files.clone(), b.tokens.interactive_io, default_cwd.clone())),
-        catalog: Some(Arc::new(mixdog_core::run_host::agent_board::ModelListCatalog(model_list.clone()))),
+        catalog: Some(Arc::new(mixdog_core::run_host::agent_board::ModelListCatalog {
+            models: model_list.clone(),
+            registry: registry.clone(),
+            agent_state: Arc::new({
+                let agents = acp_agents.clone();
+                move |provider: &str| agents.preset_of_route(provider).map(|preset| agents.selectable(preset).err().map(|refusal| refusal.message(preset)))
+            }),
+        })),
         scopes: directory.clone(),
         errors: Arc::new(mixdog_agent::agent_tool::error_text::PlainErrorText),
         default_cwd,
@@ -5143,7 +5275,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // `thread/list`: the room rows overlay the stored list (wp-session-32).
     // (`thread_list` itself is built above, before the room republish that reads it.)
     builder.register(thread_list.clone())?;
-    builder.register(model_list.clone())?; // `model/list` (the same `ModelListService` the web-search rows call)
+    // `model/list` (the same `ModelListService` the web-search rows call), with the ACP agents' entries after the catalog's while the feature is on and a CLI is ready.
+    builder.register(Arc::new(mixdog_acp::routes::AgentModelList {
+        inner: model_list.clone(),
+        agents: acp_agents.clone(),
+        settings: {
+            let config = config.clone();
+            Arc::new(move || config.agent().get("modelSettings").and_then(serde_json::Value::as_object).cloned().unwrap_or_default())
+        },
+    }))?;
     // wp-ai-admin `RouteService` (EffortTuning): the route cell, the adapter the cell's writer applies through (the one bound `late_route_session`), the live route writer
     // and the follow-the-thread route. `usage` is `ProviderUsageSources` (`StatuslineUsage`), whose api-key lookups need the api-key store and `ApiUsageService`.
     let usage_sources = mixdog_core_domains::domains::ai_account::usage::sources::ProviderUsageSources::new(
@@ -5193,8 +5333,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let route_session = Arc::new(mixdog_core_domains::domains::ai_admin::route_set_service::PreSessionAware { inner: route_follow.clone() });
     let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService {
         config: config.clone(),
-        facts: facts.clone(),
-        writer: route_writer,
+        // A route on an ACP agent is no catalog provider's: what the route service asks the catalog and the live route writer is answered for it here.
+        facts: Arc::new(mixdog_acp::routes::AgentRouteFacts { inner: facts.clone(), agents: acp_agents.clone() }),
+        writer: Arc::new(mixdog_acp::routes::AgentRouteWriter { inner: route_writer, agents: acp_agents.clone() }),
         session: route_session,
         models: model_list.clone(),
         controls: directory.clone(),
@@ -5260,7 +5401,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 directory: directory.clone(),
                 tasks,
                 chains: mixdog_core::run_host::tool_pool::session_send::CallerChains {
-                    record: Arc::new(move |id: &str| records.session_row(id).map(serde_json::Value::Object)),
+                    record: records,
                     turn: Arc::new(move |id: &str| {
                         let thread = mixdog_core_api::ids::ThreadId::from(id);
                         (turns.turn_hop(&thread), turns.turn_bot_chain(&thread))
@@ -5516,20 +5657,26 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         ),
         refresh.clone(),
     );
-    builder.register(
-        mixdog_core_domains::domains::ai_account::account::AccountService::new(
+    let login_flows = mixdog_core_domains::domains::ai_account::flows::OAuthFlows::new(
+        std::time::Duration::from_millis(mixdog_core_domains::domains::ai_account::flows::DEFAULT_FLOW_TTL_MS),
+        Arc::new(mixdog_core_api::feed_publisher::LoginFeeds::new(b.scoped_feeds.clone())),
+    );
+    // The account service, with an ACP agent's sign-in among its login flows: one begun for an agent's route provider runs the agent's own login.
+    let account_ops = domain_inputs.scopes.scopes("account").map_err(ComposeError::ComposeDomains)?;
+    builder.register(Arc::new(mixdog_acp::login::AgentLogins {
+        agents: acp_agents.clone(),
+        flows: login_flows.clone(),
+        ops: account_ops.clone(),
+        inner: mixdog_core_domains::domains::ai_account::account::AccountService::new(
             provider_admin.clone(),
-            mixdog_core_domains::domains::ai_account::flows::OAuthFlows::new(
-                std::time::Duration::from_millis(mixdog_core_domains::domains::ai_account::flows::DEFAULT_FLOW_TTL_MS),
-                Arc::new(mixdog_core_api::feed_publisher::LoginFeeds::new(b.scoped_feeds.clone())),
-            ),
+            login_flows,
             ledger_source.clone(),
             custom_providers,
             web_search_models.clone(),
             provider_setup.clone(),
             dashboards.clone(),
             usage_sources.clone(),
-            domain_inputs.scopes.scopes("account").map_err(ComposeError::ComposeDomains)?,
+            account_ops,
             state.publisher.clone(), // `providerSetup` and `providerAccounts`
             mixdog_core_domains::domains::ai_account::account::SectionWake {
                 config: config.changes(),
@@ -5556,13 +5703,33 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 std::io::Error::other(error),
             )))
         })?,
-    )?;
+    }))?;
+    // The usage service carries the ACP agents' quota in the dashboard it answers and in the one the section is fed.
+    let agent_usage = crate::acp_usage::AgentUsage::new(
+        mixdog_core_domains::domains::ai_account::usage::UsageService::new(
+            ledger_source.clone(),
+            directory.clone(),
+            usage_sources.clone(),
+            account_store.clone(),
+            dashboards.clone(),
+        ),
+        Arc::new(acp_agents.clone()),
+        Arc::new(mixdog_core::run_host::quota_history::LedgerQuotaHistory::new(ledger_source.clone())),
+        {
+            let now = now_ms_epoch.clone();
+            Arc::new(move || now() as i64)
+        },
+        usage_push.publisher.clone(),
+    );
     usage_push
         .dashboard
-        .bind(Arc::new(mixdog_core::run_host::usage_stats_feed::DashboardReading {
-            dashboards: dashboards.clone(),
-            sources: usage_sources.clone(),
-            accounts: account_store.clone(),
+        .bind(Arc::new(crate::acp_usage::WithAgents {
+            providers: Arc::new(mixdog_core::run_host::usage_stats_feed::DashboardReading {
+                dashboards: dashboards.clone(),
+                sources: usage_sources.clone(),
+                accounts: account_store.clone(),
+            }),
+            usage: agent_usage.clone(),
         }))
         .map_err(|_| ComposeError::AlreadyBound("usage dashboard source"))?;
     // The ledger opens here, at startup, rather than at its first record or statistics question: opening starts the feeds, which publish both
@@ -5572,13 +5739,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         tracing::warn!(%error, "[usage] the ledger could not be opened at startup");
     }
     boot.boot_mark("ledger-open-attempted");
-    builder.register(mixdog_core_domains::domains::ai_account::usage::UsageService::new(
-        ledger_source.clone(),
-        directory.clone(),
-        usage_sources.clone(),
-        account_store.clone(),
-        dashboards.clone(),
-    ))?;
+    builder.register(agent_usage)?;
     // modelProxy/run, modelProxy/cancel (and the `modelProxy/run/event` notifications): the PC end of the model proxy (model-proxy-1). They are in the method and notification tables at 51e73b496, so the
     // unclaimed check asks for them. Every input is an instance held above: the registry, the one broker, the one account store and OAuth usage, the config, the registry's builder, key store and env.
     // The PC's provider config is also its provider lookup (`runtime.provider`): a server reaches only what this PC's config enables.
@@ -5852,5 +6013,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         turn_review,
         #[cfg(test)]
         tool_pool: kept_tool_pool,
+        #[cfg(test)]
+        handed_tools: kept_handed_tools,
+        #[cfg(test)]
+        acp_agents,
+        #[cfg(test)]
+        agent_registry,
     })
 }

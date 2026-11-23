@@ -117,7 +117,7 @@ impl AgentRegistry {
     /// (an agent's session: `owner` `agent`, or an `agent` other than `lead`).
     pub fn upsert_lead_session(&self, session_id: &str, turn: LeadTurn) -> bool {
         let id = clean_str(session_id);
-        let Some(session) = (!id.is_empty()).then(|| self.live.header(&id)).flatten() else { return false };
+        let Some(session) = (!id.is_empty()).then(|| self.live.shared_header(&id)).flatten() else { return false };
         let lower = |key: &str| clean(session.get(key)).to_lowercase();
         let agent = lower("agent");
         if lower("owner") == "agent" || (!agent.is_empty() && agent != "lead") {

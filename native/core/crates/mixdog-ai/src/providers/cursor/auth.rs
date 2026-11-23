@@ -533,6 +533,12 @@ impl FileAccess {
             return Ok(StoredTokens { access_token: token.clone(), refresh_token: None, expires_at: token_expiry(token), reauth_required: false });
         }
         match self.file.load::<StoredTokens>().await {
+            // The service refused this sign-in and its renewal: nothing is sent on it until the user signs in again.
+            Probe::Present(tokens) if tokens.reauth_required => {
+                let mut error = reauth("Cursor refused this sign-in.");
+                error.status = Some(401);
+                Err(error)
+            }
             Probe::Present(mut tokens) => {
                 self.file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
                 // `Number(raw.expires_at) || cursorTokenExpiry(raw.access_token)`: a file that records no expiry

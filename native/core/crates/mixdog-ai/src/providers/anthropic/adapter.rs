@@ -98,7 +98,6 @@ use crate::providers::connect::rewrite::Attempt;
 use crate::providers::connect::rewrite::Credential;
 use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::connect::rewrite::Rewriter;
-use mixdog_core_api::domain::provider::MediaSupport;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
@@ -113,6 +112,7 @@ use crate::transport::preconnect::Setting;
 use mixdog_core_api::domain::provider::AttemptHandle;
 use mixdog_core_api::domain::provider::AttemptPhase;
 use mixdog_core_api::domain::provider::Exposure;
+use mixdog_core_api::domain::provider::MediaSupport;
 use mixdog_core_api::domain::provider::PhaseWindows;
 use mixdog_core_api::domain::provider::StreamTimeoutPhase;
 use mixdog_rt::Expired;
@@ -373,7 +373,8 @@ impl Credentials {
             Self::ApiKey(_) => status == Some(401),
             Self::OAuth(_) => status == Some(401) || (status == Some(403) && String::from_utf8_lossy(body).contains("OAuth token has been revoked")),
             Self::Engine(credential) => {
-                !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery() && status.is_some_and(|status| credential.refreshes_on(status, body))
+                !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery()
+                    && status.is_some_and(|status| credential.refreshes_on(status, body))
             }
         }
     }
@@ -446,7 +447,9 @@ impl CacheWarmSend for AnthropicAdapter {
         // budget must stay under `max_tokens`: the one-token cap drops it, and that warm would read no message entry and
         // write one no turn reads. It is not sent.
         if self.thinking_of(&warm) != self.thinking_of(request) {
-            return Err(WarmFailure::new("cache warm not sent: the one-token cap changes this request's thinking configuration, which its cache entries are keyed on"));
+            return Err(WarmFailure::new(
+                "cache warm not sent: the one-token cap changes this request's thinking configuration, which its cache entries are keyed on",
+            ));
         }
         // A warm never threads: Node builds its body with the plain request builder.
         let plain = self.plain(&warm).await.map_err(|e| WarmFailure::new(e.into_message()))?;
@@ -1391,7 +1394,14 @@ impl AnthropicAdapter {
     /// first-party API's alone. The state the native routes keep for the process (the capability floors, the fast-mode
     /// cooldown, the gzip latch, the prefix trace) is not the engine's: its floors are kept under its own name, its
     /// fast-mode state is its own, and it neither compresses nor traces.
-    pub fn engine(id: ProviderId, config: AnthropicConfig, http: Arc<dyn HttpSend>, credential: Arc<dyn Credential>, media: MediaSupport, gzip_lane: CpuBulk) -> Self {
+    pub fn engine(
+        id: ProviderId,
+        config: AnthropicConfig,
+        http: Arc<dyn HttpSend>,
+        credential: Arc<dyn Credential>,
+        media: MediaSupport,
+        gzip_lane: CpuBulk,
+    ) -> Self {
         let config = AnthropicConfig { fast_mode: Arc::new(fast_mode::FastMode::default()), ..config };
         let mut adapter = Self::new(Flavor::ApiKey, config, http, Credentials::Engine(credential), true, gzip_lane);
         adapter.codec.set_floors_of(id.as_str());
@@ -1403,8 +1413,10 @@ impl AnthropicAdapter {
 
     /// An engine's requests pass through `rewriter` ([`Self::engine`]).
     pub fn with_rewriter(mut self, rewriter: Arc<dyn Rewriter>) -> Self {
-        let view: Arc<dyn WireCodec> =
-            Arc::new(RewriteCodec::new(Arc::new(AnthropicCodec::new(Flavor::ApiKey, self.codec.config().clone()).with_floors_of(self.id.as_str())), rewriter.clone()));
+        let view: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(
+            Arc::new(AnthropicCodec::new(Flavor::ApiKey, self.codec.config().clone()).with_floors_of(self.id.as_str())),
+            rewriter.clone(),
+        ));
         if let Some(engine) = self.engine.as_mut() {
             engine.rewriter = Some(rewriter);
             engine.view = Some(view);
@@ -2057,11 +2069,7 @@ impl AnthropicAdapter {
                 crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
                 if !refreshed
                     && self.credentials.refreshable(err.status, &rejected.body)
-                    && request.options.send_identity.claim_refresh(self.credentials.thread_account(
-                        self.state_key(),
-                        &self.codec.config().base_url,
-                        &secret,
-                    ))
+                    && request.options.send_identity.claim_refresh(self.credentials.thread_account(self.state_key(), &self.codec.config().base_url, &secret))
                 {
                     refreshed = true;
                     if self.codec.flavor() == Flavor::OAuth {

@@ -295,7 +295,8 @@ impl RouteService {
         // The Lead's fallback chain travels with an explicit main-model choice only; a session's
         // own pick never touches it.
         let mut persisted = selected.clone();
-        if options.keep_main_model == Some(false) && !options.session_only {
+        let session_only = options.session_only;
+        if options.keep_main_model == Some(false) && !session_only {
             persisted.insert("fallbacks".into(), Value::Array(self.lead_fallback_chain(next, &selected).await?));
         }
         if !self.lease_holds(thread, lease) {
@@ -317,7 +318,7 @@ impl RouteService {
         }
         // The Lead route a conditional fill wrote, until the file confirms it.
         let mut filled: Option<Obj> = None;
-        let route = if options.session_only {
+        let route = if session_only {
             // The shared modelSettings bucket and the main model are never written.
             self.resolve(&self.config.agent(), &selected)?
         } else {
@@ -472,10 +473,10 @@ impl RouteService {
     /// `commitRouteTuning`: saves the live route's model settings (a Main-model rewrite only when
     /// the live model is Main), refreshes the effort and tunes the session.
     async fn commit_route_tuning(&self, thread: &ThreadId, fast_capable: bool, meta: Value, session_only: bool) -> Result<(), String> {
+        let live = self.writer.route(thread);
         if !session_only {
             let before = self.config.agent();
             let mut after = before.clone();
-            let live = self.writer.route(thread);
             save_model_settings(&mut after, &live, fast_capable);
             let lead = persist_adopted_model_settings(&mut after, &live, &live, None, &|p, c| self.facts.is_known(p, c))?;
             self.config.save_agent_config(&before, &after, false).await.map_err(text)?;

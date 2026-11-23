@@ -140,7 +140,10 @@ impl Span {
 
     /// The first and last selected columns of row `row` of the item at `index`.
     fn columns(&self, index: usize, row: usize) -> (i32, i32) {
-        (if (index, row) == (self.first.0, self.first.1) { self.first.2 } else { 0 }, if (index, row) == (self.last.0, self.last.1) { self.last.2 } else { i32::MAX })
+        (
+            if (index, row) == (self.first.0, self.first.1) { self.first.2 } else { 0 },
+            if (index, row) == (self.last.0, self.last.1) { self.last.2 } else { i32::MAX },
+        )
     }
 }
 
@@ -261,10 +264,8 @@ impl Mouse {
             }
         }
         let [Some(first), Some(second)] = places else { return false };
-        let ends = [
-            End { place: first, x: points[0].0, key: key_of(points[0].1, target) },
-            End { place: second, x: points[1].0, key: key_of(points[1].1, target) },
-        ];
+        let ends =
+            [End { place: first, x: points[0].0, key: key_of(points[0].1, target) }, End { place: second, x: points[1].0, key: key_of(points[1].1, target) }];
         let Some(text) = self.read_selection(store, Span::of(&ends).0) else { return false };
         if points != [(rect.x1, rect.y1), (rect.x2, rect.y2)] {
             let drawn = SelectionRect { x1: points[0].0, y1: points[0].1, x2: points[1].0, y2: points[1].1, ..rect };
@@ -324,7 +325,10 @@ impl Mouse {
                 }
             }
         }
-        if !same && known && let Some(still) = entry.still {
+        if !same
+            && known
+            && let Some(still) = entry.still
+        {
             // Cells the clock drives changed in place: the rows are the selected ones when they read the same at a fixed time.
             same = store.still_rows(index, lo, hi).is_some_and(|rows| mark_rows(&rows) == still);
         }

@@ -744,6 +744,8 @@ pub struct ConfigHostsIn {
     pub facts: Arc<CatalogFacts>,
     pub refresh: Arc<dyn AuthRefresh>,
     pub env: Env,
+    /// Whether a route provider is an outside agent's.
+    pub agent_providers: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 /// The one `ConfigHosts`: assign it to `DomainSeams.compaction_host` and `.workflow_host`.
@@ -757,6 +759,7 @@ pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
         ready: input.facts,
         refresh: input.refresh,
         env: input.env,
+        agent_providers: input.agent_providers,
         surface: input.surface,
     })
 }
@@ -805,11 +808,17 @@ pub struct Owed {
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     /// The sessions' result caches (`TurnPathParts.reuses`), made before the manual compaction that resets them.
     pub reuses: Arc<super::result_reuse::LiveReuses>,
+    /// The agents that run turns outside the loop (`TurnPathParts.outside`).
+    pub outside: Option<Arc<dyn super::factory::OutsideAgents>>,
 }
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
 /// `ready` and `owed`.
 pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, early: EarlyRows, mut ready: ReadyRows, owed: Owed) -> TurnPathParts {
     let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
+    // A session on an agent outside the loop has that agent for its own model: its summaries are the agent's to write.
+    if let Some(agents) = &owed.outside {
+        owed.compactors.bind_outside(agents.clone());
+    }
     let env = ready.auto_effort_env;
     let clock = owed.clock.clone();
     ready.settings.first_auto_effort = Some(Arc::new(super::auto_effort::TurnAutoEffort::new(
@@ -868,6 +877,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         liveness: owed.liveness,
         search_usage: owed.search_usage,
         reuses: owed.reuses,
+        outside: owed.outside,
     }
 }
 

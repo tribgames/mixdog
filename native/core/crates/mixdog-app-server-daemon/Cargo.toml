@@ -32,6 +32,7 @@ mixdog-core-base = { workspace = true }
 mixdog-core = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-session = { workspace = true }
+mixdog-acp = { workspace = true }
 mixdog-core-goal = { workspace = true }
 mixdog-core-prompt = { workspace = true }
 mixdog-core-review = { workspace = true }
@@ -137,6 +138,7 @@ mixdog-protocol = { workspace = true }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-acp = { workspace = true, features = ["test-support"] }
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).

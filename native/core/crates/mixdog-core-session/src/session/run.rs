@@ -159,6 +159,21 @@ pub(super) async fn fold_context<T: Default + Send + 'static>(
     skip: usize,
     visit: impl Fn(&mut T, Vec<(ItemId, Value)>) + Send + 'static,
 ) -> Result<T, CoreError> {
+    fold_context_until(store, lanes, thread, skip, move |acc: &mut T, rows| {
+        visit(acc, rows);
+        false
+    })
+    .await
+}
+
+/// [`fold_context`] whose `visit` answers whether it holds what it reads for: no page after that one is read.
+pub(super) async fn fold_context_until<T: Default + Send + 'static>(
+    store: &Arc<dyn ThreadStore>,
+    lanes: &SessionLanes,
+    thread: &ThreadId,
+    skip: usize,
+    visit: impl Fn(&mut T, Vec<(ItemId, Value)>) -> bool + Send + 'static,
+) -> Result<T, CoreError> {
     let token = CancellationToken::new();
     let (dropped, refused) = (context_dropped, context_refused);
     let mut read = None;
@@ -177,11 +192,12 @@ pub(super) async fn fold_context<T: Default + Send + 'static>(
             .await
             .map_err(|_| dropped())??;
         let store_cpu = store.clone();
-        (acc, visit, read) = lanes
+        let held;
+        (acc, visit, read, held) = lanes
             .cpu
             .submit_wait(&token, move |lane| {
-                let next = match store_cpu.context_cpu(lane, page)? {
-                    ContextStep::More(next) => Some(next),
+                let (next, held) = match store_cpu.context_cpu(lane, page)? {
+                    ContextStep::More(next) => (Some(next), false),
                     ContextStep::Page { first, mut rows, next } => {
                         if first {
                             acc = T::default();
@@ -189,17 +205,17 @@ pub(super) async fn fold_context<T: Default + Send + 'static>(
                         for (_, body) in &mut rows {
                             mixdog_protocol::message_class::without_display_facts(body);
                         }
-                        visit(&mut acc, rows);
-                        next
+                        let held = visit(&mut acc, rows);
+                        (next, held)
                     }
                 };
-                Ok::<_, CoreError>((acc, visit, next))
+                Ok::<_, CoreError>((acc, visit, next, held))
             })
             .await
             .map_err(refused)?
             .await
             .map_err(|_| dropped())??;
-        if read.is_none() {
+        if held || read.is_none() {
             return Ok(acc);
         }
     }
@@ -446,6 +462,8 @@ mod cancel_tests {
             call_epoch: Default::default(),
             meters: Arc::new(crate::session::testing::TestCompaction::default()),
             meters_provider: Arc::new(String::new),
+            shown: Arc::new(watch::channel(false).0),
+            titles: None,
             #[cfg(feature = "replay-settled")]
             replay_run: Default::default(),
         };
@@ -733,11 +751,29 @@ pub struct RunPort {
     /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters
     /// are prepared for the provider the reports will be priced on.
     pub(crate) meters_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    /// Set at the turn's first visible output, and by the actor when the turn settles.
+    pub(crate) shown: Arc<watch::Sender<bool>>,
+    /// The session titles the turn's prompt schedules.
+    pub(crate) titles: Option<Arc<super::session_title::TitleHooks>>,
     /// The run a replay's settled signal counts this port's waits on (a tool's approval waits on the tool's task).
     #[cfg(feature = "replay-settled")]
     pub(crate) replay_run: mixdog_ai::transport::replay_bytes::Run,
 }
 impl RunPort {
+    fn mark_shown(&self) {
+        self.shown.send_if_modified(|shown| !std::mem::replace(shown, true));
+    }
+
+    /// `scheduleFirstTitle` of the turn preparation: the session's title from this turn's `prompt` (`None` for an
+    /// injected turn), over its `header` and the `history` before the turn's input. The model is asked once the turn
+    /// shows its first output or settles.
+    pub fn schedule_title(&self, header: &mixdog_store::schema::record::Header, history: &[Value], prompt: Option<&Value>) -> bool {
+        let Some(titles) = &self.titles else { return false };
+        let mut shown = self.shown.subscribe();
+        let after = Box::pin(async move { shown.wait_for(|shown| *shown).await.map(drop).map_err(drop) });
+        titles.turn_prepared(self.thread.as_str(), header, history, prompt, after)
+    }
+
     /// Reads the facts of the stored attachments `messages` carry before a report that prices them
     /// reaches the actor, which meters synchronously (`MediaMeter::prepare`).
     async fn prepare_meters(&self, messages: &[mixdog_agent::message::AgentMessage]) {
@@ -860,6 +896,7 @@ impl RunPort {
 
     /// `item/started` (not persisted).
     pub async fn item_started(&self, item: ThreadItem) -> Result<(), RunError> {
+        self.mark_shown();
         self.send(ProducerMsg::ItemStarted { turn: self.turn.clone(), item }).await
     }
 
@@ -875,6 +912,7 @@ impl RunPort {
     }
 
     async fn item_delta(&self, item: ItemId, text: String, method: &'static str) -> Result<(), RunError> {
+        self.mark_shown();
         let params =
             encode(&ItemDeltaParams { thread_id: self.thread.clone(), turn_id: self.turn.clone(), item_id: item.clone(), delta: text.clone(), index: None });
         self.send(ProducerMsg::Delta { item, text, method, params }).await
@@ -1111,6 +1149,13 @@ impl RunPort {
     pub async fn compacted(&self, compaction: Compaction) -> Result<(), RunError> {
         let queued = self.queue_compacted(compaction).await?;
         self.saved(queued).await
+    }
+
+    /// The thread's conversation `rows` through its own compactor, summarized whatever its size, for a holder that starts
+    /// without it ([`super::turn_ops::ManualCompaction::compact_for_heir`]). Nothing is committed: the caller writes the
+    /// rows it adopts with [`Self::compacted`].
+    pub async fn compact_for_heir(&self, rows: &[Value], budget_tokens: u64) -> Result<Option<Vec<Value>>, CoreError> {
+        self.meters.compact_for_heir(&self.thread, rows, budget_tokens, true).await
     }
 
     /// [`Self::compacted`], handed on; its save is told by [`Self::saved`].

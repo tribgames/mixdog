@@ -147,7 +147,6 @@ impl NextRequestSource {
             None => Ok(Value::Null),
         }
     }
-
 }
 
 /// What `lastSentMainRequest` answers and the warm reads of it besides the request: the provider's
@@ -196,6 +195,13 @@ impl mixdog_core_ports::ports::tools_status::RequestSnapshots for NextRequestSou
 impl NextMainRequest for NextRequestSource {
     async fn next(&self, thread: &ThreadId) -> Option<SideMaterial> {
         self.rebuilt(thread, Owners::Main).await.map(|(_, material)| material)
+    }
+
+    async fn outside_refusal(&self, thread: &ThreadId) -> Option<String> {
+        use super::factory::RunParts as _;
+        let (directory, parts) = self.bound.get()?;
+        let header = directory.upgrade()?.handle(thread)?.live_header().header();
+        parts.outside_agents()?.serves(&header).then(|| super::side_question_store::SIDE_QUESTION_OUTSIDE_AGENT.to_owned())
     }
 
     async fn compact(&self, thread: &ThreadId) -> Result<(), String> {

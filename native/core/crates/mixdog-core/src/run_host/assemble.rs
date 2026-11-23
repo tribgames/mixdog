@@ -52,6 +52,7 @@ pub struct SessionTools {
     pub agent: bool,
 }
 
+pub mod handed_tools;
 mod session_view;
 
 #[cfg(test)]
@@ -349,9 +350,10 @@ fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
 
-/// `Provider "<id>" not available` (`ask-turn-execute.mjs:178`).
-fn not_available(provider_id: &str) -> TurnError {
-    refuse(format!("Provider \"{provider_id}\" not available"))
+/// The route's provider cannot run: an outside agent's route with what the agent says why itself (`agent`); any other
+/// provider is named with the registry's cause (`cause`, when it recorded one) and what to do.
+fn not_available(provider_id: &str, agent: Option<&str>, cause: Option<&str>, switched_off: bool) -> TurnError {
+    refuse(agent.map_or_else(|| mixdog_ai::service::error_text::provider_unavailable_text(provider_id, cause, switched_off), str::to_owned))
 }
 
 /// `ensureCodexWireSessionId` (`ask-turn-open.mjs:85`): a Codex session with no valid stored wire identity (a fork
@@ -665,6 +667,20 @@ mod unserved_provider_tests {
             "[provider] Failed to init \"anthropic\": not signed in"
         );
     }
+
+    #[test]
+    fn a_route_that_cannot_run_says_which_provider_why_and_what_to_do() {
+        let cause = "[provider] Failed to init \"cursor-oauth\": not signed in — run /login";
+        let message = not_available("cursor-oauth", None, Some(cause), false).message;
+        assert_eq!(message, "Cursor OAuth is not available: not signed in. Sign in under /providers, or add an API key there.");
+    }
+
+    #[test]
+    fn an_outside_agent_route_that_cannot_run_is_refused_with_the_agents_own_reason() {
+        let refusal = Some("Test Agent is signed out. Sign in to it in Settings.");
+        assert_eq!(not_available("acp-test-agent", refusal, None, false).message, "Test Agent is signed out. Sign in to it in Settings.");
+        assert!(not_available("acp-test-agent", None, None, false).message.starts_with("acp-test-agent is not available"));
+    }
 }
 
 /// `RunConfig` fields that come from the route, the settings and the agent definition.
@@ -782,6 +798,55 @@ impl HostRunParts {
         with_surface_registry(set, self.services.resolver.clone(), scope, surface)
     }
 
+    /// The tools a run of `thread` calls on `surface`: the session's own, behind them the registry ([`Self::surface_tools`]).
+    #[allow(
+        clippy::result_large_err,
+        reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
+    )]
+    async fn run_tools(&self, thread: &ThreadId, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> Result<ToolSet, TurnError> {
+        let SessionTools { tools, builtins, agent, .. } = self.services.seams.tools(thread, header, surface).await.map_err(refuse)?;
+        Ok(self.surface_tools(ToolSet::with_builtins(tools, builtins).for_agent(agent), header, surface))
+    }
+
+    /// What every tool call of the turn shares.
+    #[allow(
+        clippy::result_large_err,
+        reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
+    )]
+    fn tool_env(&self, input: &AssembleInput<'_>, header: &Header, cwd: &Path) -> Result<ToolEnv, TurnError> {
+        let s = &self.services;
+        Ok(ToolEnv {
+            thread_id: input.thread.clone(),
+            turn_id: input.turn.clone(),
+            cwd: AbsPath::new(cwd.to_path_buf()).ok_or_else(|| refuse("the working directory is not absolute"))?,
+            surface: if super::compaction_world::is_agent_owner(header) { SurfaceKind::Agent } else { SurfaceKind::Lead },
+            io: s.io,
+            approvals: s.approvals.gate_for(input.thread, Arc::new(input.port.clone())),
+            files: s.files.clone(),
+            processes: s.processes.clone(),
+            progress: input.progress.clone(),
+            // `executeToolOwned` runs every call through `runReadOnlyIoWithDeadline` (`tool-exec.mjs:130`).
+            deadline_of: Some(mixdog_agent::tools::read_only_io_deadline()),
+            notify: input.notify.clone(),
+            review: None,
+        })
+    }
+
+    /// `beginTodoTurn(session, { genuine: !turnPromptSource?.source })` over the cycle state the record carries.
+    async fn turn_guards(&self, input: &AssembleInput<'_>, header: &Header, hidden: bool) -> Arc<dyn TurnGuards> {
+        let todo_guards = Arc::new(TodoGuards::new(self.services.seams.todo_view(input.thread, header), hidden).with_saved(header.get("todoCheck")));
+        todo_guards.start_turn(!input.injected).await;
+        todo_guards
+    }
+
+    /// The session's tool hooks for the turn's calls.
+    fn tool_hooks(&self, input: &AssembleInput<'_>, header: &Header, cwd: &Path, hidden: bool) -> Arc<dyn mixdog_agent::env::ToolHooks> {
+        Arc::new(
+            SessionToolHooks::new(input.thread.as_str(), cwd, self.services.seams.post_tool_dispatch(), input.unattended || hidden)
+                .worker(super::hooks::worker_agent(header)),
+        )
+    }
+
     /// The route's provider, readied; `Ok(None)` when it is not available. `Err` is a readiness failure, which says
     /// nothing about the provider's availability.
     #[allow(
@@ -822,9 +887,7 @@ impl HostRunParts {
         let seams = &s.seams;
         let (thread, header) = (source.thread, source.header);
         let cwd = cwd_of(header)?;
-        let SessionTools { tools, builtins, agent, .. } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
-        let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
-        let tool_set = self.surface_tools(tool_set, header, source.surface);
+        let tool_set = self.run_tools(thread, header, source.surface).await?;
         let effort = match (&s.settings.first_auto_effort, source.first_send) {
             (Some(auto), Some(cancel)) => auto.first_request_effort(thread.as_str(), header, source.prior, source.request, source.injected, cancel).await,
             _ => None,
@@ -1060,8 +1123,16 @@ pub struct SkillParts {
     /// What a loaded skill delivers now (`currentSkillDelivery`), for the skill-update notices.
     pub deliveries: Option<Arc<dyn super::mcp_seams::SkillDeliveries>>,
 }
+/// `prepareToolCall` rereads the session's folder for each call: a Project switch the turn makes moves the calls after it.
+fn live_cwd(directory: &SessionDirectory, thread: &ThreadId) -> mixdog_agent::tools::LiveCwd {
+    let live = directory.live_header(thread);
+    Arc::new(move || live.header().get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()).and_then(AbsPath::new))
+}
+
 /// The services the assembly composes.
 pub struct HostServices {
+    /// The agents that run turns outside the loop; `None` runs every turn in it.
+    pub outside: Option<Arc<dyn super::factory::OutsideAgents>>,
     pub registry: Arc<ProviderRegistry>,
     pub clock: Arc<dyn Clock>,
     pub files: Arc<dyn FileService>,
@@ -1176,7 +1247,7 @@ async fn pin_wire_route(
         if let Some(parameters) = options.model_parameters.as_mut().and_then(Value::as_object_mut) {
             match header.get("modelParameters").and_then(|own| own.get("cacheStrategy")) {
                 Some(own) => parameters.insert("cacheStrategy".into(), own.clone()),
-                None => parameters.remove("cacheStrategy"),
+                None => parameters.shift_remove("cacheStrategy"),
             };
         }
         apply_cache_opts(options, &pinned);
@@ -1272,6 +1343,57 @@ impl RunParts for HostRunParts {
         mixdog_core_session::session::thread_switches::record_applied_skills(&directory, thread, item, names).await.map_err(|error| refuse(error.to_string()))
     }
 
+    fn outside_agents(&self) -> Option<Arc<dyn super::factory::OutsideAgents>> {
+        self.services.outside.clone()
+    }
+
+    async fn assemble_outside(&self, input: AssembleInput<'_>) -> Result<super::factory::OutsideAssembled, TurnError> {
+        let s = &self.services;
+        let seams = &s.seams;
+        use super::turn_settings::TurnSettings;
+        let thread = input.thread;
+        let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        // `migrateToolExposureAtBoundary`, which the loop runs at its first request boundary: a session that came from a
+        // provider with deferred loading of its own is on the bridge before its agent is handed its tools.
+        let migrated = s.turn_settings.migrate_exposure(thread, input.prior).await.map_err(refuse)?;
+        let surface = match (&migrated, directory.handle(thread)) {
+            (Some(_), Some(handle)) => handle.surface().borrow().clone(),
+            _ => input.surface.clone(),
+        };
+        let header = &migrated.unwrap_or_else(|| input.header.clone());
+        let cwd = cwd_of(header)?;
+        let settings = seams.run_settings(thread, header);
+        let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
+        let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
+        let policy = settings.compact.as_ref().and_then(mixdog_agent::boundary::CompactPolicy::resolve).filter(|policy| policy.boundary_tokens > 0);
+        Ok(super::factory::OutsideAssembled {
+            header: header.clone(),
+            tools: self.run_tools(thread, header, &surface).await?,
+            tool_env: self.tool_env(&input, header, &cwd)?,
+            guards: self.turn_guards(&input, header, hidden).await,
+            gate: self.gate_builder(&directory, &input, &cwd, &Arc::default()),
+            hooks: Some(self.tool_hooks(&input, header, &cwd, hidden)),
+            reuse: Some(s.reuses.run(s.io, thread.as_str(), s.clock.clone())),
+            worktree: cwd.to_string_lossy().into_owned(),
+            clock: s.clock.clone(),
+            blobs: s.blobs.clone(),
+            hidden_agent: hidden,
+            live_cwd: Some(live_cwd(&directory, thread)),
+            artifacts: Some(Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), thread.as_str()))),
+            images: seams.image_compactor(),
+            failures: Some(Arc::new(RunFailureLog::new(
+                FailureWriter::for_data_dir(&seams.data_dir(), s.io, s.clock.clone()),
+                thread.as_str(),
+                agent,
+                &cwd.to_string_lossy(),
+            ))),
+            repeat: RunCarry::from_saved(header).repeat,
+            handoff_budget_tokens: policy.as_ref().map_or(0, |policy| policy.target_budget()).max(super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS),
+            context_tokens: settings.compact.as_ref().and_then(|settings| settings.last_context_tokens),
+            compact: policy,
+        })
+    }
+
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
@@ -1283,10 +1405,18 @@ impl RunParts for HostRunParts {
         let header = ensured.as_deref().unwrap_or(header);
         let route = self.route_hop(thread, header, input.turn);
         let live;
-        let (header, provider) = match self.ready_provider(thread, header).await? {
+        // An outside agent's route that cannot run has no provider of Mixdog's to be served by.
+        let ready = match input.agent_refusal {
+            Some(_) => None,
+            None => self.ready_provider(thread, header).await?,
+        };
+        let (header, provider) = match ready {
             Some(provider) => (header, provider),
             None => {
-                let refusal = not_available(text(header, "provider"));
+                let provider_id = text(header, "provider");
+                let switched_off =
+                    seams.hop_host(thread, header).is_some_and(|host| mixdog_ai::service::admin_route::provider_switched_off(&host.config(), provider_id));
+                let refusal = not_available(provider_id, input.agent_refusal, s.registry.init_errors().get(provider_id).map(String::as_str), switched_off);
                 let Some(route) = &route else { return Err(refusal) };
                 let Some(provider) = route.unavailable(&refusal.message).await.map_err(refuse)? else { return Err(refusal) };
                 let landed = directory.live_header(thread).header();
@@ -1315,25 +1445,9 @@ impl RunParts for HostRunParts {
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
         let synced_cache_opts = pin_wire_route(&directory, &input, header, &*provider, &**seams, &mut options).await?;
-        let tool_env = ToolEnv {
-            thread_id: thread.clone(),
-            turn_id: input.turn.clone(),
-            cwd: AbsPath::new(cwd.clone()).ok_or_else(|| refuse("the working directory is not absolute"))?,
-            surface: if super::compaction_world::is_agent_owner(header) { SurfaceKind::Agent } else { SurfaceKind::Lead },
-            io: s.io,
-            approvals: s.approvals.gate_for(thread, Arc::new(input.port.clone())),
-            files: s.files.clone(),
-            processes: s.processes.clone(),
-            progress: input.progress.clone(),
-            // `executeToolOwned` runs every call through `runReadOnlyIoWithDeadline` (`tool-exec.mjs:130`).
-            deadline_of: Some(mixdog_agent::tools::read_only_io_deadline()),
-            notify: input.notify.clone(),
-            review: None,
-        };
-        // `beginTodoTurn(session, { genuine: !turnPromptSource?.source })` over the cycle state the record carries.
-        let todo_guards = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden).with_saved(header.get("todoCheck")));
-        todo_guards.start_turn(!input.injected).await;
-        let guards: Arc<dyn TurnGuards> = todo_guards;
+        let tool_env = self.tool_env(&input, header, &cwd)?;
+        let guards = self.turn_guards(&input, header, hidden).await;
+        let hooks = self.tool_hooks(&input, header, &cwd, hidden);
         let observer: super::tool_exclusions::ObserverSlot = Arc::default();
 
         let mut config = RunConfig::new(thread.clone(), input.turn.clone(), text(header, "model"));
@@ -1345,10 +1459,7 @@ impl RunParts for HostRunParts {
         config.request_begin = Some(super::tool_exclusions::request_begin(s.exclusions.clone(), thread.clone(), s.directory.clone()));
         config.options = options;
         // `prepareToolCall` rereads the session's folder for each call: a Project switch the turn makes moves the calls after it.
-        config.live_cwd = {
-            let live = directory.live_header(thread);
-            Some(Arc::new(move || live.header().get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()).and_then(AbsPath::new)))
-        };
+        config.live_cwd = Some(live_cwd(&directory, thread));
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;
@@ -1424,9 +1535,7 @@ impl RunParts for HostRunParts {
                     ) as Arc<dyn SkillSelector>
                 }) as SkillsBuilder
             }),
-            hooks: Some(Arc::new(
-                SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch(), input.unattended || hidden).worker(super::hooks::worker_agent(header)),
-            )),
+            hooks: Some(hooks),
             // The session's own cache: the one its earlier turns filled (Node's `_bySession`), not one per run.
             reuse: Some(s.reuses.run(s.io, session_id, s.clock.clone())),
             reactions: Some(Arc::new(LoopReactions::new(

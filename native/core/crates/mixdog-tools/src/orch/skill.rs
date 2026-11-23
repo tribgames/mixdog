@@ -129,7 +129,7 @@ impl Tool for SkillTool {
             SkillLookup::Loaded(skill) => skill,
         };
         let body = result_envelope(&name, &skill.content, skill.dir.as_deref());
-        let already = self.skills.body_present(&ctx.thread_id, &body).await?;
+        let already = !ctx.options.outside_context && self.skills.body_present(&ctx.thread_id, &body).await?;
         let head = stub(&name, &skill.source);
         let (text, follow_up) = if already {
             (format!("{head} (already active; instructions unchanged — follow them without calling Skill again)"), Vec::new())
@@ -245,6 +245,18 @@ mod tests {
             vec![ToolPart::Text("Loaded skill: deck-guide\nRequired tools unavailable: nope (not available in this session)\nNo tools were installed or enabled and no permissions were changed.".to_owned())]
         );
         assert!(!no_body, "a first load injects the skill's body");
+    }
+
+    /// A caller whose model does not read the session's rows (an agent that runs the turn outside the loop) is given the
+    /// instructions whatever the session's rows hold: a skill loaded on another route never reached it.
+    #[tokio::test]
+    async fn a_caller_outside_the_sessions_context_is_given_the_instructions_the_session_already_holds() {
+        let tool = SkillTool::new(port(ArmNotice::default(), Ok(true)));
+        let mut ctx = crate::orch::tests::ctx();
+        ctx.options.outside_context = true;
+        let output = tool.call(&ctx, serde_json::json!({"name": "deck-guide"})).await.expect("loaded");
+        assert_eq!(output.parts, vec![ToolPart::Text("Loaded skill: deck-guide".to_owned())]);
+        assert_eq!(output.follow_up_messages.len(), 1, "the instructions follow the result");
     }
 
     #[tokio::test]

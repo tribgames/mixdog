@@ -588,7 +588,8 @@ async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
 Explicit skill selection result:
 Loaded skill: alpha
 </system-reminder>"
-                .to_owned()).into()
+                .to_owned())
+            .into()
         )
     );
 }

@@ -52,6 +52,20 @@ impl BlobReads for StoreBlobs {
     }
 }
 
+/// The bytes of the stored attachment `reference` names, read as one interactive-lane job; `None` for a reference off
+/// the pattern and for a blob that is not there.
+pub async fn stored_bytes(blobs: &BlobStore, interactive: InteractiveIo, reference: &str) -> Option<Vec<u8>> {
+    let digest = digest_of_reference(reference)?;
+    let blobs = blobs.clone();
+    on_lane(interactive, &turn_cancel(), move |lane| blobs.read(lane, &digest).ok()).await.ok().flatten()
+}
+
+/// The file the stored attachment `reference` names is kept in (`attachmentFilePath`); `None` for a reference off the
+/// pattern. Nothing is read: the file is there for as long as the attachment is.
+pub fn stored_path(blobs: &BlobStore, reference: &str) -> Option<PathBuf> {
+    Some(blobs.path(&digest_of_reference(reference)?))
+}
+
 /// What the attachment store records of a stored file: the size of its blob on disk
 /// (`attachmentBlobSize`, a `stat`) and, for a PDF, the page and text-layer counts Node's intake
 /// (`preparePromptSubmissionForProvider`) records on the part: the extension host's inspector over

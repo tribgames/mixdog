@@ -284,6 +284,11 @@ pub(super) struct Rig {
 
 /// One recorded profile's pipeline; `fail` makes the provider builds refuse.
 pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
+    rig_on(scenario, seeds, fail, None).await
+}
+
+/// [`rig`] whose catalog stamps retry times on `clock` instead of the wall clock.
+pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -304,7 +309,11 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         .await
         .unwrap();
     // The composition the daemon runs (`build_catalog`): models.dev, LiteLLM and the roster files of the data directory.
-    let catalog = Arc::new(CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io()).await);
+    let catalog = CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io()).await;
+    let catalog = Arc::new(match clock {
+        Some(clock) => catalog.with_clock(clock),
+        None => catalog,
+    });
     let listing = catalog.listing_lookup();
     // `__DATA_DIR__` in a value is this rig's data directory.
     let data_dir = dir.path().to_string_lossy().into_owned();
@@ -547,6 +556,58 @@ async fn a_warm_load_overtaken_by_an_outside_registration_does_not_fill_the_cach
     rig.readiness.ensure_providers_ready(Some(providers)).await.unwrap();
     assert!(rig.readiness.catalog_revision() > before, "the registration moved the registry revision");
     assert!(!finish(&rig).await);
+}
+
+/// After a partial load with one provider failing, a read made once that provider's retry time passed asks it again exactly
+/// once however many readers find it so, answers without waiting for that listing, and hands out a retry time ahead of now.
+#[tokio::test]
+async fn a_read_past_a_failed_providers_retry_time_asks_it_once_without_waiting() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let scenario = json!({
+        "agent": {
+            "providers": {
+                "custom-dddd": { "type": "custom", "schemaVersion": 2, "name": "Delta", "protocol": "openai-chat", "baseURL": "__BASE_URL__/c/v1", "auth": "none", "enabled": true },
+                "custom-bbbb": { "type": "custom", "schemaVersion": 2, "name": "Bravo", "protocol": "openai-chat", "baseURL": "__BASE_URL__/b/v1", "auth": "none", "enabled": true }
+            },
+            "presets": [{ "id": "d1", "name": "D1", "provider": "custom-dddd", "model": "disc-a" }],
+            "default": "d1"
+        },
+        "stub": {
+            "/c/v1/models": { "object": "list", "data": [{ "id": "disc-a", "object": "model", "owned_by": "fixture" }] },
+            "/b/v1/models": { "__status": 503 }
+        }
+    });
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let now = clock.clone();
+    let rig = rig_on(&scenario, &seeds(), false, Some(Arc::new(move || now.load(Ordering::SeqCst)))).await;
+    rig.readiness.ensure_providers_ready(None).await.unwrap();
+    rig.readiness.settle_refreshes().await;
+    rig.service.rows(false, false).await.unwrap();
+    rig.service.rows(false, false).await.unwrap();
+    assert!(rig.service.cache_loaded(), "the partial answer is adopted");
+    let failing = mixdog_protocol::ProviderId::from("custom-bbbb");
+    assert!(matches!(rig.catalog.snapshot().status.get(&failing), Some(mixdog_ai::catalog::ProviderStatus::Missing { .. })));
+    while let Ok(permit) = rig.arrived.try_acquire() {
+        permit.forget();
+    }
+
+    let at = clock.fetch_add(mixdog_ai::catalog::RETRY_AFTER_MS, Ordering::SeqCst) + mixdog_ai::catalog::RETRY_AFTER_MS;
+    rig.gate.send_replace(false);
+    let reads = futures::future::join(rig.service.rows(false, false), rig.service.rows(false, false));
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(10), reads).await.expect("a read waited for the held listing");
+    let third = rig.service.rows(false, false).await.unwrap();
+    for rows in [first.unwrap(), second.unwrap(), third] {
+        assert!(!rows.is_empty());
+        for row in &rows {
+            assert!(row["catalogRetryAt"].as_f64().is_some_and(|retry_at| retry_at > at as f64), "{row}");
+        }
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(10), rig.arrived.acquire()).await.expect("the provider was not asked again").unwrap().forget();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(rig.arrived.try_acquire().is_err(), "the provider was asked more than once");
+    let asked = rig.endpoint.requests.borrow().last().map(|request| request["url"].clone());
+    assert_eq!(asked, Some(json!("__BASE_URL__/b/v1/models")));
+    rig.gate.send_replace(true);
 }
 
 #[tokio::test]

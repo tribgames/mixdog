@@ -241,6 +241,10 @@ impl HopHost for RegistryHopHost {
         self.deps.registry.try_get(provider).await.map_err(|e| e.message)
     }
 
+    async fn unavailable_cause(&self, provider: &str) -> (Option<String>, bool) {
+        (self.deps.registry.init_errors().get(provider).cloned(), mixdog_ai::service::admin_route::provider_switched_off(&self.config(), provider))
+    }
+
     fn raw_context_window(&self, provider: &str, model: &str, route: &Value) -> Option<u64> {
         let meta = session_context_meta(&self.deps.catalog, provider, model, route)?;
         meta.raw_context_window.as_f64().filter(|w| *w > 0.0).map(|w| w as u64)

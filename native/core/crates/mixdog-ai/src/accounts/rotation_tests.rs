@@ -133,11 +133,16 @@ async fn every_account_spent_proves_quota_exhaustion_with_the_last_error() {
 }
 
 #[tokio::test]
-async fn server_side_failures_and_auth_refusals_never_block_or_rotate() {
+async fn refusals_that_are_not_about_usage_never_block_or_rotate() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let (rotation, s) = rotation(&dir, clock()).await;
-    for failed in [refusal(ErrorKind::Overloaded, 529), refusal(ErrorKind::QuotaExhausted, 403)] {
+    let mut expired = refusal(ErrorKind::Auth, 401);
+    expired.error.reauth_required = true;
+    // The meters of this account show no spent window: a long advised wait alone is not the quota.
+    let mut long_wait = refusal(ErrorKind::RateLimited, 429);
+    long_wait.error.retry_after = Some(std::time::Duration::from_secs(600));
+    for failed in [refusal(ErrorKind::Overloaded, 529), refusal(ErrorKind::QuotaExhausted, 403), expired, long_wait] {
         let script = Script::new(vec![(ID_A, vec![Err(failed)])]);
         let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
         assert!(matches!(err.cause, Cause::Provider(_)) && err.quota_exhausted.is_none());

@@ -3,7 +3,11 @@
 //! on the way. It is provider-neutral: the caller supplies an
 //! [`AccountSender`] that performs one account-bound attempt (scoped session
 //! id, replay filtering, the adapter itself) and a [`UsageProbe`] that
-//! re-measures an account's plan usage into the store.
+//! re-measures an account's plan usage into the store. Only usage moves a send
+//! to another account: a quota refusal, a rate limit the provider's policy
+//! rotates on, or a 429 the account's own meters show spent. An expired
+//! sign-in, an account block and a server-side failure end the send on the
+//! account they hit.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -35,9 +39,6 @@ pub(crate) fn uses_bound_plan_evidence(provider: &str) -> bool {
 
 /// The cooldown an account's provider asks for when the server named none.
 const INFERRED_COOLDOWN_MS: i64 = 5 * 60_000;
-/// Burst throttles reopen within seconds; a 429 whose Retry-After points
-/// further ahead is a closed subscription window.
-const QUOTA_WINDOW_RETRY_AFTER_MS: i64 = 60_000;
 /// Pacing of the re-measure of refused accounts.
 const PROBE_INTERVAL_MS: i64 = 5 * 60_000;
 /// How old a reading may be when the pool picks an account other than the one the send prefers. An older one is
@@ -58,8 +59,6 @@ pub struct CooldownPolicy {
     /// When every eligible account is only cooling down, wait for the
     /// earliest cooldown while the send's total wait stays within this bound.
     pub wait_for_cooldown_ms: Option<i64>,
-    /// Cooldown of an `accountBlocked` refusal, which then rotates.
-    pub blocked_ms: Option<i64>,
 }
 
 /// One failed account-bound attempt, with the facts only the attempt knows.
@@ -70,8 +69,6 @@ pub struct Failed {
     pub emitted: bool,
     /// Re-issuing the request is unsafe.
     pub unsafe_to_retry: bool,
-    /// An account-level block (the account needs verification).
-    pub account_blocked: bool,
     /// The server's id of the limit the refusal named.
     pub quota_limit: String,
 }
@@ -79,7 +76,7 @@ pub struct Failed {
 impl Failed {
     pub fn new(error: ProviderError) -> Self {
         let quota_limit = error.quota_limit.as_deref().unwrap_or_default().to_owned();
-        Self { unsafe_to_retry: error.unsafe_to_retry, error, emitted: false, account_blocked: false, quota_limit }
+        Self { unsafe_to_retry: error.unsafe_to_retry, error, emitted: false, quota_limit }
     }
 }
 
@@ -227,7 +224,6 @@ struct Ledger {
 struct Verdict {
     exhausted: bool,
     evidence: bool,
-    account_blocked: bool,
     until: i64,
     server_scheduled: bool,
     reset: bool,
@@ -235,7 +231,7 @@ struct Verdict {
 
 impl Verdict {
     fn not_exhausted() -> Self {
-        Self { exhausted: false, evidence: false, account_blocked: false, until: 0, server_scheduled: false, reset: false }
+        Self { exhausted: false, evidence: false, until: 0, server_scheduled: false, reset: false }
     }
 }
 
@@ -377,7 +373,9 @@ impl AccountRotation {
 
     /// Whether the failed account's quota is exhausted, plus when the block
     /// lifts: the real reset when the provider named one, else the advised
-    /// delay, else the policy's or an inferred five minutes.
+    /// delay, else the policy's or an inferred five minutes. A 429 that names
+    /// no quota counts only on the account's own meters: its advised delay
+    /// alone says nothing about the quota.
     async fn judge(
         &self,
         provider: &str,
@@ -409,21 +407,10 @@ impl AccountRotation {
         };
         let blocked = |evidence: bool, reason: &str, with_reset: bool| {
             let (until, server_scheduled, reset) = until_for(with_reset, reason);
-            Verdict { exhausted: true, evidence, account_blocked: false, until, server_scheduled, reset }
+            Verdict { exhausted: true, evidence, until, server_scheduled, reset }
         };
         if is_server_side(error.kind) {
             return Ok(Verdict::not_exhausted());
-        }
-        let blocked_ms = policy.map_or(0, |p| clamp_ms(p.blocked_ms, 0));
-        if failed.account_blocked && blocked_ms > 0 {
-            return Ok(Verdict {
-                exhausted: true,
-                evidence: false,
-                account_blocked: true,
-                until: now + blocked_ms.max(floor),
-                server_scheduled: false,
-                reset: false,
-            });
         }
         // Only an explicit quota / plan / billing refusal advances the roster
         // as quota; auth refusals say nothing about the quota.
@@ -440,7 +427,7 @@ impl AccountRotation {
             }
             return Ok(blocked(false, "rate_limited", false));
         }
-        let mut exhausted = error.status == Some(429) && delay > QUOTA_WINDOW_RETRY_AFTER_MS;
+        let mut exhausted = false;
         let mut evidence = false;
         if error.status == Some(429) && plan_meters_apply {
             self.probe.measure(provider, &row.id, true).await;
@@ -450,7 +437,7 @@ impl AccountRotation {
                 let credits = pool.uses_credits();
                 let now = self.now();
                 evidence = policy::account_exhausted(&entry.with_blocks(|_| false), now, model, credits);
-                exhausted = exhausted || evidence || policy::account_exhausted(entry, now, model, credits);
+                exhausted = evidence || policy::account_exhausted(entry, now, model, credits);
             }
         }
         if !exhausted {
@@ -465,13 +452,8 @@ impl AccountRotation {
                 provider,
                 id,
                 v.until,
-                if v.account_blocked { "" } else { model },
-                BlockOptions {
-                    server_scheduled: v.server_scheduled,
-                    quota: v.evidence,
-                    limit: if v.account_blocked { String::new() } else { failed.quota_limit.clone() },
-                    reset: v.reset,
-                },
+                model,
+                BlockOptions { server_scheduled: v.server_scheduled, quota: v.evidence, limit: failed.quota_limit.clone(), reset: v.reset },
             )
             .await?;
         Ok(())
@@ -870,19 +852,6 @@ impl AccountRotation {
             if ctx.cancel.is_cancelled() || failed.error.tail_refusal.is_some() {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
-            let unretryable = |unsafe_to_retry: bool| {
-                failed.emitted || unsafe_to_retry || failed.error.exposure != Default::default() || !failed.error.partial_tool_calls.is_empty()
-            };
-            if failed.error.reauth_required {
-                if policy_now == Policy::Manual || unretryable(failed.unsafe_to_retry) {
-                    return Err(PoolError::of(Cause::Provider(failed.error)));
-                }
-                last_error = Some(failed.error);
-                switched = true;
-                refusal_scoped = false;
-                sender.notify(Stage::Reconnecting { message: "Sign-in expired — switching to the next account".into(), wait_ms: None, retry_at: None });
-                continue;
-            }
             let cooldown = sender.cooldown_policy(&row.id);
             let verdict = self.judge(provider, &row, model, &failed, cooldown.as_ref(), ctx.plan_meters_apply).await?;
             if !verdict.exhausted {
@@ -894,8 +863,7 @@ impl AccountRotation {
                 ledger.cooled.insert(row.id.clone());
             }
             self.record_block(provider, &row.id, model, &failed, &verdict).await?;
-            // An account block is unsafe to re-issue on THAT account only.
-            if unretryable(failed.unsafe_to_retry && !verdict.account_blocked) {
+            if failed.emitted || failed.unsafe_to_retry || failed.error.exposure != Default::default() || !failed.error.partial_tool_calls.is_empty() {
                 return Err(PoolError::of(Cause::Provider(failed.error)));
             }
             if policy_now == Policy::Manual {
@@ -906,13 +874,7 @@ impl AccountRotation {
             last_error = Some(failed.error);
             switched = true;
             refusal_scoped = unless_cancelled(ctx, self.exhausted_for_model_only(provider, Some(&row.id), model, ctx.plan_meters_apply)).await??;
-            let reason = if verdict.evidence {
-                "Quota exhausted"
-            } else if verdict.account_blocked {
-                "Account blocked"
-            } else {
-                "Rate limited (cooldown)"
-            };
+            let reason = if verdict.evidence { "Quota exhausted" } else { "Rate limited (cooldown)" };
             sender.notify(Stage::Reconnecting { message: format!("{reason} — switching to the next account"), wait_ms: None, retry_at: None });
         }
         let pool = unless_cancelled(ctx, self.pool_for_service(provider, ctx.plan_meters_apply)).await??;

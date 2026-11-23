@@ -3115,11 +3115,18 @@ async fn a_messages_request_carries_its_effort_projection_and_a_responses_one_do
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    for (provider, mode, carried) in [("anthropic-oauth", EffortMode::Anthropic, true), ("anthropic", EffortMode::Anthropic, true), ("openai", EffortMode::Responses, false)] {
+    for (provider, mode, carried) in
+        [("anthropic-oauth", EffortMode::Anthropic, true), ("anthropic", EffortMode::Anthropic, true), ("openai", EffortMode::Responses, false)]
+    {
         let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
         let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
-        let snap =
-            |effort: &str| EffortSnapshot { provider: provider.into(), model: "claude-opus-5-5".into(), mode, initial_effort: "low".into(), effort: effort.into() };
+        let snap = |effort: &str| EffortSnapshot {
+            provider: provider.into(),
+            model: "claude-opus-5-5".into(),
+            mode,
+            initial_effort: "low".into(),
+            effort: effort.into(),
+        };
         let mut first = AgentMessage::user("earlier");
         first.effort = Some(snap("low"));
         let mut second = AgentMessage::user("go");
@@ -4010,9 +4017,8 @@ async fn a_fold_that_fails_after_a_compaction_leaves_the_compactions_record() {
     let replaced = h.sink.replaced.lock().unwrap();
     assert_eq!(replaced.iter().filter(|(_, rewrite)| rewrite.compaction).count(), 1, "the compacted history is the store's");
     let events = h.observer.events();
-    let ended_changed = |event: &RunEvent| {
-        matches!(event, RunEvent::CompactPass(pass) if matches!(pass.stage, mixdog_agent::env::PassStage::Done { changed: true, .. }))
-    };
+    let ended_changed =
+        |event: &RunEvent| matches!(event, RunEvent::CompactPass(pass) if matches!(pass.stage, mixdog_agent::env::PassStage::Done { changed: true, .. }));
     assert_eq!(events.iter().filter(|event| ended_changed(event)).count(), 1, "the pass ends as a changed one");
     let marked = compact_marker(&h);
     assert_eq!(marked.len(), 1);
@@ -5170,7 +5176,8 @@ async fn a_hop_sends_the_destination_the_system_messages_the_hop_wrote() {
         let leading = if rewritten { vec!["System:rules", "System:roster of the bridge", "System:env"] } else { vec!["System:rules", "System:native roster"] };
         let expected: Vec<String> = leading.into_iter().chain(["User:go"]).map(str::to_owned).collect();
         assert_eq!(wire_dump(&sent[0]), expected, "rewritten={rewritten}");
-        let kept: Vec<String> = output.transcript.iter().filter(|m| m.message.role == mixdog_core_api::domain::provider::Role::System).map(|m| m.text()).collect();
+        let kept: Vec<String> =
+            output.transcript.iter().filter(|m| m.message.role == mixdog_core_api::domain::provider::Role::System).map(|m| m.text()).collect();
         assert_eq!(kept, expected.iter().filter_map(|line| line.strip_prefix("System:")).collect::<Vec<_>>(), "rewritten={rewritten}");
     }
 }

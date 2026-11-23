@@ -62,6 +62,7 @@ impl AgentRegistry {
         self.refresh_tags_from_sessions(false, scope).await?;
         Ok(self
             .session_entries(false, scope)
+            .await
             .into_iter()
             .filter_map(|(_, session)| {
                 let id = clean(session.get("id"));

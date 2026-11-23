@@ -320,7 +320,14 @@ impl Warmer {
         };
         let from = {
             let c = chain.inner();
-            Suspended { request, ttl_ms: c.ttl_ms, touch_at: c.touch_at, prompt_tokens: c.prompt_tokens, account_id: c.account_id.clone(), latency_ms: c.latency_ms }
+            Suspended {
+                request,
+                ttl_ms: c.ttl_ms,
+                touch_at: c.touch_at,
+                prompt_tokens: c.prompt_tokens,
+                account_id: c.account_id.clone(),
+                latency_ms: c.latency_ms,
+            }
         };
         let latency = from.latency_ms;
         self.stop_chain(session_id, &chain, "session unloaded", true);

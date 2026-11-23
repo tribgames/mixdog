@@ -2195,18 +2195,73 @@ class Engine implements ProtocolClient<Json> {
   ): Promise<BlobRef> {
     const digest = `sha256:${[...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as DigestInput))].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
     const chunk = this.server.limits.maxBlobPutChunkBytes;
-    let offset = 0;
-    do {
+    const budget = this.server.limits.maxUploadInFlightBytes;
+    const window = Number.isSafeInteger(budget) && budget > 0 ? budget : 0;
+    const cost = (offset: number): number => 4 * Math.ceil(Math.min(chunk, bytes.length - offset) / 3);
+    let claimed = false;
+    const put = async (offset: number): Promise<number> => {
+      const end = Math.min(offset + chunk, bytes.length);
       // The upload is one message: it has left when its last chunk has (Node sends a large message as one application frame split into records,
       // and the call's send completes after the last record, shared/remote-transport.ts splitRemoteTransportPayload / remote-shim-calls.ts:148).
-      const last = offset + chunk >= bytes.length;
-      const chunkParams = { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) };
+      const claim = end >= bytes.length && !claimed ? options?.sent : undefined;
+      if (end >= bytes.length) claimed = true;
+      const chunkParams = { digest, offset, bytesB64: toB64(bytes.subarray(offset, end)) };
       await this.bounded('blob/put', undefined, null, (limit) =>
-        this.run('blob/put', chunkParams, READ_C1, undefined, false, last ? options?.sent : undefined, limit)
+        this.run('blob/put', chunkParams, READ_C1, undefined, false, claim, limit)
       );
-      options?.onChunkAccepted?.();
-      offset += chunk;
-    } while (offset < bytes.length);
+      return end;
+    };
+    // The core holds a chunk only at the next byte after those it has, so an acknowledged chunk proves every byte before it is held.
+    let stored = 0;
+    let failure = undefined as { error: unknown } | undefined;
+    let reordered = false as boolean;
+    const accepted = (end: number): void => {
+      stored = Math.max(stored, end);
+      try {
+        options?.onChunkAccepted?.();
+      } catch (e) {
+        failure ??= { error: e };
+      }
+    };
+    // Chunks go out in order with up to `maxUploadInFlightBytes` of base64 unanswered; a core that states none is served one at a time.
+    // A chunk the core refuses as out of its order (a retried `inflightLimit` landing behind its successors, or a dispatch that did not
+    // keep arrival order) leaves the blob as it was, so the put goes on one chunk at a time from the bytes known held.
+    const open = new Set<Promise<void>>();
+    let inFlight = 0;
+    let next = 0;
+    let more = true;
+    for (;;) {
+      while (more && !failure && !reordered && (open.size === 0 || (window > 0 && inFlight + cost(next) <= window))) {
+        const offset = next;
+        const size = cost(offset);
+        inFlight += size;
+        const settled: Promise<void> = put(offset)
+          .then(accepted, (e) => {
+            const d = detailOf(e);
+            if (d.kind === 'rpc' && d.reason === 'invalidParams' && (d.data as { path?: unknown } | undefined)?.path === 'offset') {
+              reordered = true;
+            } else failure ??= { error: e };
+          })
+          .then(() => {
+            inFlight -= size;
+            open.delete(settled);
+          });
+        open.add(settled);
+        next += chunk;
+        more = next < bytes.length;
+      }
+      if (open.size === 0) break;
+      await Promise.race(open);
+    }
+    const early = failure as { error: unknown } | undefined;
+    if (early) throw early.error;
+    for (let offset = reordered ? stored : bytes.length; offset < bytes.length; ) {
+      const end = await put(offset);
+      accepted(end);
+      const late = failure as { error: unknown } | undefined;
+      if (late) throw late.error;
+      offset = end;
+    }
     return { blob: { digest, bytes: bytes.length, mediaType } };
   }
 }

@@ -40,6 +40,8 @@ struct Records {
     unseated: Mutex<HashSet<String>>,
     gone: HashSet<String>,
     message_reads: AtomicUsize,
+    /// Header members of threads that carry more than the model.
+    extra: std::collections::HashMap<String, Value>,
 }
 
 #[async_trait::async_trait]
@@ -51,6 +53,9 @@ impl ThreadState for Records {
         let mut header = Header::new();
         if !self.unseated.lock().unwrap().contains(thread.as_str()) {
             header.insert("model".into(), json!("harness-model"));
+        }
+        if let Some(Value::Object(extra)) = self.extra.get(thread.as_str()) {
+            header.extend(extra.clone());
         }
         Ok(header)
     }
@@ -165,6 +170,27 @@ async fn a_seated_thread_is_answered_without_reading_its_conversation() {
     assert_eq!(records.message_reads.load(Ordering::SeqCst), 0);
     assert!(usage_of(&service, "$unseated", None).await.is_null());
     assert_eq!(records.message_reads.load(Ordering::SeqCst), 1, "a header without a model is told by its rows");
+}
+
+/// An ACP agent's session is counted by the context the agent reports, as the session's own readout is, and by no
+/// number when the agent reported nothing: the ledger's zero of a turn that carried no usage is no count.
+#[tokio::test]
+async fn an_agent_sessions_row_figure_is_the_context_the_agent_reports_and_none_when_it_reports_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let extra = [
+        ("agent_reported", json!({ "provider": "acp-antigravity", "lastContextTokens": 9606 })),
+        ("agent_silent", json!({ "provider": "acp-antigravity" })),
+        ("loop_session", json!({ "provider": "anthropic-oauth" })),
+    ]
+    .into_iter()
+    .map(|(id, header)| (id.to_owned(), header))
+    .collect();
+    let service = service(&dir, Arc::new(Records { extra, ..Records::default() })).await;
+    let asked = usage_of(&service, "lead", Some(json!({ "sessionIds": ["agent_reported", "agent_silent", "loop_session"] }))).await;
+    let sessions = &asked["sessions"];
+    assert_eq!(sessions["agent_reported"]["tokens"].as_f64(), Some(9606.0));
+    assert!(sessions["agent_silent"].get("tokens").is_none(), "{}", sessions["agent_silent"]);
+    assert_eq!(sessions["loop_session"]["tokens"].as_f64(), Some(0.0));
 }
 
 #[tokio::test]

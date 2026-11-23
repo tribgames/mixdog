@@ -1110,7 +1110,8 @@ mod send_warmth_tests {
         let chain = warmer.chain_state("t").expect("re-armed");
         assert_eq!((chain.ttl_ms, chain.touch_at, chain.account_id.as_str(), chain.refresh_at), (HOUR, T0, "acct-1", T0 + HOUR - MINUTE));
 
-        let restarted = Rig { world, warmer, touches: r.touches.clone(), gaps: r.gaps.clone(), store: SideQuestionStore::new(), disk: disk.clone(), dir: r.dir };
+        let restarted =
+            Rig { world, warmer, touches: r.touches.clone(), gaps: r.gaps.clone(), store: SideQuestionStore::new(), disk: disk.clone(), dir: r.dir };
         restarted.advance(T0 + HOUR - MINUTE).await;
         let sends = lock(&restarted.world.sends);
         assert_eq!(sends.len(), 1, "the re-armed chain warms");

@@ -70,10 +70,10 @@ pub struct Limits {
     /// Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_blob_put_chunk_bytes: u64,
-    /// How much base64 payload of `transfer/writeChunk` requests a sender may have sent and not yet had answered, across every
-    /// file upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not
-    /// counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks in the
-    /// order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive
+    /// How much base64 payload of `transfer/writeChunk` and `blob/put` requests a sender may have sent and not yet had answered,
+    /// across every upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not
+    /// counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks (one
+    /// `transferId`, one blob `digest`) in the order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive
     /// calls never take part in this window.
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_upload_in_flight_bytes: u64,

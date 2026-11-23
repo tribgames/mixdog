@@ -92,7 +92,14 @@ pub fn mount_rows(heights: &mut ItemHeights, input: &MountInput<'_>) -> MountedR
         items.push(lines);
         soft_wrap.push(flags);
     }
-    MountedRows { items, live_window, hinted, soft_wrap, bottom_spacer_rows: input.window.bottom_spacer_rows, scroll_offset: input.window.effective_scroll_offset }
+    MountedRows {
+        items,
+        live_window,
+        hinted,
+        soft_wrap,
+        bottom_spacer_rows: input.window.bottom_spacer_rows,
+        scroll_offset: input.window.effective_scroll_offset,
+    }
 }
 
 /// `guardHintWidth || transientStatusWidth || 24`: the width of the hint cell on the item that carries the hint.

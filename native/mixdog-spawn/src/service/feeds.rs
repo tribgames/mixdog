@@ -594,6 +594,7 @@ impl ProcessFeeds {
     }
 
     /// How often the pump of the current feed of `handle` has waited for a change to reach the clients, as it changes.
+    #[cfg(all(test, feature = "core-test", windows))]
     pub(crate) fn orderings_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
         self.entries.lock().unwrap().get(handle).expect("the feed exists").ordered.subscribe()
     }

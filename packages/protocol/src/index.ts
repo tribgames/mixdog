@@ -3530,10 +3530,10 @@ terminalRingChars: number, maxBlobPageBytes: number,
  */
 maxBlobPutChunkBytes: number,
 /**
- * How much base64 payload of `transfer/writeChunk` requests a sender may have sent and not yet had answered, across every
- * file upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not
- * counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks in the
- * order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive
+ * How much base64 payload of `transfer/writeChunk` and `blob/put` requests a sender may have sent and not yet had answered,
+ * across every upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not
+ * counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks (one
+ * `transferId`, one blob `digest`) in the order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive
  * calls never take part in this window.
  */
 maxUploadInFlightBytes: number, maxConnections: number, heartbeatTickMs: number, maxProcesses: number,
@@ -9170,7 +9170,9 @@ export const methodTable = {
       "params": "v2::op::BlobPutParams",
       "result": "v2::feed::EmptyResult",
       "scope": {
-        "kind": "none"
+        "field": "digest",
+        "kind": "keyed",
+        "namespace": "blobUpload"
       }
     },
     {

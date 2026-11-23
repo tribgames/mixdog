@@ -2722,6 +2722,7 @@ impl Rig {
             runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
             snapshots: self.snapshots.clone(),
             notices: self.notices.clone(),
+            titles: None,
             settings_changed: {
                 let changes = self.settings_changes.clone();
                 Arc::new(move |scope: &str| {

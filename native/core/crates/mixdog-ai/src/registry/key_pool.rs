@@ -414,6 +414,9 @@ struct Shared {
     wire_done: bool,
     /// Even a later store/binding error must not make a completed or exposed request replayable.
     no_replay: bool,
+    /// The serving attempt's stream, kept for as long as the send's own stream: a provider whose run stays open for
+    /// the batch it handed over ends that run when its stream is dropped.
+    served: Option<Box<dyn ModelStream>>,
 }
 
 /// The serving attempt's wire is done: tells the consumer now, or as it hands its callback over.
@@ -532,6 +535,7 @@ impl AccountSender<()> for KeySend {
                         let mut shared = lock(&self.queue);
                         shared.completed = Some(event);
                         shared.no_replay = true;
+                        shared.served = Some(stream);
                     }
                     // The pool goes on to bind the serving key (`pool_send`'s store work) before `Completed` is released.
                     leave_wire(&self.queue);
@@ -799,6 +803,7 @@ impl ProviderAdapter for KeyPoolAdapter {
             wire_left: None,
             wire_done: false,
             no_replay: false,
+            served: None,
         }));
         let context = SendContext {
             model: request.model.clone(),

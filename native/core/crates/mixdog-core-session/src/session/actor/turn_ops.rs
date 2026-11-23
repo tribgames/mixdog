@@ -835,9 +835,24 @@ impl SessionActor {
         // The header the commit carries is computed here, where the rows a finished turn appended
         // meanwhile are known (withAppendedMessages), from the header as it stands.
         // The actor computes it itself once the compaction is applied (`ProducerMsg::Compacted`).
-        let header: Option<super::super::run::DeferredHeader> = header.map(|header| {
+        // An external agent's session still holds the conversation the compaction replaced: the header stops naming it
+        // in the commit, so the agent's next turn starts a session of its own on the compacted context.
+        let agent_session = super::super::turn_ops::AGENT_SESSION;
+        let leaves_agent = self.projected.header.contains_key(agent_session);
+        let header: Option<super::super::run::DeferredHeader> = (header.is_some() || leaves_agent).then(|| {
             let appended = appended.clone();
-            Box::new(move |current: &_| header(current, &appended)) as super::super::run::DeferredHeader
+            Box::new(move |current: &_| {
+                let mut change = match header {
+                    Some(header) => header(current, &appended),
+                    None => mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() },
+                };
+                if leaves_agent {
+                    change.set.shift_remove(agent_session);
+                    change.unset.retain(|key| key != agent_session);
+                    change.unset.push(agent_session.to_owned());
+                }
+                change
+            }) as super::super::run::DeferredHeader
         });
         compaction.replacement.extend(appended);
         let jobs = self.jobs_tx.clone();

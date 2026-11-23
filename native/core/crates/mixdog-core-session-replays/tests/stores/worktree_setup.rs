@@ -460,6 +460,7 @@ fn delete_world() -> DeleteWorld {
         mcp_scopes: Arc::new(NoScopes),
         read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)),
         agents: None,
+        agent_processes: None,
     };
     DeleteWorld { deletion, stopped, shells, cancelled, routes_file, route, conn, _data: data, _rig: rig }
 }

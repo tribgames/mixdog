@@ -64,9 +64,9 @@ use crate::providers::compat::adapter::stream_call;
 use crate::providers::connect::frame;
 use crate::providers::connect::stream::DecodedStream;
 use crate::providers::first_byte::FirstByteSettings;
-use crate::transport::model_driver::ModelDriver;
 use crate::providers::listing_row;
 use crate::transport::http::HttpSend;
+use crate::transport::model_driver::ModelDriver;
 
 pub const PROVIDER_ID: &str = "devin-oauth";
 /// The two-row fallback seed native discovery returns for seats it cannot serve.

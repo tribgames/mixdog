@@ -46,6 +46,16 @@ pub trait FeatureEffects: Send + Sync + 'static {
     async fn sync_local_provider_registry(&self, enabled: bool);
     fn invalidate_context_status_cache(&self);
     fn invalidate_pre_session_tool_surface(&self);
+    /// The `acpAgents` value (`{ enabled, agents }`); `None` where the process has no ACP agents.
+    fn acp_agents_status(&self) -> Option<Value> {
+        None
+    }
+    /// Starts a new look at each ACP agent's CLI and returns at once; the value then tells what is found.
+    async fn verify_acp_agents(&self) {}
+    /// Installs each ACP agent's CLI where it is missing and brings it up to date where it is there.
+    async fn install_acp_agents(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// The services behind the value.
@@ -180,8 +190,20 @@ impl ToolModulesHost for ServicesToolModulesHost {
             "tidy" => self.prepare_tidy(engines).await.map(Some),
             // Downloads the judge model (verified per file) unless it is current.
             "autoEffort" => self.parts.judge.install(&self.parts.judge_manifest, None, &self.cancel).await.map(|_| None).map_err(|error| error.to_string()),
+            "acpAgents" => {
+                self.parts.effects.verify_acp_agents().await;
+                Ok(None)
+            }
             _ => Ok(None),
         }
+    }
+
+    async fn acp_agents(&self) -> Option<Value> {
+        self.parts.effects.acp_agents_status()
+    }
+
+    async fn install_acp_agents(&self) -> Result<(), String> {
+        self.parts.effects.install_acp_agents().await
     }
 
     async fn stop_local_provider_server(&self) {

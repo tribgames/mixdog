@@ -468,14 +468,16 @@ fn error_object(body: &Value) -> Option<Value> {
 /// A non-success HTTP response at `now` (the instant a retry advice's reset is counted from).
 pub fn classify(response: &ErrorResponse, dialect: &ErrorDialect, now: SystemTime) -> ProviderError {
     let text = String::from_utf8_lossy(&response.body);
-    match &dialect.antigravity_endpoint {
+    let mut err = match &dialect.antigravity_endpoint {
         Some(endpoint) => {
             let mut err = antigravity_error(response, &text, endpoint, now);
             err.retry_after = err.retry_after.or_else(|| header_advice(&response.headers));
             err
         }
         None => rest_error(response, &text, dialect.label, now),
-    }
+    };
+    err.kind = crate::retry::classify::wording_kind_scoped(err.kind, &err.message, err.quota_scope, err.retry_after);
+    err
 }
 
 const MODEL_GARDEN: &str = "https://console.cloud.google.com/agent-platform/publishers";
@@ -681,6 +683,32 @@ mod tests {
         assert_eq!((minute.kind, minute.retry_after), (ErrorKind::RateLimited, Some(Duration::from_secs(12))));
         let day = classify(&response(429, failure("GenerateRequestsPerDayPerProject")), GEMINI);
         assert_eq!((day.kind, day.quota_scope), (ErrorKind::QuotaExhausted, Some(QuotaScope::Day)));
+    }
+
+    #[test]
+    fn a_spent_spending_cap_is_a_usage_limit_not_a_retried_rate_limit() {
+        let capped = response(
+            429,
+            json!({"error":{"code":429,"status":"RESOURCE_EXHAUSTED",
+            "message":"Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap."}}),
+        );
+        let err = classify(&capped, GEMINI);
+        assert_eq!(err.kind, ErrorKind::QuotaExhausted);
+        assert!(err.kind.is_deterministic());
+        assert!(err.message.contains("monthly spending cap"));
+    }
+
+    #[test]
+    fn a_per_minute_limit_stays_a_rate_limit_whatever_its_wording() {
+        let limited = response(
+            429,
+            json!({"error":{"code":429,"status":"RESOURCE_EXHAUSTED",
+            "message":"You exceeded your current quota, please check your plan and billing details. Insufficient credits per minute.",
+            "details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":"GenerateRequestsPerMinutePerProject"}]},
+                       {"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"12s"}]}}),
+        );
+        let err = classify(&limited, GEMINI);
+        assert_eq!((err.kind, err.quota_scope, err.retry_after), (ErrorKind::RateLimited, Some(QuotaScope::Minute), Some(Duration::from_secs(12))));
     }
 
     #[test]

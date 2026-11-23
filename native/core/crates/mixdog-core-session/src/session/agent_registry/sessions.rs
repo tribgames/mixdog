@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
-use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved, park_idle};
+use mixdog_agent::agent_tool::dispatch::{CloseParts, close_resolved, close_tree_members, park_idle};
 use mixdog_agent::agent_tool::error_text::{ErrorText, PlainErrorText};
 use mixdog_agent::agent_tool::host::CloseOptions;
 use mixdog_agent::agent_tool::host::Hide;
@@ -95,21 +95,32 @@ impl AgentSessions {
     /// `cancelAgentDescendants(parentSessionId, reason)` (`agent-cancel.mjs:152-170`): the parent
     /// refuses admission while it runs; the agent jobs it started are cancelled
     /// (`cancelBackgroundTasks({ surface: 'agent', callerSessionId })`, the owner told as the
-    /// board's default says); then every child's tree is cancelled, together. Whether any child
-    /// was there to cancel.
+    /// board's default says); then every child's tree is cancelled, together, under the parent tree's one guard and one
+    /// listing of the index. Whether any child was there to cancel; a listing that could not be read cancels no child.
     pub async fn cancel_descendants(&self, parent: &str, reason: &str, board: &JobBoard) -> bool {
         let parent = mixdog_js::js_trim(parent).to_owned();
-        let _cancelling = self.registry.begin_cancellation(std::slice::from_ref(&parent));
+        let (_cancelling, tree) = self.registry.cancel_tree(&parent).await;
         board.cancel_all(&CancelAll {
             reason: reason.to_owned(),
             scope: Scope { caller_session_id: Some(parent.clone()), host_pid: None },
             ..CancelAll::default()
         });
-        let children = self.registry.children_of(&parent);
+        let tree = match tree {
+            Ok(tree) => tree,
+            Err(error) => {
+                tracing::warn!(parent, %error, "agent descendants cancel failed: the agent tree could not be read");
+                return false;
+            }
+        };
+        let children = tree.children(&parent);
         if children.is_empty() {
             return false;
         }
-        for outcome in futures::future::join_all(children.iter().map(|child| cancel_agent_tree(self, board, child, reason, CloseOptions::default()))).await {
+        let trees = children.iter().map(|child| tree.descendants_first(child));
+        for outcome in
+            futures::future::join_all(trees.map(|members| async move { close_tree_members(self, board, &members, reason, CloseOptions::default()).await }))
+                .await
+        {
             if let Err(error) = outcome {
                 tracing::warn!(parent, %error, "agent tree cancel failed");
             }
@@ -134,7 +145,7 @@ impl AgentSessions {
         self.registry.refresh_tags_from_sessions(false, &scope).await?;
         let mut report = CloseAllReport::default();
         let parts = CloseParts { registry: &*self.registry, sessions: self, tasks: board };
-        for (tag, row) in self.registry.session_entries(false, &scope) {
+        for (tag, row) in self.registry.session_entries(false, &scope).await {
             let id = mixdog_js::js_trim(row.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
             match close_resolved(parts, &id, &id, &scope, None, keep_rows).await {
                 Ok(view) => report.closed.push(view),
@@ -368,9 +379,11 @@ impl Sessions for AgentSessions {
             }
         }
         // `cancelAgentTree` (`agent-cancel.mjs:111-114`): nothing is spawned or sent under the session while its turn stops.
-        let mut covered = self.registry.descendants(session_id);
-        covered.push(session_id.to_owned());
-        let _cancelling = self.registry.begin_cancellation(&covered);
+        let (_cancelling, tree) = self.registry.cancel_tree(session_id).await;
+        if let Err(error) = tree {
+            tracing::warn!(session = session_id, %error, "a cancelled job's turn was not stopped: its agent tree could not be read");
+            return false;
+        }
         // Only a close that stopped the running turn is a cancellation.
         if self.stop_turn_work(&thread, &turn, reason).await {
             self.registry.set_cancelled(session_id, true);
@@ -387,10 +400,23 @@ impl Sessions for AgentSessions {
         }
         // `cancelAgentTree` (`agent-cancel.mjs:111-114`): the session and its descendants refuse
         // admission (a spawn or send under them) until the close has ended.
-        let mut covered = self.registry.descendants(session_id);
-        covered.push(session_id.to_owned());
-        let _cancelling = self.registry.begin_cancellation(&covered);
+        let (_cancelling, tree) = self.registry.cancel_tree(session_id).await;
+        tree?;
         self.close_stamped(session_id, reason, options).await
+    }
+
+    /// A member of a tree whose cancel holds the admission of all of it: nothing of the tree is read again.
+    async fn try_close_covered(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        if options.tombstone || session_id.is_empty() {
+            return Ok(false);
+        }
+        self.close_stamped(session_id, reason, options).await
+    }
+
+    /// The tree in one listing of the index, under the guard [`AgentRegistry::cancel_tree`] takes before reading it.
+    async fn cancel_tree(&self, root: &str) -> Result<(Vec<String>, Box<dyn Send>), String> {
+        let (cancelling, tree) = self.registry.cancel_tree(root).await;
+        Ok((tree?.descendants_first(mixdog_js::js_trim(root)), Box::new(cancelling)))
     }
 
     /// The tree's admission guard stops a spawn or a send under it, not a turn started on the member's own session, so
@@ -430,12 +456,8 @@ impl Sessions for AgentSessions {
         })
     }
 
-    fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
-        self.registry.descendants(session_id)
-    }
-
-    fn child_session_ids(&self, session_id: &str) -> Vec<String> {
-        self.registry.children_of(session_id)
+    async fn descendant_session_ids(&self, session_id: &str) -> Result<Vec<String>, String> {
+        self.registry.descendants(session_id).await
     }
 
     /// The signal listener holds them: neither a held session's records nor its row writes reach every loaded thread.
@@ -495,7 +517,9 @@ impl Sessions for AgentSessions {
     /// `sessionGone` (`agent-tree.mjs`) over `storedSessionAbsent`: gone only when the index lists the session no longer
     /// and its record reads as absent. A loaded session is there, and so is one whose record could not be read.
     async fn session_gone(&self, session_id: &str) -> bool {
-        !session_id.is_empty() && !self.registry.knows_session(session_id) && self.directory.stored_presence(&ThreadId::from(session_id)).await == Some(false)
+        !session_id.is_empty()
+            && !self.registry.knows_session(session_id).await
+            && self.directory.stored_presence(&ThreadId::from(session_id)).await == Some(false)
     }
 
     fn turn_in_flight(&self, session_id: &str) -> bool {
@@ -508,7 +532,7 @@ impl Sessions for AgentSessions {
     /// clock ([`IDLE_EVICT`](crate::session::actor)), which keeps a session whose background work still runs: while the
     /// session is loaded this answers `false`, and the idle release asks again one period later.
     async fn park_session(&self, session_id: &str) -> bool {
-        let Some(session) = self.registry.session_of(session_id) else { return false };
+        let Some(session) = self.registry.session_of(session_id).await else { return false };
         if session.get("closed") == Some(&Value::Bool(true)) || self.directory.handle(&ThreadId::from(session_id)).is_some() {
             return false;
         }
@@ -516,8 +540,8 @@ impl Sessions for AgentSessions {
         true
     }
 
-    fn open_sessions(&self) -> Vec<OpenSession> {
-        self.registry.open_sessions().iter().map(open_session).collect()
+    async fn open_sessions(&self) -> Vec<OpenSession> {
+        self.registry.open_sessions().await.iter().map(|session| open_session(session)).collect()
     }
 
     async fn reveal_session(&self, session_id: &str) {

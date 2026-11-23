@@ -79,16 +79,18 @@ fn port_message(error: PortError) -> SendWorldError {
     })
 }
 
-/// `mgr.getSession(id)` as the registry holds it.
+/// `mgr.getSession(id)` as the registry answers it.
+#[async_trait]
 pub trait SessionRows: Send + Sync {
-    fn row(&self, id: &str) -> Option<Row>;
+    async fn row(&self, id: &str) -> Option<Row>;
     /// `registry.assertAdmission(id, epoch)` (`agent-registry.mjs:59`).
     fn assert_admission(&self, id: &str, epoch: Option<u64>) -> Result<u64, String>;
 }
 
+#[async_trait]
 impl SessionRows for AgentRegistry {
-    fn row(&self, id: &str) -> Option<Row> {
-        self.session_row(id)
+    async fn row(&self, id: &str) -> Option<Row> {
+        self.session_row(id).await
     }
 
     fn assert_admission(&self, id: &str, epoch: Option<u64>) -> Result<u64, String> {
@@ -270,9 +272,9 @@ pub struct AgentSendWorld {
 
 impl AgentSendWorld {
     /// The agent tree's descriptor (`registry.get`) of an open child.
-    fn open_child(&self, session: &Value) -> Result<String, SendWorldError> {
+    async fn open_child(&self, session: &Value) -> Result<String, SendWorldError> {
         let id = text(session, "id");
-        match SendWorld::session(self, &id) {
+        match SendWorld::session(self, &id).await {
             Some(held) if held.get("closed") != Some(&Value::Bool(true)) => Ok(id),
             _ => Err(SendWorldError::Closed),
         }
@@ -288,8 +290,8 @@ impl SendWorld for AgentSendWorld {
     /// and an idle one that was `running` reads `idle`; `stage` is the status. `messageCount` is
     /// the runtime's item count when it has items, else the descriptor's; `updatedAt` the
     /// descriptor's, else now.
-    fn session(&self, session_id: &str) -> Option<Value> {
-        let mut row = self.sessions.row(session_id).filter(|row| is_agent_child(&Value::Object(row.clone())))?;
+    async fn session(&self, session_id: &str) -> Option<Value> {
+        let mut row = self.sessions.row(session_id).await.filter(|row| is_agent_child(&Value::Object(row.clone())))?;
         let facts = self.runtime.facts(session_id);
         let own = row.get("status").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
         let status = match (&facts, row.get("closed") == Some(&Value::Bool(true))) {
@@ -310,8 +312,8 @@ impl SendWorld for AgentSendWorld {
     }
 
     /// `canUseSessionSurface`: the surface runs every session of its tree (`canRun`).
-    fn surface_runs(&self, session: &Value) -> bool {
-        SendWorld::session(self, &text(session, "id")).is_some()
+    async fn surface_runs(&self, session: &Value) -> bool {
+        SendWorld::session(self, &text(session, "id")).await.is_some()
     }
 
     /// `agentSurface.canonical`.
@@ -321,8 +323,8 @@ impl SendWorld for AgentSendWorld {
 
     /// `views.isSessionBusy` (`job-views.mjs:27`): a running turn, else the runtime's stage, which
     /// is the descriptor's own when no progress snapshot exists.
-    fn is_busy(&self, session_id: &str) -> bool {
-        let Some(session) = SendWorld::session(self, session_id) else { return false };
+    async fn is_busy(&self, session_id: &str) -> bool {
+        let Some(session) = SendWorld::session(self, session_id).await else { return false };
         if self.live.running(session_id) {
             return true;
         }
@@ -352,7 +354,7 @@ impl SendWorld for AgentSendWorld {
     /// `agentSurface.setRoute` (`agent-tree.mjs:139`): the route goes through the session's own
     /// route API, session only.
     async fn set_route(&self, session: &Value, route: &Value) -> Result<(), String> {
-        let id = self.open_child(session).map_err(|e| e.to_string())?;
+        let id = self.open_child(session).await.map_err(|e| e.to_string())?;
         let mut pick = route.as_object().cloned().unwrap_or_default();
         pick.insert("sessionOnly".into(), Value::Bool(true));
         self.routes.set_route(&ThreadId::from(id.as_str()), pick, FollowOptions::default()).await.map_err(|e| port_message(e).to_string())
@@ -367,7 +369,7 @@ impl SendWorld for AgentSendWorld {
     /// `agentSurface.enqueueTurn` (`agent-tree.mjs:170`): the cancel epoch is read first (:173)
     /// and checked again once the runtime took the prompt (:185).
     async fn enqueue_turn(&self, session: &Value, prompt: &str, attachments: &[Value], context: Option<&Value>) -> Result<Option<Value>, String> {
-        let id = self.open_child(session).map_err(|e| e.to_string())?;
+        let id = self.open_child(session).await.map_err(|e| e.to_string())?;
         let epoch = self.sessions.assert_admission(&id, None)?;
         if !self.runtime.facts(&id).is_some_and(|facts| facts.state_busy()) {
             return Ok(None);
@@ -435,8 +437,9 @@ mod tests {
 
     /// The rows, and whether a cancellation began after the epoch was read.
     struct Rows(Vec<Row>, bool);
+    #[async_trait]
     impl SessionRows for Rows {
-        fn row(&self, id: &str) -> Option<Row> {
+        async fn row(&self, id: &str) -> Option<Row> {
             self.0.iter().find(|r| r.get("id").and_then(Value::as_str) == Some(id)).cloned()
         }
         fn assert_admission(&self, id: &str, epoch: Option<u64>) -> Result<u64, String> {
@@ -607,37 +610,38 @@ mod tests {
         Rig { world, routes, queue, written }
     }
 
-    #[test]
-    fn only_the_agent_trees_children_are_sessions() {
+    #[tokio::test]
+    async fn only_the_agent_trees_children_are_sessions() {
         let lead = row(json!({ "id": "sess_lead" }));
         let no_parent = row(json!({ "id": "sess_a", "owner": "agent" }));
         let self_parent = row(json!({ "id": "sess_a", "parentSessionId": "sess_a", "owner": "agent" }));
         let owned = row(json!({ "id": "sess_o", "ownerSessionId": "sess_parent", "visibility": " Agent-Only " }));
         let rig = rig(vec![child("sess_c"), lead, no_parent, self_parent, owned], Live::default(), true, vec![]);
-        assert!(rig.world.session("sess_c").is_some());
-        assert!(rig.world.session("sess_o").is_some());
+        assert!(rig.world.session("sess_c").await.is_some());
+        assert!(rig.world.session("sess_o").await.is_some());
         for id in ["sess_lead", "sess_a", "sess_none"] {
-            assert!(rig.world.session(id).is_none(), "{id}");
+            assert!(rig.world.session(id).await.is_none(), "{id}");
         }
-        assert!(rig.world.surface_runs(&json!({ "id": "sess_c" })));
-        assert!(!rig.world.surface_runs(&json!({ "id": "sess_lead" })));
+        assert!(rig.world.surface_runs(&json!({ "id": "sess_c" })).await);
+        assert!(!rig.world.surface_runs(&json!({ "id": "sess_lead" })).await);
     }
 
-    #[test]
-    fn busy_is_a_running_turn_or_an_active_stage() {
-        let busy = |live: Live| rig(vec![child("sess_c")], live, true, vec![]).world.is_busy("sess_c");
-        assert!(busy(Live { running: vec!["sess_c".into()], ..Live::default() }));
-        assert!(busy(Live { stage: Some("streaming".into()), ..Live::default() }));
-        assert!(!busy(Live { stage: Some("idle".into()), ..Live::default() }));
-        assert!(!busy(Live::default()), "the descriptor's own status is idle");
-        assert!(!rig(vec![], Live { running: vec!["sess_c".into()], ..Live::default() }, true, vec![]).world.is_busy("sess_c"), "no descriptor, no runtime");
+    #[tokio::test]
+    async fn busy_is_a_running_turn_or_an_active_stage() {
+        let busy = |live: Live| async move { rig(vec![child("sess_c")], live, true, vec![]).world.is_busy("sess_c").await };
+        assert!(busy(Live { running: vec!["sess_c".into()], ..Live::default() }).await);
+        assert!(busy(Live { stage: Some("streaming".into()), ..Live::default() }).await);
+        assert!(!busy(Live { stage: Some("idle".into()), ..Live::default() }).await);
+        assert!(!busy(Live::default()).await, "the descriptor's own status is idle");
+        let none = rig(vec![], Live { running: vec!["sess_c".into()], ..Live::default() }, true, vec![]);
+        assert!(!none.world.is_busy("sess_c").await, "no descriptor, no runtime");
     }
 
     #[tokio::test]
     async fn a_busy_session_queues_the_prompt_and_answers_the_depth() {
         let live = Live { work: vec!["sess_c".into()], ..Live::default() };
         let rig = rig(vec![child("sess_c")], live, true, vec![]);
-        let session = rig.world.session("sess_c").unwrap();
+        let session = rig.world.session("sess_c").await.unwrap();
         let queued = rig.world.enqueue_turn(&session, "next", &[], None).await.unwrap();
         assert_eq!(queued, Some(json!({ "queueDepth": 1 })));
         assert_eq!(*rig.queue.submitted.lock().unwrap(), [("sess_c".to_owned(), json!("next"), None)]);
@@ -677,43 +681,43 @@ mod tests {
         assert_eq!(error, "agent session sess_c was cancelled during admission");
     }
 
-    #[test]
-    fn a_session_reads_the_status_of_its_runtime() {
-        let status = |row: Value, live: Live| {
-            let session = rig(vec![row.as_object().unwrap().clone()], live, true, vec![]).world.session("sess_c").unwrap();
+    #[tokio::test]
+    async fn a_session_reads_the_status_of_its_runtime() {
+        let status = |row: Value, live: Live| async move {
+            let session = rig(vec![row.as_object().unwrap().clone()], live, true, vec![]).world.session("sess_c").await.unwrap();
             (session["status"].clone(), session["stage"].clone())
         };
         let working = || Live { work: vec!["sess_c".into()], ..Live::default() };
         let loaded_idle = || Live { idle: vec!["sess_c".into()], ..Live::default() };
         let base = || json!({ "id": "sess_c", "parentSessionId": "sess_parent", "owner": "agent" });
-        assert_eq!(status(base(), working()), (json!("running"), json!("running")), "busy runtime");
-        assert_eq!(status(base(), loaded_idle()), (json!("idle"), json!("idle")), "no status of its own");
+        assert_eq!(status(base(), working()).await, (json!("running"), json!("running")), "busy runtime");
+        assert_eq!(status(base(), loaded_idle()).await, (json!("idle"), json!("idle")), "no status of its own");
         let mut stored = base();
         stored["status"] = json!("running");
-        assert_eq!(status(stored.clone(), Live::default()).0, json!("running"), "not loaded here: its own status stands");
-        assert_eq!(status(stored, loaded_idle()).0, json!("idle"), "loaded and idle: a stale running is idle");
+        assert_eq!(status(stored.clone(), Live::default()).await.0, json!("running"), "not loaded here: its own status stands");
+        assert_eq!(status(stored, loaded_idle()).await.0, json!("idle"), "loaded and idle: a stale running is idle");
         let mut done = base();
         done["status"] = json!("completed");
-        assert_eq!(status(done, loaded_idle()).0, json!("completed"));
+        assert_eq!(status(done, loaded_idle()).await.0, json!("completed"));
         let mut closed = base();
         closed["closed"] = json!(true);
-        assert_eq!(status(closed, working()).0, json!("closed"));
+        assert_eq!(status(closed, working()).await.0, json!("closed"));
         let compacting = Live { command: vec!["sess_c".into()], ..Live::default() };
-        assert_eq!(status(base(), compacting).0, json!("running"), "a compaction is busy (`commandBusy`)");
+        assert_eq!(status(base(), compacting).await.0, json!("running"), "a compaction is busy (`commandBusy`)");
     }
 
-    #[test]
-    fn a_session_counts_the_runtimes_items_and_is_stamped_now() {
-        let at = |row: Value, live: Live| rig(vec![row.as_object().unwrap().clone()], live, true, vec![]).world.session("sess_c").unwrap();
+    #[tokio::test]
+    async fn a_session_counts_the_runtimes_items_and_is_stamped_now() {
+        let at = |row: Value, live: Live| async move { rig(vec![row.as_object().unwrap().clone()], live, true, vec![]).world.session("sess_c").await.unwrap() };
         let base = || json!({ "id": "sess_c", "parentSessionId": "sess_parent", "owner": "agent", "messageCount": " 4 " });
-        let items = at(base(), Live { idle: vec!["sess_c".into()], items: 9, ..Live::default() });
+        let items = at(base(), Live { idle: vec!["sess_c".into()], items: 9, ..Live::default() }).await;
         assert_eq!((items["messageCount"].clone(), items["updatedAt"].clone()), (json!(9), json!(1_700_000_000_000_i64)));
-        let own = at(base(), Live { idle: vec!["sess_c".into()], ..Live::default() });
+        let own = at(base(), Live { idle: vec!["sess_c".into()], ..Live::default() }).await;
         assert_eq!(own["messageCount"], json!(4), "no items: the descriptor\'s count");
         let mut stamped = base();
         stamped["updatedAt"] = json!(5);
         stamped["messageCount"] = json!(-3);
-        let kept = at(stamped, Live::default());
+        let kept = at(stamped, Live::default()).await;
         assert_eq!((kept["messageCount"].clone(), kept["updatedAt"].clone()), (json!(0), json!(5)));
     }
 

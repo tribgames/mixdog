@@ -201,9 +201,9 @@ impl Books {
             .entry(session_id.to_owned())
             .or_insert_with(|| {
                 let now = clock();
-                let book = self.opened(session_id, persisted, now, last_send_at).unwrap_or_else(|| {
-                    persisted.map_or_else(|| Book::unrecorded(fresh, last_send_at), |value| Book::from_json(value, now, last_send_at))
-                });
+                let book = self
+                    .opened(session_id, persisted, now, last_send_at)
+                    .unwrap_or_else(|| persisted.map_or_else(|| Book::unrecorded(fresh, last_send_at), |value| Book::from_json(value, now, last_send_at)));
                 Arc::new(Held { book: Mutex::new(book), decided: Notify::new(), retired: AtomicBool::new(false) })
             })
             .clone();

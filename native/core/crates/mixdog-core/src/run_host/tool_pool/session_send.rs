@@ -1,5 +1,4 @@
 // Transparent callback/state names; existing ownership and call signatures are unchanged.
-type SessionRecordLookup = dyn Fn(&str) -> Option<Value> + Send + Sync;
 type SessionTurnLookup = dyn Fn(&str) -> (u32, Vec<String>) + Send + Sync;
 
 use std::sync::Arc;
@@ -20,6 +19,7 @@ use mixdog_core_rooms::rooms::room_ask::RoomAsk;
 use mixdog_core_session::session::SessionDirectory;
 // `agentDisplayName(agentId)`: the sessions' approval cards name their delegation chain by it too.
 pub use mixdog_core_session::session::delegation::AgentNames;
+use mixdog_core_session::session::delegation::SessionLookup;
 use mixdog_core_session::session::delegation::bot_chain_of;
 use mixdog_core_session::session::delegation::delegation_chain;
 use mixdog_services::task_reports::send::Origin;
@@ -52,7 +52,7 @@ pub fn chained_hop(hop: u32, limit: u32) -> Result<u32, String> {
 /// acting as a bot, `delegationChainOf(callerSessionId, getSession)` (`workspace-tools.mjs`).
 pub struct CallerChains {
     /// `getSession(id)`: a session's record.
-    pub record: Arc<SessionRecordLookup>,
+    pub record: Arc<dyn SessionLookup>,
     /// `turnHopOf` / `turnBotChainOf` of a session's current turn.
     pub turn: Arc<SessionTurnLookup>,
 }
@@ -62,9 +62,9 @@ impl CallerChains {
         (self.turn)(caller).0
     }
 
-    pub(super) fn bot_chain(&self, caller: &str) -> Vec<String> {
+    pub(super) async fn bot_chain(&self, caller: &str) -> Vec<String> {
         let turn_bots = |id: &str| (self.turn)(id).1;
-        delegation_chain(caller, &*self.record, &turn_bots)
+        delegation_chain(caller, &*self.record, &turn_bots).await
     }
 }
 
@@ -400,7 +400,7 @@ impl SessionSend {
         }
         let (agent_id, bot_id) = (call.caller.attended_agent.as_str(), call.caller.acting_bot.as_str());
         // A bot conversation's turn carries its chain on; any other session hands work to any bot.
-        let bot_chain = if bot_id.is_empty() { Vec::new() } else { bot_chain_of(self.chains.bot_chain(caller).iter().map(String::as_str)) };
+        let bot_chain = if bot_id.is_empty() { Vec::new() } else { bot_chain_of(self.chains.bot_chain(caller).await.iter().map(String::as_str)) };
         let this = if bot_id.is_empty() { agent_id } else { bot_id };
         let target_bot = match &room {
             Some(room) => room.agent_id.clone(),

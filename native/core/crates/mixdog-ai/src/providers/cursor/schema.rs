@@ -57,7 +57,9 @@ pub fn decode_json_value(bytes: &[u8]) -> Result<Value, PbError> {
     while let Some((n, v)) = reader.next_field()? {
         out = match n {
             1 => Value::Null,
-            2 => serde_json::Number::from_f64(v.as_f64()).map_or(Value::Null, Value::Number),
+            // The wire's one number type is a double: a whole one is the integer the model wrote (`"index": 1`), and
+            // a tool that reads an integer takes no `1.0`.
+            2 => mixdog_js::json_number(v.as_f64()),
             3 => Value::String(v.text()),
             4 => Value::Bool(v.as_bool()),
             5 => {
@@ -155,9 +157,16 @@ pub struct UserImage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    UserMessage { text: String, message_id: String, images: Vec<UserImage>, context: RequestContext },
+    UserMessage {
+        text: String,
+        message_id: String,
+        images: Vec<UserImage>,
+        context: RequestContext,
+    },
     /// Goes on with the open turn the conversation state holds.
-    Resume { context: RequestContext },
+    Resume {
+        context: RequestContext,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -241,7 +250,10 @@ pub fn heartbeat_message() -> Vec<u8> {
 pub enum ExecResult {
     RequestContext(RequestContext),
     /// The state of the MCP servers the tools were offered under: of those `asked` names, or of all.
-    McpState { tools: Vec<McpToolDefinition>, asked: Vec<String> },
+    McpState {
+        tools: Vec<McpToolDefinition>,
+        asked: Vec<String>,
+    },
     McpError(String),
     /// A native exec the environment does not serve: the `rejected`/`error`
     /// payload of its result type.
@@ -954,6 +966,14 @@ mod tests {
     fn json_value_round_trips() {
         let value = json!({"a": [1.5, "x", true, null], "b": {"c": false}});
         assert_eq!(decode_json_value(&encode_json_value(&value)).unwrap(), value);
+    }
+
+    #[test]
+    fn a_whole_number_argument_arrives_as_an_integer() {
+        let arguments = json!({"index": 1, "offset": -40, "ratio": 0.5, "ids": [2, 3]});
+        let decoded = decode_json_value(&encode_json_value(&arguments)).unwrap();
+        assert_eq!(decoded, arguments);
+        assert_eq!(decoded["index"].as_u64(), Some(1));
     }
 
     #[test]

@@ -93,6 +93,14 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     ("mixdog-core-session/src/session/directory.rs", "ask_marked: Default::default(),", "the mark above"),
     ("mixdog-core-session/src/session/actor.rs", "fn ask_marked(&self) -> bool {", "the mark above, and the release build's constant in its place"),
+    (
+        "mixdog-core-session/src/session/control.rs",
+        "pub fn plant_retry(",
+        "a failed turn's retry only the inline turn_ops_tests plant: under `test-support` it would be unused, and a replay build has no one to plant it",
+    ),
+    ("mixdog-core-session/src/session/control.rs", "pub fn planted_retry(", "the planted retry above"),
+    ("mixdog-core-session/src/session/control.rs", "retry: Option<super::quota_lane::RetryTurn>,", "the planted retry above"),
+    ("mixdog-core-session/src/session/actor/queue.rs", "if let Some(retry) = self.cell.stop_latches.planted_retry(", "the planted retry above"),
     ("mixdog-core-session/src/session/actor.rs", "AskEnded,", "the end of the mark above: only the inline tests send it"),
     ("mixdog-core-session/src/session/actor.rs", "Inbox::AskEnded => {", "the end of the mark above"),
     (
