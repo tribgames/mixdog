@@ -22,7 +22,7 @@ pub(crate) fn split_tail_reminder(messages: &[Message]) -> (&[Message], String) 
     match messages.split_last() {
         Some((last, rest)) if last.role == Role::User && last.source == Some(MessageSource::TailReminder) => {
             let text = match &last.content {
-                Content::Text(text) => text.clone(),
+                Content::Text(text) => text.to_string(),
                 Content::Parts(parts) => parts
                     .iter()
                     .filter_map(|part| match part {

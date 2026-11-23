@@ -250,6 +250,13 @@ struct GoPin {
     credentials: Mutex<Arc<OpenCodeGoCredentials>>,
 }
 
+/// What a send's latest attempt went out under, recorded on its identity: how many assistant turns it lowered, and
+/// OpenCode Go's organisation sign-in.
+struct SentAs {
+    lowered: usize,
+    go: Option<Arc<GoPin>>,
+}
+
 impl GoPin {
     fn credential(&self) -> Arc<OpenCodeGoCredentials> {
         self.credentials.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
@@ -618,23 +625,39 @@ impl ProviderAdapter for GatewayAdapter {
             other => self.engine(other)?.retry_line_of(request),
         }
     }
-    /// `canFallbackNonStreaming` of the Chat Completions engine, which every send of this gateway may have gone out on:
-    /// the non-streaming re-issue exists on that wire only ([`Self::recover_spent`] refuses any other).
-    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        // A standalone Chat recovery cannot prove which org the failed Go send used.
-        self.account.id().as_str() != "opencode-go-oauth" && self.account.recovers_spent(model, failure)
+    /// `canFallbackNonStreaming` of the Chat Completions engine, for a send whose last attempt went out on that wire
+    /// only: a send that went out on Messages ends with its ladder's failure, as the Anthropic route's does. A
+    /// standalone Chat recovery cannot prove which org the failed Go send used.
+    fn recovers_spent(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.account.id().as_str() != "opencode-go-oauth"
+            && self.wire_of(request) == Some(Wire::Chat)
+            && self.account.recovers_spent(request, failure)
     }
-    /// `recoverCompatNonStreaming` for a send whose last attempt went out on the Chat wire; a send that went out on
-    /// another wire ends with its own ladder's failure.
+    /// The Messages engine's answer to a dead stream (`decideStreamError`, inherited by `GatewayMessagesEngine`) for a
+    /// send whose last attempt went out on that wire; no other wire of a gateway re-issues a cut stream. OpenCode Go
+    /// re-issues only a send whose organisation sign-in is known ([`Self::go_pin_of`]).
+    fn recovers_cut(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        (self.account.id().as_str() != "opencode-go-oauth" || self.go_pin_of(request).is_some())
+            && self.wire_of(request) == Some(Wire::Messages)
+            && self.engine(Wire::Messages).is_some_and(|engine| engine.recovers_cut(request, failure))
+    }
+    /// `recoverCompatNonStreaming` for a send whose last attempt went out on the Chat wire, the Messages engine's
+    /// non-streaming re-issue for one that went out on Messages (prepared as that wire's attempts are); a send that went
+    /// out on another wire ends with its own ladder's failure.
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         if self.account.id().as_str() == "opencode-go-oauth" {
-            return Err(ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent));
+            // Only the Messages re-issue, and only under the organisation sign-in the failed send went out under.
+            let (Some(Wire::Messages), Some(pin)) = (self.wire_of(&request), self.go_pin_of(&request)) else {
+                return Err(ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent));
+            };
+            return go_scope(Some(pin.credential()), self.recover_on_messages(request)).await.map_err(opencode_inference_reauth);
         }
         match self.wire_of(&request) {
             Some(Wire::Chat) => match self.session_headers(&request) {
                 Some(headers) => SEND_HEADERS.scope(headers, self.account.recover_spent(request)).await,
                 None => self.account.recover_spent(request).await,
             },
+            Some(Wire::Messages) => self.recover_on_messages(request).await,
             _ => Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent)),
         }
     }
@@ -660,10 +683,10 @@ impl ProviderAdapter for GatewayAdapter {
         let lowered_count = pinned_reroute.as_ref().and_then(|r| r.get("loweredAssistantCount")).and_then(Value::as_u64).unwrap_or(0) as usize;
         let go = self.pin_go().await?;
         let Some(routing) = route.as_ref().and(self.account.wire_routing()) else {
-            return self.attempt_on(wire, lowered(request, lowered_count), go).await;
+            return self.attempt_on(wire, request, lowered_count, go).await;
         };
         let refusal = Arc::new(Mutex::new(None));
-        let first = REFUSAL.scope(refusal.clone(), self.attempt_on(wire, lowered(request.clone(), lowered_count), go.clone())).await;
+        let first = REFUSAL.scope(refusal.clone(), self.attempt_on(wire, request.clone(), lowered_count, go.clone())).await;
         let error = match first {
             // A send on a rerouted pin reports that route back, as the refusal's send did.
             Ok(inner) => return Ok(Box::new(Rerouted { route: pinned_reroute, inner })),
@@ -691,7 +714,7 @@ impl ProviderAdapter for GatewayAdapter {
             "reroutedReason": "unsupported",
             "loweredAssistantCount": count,
         });
-        let inner = REFUSAL.scope(refusal.clone(), self.attempt_on(next_wire, lowered(request, count), go)).await.map_err(|error| {
+        let inner = REFUSAL.scope(refusal.clone(), self.attempt_on(next_wire, request, count, go)).await.map_err(|error| {
             let refused = refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
             self.classify_messages_refusal(next_wire, error, refused.as_ref())
         })?;
@@ -1214,16 +1237,20 @@ mod tests {
             vec![(Wire::Messages, engine(CompatProfile::deepseek()) as Arc<dyn ProviderAdapter>)],
             WirePick::Routed,
         );
+        let on = |wire: Wire| {
+            let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() };
+            request.options.send_identity.set_wire(wire.as_str());
+            request
+        };
         let transient = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
-        assert!(gateway.recovers_spent("m", &transient));
+        assert!(gateway.recovers_spent(&on(Wire::Chat), &transient), "a spent Chat ladder is re-issued");
         let mut shown = transient.clone();
         shown.exposure.text_emitted = true;
-        assert!(!gateway.recovers_spent("m", &shown));
-        assert!(!gateway.recovers_spent("m", &ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted)));
-
-        let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() };
-        request.options.send_identity.set_wire(Wire::Messages.as_str());
-        let refused = gateway.recover_spent(Arc::new(request)).await.err().expect("another wire has no re-issue");
+        assert!(!gateway.recovers_spent(&on(Wire::Chat), &shown));
+        assert!(!gateway.recovers_spent(&on(Wire::Chat), &ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted)));
+        // The Messages wire re-issues a cut stream only (`recovers_cut`), never a spent ladder.
+        assert!(!gateway.recovers_spent(&on(Wire::Messages), &transient), "a spent Messages ladder ends with its failure");
+        let refused = gateway.recover_spent(Arc::new(on(Wire::Gemini))).await.err().expect("another wire has no re-issue");
         assert_eq!(refused.kind, ErrorKind::Unknown);
         assert_eq!(refused.delivery, DeliveryState::NotSent);
     }
@@ -1240,6 +1267,116 @@ mod tests {
         let left = handed.lock().unwrap().take().expect("the wrapped stream was handed the callback");
         left();
         assert!(called.load(Ordering::SeqCst), "the callback handed on is the consumer's");
+    }
+
+    /// OpenCode Go: a Messages stream that stalled before any output is re-issued without streaming under the
+    /// organisation sign-in the failed send went out under, even when the stored sign-in names another organisation
+    /// by then; a send whose sign-in is not known is not re-issued at all.
+    #[tokio::test(start_paused = true)]
+    async fn opencode_reissues_a_stalled_messages_stream_under_its_pinned_organisation_only() {
+        use crate::providers::anthropic::{AnthropicAdapter, AnthropicConfig};
+        use crate::providers::compat::{CompatChatCodec, CompatConfig, CompatProfile};
+        use crate::providers::connect::rewrite::testing::{Paced, messages};
+        use crate::providers::connect::rewrite::{Attempt, Credential};
+        use crate::providers::key_source::ApiKeySource;
+        use mixdog_core_api::domain::provider::{Content, Message};
+
+        const WHOLE: &str = r#"{"id":"m1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"whole"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}"#;
+        struct GoAccount(OpenCodeGoAuth);
+        #[async_trait]
+        impl ApiKeySource for GoAccount {
+            async fn key(&self) -> Result<String, ProviderError> {
+                Ok("fixture".into())
+            }
+            async fn reload(&self) -> Result<String, ProviderError> {
+                self.key().await
+            }
+            fn opencode_auth(&self) -> Option<&OpenCodeGoAuth> {
+                Some(&self.0)
+            }
+        }
+        /// The engine's key: the access token of the sign-in the request goes out under.
+        struct GoKey;
+        #[async_trait]
+        impl Credential for GoKey {
+            async fn attempt(&self) -> Result<Attempt, ProviderError> {
+                Ok(Attempt::plain(GATEWAY_CREDENTIAL.try_with(|credential| ("x-api-key".to_owned(), credential.access_token.clone())).ok()))
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let lanes = mixdog_rt::testing::tokens();
+        let file = || {
+            crate::oauth::CredentialFile::new(dir.path().join("go.json"), crate::oauth::CredentialIo { read: lanes.interactive_io, write: lanes.durability_io })
+        };
+        file().save(&json!({"access_token":"token-a", "refresh_token":"refresh-a", "org_id":"org-a"})).await.unwrap();
+        let reissued: Arc<Mutex<Vec<WireRequest>>> = Arc::default();
+        let seen = reissued.clone();
+        let http = Paced::with_unary(vec![vec![(0, messages().opening)]], move |request| {
+            let body: Value = serde_json::from_slice(&request.body).ok()?;
+            (body["stream"] == Value::Bool(false)).then(|| {
+                seen.lock().unwrap().push(request.clone());
+                (200, WHOLE.as_bytes().to_vec())
+            })
+        });
+        let auth = OpenCodeGoAuth::new(Arc::new(Nothing), Arc::new(crate::oauth::pace::FakePace::default()), file());
+        let account = Arc::new(CompatAdapter::new(
+            CompatChatCodec::new(CompatProfile::opencode_go(), CompatConfig::default()),
+            Arc::new(Nothing),
+            Some(Arc::new(GoAccount(auth))),
+        ));
+        let caps: crate::providers::anthropic::CapsLookup = Arc::new(|_| None);
+        let mut config = AnthropicConfig::new(caps);
+        config.base_url = "https://opencode.test/zen/go".into();
+        config.disable_beta_headers = true;
+        let media = MediaSupport { native_pdf: false, native_documents: None };
+        let messages_engine =
+            AnthropicAdapter::engine(ProviderId::from("opencode-go-oauth"), config, Arc::new(GatewayHttp::new(http)), Arc::new(GoKey), media, lanes.cpu_bulk);
+        let gateway = GatewayAdapter::new(account, vec![(Wire::Messages, Arc::new(messages_engine) as Arc<dyn ProviderAdapter>)], WirePick::Fixed(Wire::Messages))
+            .with_session_header();
+        let turn = || {
+            Arc::new(ModelRequest {
+                model: "claude-sonnet-4-6".into(),
+                messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+                tools: Vec::new(),
+                options: Default::default(),
+            })
+        };
+
+        let request = turn();
+        let mut stream = gateway.attempt(request.clone()).await.expect("the stream opens");
+        let stalled = loop {
+            match stream.next().await.expect("the stall ends the stream") {
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(stalled.code.as_deref(), Some("ESTREAMSTALL"), "{}", stalled.message);
+        // The stored sign-in moves to another organisation; the failed send's re-issue stays on its own.
+        file().save(&json!({"access_token":"token-b", "refresh_token":"refresh-b", "org_id":"org-b"})).await.unwrap();
+        assert!(gateway.recovers_cut(&request, &stalled), "a pinned send is re-issued");
+        let mut answered = gateway.recover_spent(request).await.expect("the re-issue answers");
+        let mut text = String::new();
+        while let Some(event) = answered.next().await {
+            if let StreamEvent::FinalContent(delta) | StreamEvent::TextDelta(delta) = event.expect("no failure") {
+                text.push_str(&delta);
+            }
+        }
+        assert_eq!(text, "whole");
+        {
+            let sent = reissued.lock().unwrap();
+            assert_eq!(sent.len(), 1);
+            let header = |name: &str| sent[0].headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.clone());
+            assert_eq!((header("x-org-id"), header("x-api-key")), (Some("org-a".to_owned()), Some("token-a".to_owned())));
+        }
+
+        // A send of the Messages wire whose sign-in was never recorded is refused, and nothing goes out.
+        let unknown = turn();
+        unknown.options.send_identity.set_wire(Wire::Messages.as_str());
+        assert!(!gateway.recovers_cut(&unknown, &stalled), "an unpinned send is not re-issued");
+        let refused = gateway.recover_spent(unknown).await.err().expect("the re-issue is refused");
+        assert_eq!((refused.kind, refused.delivery), (ErrorKind::Auth, DeliveryState::NotSent));
+        assert_eq!(reissued.lock().unwrap().len(), 1, "nothing was sent for the unpinned send");
     }
 }
 
@@ -1330,14 +1467,23 @@ impl GatewayAdapter {
         }
     }
 
+    /// The request `engine` is sent on `wire`, its first `lowered` assistant turns lowered: an attempt's and the
+    /// re-issue of its send alike.
+    async fn shaped(&self, wire: Wire, engine: &dyn ProviderAdapter, request: Arc<ModelRequest>, lowered_count: usize) -> Result<Arc<ModelRequest>, ProviderError> {
+        // A reroute is a new route: the images are prepared again for the wire this attempt actually takes.
+        let request = crate::registry::egress::prepare(engine, lowered(request, lowered_count)).await?;
+        Ok(self.with_ceiling(wire, request))
+    }
+
     /// One attempt on `wire`, with the send's own headers.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>, go: Option<Arc<GoPin>>) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>, lowered_count: usize, go: Option<Arc<GoPin>>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
         request.options.send_identity.set_wire(wire.as_str());
-        // A reroute is a new route: the images are prepared again for the wire this attempt actually takes.
-        let request = crate::registry::egress::prepare(engine.as_ref(), request).await?;
-        let request = self.with_ceiling(wire, request);
+        // What this attempt goes out under: a re-issue of the send is shaped and signed in the same way, or not at all.
+        let sent = SentAs { lowered: lowered_count, go: go.clone() };
+        request.options.send_identity.set_pin(Some(Arc::new(sent) as Arc<dyn std::any::Any + Send + Sync>));
+        let request = self.shaped(wire, engine.as_ref(), request, lowered_count).await?;
         let inclusive = wire == Wire::Messages && !crate::registry::accounted::adapter_input_excludes_cache(self);
         if self.account.id().as_str() == "opencode-go-oauth" {
             let headers = self.session_headers(&request).unwrap_or_default();
@@ -1354,6 +1500,23 @@ impl GatewayAdapter {
             return crate::registry::inclusive::inclusive_attempt(result);
         }
         result
+    }
+
+    /// The Messages engine's non-streaming re-issue of the request the send's last attempt sent ([`Self::shaped`]).
+    async fn recover_on_messages(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let engine = self.engine(Wire::Messages).ok_or_else(|| self.not_routable(&request.model))?;
+        let sent = request.options.send_identity.pin::<SentAs>().ok_or_else(|| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
+        let request = self.shaped(Wire::Messages, engine.as_ref(), request, sent.lowered).await?;
+        let result = match self.session_headers(&request) {
+            Some(headers) => SEND_HEADERS.scope(headers, engine.recover_spent(request)).await,
+            None => engine.recover_spent(request).await,
+        };
+        if crate::registry::accounted::adapter_input_excludes_cache(self) { result } else { crate::registry::inclusive::inclusive_attempt(result) }
+    }
+
+    /// The OpenCode Go organisation sign-in the send's latest attempt went out under, when it recorded one.
+    fn go_pin_of(&self, request: &ModelRequest) -> Option<Arc<GoPin>> {
+        request.options.send_identity.pin::<SentAs>()?.go.clone()
     }
 
     async fn pin_go(&self) -> Result<Option<Arc<GoPin>>, ProviderError> {

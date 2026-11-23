@@ -193,8 +193,8 @@ impl ImageOverlay {
         if emptied {
             message.stored_parts = Vec::new();
             match message.role {
-                Role::Tool => message.content = Content::Text(String::new()),
-                Role::Assistant if !message.tool_calls.is_empty() => message.content = Content::Text(String::new()),
+                Role::Tool => message.content = Content::Text(String::new().into()),
+                Role::Assistant if !message.tool_calls.is_empty() => message.content = Content::Text(String::new().into()),
                 Role::User | Role::Assistant => return Ok(false),
                 Role::System | Role::Developer => return Err(Unrepresentable { message_id: id.to_owned() }),
             }
@@ -288,7 +288,7 @@ mod tests {
         assert_eq!(ids, vec!["m0", "m1", "m2"], "image-only user message is omitted, nothing else");
         assert!(matches!(&msgs[0].content, Content::Parts(p) if p.len() == 1 && matches!(p[0], ContentPart::Text(..))));
         assert_eq!(msgs[2].tool_call_id.as_deref(), Some("c1"));
-        assert_eq!(msgs[2].content, Content::Text(String::new()), "a legal empty tool result stays");
+        assert_eq!(msgs[2].content, Content::Text(String::new().into()), "a legal empty tool result stays");
         assert_eq!(msgs[1].tool_calls.len(), 1);
     }
 
@@ -341,7 +341,7 @@ mod tests {
         };
         let mut tool = Message::new(Role::Tool, Content::Parts(vec![stored("a"), ContentPart::Text("x".into(), None), stored("b")]));
         tool.tool_call_id = Some("c1".into());
-        let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
         assistant.tool_calls.push(ToolCall { id: "c1".into(), name: "Read".into(), arguments: Value::Null, native_type: None });
         let history = || (vec!["a0".to_owned(), "t0".to_owned()], vec![assistant.clone(), tool.clone()]);
         let mut overlay = ImageOverlay::default();

@@ -166,12 +166,12 @@ impl ProviderAdapter for MultiWireAdapter {
     }
 
     /// The re-issue of a spent or cut send is the engine's of the model's wire.
-    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        self.route(model).is_some_and(|wire| self.engine(wire).recovers_spent(model, failure))
+    fn recovers_spent(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.route(&request.model).is_some_and(|wire| self.engine(wire).recovers_spent(request, failure))
     }
 
-    fn recovers_cut(&self, model: &str, failure: &ProviderError) -> bool {
-        self.route(model).is_some_and(|wire| self.engine(wire).recovers_cut(model, failure))
+    fn recovers_cut(&self, request: &ModelRequest, failure: &ProviderError) -> bool {
+        self.route(&request.model).is_some_and(|wire| self.engine(wire).recovers_cut(request, failure))
     }
 
     fn recovery_line(&self, model: &str, failure: &ProviderError) -> Option<String> {

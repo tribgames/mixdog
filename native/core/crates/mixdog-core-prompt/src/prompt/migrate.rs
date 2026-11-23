@@ -121,7 +121,7 @@ mod tests {
         );
         let sent = crate::prompt::blocks::request_system_messages(&h);
         assert_eq!(sent.len(), 3);
-        assert_eq!(sent[2].content, mixdog_core_api::domain::provider::Content::Text(tier3.to_owned()));
+        assert_eq!(sent[2].content, mixdog_core_api::domain::provider::Content::Text(tier3.to_owned().into()));
     }
 
     #[test]

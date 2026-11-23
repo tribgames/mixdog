@@ -249,6 +249,11 @@ impl SessionActor {
             }
             Err((error, tx))
         };
+        // `turn/takeover` is decided whole in one step, and writes on the control reserve as a Stop does.
+        if req.method.as_str() == "turn/takeover" {
+            self.take_over(req, tx);
+            return Ok(());
+        }
         if !self.outbox.has_room(Class::Normal) {
             let error = CoreError::WindowFull { thread_id: self.id.clone() };
             return fail(error, tx, &mut self.ops);
@@ -517,7 +522,9 @@ impl SessionActor {
         // The originals the acceptance found missing (`SessionHandle::turn_start`): a message built now drops them; a queued
         // entry keeps the submission as it was sent and records them beside it.
         let missing = super::super::staged_originals::missing_of(&req.params);
-        if !self.turn_busy() && !self.compaction_held() && self.compactions == 0 && self.clear_holds == 0 && !self.move_held() {
+        // The message of an accepted takeover is the next turn: a submission arriving before it started queues behind it.
+        let reserved = self.reserved_successor().is_some();
+        if !self.turn_busy() && !self.compaction_held() && self.compactions == 0 && self.clear_holds == 0 && !self.move_held() && !reserved {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;

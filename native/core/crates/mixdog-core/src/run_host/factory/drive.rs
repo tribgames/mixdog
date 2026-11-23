@@ -529,8 +529,8 @@ pub(super) async fn drive_turn(
         out: shown_tx,
         streaming,
         reasoning: Mutex::new(None),
-        last_send_tools: Mutex::new(Vec::new()),
-        chunked: std::sync::atomic::AtomicBool::new(false),
+        last_send_tools: Mutex::new(Default::default()),
+        chunked: Default::default(),
         live: live.clone(),
         rows: rows.clone(),
         cancel: cancel.clone(),
@@ -703,6 +703,7 @@ pub(super) async fn drive_turn(
             if signal.is_aborted() && is_watchdog_abort(&signal.reason()) {
                 // The turn has unwound: sweep what it registered while stopping (`reapTurnShellJobs`).
                 parts.reap_turn_shells(&thread, asked_at);
+                close_stalled(&end_port, &sink, &rows, &observed).await;
                 progress.error();
                 return failed(signal.reason(), Value::Null);
             }

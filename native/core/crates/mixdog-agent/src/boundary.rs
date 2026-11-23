@@ -103,8 +103,11 @@ impl ContextReading {
     /// input leaves the cache out, `input_excludes_cache`, has its cache reads and writes added back);
     /// no prompt leaves the window unknown until the next measured call.
     pub fn measure(&mut self, usage: &Usage, input_excludes_cache: bool) {
-        let prompt = prompt_tokens(usage, input_excludes_cache);
-        *self = if prompt == 0 { Self { tokens: None, stale_after_compact: true } } else { Self { tokens: Some(prompt), stale_after_compact: false } };
+        use crate::compact::pressure::ContextSize;
+        *self = match crate::compact::pressure::context_size(usage, input_excludes_cache) {
+            ContextSize::Prompt(tokens) | ContextSize::Occupancy(tokens) => Self { tokens: Some(tokens), stale_after_compact: false },
+            ContextSize::Unknown => Self { tokens: None, stale_after_compact: true },
+        };
     }
 }
 
@@ -213,6 +216,17 @@ pub struct Baseline {
 }
 
 impl Baseline {
+    /// The provider's reading of the request just sent over a transcript of `count` messages: its prompt and the reply
+    /// it billed, or the occupancy it measured, which holds both. `None` when the record reads as no size.
+    fn of(usage: &Usage, input_excludes_cache: bool, count: usize) -> Option<Self> {
+        use crate::compact::pressure::ContextSize;
+        match crate::compact::pressure::context_size(usage, input_excludes_cache) {
+            ContextSize::Prompt(prompt) => Some(Self { tokens: prompt + usage.output_tokens, output_tokens: usage.output_tokens, count }),
+            ContextSize::Occupancy(tokens) => Some(Self { tokens, output_tokens: 0, count }),
+            ContextSize::Unknown => None,
+        }
+    }
+
     /// The reading and the message count it covers. The assistant reply that
     /// followed the request is covered by its output usage; a continuation
     /// that appended no assistant message has its output removed instead.
@@ -234,13 +248,14 @@ fn is_dynamic_tool(tool: &ToolDefinition) -> bool {
 
 /// `adoptDynamicToolChanges` (`request-boundary.mjs:25`): the first request takes the candidate whole; later
 /// ones keep the frozen surface's eager prefix and adopt additions (at the end), schema updates (in place) and
-/// removals of its deferred / MCP definitions. An unchanged dynamic part leaves the surface as it was.
-pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<Vec<ToolDefinition>>, candidate: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
+/// removals of its deferred / MCP definitions. An unchanged dynamic part leaves the surface as it was: `None`. Of the
+/// frozen surface only the definitions the new one keeps are copied.
+pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<&[ToolDefinition]>, candidate: Vec<ToolDefinition>) -> Option<Vec<ToolDefinition>> {
     let Some(fixed) = fixed else {
-        return candidate;
+        return Some(candidate);
     };
     if candidate.iter().filter(|t| is_dynamic_tool(t)).eq(fixed.iter().filter(|t| is_dynamic_tool(t))) {
-        return fixed;
+        return None;
     }
     // `new Map(...)`: a name keeps the position of its first definition and the value of its last.
     let mut replacements: Vec<(String, ToolDefinition)> = Vec::new();
@@ -252,14 +267,14 @@ pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<Vec<ToolDefinition>>, can
     }
     let mut merged = Vec::with_capacity(fixed.len());
     for tool in fixed {
-        if !is_dynamic_tool(&tool) {
-            merged.push(tool);
+        if !is_dynamic_tool(tool) {
+            merged.push(tool.clone());
         } else if let Some(at) = replacements.iter().position(|(name, _)| *name == tool.name) {
             merged.push(replacements.remove(at).1);
         }
     }
     merged.extend(replacements.into_iter().map(|(_, tool)| tool));
-    merged
+    Some(merged)
 }
 
 impl Run {
@@ -270,13 +285,48 @@ impl Run {
 
     /// The tools the request carries: the frozen surface once the boundary has taken it.
     pub(crate) fn request_tools(&self) -> Vec<ToolDefinition> {
-        self.fixed_surface.clone().unwrap_or_else(|| self.candidate_tools())
+        self.fixed_surface.as_ref().map_or_else(|| self.candidate_tools(), |surface| surface.to_vec())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The run's own reading and the baseline its pressure grows from are the context's size, never a turn's sum: a
+    /// batch of a turn reads the occupancy the provider measured, the batch that ends the turn reads it too whatever
+    /// the turn was billed, a call of one prompt reads that prompt, and a run cut before it reported reads nothing
+    /// and keeps what it had.
+    #[test]
+    fn the_runs_reading_of_a_turns_summed_usage_is_the_measured_occupancy() {
+        let raw = |raw: serde_json::Value| Some(raw);
+        let batch = Usage { output_tokens: 134, raw: raw(serde_json::json!({ "input_tokens_known": false, "context_tokens": 8_000 })), ..Usage::default() };
+        let ended = Usage {
+            input_tokens: 37_108,
+            cache_read_tokens: 19_933,
+            output_tokens: 377,
+            raw: raw(serde_json::json!({ "input_tokens_known": true, "input_tokens_scope": "turn", "context_tokens": 9_000 })),
+            ..Usage::default()
+        };
+        let unmeasured = Usage { raw: raw(serde_json::json!({ "input_tokens_scope": "turn", "context_tokens": null })), ..ended.clone() };
+        let one_prompt = Usage { input_tokens: 700, output_tokens: 30, ..Usage::default() };
+        // `(the record, the in-run reading, the pressure the baseline gives a transcript nothing was appended to)`
+        for (usage, reading, pressure) in [
+            (&batch, Some(8_000), Some(8_000)),
+            (&ended, Some(9_000), Some(9_000)),
+            (&unmeasured, None, None),
+            (&one_prompt, Some(700), Some(700)),
+            (&Usage::default(), None, None),
+        ] {
+            let mut context = ContextReading { tokens: Some(1), stale_after_compact: false };
+            context.measure(usage, false);
+            assert_eq!(context.tokens, reading, "{usage:?}");
+            let baseline = Baseline::of(usage, false, 0);
+            assert_eq!(baseline.and_then(|baseline| baseline.coverage(&[])).map(|(tokens, _)| tokens), pressure, "{usage:?}");
+        }
+        // A turn that ends on a tool call, the run going on: the next send grows from the batch's occupancy.
+        assert_eq!(Baseline::of(&batch, false, 3).map(|baseline| (baseline.tokens, baseline.count)), Some((8_000, 3)));
+    }
 
     fn settings(window: u64) -> CompactSettings {
         CompactSettings { auto: true, context_window: Some(window), token_calibration: 1.0, ..CompactSettings::default() }
@@ -321,12 +371,8 @@ mod tests {
 impl Run {
     /// Records the provider's reading of the request just sent.
     pub(crate) fn record_baseline(&mut self, usage: &Usage, input_excludes_cache: bool) {
-        let prompt = prompt_tokens(usage, input_excludes_cache);
-        let tokens = prompt + usage.output_tokens;
-        if prompt == 0 || tokens == 0 {
-            return;
-        }
-        self.baseline = Some(Baseline { tokens, output_tokens: usage.output_tokens, count: self.messages.len() });
+        let Some(baseline) = Baseline::of(usage, input_excludes_cache, self.messages.len()) else { return };
+        self.baseline = Some(baseline);
         // `recordProviderContextBaseline` drops the session's unanchored mark.
         self.reanchored = true;
     }
@@ -366,7 +412,10 @@ impl Run {
             candidate = Some(mcp.snapshot(self.candidate_tools(), &self.messages).await.map_err(AgentError::RequestTools)?);
         }
         let candidate = candidate.unwrap_or_else(|| self.candidate_tools());
-        self.fixed_surface = Some(adopt_dynamic_tool_changes(self.fixed_surface.take(), candidate));
+        // An unchanged dynamic part leaves the surface, and the allocation its holders share, as it was.
+        if let Some(surface) = adopt_dynamic_tool_changes(self.fixed_surface.as_deref(), candidate) {
+            self.fixed_surface = Some(surface.into());
+        }
         Ok(())
     }
 

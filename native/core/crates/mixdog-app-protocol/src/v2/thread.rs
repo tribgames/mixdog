@@ -804,6 +804,95 @@ pub struct TurnSteerResponse {
     pub queued_id: QueuedId,
 }
 
+/// "Send now" on a queued message: the turn the user saw running ends taken over by that message, and the message starts
+/// the next turn. One command: the thread decides it in one step against the turn that runs and the queue as they are then.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TurnTakeoverParams {
+    pub thread_id: ThreadId,
+    /// The takeover's own id, the same for every send of it: a repeat is answered the first one's receipt.
+    pub op_id: OpId,
+    /// The turn the user saw running. Any other turn, the one running now included, is left alone.
+    pub turn_id: TurnId,
+    /// The queued message: its queue id, or the submission it answers (`clientSubmissionId`).
+    pub queued_id: QueuedId,
+}
+
+/// The receipt of a takeover: what was decided, and what became of the message. A refusal changed nothing: no turn was
+/// stopped, and nothing of the turn running now (its tools, approvals and background jobs) was touched.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TurnTakeoverResponse {
+    /// The message is the input of the thread's next turn. The receipt says what the takeover did, never how the named turn
+    /// ended: that is read from the turn's own end, whose `cause` is `message` when the takeover is what ended it.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "codegen", ts(optional_fields))]
+    Accepted {
+        /// The turn the request named.
+        turn_id: TurnId,
+        /// The message's queue id.
+        queued_id: QueuedId,
+        /// The submission the message answers (`clientSubmissionId`), which the row of the turn it starts carries.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        submission_id: Option<String>,
+        /// The takeover asked the named turn to stop for the message. False: that turn was already at its end and was left
+        /// to finish (taken as the next turn, no interruption).
+        interrupt_requested: bool,
+        /// Always `successor`.
+        message: TakeoverMessage,
+        /// The pasted images and texts of the taken-over turn's prompt, which is not handed back, for the client to discard.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        discard_pasted_images: Option<JsonValue>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        discard_pasted_texts: Option<JsonValue>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Refused {
+        /// The turn the request named.
+        turn_id: TurnId,
+        /// The message as the request named it.
+        queued_id: QueuedId,
+        reason: TakeoverRefusal,
+        message: TakeoverMessage,
+    },
+}
+
+/// What became of the message a takeover named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum TakeoverMessage {
+    /// It is the input of the thread's next turn.
+    Successor,
+    /// It is still queued, as it was.
+    Queued,
+    /// It is no longer queued: a turn took it as its input, or it was removed or handed back.
+    Consumed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+/// Why a takeover was refused. The checks run in this order, before anything is changed, and the first that applies is named.
+pub enum TakeoverRefusal {
+    /// The thread runs no turn.
+    NoRunningTurn,
+    /// The running turn cannot be taken over now: a compaction is in progress, or the core holds new turns back.
+    TurnNotTakeable,
+    /// A Stop already claimed the named turn, or withdrew this message.
+    StopClaimed,
+    /// Another message already took the named turn over.
+    TakenOver,
+    /// Too late: the message is no longer queued, or the model already read it.
+    TooLate,
+    /// The named turn is not the one running.
+    TurnMismatch,
+    /// The message cannot be delivered to the model as it is.
+    MessageUndeliverable,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -830,6 +919,7 @@ has_op_id!(
     ThreadGoalControlParams,
     ThreadBackgroundTerminalParams,
     TurnStartParams,
+    TurnTakeoverParams,
     TurnRetryFailedParams,
 );
 
@@ -969,6 +1059,12 @@ pub struct TranscriptUnit {
     /// `thread/items/list` cursor in either direction.
     pub position: String,
     pub items: Vec<ThreadItem>,
+    /// The occurrence's exact ordinal in its lineage's log order: what a client indexes the units it holds by. A
+    /// position is not made of it, and positions are never parsed or compared for order. Absent from a unit that
+    /// states none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub ordinal: Option<u64>,
 }
 
 /// What a positioned transcript change does to the rows a subscription holds. There is no "replace, or append when
@@ -1242,6 +1338,10 @@ pub enum StorageState {
 pub struct ThreadRuntime {
     #[serde(default)]
     pub busy: bool,
+    /// The turn that is running; absent while none is. A turn's end is written once, when the turn closes: an end of
+    /// another turn than this one closed a turn that is over, whatever `busy` says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
     #[serde(default)]
     pub command_busy: bool,
     #[serde(default)]

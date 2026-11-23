@@ -174,6 +174,11 @@ pub struct VisualizeHostTab {
     pub thumbnail_version: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Vec<VisualizeAnnotation>>,
+    /// The running turn's own tab, shown at the user's request while the turn still writes it. Always `true` when
+    /// present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "true"))]
+    pub turn_work: Option<bool>,
 }
 
 /// A pane with the symlink-resolved file it shows.

@@ -109,7 +109,7 @@ fn a_configured_codex_prefix_lane_hashes_the_session_not_the_thread_id() {
 #[test]
 fn xai_chat_tool_results_do_not_add_file_id_placeholders_to_the_prefix() {
     let mut req = request(RequestOptions::default());
-    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
     assistant.tool_calls.push(ToolCall { id: "call_1".into(), name: "capture".into(), arguments: json!({}), native_type: None });
     let mut tool = Message::new(
         Role::Tool,

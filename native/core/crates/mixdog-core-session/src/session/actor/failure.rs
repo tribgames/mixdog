@@ -3,24 +3,9 @@
 use super::*;
 
 impl SessionActor {
-    /// A compaction record the encoder rejected leaves no divider: its pair, if its event has not come, is dropped with it.
-    fn compact_record_failed(&mut self, cid: &str) {
-        if let Some(pairs) = &mut self.compact_pairs
-            && let Some(seq) = pairs.dividers.iter().find(|(_, waiting)| waiting.cid == cid).map(|(seq, _)| *seq)
-        {
-            pairs.dividers.remove(&seq);
-            pairs.lost.insert(seq);
-        }
-    }
-
     pub(super) fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
         // A row that will never be written: its result stays with the draft.
         self.draft_results.remove(&entry.id);
-        if let Change::Record { record, .. } = &entry.change
-            && let Record::Compacted(compacted) = &**record
-        {
-            self.compact_record_failed(compacted.cid.as_str());
-        }
         #[cfg(any(test, feature = "test-support"))]
         if let Some(durable) = &entry.durable {
             self.outbox.note_failed(durable, format!("{error:?}"));

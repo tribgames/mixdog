@@ -101,7 +101,7 @@ fn joined_text(parts: &[JsonValue]) -> String {
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn content_value(role: Role, content: &Content, cache_control: bool) -> Result<JsonValue, ProviderError> {
     match content {
-        Content::Text(text) => Ok(JsonValue::String(text.clone())),
+        Content::Text(text) => Ok(JsonValue::String(text.to_string())),
         Content::Parts(parts) => {
             let mut lowered = lower_parts(parts, cache_control)?;
             if cache_control && role == Role::System {
@@ -125,7 +125,7 @@ const TOOL_MEDIA_NOTE: &str = "[tool result included media content in the follow
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn split_tool_content(content: &Content, omit_file_ids: bool) -> Result<(String, Vec<JsonValue>), ProviderError> {
     match content {
-        Content::Text(text) => Ok((text.clone(), Vec::new())),
+        Content::Text(text) => Ok((text.to_string(), Vec::new())),
         Content::Parts(parts) => {
             let mut lowered = Vec::with_capacity(parts.len());
             for part in parts {
@@ -354,9 +354,9 @@ mod tests {
         let owner = ProviderId::from("deepseek");
         let body = "src/first.rs:12: parsed configuration\nsrc/second.rs:35: resolved the workspace";
         let pair = |id: &str, body: &str| {
-            let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+            let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
             assistant.tool_calls.push(ToolCall { id: id.to_owned(), name: "grep".into(), arguments: json!({"pattern": "configuration"}), native_type: None });
-            let mut result = Message::new(Role::Tool, Content::Text(body.to_owned()));
+            let mut result = Message::new(Role::Tool, Content::Text(body.to_owned().into()));
             result.tool_call_id = Some(id.to_owned());
             [assistant, result]
         };

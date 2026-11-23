@@ -476,6 +476,25 @@ as P §9.2 defines it; `result` only when its encoding is ≤ 16 KiB. Timestamps
 integer milliseconds since the Unix epoch; imported source times stay in the opaque
 values that carry them (`archive.at` keeps the source value).
 
+Two optional fields beside those of the table, added under `session.v` 2 as `draft` was
+(a build whose record types lack them refuses the record whole, so a log holding either
+is not read by an earlier build; no log is rewritten to add them):
+
+- `run.end?: "display"`, on `started` only: where the turn's end is stored. Absent: on the
+  message the turn ended on (`meta.transcript.completion`, or the cut line's
+  `meta.turnEnd`), which a reader shows by the 1.4.5 restore rule. `display`: a visible
+  `item` of the turn with `form:"display"`, `model:false`, whose body is the end row
+  (`{kind:"turndone", id, status, elapsedMs, …}`), written when the turn closes, after
+  the turn's last output and before any output of a later turn; a message of such a turn
+  shows no end of its own, whatever it records. The mark is the turn's, read by every
+  build alike: one log holds turns of both kinds. The index keeps it as `turns.end_form`
+  and, for each row written after the turn's `started`, `history.end_form`.
+
+A compaction that lists a divider is an occurrence of a transcript page at its own
+ordinal (`SqliteStore::unit_page_on_lane`): pages run over history rows and such
+boundaries in one ordinal order per lineage level, in both directions, and a boundary is
+found by its `cid` (`compactions_cid`).
+
 ### 5.3 Fold
 
 SM §5.2, with: inputs of run `r` = `item`s with `turn == r` before `run{r, started}`;

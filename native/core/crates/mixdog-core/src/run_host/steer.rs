@@ -27,7 +27,7 @@ impl SteerQueue {
 fn content_of(message: &serde_json::Value) -> Content {
     match message {
         serde_json::Value::Array(_) => mixdog_agent::message_row::content_from_value(message).expect("a queued prompt's parts decode as a stored row's"),
-        other => Content::Text(other.as_str().unwrap_or_default().to_owned()),
+        other => Content::Text(other.as_str().unwrap_or_default().to_owned().into()),
     }
 }
 

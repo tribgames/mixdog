@@ -173,7 +173,8 @@ pub fn idle(handle: &SessionHandle) -> bool {
 /// they answer `history changed or has pending writes` (`history_revision`), which an empty `run` alone does not rule out.
 pub fn settled_idle(handle: &SessionHandle) -> bool {
     use std::sync::atomic::Ordering::SeqCst;
-    idle(handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0
+    // Everything accepted is released too: a turn's terminal record waits for the units of what the turn stored.
+    idle(handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0 && handle.cell.recovered.load(SeqCst)
 }
 
 #[tokio::test(start_paused = true)]
@@ -2046,7 +2047,7 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
                     delta_tool_calls: 2,
                     request_ms: 340,
                     delta_prompt: 15,
-                    send_tools: Vec::new(),
+                    send_tools: Default::default(),
                     reasoning_tokens: Some(4),
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new().into(),
@@ -2115,7 +2116,7 @@ async fn a_streaming_tool_call_stamps_the_stored_heartbeat_once_a_minute() {
                         delta_tool_calls: 0,
                         request_ms: 0,
                         delta_prompt: 1,
-                        send_tools: Vec::new(),
+                        send_tools: Default::default(),
                         reasoning_tokens: None,
                         reasoning_tokens_complete: false,
                         outgoing: Vec::new().into(),
@@ -2161,7 +2162,7 @@ async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
                     delta_tool_calls: 0,
                     request_ms: 0,
                     delta_prompt: 10,
-                    send_tools: Vec::new(),
+                    send_tools: Default::default(),
                     reasoning_tokens: None,
                     reasoning_tokens_complete: false,
                     outgoing: Vec::new().into(),
@@ -3163,7 +3164,7 @@ async fn a_steered_prompt_shows_under_its_client_submission_beside_the_starters(
             open.notified().await;
             for input in run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take") {
                 let entry = mixdog_agent::env::SteerEntry {
-                    content: mixdog_core_api::domain::provider::Content::Text(input.content.as_str().expect("text").to_owned()),
+                    content: mixdog_core_api::domain::provider::Content::Text(input.content.as_str().expect("text").to_owned().into()),
                     text: input.text,
                     ids: input.queued_ids.iter().map(|id| id.as_str().to_owned()).collect(),
                     submitted_at: input.submitted_at,
@@ -4011,7 +4012,7 @@ async fn run_live_events() -> LiveEvents {
                     delta_tool_calls: 2,
                     request_ms: 340,
                     delta_prompt: 15,
-                    send_tools: vec![tool],
+                    send_tools: vec![tool].into(),
                     reasoning_tokens: Some(4),
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new().into(),
@@ -4455,7 +4456,7 @@ fn compaction_rows(handle: &SessionHandle) -> Vec<(i64, Option<String>)> {
 }
 
 #[tokio::test(start_paused = true)]
-async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
+async fn one_compaction_of_a_run_shows_one_divider_and_none_of_its_figures() {
     for event_first in [true, false] {
         let rig = Rig::new();
         rig.set_script(Arc::new(move |run| {
@@ -4479,7 +4480,7 @@ async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        assert_eq!(compaction_rows(&handle), [(777, Some("1s · 537k→41k".to_owned()))], "event first: {event_first}");
+        assert_eq!(compaction_rows(&handle), [(777, None)], "event first: {event_first}");
     }
 }
 
@@ -4510,11 +4511,8 @@ async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
         eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
-        assert_eq!(
-            compaction_rows(&handle),
-            [(777, Some("1s · 537k→41k".to_owned())), (888, Some("1s · 300k→20k".to_owned()))],
-            "live, event first: {event_first}"
-        );
+        // Two dividers in the order of their passes, each the divider alone: the same live and read back.
+        assert_eq!(compaction_rows(&handle), [(777, None), (888, None)], "live, event first: {event_first}");
         let id = handle.id.clone();
         let reopened = SessionDirectory::new(rig.deps_on(store));
         let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
@@ -4557,11 +4555,7 @@ async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_
         turn(&handle, "go", "op-1").await;
         // Settled, as the test above: an empty `run` alone does not say the events the run sent last are applied.
         eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
-        assert_eq!(
-            compaction_rows(&handle),
-            [(777, Some("1s · 537k→41k".to_owned())), (999, Some("1s · 300k→20k".to_owned()))],
-            "live, event first: {event_first}"
-        );
+        assert_eq!(compaction_rows(&handle), [(777, None), (999, None)], "live, event first: {event_first}");
         let id = handle.id.clone();
         let reopened = SessionDirectory::new(rig.deps_on(store));
         let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
@@ -5430,104 +5424,528 @@ async fn a_recovered_positioned_subscription_holds_the_snapshots_window_and_noth
     assert!(matches!(set(recovered_at, retain, "void").await, Err(CoreError::InvalidParams { .. })));
 }
 
-/// A compaction under two positioned subscriptions: the one that holds the record the divider follows is sent that
-/// record again with the divider after it, and the archived rows it holds with their mark; neither is sent the divider
-/// as a row of its own, and the one that holds nothing is sent no row at all.
+/// A question still waiting for the person: the unit of its stored record (what a positioned snapshot or window holds once
+/// the record is stored) shows its call open, as the live card does, not finished without a result, which a client draws
+/// as a question closed unanswered. The stored answer finishes it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_compaction_reaches_a_positioned_subscription_through_the_records_it_holds() {
+async fn a_waiting_questions_stored_call_stays_open_until_its_answer_is_stored() {
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
     let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = positioned_directory(&rig, store);
-    let handle = start_thread(&directory).await;
-    turn(&handle, "first", "op-1").await;
-    stored_rows(&handle, 1).await;
-    let id = handle.id.clone();
-    let (a, _feed_a, _sub_a, _snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
-    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
-    let version_b = snapshot_b["params"]["window"]["windowVersion"].as_u64().expect("a window version");
-    window_set(&handle, &b, "b", version_b, "release", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
-
     rig.set_script(Arc::new(|run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
-            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
-            run.port.compacted(compaction).await.expect("compacted");
+            let questions = json!([{ "question": "Which one?", "header": "Pick", "options": [
+                { "label": "A", "description": "a" }, { "label": "B", "description": "b" }] }]);
+            let call = json!({ "id": "c1", "name": "ask_user", "arguments": { "questions": questions.clone() } });
+            let commit = |iid: &str, role: &str, body: Value| ItemCommit {
+                iid: ItemId::from(iid.to_owned()),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
+            run.port.commit_item(commit("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }))).await.expect("call");
+            let ask = ApprovalAsk {
+                kind: ApprovalKind::UserInput,
+                call_id: Some("c1".into()),
+                tool: Some("ask_user".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({ "questions": questions }),
+                remember: Vec::new(),
+                expires_after: None,
+            };
+            assert!(matches!(run.port.request(ask).await, ApprovalResolution::Decided { .. }));
+            let answer = json!({ "role": "tool", "toolCallId": "c1", "content": "User replied in chat: \"the other one\". You can now continue with these answers in mind." });
+            run.port.commit_item(commit("t1", "tool", answer)).await.expect("answer");
             RunOutcome::Completed(Default::default())
         })
     }));
-    turn(&handle, "compact", "op-2").await;
-    let archived = |handle: &SessionHandle| {
-        handle.cell.view.load_full().items.first().is_some_and(|item| super::view::meta(item).ext.get("archived") == Some(&json!(true)))
-    };
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && archived(&handle)).then_some(())).await;
+    let directory = record_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "post it on the other one", "op-1").await;
+    let stored_call = |handle: &SessionHandle| tail_call(handle, "c1");
+    let published = eventually_on!(&[&handle.cell.stepped], || {
+        rig.sink.events().into_iter().find_map(|event| match event {
+            ServerRequestEvent::Published(request) => Some(request),
+            _ => None,
+        })
+    })
+    .await;
+    let waiting = eventually_on!(&[&handle.cell.stepped], || stored_call(&handle)).await;
+    assert_eq!(waiting, (false, Some(0), None), "the waiting question's stored call reads open");
 
-    let text = |frame: &Value| frame.to_string();
-    let told = |frames: &[String]| {
-        let frames = lane_frames(frames);
-        frames.iter().any(|frame| text(frame).contains("dividersAfter")) && frames.iter().any(|frame| text(frame).contains("\"archived\":true"))
-    };
-    let to_a = lane_frames(&a.drain_text_until(told).await);
-    let with_divider: Vec<&Value> = to_a.iter().filter(|frame| text(frame).contains("dividersAfter")).collect();
-    // The record the divider follows is sent as its page reads: again where it was held, or first with the divider on it.
-    assert!(
-        with_divider.iter().all(|frame| frame["params"]["change"]["unit"].to_string().contains("dividersAfter")),
-        "the divider rides its record's unit: {with_divider:?}"
-    );
-    let marked: Vec<&Value> = to_a.iter().filter(|frame| text(frame).contains("\"archived\":true")).collect();
-    assert!(marked.iter().all(|frame| frame["params"]["change"]["op"] == "replace"), "{marked:?}");
-    let own_row = |frame: &Value| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "contextCompaction";
-    assert!(!to_a.iter().any(own_row), "{to_a:?}");
-
-    // B holds nothing: every transcript event is progress, and the divider is no row of its own there either.
-    let reached = |frames: &[String]| lane_frames(frames).iter().filter(|frame| frame["method"] == "thread/transcript/changed").count() >= 2;
-    let to_b = lane_frames(&b.drain_text_until(reached).await);
-    assert!(to_b.iter().filter(|frame| frame["method"] == "thread/transcript/changed").all(|frame| frame["params"].get("change").is_none()), "{to_b:?}");
-    assert!(!to_b.iter().any(own_row), "{to_b:?}");
+    handle
+        .decide(Decision {
+            request: published.id.clone(),
+            connection: ConnectionId(1),
+            device: "desktop-1".into(),
+            connection_kind: ConnectionKind::Desktop,
+            origin: mixdog_protocol::Origin::Local,
+            result: json!({ "approved": true, "reply": "the other one" }),
+        })
+        .expect("routed");
+    let answered = eventually_on!(&[&handle.cell.stepped], || stored_call(&handle).filter(|(result, ..)| *result)).await;
+    assert_eq!(answered.2, Some(mixdog_protocol::ItemStatus::Completed), "the stored answer finishes the call");
 }
 
-/// A compaction in a turn whose prompt a positioned subscription already holds: the prompt's record is sent again, in
-/// place, with the divider after it.
+/// A directory over the real store whose rows are the stored records' own (`RecordTranscript`) and whose feeds hold
+/// positioned grants.
+fn record_directory(rig: &Rig, store: Arc<dyn super::ThreadStore>) -> SessionDirectory {
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    deps.feeds = Arc::new(super::store::CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+    SessionDirectory::new(Arc::new(deps))
+}
+
+/// A visible row `iid` of `role` committed by a run.
+fn visible_row(iid: &str, role: &str, body: Value) -> ItemCommit {
+    ItemCommit { iid: ItemId::from(iid.to_owned()), role: Some(role.into()), model: true, visible: true, body, prompt: None }
+}
+
+/// The call `call` among `items`: whether it has a result, its done count and its status.
+fn call_state(items: impl IntoIterator<Item = ThreadItem>, call: &str) -> Option<(bool, Option<u32>, Option<mixdog_protocol::ItemStatus>)> {
+    items.into_iter().find_map(|item| match item {
+        ThreadItem::ToolCall { run, meta, .. } if run.call_id.as_deref() == Some(call) => Some((run.result.is_some(), run.completed_count, meta.status)),
+        _ => None,
+    })
+}
+
+/// The call `call` in the stored units a positioned snapshot of `handle` carries now.
+fn tail_call(handle: &SessionHandle, call: &str) -> Option<(bool, Option<u32>, Option<mixdog_protocol::ItemStatus>)> {
+    call_state(handle.cell.view.load_full().tail.units.iter().flat_map(|unit| unit.unit.items.clone()), call)
+}
+
+/// The call `call` in wire units (`[{position, items}]`).
+fn units_call(units: &Value, call: &str) -> Option<(bool, Option<u32>, Option<mixdog_protocol::ItemStatus>)> {
+    let items = units.as_array().into_iter().flatten().flat_map(|unit| unit["items"].as_array().cloned().unwrap_or_default());
+    call_state(items.map(|item| serde_json::from_value::<ThreadItem>(item).expect("an item")), call)
+}
+
+/// A call whose record was stored but whose result never was (its turn ended without it), in an idle thread opened at its
+/// tail: nothing in the session runs it, so it reads as ended without a result, never as running.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_compaction_after_a_held_record_sends_that_record_again_with_the_divider() {
+async fn an_abandoned_call_reads_ended_in_an_idle_thread() {
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
     let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = positioned_directory(&rig, store);
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }))).await.expect("call");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = record_directory(&rig, store);
     let handle = start_thread(&directory).await;
-    turn(&handle, "first", "op-1").await;
-    stored_rows(&handle, 1).await;
-    let id = handle.id.clone();
-    let (a, _feed_a, _sub_a, _snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    turn(&handle, "list", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && tail_call(&handle, "c1").is_some()).then_some(())).await;
+    let (_conn, _feed, _sub, snapshot) = positioned_subscriber(&directory, &handle.id, 1, "a").await;
+    let opened = units_call(&snapshot["params"]["window"]["added"][0]["units"], "c1").expect("the call in the snapshot");
+    assert_eq!(opened, (false, Some(1), Some(mixdog_protocol::ItemStatus::Interrupted)), "the abandoned call reads ended, not answered");
+}
 
+/// A history page read while a call's turn runs shows the call open, as its live card does, never stopped; the same
+/// page once the turn has ended with no record that answers the call shows it ended, not answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_history_page_reads_a_running_turns_call_open_and_an_ended_turns_not_answered() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
     let go = Arc::new(tokio::sync::Notify::new());
     let gate = go.clone();
     rig.set_script(Arc::new(move |run| {
         let gate = gate.clone();
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }))).await.expect("call");
             gate.notified().await;
-            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
-            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
-            run.port.compacted(compaction).await.expect("compacted");
             RunOutcome::Completed(Default::default())
         })
     }));
-    let text = |frame: &Value| frame.to_string();
-    let prompt = |frames: &[String]| lane_frames(frames).iter().any(|frame| frame["params"]["change"]["op"] == "insert" && text(frame).contains("compact now"));
-    let running = handle.clone();
-    let turned = tokio::spawn(async move { turn(&running, "compact now", "op-2").await });
-    // The prompt's record is held before the compaction is made.
-    a.drain_text_until(prompt).await;
+    let directory = record_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "list", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || tail_call(&handle, "c1")).await;
+    let paged = || async {
+        let asked = request("thread/items/list", json!({ "threadId": handle.id, "limit": 50 }), "page");
+        let Reply::Value(page) = directory.request(asked).await.expect("a page") else { panic!("a value") };
+        units_call(&json!([{ "items": page["data"] }]), "c1")
+    };
+    assert_eq!(paged().await, Some((false, Some(0), None)), "the running turn's call reads open");
     go.notify_one();
-    turned.await.expect("the turn");
-    let divided = |frames: &[String]| lane_frames(frames).iter().any(|frame| text(frame).contains("dividersAfter"));
-    let to_a = lane_frames(&a.drain_text_until(divided).await);
-    let with_divider: Vec<&Value> = to_a.iter().filter(|frame| text(frame).contains("dividersAfter")).collect();
-    assert!(with_divider.iter().all(|frame| frame["params"]["change"]["op"] == "replace"), "{with_divider:?}");
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    assert_eq!(paged().await, Some((false, Some(1), Some(mixdog_protocol::ItemStatus::Interrupted))), "the ended turn's call reads not answered");
+}
+
+/// The call of a stored record whose turn stores its end as `end`: with no record that answers it, it reads ended and
+/// not answered (interrupted, with no time it completed at), never completed; the record that stores its result
+/// completes it.
+async fn a_stored_call_with_no_result_reads_not_answered(end: Option<mixdog_store::schema::record::TurnEndForm>) {
+    let record = |iid: &str, body: Value| {
+        let stored = json!({ "iid": iid, "turn": "t1", "form": "message", "model": true, "visible": true, "refs": [], "body": { "inline": {} } });
+        let mut record: mixdog_store::schema::record::ItemRecord = serde_json::from_value(stored).expect("record shape");
+        record.body = mixdog_store::schema::blob::Slot::Inline(body);
+        record
+    };
+    let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+    let asked = json!({ "role": "assistant", "content": "", "toolCalls": [call], "meta": { "transcript": { "at": 1000 } } });
+    let answer = json!({ "role": "tool", "toolCallId": "c1", "content": "a.txt" });
+    let (asked, answer) = (record("a1", asked), record("t1", answer));
+    let transcript = super::testing::RecordTranscript::new();
+    let (shown, answered) = mixdog_rt::LaneToken::submit(mixdog_rt::testing::tokens().cpu_interactive, &CancellationToken::new(), move |lane| {
+        use super::seams::Transcript as _;
+        (transcript.items_as(lane, &asked, end), transcript.items_as(lane, &answer, end))
+    })
+    .expect("lane")
+    .await
+    .expect("job ran");
+    let stored = shown
+        .into_iter()
+        .find_map(|shown| match shown {
+            super::seams::Shown::Item(item @ ThreadItem::ToolCall { .. }) => Some(item),
+            _ => None,
+        })
+        .expect("the call's row");
+    let ThreadItem::ToolCall { run, .. } = &stored else { unreachable!() };
+    assert_eq!(run.completed_at, None, "it completed at no time");
+    assert_eq!(call_state([stored.clone()], "c1"), Some((false, Some(1), Some(mixdog_protocol::ItemStatus::Interrupted))));
+
+    let update = answered
+        .into_iter()
+        .find_map(|shown| match shown {
+            super::seams::Shown::Update(update) => Some(update),
+            super::seams::Shown::Item(_) => None,
+        })
+        .expect("the result's update");
+    let answered = super::seams::merge_update(&stored, &update);
+    assert_eq!(call_state([answered], "c1"), Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed))));
+}
+
+/// A log whose turns end on their last message (written before a turn's end was a record of its own).
+#[tokio::test]
+async fn a_call_with_no_stored_result_reads_not_answered_in_a_log_that_ends_turns_on_the_message() {
+    a_stored_call_with_no_result_reads_not_answered(None).await;
+}
+
+/// A log whose turns store their end as a display record.
+#[tokio::test]
+async fn a_call_with_no_stored_result_reads_not_answered_in_a_log_with_display_ends() {
+    a_stored_call_with_no_result_reads_not_answered(Some(mixdog_store::schema::record::TurnEndForm::Display)).await;
+}
+
+/// Two calls of one record: the first one's result is shown before any result row is stored, the second still runs. A
+/// snapshot then (a reconnect) carries the first closed with its result and the second open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_closed_early_reads_closed_while_its_batch_runs() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let go = Arc::new(tokio::sync::Notify::new());
+    let gate = go.clone();
+    rig.set_script(Arc::new(move |run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let calls = json!([
+                { "id": "c1", "name": "shell", "arguments": { "command": "ls" } },
+                { "id": "c2", "name": "shell", "arguments": { "command": "sleep 9" } },
+            ]);
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": calls }))).await.expect("calls");
+            run.port.early_result(json!({ "role": "tool", "toolCallId": "c1", "content": "a.txt" })).await.expect("the early result");
+            gate.notified().await;
+            for (iid, call, text) in [("t1", "c1", "a.txt"), ("t2", "c2", "slept")] {
+                run.port.commit_item(visible_row(iid, "tool", json!({ "role": "tool", "toolCallId": call, "content": text }))).await.expect("result");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = record_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "list and wait", "op-1").await;
+    let closed_live =
+        |handle: &SessionHandle| call_state(handle.cell.view.load_full().items.iter().map(|item| (**item).clone()), "c1").is_some_and(|(result, ..)| result);
+    eventually_on!(&[&handle.cell.stepped], || (closed_live(&handle) && tail_call(&handle, "c2").is_some()).then_some(())).await;
+    let (_conn, _feed, _sub, snapshot) = positioned_subscriber(&directory, &handle.id, 1, "a").await;
+    let units = &snapshot["params"]["window"]["added"][0]["units"];
+    assert_eq!(units_call(units, "c1"), Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed))), "the closed call carries its result");
+    assert_eq!(units_call(units, "c2"), Some((false, Some(0), None)), "the running call reads open");
+    go.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+}
+
+/// A question still waiting, with more stored records after its call than a page reads on for results: a window anchored
+/// at the call shows it open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_waiting_question_far_back_reads_open_in_a_window_anchored_at_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let questions = json!([{ "question": "Which one?", "header": "Pick", "options": [
+                { "label": "A", "description": "a" }, { "label": "B", "description": "b" }] }]);
+            let call = json!({ "id": "c1", "name": "ask_user", "arguments": { "questions": questions.clone() } });
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }))).await.expect("call");
+            for n in 0..65 {
+                run.port
+                    .commit_item(visible_row(&format!("n{n}"), "assistant", json!({ "role": "assistant", "content": format!("note {n}") })))
+                    .await
+                    .expect("note");
+            }
+            let ask = ApprovalAsk {
+                kind: ApprovalKind::UserInput,
+                call_id: Some("c1".into()),
+                tool: Some("ask_user".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({ "questions": questions }),
+                remember: Vec::new(),
+                expires_after: None,
+            };
+            let _ = run.port.request(ask).await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = record_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "post it", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).map(drop)).await;
+    let (conn, _feed, _sub, snapshot) = positioned_subscriber(&directory, &handle.id, 1, "a").await;
+    let version = snapshot["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let at_call = json!({ "ranges": [{ "at": "around", "position": "h1:0:a1", "before": 0, "after": 0 }], "followTail": false, "pinned": [] });
+    let (_, paged) = window_set(&handle, &conn, "a", version, "page", at_call).await;
+    assert_eq!(units_call(&paged["params"]["added"][0]["units"], "c1"), Some((false, Some(0), None)), "the waiting question reads open");
+}
+
+/// The call `call` in the unit a `thread/transcript/changed` frame carries.
+fn frame_call(frame: &Value, call: &str) -> Option<(bool, Option<u32>, Option<mixdog_protocol::ItemStatus>)> {
+    units_call(&json!([frame["params"]["change"]["unit"]]), call)
+}
+
+/// Two calls of one record under a positioned subscription that already holds the record: the first one's result,
+/// shown ahead of its row while the second runs, reaches it as the record's unit, the second still open; the turn then
+/// ends with no result row stored, and the unit it is sent reads both as the records store them, ended.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_calls_change_reaches_a_subscription_that_holds_its_record() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let (early, end) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let gates = (early.clone(), end.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (early, end) = gates.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let calls = json!([
+                { "id": "c1", "name": "shell", "arguments": { "command": "ls" } },
+                { "id": "c2", "name": "shell", "arguments": { "command": "sleep 9" } },
+            ]);
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": calls }))).await.expect("calls");
+            early.notified().await;
+            run.port.early_result(json!({ "role": "tool", "toolCallId": "c1", "content": "a.txt" })).await.expect("the early result");
+            end.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = record_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "list and wait", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || tail_call(&handle, "c2")).await;
+    let (conn, _feed, _sub, snapshot) = positioned_subscriber(&directory, &handle.id, 1, "a").await;
+    let held = &snapshot["params"]["window"]["added"][0]["units"];
+    assert_eq!(units_call(held, "c1"), Some((false, Some(0), None)), "the subscription holds the record with its calls open");
+
+    early.notify_one();
+    let closed = |frame: &Value| frame_call(frame, "c1").is_some_and(|(result, ..)| result);
+    let frames = lane_frames(&conn.drain_text_until(|frames| lane_frames(frames).iter().any(closed)).await);
+    let told = frames.iter().find(|frame| closed(frame)).expect("the record's unit");
+    assert_eq!(frame_call(told, "c1"), Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed))), "the closed call carries its result");
+    assert_eq!(frame_call(told, "c2"), Some((false, Some(0), None)), "its sibling still runs");
+
+    end.notify_one();
+    let ended = Some((false, Some(1), Some(mixdog_protocol::ItemStatus::Interrupted)));
+    let abandoned = |frame: &Value| frame_call(frame, "c2") == ended;
+    let frames = lane_frames(&conn.drain_text_until(|frames| lane_frames(frames).iter().any(abandoned)).await);
+    let told = frames.iter().find(|frame| abandoned(frame)).expect("the record's unit");
+    assert_eq!(frame_call(told, "c1"), ended, "a result no row stored is not the records': the call reads as a reconnect reads it");
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+}
+
+/// A call whose result is stored more records after it than a page reads on for results, in a turn still running and
+/// with its live card long out of the view: a window anchored at the call shows it ended with that result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_result_far_from_its_call_reads_ended_in_a_window_anchored_at_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let go = Arc::new(tokio::sync::Notify::new());
+    let gate = go.clone();
+    rig.set_script(Arc::new(move |run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }))).await.expect("call");
+            for n in 0..65 {
+                run.port
+                    .commit_item(visible_row(&format!("n{n}"), "assistant", json!({ "role": "assistant", "content": format!("note {n}") })))
+                    .await
+                    .expect("note");
+            }
+            run.port.commit_item(visible_row("t1", "tool", json!({ "role": "tool", "toolCallId": "c1", "content": "a.txt" }))).await.expect("result");
+            run.port.commit_item(visible_row("last", "assistant", json!({ "role": "assistant", "content": "after the result" }))).await.expect("note");
+            gate.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    deps.feeds = Arc::new(super::store::CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+    // The view keeps fewer rows than follow the call: its card is gone from it when the result is stored.
+    deps.limits.view_items = 8;
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "list", "op-1").await;
+    // The records are read in the order they were stored: the result's is, once the one after it is in the tail.
+    let read = |handle: &SessionHandle| handle.cell.view.load_full().tail.units.iter().any(|unit| unit.unit.position == "h1:0:last");
+    eventually_on!(&[&handle.cell.stepped], || read(&handle).then_some(())).await;
+    assert!(call_state(handle.cell.view.load_full().items.iter().map(|item| (**item).clone()), "c1").is_none(), "the card is out of the view");
+    let (conn, _feed, _sub, snapshot) = positioned_subscriber(&directory, &handle.id, 1, "a").await;
+    let version = snapshot["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let at_call = json!({ "ranges": [{ "at": "around", "position": "h1:0:a1", "before": 0, "after": 0 }], "followTail": false, "pinned": [] });
+    let (_, paged) = window_set(&handle, &conn, "a", version, "page", at_call).await;
+    let ended = Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed)));
+    assert_eq!(units_call(&paged["params"]["added"][0]["units"], "c1"), ended, "the call reads ended with its stored result");
+    go.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+}
+
+/// A call's result stored and its turn ended before the record that made the call is read with the result: the call
+/// stays as it read (never ended without a result) and its record is not read for the turn's end; it leaves once that
+/// record is read with the result. A call of the turn no result was stored for leaves with the turn, its record read.
+#[test]
+fn a_call_whose_result_is_stored_stays_as_it_read_past_its_turn_until_its_record_is_read() {
+    let record = |result: bool| {
+        let stored = json!({
+            "type": "toolCall", "id": "a1", "name": "shell", "input": { "command": "ls" },
+            "run": { "callId": "c1", "count": 1, "completedCount": 1 }, "meta": { "status": "completed" },
+        });
+        let mut item: ThreadItem = serde_json::from_value(stored).expect("an item");
+        if result && let ThreadItem::ToolCall { run, .. } = &mut item {
+            run.result = Some(mixdog_protocol::MaybeBlob::Inline(mixdog_protocol::SharedText::from("a.txt")));
+        }
+        let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: super::reads::record_position("a1"), items: vec![item], ordinal: Some(6) };
+        super::reads::StoredUnit { ordinal: 6, unit, bytes: 0 }
+    };
+    let (unread, read) = (record(false), record(true));
+    let mut calls = super::window::Calls::default();
+    calls.opened("c1", "t1", "a1");
+    calls.opened("c2", "t1", "a2");
+    assert_eq!(calls.ended("c1", "t1", &read.unit.items[0], true).as_deref(), Some("a1"), "its record is read again");
+    assert_eq!(calls.turn_ended("t1"), ["a2"], "the record of the call with no stored result reads differently");
+    let shown = calls.settled(&unread).expect("the call is held until its record is read");
+    assert_eq!(call_state(shown.unit.items, "c1"), Some((false, Some(0), None)), "as it read, not ended without its result");
+    calls.read(&read);
+    assert!(calls.is_empty(), "nothing is held once the record is read with the result");
+}
+
+/// A call whose result is stored more than 64 records after it, read once its turn has ended and again by a session
+/// opened anew from the store: a window anchored at the call shows it ended with that result both times.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_result_far_from_its_call_reads_ended_after_its_turn_and_after_a_reload() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            run.port.commit_item(visible_row("a1", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }))).await.expect("call");
+            for n in 0..80 {
+                run.port
+                    .commit_item(visible_row(&format!("n{n}"), "assistant", json!({ "role": "assistant", "content": format!("note {n}") })))
+                    .await
+                    .expect("note");
+            }
+            run.port.commit_item(visible_row("t1", "tool", json!({ "role": "tool", "toolCallId": "c1", "content": "a.txt" }))).await.expect("result");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = record_directory(&rig, store.clone());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "list", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    let at_call = json!({ "ranges": [{ "at": "around", "position": "h1:0:a1", "before": 0, "after": 0 }], "followTail": false, "pinned": [] });
+    let ended = Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed)));
+    let reopened = record_directory(&rig, store);
+    let again = reopened.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    for (directory, handle, connection) in [(&directory, &handle, 1), (&reopened, &again, 2)] {
+        let (conn, _feed, _sub, snapshot) = positioned_subscriber(directory, &handle.id, connection, "a").await;
+        let version = snapshot["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+        let (_, paged) = window_set(handle, &conn, "a", version, "page", at_call.clone()).await;
+        let units = &paged["params"]["added"][0]["units"];
+        assert_eq!(units_call(units, "c1"), ended, "the call reads ended (connection {connection})");
+        assert!(units.to_string().contains("a.txt"), "with its stored result (connection {connection}): {units}");
+    }
+}
+
+/// A window paged to records whose calls closed ahead of their rows with large results: the change is fitted as the
+/// units read with those results, within what one frame delivers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_window_change_fits_its_frame_with_the_results_shown_ahead() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let go = Arc::new(tokio::sync::Notify::new());
+    let gate = go.clone();
+    rig.set_script(Arc::new(move |run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for n in 1..=5 {
+                let call = json!({ "id": format!("c{n}"), "name": "shell", "arguments": { "command": "cat big" } });
+                let row = visible_row(&format!("a{n}"), "assistant", json!({ "role": "assistant", "content": "", "toolCalls": [call] }));
+                run.port.commit_item(row).await.expect("call");
+                let result = json!({ "role": "tool", "toolCallId": format!("c{n}"), "content": "x".repeat(8 << 10) });
+                run.port.early_result(result).await.expect("the early result");
+            }
+            gate.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    // Frames of at most 64 KiB.
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let feed_limits = mixdog_core_base::feed::FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: 64 << 10 };
+    deps.feeds = Arc::new(super::store::CoreThreadFeeds { limits: feed_limits, cpu: mixdog_rt::testing::tokens().cpu_interactive });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "read them", "op-1").await;
+    let closed = |handle: &SessionHandle| (1..=5).all(|n| tail_call(handle, &format!("c{n}")).is_some_and(|(result, ..)| result));
+    eventually_on!(&[&handle.cell.stepped], || closed(&handle).then_some(())).await;
+    let limits =
+        mixdog_core_api::mock::MockLimits { queue_bytes: 160 << 10, control_reserve_bytes: 64 << 10, max_snapshot_bytes: 64 << 10, ring_bytes: 1 << 20 };
+    let conn = mixdog_core_api::mock::MockConnection::new(mixdog_core_api::ids::ConnectionId(1), limits);
+    let (conn, feed, _sub, snapshot) = positioned_subscriber_on(&directory, &handle.id, conn, "a").await;
+    let budget = mixdog_core_api::feed::FeedSource::frame_budget(&*feed);
+    let shown: usize = handle.cell.view.load_full().tail.units.iter().map(|unit| unit.bytes).sum();
+    assert!(shown > budget, "the records with their results are more than one frame: {shown}");
+
+    let version = snapshot["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let around = json!({ "ranges": [{ "at": "around", "position": "h1:0:a3", "before": 8, "after": 8 }], "followTail": false, "pinned": [] });
+    let (_, paged) = window_set(&handle, &conn, "a", version, "page", around).await;
+    assert!(paged.to_string().len() <= budget, "the window change is one frame: {} bytes", paged.to_string().len());
+    let units = &paged["params"]["added"][0]["units"];
+    assert_eq!(units_call(units, "c3"), Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed))), "the record asked at, with its result");
+    assert!(units.as_array().is_some_and(|units| units.len() < 5), "the range continues past what fits: {}", paged["params"]["ranges"]);
+    go.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
 }
 
 /// `thread/rewindTargets/list` and `thread/rewind` read the stored history: a prompt is a target by its position,
@@ -7235,4 +7653,1540 @@ async fn listings_that_read_one_session_at_once_read_its_record_once() {
     assert!(first.as_ref().is_some_and(|header| header.contains_key("createdAt")), "{first:?}");
     assert_eq!(first, second);
     assert_eq!(reads() - before, 1, "the record of one session was read once for two listings at once");
+}
+
+/// What a positioned client is sent around compactions, with the production transcript: a turn's end as a unit of
+/// its own record and no row beside the units; a compaction, in a turn or between turns, as a unit at its own record,
+/// the divider alone; two compactions in a row as two units in their order; a window below the dividers that pages up
+/// to the same units; and the same log after a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_positioned_client_holds_each_end_and_each_divider_as_a_unit_of_its_own() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    rig.set_script(Arc::new(move |run| {
+        let counter = counter.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let text = match &run.input.prompt {
+                mixdog_protocol::PromptContent::Text(text) => text.clone(),
+                mixdog_protocol::PromptContent::Parts(_) => String::new(),
+            };
+            let n = |counter: &std::sync::atomic::AtomicU64| counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let commit = |iid: String, role: &str, body: Value| ItemCommit {
+                iid: ItemId::from(iid),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
+            let tool = |id: String| async move {
+                let call = json!({ "id": id.clone(), "name": "read", "arguments": { "path": format!("{id}.rs") } });
+                (
+                    json!({ "role": "assistant", "content": "", "toolCalls": [call], "meta": { "transcript": { "at": 1000 } } }),
+                    json!({ "role": "tool", "toolCallId": id, "content": "ok" }),
+                )
+            };
+            let squeeze = |k: u64| {
+                let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+                super::run::Compaction { replacement: vec![(ItemId::from(format!("sum{k}")), summary)], at: 8_000 + k as i64, dropped_count: 2, dropped: None }
+            };
+            if text.starts_with("auto") {
+                run.port.compacted(squeeze(n(&counter))).await.expect("compacted");
+                let k = n(&counter);
+                let streamed = ThreadItem::AgentMessage {
+                    id: ItemId::from(format!("say{k}")),
+                    text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                    meta: mixdog_protocol::ItemMeta::default(),
+                    imported_tool_runs: Vec::new(),
+                };
+                run.port.item_started(streamed).await.expect("started");
+                run.port.delta(ItemId::from(format!("say{k}")), "looking".into()).await.expect("delta");
+                run.port.text_settled(ItemId::from(format!("say{k}"))).await.expect("settled");
+                let (call, result) = tool(format!("c{k}")).await;
+                let mut call = call;
+                call["content"] = json!("looking");
+                run.port.commit_item(commit(format!("say{k}"), "assistant", call)).await.expect("call");
+                run.port.commit_item(commit(format!("res{k}"), "tool", result)).await.expect("result");
+                run.port.compacted(squeeze(n(&counter))).await.expect("first of two");
+                run.port.compacted(squeeze(n(&counter))).await.expect("second of two");
+            }
+            if text.starts_with("many") {
+                for _ in 0..40 {
+                    let k = n(&counter);
+                    let (call, result) = tool(format!("c{k}")).await;
+                    run.port.commit_item(commit(format!("call{k}"), "assistant", call)).await.expect("call");
+                    run.port.commit_item(commit(format!("res{k}"), "tool", result)).await.expect("result");
+                }
+            }
+            if text.starts_with("long") {
+                for _ in 0..2 {
+                    let k = n(&counter);
+                    let (call, result) = tool(format!("c{k}")).await;
+                    run.port.commit_item(commit(format!("call{k}"), "assistant", call)).await.expect("call");
+                    run.port.commit_item(commit(format!("res{k}"), "tool", result)).await.expect("result");
+                }
+                let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+                let compaction = super::run::Compaction {
+                    replacement: vec![(ItemId::from(format!("sum{}", n(&counter))), summary)],
+                    at: 7_000,
+                    dropped_count: 3,
+                    dropped: None,
+                };
+                run.port.compacted(compaction).await.expect("compacted");
+                // The pass's figures come after its record.
+                run.port.compact_event(compact_event(499_000, 67_000)).await.expect("event");
+                for _ in 0..2 {
+                    let k = n(&counter);
+                    let (call, result) = tool(format!("c{k}")).await;
+                    run.port.commit_item(commit(format!("call{k}"), "assistant", call)).await.expect("call");
+                    run.port.commit_item(commit(format!("res{k}"), "tool", result)).await.expect("result");
+                }
+            }
+            let k = n(&counter);
+            let body = json!({ "role": "assistant", "content": format!("re: {text}"), "meta": { "transcript": {
+                "messageId": format!("m{k}"), "at": 2000 + k, "attemptId": format!("att{k}"),
+                "completion": { "status": "done", "verb": "Completed", "elapsedMs": 1000, "checkpointId": format!("cp{k}") } } } });
+            run.port.commit_item(commit(format!("reply{k}"), "assistant", body)).await.expect("reply");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let make = |store: Arc<dyn super::ThreadStore>| {
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+        deps.feeds =
+            Arc::new(super::store::CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+        SessionDirectory::new(Arc::new(deps))
+    };
+    let directory = make(store.clone());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let mut live = vec![snapshot_a];
+    turn(&handle, "long", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    live.extend(lane_frames(&a.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await));
+    let snapshot: Vec<ItemId> = directory.model_context(&id).read().await.expect("context").into_iter().map(|(iid, _)| iid).collect();
+    let summary = json!({ "role": "user", "content": "[summary] manual" });
+    let compaction = super::run::Compaction { replacement: vec![(ItemId::from("msum".to_owned()), summary)], at: 9_000, dropped_count: 5, dropped: None };
+    directory.commit_compaction(&id, snapshot, compaction, None).await.expect("manual compaction");
+    turn(&handle, "three", "op-3").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    live.extend(lane_frames(&a.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await));
+    let (_b, _feed_b, _sub_b, again) = positioned_subscriber(&directory, &id, 2, "b").await;
+    turn(&handle, "auto", "op-4").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    live.extend(lane_frames(&a.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await));
+    let (_d, _feed_d, _sub_d, after_auto) = positioned_subscriber(&directory, &id, 4, "d").await;
+    turn(&handle, "many", "op-5").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    live.extend(lane_frames(&a.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await));
+    let (e, _feed_e, _sub_e, below) = positioned_subscriber(&directory, &id, 5, "e").await;
+    let version = below["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let first = below["params"]["window"]["added"][0]["units"][0]["position"].clone();
+    let up = json!({ "ranges": [{ "at": "retain", "id": "tail" }, { "at": "before", "position": first, "rows": 96 }], "followTail": true, "pinned": [] });
+    let (_, paged) = window_set(&handle, &e, "e", version, "up", up).await;
+    let reopened = make(store.clone());
+    let (_c, _feed_c, _sub_c, restarted) = positioned_subscriber(&reopened, &id, 3, "c").await;
+
+    // What the client was sent, folded in the order it came, is the log: every settled row a unit of its own occurrence.
+    let mut held = HeldWindow::default();
+    for frame in &live {
+        held.apply(frame);
+    }
+    let log = at_fence(&handle, &a, &mut held, "after every turn").await;
+    // No end and no divider is sent as a row beside the units, and none rides another record's unit.
+    let sent_loose = |kind: &str| live.iter().any(|frame| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == kind);
+    assert!(!sent_loose("turnEnd") && !sent_loose("contextCompaction"), "{live:?}");
+    let sent = serde_json::to_string(&live).expect("frames are JSON");
+    for gone in ["dividersAfter", "shownAfter", "shownBefore", "shownPast"] {
+        assert!(!sent.contains(gone), "`{gone}` is sent no more");
+    }
+    for snapshot in [&again, &after_auto, &below, &restarted] {
+        let loose = snapshot["params"]["items"].as_array().cloned().unwrap_or_default();
+        assert!(loose.iter().all(|item| item["type"] != "turnEnd" && item["type"] != "contextCompaction"), "{snapshot}");
+    }
+    // An end is the one row of its unit, at its own record: no reply of a turn shows one beside it.
+    let ends: Vec<&Value> = log.iter().filter(|unit| unit_kinds(unit).iter().any(|kind| kind == "turnEnd")).collect();
+    assert!(!ends.is_empty() && ends.iter().all(|unit| unit_kinds(unit) == ["turnEnd"]), "{ends:?}");
+    // A divider is a unit at its compaction's record, the divider alone: the pass in the turn, the one between turns,
+    // and the three of the turn that compacts before its reply and twice in a row after it.
+    let dividers: Vec<&Value> = log.iter().filter(|unit| unit_kinds(unit).first().is_some_and(|kind| kind == "contextCompaction")).collect();
+    assert_eq!(dividers.len(), 5, "{dividers:?}");
+    for divider in &dividers {
+        assert!(divider["position"].as_str().is_some_and(|position| position.starts_with("h1:0:divider:")), "{divider}");
+        assert!(divider["items"][0]["meta"].get("detail").is_none_or(Value::is_null), "{divider}");
+    }
+    let times: Vec<i64> = dividers.iter().filter_map(|divider| divider["items"][0]["meta"]["at"].as_i64()).collect();
+    assert!(times.windows(2).any(|pair| pair[1] == pair[0] + 1), "two compactions in a row stand in the order of their passes: {times:?}");
+    // A window that starts below the dividers and pages up holds the same units as the log.
+    let mut paged_up = HeldWindow::default();
+    paged_up.apply(&below);
+    paged_up.apply(&paged);
+    assert_eq!(paged_up.differs_from(&log), None);
+    // Reopened after a restart, the log reads the same and a snapshot holds its units: each turn's end is its record.
+    let reloaded = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(log_units(&reloaded).await, log);
+    let mut restored = HeldWindow::default();
+    restored.apply(&restarted);
+    assert_eq!(restored.differs_from(&log), None);
+}
+
+/// The types of a unit's rows, in order.
+fn unit_kinds(unit: &Value) -> Vec<String> {
+    unit["items"].as_array().into_iter().flatten().map(|item| item["type"].as_str().unwrap_or_default().to_owned()).collect()
+}
+
+/// What a positioned client holds of the transcript, folded from the frames of its lane in the order they were sent.
+#[derive(Default)]
+struct HeldWindow {
+    version: u64,
+    follows: bool,
+    /// Each range's units by ordinal.
+    ranges: std::collections::BTreeMap<String, std::collections::BTreeMap<u64, Value>>,
+    /// The positions sent as new to the tail, in the order they were sent.
+    inserted: Vec<String>,
+    /// The rows sent beside the units: a snapshot's `items`, then each `item/completed`.
+    loose: Vec<Value>,
+    /// The runtime as last told.
+    runtime: Value,
+}
+
+impl HeldWindow {
+    fn ordinal(unit: &Value) -> u64 {
+        unit["ordinal"].as_u64().unwrap_or_else(|| panic!("a unit states its ordinal: {unit}"))
+    }
+
+    fn apply(&mut self, frame: &Value) {
+        let params = &frame["params"];
+        match frame["method"].as_str().unwrap_or_default() {
+            "thread/snapshot" => {
+                self.ranges.clear();
+                self.loose = params["items"].as_array().cloned().unwrap_or_default();
+                self.runtime = params["state"]["runtime"].clone();
+                self.granted(&params["window"]);
+            }
+            "thread/window/changed" => self.granted(params),
+            "thread/runtime/updated" => self.runtime = params["value"].clone(),
+            "item/completed" => self.loose.push(params["item"].clone()),
+            "thread/transcript/changed" => {
+                let change = &params["change"];
+                match change["op"].as_str() {
+                    Some("insert") => {
+                        self.inserted.push(change["unit"]["position"].as_str().unwrap_or_default().to_owned());
+                        self.ranges.entry("tail".to_owned()).or_default().insert(Self::ordinal(&change["unit"]), change["unit"].clone());
+                    }
+                    Some("replace") => {
+                        let at = Self::ordinal(&change["unit"]);
+                        for range in self.ranges.values_mut() {
+                            if let Some(held) = range.get_mut(&at) {
+                                *held = change["unit"].clone();
+                            }
+                        }
+                    }
+                    Some("remove") => {
+                        for range in self.ranges.values_mut() {
+                            range.retain(|_, unit| unit["position"] != change["position"]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A grant as a snapshot's window or `thread/window/changed` states it: the ranges it lists are the ones held, and
+    /// the units it carries are the whole of the ranges it carries them for.
+    fn granted(&mut self, window: &Value) {
+        self.version = window["windowVersion"].as_u64().expect("a window version");
+        self.follows = window["followTail"] == true;
+        let listed: Vec<String> = window["ranges"].as_array().into_iter().flatten().filter_map(|range| range["id"].as_str()).map(str::to_owned).collect();
+        self.ranges.retain(|id, _| listed.contains(id));
+        for added in window["added"].as_array().into_iter().flatten() {
+            let range = self.ranges.entry(added["range"].as_str().unwrap_or_default().to_owned()).or_default();
+            range.clear();
+            for unit in added["units"].as_array().into_iter().flatten() {
+                range.insert(Self::ordinal(unit), unit.clone());
+            }
+        }
+    }
+
+    /// Every unit held, by ordinal.
+    fn units(&self) -> Vec<&Value> {
+        let all: std::collections::BTreeMap<u64, &Value> =
+            self.ranges.values().flat_map(|range| range.iter().map(|(ordinal, unit)| (*ordinal, unit))).collect();
+        all.into_values().collect()
+    }
+
+    /// The rows of type `kind` held for the turn `turn`, in a unit or beside them.
+    fn rows_of(&self, kind: &str, turn: &str) -> Vec<Value> {
+        let units = self.units();
+        let in_units = units.iter().flat_map(|unit| unit["items"].as_array().into_iter().flatten());
+        in_units.chain(self.loose.iter()).filter(|item| item["type"] == kind && item["meta"]["turnId"] == turn).cloned().collect()
+    }
+
+    /// How what is held differs from the log `log` (its units, oldest first): `None` when each range holds exactly the
+    /// log's occurrences between its first and its last, in the log's order and with the log's payload, and a followed
+    /// tail reaches the newest of them.
+    fn differs_from(&self, log: &[Value]) -> Option<String> {
+        for (id, range) in &self.ranges {
+            let (Some(first), Some(last)) = (range.keys().next(), range.keys().next_back()) else { continue };
+            let expected: Vec<&Value> = log.iter().filter(|unit| (*first..=*last).contains(&Self::ordinal(unit))).collect();
+            let got: Vec<&Value> = range.values().collect();
+            if got != expected {
+                let positions = |units: &[&Value]| units.iter().map(|unit| unit["position"].to_string()).collect::<Vec<_>>().join(", ");
+                let differing =
+                    got.iter().zip(&expected).find(|(got, expected)| got != expected).map(|(got, expected)| format!("\nheld {got}\nlog  {expected}"));
+                return Some(format!(
+                    "the range `{id}` holds [{}] where the log has [{}]{}",
+                    positions(&got),
+                    positions(&expected),
+                    differing.unwrap_or_default()
+                ));
+            }
+        }
+        let newest = log.last().map(Self::ordinal);
+        let reached = self.ranges.get("tail").and_then(|tail| tail.keys().next_back().copied());
+        if self.follows && newest != reached {
+            return Some(format!("the followed tail reaches {reached:?} where the log's newest occurrence is {newest:?}"));
+        }
+        None
+    }
+}
+
+/// The transcript's occurrences as the committed log reads now, oldest first: the units a page of the whole of it holds.
+async fn log_units(handle: &SessionHandle) -> Vec<Value> {
+    let deps = &handle.deps;
+    let ctl = super::read_trace::ReadCtl::untraced(CancellationToken::new());
+    let read = super::reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, &handle.id, super::seams::PageAt::Newest, 4096, &ctl);
+    let page = read.await.expect("the log is read").expect("the store places its pages");
+    assert!(page.reaches_start && page.reaches_end, "the page is the whole log");
+    page.units.into_iter().map(|unit| serde_json::to_value(unit.unit).expect("a unit is JSON")).collect()
+}
+
+/// A publication fence: every record accepted so far is stored, and the client's lane has been sent what that made of
+/// its window. What it holds then is the log's own ([`HeldWindow::differs_from`]), and no row of a record reached it
+/// beside its unit. The log's units at the fence.
+async fn at_fence(handle: &SessionHandle, conn: &mixdog_core_api::mock::MockConnection, held: &mut HeldWindow, fence: &str) -> Vec<Value> {
+    use std::sync::atomic::Ordering::SeqCst;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    let mut frames = conn.drain_text();
+    let log = loop {
+        for frame in lane_frames(&frames) {
+            held.apply(&frame);
+        }
+        let log = log_units(handle).await;
+        let Some(difference) = held.differs_from(&log) else { break log };
+        // What the lane is still owed arrives as a frame: the wait is for it, and its bound only ends a fence never reached.
+        let next = tokio::time::timeout(Duration::from_secs(30), conn.drain_text_until(|frames| !frames.is_empty())).await;
+        frames = next.unwrap_or_else(|_| panic!("at the fence `{fence}`: {difference}"));
+    };
+    let recorded: Vec<&Value> = held.loose.iter().filter(|item| item["meta"]["ext"].get("historyPosition").is_some()).collect();
+    assert!(recorded.is_empty(), "at the fence `{fence}`: rows of a record were sent beside its unit: {recorded:?}");
+    log
+}
+
+/// A subscription of `id` in the positioned projection with everything its lane was sent folded: its connection and
+/// what it holds.
+async fn positioned_window(
+    directory: &SessionDirectory,
+    id: &ThreadId,
+    connection: u64,
+    name: &'static str,
+) -> (mixdog_core_api::mock::MockConnection, HeldWindow) {
+    let conn = subscribed(directory, id, connection, name, true).await;
+    let mut held = HeldWindow::default();
+    for frame in lane_frames(&conn.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("thread/snapshot"))).await) {
+        held.apply(&frame);
+    }
+    (conn, held)
+}
+
+/// A connection subscribed to `id`: in the positioned projection, or as an ordered subscriber of its last items.
+async fn subscribed(
+    directory: &SessionDirectory,
+    id: &ThreadId,
+    connection: u64,
+    name: &'static str,
+    positioned: bool,
+) -> mixdog_core_api::mock::MockConnection {
+    let conn = mixdog_core_api::mock::MockConnection::new(mixdog_core_api::ids::ConnectionId(connection), mixdog_core_api::mock::MockLimits::default());
+    let mut params = json!({ "threadId": id, "window": { "lastItems": 32 } });
+    if positioned {
+        params["positionedWindow"] = json!(true);
+    }
+    let handle = directory.open_handle(id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Subscribe(reply) = handle.request(request("thread/resume", params, name)).await.expect("thread/resume") else {
+        panic!("thread/resume subscribes");
+    };
+    let sub = mixdog_core_api::ids::SubscriptionId::from(name);
+    let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub, reply.window, reply.resume_from, &conn).expect("attach");
+    mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    conn
+}
+
+/// `thread/window/set` for the window `held` of the subscription `sub`, with everything its lane was sent up to the
+/// answer folded.
+async fn demand(handle: &SessionHandle, conn: &mixdog_core_api::mock::MockConnection, sub: &str, held: &mut HeldWindow, request_id: &'static str, want: Value) {
+    let (frames, _) = window_set(handle, conn, sub, held.version, request_id, want).await;
+    for frame in &frames {
+        held.apply(frame);
+    }
+}
+
+/// Where a scripted run stops until the test lets it go on.
+#[derive(Clone)]
+struct Steps {
+    reached: tokio::sync::mpsc::UnboundedSender<()>,
+    go: Arc<tokio::sync::Semaphore>,
+}
+
+impl Steps {
+    async fn pause(&self) {
+        let _ = self.reached.send(());
+        self.go.acquire().await.expect("the test is running").forget();
+    }
+}
+
+fn said(iid: String, role: &str, body: Value) -> ItemCommit {
+    ItemCommit { iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None }
+}
+
+/// A run that does what its prompt says, word by word: `say` commits a reply, `call` a tool call and its result,
+/// `compact` a compaction, `pause` stops until the test resumes it; `refuse` ends the turn in a refusal, `fail` in a
+/// failure, `nothing` with no result (a turn that did nothing is marked with no end). Any other word is skipped.
+fn worded(steps: Steps) -> Script {
+    let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    Arc::new(move |run| {
+        let (steps, counter) = (steps.clone(), counter.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let text = match &run.input.prompt {
+                mixdog_protocol::PromptContent::Text(text) => text.clone(),
+                mixdog_protocol::PromptContent::Parts(_) => String::new(),
+            };
+            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
+            result.content = "ok".into();
+            let mut failed = false;
+            let mut segments: Vec<(String, String)> = Vec::new();
+            for word in text.split_whitespace() {
+                let k = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                match word {
+                    // One response's text in parts, each final when the tool call after it starts; `reply` commits the
+                    // response as the one message it is, under its first part's id, its row naming the parts, with a
+                    // call after each part and the calls' results.
+                    "seg" => {
+                        let (id, part) = (ItemId::from(format!("seg{k}")), format!("part {k}. "));
+                        let item = ThreadItem::AgentMessage {
+                            id: id.clone(),
+                            text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                            imported_tool_runs: Vec::new(),
+                            meta: Default::default(),
+                        };
+                        run.port.item_started(item).await.expect("a part begins");
+                        run.port.delta(id.clone(), part.clone()).await.expect("its text");
+                        run.port.text_settled(id.clone()).await.expect("the call after it starts");
+                        segments.push((id.as_str().to_owned(), part));
+                    }
+                    "reply" => {
+                        let parts = std::mem::take(&mut segments);
+                        let content: String = parts.iter().map(|(_, part)| part.as_str()).collect();
+                        let calls: Vec<Value> = (0..parts.len()).map(|n| json!({ "id": format!("c{k}-{n}"), "name": "read", "arguments": {} })).collect();
+                        let named: Vec<Value> = parts.iter().enumerate().map(|(n, (id, part))| json!({ "id": id, "len": part.len(), "after": n })).collect();
+                        let body = json!({ "role": "assistant", "content": content, "toolCalls": calls, "meta": { "segments": named } });
+                        run.port.commit_item(said(parts[0].0.clone(), "assistant", body)).await.expect("the response");
+                        for n in 0..parts.len() {
+                            let result = json!({ "role": "tool", "toolCallId": format!("c{k}-{n}"), "content": "read" });
+                            run.port.commit_item(said(format!("res{k}-{n}"), "tool", result)).await.expect("a result");
+                        }
+                    }
+                    "say" => {
+                        run.port.commit_item(said(format!("say{k}"), "assistant", json!({ "text": format!("said {k}") }))).await.expect("a reply");
+                    }
+                    "call" => {
+                        // The roles are the bodies' too: the store finds a call's result by its message's own.
+                        let call = json!({ "role": "assistant", "text": "", "toolCalls": [{ "id": format!("c{k}"), "name": "read", "arguments": {} }] });
+                        run.port.commit_item(said(format!("call{k}"), "assistant", call)).await.expect("a call");
+                        let result = json!({ "role": "tool", "toolCallId": format!("c{k}"), "text": "read" });
+                        run.port.commit_item(said(format!("res{k}"), "tool", result)).await.expect("its result");
+                    }
+                    "compact" => {
+                        run.port.compacted(compaction_record(&format!("sum{k}"), 7_000 + k as i64, 0)).await.expect("compacted");
+                    }
+                    // The stages around a compaction pass: it begins, and the next request follows it.
+                    "squeeze" => run.port.stage("compacting".to_owned(), None).await.expect("a stage"),
+                    "request" => run.port.stage("requesting".to_owned(), None).await.expect("a stage"),
+                    // A finished thought, a compaction pass that changed nothing, and a reply streamed and never committed.
+                    "think" => run.port.reasoning_completed(ItemId::from(format!("think{k}")), format!("thought {k}")).await.expect("a thought"),
+                    "check" => {
+                        let event = mixdog_agent::env::CompactEvent { status: mixdog_agent::env::CompactStatus::NoChange, ..compact_event(1_000, 1_000) };
+                        run.port.compact_event(event).await.expect("a pass that changed nothing");
+                    }
+                    "stream" => {
+                        let item = ThreadItem::AgentMessage {
+                            id: ItemId::from(format!("live{k}")),
+                            text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                            imported_tool_runs: Vec::new(),
+                            meta: Default::default(),
+                        };
+                        run.port.item_started(item).await.expect("a reply begins");
+                        run.port.delta(ItemId::from(format!("live{k}")), format!("streamed {k}")).await.expect("its text");
+                    }
+                    // A turn stopped where it waits ends interrupted.
+                    "pause" => tokio::select! {
+                        () = run.cancel.cancelled() => return RunOutcome::Interrupted,
+                        () = steps.pause() => {}
+                    },
+                    "refuse" => result.termination = Some(mixdog_agent::response::Termination::Refusal),
+                    "nothing" => result.content = String::new(),
+                    "fail" => failed = true,
+                    _ => {}
+                }
+            }
+            if failed {
+                return RunOutcome::Failed(mixdog_protocol::TurnError { message: "the run broke".into(), data: json!({}), provider_error: None });
+            }
+            RunOutcome::Completed(Box::new(result))
+        })
+    })
+}
+
+/// A thread on the real store whose runs are [`worded`], served by the core's feeds.
+struct Fenced {
+    _data: tempfile::TempDir,
+    rig: Rig,
+    store: Arc<dyn super::ThreadStore>,
+    directory: SessionDirectory,
+    handle: Arc<SessionHandle>,
+    steps: Steps,
+    reached: tokio::sync::mpsc::UnboundedReceiver<()>,
+    ops: u32,
+}
+
+impl Fenced {
+    async fn new() -> Self {
+        Self::over(|store| store).await
+    }
+
+    /// [`Self::new`] over the store `wrap` makes of the real one.
+    async fn over(wrap: impl FnOnce(Arc<dyn super::ThreadStore>) -> Arc<dyn super::ThreadStore>) -> Self {
+        Self::built(wrap, positioned_directory).await
+    }
+
+    /// [`Self::new`] with the rows the stored records' own transcript shows, as the daemon shows a commit.
+    async fn recorded() -> Self {
+        Self::built(|store| store, record_directory).await
+    }
+
+    async fn built(
+        wrap: impl FnOnce(Arc<dyn super::ThreadStore>) -> Arc<dyn super::ThreadStore>,
+        directory: fn(&Rig, Arc<dyn super::ThreadStore>) -> SessionDirectory,
+    ) -> Self {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = wrap(real_store(data.path()).await);
+        let rig = Rig::new();
+        let (reached_tx, reached) = tokio::sync::mpsc::unbounded_channel();
+        let steps = Steps { reached: reached_tx, go: Arc::new(tokio::sync::Semaphore::new(0)) };
+        rig.set_script(worded(steps.clone()));
+        let directory = directory(&rig, store.clone());
+        let handle = start_routed_thread(&directory).await;
+        Self { _data: data, rig, store, directory, handle, steps, reached, ops: 0 }
+    }
+
+    /// Starts a turn on `prompt`: its id.
+    async fn start(&mut self, prompt: &str) -> String {
+        self.ops += 1;
+        let started = turn(&self.handle, prompt, &format!("op-{}", self.ops)).await;
+        started["turnId"].as_str().unwrap_or_else(|| panic!("the turn started: {started}")).to_owned()
+    }
+
+    /// Waits for the running turn to reach its next `pause`.
+    async fn paused(&mut self) {
+        let reached = tokio::time::timeout(Duration::from_secs(30), self.reached.recv()).await;
+        assert!(matches!(reached, Ok(Some(()))), "the run reaches its pause");
+    }
+
+    fn resume(&self) {
+        self.steps.go.add_permits(1);
+    }
+
+    async fn idle(&self) {
+        eventually_on!(&[&self.handle.cell.stepped], || settled_idle(&self.handle).then_some(())).await;
+    }
+
+    /// A turn on `prompt` run to its end, pauses and all: its id.
+    async fn ran(&mut self, prompt: &str) -> String {
+        let pauses = prompt.split_whitespace().filter(|word| *word == "pause").count();
+        let turn = self.start(prompt).await;
+        for _ in 0..pauses {
+            self.paused().await;
+            self.resume();
+        }
+        self.idle().await;
+        turn
+    }
+
+    /// A compaction between turns, committed as a manual one is.
+    async fn compact_between_turns(&self, at: i64) {
+        let id = &self.handle.id;
+        let snapshot: Vec<ItemId> = self.directory.model_context(id).read().await.expect("context").into_iter().map(|(iid, _)| iid).collect();
+        self.directory.commit_compaction(id, snapshot, compaction_record(&format!("manual{at}"), at, 0), None).await.expect("a compaction between turns");
+    }
+}
+
+/// The types of the rows of `units`, in order.
+fn kinds_of(units: &[Value]) -> Vec<String> {
+    units.iter().flat_map(unit_kinds).collect()
+}
+
+fn positions_of(units: &[Value]) -> Vec<String> {
+    units.iter().map(|unit| unit["position"].as_str().unwrap_or_default().to_owned()).collect()
+}
+
+/// One window that follows the tail from an empty thread on, compared with the log at every fence of every turn: a
+/// reply and its turn's close, a divider before an end and an end before a divider, a first divider and two in a row,
+/// a refusal's notice between the reply and the close, and a turn that did nothing. Each occurrence reaches the window
+/// once, as a unit new to its tail, in the log's order; a running turn has no end, and the runtime names it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_followed_tail_is_the_log_at_every_fence_of_every_turn() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    assert!(at_fence(&handle, &a, &mut held, "an empty thread").await.is_empty());
+
+    // A reply, then the close.
+    let first = world.start("say pause").await;
+    world.paused().await;
+    let log = at_fence(&handle, &a, &mut held, "a reply of a running turn").await;
+    assert_eq!(kinds_of(&log), ["userMessage", "agentMessage"]);
+    assert_eq!(held.runtime["turnId"], json!(first), "the runtime names the running turn: {}", held.runtime);
+    assert!(held.rows_of("turnEnd", &first).is_empty(), "a running turn has no end");
+    world.resume();
+    world.idle().await;
+    let log = at_fence(&handle, &a, &mut held, "the turn closed").await;
+    assert_eq!(kinds_of(&log), ["userMessage", "agentMessage", "turnEnd"]);
+    assert_eq!(held.rows_of("turnEnd", &first).len(), 1);
+    assert!(held.runtime.get("turnId").is_none(), "no turn runs: {}", held.runtime);
+
+    // The first divider, before its turn's end.
+    let seen = log.len();
+    let second = world.start("compact pause say").await;
+    world.paused().await;
+    let log = at_fence(&handle, &a, &mut held, "a compaction in a running turn").await;
+    assert_eq!(kinds_of(&log[seen..]), ["userMessage", "contextCompaction"]);
+    assert!(held.rows_of("turnEnd", &second).is_empty(), "a turn that compacted and goes on has no end");
+    assert_eq!(held.rows_of("turnEnd", &first).len(), 1);
+    world.resume();
+    world.idle().await;
+    let log = at_fence(&handle, &a, &mut held, "the turn that compacted closed").await;
+    assert_eq!(kinds_of(&log[seen..]), ["userMessage", "contextCompaction", "agentMessage", "turnEnd"]);
+
+    // A divider after the end: a compaction between turns.
+    let seen = log.len();
+    world.compact_between_turns(9_000).await;
+    let log = at_fence(&handle, &a, &mut held, "a compaction between turns").await;
+    assert_eq!(kinds_of(&log[seen..]), ["contextCompaction"]);
+
+    // Two dividers in a row.
+    let seen = log.len();
+    world.ran("compact compact pause say").await;
+    let log = at_fence(&handle, &a, &mut held, "two compactions in a row").await;
+    assert_eq!(kinds_of(&log[seen..]), ["userMessage", "contextCompaction", "contextCompaction", "agentMessage", "turnEnd"]);
+    let times: Vec<i64> = log[seen + 1..seen + 3].iter().filter_map(|divider| divider["items"][0]["meta"]["at"].as_i64()).collect();
+    assert!(times.len() == 2 && times[0] < times[1], "in the order of their passes: {times:?}");
+
+    // A refusal's notice stands between the reply and the close, once.
+    let seen = log.len();
+    let refused = world.ran("say refuse").await;
+    let log = at_fence(&handle, &a, &mut held, "a refused turn").await;
+    assert_eq!(kinds_of(&log[seen..]), ["userMessage", "agentMessage", "statusRow", "turnEnd"]);
+    assert_eq!(held.rows_of("statusRow", &refused).len(), 1, "the refusal is told once");
+
+    // A turn that did nothing is marked with no end.
+    let seen = log.len();
+    let idle_turn = world.ran("nothing").await;
+    let log = at_fence(&handle, &a, &mut held, "a turn that did nothing").await;
+    assert_eq!(kinds_of(&log[seen..]), ["userMessage"]);
+    assert!(held.rows_of("turnEnd", &idle_turn).is_empty());
+
+    // Every occurrence was sent once, new to the tail, in the log's order; a divider at its compaction's own position,
+    // the divider alone.
+    assert_eq!(held.inserted, positions_of(&log));
+    for divider in log.iter().filter(|unit| unit_kinds(unit) == ["contextCompaction"]) {
+        assert!(divider["position"].as_str().is_some_and(|position| position.starts_with("h1:0:divider:")), "{divider}");
+        assert!(divider["items"][0]["meta"].get("detail").is_none_or(Value::is_null), "{divider}");
+    }
+    assert!(!held.loose.iter().any(|item| item["type"] == "turnEnd" || item["type"] == "contextCompaction"), "{:?}", held.loose);
+}
+
+/// A turn that fails after a compaction ran in it: its call, then the divider, then its failed end, each sent as new
+/// to the tail in that order. The divider is never placed behind an end already sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_fails_after_a_compaction_is_sent_its_call_the_divider_then_its_end() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let failed = world.ran("call compact fail").await;
+    let log = at_fence(&handle, &a, &mut held, "the turn failed").await;
+    assert_eq!(kinds_of(&log), ["userMessage", "toolCall", "contextCompaction", "turnEnd"]);
+    assert_eq!(held.inserted, positions_of(&log), "sent in the log's order");
+    let ends = held.rows_of("turnEnd", &failed);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert_eq!(ends[0]["status"], "failed");
+}
+
+/// A closing turn's last output and its end reach a positioned subscription before the turn's status changes: no
+/// frame tells the turn completed, or the runtime idle, ahead of the units of what the turn stored.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_closing_turn_is_sent_its_reply_and_its_end_before_its_status_changes() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let turn = world.start("pause say").await;
+    world.paused().await;
+    at_fence(&handle, &a, &mut held, "the turn runs").await;
+    world.resume();
+    world.idle().await;
+    let idle_told = |frames: &[String]| {
+        lane_frames(frames).iter().any(|frame| frame["method"] == "thread/runtime/updated" && frame["params"]["value"].get("turnId").is_none_or(Value::is_null))
+    };
+    let frames = lane_frames(&a.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed")) && idle_told(frames)).await);
+    let at = |what: &str, found: &dyn Fn(&Value) -> bool| frames.iter().position(found).unwrap_or_else(|| panic!("{what} is sent: {frames:?}"));
+    let inserts = |kind: &'static str| {
+        move |frame: &Value| {
+            let unit = &frame["params"]["change"]["unit"];
+            frame["method"] == "thread/transcript/changed" && unit["items"].as_array().is_some_and(|items| items.iter().any(|item| item["type"] == kind))
+        }
+    };
+    let reply = at("the reply", &inserts("agentMessage"));
+    let end = at("the end", &inserts("turnEnd"));
+    let completed = at("the completion", &|frame| frame["method"] == "turn/completed" && frame["params"]["turn"]["id"] == json!(turn));
+    let idle =
+        at("the idle runtime", &|frame| frame["method"] == "thread/runtime/updated" && frame["params"]["value"].get("turnId").is_none_or(Value::is_null));
+    assert!(reply < end && end < completed && end < idle, "reply {reply}, end {end}, completion {completed}, idle {idle}: {frames:?}");
+    for frame in &frames {
+        held.apply(frame);
+    }
+    at_fence(&handle, &a, &mut held, "the turn closed").await;
+}
+
+/// No end reaches a subscriber, positioned or ordered, for a turn still running: not after a compaction in it, and
+/// not between turns that task notifications start back to back. The runtime names the running turn, so the end of
+/// the turn before it reads as a closed turn's while the session is still busy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_end_is_sent_for_a_turn_that_is_still_running() {
+    use mixdog_tools::exec::TaskNotifier;
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let ordered = subscribed(&world.directory, &handle.id, 2, "o", false).await;
+    let mut told: Vec<Value> = Vec::new();
+    let ends_told = |told: &[Value], turn: &str| {
+        told.iter()
+            .filter(|frame| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "turnEnd" && frame["params"]["turnId"] == turn)
+            .count()
+    };
+
+    // A turn that compacts mid-way and goes on.
+    let turn = world.start("say pause compact pause say pause").await;
+    for fence in ["its first reply", "its compaction", "its second reply"] {
+        world.paused().await;
+        at_fence(&handle, &a, &mut held, fence).await;
+        told.extend(lane_frames(&ordered.drain_text()));
+        assert!(held.rows_of("turnEnd", &turn).is_empty(), "after {fence}: {:?}", held.rows_of("turnEnd", &turn));
+        assert_eq!(ends_told(&told, &turn), 0, "after {fence}");
+        assert_eq!(held.runtime["turnId"], json!(turn), "after {fence}");
+        world.resume();
+    }
+    world.idle().await;
+    at_fence(&handle, &a, &mut held, "the turn closed").await;
+    told.extend(lane_frames(&ordered.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await));
+    assert_eq!((held.rows_of("turnEnd", &turn).len(), ends_told(&told, &turn)), (1, 1), "one end, at the close");
+
+    // Two turns started by task notifications, back to back.
+    world.directory.finished(&handle.id, "shell", "job-1", "completed", "job-1 say pause".into()).await;
+    world.paused().await;
+    world.directory.finished(&handle.id, "shell", "job-2", "completed", "job-2 say pause".into()).await;
+    at_fence(&handle, &a, &mut held, "the first notified turn runs").await;
+    let one = held.runtime["turnId"].as_str().expect("the runtime names the running turn").to_owned();
+    told.extend(lane_frames(&ordered.drain_text()));
+    assert!(held.rows_of("turnEnd", &one).is_empty());
+    assert_eq!(ends_told(&told, &one), 0);
+    world.resume();
+    world.paused().await;
+    at_fence(&handle, &a, &mut held, "the second notified turn runs").await;
+    let two = held.runtime["turnId"].as_str().expect("the runtime names the running turn").to_owned();
+    told.extend(lane_frames(&ordered.drain_text()));
+    assert_ne!(one, two);
+    // The first turn's end is out while the session is busy: it names its own turn, and the runtime another.
+    assert_eq!((held.rows_of("turnEnd", &one).len(), ends_told(&told, &one)), (1, 1));
+    assert!(held.rows_of("turnEnd", &two).is_empty());
+    assert_eq!(ends_told(&told, &two), 0);
+    world.resume();
+    world.idle().await;
+    at_fence(&handle, &a, &mut held, "both notified turns closed").await;
+    told.extend(lane_frames(&ordered.drain_text()));
+    assert_eq!((held.rows_of("turnEnd", &two).len(), ends_told(&told, &two)), (1, 1));
+    assert!(held.runtime.get("turnId").is_none(), "{}", held.runtime);
+}
+
+/// Two windows over one log: one follows the tail, the other let everything go, then holds two detached ranges, then
+/// a third that overlaps the first, and at the end pages back to the tail. Each is the log at every fence, whatever
+/// the other holds; a turn and a compaction meanwhile reach each by what it holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_windows_hold_the_log_through_trims_detached_and_overlapping_ranges_and_a_page_back() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    for _ in 0..4 {
+        world.ran("say call say").await;
+    }
+    let (a, mut held_a) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let (b, mut held_b) = positioned_window(&world.directory, &handle.id, 2, "b").await;
+    let log = at_fence(&handle, &a, &mut held_a, "A attached").await;
+    at_fence(&handle, &b, &mut held_b, "B attached").await;
+    assert!(log.len() >= 16, "{}", log.len());
+
+    // B trims to nothing.
+    demand(&handle, &b, "b", &mut held_b, "trim", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+    assert!(held_b.units().is_empty() && !held_b.follows);
+    world.ran("say").await;
+    at_fence(&handle, &a, &mut held_a, "a turn under A's tail").await;
+    at_fence(&handle, &b, &mut held_b, "a turn B holds nothing of").await;
+    assert!(held_b.units().is_empty(), "a window that holds nothing is sent no unit");
+
+    // Two detached ranges.
+    let around = |at: usize| json!({ "at": "around", "position": log[at]["position"], "before": 1, "after": 1 });
+    demand(&handle, &b, "b", &mut held_b, "detached", json!({ "ranges": [around(1), around(10)], "followTail": false, "pinned": [] })).await;
+    at_fence(&handle, &b, &mut held_b, "two detached ranges").await;
+    assert_eq!(held_b.ranges.len(), 2, "{:?}", held_b.ranges.keys());
+    assert_eq!(held_b.units().len(), 6);
+
+    // A third range that overlaps the first, the two kept.
+    let kept: Vec<Value> = held_b.ranges.keys().map(|id| json!({ "at": "retain", "id": id })).collect();
+    let overlapping = json!({ "ranges": [kept[0].clone(), kept[1].clone(), around(2)], "followTail": false, "pinned": [] });
+    demand(&handle, &b, "b", &mut held_b, "overlapping", overlapping).await;
+    at_fence(&handle, &b, &mut held_b, "an overlapping range").await;
+    assert_eq!(held_b.ranges.len(), 3);
+
+    // A compaction and a turn: A is sent the divider and the turn, B what its ranges hold of the change and no more.
+    world.ran("compact say").await;
+    let log = at_fence(&handle, &a, &mut held_a, "a compaction under A's tail").await;
+    at_fence(&handle, &b, &mut held_b, "a compaction over B's ranges").await;
+    assert!(held_b.units().iter().all(|unit| HeldWindow::ordinal(unit) <= HeldWindow::ordinal(&log[11])), "B holds nothing newer than its ranges");
+    assert!(held_b.units().iter().any(|unit| unit.to_string().contains("\"archived\":true")), "the rows the compaction archived read so where B holds them");
+
+    // B pages back to the tail and follows it again.
+    demand(&handle, &b, "b", &mut held_b, "back", json!({ "ranges": [], "followTail": true, "pinned": [] })).await;
+    at_fence(&handle, &b, &mut held_b, "B back at the tail").await;
+    world.ran("say").await;
+    let log = at_fence(&handle, &a, &mut held_a, "a last turn, A").await;
+    at_fence(&handle, &b, &mut held_b, "a last turn, B").await;
+    assert_eq!(held_a.units().last().copied(), log.last());
+    assert_eq!(held_b.units().last().copied(), log.last());
+}
+
+/// After an unload and after a restart the log reads as it did, and a window attached then holds its units: each
+/// turn's one end, each divider the divider alone, where they were.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_window_attached_after_an_unload_and_after_a_restart_holds_the_same_log() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let id = handle.id.clone();
+    world.ran("say compact call say").await;
+    world.compact_between_turns(9_000).await;
+    world.ran("say refuse").await;
+    let (a, mut held) = positioned_window(&world.directory, &id, 1, "a").await;
+    let before = at_fence(&handle, &a, &mut held, "before the unload").await;
+    let shown = |handle: &SessionHandle| -> Vec<Value> {
+        handle
+            .cell
+            .view
+            .load_full()
+            .items
+            .iter()
+            .map(|item| json!({ "type": serde_json::to_value(item.as_ref()).expect("an item")["type"], "id": item.id().as_str() }))
+            .collect()
+    };
+    let live_view = shown(&handle);
+    drop(a);
+
+    world.directory.release(&id).await;
+    let (b, mut again) = positioned_window(&world.directory, &id, 2, "b").await;
+    let reloaded = world.directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let after = at_fence(&reloaded, &b, &mut again, "after the unload").await;
+    assert_eq!(after, before, "the log reads the same after an unload");
+    assert_eq!(shown(&reloaded), live_view, "the ordered view reads the same after an unload");
+
+    let restarted = positioned_directory(&world.rig, world.store.clone());
+    let (c, mut fresh) = positioned_window(&restarted, &id, 3, "c").await;
+    let reopened = restarted.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let after = at_fence(&reopened, &c, &mut fresh, "after a restart").await;
+    assert_eq!(after, before, "the log reads the same after a restart");
+    assert_eq!(shown(&reopened), live_view, "the ordered view reads the same after a restart");
+    assert_eq!(kinds_of(&before).iter().filter(|kind| *kind == "turnEnd").count(), 2);
+    assert_eq!(kinds_of(&before).iter().filter(|kind| *kind == "contextCompaction").count(), 2);
+}
+
+/// A demand whose read is held while a record is committed: the record is in the page the demand carries, or it is
+/// sent behind the demand's fence, never both as two occurrences and never neither. The window that follows the tail
+/// meanwhile is sent the record once the line reaches it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_committed_while_a_demands_read_is_delayed_reaches_each_window_once() {
+    let counted: Arc<Mutex<Option<Arc<super::testing::CallCounted>>>> = Arc::default();
+    let keep = counted.clone();
+    let mut world = Fenced::over(move |store| {
+        let wrapped = super::testing::CallCounted::paging(store);
+        *lock(&keep) = Some(wrapped.clone());
+        wrapped as Arc<dyn super::ThreadStore>
+    })
+    .await;
+    let store = lock(&counted).clone().expect("the store is wrapped");
+    let handle = world.handle.clone();
+    world.ran("say say").await;
+    let (a, mut held_a) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let (b, mut held_b) = positioned_window(&world.directory, &handle.id, 2, "b").await;
+    at_fence(&handle, &a, &mut held_a, "A attached").await;
+    at_fence(&handle, &b, &mut held_b, "B attached").await;
+    demand(&handle, &b, "b", &mut held_b, "trim", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+
+    world.start("pause say pause").await;
+    world.paused().await;
+    at_fence(&handle, &a, &mut held_a, "the turn began").await;
+    let mut read = store.hold("unit_page");
+    {
+        let asked = window_set(&handle, &b, "b", held_b.version, "tail", json!({ "ranges": [], "followTail": true, "pinned": [] }));
+        tokio::pin!(asked);
+        tokio::select! {
+            _ = &mut asked => panic!("the demand was answered while its read was held"),
+            () = read.entered("unit_page") => {}
+        }
+        // The reply is committed while the demand's read waits.
+        world.resume();
+        world.paused().await;
+        read.release();
+        let (frames, _) = asked.await;
+        for frame in &frames {
+            held_b.apply(frame);
+        }
+    }
+    let log = at_fence(&handle, &a, &mut held_a, "the reply, for the window that followed the tail").await;
+    at_fence(&handle, &b, &mut held_b, "the reply, for the window whose demand was read meanwhile").await;
+    let reply = log.last().expect("the reply")["position"].clone();
+    for (name, held) in [("A", &held_a), ("B", &held_b)] {
+        assert_eq!(held.units().iter().filter(|unit| unit["position"] == reply).count(), 1, "{name} holds the reply once");
+    }
+    world.resume();
+    world.idle().await;
+    at_fence(&handle, &a, &mut held_a, "the turn closed, A").await;
+    at_fence(&handle, &b, &mut held_b, "the turn closed, B").await;
+}
+
+/// A read that fails is not tried again. A demand whose read fails is refused and changes nothing: the window is as
+/// it was, and what is committed afterwards reaches it. A read of occurrences already held that fails (the rows a
+/// compaction archived) leaves every window holding nothing from its last fence on: each is told so, is sent no
+/// later change across the hole, and holds the log again once it asks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_read_fails_its_demand_or_leaves_the_windows_holding_nothing() {
+    let counted: Arc<Mutex<Option<Arc<super::testing::CallCounted>>>> = Arc::default();
+    let keep = counted.clone();
+    let mut world = Fenced::over(move |store| {
+        let wrapped = super::testing::CallCounted::paging(store);
+        *lock(&keep) = Some(wrapped.clone());
+        wrapped as Arc<dyn super::ThreadStore>
+    })
+    .await;
+    let store = lock(&counted).clone().expect("the store is wrapped");
+    let handle = world.handle.clone();
+    for _ in 0..3 {
+        world.ran("say say").await;
+    }
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let log = at_fence(&handle, &a, &mut held, "attached").await;
+
+    // A demand whose read fails.
+    let (version, ranges) = (held.version, held.ranges.len());
+    store.fail("unit_page");
+    let want = json!({ "ranges": [{ "at": "retain", "id": "tail" }, { "at": "around", "position": log[1]["position"], "before": 1, "after": 1 }], "followTail": true, "pinned": [] });
+    let params = json!({ "threadId": handle.id, "subscriptionId": "a", "baseWindowVersion": version, "requestId": "broken", "want": want });
+    let ctx = CallContext::connection(mixdog_core_api::sink::ConnectionSink::id(&a), mixdog_protocol::Origin::Local, CancellationToken::new());
+    let refused = handle.request(CoreRequest { ctx, ..request("thread/window/set", params, "broken") }).await;
+    assert!(refused.is_err(), "{refused:?}");
+    world.ran("say").await;
+    at_fence(&handle, &a, &mut held, "a turn after the refused demand").await;
+    assert_eq!((held.version, held.ranges.len()), (version, ranges), "the refused demand changed nothing");
+
+    // A read of what the windows hold fails: the compaction's rows are not read again.
+    store.fail("unit_page");
+    world.compact_between_turns(9_000).await;
+    let emptied = |frames: &[String]| {
+        lane_frames(frames)
+            .iter()
+            .any(|frame| frame["method"] == "thread/window/changed" && frame["params"]["ranges"] == json!([]) && frame["params"]["followTail"] == false)
+    };
+    for frame in lane_frames(&a.drain_text_until(emptied).await) {
+        held.apply(&frame);
+    }
+    assert!(held.units().is_empty() && !held.follows, "the window holds nothing from the failed read on");
+    world.ran("say").await;
+    let after: Vec<Value> = lane_frames(&a.drain_text());
+    assert!(!after.iter().any(|frame| frame["params"].get("change").is_some()), "no change is sent across the hole: {after:?}");
+    for frame in &after {
+        held.apply(frame);
+    }
+    // It asks again, and holds the log; a window attached now is served too.
+    demand(&handle, &a, "a", &mut held, "again", json!({ "ranges": [], "followTail": true, "pinned": [] })).await;
+    at_fence(&handle, &a, &mut held, "asked again").await;
+    let (b, mut fresh) = positioned_window(&world.directory, &handle.id, 2, "b").await;
+    at_fence(&handle, &b, &mut fresh, "attached after the failed read").await;
+    world.ran("say").await;
+    at_fence(&handle, &a, &mut held, "a turn after asking again").await;
+    at_fence(&handle, &b, &mut fresh, "a turn after attaching").await;
+}
+
+/// A turn that closes while a read of the line is in flight is told ended to no subscriber, positioned or ordered,
+/// until that read is done: each positioned window holds the turn's end when its completion reaches it, and an
+/// ordered subscriber was told the end before it. When the read fails instead, the windows are told they hold
+/// nothing before the turn is told ended.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_closes_behind_a_read_is_told_ended_after_its_end() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let counted: Arc<Mutex<Option<Arc<super::testing::CallCounted>>>> = Arc::default();
+    let keep = counted.clone();
+    let mut world = Fenced::over(move |store| {
+        let wrapped = super::testing::CallCounted::paging(store);
+        *lock(&keep) = Some(wrapped.clone());
+        wrapped as Arc<dyn super::ThreadStore>
+    })
+    .await;
+    let store = lock(&counted).clone().expect("the store is wrapped");
+    let handle = world.handle.clone();
+    world.ran("say say").await;
+    let (a, mut held_a) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let (b, mut held_b) = positioned_window(&world.directory, &handle.id, 2, "b").await;
+    let ordered = subscribed(&world.directory, &handle.id, 3, "o", false).await;
+    at_fence(&handle, &a, &mut held_a, "A attached").await;
+    at_fence(&handle, &b, &mut held_b, "B attached").await;
+    demand(&handle, &b, "b", &mut held_b, "trim", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+
+    let turn = world.start("pause say").await;
+    world.paused().await;
+    at_fence(&handle, &a, &mut held_a, "the turn began").await;
+    let _ = ordered.drain_text();
+    let completes = |frames: &[String]| frames.iter().any(|frame| frame.contains("turn/completed"));
+    // The frames folded in their order: where the turn's completion stands, the window holds the turn's end.
+    let fold = |frames: &[Value], held: &mut HeldWindow, name: &str| {
+        let mut completed = false;
+        for frame in frames {
+            if frame["method"] == "turn/completed" {
+                assert_eq!(held.rows_of("turnEnd", &turn).len(), 1, "{name} is told the turn ended while it holds its end");
+                completed = true;
+            }
+            held.apply(frame);
+        }
+        completed
+    };
+    let mut read = store.hold("unit_page");
+    let (mut told, b_completed);
+    {
+        let asked = window_set(&handle, &b, "b", held_b.version, "tail", json!({ "ranges": [], "followTail": true, "pinned": [] }));
+        tokio::pin!(asked);
+        tokio::select! {
+            _ = &mut asked => panic!("the demand was answered while its read was held"),
+            () = read.entered("unit_page") => {}
+        }
+        // The turn closes, and everything it stored is acknowledged, while the demand's read waits.
+        world.resume();
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0 && handle.cell.run.load().is_none()).then_some(())).await;
+        let early = lane_frames(&a.drain_text());
+        told = lane_frames(&ordered.drain_text());
+        for (name, frames) in [("the window", &early), ("the ordered subscriber", &told)] {
+            assert!(!frames.iter().any(|frame| frame["method"] == "turn/completed"), "{name} is told the turn ended behind the read: {frames:?}");
+        }
+        assert!(!fold(&early, &mut held_a, "A"));
+        read.release();
+        let (frames, _) = asked.await;
+        b_completed = fold(&frames, &mut held_b, "B");
+    }
+    assert!(fold(&lane_frames(&a.drain_text_until(completes).await), &mut held_a, "A"));
+    assert!(b_completed || fold(&lane_frames(&b.drain_text_until(completes).await), &mut held_b, "B"));
+    told.extend(lane_frames(&ordered.drain_text_until(completes).await));
+    let end = told.iter().position(|frame| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "turnEnd");
+    let completed = told.iter().position(|frame| frame["method"] == "turn/completed");
+    assert!(end.is_some() && completed.is_some() && end < completed, "the ordered subscriber is told the end, then the completion: {told:?}");
+    world.idle().await;
+    at_fence(&handle, &a, &mut held_a, "the turn closed, A").await;
+    at_fence(&handle, &b, &mut held_b, "the turn closed, B").await;
+
+    // A read that fails as a turn closes: the window is told it holds nothing before it is told the turn ended.
+    world.start("pause compact say").await;
+    world.paused().await;
+    at_fence(&handle, &a, &mut held_a, "the next turn began").await;
+    store.fail("unit_page");
+    world.resume();
+    let frames = lane_frames(&a.drain_text_until(completes).await);
+    let emptied = frames.iter().position(|frame| frame["method"] == "thread/window/changed" && frame["params"]["ranges"] == json!([]));
+    let completed = frames.iter().position(|frame| frame["method"] == "turn/completed");
+    assert!(emptied.is_some() && completed.is_some() && emptied < completed, "{frames:?}");
+    world.idle().await;
+}
+
+/// A positioned subscriber whose tail was told ready attaches while a closing turn's records wait behind a read: its
+/// snapshot shows the turn running, never ended without its end, and it holds the end when the completion reaches it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_snapshot_taken_as_a_turn_closes_shows_no_ended_turn_without_its_end() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let counted: Arc<Mutex<Option<Arc<super::testing::CallCounted>>>> = Arc::default();
+    let keep = counted.clone();
+    let mut world = Fenced::over(move |store| {
+        let wrapped = super::testing::CallCounted::paging(store);
+        *lock(&keep) = Some(wrapped.clone());
+        wrapped as Arc<dyn super::ThreadStore>
+    })
+    .await;
+    let store = lock(&counted).clone().expect("the store is wrapped");
+    let handle = world.handle.clone();
+    world.ran("say say").await;
+    let (a, mut held_a) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let (b, mut held_b) = positioned_window(&world.directory, &handle.id, 2, "b").await;
+    at_fence(&handle, &a, &mut held_a, "A attached").await;
+    at_fence(&handle, &b, &mut held_b, "B attached").await;
+    demand(&handle, &b, "b", &mut held_b, "trim", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+    let turn = world.start("pause say").await;
+    world.paused().await;
+    at_fence(&handle, &a, &mut held_a, "the turn began").await;
+
+    // C's resume is answered, its tail ready, before the turn closes.
+    let c = mixdog_core_api::mock::MockConnection::new(mixdog_core_api::ids::ConnectionId(3), mixdog_core_api::mock::MockLimits::default());
+    let params = json!({ "threadId": handle.id, "window": { "lastItems": 32 }, "positionedWindow": true });
+    let Reply::Subscribe(reply) = handle.request(request("thread/resume", params, "c")).await.expect("thread/resume") else {
+        panic!("thread/resume subscribes");
+    };
+    let mut read = store.hold("unit_page");
+    let mut held_c = HeldWindow::default();
+    {
+        let asked = window_set(&handle, &b, "b", held_b.version, "tail", json!({ "ranges": [], "followTail": true, "pinned": [] }));
+        tokio::pin!(asked);
+        tokio::select! {
+            _ = &mut asked => panic!("the demand was answered while its read was held"),
+            () = read.entered("unit_page") => {}
+        }
+        // The turn closes and its records are acknowledged while the read waits; C attaches then.
+        world.resume();
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0 && handle.cell.run.load().is_none()).then_some(())).await;
+        let sub = mixdog_core_api::ids::SubscriptionId::from("c");
+        let attached = mixdog_core_api::feed::subscribe(&reply.feed, sub, reply.window, reply.resume_from, &c).expect("attach");
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&c, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        for frame in lane_frames(&c.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("thread/snapshot"))).await) {
+            assert_ne!(frame["method"], "turn/completed", "the turn is told ended behind the read");
+            held_c.apply(&frame);
+        }
+        assert!(held_c.rows_of("turnEnd", &turn).is_empty(), "the end's unit waits behind the read");
+        assert_eq!(held_c.runtime["turnId"], json!(turn), "the snapshot shows the turn running: {}", held_c.runtime);
+        read.release();
+        let _ = asked.await;
+    }
+    let mut completed = false;
+    for frame in lane_frames(&c.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await) {
+        if frame["method"] == "turn/completed" {
+            assert_eq!(held_c.rows_of("turnEnd", &turn).len(), 1, "C is told the turn ended while it holds its end");
+            completed = true;
+        }
+        held_c.apply(&frame);
+    }
+    assert!(completed);
+    world.idle().await;
+    at_fence(&handle, &c, &mut held_c, "the turn closed, C").await;
+}
+
+/// A compaction's divider reaches every subscriber before the session stops saying it is compacting: before the stage
+/// that follows the pass mid-turn, and before the turn's completion when the pass is the turn's last act. The run sends
+/// that stage only once its compaction is stored, and a turn ends after it, so both orders are the actor's alone; where
+/// the stage that begins the pass stands is not asserted, since the run hands stages and records on apart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_compactions_divider_is_delivered_before_the_session_stops_compacting() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let ordered = subscribed(&world.directory, &handle.id, 2, "o", false).await;
+    let _ = ordered.drain_text();
+    let stage = |name: &'static str| move |frame: &Value| frame["method"] == "thread/stage/updated" && frame["params"]["stage"] == name;
+    let completed = |frame: &Value| frame["method"] == "turn/completed";
+    let unit_divider = |frame: &Value| {
+        let items = frame["params"]["change"]["unit"]["items"].as_array();
+        frame["method"] == "thread/transcript/changed" && items.is_some_and(|items| items.iter().any(|item| item["type"] == "contextCompaction"))
+    };
+    let told_divider = |frame: &Value| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "contextCompaction";
+    let at = |frames: &[Value], what: &str, found: &dyn Fn(&Value) -> bool| frames.iter().position(found).unwrap_or_else(|| panic!("{what}: {frames:?}"));
+    let ends = |frames: &[String]| frames.iter().any(|frame| frame.contains("turn/completed"));
+
+    // Mid-turn: the pass, then the next request.
+    world.ran("squeeze compact request say").await;
+    let windowed = lane_frames(&a.drain_text_until(ends).await);
+    let whole = lane_frames(&ordered.drain_text_until(ends).await);
+    for (name, frames, divider) in [("the window", &windowed, &unit_divider as &dyn Fn(&Value) -> bool), ("the ordered subscriber", &whole, &told_divider)] {
+        let (shown, next) = (at(frames, "the divider", divider), at(frames, "requesting", &stage("requesting")));
+        assert!(shown < next, "{name}: divider {shown}, requesting {next}: {frames:?}");
+    }
+    for frame in &windowed {
+        held.apply(frame);
+    }
+    at_fence(&handle, &a, &mut held, "a compaction mid-turn").await;
+
+    // As the turn's last act.
+    world.ran("squeeze compact").await;
+    let windowed = lane_frames(&a.drain_text_until(ends).await);
+    let whole = lane_frames(&ordered.drain_text_until(ends).await);
+    for (name, frames, divider) in [("the window", &windowed, &unit_divider as &dyn Fn(&Value) -> bool), ("the ordered subscriber", &whole, &told_divider)] {
+        let (shown, closed) = (at(frames, "the divider", divider), at(frames, "the completion", &completed));
+        assert!(shown < closed, "{name}: divider {shown}, completion {closed}: {frames:?}");
+    }
+    for frame in &windowed {
+        held.apply(frame);
+    }
+    at_fence(&handle, &a, &mut held, "a compaction as the turn's last act").await;
+}
+
+/// The types of the rows the whole-transcript view shows, in order.
+fn view_kinds(handle: &SessionHandle) -> Vec<String> {
+    let items = handle.cell.view.load_full().items.clone();
+    items.iter().map(|item| serde_json::to_value(item.as_ref()).expect("an item is JSON")["type"].as_str().unwrap_or_default().to_owned()).collect()
+}
+
+/// What `world`'s thread reads as everywhere a client can read it: the window `held` at the fence `fence`, a second
+/// window attached now, the whole-transcript view, and all of them again after the thread is unloaded and read back.
+/// Each is the log, whose rows are of the types `kinds`.
+async fn reads_the_same_everywhere(world: &Fenced, a: &mixdog_core_api::mock::MockConnection, held: &mut HeldWindow, kinds: &[&str], fence: &str) {
+    let (handle, id) = (world.handle.clone(), world.handle.id.clone());
+    let log = at_fence(&handle, a, held, fence).await;
+    assert_eq!(kinds_of(&log), kinds, "the log, {fence}");
+    assert_eq!(view_kinds(&handle), kinds, "the whole-transcript view, {fence}");
+    let (b, mut second) = positioned_window(&world.directory, &id, 11, "second").await;
+    assert_eq!(at_fence(&handle, &b, &mut second, fence).await, log, "a second window, {fence}");
+    assert!(second.loose.is_empty(), "a second window is sent no row beside its units, {fence}: {:?}", second.loose);
+    world.directory.release(&id).await;
+    let (c, mut again) = positioned_window(&world.directory, &id, 12, "again").await;
+    let reloaded = world.directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(at_fence(&reloaded, &c, &mut again, fence).await, log, "after a reload, {fence}");
+    assert_eq!(view_kinds(&reloaded), kinds, "the whole-transcript view after a reload, {fence}");
+    let history = world.directory.history_items(&id).await.expect("history");
+    let read: Vec<String> =
+        history.iter().map(|item| serde_json::to_value(item).expect("an item is JSON")["type"].as_str().unwrap_or_default().to_owned()).collect();
+    assert_eq!(read, kinds, "the stored history, {fence}");
+}
+
+/// A finished thought is a row of the transcript like any other: the window that saw it live, a second window, the
+/// whole-transcript view and a reload all read it, at its own record; the model's context holds none of it. The
+/// marker of a compaction pass that changed nothing is shown by none of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_thought_reads_the_same_in_every_window_and_after_a_reload() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let turn = world.ran("think check say").await;
+    let context = world.directory.model_context(&handle.id).read().await.expect("context");
+    assert_eq!(context.len(), 2, "the prompt and the reply, no thought: {context:?}");
+    let thoughts = |held: &HeldWindow| held.rows_of("reasoning", &turn);
+    reads_the_same_everywhere(&world, &a, &mut held, &["userMessage", "reasoning", "agentMessage", "turnEnd"], "a turn that thought").await;
+    assert_eq!(thoughts(&held).len(), 1, "{:?}", thoughts(&held));
+    assert!(thoughts(&held)[0]["content"][0].as_str().is_some_and(|text| text.starts_with("thought")), "{:?}", thoughts(&held));
+    assert!(!held.loose.iter().any(|item| item["type"] == "reasoning" || item["type"] == "statusRow"), "{:?}", held.loose);
+}
+
+/// A reply streamed in part before its turn failed is a row of the transcript: the window that saw it stream holds
+/// it at the turn's completion, and a second window, the whole-transcript view and a reload read it the same, before
+/// the turn's failed end; the model's context holds none of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_text_a_failed_turn_streamed_reads_the_same_in_every_window_and_after_a_reload() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let turn = world.ran("stream fail").await;
+    let context = world.directory.model_context(&handle.id).read().await.expect("context");
+    assert_eq!(context.len(), 1, "the prompt alone: {context:?}");
+    reads_the_same_everywhere(&world, &a, &mut held, &["userMessage", "agentMessage", "turnEnd"], "a turn that failed with text streamed").await;
+    let texts = held.rows_of("agentMessage", &turn);
+    assert_eq!(texts.len(), 1, "{texts:?}");
+    assert!(texts[0]["text"].as_str().is_some_and(|text| text.starts_with("streamed")), "{texts:?}");
+    assert_eq!(held.rows_of("turnEnd", &turn)[0]["status"], "failed");
+}
+
+/// One response whose text streamed in `parts` parts, a tool call after each, committed as the one message it is, in
+/// a turn that ends as `ending` says: each part is one row, once, in the window that saw it stream, in a second
+/// window, through the ordered path, in the whole-transcript view and after a reload; no part is stored a second time.
+async fn each_part_of_a_response_reads_once(parts: usize, ending: &str) {
+    let mut world = Fenced::recorded().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let ordered = subscribed(&world.directory, &handle.id, 2, "o", false).await;
+    let _ = ordered.drain_text();
+    let case = format!("{parts} parts, {ending}");
+    let prompt = format!("{}reply {ending}", "seg ".repeat(parts));
+    let turn = world.start(&prompt).await;
+    if ending == "pause" {
+        world.paused().await;
+        handle.interrupt(&TurnId::from(turn.clone()), None).expect("the stop");
+    }
+    world.idle().await;
+
+    let texts = |items: &[Value]| -> Vec<String> {
+        items.iter().filter(|item| item["type"] == "agentMessage").map(|item| item["text"].as_str().unwrap_or_default().to_owned()).collect()
+    };
+    // The ordered path: each row by its id, as a client folds what it is told.
+    let whole = lane_frames(&ordered.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("turn/completed"))).await);
+    let mut told: Vec<(String, Value)> = Vec::new();
+    for frame in whole.iter().filter(|frame| frame["method"] == "item/completed") {
+        let item = frame["params"]["item"].clone();
+        let id = item["id"].as_str().unwrap_or_default().to_owned();
+        match told.iter_mut().find(|(known, _)| *known == id) {
+            Some(row) => row.1 = item,
+            None => told.push((id, item)),
+        }
+    }
+    let told: Vec<Value> = told.into_iter().map(|(_, item)| item).collect();
+    let expected: Vec<String> = texts(&told);
+    assert_eq!(expected.len(), parts, "the ordered path, {case}: {told:?}");
+    assert!(expected.iter().all(|text| text.starts_with("part ")), "{case}: {expected:?}");
+    let mut distinct = expected.clone();
+    distinct.dedup();
+    assert_eq!(distinct, expected, "no part twice, {case}");
+
+    let mut kinds = vec!["userMessage"];
+    kinds.extend((0..parts).flat_map(|_| ["agentMessage", "toolCall"]));
+    kinds.push("turnEnd");
+    reads_the_same_everywhere(&world, &a, &mut held, &kinds, &case).await;
+    let rows: Vec<Value> = held.units().iter().flat_map(|unit| unit["items"].as_array().cloned().unwrap_or_default()).collect();
+    assert_eq!(texts(&rows), expected, "the window that saw them stream, {case}");
+    let stored = world.directory.history_items(&handle.id).await.expect("history");
+    let stored: Vec<Value> = stored.iter().map(|item| serde_json::to_value(item).expect("an item is JSON")).collect();
+    assert_eq!(texts(&stored), expected, "the stored history, {case}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_part_of_a_two_part_response_reads_once_in_a_completed_turn() {
+    each_part_of_a_response_reads_once(2, "").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_part_of_a_three_part_response_reads_once_in_a_completed_turn() {
+    each_part_of_a_response_reads_once(3, "").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_part_of_a_two_part_response_reads_once_in_a_stopped_turn() {
+    each_part_of_a_response_reads_once(2, "pause").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_part_of_a_three_part_response_reads_once_in_a_stopped_turn() {
+    each_part_of_a_response_reads_once(3, "pause").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_part_of_a_two_part_response_reads_once_in_a_failed_turn() {
+    each_part_of_a_response_reads_once(2, "fail").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_part_of_a_three_part_response_reads_once_in_a_failed_turn() {
+    each_part_of_a_response_reads_once(3, "fail").await;
+}
+
+/// A turn that fails before any reply, on the real store: its one end is the record written at its close, live and
+/// read back, though its prompt's row (written before the turn's `started` record) holds the failed completion.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_fails_before_any_reply_reads_one_end_live_and_after_a_reload() {
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let (a, mut held) = positioned_window(&world.directory, &handle.id, 1, "a").await;
+    let turn = world.ran("fail").await;
+    reads_the_same_everywhere(&world, &a, &mut held, &["userMessage", "turnEnd"], "a turn that failed before any reply").await;
+    assert_eq!(held.rows_of("turnEnd", &turn).len(), 1);
+}
+
+/// A record codec that cannot encode a turn's `started` record: the turn's start is refused.
+struct RefusesStarts;
+
+impl super::seams::RecordCodec for RefusesStarts {
+    fn encode(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>,
+        record: &mixdog_store::schema::record::Record,
+    ) -> Result<super::seams::EncodedRecord, CoreError> {
+        match record {
+            mixdog_store::schema::record::Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Started => {
+                Err(CoreError::Internal { incident_id: "start-refused".into() })
+            }
+            _ => super::store::StoreCodec.encode(lane, record),
+        }
+    }
+}
+
+/// A turn whose start is refused leaves nothing of itself: no row, no run record, and no end, live or stored.
+#[tokio::test(start_paused = true)]
+async fn a_refused_start_stores_no_end() {
+    let rig = Rig::new();
+    let ran = Arc::new(tokio::sync::Notify::new());
+    let told = ran.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            let refused = run.port.input_durable().await.is_err();
+            told.notify_one();
+            if refused { RunOutcome::Interrupted } else { RunOutcome::Completed(Default::default()) }
+        })
+    }));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.codec = Arc::new(RefusesStarts);
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let before = rig.store.records(&handle.id).len();
+    let params = json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } });
+    let started = handle.request(request("turn/start", params, "op-1")).await;
+    assert!(started.is_err(), "the start is refused: {started:?}");
+    ran.notified().await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    let thread = handle.id.as_str().to_owned();
+    let ends = rig.feeds.frames(&thread).into_iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd").count();
+    assert_eq!(ends, 0, "no end is told");
+    assert!(!view_kinds(&handle).iter().any(|kind| kind == "turnEnd"), "{:?}", view_kinds(&handle));
+    let stored = rig.store.records(&handle.id);
+    let items = stored.iter().filter(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Item(_))).count();
+    let before_items = stored.iter().take(before).filter(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Item(_))).count();
+    assert_eq!(items, before_items, "nothing of the refused turn is stored: {stored:?}");
+}
+
+/// A thread written before turns stored their end as a record, as the store holds it.
+async fn old_thread(store: &Arc<dyn super::ThreadStore>, thread: &str) -> ThreadId {
+    let commit = |value: Value| {
+        let record: mixdog_store::schema::record::Record = serde_json::from_value(value).expect("a record");
+        let encoded = super::seams::EncodedRecord(mixdog_store::encode::encode_record(record.clone()).expect("encodes"));
+        super::seams::CommitRecord { record: Arc::new(record), encoded }
+    };
+    let item = |iid: &str, role: &str, prompt: Option<&str>, body: Value| {
+        let mut record = json!({ "k": "item", "iid": iid, "turn": "oldturn", "role": role, "form": "message", "model": true, "visible": true, "refs": [], "body": { "inline": body } });
+        if let Some(prompt) = prompt {
+            record["prompt"] = json!({ "inline": prompt });
+        }
+        record
+    };
+    let done = json!({ "status": "done", "verb": "Completed", "elapsedMs": 1000, "checkpointId": "oldcp" });
+    let rows: Vec<super::seams::CommitRecord> = [
+        item("oldq", "user", Some("an old question"), json!({ "role": "user", "content": "an old question", "meta": { "transcript": { "messageId": "om1", "at": 1000 } } })),
+        json!({ "k": "run", "rid": "oldturn", "phase": "started", "at": 1000 }),
+        item(
+            "olda",
+            "assistant",
+            None,
+            json!({ "role": "assistant", "content": "an old answer", "meta": { "transcript": { "messageId": "om2", "at": 2000, "attemptId": "oldatt", "completion": done } } }),
+        ),
+        json!({ "k": "run", "rid": "oldturn", "phase": "completed", "at": 2000 }),
+    ]
+    .into_iter()
+    .map(commit)
+    .collect();
+    let id = ThreadId::from(thread);
+    let session =
+        commit(json!({ "k": "session", "v": 2, "id": thread, "log_id": "4f1c2a9e0b7d3c5a6e8f9012", "header": { "inline": { "title": "old", "cwd": "/ws" } } }));
+    let (store, created) = (store.clone(), id.clone());
+    mixdog_rt::LaneToken::submit(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), move |lane| {
+        let (mut log, _) = store.create_log(lane, &created, &session).expect("created");
+        log.commit(lane, &rows).expect("appended");
+    })
+    .expect("lane")
+    .await
+    .expect("job ran");
+    id
+}
+
+/// An old log keeps the rule it was written under: the end of its turn is the one its reply restores, in the reply's
+/// unit. A turn added to it now stores its end as a record: its reply shows none, and its end is a unit of its own.
+/// The mixed log reads so live, in a window attached later, in the ordered view, and after a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_old_log_keeps_its_restored_ends_and_gains_turns_that_store_theirs() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let id = old_thread(&store, "sess_old_log").await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let done = json!({ "status": "done", "verb": "Completed", "elapsedMs": 1000, "checkpointId": "newcp" });
+            let body = json!({ "role": "assistant", "content": "a new answer", "meta": { "transcript": { "messageId": "nm2", "at": 5000, "attemptId": "newatt", "completion": done } } });
+            run.port.commit_item(said("newa".to_owned(), "assistant", body)).await.expect("reply");
+            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
+            result.content = "a new answer".into();
+            RunOutcome::Completed(Box::new(result))
+        })
+    }));
+    let make = |store: Arc<dyn super::ThreadStore>| {
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+        deps.feeds =
+            Arc::new(super::store::CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+        SessionDirectory::new(Arc::new(deps))
+    };
+    let directory = make(store.clone());
+    let ends_shown =
+        |handle: &SessionHandle| handle.cell.view.load_full().items.iter().filter(|item| matches!(item.as_ref(), ThreadItem::TurnEnd { .. })).count();
+
+    // The old log alone.
+    let (a, mut held) = positioned_window(&directory, &id, 1, "a").await;
+    let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let log = at_fence(&handle, &a, &mut held, "the old log").await;
+    assert_eq!(log.iter().map(unit_kinds).collect::<Vec<_>>(), [vec!["userMessage"], vec!["agentMessage", "turnEnd"]], "{log:?}");
+    assert_eq!(ends_shown(&handle), 1);
+
+    // A turn of today on it.
+    turn(&handle, "a new question", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    let log = at_fence(&handle, &a, &mut held, "the mixed log").await;
+    let kinds: Vec<Vec<String>> = log.iter().map(unit_kinds).collect();
+    assert_eq!(kinds, [vec!["userMessage"], vec!["agentMessage", "turnEnd"], vec!["userMessage"], vec!["agentMessage"], vec!["turnEnd"]], "{log:?}");
+    assert_eq!(ends_shown(&handle), 2, "one end a turn in the ordered view");
+
+    // Attached later, and after a restart.
+    let (b, mut later) = positioned_window(&directory, &id, 2, "b").await;
+    assert_eq!(at_fence(&handle, &b, &mut later, "attached to the mixed log").await, log);
+    let restarted = make(store.clone());
+    let (c, mut fresh) = positioned_window(&restarted, &id, 3, "c").await;
+    let reopened = restarted.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(at_fence(&reopened, &c, &mut fresh, "the mixed log after a restart").await, log);
+    assert_eq!(ends_shown(&reopened), 2, "one end a turn after a restart");
+}
+
+/// A turn the user's message took over says so on its end, live and read back: the cause is the end record's, also for
+/// a turn a task notification started, whose input shows no row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_takeover_end_keeps_its_cause_after_a_reload() {
+    use mixdog_tools::exec::TaskNotifier;
+    let mut world = Fenced::new().await;
+    let handle = world.handle.clone();
+    let id = handle.id.clone();
+    let (a, mut held) = positioned_window(&world.directory, &id, 1, "a").await;
+    world.directory.finished(&id, "shell", "job-1", "completed", "say pause say".into()).await;
+    world.paused().await;
+    at_fence(&handle, &a, &mut held, "the notified turn runs").await;
+    let running = held.runtime["turnId"].as_str().expect("the runtime names the running turn").to_owned();
+    // A message is queued behind the turn and sent now: it takes the turn over.
+    let queued = turn(&handle, "say", "op-queued").await;
+    let queued_id = queued["queuedId"].as_str().unwrap_or_else(|| panic!("the message is queued behind the running turn: {queued}")).to_owned();
+    let takeover = json!({ "threadId": id, "opId": "op-take", "turnId": running, "queuedId": queued_id });
+    let taken = handle.request(request("turn/takeover", takeover, "op-take")).await;
+    assert!(taken.is_ok(), "{taken:?}");
+    world.idle().await;
+    let log = at_fence(&handle, &a, &mut held, "the takeover").await;
+    let ends = held.rows_of("turnEnd", &running);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert_eq!((ends[0]["status"].clone(), ends[0]["meta"]["ext"]["cause"].clone()), (json!("cancelled"), json!("message")), "{}", ends[0]);
+
+    world.directory.release(&id).await;
+    let (b, mut again) = positioned_window(&world.directory, &id, 2, "b").await;
+    let reloaded = world.directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(at_fence(&reloaded, &b, &mut again, "after a reload").await, log);
+    assert_eq!(again.rows_of("turnEnd", &running), ends, "the end reads the same after a reload");
 }

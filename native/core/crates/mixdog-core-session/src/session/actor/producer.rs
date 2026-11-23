@@ -20,8 +20,8 @@ impl SessionActor {
                 let Ok(Record::Item(record)) = self.item_record(&turn, commit, RowFacts { visible: true, prompt: None }, None) else { return };
                 let Some(token) = self.run.as_ref().map(|run| run.token.clone()) else { return };
                 let place = self.producers.reserve();
-                let (deps, jobs) = (self.deps.clone(), self.jobs_tx.clone());
-                let items = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| (deps.transcript.items(lane, &record), record);
+                let (deps, jobs, end) = (self.deps.clone(), self.jobs_tx.clone(), self.end_form(&record));
+                let items = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| (deps.transcript.items_as(lane, &record, end), record);
                 // A live preview, bounded by its turn: a stopped turn's answer is an error, which still fills the place.
                 mixdog_core_base::support::lane_job(self.deps.lanes.cpu, "early-result", &token, items, move |shown| {
                     let _ = jobs.send(JobDone::EarlyShown { place, turn, shown: shown.ok() });
@@ -222,19 +222,9 @@ impl SessionActor {
                 // nothing live either.
                 let agent_mode = self.agent_mode();
                 let shown_live = !agent_mode && !(turn.as_str().is_empty() && self.after_compaction.is_some());
-                // The divider shows live where the compaction happened (`compactionDivider`).
-                let mut divider = super::super::transcript::divider_item(&cid, Some(compaction.at));
-                // The record's number among its turn's, when its event has not come: the divider waits for it.
-                let mut waiting = None;
-                if shown_live && !turn.as_str().is_empty() {
-                    let pairs = CompactPairs::of(&mut self.compact_pairs, &turn);
-                    let seq = pairs.records;
-                    pairs.records += 1;
-                    match pairs.details.remove(&seq) {
-                        Some(detail) => super::super::view::meta_mut(&mut divider).detail = Some(detail),
-                        None => waiting = Some((seq, divider.clone())),
-                    }
-                }
+                // The divider shows live where the compaction happened (`compactionDivider`), as it reads from its record:
+                // the divider alone.
+                let divider = super::super::transcript::divider_item(&cid, Some(compaction.at));
                 let note = Note::new(
                     "item/completed",
                     &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: divider.clone(), room_view: None },
@@ -258,10 +248,7 @@ impl SessionActor {
                 let ack = if turn.as_str().is_empty() { Effect::MarkAck(ack) } else { Effect::ItemAck(ack) };
                 let (compaction_ack, header_ack) = if header.is_some() { (Vec::new(), vec![ack]) } else { (vec![ack], Vec::new()) };
                 let (display, notes) = if shown_live { (Display::Items(vec![Shown::Item(divider)]), vec![note]) } else { (Display::None, Vec::new()) };
-                let entry = self.accept_record_entry(record, Class::Normal, display, notes, compaction_ack);
-                if let Some((seq, item)) = waiting {
-                    CompactPairs::of(&mut self.compact_pairs, &turn).dividers.insert(seq, WaitingDivider { cid, entry, item });
-                }
+                self.accept_record(record, Class::Normal, display, notes, compaction_ack);
                 if let Some(header) = header {
                     let change = header(&self.projected.header);
                     self.accept_record(

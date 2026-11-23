@@ -337,8 +337,8 @@ pub struct Attached {
 pub struct FeedFrame {
     pub seq: u64,
     pub bytes: Bytes,
-    /// The frame as a positioned subscription gets it, when it tells a record's rows: the same event with no row.
-    /// `bytes` is then what every other subscription gets.
+    /// The frame as a positioned subscription gets it, when that differs: the same event with no row when it tells a
+    /// record's rows, or a row no record holds with where it stands. `bytes` is then what every other subscription gets.
     pub positioned: Option<Bytes>,
 }
 
@@ -354,7 +354,7 @@ impl FeedFrame {
     }
 
     /// The frame as a subscription holding `grant` gets it (`None`: one that is not positioned). Always a frame of
-    /// this seq: a positioned subscription is told the progress, never skipped, and never a row by this frame.
+    /// this seq: a positioned subscription is told the progress, never skipped, and never a record's row by this frame.
     pub fn for_grant(&self, grant: Option<&Grant>) -> &Bytes {
         match (&self.positioned, grant) {
             (Some(positioned), Some(_)) => positioned,

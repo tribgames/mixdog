@@ -102,7 +102,7 @@ fn is_text_reference(part: &ContentPart) -> bool {
 /// media part, joined by newlines.
 pub fn content_text(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .map(|part| match part {

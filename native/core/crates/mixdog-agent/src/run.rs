@@ -513,7 +513,10 @@ pub struct Run {
     pub(crate) image_choices_refusal: Option<String>,
     /// The tool surface frozen for the requests of this run (`fixedProviderToolSurface`): the first request
     /// takes the session's tools, later ones keep its eager prefix and adopt changed MCP definitions.
-    pub(crate) fixed_surface: Option<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
+    pub(crate) fixed_surface: Option<Arc<[mixdog_core_api::domain::provider::ToolDefinition]>>,
+    /// The tools of the latest request whose usage was told, one allocation for everything that is told them (the frozen
+    /// surface itself while the request carried it unchanged).
+    pub(crate) sent_tools: Arc<[mixdog_core_api::domain::provider::ToolDefinition]>,
     /// The provider's own re-issue of this send ([`crate::send::Reissue`]), from the failure that asked for it until
     /// the send completes or its ladder starts over.
     pub(crate) reissue: Option<crate::send::Reissue>,
@@ -535,6 +538,9 @@ pub struct Run {
     /// ([`crate::repair::ToolCallIds::in_session`]). The session's count, the transcript's and the run's own, whichever
     /// is highest.
     pub(crate) call_epoch: u64,
+    /// The stream of the last exchange, kept while its provider's run waits for the batch's results
+    /// ([`crate::send::keeps_its_run`]): the next exchange writes them back on that run, and the run ends with this turn.
+    pub(crate) open_run: std::sync::Mutex<Option<Box<dyn mixdog_core_api::domain::provider::ModelStream>>>,
 }
 
 /// ``reasoningUsage(usage)``: the generation tokens the provider reported, ``None`` when it reported
@@ -604,6 +610,7 @@ impl Run {
         }
         Self {
             call_epoch,
+            open_run: std::sync::Mutex::new(None),
             provider_state,
             provider_state_changed: false,
             env,
@@ -668,6 +675,7 @@ impl Run {
             dropped_tools: std::collections::HashMap::new(),
             image_choices_refusal: None,
             fixed_surface: None,
+            sent_tools: Default::default(),
             reissue: None,
             readmitting: false,
             replay_repair_used: false,
@@ -913,7 +921,7 @@ impl Run {
             request_ms: response.request_ms.unwrap_or_else(|| (self.env.clock.now_ms() - self.request_started_ms).max(0) as u64),
             delta_prompt: crate::boundary::prompt_tokens(&response.usage, input_excludes_cache),
             input_excludes_cache,
-            send_tools: self.last_request.as_ref().map(|r| r.tools.clone()).unwrap_or_default(),
+            send_tools: self.sent_tools(),
             reasoning_tokens,
             reasoning_tokens_complete,
             outgoing: self.outgoing_transcript(),
@@ -923,6 +931,19 @@ impl Run {
         self.emit(RunEvent::Usage { iteration: self.iterations, usage: response.usage.clone(), delta });
         self.response = Some(response.clone());
         Ok(())
+    }
+
+    /// The tools of the latest request, as one allocation its usage's listeners share: the frozen surface when the request
+    /// carried it unchanged, else the snapshot already taken of the same tools, else a new one. Taken when a usage is told,
+    /// so a request that yields none (a schema rejection retried) copies nothing.
+    fn sent_tools(&mut self) -> Arc<[mixdog_core_api::domain::provider::ToolDefinition]> {
+        let Some(request) = &self.last_request else { return Default::default() };
+        match &self.fixed_surface {
+            Some(surface) if **surface == *request.tools => self.sent_tools = surface.clone(),
+            _ if *self.sent_tools == *request.tools => {}
+            _ => self.sent_tools = request.tools.clone().into(),
+        }
+        self.sent_tools.clone()
     }
 
     /// `providerInputExcludesCache` of the adapter the run sends through now: a fallback replaces `self.provider`, so the

@@ -28,7 +28,7 @@ static SKILL_ENTITY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"
 /// `skillMessageText`: a string as it is, the text of every block joined without a separator.
 fn skill_message_text(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .map(|part| match part {

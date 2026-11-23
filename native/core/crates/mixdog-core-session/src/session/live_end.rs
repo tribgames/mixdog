@@ -78,24 +78,32 @@ pub(crate) fn live_form(
             }
             meta.ext.insert("streaming".into(), json!(false));
         }
-        ThreadItem::ToolCall { run, output, meta, .. } => {
+        ThreadItem::ToolCall { run, .. } => {
             run.live = Some(true);
-            // A live call's card opens unfinished (`openToolCalls` -> turn-tool-cards.mjs:60-78: `completedCount: 0`, `result: null`,
-            // no `completedAt`) and its result completes it (`live_result`); the restore rule that reads a stored call as finished
-            // (`restoredToolCallItems`) is not the live card's.
+            // The card starts when it shows (`startedAt: Date.now()`); the stored message may state no time, and a card
+            // without a start has no elapsed time on the desktop. A result update (it has a result) never restamps it.
             if run.result.is_none() {
-                run.completed_count = Some(0);
-                run.completed_at = None;
-                // The card starts when it shows (`startedAt: Date.now()`); the stored message may state no time, and a card
-                // without a start has no elapsed time on the desktop. A result update (it has a result) never restamps it.
                 run.started_at.get_or_insert(at);
-                meta.status = None;
-                *output = None;
             }
         }
         _ => {}
     }
+    open_call(&mut item);
     item
+}
+
+/// A call no result has reached yet opens unfinished (`openToolCalls` -> turn-tool-cards.mjs:60-78: `completedCount: 0`,
+/// `result: null`, no `completedAt`) and its result completes it; the restore rule that reads a stored call as finished
+/// (`restoredToolCallItems`) holds only for a call whose result is stored.
+pub(crate) fn open_call(item: &mut mixdog_protocol::ThreadItem) {
+    if let mixdog_protocol::ThreadItem::ToolCall { run, output, meta, .. } = item
+        && run.result.is_none()
+    {
+        run.completed_count = Some(0);
+        run.completed_at = None;
+        meta.status = None;
+        *output = None;
+    }
 }
 
 pub(crate) fn live_result(

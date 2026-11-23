@@ -172,7 +172,7 @@ pub fn reconcile_dedup_stubs(messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
                 && !rest[..end].is_empty()
                 && !present.contains(&rest[..end])
             {
-                m.message.content = Content::Text("[Older tool result unavailable after context compaction]".to_owned());
+                m.message.content = Content::Text("[Older tool result unavailable after context compaction]".to_owned().into());
             }
             m
         })
@@ -377,7 +377,7 @@ static TODO_STATE_REMINDER: LazyLock<JsRegex> =
 /// `withRuntimeUserContext`'s content: text gains `prefix` and `suffix`, parts gain them as text blocks.
 fn with_prefix(content: &Content, prefix: &str, suffix: &str) -> Content {
     match content {
-        Content::Text(body) => Content::Text(format!("{prefix}{body}{suffix}")),
+        Content::Text(body) => Content::Text(format!("{prefix}{body}{suffix}").into()),
         Content::Parts(parts) => {
             let block = |text: &str| (!text.is_empty()).then(|| ContentPart::Text(text.to_owned(), None));
             Content::Parts(block(prefix).into_iter().chain(parts.iter().cloned()).chain(block(suffix)).collect())
@@ -395,7 +395,7 @@ fn prepend_latest_user_context(message: &AgentMessage, prefix: &str) -> AgentMes
     }
     // A message the run built has no stored row yet: its text one is the base the meta rides on.
     let mut row = match (&message.stored, &message.message.content) {
-        (Some(stored), _) => (**stored).clone(),
+        (Some(stored), _) => stored.to_map(),
         (None, Content::Text(_)) => serde_json::Map::new(),
         (None, Content::Parts(_)) => {
             let mut out = message.clone();
@@ -432,14 +432,14 @@ fn prepend_latest_user_context(message: &AgentMessage, prefix: &str) -> AgentMes
         && let Content::Text(body) = &content
     {
         row.insert("role".to_owned(), JsonValue::String("user".to_owned()));
-        row.insert("content".to_owned(), JsonValue::String(body.clone()));
+        row.insert("content".to_owned(), JsonValue::String(body.to_string()));
     }
     meta.insert("runtimeUserContext".to_owned(), serde_json::json!({ "prefix": prefix, "suffix": suffix }));
     row.insert("meta".to_owned(), JsonValue::Object(meta));
     let mut out = message.clone();
     out.message.content = content;
     // The meta rides the stored row the host writes the message back over.
-    out.stored = Some(std::sync::Arc::new(row));
+    out.stored = Some(std::sync::Arc::new(row.into()));
     out
 }
 

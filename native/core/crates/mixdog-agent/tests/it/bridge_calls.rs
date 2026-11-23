@@ -821,7 +821,7 @@ fn input_message(message: &Value) -> AgentMessage {
     match message["role"].as_str().expect("role") {
         "user" => AgentMessage::user(text),
         "system" => {
-            let mut system = Message::new(Role::System, Content::Text(text));
+            let mut system = Message::new(Role::System, Content::Text(text.into()));
             system.cache_tier = match message["cacheTier"].as_str() {
                 None => None,
                 Some("tier3") => Some(CacheTier::Tier3),

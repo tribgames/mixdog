@@ -18088,6 +18088,32 @@
       "description": "Params of `system/ports/unsubscribe`.",
       "type": "object"
     },
+    "TakeoverMessage": {
+      "description": "What became of the message a takeover named.",
+      "oneOf": [
+        {
+          "description": "It is the input of the thread's next turn.",
+          "enum": [
+            "successor"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "It is still queued, as it was.",
+          "enum": [
+            "queued"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "It is no longer queued: a turn took it as its input, or it was removed or handed back.",
+          "enum": [
+            "consumed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "TakeoverReadyParams": {
       "description": "Params of `takeover/ready`: takeover `takeover_id` of session `session_id`.",
       "properties": {
@@ -18115,6 +18141,60 @@
         "ready"
       ],
       "type": "object"
+    },
+    "TakeoverRefusal": {
+      "description": "Why a takeover was refused. The checks run in this order, before anything is changed, and the first that applies is named.",
+      "oneOf": [
+        {
+          "description": "The thread runs no turn.",
+          "enum": [
+            "noRunningTurn"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The running turn cannot be taken over now: a compaction is in progress, or the core holds new turns back.",
+          "enum": [
+            "turnNotTakeable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A Stop already claimed the named turn, or withdrew this message.",
+          "enum": [
+            "stopClaimed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Another message already took the named turn over.",
+          "enum": [
+            "takenOver"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Too late: the message is no longer queued, or the model already read it.",
+          "enum": [
+            "tooLate"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The named turn is not the one running.",
+          "enum": [
+            "turnMismatch"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The message cannot be delivered to the model as it is.",
+          "enum": [
+            "messageUndeliverable"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "TakeoverStateParams": {
       "description": "Params of `takeover/state`: the secret request ids the client asks about (none: no slot is read).",
@@ -20311,6 +20391,13 @@
           "type": "array"
         },
         "toolMode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The turn that is running; absent while none is. A turn's end is written once, when the turn closes: an end of another turn than this one closed a turn that is over, whatever `busy` says.",
           "type": [
             "string",
             "null"
@@ -22580,6 +22667,116 @@
       ],
       "type": "object"
     },
+    "TurnTakeoverParams": {
+      "description": "\"Send now\" on a queued message: the turn the user saw running ends taken over by that message, and the message starts the next turn. One command: the thread decides it in one step against the turn that runs and the queue as they are then.",
+      "properties": {
+        "opId": {
+          "description": "The takeover's own id, the same for every send of it: a repeat is answered the first one's receipt.",
+          "type": "string"
+        },
+        "queuedId": {
+          "description": "The queued message: its queue id, or the submission it answers (`clientSubmissionId`).",
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "description": "The turn the user saw running. Any other turn, the one running now included, is left alone.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "queuedId",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "TurnTakeoverResponse": {
+      "description": "The receipt of a takeover: what was decided, and what became of the message. A refusal changed nothing: no turn was stopped, and nothing of the turn running now (its tools, approvals and background jobs) was touched.",
+      "oneOf": [
+        {
+          "description": "The message is the input of the thread's next turn. The receipt says what the takeover did, never how the named turn ended: that is read from the turn's own end, whose `cause` is `message` when the takeover is what ended it.",
+          "properties": {
+            "discardPastedImages": {
+              "description": "The pasted images and texts of the taken-over turn's prompt, which is not handed back, for the client to discard."
+            },
+            "discardPastedTexts": true,
+            "interruptRequested": {
+              "description": "The takeover asked the named turn to stop for the message. False: that turn was already at its end and was left to finish (taken as the next turn, no interruption).",
+              "type": "boolean"
+            },
+            "kind": {
+              "enum": [
+                "accepted"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "$ref": "#/definitions/TakeoverMessage",
+              "description": "Always `successor`."
+            },
+            "queuedId": {
+              "description": "The message's queue id.",
+              "type": "string"
+            },
+            "submissionId": {
+              "description": "The submission the message answers (`clientSubmissionId`), which the row of the turn it starts carries.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turnId": {
+              "description": "The turn the request named.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "interruptRequested",
+            "kind",
+            "message",
+            "queuedId",
+            "turnId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "refused"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "$ref": "#/definitions/TakeoverMessage"
+            },
+            "queuedId": {
+              "description": "The message as the request named it.",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/TakeoverRefusal"
+            },
+            "turnId": {
+              "description": "The turn the request named.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message",
+            "queuedId",
+            "reason",
+            "turnId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "UiProviderModelsChangedParams": {
       "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
       "properties": {
@@ -23342,6 +23539,13 @@
           "minimum": 0.0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "turnWork": {
+          "description": "The running turn's own tab, shown at the user's request while the turn still writes it. Always `true` when present.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -27472,6 +27676,14 @@
       },
       "result": {
         "$ref": "#/definitions/TurnSteerResponse"
+      }
+    },
+    "turn/takeover": {
+      "params": {
+        "$ref": "#/definitions/TurnTakeoverParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TurnTakeoverResponse"
       }
     },
     "ui/providerModels/announce": {

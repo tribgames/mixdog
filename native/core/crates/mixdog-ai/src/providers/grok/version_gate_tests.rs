@@ -21,6 +21,14 @@ use crate::providers::connect::rewrite::StaticCredential;
 use crate::providers::connect::rewrite::run_attempt;
 use crate::providers::listing_row::testing::Replay;
 
+fn driver(http: &Arc<Replay>) -> crate::transport::model_driver::ModelDriver {
+    crate::transport::model_driver::ModelDriver::new(http.clone())
+}
+
+fn settings() -> crate::providers::first_byte::FirstByteSettings {
+    crate::providers::first_byte::FirstByteSettings::default()
+}
+
 /// The `x-grok-client-version` of every request the attempt sent, answering each with the next refusal.
 async fn sent_after(refusals: &[(u16, &str)], env: &[(&str, &str)]) -> Vec<String> {
     let dir = tempfile::tempdir().unwrap();
@@ -32,14 +40,14 @@ async fn sent_after(refusals: &[(u16, &str)], env: &[(&str, &str)]) -> Vec<Strin
             .map(|(status, message)| (*status, serde_json::json!({ "error": { "message": message } }).to_string().into_bytes()))
             .collect::<VecDeque<_>>(),
     );
-    let http = Replay::new(move |_: &WireRequest| script.lock().unwrap().pop_front().expect("a request the script answers"));
+    let http = Arc::new(Replay::new(move |_: &WireRequest| script.lock().unwrap().pop_front().expect("a request the script answers")));
     let rewriter =
         GrokRewriter { client_version: versions.grok_live(), user_id: Arc::new(|| None), sdk_headers: Vec::new(), effort_rule: Arc::new(SeedEffortRule) };
     let codec = RewriteCodec::new(super::codec(&versions.grok()), rewriter);
     let credential = StaticCredential(Some(("authorization".to_owned(), "Bearer fake-credential-not-a-secret".to_owned())));
     let request = ModelRequest { model: "grok-4".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };
     let gate = super::version_gate(Arc::clone(&versions));
-    assert!(run_attempt(&codec, &http, &credential, &request, Some(&gate)).await.is_err(), "every answer is a refusal");
+    assert!(run_attempt(&codec, &driver(&http), &credential, &request, Some(&gate), "grok-oauth", &settings()).await.is_err(), "every answer is a refusal");
     let requests = http.requests.lock().unwrap();
     requests.iter().map(|r| r.headers.iter().find(|(name, _)| name == "x-grok-client-version").unwrap().1.clone()).collect()
 }
@@ -67,17 +75,17 @@ async fn a_refusal_of_a_sign_in_sent_untried_does_not_ask_for_a_new_sign_in() {
 
     let versions = versions_in(dir.path(), &Arc::new(Net::default()), HashMap::new(), &Arc::new(AtomicU64::new(1_800_000_000_000)));
     let other = Mutex::new(Some((path, stored("b1", "rb"))));
-    let http = Replay::new(move |_: &WireRequest| {
+    let http = Arc::new(Replay::new(move |_: &WireRequest| {
         if let Some((path, other)) = other.lock().unwrap().take() {
             std::fs::write(path, other).unwrap();
         }
         (401, serde_json::json!({ "error": { "message": "unauthorized" } }).to_string().into_bytes())
-    });
+    }));
     let rewriter =
         GrokRewriter { client_version: versions.grok_live(), user_id: Arc::new(|| None), sdk_headers: Vec::new(), effort_rule: Arc::new(SeedEffortRule) };
     let codec = RewriteCodec::new(super::codec(&versions.grok()), rewriter);
     let request = ModelRequest { model: "grok-4".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };
-    let error = run_attempt(&codec, &http, &credential, &request, None).await.err().expect("both sign-ins are refused");
+    let error = run_attempt(&codec, &driver(&http), &credential, &request, None, "grok-oauth", &settings()).await.err().expect("both sign-ins are refused");
 
     let bearers: Vec<String> =
         http.requests.lock().unwrap().iter().map(|r| r.headers.iter().find(|(name, _)| name == "authorization").unwrap().1.clone()).collect();

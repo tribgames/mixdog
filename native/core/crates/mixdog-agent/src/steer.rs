@@ -39,7 +39,7 @@ pub fn normalize(entry: &SteerEntry) -> Option<Merged> {
             }
             let text = entry.text.as_deref().map(mixdog_js::js_trim).unwrap_or(value);
             let text = if text.is_empty() { value } else { text };
-            (Content::Text(value.to_owned()), text.to_owned())
+            (Content::Text(value.to_owned().into()), text.to_owned())
         }
         Content::Parts(parts) => {
             if parts.is_empty() {

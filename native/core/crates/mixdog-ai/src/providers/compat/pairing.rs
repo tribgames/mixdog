@@ -96,7 +96,7 @@ mod tests {
     use mixdog_core_api::domain::provider::{Content, ToolCall};
 
     fn assistant(ids: &[&str]) -> Message {
-        let mut m = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut m = Message::new(Role::Assistant, Content::Text(String::new().into()));
         m.tool_calls = ids.iter().map(|id| ToolCall { id: (*id).to_owned(), name: "t".into(), arguments: json!({}), native_type: None }).collect();
         m
     }

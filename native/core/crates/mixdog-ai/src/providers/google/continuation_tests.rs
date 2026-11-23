@@ -255,7 +255,7 @@ async fn an_empty_continued_hop_stands_after_a_tool_result_and_fails_once_spent(
     http.answer(200, [empty_stop()]);
     let mut asked = request();
     let call = ToolCall { id: "c1".into(), name: "lookup".into(), arguments: json!({}), native_type: None };
-    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
+    let mut assistant = Message::new(Role::Assistant, Content::Text(String::new().into()));
     assistant.tool_calls.push(call);
     let mut result = Message::new(Role::Tool, Content::Text("42".into()));
     result.tool_call_id = Some("c1".into());
@@ -435,10 +435,10 @@ async fn long_advice_on_the_first_hops_opened_stream_ends_recovery() {
     let err = failure(stream.as_mut()).await;
     assert_eq!(err.retry_after, Some(Duration::from_secs(301)));
     assert!(err.recovery_terminal && err.recovery_exhausted, "{err:?}");
-    assert!(!adapter.recovers_spent(&asked.model, &err), "no non-streaming re-issue");
+    assert!(!adapter.recovers_spent(&asked, &err), "no non-streaming re-issue");
     let mut unmarked = err.clone();
     (unmarked.recovery_terminal, unmarked.recovery_exhausted) = (false, false);
-    assert!(!adapter.recovers_spent(&asked.model, &unmarked), "the advice alone rules the re-issue out");
+    assert!(!adapter.recovers_spent(&asked, &unmarked), "the advice alone rules the re-issue out");
     assert_eq!(http.sent.lock().unwrap().len(), 1);
 }
 

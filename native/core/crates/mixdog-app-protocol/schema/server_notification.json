@@ -5004,6 +5004,13 @@
             "null"
           ]
         },
+        "turnId": {
+          "description": "The turn that is running; absent while none is. A turn's end is written once, when the turn closes: an end of another turn than this one closed a turn that is over, whatever `busy` says.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "waitingOnProviderSince": {
           "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.",
           "format": "int64",
@@ -6447,6 +6454,15 @@
             "$ref": "#/definitions/ThreadItem"
           },
           "type": "array"
+        },
+        "ordinal": {
+          "description": "The occurrence's exact ordinal in its lineage's log order: what a client indexes the units it holds by. A position is not made of it, and positions are never parsed or compared for order. Absent from a unit that states none.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "position": {
           "description": "The occurrence: opaque, of one lineage of this thread, the one position its record has, and a `thread/items/list` cursor in either direction.",

@@ -94,6 +94,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::claude_floors;
 use crate::claude_floors::Feature;
+use crate::providers::connect::rewrite::Attempt;
+use crate::providers::connect::rewrite::Credential;
+use crate::providers::connect::rewrite::RewriteCodec;
+use crate::providers::connect::rewrite::Rewriter;
+use mixdog_core_api::domain::provider::MediaSupport;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
@@ -274,15 +279,38 @@ pub use crate::providers::key_source::ApiKeySource;
 pub enum Credentials {
     ApiKey(Arc<dyn ApiKeySource>),
     OAuth(Arc<OAuthSession>),
+    /// A gateway's or a custom provider's Messages engine: the engine's own credential header (or none), placed and
+    /// refreshed as the engine's credential says.
+    Engine(Arc<dyn Credential>),
 }
 
-/// The secret one request carries, and for a subscription the login it was served under.
+/// The secret one request carries, for a subscription the login it was served under, and for an engine the attempt
+/// its credential served.
 #[derive(Clone)]
-struct Secret(String, Option<super::oauth::Attempt>);
+struct Secret(String, Option<super::oauth::Attempt>, Option<EngineSent>);
+
+/// What an engine's credential served one request on, and whether that attempt's login was renewed for it.
+#[derive(Clone)]
+struct EngineSent {
+    attempt: Attempt,
+    exchanged: bool,
+}
 
 impl Secret {
     fn of(attempt: super::oauth::Attempt) -> Self {
-        Self(attempt.access_token.clone(), Some(attempt))
+        Self(attempt.access_token.clone(), Some(attempt), None)
+    }
+
+    /// An engine's attempt; the secret redacted from its refusals is the key its header carries.
+    fn sent(attempt: Attempt, exchanged: bool) -> Self {
+        let value = attempt.header.as_ref().map_or("", |(_, value)| value.as_str());
+        let key = value.strip_prefix("Bearer ").unwrap_or(value).to_owned();
+        Self(key, None, Some(EngineSent { attempt, exchanged }))
+    }
+
+    /// The engine's attempt was served on a login renewed for it.
+    fn exchanged(&self) -> bool {
+        self.2.as_ref().is_some_and(|sent| sent.exchanged)
     }
 }
 
@@ -290,8 +318,9 @@ impl Credentials {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn current(&self) -> Result<Secret, ProviderError> {
         match self {
-            Self::ApiKey(source) => source.key().await.map(|key| Secret(key, None)),
+            Self::ApiKey(source) => source.key().await.map(|key| Secret(key, None, None)),
             Self::OAuth(session) => session.attempt().await.map(Secret::of),
+            Self::Engine(credential) => credential.attempt().await.map(|attempt| Secret::sent(attempt, false)),
         }
     }
 
@@ -302,12 +331,19 @@ impl Credentials {
         match self {
             Self::ApiKey(source) => {
                 let key = source.reload().await?;
-                Ok((key != rejected.0).then_some(Secret(key, None)))
+                Ok((key != rejected.0).then_some(Secret(key, None, None)))
             }
             Self::OAuth(session) => match &rejected.1 {
                 Some(attempt) => session.after_rejection(attempt).await.map(|next| Some(Secret::of(next))),
                 None => Ok(None),
             },
+            Self::Engine(credential) => {
+                let Some(sent) = &rejected.2 else { return Ok(None) };
+                // The refusal is of the attempt this request was sent on; the same refused header is not sent again, unless
+                // the credential resends whatever the refresh gave.
+                let next = credential.after_rejection(&sent.attempt).await?;
+                Ok((next.attempt.header != sent.attempt.header || !credential.resend_needs_new()).then(|| Secret::sent(next.attempt, next.exchanged)))
+            }
         }
     }
 
@@ -315,16 +351,17 @@ impl Credentials {
     /// for a subscription.
     fn thread_account(&self, provider: &str, base_url: &str, secret: &Secret) -> String {
         match self {
-            Self::ApiKey(_) => threads::account_key(provider, &[base_url, &secret.0]),
+            Self::ApiKey(_) | Self::Engine(_) => threads::account_key(provider, &[base_url, &secret.0]),
             Self::OAuth(session) => threads::account_key(provider, &[&session.account()]),
         }
     }
 
-    fn header(&self, secret: &Secret) -> (String, String) {
+    fn header(&self, secret: &Secret) -> Option<(String, String)> {
         match self {
-            Self::ApiKey(_) => ("x-api-key".to_owned(), secret.0.clone()),
+            Self::ApiKey(_) => Some(("x-api-key".to_owned(), secret.0.clone())),
             // `postMessages` (`gzip-post.mjs:19`): the first header, spelled `Authorization`.
-            Self::OAuth(_) => ("Authorization".to_owned(), format!("Bearer {}", secret.0)),
+            Self::OAuth(_) => Some(("Authorization".to_owned(), format!("Bearer {}", secret.0))),
+            Self::Engine(_) => secret.2.as_ref().and_then(|sent| sent.attempt.header.clone()),
         }
     }
 
@@ -335,6 +372,9 @@ impl Credentials {
         match self {
             Self::ApiKey(_) => status == Some(401),
             Self::OAuth(_) => status == Some(401) || (status == Some(403) && String::from_utf8_lossy(body).contains("OAuth token has been revoked")),
+            Self::Engine(credential) => {
+                !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery() && status.is_some_and(|status| credential.refreshes_on(status, body))
+            }
         }
     }
 }
@@ -367,6 +407,22 @@ pub struct AnthropicAdapter {
     images: Option<super::images::ImageFitter>,
     /// A test's compressor in place of the gzip lane.
     compressor: Option<Compressor>,
+    /// What a gateway's or a custom provider's Messages engine declares apart from the API-key route it inherits.
+    engine: Option<Engine>,
+}
+
+/// A Messages engine of another provider (`GatewayMessagesEngine extends AnthropicProvider`, wire-gateway.mjs:58; a custom
+/// provider's class on the anthropic protocol, custom-provider.mjs:162): the API-key route's request, stream, windows and
+/// recoveries under the provider's own name, base URL and credential header. Its writes go to no cache owner and it warms
+/// no cache: the native routes' cache tail is not its own.
+struct Engine {
+    /// Edits each request the codec encoded (a custom provider's fields and headers), before its images are fitted.
+    rewriter: Option<Arc<dyn Rewriter>>,
+    /// [`ProviderAdapter::codec`] of a rewritten engine: the codec with the rewrite applied.
+    view: Option<Arc<dyn WireCodec>>,
+    media: MediaSupport,
+    listing: Option<Arc<dyn ModelListing>>,
+    input_excludes_cache: Option<bool>,
 }
 
 /// The origin the subscription route warms (`anthropic-oauth.mjs:352`, `:535`), whatever its base URL.
@@ -448,11 +504,27 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 
     fn codec(&self) -> &dyn WireCodec {
-        &self.codec
+        match self.engine.as_ref().and_then(|engine| engine.view.as_deref()) {
+            Some(view) => view,
+            None => &self.codec,
+        }
     }
 
     fn retry_policy(&self) -> &RetryPolicy {
         self.budgeted(&self.policy, false)
+    }
+
+    /// The API-key route takes a PDF as a document block; an engine declares its own (`GatewayMessagesEngine.nativePdf`).
+    fn native_pdf(&self) -> bool {
+        self.engine.as_ref().is_none_or(|engine| engine.media.native_pdf)
+    }
+
+    fn native_documents(&self) -> Option<bool> {
+        self.engine.as_ref().and_then(|engine| engine.media.native_documents)
+    }
+
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.engine.as_ref().and_then(|engine| engine.input_excludes_cache)
     }
 
     /// `isTerminalOverloadModel`: `^claude-opus-` after trimming and lowercasing.
@@ -468,11 +540,14 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 
     fn models(&self) -> Option<&dyn ModelListing> {
-        Some(self)
+        match &self.engine {
+            Some(engine) => engine.listing.as_deref(),
+            None => Some(self),
+        }
     }
 
     fn cache_warm(&self) -> Option<&dyn CacheWarmSend> {
-        Some(self)
+        if self.engine.is_some() { None } else { Some(self) }
     }
 
     /// The API-key route's `[<provider name>] retry attempt <n> after <message>, delay <ms>ms` (anthropic-api-transport.mjs:203-206,
@@ -490,7 +565,7 @@ impl ProviderAdapter for AnthropicAdapter {
     /// re-issue: a stream that died after text or thinking was shown (`recoverNonStreaming`, once the owner withdrew it)
     /// and a stall that exposed nothing (`classifier === 'stream_stalled'`). A dispatched tool call is a replay
     /// boundary, and a cut while a tool input was streaming is the loop's split-call replay.
-    fn recovers_cut(&self, _model: &str, failure: &ProviderError) -> bool {
+    fn recovers_cut(&self, _request: &ModelRequest, failure: &ProviderError) -> bool {
         let exposure = failure.exposure;
         if exposure.tool_dispatched || exposure.tool_input_cut {
             return false;
@@ -1289,7 +1364,7 @@ impl AnthropicAdapter {
             id: ProviderId::from(flavor.provider_name()),
             codec: AnthropicCodec::new(flavor, config).with_cli_version_source(match &credentials {
                 Credentials::OAuth(session) => session.cli_version_source(),
-                Credentials::ApiKey(_) => None,
+                Credentials::ApiKey(_) | Credentials::Engine(_) => None,
             }),
             policy: retry_policy(retry_429),
             budgets: (0..2 * BUDGET_COUNTS).map(|_| std::sync::OnceLock::new()).collect(),
@@ -1301,7 +1376,50 @@ impl AnthropicAdapter {
             settings: Arc::new(|name| std::env::var(name).ok()),
             images: None,
             compressor: None,
+            engine: None,
         }
+    }
+
+    /// The Messages engine `id` of another provider on the API-key route, sending with `credential` and taking
+    /// documents as `media` declares. The engine keeps the route's retry rows; an Opus model's early end is the
+    /// first-party API's alone. The state the native routes keep for the process (the capability floors, the fast-mode
+    /// cooldown, the gzip latch, the prefix trace) is not the engine's: its floors are kept under its own name, its
+    /// fast-mode state is its own, and it neither compresses nor traces.
+    pub fn engine(id: ProviderId, config: AnthropicConfig, http: Arc<dyn HttpSend>, credential: Arc<dyn Credential>, media: MediaSupport, gzip_lane: CpuBulk) -> Self {
+        let config = AnthropicConfig { fast_mode: Arc::new(fast_mode::FastMode::default()), ..config };
+        let mut adapter = Self::new(Flavor::ApiKey, config, http, Credentials::Engine(credential), true, gzip_lane);
+        adapter.codec.set_floors_of(id.as_str());
+        adapter.id = id;
+        adapter.opus_policy = None;
+        adapter.engine = Some(Engine { rewriter: None, view: None, media, listing: None, input_excludes_cache: None });
+        adapter
+    }
+
+    /// An engine's requests pass through `rewriter` ([`Self::engine`]).
+    pub fn with_rewriter(mut self, rewriter: Arc<dyn Rewriter>) -> Self {
+        let view: Arc<dyn WireCodec> =
+            Arc::new(RewriteCodec::new(Arc::new(AnthropicCodec::new(Flavor::ApiKey, self.codec.config().clone()).with_floors_of(self.id.as_str())), rewriter.clone()));
+        if let Some(engine) = self.engine.as_mut() {
+            engine.rewriter = Some(rewriter);
+            engine.view = Some(view);
+        }
+        self
+    }
+
+    /// An engine's model listing ([`Self::engine`]); one without lists none of its own.
+    pub fn with_listing(mut self, listing: Arc<dyn ModelListing>) -> Self {
+        if let Some(engine) = self.engine.as_mut() {
+            engine.listing = Some(listing);
+        }
+        self
+    }
+
+    /// An engine's usage convention when its class states it apart from its name ([`ProviderAdapter::input_excludes_cache`]).
+    pub fn with_input_excludes_cache(mut self, excludes: bool) -> Self {
+        if let Some(engine) = self.engine.as_mut() {
+            engine.input_excludes_cache = Some(excludes);
+        }
+        self
     }
 
     /// `base` with its request row's retry count as `CLAUDE_CODE_MAX_RETRIES` reads now.
@@ -1327,6 +1445,13 @@ impl AnthropicAdapter {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
         let mut plain = self.codec.encode_plain(request)?;
+        if let Some(engine) = &self.engine {
+            if let Some(rewriter) = &engine.rewriter {
+                plain.wire = rewriter.rewrite(plain.wire, request)?;
+            }
+            // No cache owner judges an engine's writes: its body's layout is not read.
+            plain.layout = None;
+        }
         let mut refitted = false;
         if let Some(fitter) = &self.images {
             let before = plain.wire.body.len();
@@ -1384,13 +1509,13 @@ impl AnthropicAdapter {
 
     fn request_with(&self, wire: &WireRequest, secret: &Secret) -> WireRequest {
         let mut request = wire.clone();
-        // A configured extra header of the credential's name already replaced it.
-        let (name, value) = self.credentials.header(secret);
-        if !request.headers.iter().any(|h| h.0.eq_ignore_ascii_case(&name)) {
-            match self.credentials {
-                Credentials::OAuth(_) => request.headers.insert(0, (name, value)),
-                Credentials::ApiKey(_) => request.headers.push((name, value)),
-            }
+        let Some((name, value)) = self.credentials.header(secret) else { return request };
+        match &self.credentials {
+            Credentials::Engine(credential) => credential.place(&mut request.headers, (name, value)),
+            // A configured extra header of the credential's name already replaced it.
+            _ if request.headers.iter().any(|h| h.0.eq_ignore_ascii_case(&name)) => {}
+            Credentials::OAuth(_) => request.headers.insert(0, (name, value)),
+            Credentials::ApiKey(_) => request.headers.push((name, value)),
         }
         request
     }
@@ -1470,7 +1595,9 @@ impl AnthropicAdapter {
         admit: Option<&Admit<'_>>,
     ) -> Result<(HttpResponse, Option<AttemptHandle>, Tail), ProviderError> {
         let wire = &request;
-        let eligible = wire.method.eq_ignore_ascii_case("POST")
+        // An engine sends its body as its SDK did, plain, whatever its base URL; the process latch is not its own.
+        let eligible = self.engine.is_none()
+            && wire.method.eq_ignore_ascii_case("POST")
             && official_messages_url(&wire.url)
             && wire.body.len() >= GZIP_MIN_BYTES
             && !GZIP_LATCHED.load(Ordering::SeqCst)
@@ -1563,6 +1690,10 @@ impl AnthropicAdapter {
     /// (the betas stay). `None` for a request that did not ask for fast speed or a refusal that
     /// leaves fast mode alone.
     fn after_fast_refusal(&self, body: &[u8], rejected: &ErrorResponse) -> Option<Vec<u8>> {
+        // An engine's refusal is its own to surface: no standard-speed replay, no cooldown recorded.
+        if self.engine.is_some() {
+            return None;
+        }
         let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(body).ok()?;
         if parsed.get("speed").and_then(serde_json::Value::as_str) != Some("fast") {
             return None;
@@ -1580,13 +1711,23 @@ impl AnthropicAdapter {
     /// then switched off for the model on this route and the request is to be encoded again, once per feature and
     /// attempt. Nothing has streamed yet.
     fn floor_rejected(&self, request: &ModelRequest, status: Option<u16>, text: &str, replayed: &mut Vec<Feature>) -> bool {
+        // An engine has no capability replay (Node's gateway and custom engines had none): its refusal surfaces.
+        if self.engine.is_some() {
+            return false;
+        }
         let Some(feature) = claude_floors::rejection(status, text) else { return false };
         if replayed.contains(&feature) {
             return false;
         }
         replayed.push(feature);
-        claude_floors::mark_unsupported(feature, self.codec.flavor().provider_name(), &request.model);
+        claude_floors::mark_unsupported(feature, self.state_key(), &request.model);
         true
+    }
+
+    /// The provider every state this adapter keeps beyond one request (thread records, refresh claims, cache-owner
+    /// routes, capability floors) is kept under: the route's own name, an engine's name for an engine.
+    fn state_key(&self) -> &str {
+        self.id.as_str()
     }
 
     /// The thread plan of a request, when it threads at all: a create, a continue of the conversation's stored
@@ -1595,7 +1736,7 @@ impl AnthropicAdapter {
         let scope = self.codec.thread_scope(request)?;
         let body: Value = serde_json::from_slice(&plain.wire.body).ok()?;
         let config = self.codec.config();
-        let provider = self.codec.flavor().provider_name();
+        let provider = self.state_key();
         Some(config.threads.plan(PlanInput {
             provider,
             scope,
@@ -1644,7 +1785,9 @@ impl AnthropicAdapter {
             err.message = format!("Anthropic non-streaming response is not JSON: {e}");
             exhausted(err)
         })?;
-        Ok(Box::new(AnthropicStream::ready(super::nonstream::events(&self.id, &request.model, &message)).with_tail(tail)))
+        // The turn's replay is owned as the streamed turn's is (the wire's owner, `createProviderReplay('anthropic', …)`,
+        // anthropic-request-utils.mjs:552), so the next request of the same route reads it back.
+        Ok(Box::new(AnthropicStream::ready(super::nonstream::events(self.codec.owner(), &request.model, &message)).with_tail(tail)))
     }
 
     /// Asks the session's cache owner to admit one write of `admit.request`, whose body has the cache layout
@@ -1656,7 +1799,7 @@ impl AnthropicAdapter {
         let Some(manifest) = admit.manifest.filter(|m| m.tail.is_some()) else { return Ok(None) };
         let Some(gate) = admit.request.options.tail_gate.clone() else { return Ok(None) };
         let config = self.codec.config();
-        let provider = self.codec.flavor().provider_name();
+        let provider = self.state_key();
         // The serving credential as an opaque identity (an API key's own hash, a subscription's account file).
         let route = TailRoute(format!(
             "{provider}|{}|{}|{}",
@@ -1778,7 +1921,9 @@ impl AnthropicAdapter {
             // Diagnostic: per-block prefix hashes of exactly what is sent (`recordAnthropicPrefix(anthropicPrefixSessionId(opts), …)`).
             let options = &request.options;
             let session = options.usage_session_id.as_deref().filter(|s| !s.is_empty()).or(options.session_id.as_deref());
-            super::prefix_trace::record(session, plain.prefix.clone());
+            if self.engine.is_none() {
+                super::prefix_trace::record(session, plain.prefix.clone());
+            }
             let mut plan = self.plan(&request, &plain, &secret, directive);
             let mut wire = match &plan {
                 Some(plan) if plan.mode != Mode::None => threaded(&plain.wire, &plan.body, &plan.betas),
@@ -1828,8 +1973,9 @@ impl AnthropicAdapter {
                             .with_secret(&secret)
                             .with_tail(tail.take()),
                     );
-                    // OAuth replays only a rejected initial response (`_resendAfterRejection`).
-                    if self.codec.flavor() != Flavor::ApiKey {
+                    // OAuth replays only a rejected initial response (`_resendAfterRejection`); an engine has no capability
+                    // replay to read the opening for.
+                    if self.codec.flavor() != Flavor::ApiKey || self.engine.is_some() {
                         return Ok(stream);
                     }
                     let opened = BeforeOutput::read(stream).await;
@@ -1883,7 +2029,7 @@ impl AnthropicAdapter {
                 if !refreshed
                     && self.credentials.refreshable(err.status, &rejected.body)
                     && request.options.send_identity.claim_refresh(self.credentials.thread_account(
-                        self.codec.flavor().provider_name(),
+                        self.state_key(),
                         &self.codec.config().base_url,
                         &secret,
                     ))
@@ -1898,9 +2044,16 @@ impl AnthropicAdapter {
                         continue;
                     }
                 }
-                if refreshed && err.status == Some(401) && err.kind == ErrorKind::Auth {
+                match &self.credentials {
+                    // An engine's credential marks a resend refused after its login was renewed for it.
+                    Credentials::Engine(credential) => {
+                        if refreshed && secret.exchanged() {
+                            credential.refused_again(rejected.status.unwrap_or(0), &mut err);
+                        }
+                    }
                     // The grant was refreshed and is still refused.
-                    err.reauth_required = true;
+                    _ if refreshed && err.status == Some(401) && err.kind == ErrorKind::Auth => err.reauth_required = true,
+                    _ => {}
                 }
                 let refusal = String::from_utf8_lossy(&rejected.body);
                 if rejected.status == Some(400)

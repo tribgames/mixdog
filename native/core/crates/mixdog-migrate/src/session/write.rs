@@ -278,6 +278,7 @@ impl Builder<'_> {
                     phase: *phase,
                     attribution: None,
                     attempt: None,
+                    end: None,
                     at: run.at,
                     op: None,
                     detail,

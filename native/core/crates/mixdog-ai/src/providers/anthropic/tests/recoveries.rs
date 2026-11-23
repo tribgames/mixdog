@@ -113,19 +113,19 @@ fn a_dead_stream_is_reissued_only_where_node_reissues_it() {
     use mixdog_core_api::domain::provider::StreamTimeoutPhase;
     let adapter = api_adapter(ScriptedHttp::new([]));
     let cut = || ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-    assert!(!adapter.recovers_cut("m", &cut()), "nothing shown: the stream is retried");
+    assert!(!adapter.recovers_cut(&request(), &cut()), "nothing shown: the stream is retried");
     let mut shown = cut();
     shown.exposure.text_emitted = true;
-    assert!(adapter.recovers_cut("m", &shown));
+    assert!(adapter.recovers_cut(&request(), &shown));
     let mut stalled = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
     stalled.timeout_phase = Some(StreamTimeoutPhase::Idle);
-    assert!(adapter.recovers_cut("m", &stalled));
+    assert!(adapter.recovers_cut(&request(), &stalled));
     let mut dispatched = shown.clone();
     dispatched.exposure.tool_dispatched = true;
-    assert!(!adapter.recovers_cut("m", &dispatched));
+    assert!(!adapter.recovers_cut(&request(), &dispatched));
     let mut input_cut = shown;
     input_cut.exposure.tool_input_cut = true;
-    assert!(!adapter.recovers_cut("m", &input_cut));
+    assert!(!adapter.recovers_cut(&request(), &input_cut));
 }
 
 /// `issueNonStreamingFallback`: the same request with `stream: false` under the non-streaming timeout, its whole
@@ -206,4 +206,39 @@ async fn an_unknown_model_refusal_asks_the_catalog_handle_for_one_forced_refresh
     let http = ScriptedHttp::new([Scripted::body(404, not_found), Scripted::body(200, listing), Scripted::body(404, not_found)]);
     assert!(build(http.clone()).attempt(Arc::new(request())).await.is_err(), "the second refusal is the answer");
     assert_eq!((asked.lock().unwrap().len(), http.sent().len()), (1, 3), "one refresh, one replay, never more");
+}
+
+/// The `thread` field and the message-threads beta go out together (anthropic.mjs:261): on the create, on the
+/// continue of the stored response, and neither on the unthreaded resend after a thread refusal.
+#[tokio::test]
+async fn the_thread_field_and_its_beta_go_out_together() {
+    let refusal = r#"{"type":"error","error":{"type":"invalid_request_error","message":"no threads","details":{"error_code":"thread_unsupported_request","unsupported":["conversation"]}}}"#;
+    let http = ScriptedHttp::new([Scripted::body(200, TURN), Scripted::body(200, TURN), Scripted::body(400, refusal), Scripted::body(200, TURN)]);
+    let mut config = config("https://api.anthropic.com");
+    config.message_threads = true;
+    let adapter = AnthropicAdapter::api_key(config, http.clone(), Arc::new(FixedKey), cpu_bulk());
+    let mut asked = request();
+    asked.options.session_id = Some("thread-pair-session".into());
+    let send = |turn: &ModelRequest| {
+        let turn = Arc::new(turn.clone());
+        let adapter = &adapter;
+        async move { text_of(adapter.attempt(turn).await.expect("the send answers")).await }
+    };
+    assert_eq!(send(&asked).await, "ok");
+    asked.messages.extend([text_message(Role::Assistant, "ok"), text_message(Role::User, "next")]);
+    assert_eq!(send(&asked).await, "ok");
+    asked.messages.extend([text_message(Role::Assistant, "ok"), text_message(Role::User, "again")]);
+    assert_eq!(send(&asked).await, "ok");
+
+    let sent = http.sent();
+    let pair = |at: usize| {
+        let thread = body_of(&sent[at]).get("thread").and_then(|t| t.get("type")).and_then(Value::as_str).map(str::to_owned);
+        let beta = sent[at].headers.iter().find(|(name, _)| name == "anthropic-beta").map_or("", |(_, value)| value.as_str());
+        (thread, beta.split(',').any(|name| name.trim() == "message-threads-2026-08-12"))
+    };
+    assert_eq!(sent.len(), 4);
+    assert_eq!(pair(0), (Some("create".to_owned()), true), "the create");
+    assert_eq!(pair(1), (Some("continue".to_owned()), true), "the continue");
+    assert_eq!(pair(2), (Some("continue".to_owned()), true), "the refused continue");
+    assert_eq!(pair(3), (None, false), "the unthreaded resend");
 }

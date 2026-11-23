@@ -28,7 +28,6 @@ impl SessionActor {
             return;
         };
         self.deps.wakes.reset(&self.id);
-        self.compact_pairs = None;
         // The turn's terminal save writes the books still waiting, before its end.
         self.save_usage();
         self.cell.publish_run(None);
@@ -42,8 +41,12 @@ impl SessionActor {
         // owns the row, and one still pending, failed or never made leaves it to this one. Accepted before the turn's end
         // (whose fold drops the live items, and whose `turn/completed` clears a client's live text), so it is told first. A
         // stop that handed the prompt back takes the turn's rows with it (`reclaimInFlightPrompt`): nothing is settled then.
+        // A text no record of the turn holds (the reply a failed turn streamed in part) is stored as a record of its
+        // own that is no message: it reads the same live, in a snapshot, in any window and after a reload, and the
+        // model's context holds none of it.
+        let (settled, committed) = (std::mem::take(&mut self.settled_texts), std::mem::take(&mut self.committed_texts));
         if reclaimed.is_none() {
-            let shown: Vec<ThreadItem> = self
+            let mut shown: Vec<ThreadItem> = self
                 .projected
                 .live
                 .iter()
@@ -53,8 +56,16 @@ impl SessionActor {
                 })
                 .map(|live| live.item.clone())
                 .collect();
+            // The texts that settled before a tool call, were shown so, and that no commit followed.
+            let uncommitted = settled.iter().filter(|id| !committed.contains(id));
+            shown.extend(uncommitted.filter_map(|id| self.projected.window.iter().find(|row| row.item.id() == id)).map(|row| (*row.item).clone()));
             for item in shown {
-                self.accept_view(Change::Settled { turn: turn.clone(), item }, Vec::new());
+                // A text whose commit was accepted is that record's: the settle shows it only if the record is never written.
+                if committed.contains(item.id()) {
+                    self.accept_view(Change::Settled { turn: turn.clone(), item }, Vec::new());
+                } else if let ThreadItem::AgentMessage { id, text: mixdog_protocol::MaybeBlob::Inline(text), .. } = &item {
+                    self.show_stored(Some(&turn), id.as_str(), json!({ "kind": "assistant", "id": id.as_str(), "text": text }));
+                }
             }
         }
         if let Some(reclaim) = &reclaimed {
@@ -145,6 +156,7 @@ impl SessionActor {
                 let mut transcript = slot.transcript.clone();
                 transcript["completionVerb"] = json!(slot.verb);
                 let failed = FailedClose {
+                    refused: slot.start_failed,
                     error,
                     start_provider: &slot.provider,
                     route_meta: &slot.route_meta,
@@ -167,7 +179,8 @@ impl SessionActor {
                 }
                 if let Some((status, result)) = ended {
                     let done = DoneClose {
-                        reclaimed: reclaimed.is_some(),
+                        reclaimed: reclaimed.is_some() || slot.start_failed,
+                        interrupt_end: slot.interrupt_end.filter(|_| matches!(outcome, RunOutcome::Interrupted)),
                         status,
                         verb: slot.verb,
                         result,
@@ -219,7 +232,7 @@ impl SessionActor {
                 }
             };
             let completed = phase == RunPhase::Completed;
-            let record = Record::Run(RunRecord { rid: id(turn.as_str()), phase, attribution: None, attempt: None, at: Some(at), op: None, detail });
+            let record = Record::Run(RunRecord { rid: id(turn.as_str()), phase, attribution: None, attempt: None, end: None, at: Some(at), op: None, detail });
             // The settle's stamps are accepted before the record that ends the turn: Node writes the session record before it
             // reports the turn finished, so a list read after `turn/completed` already shows the stamped activity.
             if completed {
@@ -285,10 +298,11 @@ impl SessionActor {
     /// `ask-turn-settle.mjs:85-96`): a failed turn's end is recorded on the last message of the conversation, its
     /// tool result, last reply or the prompt itself, as `meta.transcript.completion` (an amend of that row's body), so
     /// a retry finds the failed turn's identity and provenance (`failedTurnMessage`, `cache-warm.mjs:508-527`).
-    /// Not for a system message. The outbox entry of the amend, for what must stand on it being durable.
-    fn amend_last_with(&mut self, last: &ItemRecord, completion: Value) -> Option<u64> {
-        let (record, _) = Self::amend_transcript(last, "completion", completion)?;
-        Some(self.accept_record_entry(record, Class::Normal, Display::None, Vec::new(), Vec::new()))
+    /// Not for a system message.
+    fn amend_last_with(&mut self, last: &ItemRecord, completion: Value) {
+        if let Some((record, _)) = Self::amend_transcript(last, "completion", completion) {
+            self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
     }
 
     /// The amend that sets `meta.transcript.<key>` on row `last`, and the amended row. `None` for a system message
@@ -315,12 +329,11 @@ impl SessionActor {
     }
 
     /// A failed turn's close (`failTurn`, `publishTurnClose`, `settleTurn`): the completion is recorded on the last
-    /// message (`attachFailedTurnCompletion`, `ask-turn-settle.mjs:84`), the turn's end is shown live, built from
-    /// what the run showed (`turnDoneItem`, `turn.mjs:573`), then `beginQuotaSettlement` reads that end, then the
-    /// Goal settles (`turn.mjs:644-688`). The end stands on the amend: both settlements run when the end is released,
-    /// which is after the amend is durable, and if the amend cannot be recorded the end goes with it (see
-    /// [`Self::fail_entry`]). A failure record that cannot be built (a typed `MalformedFacts`) shows
-    /// no end and settles no quota; the Goal still settles.
+    /// message (`attachFailedTurnCompletion`, `ask-turn-settle.mjs:84`), the turn's end is stored as a record of the
+    /// turn, built from what the run showed (`turnDoneItem`, `turn.mjs:573`), then `beginQuotaSettlement` reads that
+    /// end, then the Goal settles (`turn.mjs:644-688`). Both settlements run when the end is released; if its record
+    /// cannot be written, no end is shown and only the Goal settles (see [`Self::fail_entry`]). A failure record that
+    /// cannot be built (a typed `MalformedFacts`) shows no end and settles no quota; the Goal still settles.
     pub(super) fn close_failed(&mut self, turn: &TurnId, failed: FailedClose<'_>, settle: Value) {
         self.clear_active_tools();
         let now = self.deps.clock.now_ms();
@@ -356,10 +369,27 @@ impl SessionActor {
         // `failTurn` (`turn.mjs:570`): the failure's text is a toast of the transcript's owner, besides the end.
         let detail = live_record.get("detail").and_then(Value::as_str).map(super::super::live_rows::polish_notice_text).unwrap_or_default();
         self.push_toast(&detail, "error", Some("transcript"), Vec::new());
+        // A refused start left nothing of the turn in the log: it stores no end, and settles no quota on one.
+        if failed.refused {
+            return self.settle_goal(settle);
+        }
         let row = super::super::live_end::live_end_row(failed.live, &facts, failed.route_meta, "failed", None, &live_record, &new_id());
-        let end = super::super::transcript::live_end(row, turn.as_str());
-        let amend = failed.last.and_then(|last| self.amend_last_with(last, super::super::failure_record::failed_completion(&record, &facts)));
-        self.show_live_then(turn.clone(), end, None, amend, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
+        // The completion on the last message is what a retry reads; the turn's end is the record written here. The two
+        // are one unit: an end is stored only with the completion it stands on.
+        self.outbox.begin_unit(false);
+        if let Some(last) = failed.last {
+            self.amend_last_with(last, super::super::failure_record::failed_completion(&record, &facts));
+        }
+        let stored = self.store_end(turn, row, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
+        self.outbox.end_unit();
+        if let Err(effects) = stored {
+            // No end is shown, so no quota settles on it: the Goal still settles, as when the end's record fails.
+            for effect in effects {
+                if let Effect::TurnClosed { settle, .. } = effect {
+                    self.settle_goal(settle);
+                }
+            }
+        }
     }
 
     /// What a stop that handed the prompt back changes besides the turn's rows (`reclaimInFlightPrompt`): the text leaves
@@ -386,10 +416,10 @@ impl SessionActor {
         }
     }
 
-    /// A finished or stopped turn's close (`publishTurnClose`): the turn's end is shown live, built from what the run
-    /// showed (`turnDoneItem`, `turn.mjs:573`), unless a turn that finished normally did nothing (`isNoOpTurn`). The
-    /// final reply's commit shows no end of its own ([`Self::submit_encode`]): history restores one from the reply's
-    /// completion, which the live end replaces here. A `done` end takes the verb its reply's completion records
+    /// A finished or stopped turn's close (`publishTurnClose`): the turn's end is stored as a record of the turn, built
+    /// from what the run showed (`turnDoneItem`, `turn.mjs:573`), unless a turn that finished normally did nothing
+    /// (`isNoOpTurn`). No message of the turn shows an end of its own, live or read back
+    /// ([`Self::submit_encode`]): this record is the turn's one end. A `done` end takes the verb its reply's completion records
     /// (`pickDoneVerb`, stamped when the reply committed), else the turn's own; a `cancelled` end has no reply.
     /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end, as in Node.
     pub(super) fn close_done(&mut self, turn: &TurnId, done: DoneClose<'_>) {
@@ -422,7 +452,7 @@ impl SessionActor {
             attempt_id: new_id(),
             route: super::super::failure_record::Route { provider: "", model: "" },
         };
-        let row = super::super::live_end::live_end_row(
+        let mut row = super::super::live_end::live_end_row(
             done.live,
             &facts,
             done.route_meta,
@@ -431,7 +461,11 @@ impl SessionActor {
             &serde_json::Map::new(),
             &new_id(),
         );
-        self.show_live(turn.clone(), super::super::transcript::live_end(row, turn.as_str()), None);
+        // A turn the user's message took over says so on its end, live and read back alike, whatever its input row shows.
+        if done.interrupt_end == Some(InterruptEnd::Message) {
+            row.insert("cause".into(), json!(MESSAGE_CAUSE));
+        }
+        let _ = self.store_end(turn, row, Vec::new());
     }
 
     /// Today's `terminalSave.then(() => ingestSessionTurn(session))`: once the completed turn's

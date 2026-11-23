@@ -5,10 +5,14 @@ use mixdog_store::work_stops;
 
 use super::super::control::BusyStop;
 use super::super::control::RunStop;
+use super::super::control::Takeover;
 use super::super::stop::Handback;
 use super::super::stop::OwedHandback;
 use super::super::stop::Restore;
 use super::super::stop::StopWait;
+
+/// What the abort of a turn taken over by a message says: the text a tool call it cut short carries as its result.
+const TAKEOVER_ABORT: &str = "runtime abort (reason=interrupt): the turn was ended to deliver the user's message";
 
 impl SessionActor {
     /// The work of a start admitted now: `id` its stable identity, `qids` and `submissions` what it could be recreated through.
@@ -50,8 +54,22 @@ impl SessionActor {
             .or_else(|| work.identities().iter().find_map(|identity| work_stops::stopped(&self.projected.header, identity)).map(str::to_owned))
     }
 
-    /// A queued copy of stopped work: by its queue id, or the submission it answers.
+    /// A queued entry nothing may take now: a copy of stopped work ([`Self::queued_frozen`]), or any entry other than the
+    /// message of an accepted takeover while that message waits to start the next turn. Neither the drain nor a boundary of
+    /// the turn being taken over takes one, so the message is the next turn's input and nothing starts ahead of it.
     pub(super) fn queued_stopped(&self, queued: &Queued) -> bool {
+        self.queued_frozen(queued) || self.reserved_successor().is_some_and(|reserved| reserved != queued.qid)
+    }
+
+    /// The queue id of the message an accepted takeover reserved the next turn for, while it still waits in the queue. A
+    /// message that left the queue without starting (removed, handed back, stopped) reserves nothing.
+    pub(super) fn reserved_successor(&self) -> Option<String> {
+        let takeover = self.cell.stop_latches.takeover(&self.id).filter(|takeover| takeover.successor.is_none())?;
+        self.projected.queue.iter().any(|queued| queued.qid == takeover.message && !self.queued_frozen(queued)).then_some(takeover.message)
+    }
+
+    /// A queued copy of stopped work: by its queue id, or the submission it answers.
+    fn queued_frozen(&self, queued: &Queued) -> bool {
         self.stopped_identity(&work_stops::queued(&queued.qid))
             || queued
                 .entry
@@ -69,6 +87,19 @@ impl SessionActor {
         restore: Option<&Restore>,
         by_reply: bool,
     ) -> (String, StopWait) {
+        self.record_stop_noting(work, turn, row, restore, by_reply, None)
+    }
+
+    /// [`Self::record_stop`] whose record also states `takeover`: the stopped turn was taken over, by which message.
+    fn record_stop_noting(
+        &mut self,
+        work: &WorkRef,
+        turn: Option<&TurnId>,
+        row: Option<&str>,
+        restore: Option<&Restore>,
+        by_reply: bool,
+        takeover: Option<Value>,
+    ) -> (String, StopWait) {
         if let Some(sid) = self.stop_of(work) {
             return (sid.clone(), self.stops.join(&sid));
         }
@@ -81,7 +112,10 @@ impl SessionActor {
         if let Some(restore) = &restore {
             self.stops.owe(&sid, OwedHandback { restore: restore.clone(), rewound: row.is_none(), by_reply });
         }
-        let body = work.stop_body(turn.map(TurnId::as_str), row, restore.as_ref());
+        let mut body = work.stop_body(turn.map(TurnId::as_str), row, restore.as_ref());
+        if let Some(takeover) = takeover {
+            body["takeover"] = takeover;
+        }
         let record = Record::WorkStop(WorkStopRecord { sid: id(&sid), phase: WorkStopPhase::Stopped, at: Some(now), body: Some(Slot::Inline(body)) });
         let (ack, durable) = oneshot::channel();
         self.accept_record(record, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(ack)]);
@@ -187,7 +221,7 @@ impl SessionActor {
     }
 
     pub(super) fn stop_queued(&mut self, qid: &str, canceller: &str) -> Option<(Option<String>, StopWait)> {
-        let queued = self.projected.queue.iter().find(|queued| queued.qid == qid && !self.queued_stopped(queued)).cloned()?;
+        let queued = self.projected.queue.iter().find(|queued| queued.qid == qid && !self.queued_frozen(queued)).cloned()?;
         let submissions =
             queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).into_iter().collect();
         let device = queued.entry.pointer("/transcriptMeta/device").and_then(Value::as_str).filter(|device| !device.is_empty()).unwrap_or(canceller).to_owned();
@@ -293,8 +327,11 @@ impl SessionActor {
     }
 
     /// Running `turn` claims the entry `qid` it is about to take at a boundary in the start gate (its queue id and submission);
-    /// false when a Stop from outside the actor latched it: it is not injected.
+    /// false when a Stop from outside the actor latched it, or a takeover reserved it for the next turn: it is not injected.
     pub(super) fn claim_steer(&self, turn: &TurnId, qid: &str, entry: &Value) -> bool {
+        if self.reserved_successor().as_deref() == Some(qid) {
+            return false;
+        }
         let mut identities = vec![work_stops::queued(qid)];
         if let Some(submission) = entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
             identities.push(work_stops::submission(submission));
@@ -342,7 +379,10 @@ impl SessionActor {
             super::super::stop::Reason::KeepPrompt => "user-cancel-keep-prompt",
             super::super::stop::Reason::UserCancel => mixdog_agent::cancel::USER_CANCEL,
         };
-        let _ = self.cell.abort(&turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name));
+        // The abort that ends the run decides how its end reads: a Stop behind another abort (a takeover, a room's Stop from
+        // outside the actor) changes nothing of it.
+        let ends_run = self.cell.abort_first(&turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name)).unwrap_or(false);
+        let _ = self.cell.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
         let facts = run.prompt.snapshot();
         let restore = facts.reclaim.as_ref().map(|reclaim| Restore {
             text: reclaim.text.clone(),
@@ -357,8 +397,176 @@ impl SessionActor {
         let id = self.owed_restore_id(&sid);
         if let Some(run) = self.run.as_mut() {
             run.stop.get_or_insert(sid);
+            if ends_run && decision.reason == super::super::stop::Reason::Interrupt {
+                run.interrupt_end.get_or_insert(super::InterruptEnd::Stop);
+            }
+        }
+        if ends_run {
+            self.patch_spinner([("stopping", json!(true))]);
         }
         (decision, wait, id)
+    }
+
+    /// The spinner of the running `turn` reads stopping (`spinner.stopping`) when a Stop from outside the actor ended it
+    /// ([`super::super::control::ControlCell::interrupt`]). A Stop the actor decides sets it itself; a takeover never does.
+    /// The field stays through later patches of the spinner and goes with it at the turn's end.
+    pub(super) fn show_stopping(&mut self, turn: &TurnId) {
+        let running = self.run.as_ref().is_some_and(|run| &run.turn == turn) && !self.end_parked();
+        if running && self.cell.stop_latches.stop_was_accepted(&self.id, turn) {
+            self.patch_spinner([("stopping", json!(true))]);
+        }
+    }
+
+    /// A refused takeover's receipt, stored under its operation as an accepted one's is (there on the takeover's own record):
+    /// a repeat of the operation reads it back, in this process or after a restart, and is never decided a second time.
+    fn answer_refused(&mut self, req: &CoreRequest, op: OpId, receipt: Value, tx: Waiter) {
+        use mixdog_store::schema::record::OpRecord;
+        use mixdog_store::schema::record::OpState;
+        match self.op_ref(req, Some(&receipt)) {
+            Ok(Some(op_ref)) => {
+                let record = Record::Op(OpRecord { op: op_ref, state: OpState::Applied, at: self.deps.clock.now_ms(), detail: None });
+                self.accept_record(record, Class::Control, Display::None, Vec::new(), vec![Effect::Reply { op: Some(op), tx: Some(tx), value: receipt }]);
+            }
+            Ok(None) | Err(_) => {
+                let error = invalid("opId", "the takeover's operation id");
+                self.ops.failed(&op, &error);
+                let _ = tx.send(Err(error));
+            }
+        }
+    }
+
+    /// `turn/takeover`: the queued message the request names takes over the running turn it names. Decided here, in one
+    /// step of the thread's own task and before any side effect: the turn must be the one running, with no end and no stop of
+    /// its own under way, and the message must still wait in the queue. Then the turn's abort is fired, and only if that abort
+    /// is the one that ends the run is anything recorded: the turn's stop with the takeover it ends by, the message at the
+    /// front of the queue, and the reservation of the next turn for it ([`Self::reserved_successor`]). Anything else is a
+    /// refusal that names what became of the message and changed nothing.
+    ///
+    /// The answer is a receipt (`TurnTakeoverResponse`) under the request's operation id: a repeat gets the first one's, an
+    /// accepted one once its records are durable.
+    pub(super) fn take_over(&mut self, req: CoreRequest, tx: Waiter) {
+        use mixdog_app_protocol::v2::thread::TakeoverMessage;
+        use mixdog_app_protocol::v2::thread::TakeoverRefusal;
+        use mixdog_app_protocol::v2::thread::TurnTakeoverParams;
+        use mixdog_app_protocol::v2::thread::TurnTakeoverResponse;
+        let Some(op) = req.op.clone() else {
+            let _ = tx.send(Err(invalid("opId", "the takeover's operation id")));
+            return;
+        };
+        let fail = |actor: &mut Self, error: CoreError, tx: Waiter| {
+            actor.ops.failed(&op, &error);
+            let _ = tx.send(Err(error));
+        };
+        let TurnTakeoverParams { turn_id, queued_id: named, .. } = match parse(&req.params, "TurnTakeoverParams") {
+            Ok(params) => params,
+            Err(error) => return fail(self, error, tx),
+        };
+        let turn = &turn_id;
+        if self.deleting || self.shutting_down {
+            return fail(self, CoreError::ThreadClosing { thread_id: self.id.clone() }, tx);
+        }
+        let canceller = match req.ctx.caller {
+            Caller::Connection(connection) => self.deps.devices.describe(connection).device,
+            Caller::Internal(_) => String::new(),
+        };
+        // One takeover per turn: once one is decided for the named turn, interrupted or not, no other message takes it.
+        let taken = self.cell.stop_latches.takeover(&self.id).is_some_and(|takeover| &takeover.turn == turn);
+        let message = self.projected.queue.iter().find(|queued| queued_is(&queued.qid, &queued.entry, named.as_str()) && !self.queued_frozen(queued)).cloned();
+        let sendable = message.as_ref().filter(|queued| super::super::control::is_prioritizable_entry(&queued.entry));
+        // A Stop that withdrew the message froze it under the id the request names (its queue id or its submission).
+        let withdrawn = [work_stops::queued(named.as_str()), work_stops::submission(named.as_str())].iter().any(|identity| self.stopped_identity(identity));
+        let named_runs = self.run.as_ref().is_some_and(|run| &run.turn == turn);
+        // The fixed order of the refusals: the first that applies is the one named.
+        let refusal = match self.run.as_ref() {
+            None => Some(TakeoverRefusal::NoRunningTurn),
+            Some(_) if self.compactions > 0 || self.compaction_held() || self.core_hold() != StartHold::Open => Some(TakeoverRefusal::TurnNotTakeable),
+            Some(_) if withdrawn => Some(TakeoverRefusal::StopClaimed),
+            Some(_) if named_runs && taken => Some(TakeoverRefusal::TakenOver),
+            Some(run) if named_runs && (run.stop.is_some() || run.interrupt_end.is_some() || run.cancel.is_aborted()) => Some(TakeoverRefusal::StopClaimed),
+            Some(_) => match sendable {
+                None => Some(TakeoverRefusal::TooLate),
+                Some(_) if !named_runs => Some(TakeoverRefusal::TurnMismatch),
+                Some(queued) if self.deliverable_entry(&queued.entry).is_err() => Some(TakeoverRefusal::MessageUndeliverable),
+                Some(_) => None,
+            },
+        };
+        let refused = |reason| {
+            let message = if message.is_some() { TakeoverMessage::Queued } else { TakeoverMessage::Consumed };
+            serde_json::to_value(TurnTakeoverResponse::Refused { turn_id: turn.clone(), queued_id: named.clone(), reason, message })
+                .expect("a receipt serializes")
+        };
+        let (Some(queued), None) = (sendable, refusal) else {
+            let receipt = refused(refusal.unwrap_or(TakeoverRefusal::TooLate));
+            return self.answer_refused(&req, op.clone(), receipt, tx);
+        };
+        // A turn already at its end is not interrupted: the message only becomes the next turn's input.
+        let interrupted = !self.end_parked();
+        let run = self.run.as_ref().expect("the running turn");
+        let facts = run.prompt.snapshot();
+        let discards = super::super::stop::decide(&facts, Some(false), &canceller, true, false);
+        let discard = |wanted: bool, pointer: &str| (interrupted && wanted).then(|| facts.entry.pointer(pointer).cloned().unwrap_or(Value::Null));
+        let submission = queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
+        // The receipt states what is decided here (the abort is asked for, the message is the successor), and nothing of how
+        // the turn's end reads: a run whose own completion is already on its way ends as it completed, and its end row says so.
+        let receipt = serde_json::to_value(TurnTakeoverResponse::Accepted {
+            turn_id: turn.clone(),
+            queued_id: QueuedId::from(queued.qid.as_str()),
+            submission_id: submission.clone(),
+            interrupt_requested: interrupted,
+            message: TakeoverMessage::Successor,
+            discard_pasted_images: discard(discards.discard_images, "/options/pastedImages"),
+            discard_pasted_texts: discard(discards.discard_texts, "/options/pastedTexts"),
+        })
+        .expect("a receipt serializes");
+        let op_ref = match self.op_ref(&req, Some(&receipt)) {
+            Ok(op_ref) => op_ref,
+            Err(error) => return fail(self, error, tx),
+        };
+        if interrupted {
+            #[cfg(any(test, feature = "test-support"))]
+            self.cell.start_fence("takeover");
+            // The one point that decides it: a Stop that fired first (a room's, from outside the actor) ends the run its own
+            // way. The abort's text is the takeover's own: a tool call it cuts short reads that, not a Stop's cancellation.
+            let abort = mixdog_agent::cancel::Abort {
+                message: mixdog_agent::cancel::session_closed(self.id.as_str(), TAKEOVER_ABORT),
+                reason: mixdog_agent::interrupt::AbortReason::from_name("interrupt"),
+            };
+            if !self.cell.abort_first(turn, &abort).unwrap_or(false) {
+                let receipt = refused(TakeoverRefusal::StopClaimed);
+                return self.answer_refused(&req, op.clone(), receipt, tx);
+            }
+            self.abort_requests(turn.clone());
+        }
+        let takeover = Takeover { op: op.as_str().to_owned(), turn: turn.clone(), message: queued.qid.clone(), submission, interrupted, successor: None };
+        if interrupted {
+            let run = self.run.as_ref().expect("the running turn");
+            run.prompt.decide_and_record(Some(false), &canceller, true, false);
+            let (work, row) = (run.work.clone(), run.input_item.as_str().to_owned());
+            let note = json!({ "op": takeover.op, "message": takeover.message });
+            let (sid, _) = self.record_stop_noting(&work, Some(turn), Some(&row), None, false, Some(note));
+            if let Some(run) = self.run.as_mut() {
+                run.stop.get_or_insert(sid);
+                run.interrupt_end = Some(super::InterruptEnd::Message);
+            }
+        }
+        self.cell.stop_latches.reserve(&self.id, takeover);
+        // `prioritizeQueued`: the message goes to the front of the queue. The receipt rides this record, the takeover's last.
+        let mut entry = queued.entry.clone();
+        entry["priority"] = json!("now");
+        let record =
+            Record::Queue(QueueRecord { qid: id(&queued.qid), action: QueueAction::Prioritize, reason: None, op: op_ref, entry: Some(Slot::Inline(entry)) });
+        self.accept_record(record, Class::Control, Display::None, Vec::new(), vec![Effect::Reply { op: Some(op), tx: Some(tx), value: receipt }]);
+        if !interrupted {
+            return;
+        }
+        // An Agent's turn ended by its user is the live parent signal for the agent jobs it started (`abortSession`).
+        let mut header = (**self.cell.header.load()).clone();
+        if !header.contains_key("id") {
+            header.insert("id".into(), json!(self.id));
+        }
+        if mixdog_core_base::quota_resume::is_agent_only_session(&Value::Object(header)) {
+            self.deps.agent_signals.agent_turn_aborted(self.id.as_str());
+        }
     }
 
     pub(super) fn stop_busy(&mut self) -> BusyStop {

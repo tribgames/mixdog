@@ -91,12 +91,6 @@ pub(crate) enum Change {
     /// A card in view as it now reads (a tool card closed by an early result, a completion's card extended): the row
     /// with its id is replaced where it stands, and nothing when it is gone, never a new row.
     Card(ThreadItem),
-    /// The detail of a row in view (a compaction divider's figures, which its pass's event delivers after the record):
-    /// nothing when the row is gone, never a new row. Not persisted.
-    Detail {
-        item: ItemId,
-        detail: String,
-    },
     /// A call's result before its row is committed (`onToolResult`, not persisted): `update` closes the call's card. The actor
     /// resolves it at its show against what is shown then (the card shown, not yet, or already given its committed result), so
     /// the fold itself changes nothing.
@@ -164,6 +158,8 @@ pub(crate) struct SessionState {
     pub lineage_start: u64,
     /// Runs started without a terminal phase, with their drafts (`draft` records).
     pub runs: BTreeMap<String, super::turn_draft::RunDraft>,
+    /// Where each of `runs` stores its end, as its `started` record marks it: a run with no entry ends on a message.
+    pub turn_ends: BTreeMap<String, mixdog_store::schema::record::TurnEndForm>,
     /// The input row of the run whose `run{started}` is next: `(rid, iid)`.
     pub next_input: Option<(String, String)>,
     pub approvals: BTreeMap<String, PendingApprovalRow>,
@@ -339,6 +335,7 @@ mod tests {
             phase: RunPhase::Completed,
             attribution: None,
             attempt: None,
+            end: None,
             at: None,
             op: None,
             detail: None,
@@ -452,6 +449,16 @@ impl SessionState {
         self.trim_window();
     }
 
+    /// Each state folds a record into an item of its own: once both have folded everything, a row they show alike is
+    /// `other`'s allocation (its call, metadata and facts held once for the two states and the published view).
+    pub fn share_window(&mut self, other: &Self) {
+        for (row, shown) in self.window.iter_mut().rev().zip(other.window.iter().rev()) {
+            if !Arc::ptr_eq(&row.item, &shown.item) && row.item == shown.item {
+                row.item = shown.item.clone();
+            }
+        }
+    }
+
     fn trim_window(&mut self) {
         while self.window.len() > self.view_items {
             self.window.pop_front();
@@ -506,11 +513,6 @@ impl SessionState {
             Change::Settled { item, .. } => {
                 if !self.window.iter().any(|row| row.item.id() == item.id()) {
                     self.apply(&Change::Shown { item: item.clone(), before: None }, ordinal);
-                }
-            }
-            Change::Detail { item, detail } => {
-                if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == item) {
-                    super::view::meta_mut(Arc::make_mut(&mut row.item)).detail = Some(detail.clone());
                 }
             }
             Change::Card(card) => {
@@ -679,6 +681,13 @@ impl SessionState {
             }
             messages = 0;
         }
+        // The live-only rows of the record's items (its texts settled before their tool calls) become the record's rows:
+        // all of them, in the record's order (each call after the text before it), where the first was shown.
+        let own = |row: &WindowItem| row.ordinal.is_none() && shown.iter().any(|shown| matches!(shown, Shown::Item(new) if new.id() == row.item.id()));
+        let mut at = if item.visible { self.window.iter().position(own) } else { None };
+        if at.is_some() {
+            self.window.retain(|row| !own(row));
+        }
         for shown in shown {
             match shown {
                 Shown::Item(new) => {
@@ -687,10 +696,9 @@ impl SessionState {
                         continue;
                     }
                     let row = WindowItem { ordinal, item: Arc::new(new.clone()), messages: std::mem::take(&mut messages) };
-                    // A live-only row of the same item (the text settled before a tool call) becomes the record's row,
-                    // where it was shown.
-                    if let Some(shown) = self.window.iter_mut().find(|shown| shown.ordinal.is_none() && shown.item.id() == new.id()) {
-                        *shown = row;
+                    if let Some(at) = at.as_mut() {
+                        self.window.insert(*at, row);
+                        *at += 1;
                         continue;
                     }
                     self.window.push_back(row);
@@ -706,8 +714,12 @@ impl SessionState {
             RunPhase::Started => {
                 let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
                 self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
+                if let Some(end) = run.end {
+                    self.turn_ends.insert(run.rid.as_str().to_owned(), end);
+                }
                 let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
                 runtime.busy = true;
+                runtime.turn_id = Some(TurnId::from(run.rid.as_str()));
                 if let Some(at) = run.at {
                     let turns = self.context().stats.as_ref().and_then(|stats| stats.get("turns")).and_then(Value::as_u64).unwrap_or(0);
                     let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
@@ -717,6 +729,7 @@ impl SessionState {
             RunPhase::Attempt => {}
             RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
                 self.runs.remove(run.rid.as_str());
+                self.turn_ends.remove(run.rid.as_str());
                 self.live.retain(|live| live.turn.as_str() != run.rid.as_str());
                 self.sections.runtime = self.sections.runtime.take().map(|held| ThreadRuntime {
                     toasts: held.toasts,
@@ -788,6 +801,8 @@ impl SessionState {
             // The queue is the session's own (Toasts): a producer's whole runtime section leaves it.
             Section::Runtime(mut value) => {
                 let held = s.runtime.take().unwrap_or_default();
+                // The running turn is the session's own too, named by its `started` record until its terminal one.
+                value.turn_id = held.turn_id;
                 value.toasts = held.toasts;
                 // The running tools are the session's own too (`ActiveTools`).
                 value.active_tool_summary = held.active_tool_summary;

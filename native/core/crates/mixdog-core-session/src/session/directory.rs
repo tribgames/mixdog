@@ -42,6 +42,7 @@ use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::SESSION_RECORD_VERSION;
 use mixdog_store::schema::record::SessionRecord;
+use mixdog_store::schema::record::TurnEndForm;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -190,8 +191,9 @@ fn keep_fields(header: &mixdog_store::schema::record::Header, fields: Option<&[&
     }
 }
 
-/// The opened log folded into the state the actor starts from (cpu-interactive).
-fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog) -> Opened {
+/// The opened log folded into the state the actor starts from (cpu-interactive). `ends`: where the turn of each window
+/// row stores its end, by the row's record id; a row of a run the log carries the start of takes that record's mark.
+fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog, ends: &HashMap<String, TurnEndForm>) -> Opened {
     let mut state = SessionState::new(deps.limits.view_items);
     state.header = Arc::new(log.header);
     state.sections.title = super::state::title_of(&state.header);
@@ -202,7 +204,11 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     let mut next_ordinal = log.next_ordinal;
     let mut apply = |state: &mut SessionState, ordinal: u64, record: Record| {
         let display = match &record {
-            Record::Item(item) => Display::Items(deps.transcript.items(lane, item)),
+            Record::Item(item) => {
+                let started = || item.turn.as_ref().and_then(|turn| state.turn_ends.get(turn.as_str())).copied();
+                let end = ends.get(item.iid.as_str()).copied().or_else(started);
+                Display::Items(deps.transcript.items_as(lane, item, end))
+            }
             Record::Queue(queue) => match &queue.entry {
                 Some(Slot::Inline(entry)) => Display::Queued(deps.transcript.queued(queue.qid.as_str(), entry)),
                 _ => Display::None,
@@ -1218,12 +1224,21 @@ impl DirInner {
         let window = window?;
         let windowed = std::time::Instant::now();
         let (decode_deps, thread) = (deps.clone(), id.clone());
-        let (opened, decoded) = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
-            let log = decode_deps.store.decode(lane, &thread, head, window)?;
-            let decoded = std::time::Instant::now();
-            Ok::<_, CoreError>((fold_opened(lane, &decode_deps, log), decoded))
-        })
-        .await??;
+        let log = on_lane_wait(deps.lanes.cpu, &token, move |lane| decode_deps.store.decode(lane, &thread, head, window)).await??;
+        let decoded = std::time::Instant::now();
+        // Where the turn of each window row stores its end: the mark is on the turn's `started` record, which the
+        // opened log carries only for the runs still open, so the rest is read as a page of the same rows states it.
+        let marked = log.window.iter().any(|(_, row)| row.form == mixdog_store::schema::record::Form::Message && row.turn.is_some());
+        let ends: HashMap<String, TurnEndForm> = if marked {
+            deps.store.unheld().await;
+            let (store, thread, rows) = (deps.store.clone(), id.clone(), log.window.len());
+            let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
+            records.iter().zip(&decor).filter_map(|(record, decor)| Some((record.iid.as_str().to_owned(), decor.end?))).collect()
+        } else {
+            HashMap::new()
+        };
+        let fold_deps = deps.clone();
+        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| fold_opened(lane, &fold_deps, log, &ends)).await?;
         let folded = std::time::Instant::now();
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());

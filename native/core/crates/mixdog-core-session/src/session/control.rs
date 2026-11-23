@@ -123,6 +123,28 @@ pub(crate) enum Ctl {
     },
 }
 
+/// An accepted takeover: the turn that ended, the message that took it over, and the turn reserved for that message. One
+/// record, written in the actor's deciding step and read wherever the transition is read (the old turn's end, the queue's next
+/// start, a boundary of the old turn, a later takeover or Stop).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Takeover {
+    /// The operation that made it.
+    pub op: String,
+    /// The turn the takeover named. No other takeover is accepted for it.
+    pub turn: TurnId,
+    /// The queue id of the message that took it over: the next turn's input, and nothing else's.
+    pub message: String,
+    /// The submission that message answers (`clientSubmissionId`), which its turn's row carries.
+    pub submission: Option<String>,
+    /// The takeover asked the turn to stop: its abort was fired, and was the first on the run. It does not say how the turn
+    /// ended (a run whose completion was already on its way ends completed); the turn's end row says that, with
+    /// [`super::actor::MESSAGE_CAUSE`] when this abort is what ended it. False: the turn was already at its end, and no abort
+    /// was fired.
+    pub interrupted: bool,
+    /// The turn the message started, once it did.
+    pub successor: Option<TurnId>,
+}
+
 /// What the actor answers a Stop of the published run ([`Ctl::StopRun`]).
 #[derive(Debug)]
 pub(crate) enum RunStop {
@@ -355,7 +377,8 @@ pub(crate) struct ControlCell {
     /// The directory's [`StopLatches`], shared by every cell.
     pub stop_latches: Arc<StopLatches>,
     /// A test's hook at a run start's fences: `check` once the start passed its Stop check (before the start gate), `gate` once
-    /// the gate registered it (before the spawn). Called on the actor's own step, so what it does lands exactly there.
+    /// the gate registered it (before the spawn); and at a takeover's, `takeover`, once it passed its checks (before its abort).
+    /// Called on the actor's own step, so what it does lands exactly there.
     #[cfg(any(test, feature = "test-support"))]
     pub start_fences: Mutex<Option<StartFence>>,
     /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
@@ -397,6 +420,19 @@ pub(crate) type LiveRowsCell = Arc<std::sync::OnceLock<Arc<super::thread_edges::
 struct Gate {
     latched: HashSet<String>,
     running: Vec<(TurnId, HashSet<String>, Cancel)>,
+    /// The thread's last accepted takeover, until the turn its message started has ended.
+    takeover: Option<Takeover>,
+    /// The turn a Stop from outside the actor ([`ControlCell::interrupt`]) ended with its abort: the actor shows it stopping.
+    stopping: Option<TurnId>,
+    /// A test's failed-turn retry, which the next drain pass finds already pending.
+    #[cfg(test)]
+    retry: Option<super::quota_lane::RetryTurn>,
+}
+
+impl Gate {
+    fn idle(&self) -> bool {
+        self.latched.is_empty() && self.running.is_empty() && self.takeover.is_none()
+    }
 }
 
 /// The per-thread synchronisation point between starting work and a Stop from outside the thread's actor (a room Stop's member
@@ -443,8 +479,45 @@ impl StopLatches {
         if identities.iter().any(|identity| gate.latched.contains(identity)) {
             return false;
         }
+        // The message of a takeover starts its turn: the reservation is met by this run.
+        if let Some(takeover) = gate.takeover.as_mut().filter(|takeover| takeover.successor.is_none())
+            && identities.contains(&mixdog_store::work_stops::queued(&takeover.message))
+        {
+            takeover.successor = Some(turn.clone());
+        }
         gate.running.push((turn.clone(), identities.iter().cloned().collect(), cancel.clone()));
         true
+    }
+
+    /// Fires `abort` on a run's `cancel` under the lock every latch aborts under; true when it is the abort that ends the run
+    /// (no other came first, from the actor or from outside it). The check and the abort are one step: what a caller records
+    /// of the end it caused, it records only when this answers true.
+    pub fn abort(&self, cancel: &Cancel, abort: &mixdog_agent::cancel::Abort) -> bool {
+        let _gates = lock(&self.0);
+        let first = !cancel.is_aborted();
+        cancel.abort_with(abort);
+        // A signal aborted from outside the session between the two (the core's exit) kept its own text.
+        first && cancel.reason() == abort.message
+    }
+
+    /// A Stop from outside the actor ended `turn` of `thread` with its abort.
+    pub fn stop_accepted(&self, thread: &ThreadId, turn: &TurnId) {
+        lock(&self.0).entry(thread.as_str().to_owned()).or_default().stopping = Some(turn.clone());
+    }
+
+    /// Whether a Stop from outside the actor ended `turn` of `thread` ([`Self::stop_accepted`]).
+    pub fn stop_was_accepted(&self, thread: &ThreadId, turn: &TurnId) -> bool {
+        lock(&self.0).get(thread.as_str()).is_some_and(|gate| gate.stopping.as_ref() == Some(turn))
+    }
+
+    /// The actor accepted `takeover`: its message is the thread's next turn.
+    pub fn reserve(&self, thread: &ThreadId, takeover: Takeover) {
+        lock(&self.0).entry(thread.as_str().to_owned()).or_default().takeover = Some(takeover);
+    }
+
+    /// The thread's last accepted takeover.
+    pub fn takeover(&self, thread: &ThreadId) -> Option<Takeover> {
+        lock(&self.0).get(thread.as_str()).and_then(|gate| gate.takeover.clone())
     }
 
     /// Runs `at` while no run of `thread` is registered, under the lock every start takes: a start either came first (`None`,
@@ -484,7 +557,9 @@ impl StopLatches {
         let mut gates = lock(&self.0);
         if let Some(gate) = gates.get_mut(thread.as_str()) {
             gate.running.retain(|(running, _, _)| running != turn);
-            if gate.latched.is_empty() && gate.running.is_empty() {
+            // The turn a takeover's message started is over: nothing reads that takeover again.
+            gate.takeover.take_if(|takeover| takeover.successor.as_ref() == Some(turn));
+            if gate.idle() {
                 gates.remove(thread.as_str());
             }
         }
@@ -495,7 +570,7 @@ impl StopLatches {
         let mut gates = lock(&self.0);
         if let Some(gate) = gates.get_mut(thread.as_str()) {
             gate.latched.retain(|identity| !protected(identity));
-            if gate.latched.is_empty() && gate.running.is_empty() {
+            if gate.idle() {
                 gates.remove(thread.as_str());
             }
         }
@@ -504,6 +579,16 @@ impl StopLatches {
     /// `thread` was deleted: nothing of it can run again.
     pub fn forget(&self, thread: &ThreadId) {
         lock(&self.0).remove(thread.as_str());
+    }
+
+    #[cfg(test)]
+    pub fn plant_retry(&self, thread: &ThreadId, retry: super::quota_lane::RetryTurn) {
+        lock(&self.0).entry(thread.as_str().to_owned()).or_default().retry = Some(retry);
+    }
+
+    #[cfg(test)]
+    pub fn planted_retry(&self, thread: &ThreadId) -> Option<super::quota_lane::RetryTurn> {
+        lock(&self.0).get_mut(thread.as_str()).and_then(|gate| gate.retry.take())
     }
 
     #[cfg(test)]
@@ -688,22 +773,32 @@ impl ControlCell {
         } else {
             mixdog_agent::cancel::USER_CANCEL
         };
-        self.abort(turn, &mixdog_agent::cancel::Abort::runtime_abort(self.thread.as_str(), name))
+        // Only the abort that ends the run is a stop the turn shows: one behind a takeover or another Stop changes nothing.
+        if self.abort_first(turn, &mixdog_agent::cancel::Abort::runtime_abort(self.thread.as_str(), name))? {
+            self.stop_latches.stop_accepted(&self.thread, turn);
+        }
+        let _ = self.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
+        Ok(json!({ "cancelRequested": true, "turnId": turn }))
     }
 
     /// Aborts the running `turn` with `reason`, Node's abort text (`closeSession`,
     /// `abortSessionTurn`, `abortRuntime`). The only error is a `turn` that is not the running one.
     pub fn abort(&self, turn: &TurnId, abort: &mixdog_agent::cancel::Abort) -> Result<Value, CoreError> {
+        self.abort_first(turn, abort)?;
+        // The actor's `Ctl::Abort` only settles the turn's pending approvals early; a full lane drops it, and `run_ended`
+        // settles whatever is left when the turn ends.
+        let _ = self.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
+        Ok(json!({ "cancelRequested": true, "turnId": turn }))
+    }
+
+    /// [`Self::abort`] that says whether it is the abort that ends the run ([`StopLatches::abort`]): `abortRuntime` aborts
+    /// synchronously, so the cancel fires here and cannot be refused, but only the first abort decides how the end reads.
+    pub fn abort_first(&self, turn: &TurnId, abort: &mixdog_agent::cancel::Abort) -> Result<bool, CoreError> {
         let run = self.run.load_full();
         let Some(run) = run.filter(|run| &run.turn == turn) else {
             return Err(self.not_active(Some(turn)));
         };
-        // `abortRuntime` aborts synchronously, so the cancel fires first and cannot be refused. The actor's
-        // `Ctl::Abort` only settles the turn's pending approvals early; a full lane drops it, and `run_ended`
-        // settles whatever is left when the turn ends.
-        run.cancel.abort_with(abort);
-        let _ = self.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
-        Ok(json!({ "cancelRequested": true, "turnId": turn }))
+        Ok(self.stop_latches.abort(&run.cancel, abort))
     }
 
     /// `turn/steer{expectedTurnId, queuedId}` → `{accepted: true, queuedId}` (R10, R12). Node's

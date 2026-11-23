@@ -125,7 +125,7 @@ async fn a_silent_gemini_api_head_times_out_in_285_seconds_in_the_headers_phase(
     let (again, waited) = timed_out(&adapter, &asked).await;
     assert_eq!(waited, Duration::from_secs(285));
     assert!(again.recovery_terminal && again.recovery_exhausted && again.should_retry == Some(false), "a first-byte timeout past the one retry is final");
-    assert!(!adapter.recovers_spent("gemini-3.6-flash", &again), "and gets no non-streaming re-issue");
+    assert!(!adapter.recovers_spent(&asked, &again), "and gets no non-streaming re-issue");
 }
 
 /// Node: a Pro-class model waits `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` (300 s, clamped to 285 s) for its head, one

@@ -181,6 +181,58 @@ fn expired(
     err
 }
 
+/// The first-byte gate of a stream on the shared window (`PROVIDER_FIRST_BYTE_TIMEOUT_MS`), every timeout left to the
+/// provider's ordinary ladder.
+pub(crate) fn shared_first_byte_gate(
+    settings: &crate::providers::first_byte::FirstByteSettings,
+    identity: &mixdog_core_api::domain::provider::SendIdentity,
+    label: String,
+) -> crate::providers::head_wait::FirstByteGate {
+    let policy = crate::providers::first_byte::FirstBytePolicy { timeout_ms: settings.provider_ms, max_ms: settings.max_before_warn_ms, retries: None };
+    crate::providers::head_wait::FirstByteGate::of(&policy, identity, label)
+}
+
+/// The model submission of an OpenAI-compatible stream labelled `label` (Chat Completions or Responses, and the streams that
+/// Node consumed as one): the head and first payload under `gate`'s first-byte window, the first output and idle windows of
+/// `settings` (`consumeCompatChatCompletionStream` / `consumeCompatResponsesStream`), and a `recovery`'s generation total.
+pub(crate) fn stream_call(
+    label: String,
+    settings: &crate::providers::first_byte::FirstByteSettings,
+    identity: &mixdog_core_api::domain::provider::SendIdentity,
+    gate: Option<crate::providers::head_wait::FirstByteGate>,
+    recovery: bool,
+) -> ModelCall {
+    let millis = |ms: i64| std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
+    let windows = PhaseWindows {
+        head: gate.as_ref().map(crate::providers::head_wait::FirstByteGate::window),
+        payload: None,
+        first_output: settings.first_output_ms.map(millis),
+        idle: settings.semantic_idle_ms.map(millis),
+        recovery: Some(millis(settings.generate_total_ms)),
+    };
+    let call = ModelCall::new(identity, windows, Arc::new(move |expiry, delivery, exposure| expired(&label, gate.as_ref(), expiry, delivery, exposure)));
+    if recovery { call.recovery() } else { call }
+}
+
+/// What a read's events say about `attempt`: a whole protocol record is the first payload (a decoder that reports none, the
+/// Responses wire, is taken at its first event that is not a keepalive); output starts the idle window and later output, or an
+/// item boundary after it, renews it; keepalives and metadata do neither. `had_output` is the stream's own record of output.
+pub(crate) fn report_progress(
+    attempt: &mixdog_core_api::domain::provider::AttemptHandle,
+    decoder: &dyn WireDecoder,
+    events: &[StreamEvent],
+    had_output: &mut bool,
+) {
+    if decoder.payload_seen() || events.iter().any(|e| !matches!(e, StreamEvent::ProviderKeepalive)) {
+        attempt.observe(mixdog_core_api::domain::provider::Boundary::FirstProtocolPayload);
+    }
+    let produced = events.iter().any(crate::providers::idle::output);
+    if produced || (*had_output && events.iter().any(crate::providers::idle::boundary)) {
+        attempt.observe(mixdog_core_api::domain::provider::Boundary::FirstSemanticOutput);
+    }
+    *had_output |= produced;
+}
+
 struct CompatStream {
     body: Option<Box<dyn BodyStream>>,
     decoder: Box<dyn WireDecoder>,
@@ -203,19 +255,9 @@ impl CompatStream {
         self
     }
 
-    /// What a read's events say about the attempt: a whole protocol record is the first payload (a decoder that reports none, the
-    /// Responses wire, is taken at its first event that is not a keepalive); output starts the idle window and later output, or an
-    /// item boundary after it, renews it; keepalives and metadata do neither.
     fn report(&mut self, events: &[StreamEvent]) {
         let Some(attempt) = &self.attempt else { return };
-        if self.decoder.payload_seen() || events.iter().any(|e| !matches!(e, StreamEvent::ProviderKeepalive)) {
-            attempt.observe(mixdog_core_api::domain::provider::Boundary::FirstProtocolPayload);
-        }
-        let produced = events.iter().any(crate::providers::idle::output);
-        if produced || (self.had_output && events.iter().any(crate::providers::idle::boundary)) {
-            attempt.observe(mixdog_core_api::domain::provider::Boundary::FirstSemanticOutput);
-        }
-        self.had_output |= produced;
+        report_progress(attempt, self.decoder.as_ref(), events, &mut self.had_output);
     }
 }
 
@@ -535,7 +577,7 @@ impl ProviderAdapter for CompatAdapter {
     /// `canFallbackNonStreaming` (retry-classification.mjs:402) of the failure a Chat Completions send's ladder ended
     /// on: nothing reached the caller, no call was cut or dispatched, and it is transient, stalled or a truncated
     /// stream.
-    fn recovers_spent(&self, _model: &str, failure: &ProviderError) -> bool {
+    fn recovers_spent(&self, _request: &ModelRequest, failure: &ProviderError) -> bool {
         let exposed = failure.unsafe_to_retry || failure.exposure.text_emitted || failure.exposure.tool_dispatched || failure.exposure.tool_input_cut;
         let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
             || failure.timed_out
@@ -594,33 +636,14 @@ impl CompatAdapter {
     /// firstByteTimeouts)`): the chat profile's own window, else the shared one; a profile that caps its first-byte retries
     /// (`firstByteRetries`) doubles it after each and ends the ladder past the cap.
     fn first_byte_gate(&self, identity: &mixdog_core_api::domain::provider::SendIdentity) -> crate::providers::head_wait::FirstByteGate {
-        let policy = match self.profile().chat.first_byte {
-            Some(policy) => self.first_byte.compat(policy),
-            None => crate::providers::first_byte::FirstBytePolicy {
-                timeout_ms: self.first_byte.provider_ms,
-                max_ms: self.first_byte.max_before_warn_ms,
-                retries: None,
-            },
-        };
-        crate::providers::head_wait::FirstByteGate::of(&policy, identity, self.profile().id.to_string())
+        match self.profile().chat.first_byte {
+            Some(policy) => crate::providers::head_wait::FirstByteGate::of(&self.first_byte.compat(policy), identity, self.profile().id.to_string()),
+            None => shared_first_byte_gate(&self.first_byte, identity, self.profile().id.to_string()),
+        }
     }
 
     fn model_call(&self, request: &ModelRequest, gate: Option<crate::providers::head_wait::FirstByteGate>, recovery: bool) -> ModelCall {
-        let millis = |ms: i64| std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
-        let windows = PhaseWindows {
-            head: gate.as_ref().map(crate::providers::head_wait::FirstByteGate::window),
-            payload: None,
-            first_output: self.first_byte.first_output_ms.map(|ms| std::time::Duration::from_millis(ms as u64)),
-            idle: self.first_byte.semantic_idle_ms.map(|ms| std::time::Duration::from_millis(ms as u64)),
-            recovery: Some(millis(self.first_byte.generate_total_ms)),
-        };
-        let label = self.profile().id.to_string();
-        let call = ModelCall::new(
-            &request.options.send_identity,
-            windows,
-            Arc::new(move |expiry, delivery, exposure| expired(&label, gate.as_ref(), expiry, delivery, exposure)),
-        );
-        if recovery { call.recovery() } else { call }
+        stream_call(self.profile().id.to_string(), &self.first_byte, &request.options.send_identity, gate, recovery)
     }
 
     pub(crate) fn with_default_effort(&self, request: Arc<ModelRequest>) -> Arc<ModelRequest> {

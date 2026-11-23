@@ -55,10 +55,8 @@ use crate::oauth::CredentialIo;
 use crate::oauth::Pace;
 use crate::oauth::Probe;
 use crate::providers::anthropic::AnthropicAdapter;
-use crate::providers::anthropic::AnthropicCodec;
 use crate::providers::anthropic::AnthropicConfig;
 use crate::providers::anthropic::CapsLookup;
-use crate::providers::anthropic::Flavor;
 use crate::providers::anthropic::OAuthSession;
 use crate::providers::compat::adapter::CompatAdapter;
 use crate::providers::compat::adapter::RouteInputs;
@@ -1033,7 +1031,7 @@ impl DefaultProviderBuilder {
         headers: Vec<(String, String)>,
         http: Arc<dyn crate::transport::HttpSend>,
         tune: &dyn Fn(&mut AnthropicConfig),
-    ) -> HttpAdapter {
+    ) -> AnthropicAdapter {
         let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
         tune(&mut config);
         config.base_url = base;
@@ -1041,7 +1039,6 @@ impl DefaultProviderBuilder {
         // The Anthropic SDK's `accept`, which the gateway engines send ahead of their own headers.
         config.extra_headers = std::iter::once(("accept".to_owned(), "application/json".to_owned())).chain(headers).collect();
         config.listing = self.env.listing.clone();
-        let policy = AnthropicAdapter::api_key(config.clone(), http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane).retry_policy().clone();
         // What each gateway's Messages engine declares (`openrouter.mjs` `nativePdf: true`, `deepseek.mjs` `nativePdf` and
         // `nativeDocuments: false`; `wire-gateway.mjs:64`, `opencode-go.mjs`, `command-code-oauth.mjs:109` take a PDF as text).
         let media = match name {
@@ -1049,9 +1046,9 @@ impl DefaultProviderBuilder {
             "deepseek" => MediaSupport { native_pdf: false, native_documents: Some(false) },
             _ => MediaSupport { native_pdf: false, native_documents: None },
         };
-        HttpAdapter::new(ProviderId::from(name), Arc::new(AnthropicCodec::new(Flavor::ApiKey, config)), http, credential, policy)
-            .with_media(media)
+        AnthropicAdapter::engine(ProviderId::from(name), config, http, credential, media, self.env.gzip_lane)
             .with_images(self.fitter())
+            .with_settings(self.settings())
     }
 
     fn xai_config_value(cfg: &Value, primary: &str, legacy: &str) -> Option<String> {
@@ -1588,7 +1585,7 @@ impl DefaultProviderBuilder {
         request: &CustomRequestConfig,
         credential: Arc<dyn Credential>,
         reasoning: &custom::ReasoningSource,
-    ) -> HttpAdapter {
+    ) -> AnthropicAdapter {
         let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
         config.base_url = messages_base(&request.base_url);
         config.custom_endpoint = true;
@@ -1597,19 +1594,20 @@ impl DefaultProviderBuilder {
         config.custom_reasoning = Some(Arc::new(move |request: &ModelRequest| resolver.resolve(&Protocol::Anthropic, request).fields));
         // The Anthropic SDK's own `accept`.
         config.extra_headers = vec![("accept".to_owned(), "application/json".to_owned())];
-        // The Anthropic engine's retry rows, read off an adapter built the same way.
-        let policy =
-            AnthropicAdapter::api_key(config.clone(), self.env.http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane).retry_policy().clone();
-        let codec = AnthropicCodec::new(Flavor::ApiKey, config);
         let rewriter = CustomRewriter { config: request.clone(), wire: Protocol::Anthropic, reasoning: reasoning.clone() };
-        HttpAdapter::new(
+        // A custom provider's engines take a PDF as text (`provider.nativePdf = false`).
+        let media = MediaSupport { native_pdf: false, native_documents: None };
+        AnthropicAdapter::engine(
             ProviderId::from(name),
-            Arc::new(RewriteCodec::new(Arc::new(codec), rewriter)),
+            config,
             Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &request.headers)),
             credential,
-            policy,
+            media,
+            self.env.gzip_lane,
         )
+        .with_rewriter(Arc::new(rewriter))
         .with_images(self.fitter())
+        .with_settings(self.settings())
     }
 
     async fn build_cursor(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {

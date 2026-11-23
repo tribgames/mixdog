@@ -303,7 +303,7 @@ mod tests {
             provider_name: "anthropic-oauth".to_owned(),
             request: ModelRequest {
                 model: "claude-opus-4-7".to_owned(),
-                messages: vec![Message::new(Role::User, Content::Text("hi".to_owned()))],
+                messages: vec![Message::new(Role::User, Content::Text("hi".to_owned().into()))],
                 tools: Vec::new(),
                 options,
             },
@@ -319,7 +319,7 @@ mod tests {
     fn tail_text(request: &ModelRequest) -> Option<String> {
         let last = request.messages.last()?;
         match (&last.source, &last.content) {
-            (Some(MessageSource::TailReminder), Content::Text(text)) => Some(text.clone()),
+            (Some(MessageSource::TailReminder), Content::Text(text)) => Some(text.to_string()),
             _ => None,
         }
     }

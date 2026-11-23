@@ -503,6 +503,23 @@ pub fn resolve_selection(catalog: &[CursorModel], requested: &str, ask: &Paramet
     Ok(selection)
 }
 
+/// `selection` under the id the listing gave its variant, when the selection names a parameterized model by its
+/// parameters and the listing gave that variant an id of its own. It bills as the model it is a variant of.
+pub fn listed_selection(catalog: &[CursorModel], selection: &ModelSelection) -> Option<ModelSelection> {
+    let model = catalog.iter().find(|m| m.id == selection.model_id && m.is_parameterized())?;
+    let same = |variant: &&Variant| {
+        variant.max_mode == selection.max_mode
+            && selection.parameters.iter().all(|(id, value)| variant.parameters.iter().find(|(k, _)| k == id).map_or("", |(_, v)| v.as_str()) == value)
+    };
+    let variant = model.variants.iter().filter(|v| !v.legacy_slug.is_empty() && v.legacy_slug != model.id).find(same)?;
+    Some(ModelSelection {
+        model_id: variant.legacy_slug.clone(),
+        parameters: Vec::new(),
+        max_mode: selection.max_mode,
+        pricing_model: selection.pricing_model.clone().or_else(|| Some(model.id.clone())),
+    })
+}
+
 /// A pinned raw variant (`<base>-<effort>`, `-fast`) bills as its catalog
 /// model; the Fast part is carried by the request's tier, not the id.
 fn pricing_model(catalog: &[CursorModel], model: &str) -> Option<String> {

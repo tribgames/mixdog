@@ -332,6 +332,37 @@ pub fn measured_context_tokens(usage: &mixdog_core_api::domain::provider::Usage)
     (value.is_finite() && value >= 0.0).then(|| round(value) as u64)
 }
 
+/// Whether the record's counts are a whole turn's, summed over every model call of it (`Usage.raw.input_tokens_scope`
+/// is `turn`): what the turn is billed, and the size of no one prompt.
+pub fn counts_a_turn(usage: &mixdog_core_api::domain::provider::Usage) -> bool {
+    usage.raw.as_ref().is_some_and(|raw| raw["input_tokens_scope"] == Value::String("turn".into()))
+}
+
+/// What a usage record says of the size of the context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextSize {
+    /// The prompt of the one request the record is of.
+    Prompt(u64),
+    /// The occupancy the provider measured, prompt and reply together.
+    Occupancy(u64),
+    Unknown,
+}
+
+/// The one reading of a usage record as a size of the context. Every reader that wants a prompt's size or the
+/// context's occupancy takes it from here; a record of a whole turn ([`counts_a_turn`]) is never a prompt, whatever it
+/// counts, and reads as the measured occupancy or as nothing. `input_excludes_cache`: the provider's input leaves its
+/// cache reads and writes out.
+pub fn context_size(usage: &mixdog_core_api::domain::provider::Usage, input_excludes_cache: bool) -> ContextSize {
+    let occupancy = || measured_context_tokens(usage).filter(|tokens| *tokens > 0).map_or(ContextSize::Unknown, ContextSize::Occupancy);
+    if counts_a_turn(usage) {
+        return occupancy();
+    }
+    match crate::boundary::prompt_tokens(usage, input_excludes_cache) {
+        0 => occupancy(),
+        prompt => ContextSize::Prompt(prompt),
+    }
+}
+
 #[cfg(test)]
 mod measured_tests {
     use super::measured_context_tokens;

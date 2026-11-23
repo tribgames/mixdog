@@ -280,7 +280,7 @@ impl MessageMeter<'_> {
     ) -> Projection {
         let mut media_tokens = 0;
         let mut text = match &m.message.content {
-            Content::Text(text) => text.clone(),
+            Content::Text(text) => text.to_string(),
             Content::Parts(parts) => parts
                 .iter()
                 .map(|part| match part {

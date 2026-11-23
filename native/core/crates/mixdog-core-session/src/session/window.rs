@@ -1,12 +1,13 @@
 //! `thread/window/set`: the ranges of the transcript a positioned subscription holds, changed at a feed fence.
 //!
 //! The demand names positions; the pages that resolve them are the stored units every positioned row comes from
-//! ([`reads::units`]). A demand is read in the actor's line of unit reads ([`super::actor`]'s `UnitJob`), the same line
+//! ([`reads::transcript_units`]). A demand is read in the actor's line of unit reads ([`super::actor`]'s `UnitJob`), the same line
 //! that sends each stored record's unit to the subscriptions that hold it: no unit is sent between the read and the
 //! grant it makes, so the ranges installed at the fence ([`FeedSource::regrant`]) are exactly the rows
 //! `thread/window/changed` carries. A record stored before the read is in it; one stored after is sent behind the
 //! fence, by the new grant.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use mixdog_app_protocol::v2::thread::RewindTarget;
@@ -26,6 +27,7 @@ use mixdog_core_api::feed::FeedSource;
 use mixdog_core_api::feed::Grant;
 use mixdog_core_api::feed::GrantRange;
 use mixdog_core_api::ids::SubscriptionId;
+use mixdog_protocol::ThreadItem;
 use serde_json::Value;
 
 use mixdog_core_api::ids::ThreadId;
@@ -56,6 +58,127 @@ pub(crate) struct Wanted {
 pub(crate) struct Demand {
     pub ranges: Vec<Wanted>,
     pub tail_from: Option<u64>,
+}
+
+/// The calls of the turns running now, and those of an ended turn whose stored result the record that made them is
+/// still to be read with, by call id, as the session's released entries tell them in their order: the one
+/// source of how such a call reads in a unit, whichever producer sends it (a snapshot's tail, a record sent to the
+/// subscriptions that hold it, a range a demand reads). A call here reads open, or closed with the result shown
+/// ahead of its row; a call not here reads as the records store it: with its stored result, or ended without one.
+/// A stored result is never held: it is the records' ([`reads::transcript_units`] finds it at any distance), and its call leaves
+/// once the record that made it is read with it.
+#[derive(Clone, Default)]
+pub(crate) struct Calls {
+    by_id: HashMap<String, Call>,
+}
+
+#[derive(Clone)]
+struct Call {
+    turn: String,
+    /// The stored record that made the call.
+    record: String,
+    /// The result shown ahead of its row; `None` while the call runs.
+    ended: Option<Arc<ThreadItem>>,
+    /// The call's result is stored: the next read of `record` carries it.
+    stored: bool,
+}
+
+impl Calls {
+    /// The stored record `record` of the running turn `turn` made `call`.
+    pub fn opened(&mut self, call: &str, turn: &str, record: &str) {
+        self.by_id.insert(call.to_owned(), Call { turn: turn.to_owned(), record: record.to_owned(), ended: None, stored: false });
+    }
+
+    /// `call` of the running turn `turn` ended with the result `update` carries; `stored`: its row is stored, else it
+    /// was shown ahead of its row. The record that made the call, when it reads differently for it: a result shown
+    /// ahead changes nothing of a stored one.
+    pub fn ended(&mut self, call: &str, turn: &str, update: &ThreadItem, stored: bool) -> Option<String> {
+        let held = self.by_id.get_mut(call).filter(|held| held.turn == turn)?;
+        if stored {
+            held.stored = true;
+        } else if held.stored {
+            return None;
+        } else {
+            held.ended = Some(Arc::new(update.clone()));
+        }
+        Some(held.record.clone())
+    }
+
+    /// `unit` is read as the records store it: each call it shows with its stored result leaves, and each its record
+    /// made that it shows no row of.
+    pub fn read(&mut self, unit: &StoredUnit) {
+        let closed = |call: &str| {
+            unit.unit.items.iter().find_map(|item| match item {
+                ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some(call) => Some(run.result.is_some()),
+                _ => None,
+            })
+        };
+        self.by_id.retain(|call, held| !held.stored || !closed(call).unwrap_or_else(|| unit.unit.position == reads::record_position(&held.record)));
+    }
+
+    /// The turn `turn` ended: its calls no result was stored for read as the records store them from here on, ended
+    /// without one. Their records, which read differently for it. A call whose result is stored stays as it reads
+    /// until the read of its record that carries the result ([`Self::read`]).
+    pub fn turn_ended(&mut self, turn: &str) -> Vec<String> {
+        let mut records = Vec::new();
+        self.by_id.retain(|_, call| {
+            if call.turn != turn || call.stored {
+                return true;
+            }
+            if !records.contains(&call.record) {
+                records.push(std::mem::take(&mut call.record));
+            }
+            false
+        });
+        records
+    }
+
+    /// No read of a record with its call's stored result is left to wait for: what the positioned subscriptions hold
+    /// is read anew from the records (the history was cut, or a read failed and they hold nothing).
+    pub fn reread(&mut self) {
+        self.by_id.retain(|_, call| !call.stored);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty()
+    }
+
+    fn held(&self, item: &ThreadItem) -> Option<&Call> {
+        let ThreadItem::ToolCall { run, .. } = item else { return None };
+        // A result the records store is the call's own, whatever was shown ahead of it.
+        if run.result.is_some() {
+            return None;
+        }
+        self.by_id.get(run.call_id.as_deref()?)
+    }
+
+    /// `unit` with each of its calls held here as it stands; `None` when it shows none of them.
+    pub fn settled(&self, unit: &StoredUnit) -> Option<StoredUnit> {
+        if !unit.unit.items.iter().any(|item| self.held(item).is_some()) {
+            return None;
+        }
+        let mut settled = unit.clone();
+        for item in &mut settled.unit.items {
+            let Some(call) = self.held(item) else { continue };
+            match &call.ended {
+                Some(update) => closed_with(item, update),
+                None => super::live_end::open_call(item),
+            }
+        }
+        settled.bytes = serde_json::to_vec(&settled.unit).map_or(0, |encoded| encoded.len());
+        Some(settled)
+    }
+}
+
+/// The stored call `item` closed with the result `update` carries, as a page merges its stored result
+/// ([`super::seams::merge_update`]); what `update` states of the live card alone is not the record's.
+fn closed_with(item: &mut ThreadItem, update: &ThreadItem) {
+    let mut closed = super::seams::merge_update(item, update);
+    if let (ThreadItem::ToolCall { run: stored, .. }, ThreadItem::ToolCall { run, .. }) = (&*item, &mut closed) {
+        run.live = stored.live;
+        run.started_at = stored.started_at;
+    }
+    *item = closed;
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -110,7 +233,7 @@ fn range_of(id: &str, units: &[StoredUnit], reaches_start: bool, reaches_end: bo
 }
 
 async fn page(deps: &SessionDeps, id: &ThreadId, at: PageAt, records: usize, lineage: u64, ctl: &ReadCtl) -> Result<reads::Units, CoreError> {
-    let page = reads::units(&deps.store, &deps.transcript, deps.lanes, id, at, records.min(MAX_RECORDS), ctl)
+    let page = reads::transcript_units(&deps.store, &deps.transcript, deps.lanes, id, at, records.min(MAX_RECORDS), ctl)
         .await?
         .ok_or_else(|| invalid("want", "a position of this thread's history"))?;
     // A page of another history revision is of ranges this grant does not name.
@@ -188,13 +311,16 @@ fn fit(ranges: &mut [Wanted], budget: usize) -> Result<(), CoreError> {
     Ok(())
 }
 
-/// The ranges `want` asks for, with the contents of those `held` does not hold, all from this one read.
+/// The ranges `want` asks for, with the contents of those `held` does not hold, all from this one read. `calls`: the
+/// running turns' calls as they stood when the read began; the units are fitted as they show them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn demand(
     deps: &SessionDeps,
     id: &ThreadId,
     held: &Grant,
     request: &str,
     want: &WindowWant,
+    calls: &Calls,
     budget: usize,
     ctl: &ReadCtl,
 ) -> Result<Demand, CoreError> {
@@ -243,6 +369,11 @@ pub(crate) async fn demand(
         }
         (false, false) => None,
     };
+    for unit in ranges.iter_mut().filter_map(|wanted| wanted.units.as_mut()).flatten() {
+        if let Some(settled) = calls.settled(unit) {
+            *unit = settled;
+        }
+    }
     fit(&mut ranges, budget)?;
     Ok(Demand { ranges, tail_from })
 }
@@ -292,12 +423,23 @@ impl SessionHandle {
         let Some(stored) = found else { return Ok(None) };
         let previous = match stored.previous.clone() {
             Some(record) => {
-                let transcript = deps.transcript.clone();
-                // The row a client holds last: a user row shows its submission id.
-                mixdog_core_base::support::on_lane_wait(deps.lanes.cpu, cancel, move |lane| {
-                    transcript.rows(lane, &record).last().map(|(item, _)| super::transcript::displayed_id(item).to_owned())
-                })
-                .await?
+                // The record as a page of the log reads it, with where its turn stores its end: a message of a turn
+                // whose end is a record of its own shows none. The row a client holds last: a user row shows its
+                // submission id.
+                let trace = super::read_trace::ReadTrace::begin("thread/rewind/previous", self.id.as_str(), "record".to_owned());
+                let ctl = ReadCtl { cancel: cancel.clone(), trace };
+                let at = PageAt::Before(reads::record_position(record.iid.as_str()));
+                match reads::page(&deps.store, &deps.transcript, deps.lanes, &self.id, at, 0, &ctl).await? {
+                    Some(page) => page.rows[page.named_rows.clone()].last().map(|(item, _)| super::transcript::displayed_id(item).to_owned()),
+                    // A store that places no page marks no turn's end either.
+                    None => {
+                        let transcript = deps.transcript.clone();
+                        mixdog_core_base::support::on_lane_wait(deps.lanes.cpu, cancel, move |lane| {
+                            transcript.rows(lane, &record).last().map(|(item, _)| super::transcript::displayed_id(item).to_owned())
+                        })
+                        .await?
+                    }
+                }
             }
             None => None,
         };

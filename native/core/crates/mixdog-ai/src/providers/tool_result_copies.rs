@@ -109,7 +109,7 @@ mod tests {
     const BODY: &str = "a tool result long enough that a receipt for it is shorter than the result itself";
 
     fn call(id: &str) -> Message {
-        let mut message = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut message = Message::new(Role::Assistant, Content::Text(String::new().into()));
         message.tool_calls.push(ToolCall { id: id.into(), name: "grep".into(), arguments: serde_json::json!({}), native_type: None });
         message
     }

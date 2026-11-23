@@ -1,9 +1,8 @@
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
-type EncodedBundle = (EncodedRecord, Vec<Shown>, Option<Record>);
+type EncodedBundle = (EncodedRecord, Vec<Shown>, Option<Record>, Vec<ThreadItem>);
 type ActorAgentCompletion = (Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>, oneshot::Sender<RunOutcome>);
 type DraftQueueEntry = (super::turn_draft::DraftWrite, Option<oneshot::Sender<Result<(), RunError>>>);
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
@@ -82,6 +81,7 @@ use mixdog_store::schema::record::RewindReason;
 use mixdog_store::schema::record::RewindRecord;
 use mixdog_store::schema::record::RunPhase;
 use mixdog_store::schema::record::RunRecord;
+use mixdog_store::schema::record::TurnEndForm;
 use mixdog_tools::exec::WakeReason;
 use mixdog_tools::policy::SessionSurface;
 use serde::Serialize;
@@ -329,40 +329,6 @@ pub(crate) enum UnwindAt {
     Delete,
 }
 
-/// Pairs a compaction pass's `compacted` record with its event, which arrive from separate tasks. A pass that changed
-/// the context emits one record and one event, each stream in pass order, so the n-th record of a turn pairs with its
-/// n-th event, counted apart per side. A record the encoder rejects is still counted and its pair marked `lost`. The
-/// pairs end with the turn's run (`run_ended`).
-struct CompactPairs {
-    turn: TurnId,
-    /// Records seen so far this turn, and events.
-    records: u64,
-    events: u64,
-    /// Events that came first, by their number: the detail waits for its record's divider.
-    details: std::collections::BTreeMap<u64, String>,
-    /// Dividers that came first, by their record's number, shown without a detail: the event fills it in through a view
-    /// change standing on the record's outbox entry, so the record's rejection takes the patch with it.
-    dividers: std::collections::BTreeMap<u64, WaitingDivider>,
-    /// Records rejected before their event came.
-    lost: std::collections::BTreeSet<u64>,
-}
-
-struct WaitingDivider {
-    cid: String,
-    entry: u64,
-    item: ThreadItem,
-}
-
-impl CompactPairs {
-    fn of<'a>(slot: &'a mut Option<Self>, turn: &TurnId) -> &'a mut Self {
-        if slot.as_ref().is_none_or(|pairs| pairs.turn != *turn) {
-            *slot =
-                Some(Self { turn: turn.clone(), records: 0, events: 0, details: Default::default(), dividers: Default::default(), lost: Default::default() });
-        }
-        slot.as_mut().expect("just set")
-    }
-}
-
 /// What waits on a scheduled compaction: the requests asked meanwhile, in arrival order, and
 /// whether the settled turn's Goal continues.
 pub(super) struct AfterCompaction {
@@ -563,6 +529,9 @@ struct RunSlot {
     injected: Vec<WorkRef>,
     /// The Stop that froze this run's work: its outcome is settled once the run's close is accepted.
     stop: Option<String>,
+    /// A Stop ended the run with the `interrupt` reason, which leaves no interruption marker in the history: the end is
+    /// recorded on the turn's last row instead, with its cause when a message took the turn over.
+    interrupt_end: Option<InterruptEnd>,
     /// The run's draft as streamed, which its `draft` records hold redacted.
     journal: super::turn_draft::DraftJournal,
     /// The prompt the run started on: what a stop may hand back.
@@ -624,6 +593,8 @@ struct RunSlot {
 
 /// What a failed turn's close reads of its run ([`SessionActor::close_failed`]).
 struct FailedClose<'a> {
+    /// The turn's start was refused ([`RunSlot::start_failed`]): no row and no record of it is stored, so no end is.
+    refused: bool,
     error: &'a TurnError,
     /// The route the turn started with: the live end's route (`turn.routeMeta`, `turn.mjs:555`), which a route change during
     /// the turn does not move. The durable completion reads the session's route at the close instead (ailedTurnCompletion).
@@ -637,10 +608,25 @@ struct FailedClose<'a> {
     live: &'a mut super::live_end::LiveCounts,
 }
 
+/// How a Stop with the `interrupt` reason ended a run ([`RunSlot::interrupt_end`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InterruptEnd {
+    /// The user's Stop while a message waited in the queue.
+    Stop,
+    /// A queued message was sent now and took the turn over.
+    Message,
+}
+
+/// The `cause` a turn end taken over by the user's message carries.
+pub(crate) const MESSAGE_CAUSE: &str = "message";
+
 /// What a finished turn's close reads of its run ([`SessionActor::close_done`]).
 struct DoneClose<'a> {
     /// A stop handed the prompt back to a composer: a cancelled turn then shows no end (`reclaimed`, `turn.mjs:610`).
+    /// So does a turn whose start was refused ([`RunSlot::start_failed`]): nothing of it is stored, and no end is.
     reclaimed: bool,
+    /// A cancelled end no interruption marker stands for in the history: it is recorded on the turn's last row.
+    interrupt_end: Option<InterruptEnd>,
     /// `turnOutcome`: `done` or `cancelled`.
     status: &'static str,
     /// The turn's own `completionVerb`.
@@ -1030,7 +1016,7 @@ pub(crate) enum Inbox {
     /// Answered once the stored records read for the positioned subscriptions so far are read: a positioned snapshot
     /// attached from then on carries them.
     TailReady {
-        tx: oneshot::Sender<()>,
+        tx: oneshot::Sender<Result<(), CoreError>>,
     },
     /// An acknowledged source for fork, or the idle history a clear must protect.
     ForkPlan {
@@ -1170,7 +1156,8 @@ pub(crate) enum JobDone {
     /// The carry of a Project move the actor began ended ([`project_move`]).
     ProjectMoved(Result<(), CoreError>),
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
-    Recovered(Vec<(String, super::seams::CrashedRows)>),
+    /// Each crashed run with what it left, and the end it is closed with when it stores its end as a record.
+    Recovered(Vec<(String, super::seams::CrashedRows, Option<serde_json::Map<String, Value>>)>),
     /// A send of submission `id` got its answer ([`Submissions::admit`]): `answer` when it succeeded, its receipt.
     SubmissionSettled {
         id: String,
@@ -1603,14 +1590,33 @@ pub(crate) struct SessionActor {
     /// The line of unit reads (`units.rs`), and whether one is being read.
     unit_jobs: std::collections::VecDeque<units::UnitJob>,
     unit_reading: bool,
+    /// The text items of the running turn that settled before a tool call ([`RunShown::TextSettled`]): at the turn's
+    /// close, one no record of the turn holds is stored as a record of its own.
+    settled_texts: Vec<mixdog_core_api::ids::ItemId>,
+    /// The rows of the running turn whose commit was accepted, stored or not yet: a text one of them holds is that
+    /// record's, or the settle's when its record cannot be written ([`Change::Settled`]).
+    committed_texts: Vec<mixdog_core_api::ids::ItemId>,
+    /// The places in the line that what is released next waits for ([`units::UnitJob::Closing`]): behind a compaction's
+    /// divider, and where the line stood when a turn's terminal record was first held for it (`close_marked`).
+    closing_pending: usize,
+    close_marked: Option<u64>,
+    /// The running turns a stored compaction ran in: what such a turn stores that is no message is read from the
+    /// records, which tell what the compaction left of the turn.
+    compacted: Vec<String>,
     /// The newest stored records as a page of them reads, oldest first: what a positioned snapshot carries. `tail_older`:
     /// records older than them are stored. `tail_next`: one past the newest record the line has read; a subscription
     /// that follows the tail holds every record from there on.
     tail: Vec<Arc<super::reads::StoredUnit>>,
     tail_older: bool,
     tail_next: u64,
-    /// The record that made each call whose result is not stored yet: the result's record changes how that one reads.
-    call_records: HashMap<String, String>,
+    /// The calls of the running turns, folded from the released entries (`units.rs`): how each reads in a stored
+    /// record's unit until its turn ends. A demand's read holds the calls as they stood when it began.
+    calls: Arc<super::window::Calls>,
+    /// The read of the newest stored records that failed, until one succeeds: a positioned snapshot is not attached on
+    /// it ([`Inbox::TailReady`]).
+    tail_unread: Option<CoreError>,
+    /// The turn whose input row is being accepted ahead of its `started` record, with where it stores its end.
+    starting_end: Option<(TurnId, TurnEndForm)>,
     /// The lowest ordinal a rewind or a clear released since the last publish removed from: the positioned grants are
     /// rebased below it once the history change is published.
     rebase_cut: Option<u64>,
@@ -1882,8 +1888,6 @@ pub(crate) struct SessionActor {
     drain_handbacks: Option<(Vec<String>, Vec<super::state::Queued>)>,
     /// The scheduled compaction runs (`createCompactionGate`'s tail).
     after_compaction: Option<AfterCompaction>,
-    /// The run's compaction divider and the pass's event, whichever came first.
-    compact_pairs: Option<CompactPairs>,
     /// A retry the compaction held, released while another turn it held ran: it is the next turn
     /// (Node's retry ask waits on the ask lock behind that turn).
     pending_retry: Option<super::quota_lane::RetryTurn>,
@@ -2123,11 +2127,18 @@ impl SessionActor {
             writes_landed: Vec::new(),
             unit_jobs: std::collections::VecDeque::from([units::UnitJob::Tail]),
             unit_reading: false,
+            settled_texts: Vec::new(),
+            committed_texts: Vec::new(),
+            closing_pending: 0,
+            close_marked: None,
+            compacted: Vec::new(),
             tail: Vec::new(),
             // Every record stored before the actor began is older than this, and is the first read's to carry.
             tail_older: acked_end > 0,
             tail_next: acked_end,
-            call_records: HashMap::new(),
+            calls: Arc::default(),
+            tail_unread: None,
+            starting_end: None,
             rebase_cut: None,
             save_failure: Arc::from(""),
             deferred_start: None,
@@ -2250,7 +2261,6 @@ impl SessionActor {
             manual_compact_due: false,
             drain_handbacks: None,
             after_compaction: None,
-            compact_pairs: None,
             pending_retry: None,
             retry_hidden: false,
             transcript_rewritten: false,
@@ -2686,6 +2696,14 @@ impl SessionActor {
         };
     }
 
+    /// Where the turn of `row` stores its end: its `started` record's mark, which the turn whose input row is accepted
+    /// ahead of that record has already.
+    fn end_form(&self, row: &ItemRecord) -> Option<TurnEndForm> {
+        let turn = row.turn.as_ref()?.as_str();
+        let starting = || self.starting_end.as_ref().filter(|(starting, _)| starting.as_str() == turn).map(|(_, end)| *end);
+        self.projected.turn_ends.get(turn).copied().or_else(starting)
+    }
+
     /// `shown`: whether the record's items show live (a suppressed row shows none).
     fn submit_encode(&mut self, entry: u64, record: Arc<Record>, shown: bool) {
         let deps = self.deps.clone();
@@ -2701,28 +2719,36 @@ impl SessionActor {
         let at = self.deps.clock.now_ms();
         // A reply the history does not stamp shows at the time its row first showed (`streamingTail.at`), else now.
         let reply_at = self.run.as_mut().and_then(|slot| slot.live.tail_at(at)).unwrap_or(at);
+        let end = match &*record {
+            Record::Item(row) => self.end_form(row),
+            _ => None,
+        };
         // A full cpu lane is waited out: the record is a row of the thread, never dropped for a busy lane.
         let encode = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| {
             // The log holds the record as the sensitive projection stores it; the live rows show it as committed.
             let stored = deps.sensitive.stored(&thread, &record);
             let result = deps.codec.encode(lane, stored.as_ref().unwrap_or(&record)).map(|encoded| {
                 let Record::Item(row) = &*record else {
-                    return (encoded, Vec::new());
+                    return (encoded, Vec::new(), Vec::new());
+                };
+                // The record's unit: its rows as a page of the log reads them, from this commit and no later read.
+                let unit = match stored.as_ref().unwrap_or(&record) {
+                    Record::Item(logged) if logged.visible => deps.transcript.rows_as(lane, logged, end).into_iter().map(|(item, _)| item).collect(),
+                    _ => Vec::new(),
                 };
                 if !shown {
-                    return (encoded, Vec::new());
+                    return (encoded, Vec::new(), unit);
                 }
-                // The final reply's completion restores as a `done` end in history; live, the turn's close shows its
-                // own end ([`Self::close_done`]), so this one is not shown. A sealed reply recovery commits has no close:
-                // its end shows as history shows it.
+                // A turn's end is written once, when the turn closes ([`Self::close_done`], [`Self::close_failed`]): a
+                // message a running turn commits shows none, whatever completion it carries (its own, an earlier
+                // attempt's, a marker's) and however its turn stores its end. A sealed reply recovery commits has no
+                // close: its end shows as history shows it.
                 let shown: Vec<Shown> = deps
                     .transcript
-                    .items(lane, row)
+                    .items_as(lane, row, end)
                     .into_iter()
                     // A row of no turn (an heir's carried conversation) has no close: its end shows as history shows it.
-                    .filter(|shown| {
-                        !live || row.turn.is_none() || !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. }))
-                    })
+                    .filter(|shown| !live || row.turn.is_none() || !matches!(shown, Shown::Item(ThreadItem::TurnEnd { .. })))
                     .map(|shown| {
                         if !live {
                             return shown;
@@ -2740,9 +2766,9 @@ impl SessionActor {
                         }
                     })
                     .collect();
-                (encoded, shown)
+                (encoded, shown, unit)
             });
-            result.map(|(encoded, shown)| (encoded, shown, stored))
+            result.map(|(encoded, shown, unit)| (encoded, shown, stored, unit))
         };
         // Never cancelled: the record is the actor's to commit whatever becomes of its turn.
         mixdog_core_base::support::lane_job(self.deps.lanes.cpu, "record-encode", &CancellationToken::new(), encode, move |result| {
@@ -2849,6 +2875,13 @@ impl SessionActor {
                 }
             }
             JobDone::CommitFacts { turn, item, facts, ack, .. } => {
+                if self.active(&turn) {
+                    // A response commits as one message under its first segment's id, whose rows are its segments'
+                    // (`meta.segments`): each of them is this commit's.
+                    let segments = item.body.pointer("/meta/segments").and_then(Value::as_array).into_iter().flatten();
+                    let named = segments.filter_map(|segment| segment.get("id").and_then(Value::as_str)).map(mixdog_core_api::ids::ItemId::from);
+                    self.committed_texts.extend(std::iter::once(item.iid.clone()).chain(named));
+                }
                 self.mark_committing(&turn, &item);
                 self.commit_with_facts(turn, item, facts, ack);
             }
@@ -2974,14 +3007,14 @@ impl SessionActor {
 
     fn encode_done(&mut self, id: u64, result: Result<EncodedBundle, CoreError>) {
         match result {
-            Ok((encoded, shown, stored)) => {
+            Ok((encoded, shown, stored, unit)) => {
                 if let Some(entry) = self.outbox.get_mut(id)
                     && let Change::Record { display, .. } = &mut entry.change
                     && !shown.is_empty()
                 {
                     *display = Display::Items(shown);
                 }
-                self.outbox.encoded(id, encoded, stored);
+                self.outbox.encoded(id, encoded, stored, unit);
                 if self.outbox.has_unsaved() || self.outbox.awaits_retry() {
                     self.retry_due = true;
                 }
@@ -3127,7 +3160,32 @@ impl SessionActor {
             self.outbox.unpair_pending();
         }
         self.releasing = true;
-        while let Some(ready) = self.outbox.pop_ready() {
+        loop {
+            // A turn's terminal record is released once the line has delivered everything stored before it: no state,
+            // in a frame or in a snapshot, shows the turn ended without its last output and its end. What is released
+            // so far goes out first, then the line; a read still in flight leaves the record for the pump that follows it.
+            // It waits for the line as it stood then, not for what is asked of the line meanwhile. A compaction's divider
+            // is delivered the same way before anything released after its record (the runtime leaving `compacting`).
+            let closing = self.outbox.closes_turn_next();
+            if closing.is_some() || self.closing_pending > 0 {
+                if !notes.is_empty() {
+                    fold_room_view(&mut notes);
+                    self.publish(std::mem::take(&mut notes));
+                }
+                self.releasing = false;
+                self.next_unit_job();
+                self.releasing = true;
+                // Marked once for each terminal record: one withdrawn since leaves the next turn's its own mark.
+                if closing.is_some() && self.closing_pending == 0 && self.close_marked != closing && (self.unit_reading || !self.unit_jobs.is_empty()) {
+                    self.close_marked = closing;
+                    self.closing_pending += 1;
+                    self.unit_jobs.push_back(units::UnitJob::Closing);
+                }
+                if self.closing_pending > 0 {
+                    break;
+                }
+            }
+            let Some(ready) = self.outbox.pop_ready() else { break };
             match ready {
                 Ready::Release(entry, ordinal) => header_moved |= self.release(entry, ordinal, &mut notes),
                 Ready::Show(entry) => header_moved |= self.release(entry, None, &mut notes),
@@ -3145,6 +3203,9 @@ impl SessionActor {
         // it once.
         if self.outbox.is_empty() && !Arc::ptr_eq(&self.projected.header, &self.acked.header) && self.projected.header == self.acked.header {
             self.projected.header = self.acked.header.clone();
+        }
+        if self.outbox.is_empty() {
+            self.projected.share_window(&self.acked);
         }
         if !self.writes_landed.is_empty() {
             let (landed, waiting): (Vec<_>, Vec<_>) =
@@ -3167,6 +3228,8 @@ impl SessionActor {
         if !notes.is_empty() || header_moved {
             self.publish(notes);
         }
+        // The units of the records this release stored go out behind the frames it published.
+        self.next_unit_job();
         for released in self.after_publish.drain(..) {
             let _ = released.send(Ok(()));
         }
@@ -3184,8 +3247,8 @@ impl SessionActor {
         if entry.shown && archives_rows(&entry.change, ordinal) {
             self.mark_archived();
         }
-        if ordinal.is_some() {
-            self.stored(&entry.change);
+        if let Some(ordinal) = ordinal {
+            self.stored(&entry.change, &entry.unit, ordinal);
         }
         for effect in entry.effects {
             self.effect_done(effect);
@@ -3236,13 +3299,13 @@ impl SessionActor {
         let asked = |acked: &SessionState| acked.sections.approvals.as_ref().and_then(|approvals| approvals.handoff_questions.clone());
         let asked_before = asked(&self.acked);
         // A settled segment shows only when no row of its item is in view now (`Change::Settled`): its note is told then.
+        // A positioned subscription is sent no row by it: the text is its reply's record's, which reaches it as that
+        // record's unit, and until then it holds the text as it streamed.
         if let Change::Settled { turn, item } = &entry.change
             && !self.acked.window.iter().any(|row| row.item.id() == item.id())
         {
-            notes.push(Note::new(
-                "item/completed",
-                &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: item.clone(), room_view: None },
-            ));
+            let told = ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: item.clone(), room_view: None };
+            notes.push(Note::new("item/completed", &told).of_record(self.acked.history_rev, &self.id, turn));
         }
         let header_before = self.acked.header.clone();
         if let Change::Record { record, .. } = &entry.change
@@ -3251,6 +3314,8 @@ impl SessionActor {
             self.rebase_cut = Some(self.rebase_cut.map_or(rewind.to_ordinal, |cut| cut.min(rewind.to_ordinal)));
             // The stored tail a positioned snapshot carries ends where the history now ends.
             self.tail.retain(|unit| unit.ordinal < rewind.to_ordinal);
+            // A record committed and not yet sent that the rewind removed is no occurrence of the new lineage.
+            self.unit_jobs.retain(|job| !matches!(job, units::UnitJob::Unit(unit) if unit.ordinal >= rewind.to_ordinal));
         }
         self.acked.apply(&entry.change, ordinal);
         // A room member's handed-off questions moved: its room is published again once this view
@@ -3271,6 +3336,9 @@ impl SessionActor {
         }
         if let Change::EarlyResult { row, update } = &entry.change {
             self.early_result(row, update.clone(), notes);
+            if let Some(turn) = self.running(row) {
+                self.call_ended(turn, update, false);
+            }
         }
         self.fold_shown_items(&entry.change, ordinal, notes);
         let header_moved = matches!(&entry.change, Change::Record { record, .. } if matches!(**record, Record::Meta(_) | Record::Session(_)));
@@ -3287,15 +3355,15 @@ impl SessionActor {
         notes.extend(entry.notes);
         self.tell_visible_items(&entry.change, notes);
         // A note that tells a record's rows is, for a positioned subscription, the feed moving on and no row: the record
-        // reaches it as the unit a page of it reads, once stored and by its grant alone ([`Self::stored`]).
-        if matches!(&entry.change, Change::Record { .. } | Change::EarlyResult { .. } | Change::Archived(_) | Change::Detail { .. } | Change::Card(_)) {
+        // reaches it as its unit, once stored and by its grant alone ([`Self::stored`]).
+        if matches!(&entry.change, Change::Record { .. } | Change::EarlyResult { .. } | Change::Archived(_) | Change::Card(_)) {
             let lineage = self.acked.history_rev;
-            for note in notes[first_note..].iter_mut().filter(|note| note.method == "item/completed") {
+            for note in notes[first_note..].iter_mut().filter(|note| note.method == "item/completed" && note.positioned.is_none()) {
                 *note = note.clone().of_record(lineage, &self.id, &TurnId::from(""));
             }
         }
-        if ordinal.is_some() {
-            self.stored(&entry.change);
+        if let Some(ordinal) = ordinal {
+            self.stored(&entry.change, &entry.unit, ordinal);
         }
         self.derived_notes(&entry.change, &title, &queue_rows, notes);
         // The list is replaced whole when an entry moves it: the same list is no change, with nothing compared.
@@ -3706,13 +3774,18 @@ impl SessionActor {
             self.storage(),
             None,
         );
-        view.tail =
-            super::view::StoredTail { units: self.tail.as_slice().into(), older: self.tail_older, next: self.tail_next, budget: self.feed.frame_budget() };
+        view.tail = super::view::StoredTail {
+            units: self.tail.iter().map(|unit| self.settled_unit(unit)).collect(),
+            older: self.tail_older,
+            next: self.tail_next,
+            budget: self.feed.frame_budget(),
+        };
         if self.runtime_held.load(SeqCst)
             && let Some(runtime) = view.state.runtime.as_mut()
         {
             runtime.busy = false;
             runtime.spinner = None;
+            runtime.turn_id = None;
         }
         view
     }
@@ -3991,6 +4064,7 @@ impl SessionActor {
     }
 
     fn abort_requests(&mut self, turn: TurnId) {
+        self.show_stopping(&turn);
         if let Some(text) = self.run.as_ref().filter(|run| run.turn == turn).map(|run| format!("Error: {}", run.cancel.reason())) {
             for call in self.book.open_asks().filter_map(|ask| ask.call_id.as_ref()) {
                 self.abort_ended.insert(call.as_str().to_owned(), text.clone());
@@ -4484,8 +4558,15 @@ impl SessionActor {
                 }
                 self.notice(Some(&turn), &text, tone.as_str());
             }
-            RunShown::Reasoning(item) => self.show_live(turn, item, None),
+            // A finished thinking row is a record of the turn that is no message of it: it reads the same live, in a
+            // snapshot, in any window and after a reload, and the model's context holds none of it.
+            RunShown::Reasoning(item) => {
+                if let ThreadItem::Reasoning { id, content, .. } = &item {
+                    self.show_stored(Some(&turn), id.as_str(), json!({ "kind": "reasoning", "id": id.as_str(), "content": content }));
+                }
+            }
             RunShown::TextSettled(item) => {
+                self.settled_texts.push(item.clone());
                 // The streamed text as it stands: the live item the deltas built (none when nothing streamed into it). Whether
                 // it shows is decided at its show (`Change::Settled`): the run hands its rows and its shown events on apart, so
                 // its reply's commit may be ahead of it, and then that commit's row, or its failure, decides. A segment of only
@@ -4573,36 +4654,23 @@ impl SessionActor {
                 }
             }
             RunShown::Compact(event) => {
-                let label = super::live_rows::compact_event_label(&event);
-                let detail = super::live_rows::compact_event_detail(&event);
                 // A pass that changed the context writes the compaction record, whose divider is the one row it shows.
                 if super::live_rows::compact_changed(&event) && !self.agent_mode() {
-                    let found = {
-                        let pairs = CompactPairs::of(&mut self.compact_pairs, &turn);
-                        let seq = pairs.events;
-                        pairs.events += 1;
-                        if pairs.lost.remove(&seq) {
-                            // Its record was rejected: the divider it would have filled is gone.
-                            None
-                        } else if let Some(waiting) = pairs.dividers.remove(&seq) {
-                            Some(waiting)
-                        } else {
-                            pairs.details.insert(seq, detail.clone());
-                            None
-                        }
-                    };
-                    if let Some(WaitingDivider { entry, mut item, .. }) = found {
-                        super::view::meta_mut(&mut item).detail = Some(detail.clone());
-                        let note = Note::new(
-                            "item/completed",
-                            &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn, item: item.clone(), room_view: None },
-                        );
-                        // Stands on the record's entry: if the encoder rejects the record, the patch goes with it.
-                        self.accept_view_after(Some(entry), Change::Detail { item: item.id().clone(), detail }, vec![note], Vec::new());
-                    }
                     return;
                 }
-                let item = super::transcript::compact_marker_item(&new_id(), turn.as_str(), label, &detail);
+                let label = super::live_rows::compact_event_label(&event);
+                match event.status {
+                    // A pass that changed nothing says nothing happened: no client shows it once the pass has ended.
+                    mixdog_agent::env::CompactStatus::Skipped | mixdog_agent::env::CompactStatus::NoChange => return,
+                    // A failed pass is told where it failed, as a record of the turn.
+                    mixdog_agent::env::CompactStatus::Failed => {
+                        let id = new_id();
+                        self.show_stored(Some(&turn), &id, json!({ "kind": "statusdone", "id": id, "label": label }));
+                        return;
+                    }
+                    mixdog_agent::env::CompactStatus::Compacted => {}
+                }
+                let item = super::transcript::compact_marker_item(&new_id(), turn.as_str(), label);
                 // A pass that changed the context marks where the turn began: the rows above it
                 // are what the compaction took (`archiveItemsForCompaction`).
                 let before = super::live_rows::compact_changed(&event).then(|| self.run.as_ref().map(|run| run.input_item.clone())).flatten();
@@ -4722,14 +4790,8 @@ impl SessionActor {
 
     /// A live-only row of the run, before the row `before` when it is in view, else last.
     fn show_live(&mut self, turn: TurnId, item: ThreadItem, before: Option<mixdog_core_api::ids::ItemId>) {
-        self.show_live_then(turn, item, before, None, Vec::new());
-    }
-
-    /// [`Self::show_live`], with `effects` that run when the row is released (shown to the feed, and in
-    /// the acked state). `needs`: the record the row stands on ([`Self::accept_view_after`]).
-    fn show_live_then(&mut self, turn: TurnId, item: ThreadItem, before: Option<mixdog_core_api::ids::ItemId>, needs: Option<u64>, effects: Vec<Effect>) {
         let note = Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn, item: item.clone(), room_view: None });
-        self.accept_view_after(needs, Change::Shown { item, before }, vec![note], effects);
+        self.accept_view(Change::Shown { item, before }, vec![note]);
     }
 
     /// The live display of a user row: the row of a completion the listener showed is durable
@@ -5037,6 +5099,24 @@ impl SessionActor {
     /// A row the transcript keeps that is no message of the conversation (a notice, a completion's card): a display
     /// record of its own, shown as it is stored, which a reopen reads back where it stands. Its outbox entry.
     fn show_stored(&mut self, turn: Option<&TurnId>, id: &str, row: Value) -> Option<u64> {
+        self.show_stored_then(turn, id, row, Vec::new()).ok()
+    }
+
+    /// [`Self::show_stored`] with `effects` that run when the record is released; they are handed back when no record
+    /// can be made of the row.
+    fn show_stored_then(&mut self, turn: Option<&TurnId>, id: &str, row: Value, effects: Vec<Effect>) -> Result<u64, Vec<Effect>> {
+        let Some((record, shown)) = Self::display_record(turn, id, row) else { return Err(effects) };
+        Ok(self.accept_record_entry(Record::Item(record), Class::Normal, Display::Items(shown), Vec::new(), effects))
+    }
+
+    /// A turn's end, stored as a record of the turn ([`TurnEndForm::Display`]): the end row the transcript holds when
+    /// the turn closes, which every reader shows from this record and from no message of the turn.
+    fn store_end(&mut self, turn: &TurnId, row: serde_json::Map<String, Value>, effects: Vec<Effect>) -> Result<u64, Vec<Effect>> {
+        let id = row.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.show_stored_then(Some(turn), &id, Value::Object(row), effects)
+    }
+
+    fn display_record(turn: Option<&TurnId>, id: &str, row: Value) -> Option<(ItemRecord, Vec<Shown>)> {
         let record = ItemRecord {
             iid: text(id, "itemId").ok()?,
             turn: turn.map(|turn| text(turn.as_str(), "turnId")).transpose().ok()?,
@@ -5052,7 +5132,7 @@ impl SessionActor {
         };
         let Slot::Inline(body) = &record.body else { return None };
         let shown = super::transcript::display_item(&record, body).map(Shown::Item).into_iter().collect();
-        Some(self.accept_record_entry(Record::Item(record), Class::Normal, Display::Items(shown), Vec::new(), Vec::new()))
+        Some((record, shown))
     }
 
     /// A notice the user reads in the transcript (`pushNotice(text, tone, {transcript: true})`): `{kind: 'notice', id,
@@ -5505,6 +5585,8 @@ impl SessionActor {
         // `set({ busy, spinner })`, one flush): a client never holds the accepted prompt's row with the session idle. The start
         // shows once durable (its waiter hears a failure), so the row shows with it, and a refused start withdraws both.
         self.outbox.begin_unit(false);
+        // The turn stores its end as a record of its own, and is marked so before a row of it is projected.
+        self.starting_end = Some((turn.clone(), TurnEndForm::Display));
         self.accept_record(Record::Item(input_row), Class::Normal, input_display, Vec::new(), row_effects);
         // `startUsageMetricsTurn` goes out with the turn's first save (the user message's), not the debounce: a process
         // killed before that save keeps neither.
@@ -5514,6 +5596,7 @@ impl SessionActor {
             phase: RunPhase::Started,
             attribution: None,
             attempt: None,
+            end: Some(TurnEndForm::Display),
             at: Some(self.deps.clock.now_ms()),
             op: None,
             detail: None,
@@ -5560,6 +5643,7 @@ impl SessionActor {
             work,
             injected: Vec::new(),
             stop: None,
+            interrupt_end: None,
             provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
             route_meta: super::live_end::route_meta(
                 self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default(),
@@ -5610,6 +5694,7 @@ impl SessionActor {
         // After both: a close's hide of this session is conditional on the run and the release that just changed.
         super::archive_trees::restore_at_turn_start(&self.deps, &self.id, &self.projected.header);
         let started = self.accept_record_entry(started, Class::Control, Display::None, Vec::new(), effects);
+        self.starting_end = None;
         self.outbox.end_unit();
         self.outbox.pair_with(started);
         self.announce_turn_start(&turn, &input_body, prompt);

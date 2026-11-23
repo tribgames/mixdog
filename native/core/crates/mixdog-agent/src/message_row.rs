@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use crate::effort::EffortSnapshot;
-use crate::message::{AgentMessage, Source, ToolKind, ToolTiming};
+use crate::message::{AgentMessage, Source, StoredRow, ToolKind, ToolTiming};
 use mixdog_core_api::domain::provider::{
     BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, ScopedCacheSource, StopReason, TextAttachment, ToolCall,
 };
@@ -215,8 +215,8 @@ fn envelope_body(content: &Content, was: &Value) -> Value {
 
 fn content_of(content: Option<&Value>) -> Result<Content, String> {
     match content {
-        Some(Value::String(text)) => Ok(Content::Text(text.clone())),
-        None | Some(Value::Null) => Ok(Content::Text(String::new())),
+        Some(Value::String(text)) => Ok(Content::Text(text.clone().into())),
+        None | Some(Value::Null) => Ok(Content::Text(String::new().into())),
         Some(Value::Array(parts)) => Ok(Content::Parts(parts.iter().map(part_of).collect::<Result<_, _>>()?)),
         // A tool result's envelope: `{content: [parts]}`, or `{content: "text"}`.
         Some(Value::Object(envelope)) if is_envelope(envelope) => content_of(envelope.get("content")),
@@ -347,10 +347,20 @@ fn call_rows(calls: &[ToolCall], base: Option<&Value>) -> Value {
 }
 
 /// The message a row holds, without keeping the row.
-fn typed_of(row: &Map<String, Value>) -> Result<AgentMessage, String> {
+fn typed_of(stored: &StoredRow) -> Result<AgentMessage, String> {
+    let (row, held) = stored.parts();
+    typed_fields(row, held)
+}
+
+/// The message of `row`, its content `held` when the row's own is held as that text.
+fn typed_fields(row: &Map<String, Value>, held: Option<&mixdog_protocol::SharedText>) -> Result<AgentMessage, String> {
     let text = |key: &str| row.get(key).and_then(Value::as_str);
     let role = role_of(text("role").ok_or("a row without a role")?).ok_or_else(|| format!("a row of role {:?}", row.get("role").unwrap_or(&Value::Null)))?;
-    let mut message = AgentMessage::user_content(content_of(row.get("content"))?);
+    let content = match held {
+        Some(held) => Content::Text(held.clone()),
+        None => content_of(row.get("content"))?,
+    };
+    let mut message = AgentMessage::user_content(content);
     message.message.role = role;
     message.message.tool_calls = calls_of(row.get("toolCalls"))?;
     message.message.tool_call_id = text("toolCallId").map(str::to_owned);
@@ -403,15 +413,15 @@ fn typed_of(row: &Map<String, Value>) -> Result<AgentMessage, String> {
 
 /// The message a stored row holds, with the row kept for writing it back.
 pub fn message_of(row: &Value) -> Result<AgentMessage, String> {
-    let row = row.as_object().ok_or("a row without a role")?;
-    let mut message = typed_of(row)?;
-    message.stored = Some(Arc::new(row.clone()));
+    let stored = StoredRow::new(row.as_object().ok_or("a row without a role")?.clone());
+    let mut message = typed_of(&stored)?;
+    message.stored = Some(Arc::new(stored));
     Ok(message)
 }
 
 /// The message of a row [`message_of_owned`] read before, from the `stored` row it kept: the same message, its `stored`
 /// the same row (shared). What a holder of the rows only (not their messages) reads them back with.
-pub fn message_of_stored(stored: &Arc<Map<String, Value>>) -> Result<AgentMessage, String> {
+pub fn message_of_stored(stored: &Arc<StoredRow>) -> Result<AgentMessage, String> {
     let mut message = typed_of(stored)?;
     message.stored = Some(stored.clone());
     Ok(message)
@@ -421,9 +431,16 @@ pub fn message_of_stored(stored: &Arc<Map<String, Value>>) -> Result<AgentMessag
 /// context this way). A row that is not a message is handed back with the error.
 pub fn message_of_owned(row: Value) -> Result<AgentMessage, (String, Value)> {
     let Value::Object(map) = row else { return Err(("a row without a role".to_owned(), row)) };
-    match typed_of(&map) {
+    // The row is read where it lies, so one that is no message goes back as it came; a text content cannot fail the
+    // read, and is taken out of the row only once the rest of it has been read.
+    let text = map.get("content").is_some_and(Value::is_string);
+    match typed_fields(&map, text.then(mixdog_protocol::SharedText::default).as_ref()) {
         Ok(mut message) => {
-            message.stored = Some(Arc::new(map));
+            let stored = StoredRow::new(map);
+            if let (_, Some(held)) = stored.parts() {
+                message.message.content = Content::Text(held.clone());
+            }
+            message.stored = Some(Arc::new(stored));
             Ok(message)
         }
         Err(error) => Err((error, Value::Object(map))),
@@ -560,7 +577,8 @@ pub fn row_of(message: &AgentMessage) -> Value {
     let Some(base) = &message.stored else { return Value::Object(fresh_row(message)) };
     let Ok(was) = typed_of(base) else { return Value::Object(fresh_row(message)) };
     let (m, w) = (&message.message, &was.message);
-    let mut row = (**base).clone();
+    let (stored, held) = base.parts();
+    let mut row = stored.clone();
     if m.role != w.role {
         row.insert("role".into(), json!(role_name(m.role)));
     }
@@ -575,6 +593,8 @@ pub fn row_of(message: &AgentMessage) -> Value {
                 row.insert("content".into(), body);
             }
         }
+    } else if let Some(held) = held {
+        row.insert("content".into(), Value::String(held.to_string()));
     }
     if m.tool_calls != w.tool_calls {
         set_or_remove(&mut row, "toolCalls", (!m.tool_calls.is_empty()).then(|| call_rows(&m.tool_calls, base.get("toolCalls"))));
@@ -675,6 +695,32 @@ mod tests {
             assert_eq!(again, first);
             assert!(Arc::ptr_eq(again.stored.as_ref().unwrap(), &stored), "the row is shared, not copied");
         }
+    }
+
+    /// A row's text is held once, whatever its length: the string of the row read is the message's content (moved, not
+    /// copied), the kept row refers to it, and the row written back is the row read, key order included. A row that is no
+    /// message is handed back as it came, its strings where they were.
+    #[test]
+    fn a_rows_text_is_held_once_by_the_message_and_its_kept_row() {
+        for text in ["continue".to_owned(), "a long result ".repeat(100)] {
+            let row = json!({ "role": "tool", "content": text, "toolCallId": "c1", "toolKind": "normal", "meta": { "sentRequestTail": true } });
+            let (written, at) = (serde_json::to_string(&row).unwrap(), row["content"].as_str().unwrap().as_ptr());
+            let message = message_of_owned(row).expect("a message row");
+            let Content::Text(content) = &message.message.content else { panic!("text content") };
+            let stored = message.stored.as_ref().expect("the row is kept");
+            let (fields, held) = stored.parts();
+            assert_eq!(content.as_str().as_ptr(), at, "the row's string is the content");
+            assert!(held.is_some_and(|held| held.shares(content)), "the kept row holds no second copy");
+            assert_eq!(fields.get("content"), Some(&Value::Null));
+            assert!(message_of_stored(stored).is_ok_and(|again| again == message));
+            assert_eq!(serde_json::to_string(&row_of(&message)).unwrap(), written);
+        }
+        let refused = json!({ "role": "narrator", "content": "a row of no known role" });
+        let at = refused["content"].as_str().unwrap().as_ptr();
+        let (_, back) = message_of_owned(refused.clone()).expect_err("not a message");
+        assert_eq!(back, refused);
+        let (_, back) = message_of_owned(refused).expect_err("not a message");
+        assert_eq!(back["content"].as_str().unwrap().as_ptr(), at, "the refused row is the one handed in");
     }
 
     #[test]
@@ -884,7 +930,7 @@ mod tests {
         for path in sessions() {
             let Some((_, rows)) = rows_of(&path) else { continue };
             for row in rows {
-                let typed = typed_of(row.as_object().expect("a row")).unwrap();
+                let typed = typed_of(&StoredRow::new(row.as_object().expect("a row").clone())).unwrap();
                 let fresh = Value::Object(fresh_row(&typed));
                 let (mut want, mut got) = (project(&row), project(&fresh));
                 for side in [&mut want, &mut got] {

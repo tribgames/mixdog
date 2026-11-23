@@ -291,7 +291,7 @@ mod tests {
                 delta_tool_calls: 0,
                 request_ms: 10,
                 delta_prompt: 1200,
-                send_tools: Vec::new(),
+                send_tools: Default::default(),
                 reasoning_tokens: None,
                 reasoning_tokens_complete: false,
                 outgoing: Vec::new().into(),

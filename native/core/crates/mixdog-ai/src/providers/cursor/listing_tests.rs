@@ -266,8 +266,8 @@ async fn an_exhausted_cold_discovery_prefers_the_installed_catalog_to_the_fallba
     assert_eq!(adapter.catalog.load_full().unwrap()[0].name, "picker");
 }
 
-/// A throttle that ends a run after output (an end frame, not a refused open) still rotates the conversation for the
-/// retry; the scope's record goes when the scope ends.
+/// A throttle that ends a run before any token, on a conversation an earlier run completed on, gives the retry a
+/// fresh conversation id, once per streak of failures; the scope's record goes when the scope ends.
 #[tokio::test]
 async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_forgets_it() {
     struct Silent;
@@ -287,22 +287,56 @@ async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_
     let (_http, adapter) = adapter(Vec::new());
     let derived = adapter.conversation_of("s1");
     assert_eq!(adapter.conversation_of("s1"), derived);
-    let mut stream =
-        super::CursorStream::new(Box::new(NoBody), Arc::new(Silent), super::decoder::CursorDecoder::new(Default::default(), Vec::new(), None), "t".into());
-    stream.throttle = Some((adapter.rotated.clone(), "s1".into()));
-    let mut throttle =
-        ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::RateLimited, mixdog_core_api::domain::provider::DeliveryState::Accepted);
-    throttle.status = Some(429);
-    stream.fail(throttle);
+    let live = || super::open_run::Live {
+        body: Box::new(NoBody),
+        sink: Arc::new(Silent),
+        decoder: super::decoder::CursorDecoder::new(Default::default(), Vec::new(), None),
+        heartbeat_at: std::time::Instant::now(),
+        secret: "t".into(),
+        fingerprint: super::open_run::Fingerprint {
+            selection: super::request::ModelSelection { model_id: "m".into(), parameters: Vec::new(), max_mode: false, pricing_model: None },
+            tools: Vec::new(),
+            cloud_rule: None,
+        },
+    };
+    let request = Arc::new(mixdog_core_api::domain::provider::ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() });
+    // A run of the scope ends with a throttle, after `tokens` streamed tokens.
+    let throttled = |tokens: u64| {
+        use crate::providers::connect::pb::Writer;
+        let mut live = live();
+        if tokens > 0 {
+            let (mut delta, mut update, mut message) = (Writer::new(), Writer::new(), Writer::new());
+            delta.varint(1, tokens);
+            update.message(8, delta);
+            message.message(1, update);
+            mixdog_core_api::domain::provider::WireDecoder::feed(&mut live.decoder, &crate::providers::connect::frame::encode(&message.finish(), 0)).expect("decodes");
+        }
+        let mut stream = super::CursorStream::new(live, Default::default(), &request);
+        stream.throttle = Some((adapter.rotated.clone(), "s1".into()));
+        let mut throttle =
+            ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::RateLimited, mixdog_core_api::domain::provider::DeliveryState::Accepted);
+        throttle.status = Some(429);
+        stream.fail(throttle);
+    };
+    throttled(0);
+    assert_eq!(adapter.conversation_of("s1"), derived, "a conversation no run completed on is not one the service holds: its refusal stands");
+    adapter.rotated.held("s1");
+    throttled(5);
+    assert_eq!(adapter.conversation_of("s1"), derived, "a throttle after tokens is of the account, not of the conversation");
+    throttled(0);
     let retry = adapter.conversation_of("s1");
     assert_ne!(retry, derived, "the retry after a streamed throttle sends a fresh conversation id");
-    assert_eq!(adapter.conversation_of("s1"), retry, "and keeps it until the next throttle");
+    throttled(0);
+    assert_eq!(adapter.conversation_of("s1"), retry, "the fresh id's refusal stands: one new id per streak of failures");
+    adapter.rotated.held("s1");
+    throttled(0);
+    assert_ne!(adapter.conversation_of("s1"), retry, "a run completed on it, so the next streak has its own");
     adapter.release_session("s1");
     assert_eq!(adapter.conversation_of("s1"), derived, "a scope that ended is forgotten");
 }
 
-/// A throttle can be pinned to one conversation id: the retry after a `resource_exhausted` runs under a fresh one
-/// (`cursor-wire.mjs` restart with reason `throttle`).
+/// A throttle that refuses the open: a first request's is the service's verdict and keeps the conversation; on a
+/// conversation a run completed on, the retry runs under a fresh id, and that id's refusal stands.
 #[tokio::test(start_paused = true)]
 async fn a_throttled_conversation_is_retried_under_a_fresh_id() {
     struct Throttled(std::sync::Mutex<Vec<Vec<u8>>>);
@@ -340,13 +374,46 @@ async fn a_throttled_conversation_is_retried_under_a_fresh_id() {
         tools: vec![],
         options: mixdog_core_api::domain::provider::RequestOptions { session_id: Some("s1".into()), ..Default::default() },
     });
-    for _ in 0..2 {
-        let error = adapter.attempt(request.clone()).await.err().expect("throttled");
+    // The conversation id each refused request carried, read off the request itself.
+    let sent = |request: Arc<mixdog_core_api::domain::provider::ModelRequest>| async {
+        let error = adapter.attempt(request).await.err().expect("throttled");
         assert_eq!(error.status, Some(429));
-    }
-    let bodies = runs.0.lock().unwrap();
-    assert_eq!(bodies.len(), 2);
-    assert_ne!(bodies[0], bodies[1], "the retry must not reuse the throttled conversation id");
+        let body = runs.0.lock().unwrap().last().expect("a request").clone();
+        let field = |bytes: &[u8], wanted: u32| {
+            let mut reader = crate::providers::connect::pb::Reader::new(bytes);
+            std::iter::from_fn(|| reader.next_field().ok().flatten()).find(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec()).expect("the field")
+        };
+        String::from_utf8(field(&field(&body[5..], 1), 5)).expect("an id")
+    };
+    let derived = super::request::conversation_id("s1");
+    assert_eq!(sent(request.clone()).await, derived);
+    assert_eq!(sent(request.clone()).await, derived, "a first request's refusal is the service's verdict: the same conversation is asked again");
+
+    // The process starts with the conversation under way: the transcript holds a turn of the assistant, and the
+    // service holds the conversation as surely as after a run completed here.
+    let mut under_way = (*request).clone();
+    under_way.options.session_id = Some("s2".into());
+    under_way.messages = ["hi", "hello", "again"]
+        .iter()
+        .enumerate()
+        .map(|(at, text)| {
+            let role = if at == 1 { mixdog_core_api::domain::provider::Role::Assistant } else { mixdog_core_api::domain::provider::Role::User };
+            mixdog_core_api::domain::provider::Message::new(role, mixdog_core_api::domain::provider::Content::Text((*text).into()))
+        })
+        .collect();
+    let under_way = Arc::new(under_way);
+    let derived = super::request::conversation_id("s2");
+    assert_eq!(sent(under_way.clone()).await, derived, "the request that is refused");
+    let fresh = sent(under_way.clone()).await;
+    assert_ne!(fresh, derived, "the retry carries a fresh conversation id");
+    assert_eq!(sent(under_way.clone()).await, fresh, "and the fresh id's refusal stands");
+}
+
+/// A run is asked with the tools this side offers and no tool of the service's own; a unary call names none.
+#[test]
+fn a_run_limits_the_service_to_the_tools_of_this_side() {
+    let limit = |unary: bool| super::rpc_headers("t", "1", unary).into_iter().find(|(name, _)| name == "x-cursor-agent-allowed-tools").map(|(_, value)| value);
+    assert_eq!((limit(false).as_deref(), limit(true)), (Some("mcp_tool_call"), None));
 }
 
 /// Three failed rounds (0.5, 1.5, 3 s apart) answer the static list and keep nothing.

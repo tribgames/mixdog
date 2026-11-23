@@ -167,8 +167,8 @@ pub struct HeaderChange {
 pub enum Form {
     /// A model message (`role`, `content`, `toolCalls`, `meta`, … as 1.4.5 stores it).
     Message,
-    /// An imported 1.4.5 compaction-archive display item, rendered verbatim. Never
-    /// created at runtime; always `model: false`.
+    /// A row rendered verbatim, always `model: false`: an imported 1.4.5 compaction-archive
+    /// display item, a notice, and the end of a turn whose run says so ([`TurnEndForm::Display`]).
     Display,
 }
 
@@ -340,6 +340,11 @@ pub struct RunRecord {
     /// Present iff `phase` is `attempt`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attempt: Option<Attempt>,
+    /// On `started`: where the turn's end is stored. Absent: on the message the turn ended on
+    /// (`meta.transcript.completion`), which a reader shows by the restore rule. The mark is the turn's, whatever
+    /// build reads it, so a log holds turns of both kinds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<TurnEndForm>,
     /// Milliseconds since the Unix epoch; absent only on imported runs without a source time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at: Option<i64>,
@@ -347,6 +352,16 @@ pub struct RunRecord {
     pub op: Option<OpRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<Slot<Value>>,
+}
+
+/// Where a turn's end is stored when not on a message of the turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnEndForm {
+    /// A visible `display` item of the turn that is no model message, written when the turn closes: after the
+    /// turn's last accepted output or refusal notice, before any output of a later turn. A message of such a turn
+    /// shows no end of its own, whatever completion it carries.
+    Display,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

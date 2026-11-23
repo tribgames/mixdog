@@ -59,7 +59,7 @@ pub(super) fn invalid(message: impl Into<String>) -> ProviderError {
 
 fn text_of(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {

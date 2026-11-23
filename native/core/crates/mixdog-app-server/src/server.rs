@@ -135,6 +135,7 @@ pub(crate) fn lane_of(spec: &MethodSpec) -> Lane {
         | "turn/start"
         | "room/send"
         | "turn/steer"
+        | "turn/takeover"
         | "turn/retryFailed"
         | "project/list"
         | "project/read"
@@ -973,7 +974,9 @@ impl Shared {
             // A control that targets a loaded thread stays on RT-C; a cold open awaits the
             // core's load jobs and so runs on RT-W.
             let loaded = thread.as_ref().is_some_and(|id| core.threads().get(id).is_some());
-            let class = if spec.class == RequestClass::C0 && loaded { TaskClass::Control } else { TaskClass::Work };
+            // A takeover ends the running turn, as a Stop does: on a loaded thread it does not wait behind other work.
+            let control = spec.class == RequestClass::C0 || spec.method == "turn/takeover";
+            let class = if control && loaded { TaskClass::Control } else { TaskClass::Work };
             return Dispatch::Later(
                 class,
                 Box::pin(async move {

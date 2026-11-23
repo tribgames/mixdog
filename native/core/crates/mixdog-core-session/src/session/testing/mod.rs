@@ -985,6 +985,29 @@ impl ThreadStore for MemStore {
         Ok(None)
     }
 
+    /// Each record with the form its turn's `started` record marks its end with, as the real store's pages give it.
+    fn history_tail_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        rows: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
+        let (rev, records, complete) = self.history_tail(lane, id, rows)?;
+        let ends: HashMap<String, mixdog_store::schema::record::TurnEndForm> = self
+            .records(id)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Record::Run(run) => run.end.map(|end| (run.rid.as_str().to_owned(), end)),
+                _ => None,
+            })
+            .collect();
+        let decor = records
+            .iter()
+            .map(|record| super::seams::RowDecor { end: record.turn.as_ref().and_then(|turn| ends.get(turn.as_str()).copied()), ..Default::default() })
+            .collect();
+        Ok((rev, records, decor, complete))
+    }
+
     fn history_rows(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<ItemRecord>), CoreError> {
         let records = self.records(id);
         if records.is_empty() {
@@ -1069,6 +1092,11 @@ pub struct CallCounted {
     calls: Mutex<Vec<&'static str>>,
     hook: Option<CommitHook>,
     held: Mutex<Option<HeldOperation>>,
+    /// The page reads go to the store's own ([`Self::paging`]), where a test holds or fails them; otherwise they are
+    /// the seam's defaults over the calls counted here.
+    pages: bool,
+    /// The page read named here fails once ([`Self::fail`]).
+    failing: Mutex<Option<&'static str>>,
 }
 
 /// The one call of a [`CallCounted`] being held: it has been entered (`entered`) and does not reach the store until `release`.
@@ -1095,7 +1123,28 @@ impl HeldCall {
 
 impl CallCounted {
     pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None, pages: false, failing: Mutex::default() })
+    }
+
+    /// [`Self::new`] over a store that places pages: its page reads (`unit_page`, `history_page`, `call_results`) are the
+    /// store's own, each held by [`Self::hold`] and failed by [`Self::fail`] under its name.
+    pub fn paging(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None, pages: true, failing: Mutex::default() })
+    }
+
+    /// The next page read named `name` fails, once, without reaching the store.
+    pub fn fail(&self, name: &'static str) {
+        *lock(&self.failing) = Some(name);
+    }
+
+    fn page_call(&self, name: &'static str) -> Result<(), CoreError> {
+        self.gate(name);
+        let mut failing = lock(&self.failing);
+        if *failing == Some(name) {
+            *failing = None;
+            return Err(CoreError::Internal { incident_id: "a page read the test failed".into() });
+        }
+        Ok(())
     }
 
     /// Holds the next call named `name` (a `ThreadStore` method) before it reaches the store: what the store holds at the moment it
@@ -1173,6 +1222,82 @@ impl ThreadStore for CallCounted {
         self.inner.committed_op(lane, id, op)
     }
 
+    fn history_page(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        ask: &super::seams::PageAsk,
+        ctl: &super::read_trace::ReadCtl,
+    ) -> Result<super::seams::PageRead, CoreError> {
+        if self.pages {
+            self.page_call("history_page")?;
+            return self.inner.history_page(lane, id, ask, ctl);
+        }
+        // The seam's own default, over the calls counted here.
+        ctl.check()?;
+        if ask.at != super::seams::PageAt::Newest {
+            return Ok(super::seams::PageRead::Unplaced);
+        }
+        let (rev, records, decor, complete) = self.history_tail_decor(lane, id, ask.records)?;
+        Ok(super::seams::PageRead::Rows(super::seams::PageRows {
+            rev,
+            records,
+            decor,
+            ordinals: Vec::new(),
+            reaches_start: complete,
+            reaches_end: true,
+            named: 1,
+            boundaries: Vec::new(),
+        }))
+    }
+
+    fn unit_page(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        ask: &super::seams::PageAsk,
+        ctl: &super::read_trace::ReadCtl,
+    ) -> Result<super::seams::PageRead, CoreError> {
+        if self.pages {
+            self.page_call("unit_page")?;
+            return self.inner.unit_page(lane, id, ask, ctl);
+        }
+        self.history_page(lane, id, ask, ctl)
+    }
+
+    fn call_results(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, calls: &[(u64, String)]) -> Result<(u64, Vec<ItemRecord>), CoreError> {
+        if self.pages {
+            self.page_call("call_results")?;
+            return self.inner.call_results(lane, id, calls);
+        }
+        Ok((0, Vec::new()))
+    }
+
+    fn history_tail_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        rows: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
+        if self.pages {
+            return self.inner.history_tail_decor(lane, id, rows);
+        }
+        let (rev, records, complete) = self.history_tail(lane, id, rows)?;
+        Ok((rev, records, Vec::new(), complete))
+    }
+
+    fn window_archived(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<u64>, CoreError> {
+        if self.pages { self.inner.window_archived(lane, id) } else { Ok(Vec::new()) }
+    }
+
+    fn page_ready(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        if self.pages { self.inner.page_ready(id) } else { Box::pin(std::future::ready(Ok(()))) }
+    }
+
+    fn page_held(&self, by: &super::seams::HeldBy) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        if self.pages { self.inner.page_held(by) } else { Box::pin(std::future::ready(Ok(()))) }
+    }
+
     fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
         lock(&self.calls).push("open_log");
         Ok(self.hooked(self.inner.open_log(lane, id, at)?))
@@ -1234,7 +1359,7 @@ impl SessionLog for HookedLog {
 impl CallCounted {
     /// [`Self::new`] whose logs call `hook` around each commit.
     pub fn with_commit_hook(inner: Arc<dyn ThreadStore>, hook: CommitHook) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: Some(hook) })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: Some(hook), pages: false, failing: Mutex::default() })
     }
 
     fn hooked(&self, log: Box<dyn SessionLog>) -> Box<dyn SessionLog> {

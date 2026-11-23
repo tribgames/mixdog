@@ -606,7 +606,11 @@ async fn ended(at: AtEnd) -> (Rig, Arc<SessionHandle>, SessionDirectory) {
     }
     crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
     if let Some(refused) = refused {
-        assert!(!stored(&rig, &handle).contains(&"listing".to_owned()), "the reply's read failed: its commit was not made");
+        // The text the turn showed is kept as a record that is no message: the model's context holds none of it.
+        let as_message = rig.store.records(&handle.id).into_iter().any(|(_, record)| {
+            matches!(record, Record::Item(item) if item.model && matches!(&item.body, Slot::Inline(body) if body["text"] == "listing" || body["content"] == "listing"))
+        });
+        assert!(!as_message, "the reply's read failed: its commit was not made");
         drop(refused);
         // The run's end came while the failing read was in flight: it was parked, and the read's failure released it.
         let ledger = handle.cell.stop_ledger.lock().unwrap().clone();

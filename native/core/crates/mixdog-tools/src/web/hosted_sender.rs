@@ -131,7 +131,7 @@ fn request_of(call: &HostedSearchCall, session_id: &str) -> ModelRequest {
     let candidate = &call.candidate;
     ModelRequest {
         model: candidate.model.clone(),
-        messages: vec![Message::new(Role::System, Content::Text(call.system.clone())), Message::new(Role::User, Content::Text(call.user.clone()))],
+        messages: vec![Message::new(Role::System, Content::Text(call.system.clone().into())), Message::new(Role::User, Content::Text(call.user.clone().into()))],
         tools: Vec::new(),
         options: RequestOptions {
             session_id: Some(session_id.to_owned()),

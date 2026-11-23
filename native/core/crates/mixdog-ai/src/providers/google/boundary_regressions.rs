@@ -148,17 +148,17 @@ async fn eligible_vertex_gemini_unary_recovery_keeps_the_selected_location_and_a
         super::vertex(VertexPlace::project("project", None, Some("us")), Arc::new(Bound), "account".into(), http.clone(), traits(), Arc::new(|_| None));
     let request = Arc::new(request);
     let err = failure(adapter.attempt(request.clone()).await.unwrap().as_mut()).await;
-    assert!(adapter.recovers_spent(&request.model, &err));
+    assert!(adapter.recovers_spent(&request, &err));
     for exposure in [Exposure { tool_dispatched: true, ..Exposure::default() }, Exposure { tool_input_cut: true, ..Exposure::default() }] {
         let mut unsafe_failure = err.clone();
         unsafe_failure.exposure = exposure;
-        assert!(!adapter.recovers_spent(&request.model, &unsafe_failure));
+        assert!(!adapter.recovers_spent(&request, &unsafe_failure));
     }
     let mut long_wait = err.clone();
     long_wait.retry_after = Some(std::time::Duration::from_secs(301));
-    assert!(!adapter.recovers_spent(&request.model, &long_wait));
-    assert!(!adapter.recovers_spent("anthropic/claude-sonnet-4", &err));
-    assert!(!adapter.recovers_spent("openai/gpt-oss-120b-maas", &err));
+    assert!(!adapter.recovers_spent(&request, &long_wait));
+    assert!(!adapter.recovers_spent(&ModelRequest { model: "anthropic/claude-sonnet-4".into(), ..(*request).clone() }, &err));
+    assert!(!adapter.recovers_spent(&ModelRequest { model: "openai/gpt-oss-120b-maas".into(), ..(*request).clone() }, &err));
     let mut recovered = adapter.recover_spent(request).await.unwrap();
     let mut text = String::new();
     let mut completed = false;
@@ -194,7 +194,7 @@ async fn vertex_terminal_failures_carry_reported_usage_without_completing_the_tu
         let err = failure(adapter.attempt(request.clone()).await.unwrap().as_mut()).await;
         if let Some(kind) = kind {
             assert_eq!(err.kind, kind);
-            assert!(!adapter.recovers_spent(&request.model, &err));
+            assert!(!adapter.recovers_spent(&request, &err));
         } else {
             assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
         }
@@ -322,7 +322,7 @@ async fn empty_stop_can_be_retried_as_sse_but_never_as_unary() {
     assert_eq!(err.kind, ErrorKind::Transient);
     assert_eq!(err.code.as_deref(), Some("no_response_text"));
     assert!(!err.recovery_terminal, "the SSE retry policy still owns this failure");
-    assert!(!adapter.recovers_spent(&request.model, &err));
+    assert!(!adapter.recovers_spent(&request, &err));
 }
 
 struct RotatingKey(Mutex<&'static str>);
@@ -382,7 +382,7 @@ async fn direct_unary_reuses_the_attached_tail_only_under_the_same_key() {
     });
     let request = Arc::new(request);
     let err = failure(adapter.attempt(request.clone()).await.unwrap().as_mut()).await;
-    assert!(adapter.recovers_spent(&request.model, &err));
+    assert!(adapter.recovers_spent(&request, &err));
     let mut stream = adapter.recover_spent(request.clone()).await.unwrap();
     let mut reported = None;
     while let Some(event) = stream.next().await {

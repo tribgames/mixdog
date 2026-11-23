@@ -1,7 +1,8 @@
--- index/store.sqlite, user_version 20: catalog + history projection + submission receipts.
+-- index/store.sqlite, user_version 21: catalog + history projection + submission receipts.
 -- Bump user_version with every change to this file. 18 is the first released version, and every step from it ships
 -- with its own in-place step (18 to 19: `sqlite.rs` `upgrade_from_18`; 19 to 20: `upgrade_from_19`, the
--- `history_turn` index) unless it changes what the logs are projected
+-- `history_turn` index; 20 to 21: `upgrade_from_20`, the turn end form and
+-- `compactions_cid`) unless it changes what the logs are projected
 -- into: a rebuild reads every log, and on a long-used data directory it took minutes. A rebuild stays for an index no
 -- step reaches (a dev build's, a damaged one, a change whose rows must be derived again).
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -10,7 +11,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 20;
+PRAGMA user_version = 21;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -207,6 +208,9 @@ CREATE TABLE history (
     -- JSON `{role, text, calls[]}` of a model message row: the parts a compaction can take
     -- out of it (the text row by `iid`, tool cards by call id). NULL for other rows.
     facets TEXT,
+    -- `turns.end_form` of the row's turn: a row written after the turn's `started` frame takes it as it is written,
+    -- and the input row written before that frame takes it from the frame, so a page reads it with the row.
+    end_form INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;
 CREATE INDEX history_iid ON history(session, iid);
@@ -280,6 +284,8 @@ CREATE TABLE compactions (
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;
 CREATE INDEX compactions_live ON compactions(session, ordinal) WHERE superseded_rev IS NULL;
+-- A divider's position names its compaction by `cid`: finding it is a lookup, not a walk of the session's compactions.
+CREATE INDEX compactions_cid ON compactions(session, cid);
 
 -- The ids of a `drop_mode` 2 compaction (kind 0 message id, 1 call id). Live exactly while
 -- its `compactions` row is, so a rewind needs no write here. Keyed by id so the
@@ -383,6 +389,8 @@ CREATE TABLE turns (
     end_ordinal INTEGER,
     phase TEXT NOT NULL CHECK (phase IN ('started','completed','failed','interrupted')),
     superseded_rev INTEGER,
+    -- The `started` record's `end`: 0 the turn's end is on the message it ended on, 1 it is a display item of its own.
+    end_form INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session, rid)
 ) WITHOUT ROWID;
 CREATE INDEX turns_order ON turns(session, started_ordinal);

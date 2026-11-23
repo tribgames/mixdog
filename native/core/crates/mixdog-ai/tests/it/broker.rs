@@ -232,7 +232,7 @@ impl ProviderAdapter for Dying {
         self.inner.keepalive()
     }
 
-    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+    fn recovers_spent(&self, _request: &ModelRequest, _failure: &ProviderError) -> bool {
         true
     }
 

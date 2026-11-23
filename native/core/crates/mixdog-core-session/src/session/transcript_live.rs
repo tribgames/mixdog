@@ -12,13 +12,12 @@ fn live_item(row: Row, turn: &str) -> ThreadItem {
     item_of(row, &Ctx { turn: Some(turn), message: None, counts_prompt: false, source: None })
 }
 
-/// The compact marker (`applyCompactEvent`'s `doneItem`): `{kind: 'statusdone', id, label,
-/// detail}`.
-pub fn compact_marker_item(id: &str, turn: &str, label: &str, detail: &str) -> ThreadItem {
+/// The compact marker (`applyCompactEvent`'s `doneItem`): `{kind: 'statusdone', id, label}`. It states none of the
+/// pass's figures, as a compaction's divider states none.
+pub fn compact_marker_item(id: &str, turn: &str, label: &str) -> ThreadItem {
     let mut row = Row::new();
     row.insert("kind".into(), json!("statusdone"));
     row.insert("id".into(), json!(id));
     row.insert("label".into(), json!(label));
-    row.insert("detail".into(), json!(detail));
     live_item(row, turn)
 }

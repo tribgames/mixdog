@@ -26,6 +26,35 @@ fn a_setup_failure_after_a_stop_is_that_stop() {
     assert_eq!(setup_end(true, false, true, Some("agent task stale (no progress for 600s)")), SetupEnd::Stalled);
 }
 
+/// A turn the watchdog stopped: each call none of its messages answers gets one result, in call order, the one that
+/// settled early when there is one and else the stall; an answered call gets none, and no other row is added.
+#[test]
+fn a_stalled_turns_open_calls_each_get_one_result() {
+    use mixdog_agent::message::ToolKind;
+    use mixdog_core_api::domain::provider::ToolCall;
+    let call = |id: &str| ToolCall { id: id.into(), name: "shell".into(), arguments: mixdog_protocol::JsonValue::Null, native_type: None };
+    let turn: Vec<Arc<AgentMessage>> = [
+        AgentMessage::user("go"),
+        AgentMessage::assistant("", vec![call("done"), call("early"), call("running")]),
+        AgentMessage::tool_text("done", "ok", ToolKind::Normal),
+    ]
+    .into_iter()
+    .map(Arc::new)
+    .collect();
+    let early = [AgentMessage::tool_text("early", "settled", ToolKind::Normal)];
+    let results = stalled_results(&turn, &early);
+    let told: Vec<(Option<&str>, String, Option<ToolKind>)> = results.iter().map(|r| (r.tool_call_id(), r.text(), r.tool_kind)).collect();
+    assert_eq!(
+        told,
+        [
+            (Some("early"), "settled".to_owned(), Some(ToolKind::Normal)),
+            (Some("running"), mixdog_agent::agent_tool::watchdog::WATCHDOG_STOP_ERROR.to_owned(), Some(ToolKind::Error)),
+        ]
+    );
+    assert!(results.iter().all(|result| result.role() == Role::Tool));
+    assert!(stalled_results(&turn[..1], &early).is_empty(), "a turn with no call gets no row");
+}
+
 /// What a stop before the model was asked leaves of the prompt, by its reason (`finalizeInterruptedTurn` over a turn
 /// that produced nothing): a user's stop hands it back, a stop that keeps it adds the interruption line, any other
 /// stop leaves it as it is.
@@ -161,4 +190,27 @@ fn a_draftless_crash_is_finalized_as_the_reconnect_recovery_finalizes_it() {
     let shape =
         |rows: &[(String, Value)]| rows.iter().map(|(role, body)| (role.clone(), body["content"].clone(), body["toolCallId"].clone())).collect::<Vec<_>>();
     assert_eq!(shape(&added), shape(&reconnect));
+}
+
+/// A run whose first submission is Google's (its chunks report progress, its deltas none) and whose second is a provider that
+/// reports text only as text deltas: the second's text is progress again, its first delta stamping the visible text.
+#[test]
+fn a_chunk_reporting_send_leaves_the_next_sends_text_deltas_counted() {
+    let (tx, rx) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let clock = Arc::new(Moving(AtomicI64::new(1_000)));
+    let progress = ProgressPublisher::new(tx, clock.clone());
+    progress.ask_start();
+    let reporting = super::super::observer::ChunkReporting::default();
+    let visible_text_at = || rx.borrow().snapshot(clock.now_ms()).expect("a run entry").last_visible_text_at;
+
+    reporting.submission_started();
+    reporting.chunk();
+    clock.0.store(2_000, std::sync::atomic::Ordering::SeqCst);
+    reporting.delta(&progress, StreamKind::Text);
+    assert_eq!(visible_text_at(), 0, "a chunk-reporting stream's delta is not progress of its own");
+
+    reporting.submission_started();
+    clock.0.store(3_000, std::sync::atomic::Ordering::SeqCst);
+    reporting.delta(&progress, StreamKind::Text);
+    assert_eq!(visible_text_at(), 3_000);
 }

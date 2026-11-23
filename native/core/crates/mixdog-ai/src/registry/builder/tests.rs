@@ -1215,3 +1215,451 @@ async fn a_refused_key_is_read_again_once_and_that_read_is_the_resend() {
     assert_eq!(reads() - before, 1, "the custom key was read twice for one refusal");
     assert_eq!(*keys.refused.lock().unwrap(), ["held", "held"], "the source is told the key each refused request carried");
 }
+
+mod engine_stalls {
+    //! The pass-through lanes the builder makes (a custom provider on each wire, a gateway's Messages engine) stream through
+    //! the model-exchange driver: a silent stream ends on its wire's windows, on the test's clock.
+
+    use super::*;
+    use crate::providers::connect::rewrite::testing::{Chunks, Paced, assert_stalls, chat, messages, responses};
+
+    fn turn(model: &str) -> ModelRequest {
+        custom_turn(model, mixdog_core_api::domain::provider::RequestOptions::default())
+    }
+
+    /// The custom provider on `protocol`, its requests going to an endpoint that streams `streams`.
+    fn custom(dir: &tempfile::TempDir, protocol: &str, streams: Vec<Chunks>) -> Arc<dyn ProviderAdapter> {
+        let http: Arc<dyn HttpSend> = Paced::new(streams);
+        let b = builder_over(dir, Arc::new(ProcessEnv), Some(http), Arc::new(SessionContext::new()));
+        b.build_custom_parts("custom-stall", &custom_config(protocol, json!({}))).unwrap().adapter
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_custom_providers_silent_stream_stalls_on_its_wires_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_stalls(|streams| custom(&dir, "openai-chat", streams), &turn("m"), &chat()).await;
+        assert_stalls(|streams| custom(&dir, "openai-responses", streams), &turn("m"), &responses()).await;
+        assert_stalls(|streams| custom(&dir, "anthropic", streams), &turn("claude-sonnet-4-6"), &messages()).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_gateways_silent_messages_stream_stalls_on_the_anthropic_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["deepseek", "openrouter", "opencode-go-oauth", "command-code-oauth"] {
+            let build = |streams| -> Arc<dyn ProviderAdapter> { Arc::new(super::gateway_engine(&dir, name, Paced::new(streams))) };
+            assert_stalls(build, &turn("claude-sonnet-4-6"), &messages()).await;
+        }
+    }
+}
+
+/// `name`'s Messages engine on `https://gateway.test/anthropic`, its key `gw-key` as `x-api-key` and the gateway's header
+/// `x-gateway`, posting to `http`.
+fn gateway_engine(dir: &tempfile::TempDir, name: &str, http: Arc<dyn HttpSend>) -> AnthropicAdapter {
+    let b = builder(dir);
+    let credential: Arc<dyn Credential> = Arc::new(KeyHeader { source: Arc::new(FixedKey("gw-key".into())), header: "x-api-key", bearer: false });
+    b.gateway_messages_engine(name, "https://gateway.test/anthropic".into(), credential, vec![("x-gateway".into(), "1".into())], http, &|_| {})
+}
+
+mod engine_recoveries {
+    //! A gateway's Messages engine has the API-key Anthropic route's recoveries (`GatewayMessagesEngine extends
+    //! AnthropicProvider`, wire-gateway.mjs:58), on its own endpoint and with its own headers.
+
+    use super::*;
+    use crate::providers::listing_row::testing::Replay;
+    use mixdog_core_api::domain::provider::StreamEvent;
+    use mixdog_core_api::domain::provider::StreamTimeoutPhase;
+
+    const TURN: &str = concat!(
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m1\",\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\n",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    );
+    const WHOLE: &str = r#"{"id":"m1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"whole"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}"#;
+    const OVERFLOW: &str = r#"{"type":"error","error":{"type":"invalid_request_error","message":"input length and `max_tokens` exceed context limit: 190000 + 16384 > 200000, decrease input length or `max_tokens` and try again"}}"#;
+
+    /// An endpoint answering its requests in turn with `answers`.
+    fn endpoint(answers: Vec<(u16, &'static str)>) -> Arc<Replay> {
+        let answers = std::sync::Mutex::new(std::collections::VecDeque::from(answers));
+        Arc::new(Replay::new(move |_| {
+            let (status, body) = answers.lock().unwrap().pop_front().expect("a request the script answers");
+            (status, body.as_bytes().to_vec())
+        }))
+    }
+
+    fn turn() -> ModelRequest {
+        custom_turn("claude-sonnet-4-6", mixdog_core_api::domain::provider::RequestOptions::default())
+    }
+
+    async fn text_of(mut stream: Box<dyn mixdog_core_api::domain::provider::ModelStream>) -> String {
+        let mut text = String::new();
+        while let Some(event) = stream.next().await {
+            match event.expect("no failure") {
+                StreamEvent::TextDelta(delta) | StreamEvent::FinalContent(delta) => text.push_str(&delta),
+                _ => {}
+            }
+        }
+        text
+    }
+
+    fn body_of(request: &mixdog_core_api::domain::provider::WireRequest) -> Value {
+        serde_json::from_slice(&request.body).expect("a JSON body")
+    }
+
+    /// Every request went to the gateway's Messages endpoint with its key and its own header.
+    fn assert_gateway_requests(sent: &[mixdog_core_api::domain::provider::WireRequest]) {
+        for request in sent {
+            assert_eq!(request.url, "https://gateway.test/anthropic/v1/messages");
+            let header = |name: &str| request.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
+            assert_eq!((header("x-api-key"), header("x-gateway")), (Some("gw-key"), Some("1")), "{:?}", request.headers);
+        }
+    }
+
+    /// `anthropic.mjs:363-368`: a gateway that 404s the streaming request is asked once more without streaming.
+    #[tokio::test]
+    async fn a_404_to_the_stream_is_reissued_once_without_streaming() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(404, r#"{"type":"error","error":{"type":"not_found_error","message":"no stream"}}"#), (200, WHOLE)]);
+        let engine = gateway_engine(&dir, "deepseek", http.clone());
+        assert_eq!(text_of(engine.attempt(Arc::new(turn())).await.expect("the re-issue answers")).await, "whole");
+        let sent = http.requests.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        assert_gateway_requests(&sent);
+        assert_eq!((body_of(&sent[0])["stream"].clone(), body_of(&sent[1])["stream"].clone()), (Value::Bool(true), Value::Bool(false)));
+    }
+
+    /// `withBodyRecovery` (anthropic-api-transport.mjs:122-139): the overflow 400 shrinks `max_tokens` and replays once.
+    #[tokio::test]
+    async fn a_context_overflow_shrinks_max_tokens_and_replays_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(400, OVERFLOW), (200, TURN)]);
+        let engine = gateway_engine(&dir, "openrouter", http.clone());
+        assert_eq!(text_of(engine.attempt(Arc::new(turn())).await.expect("the replay answers")).await, "ok");
+        let sent = http.requests.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        assert_gateway_requests(&sent);
+        let (first, second) = (body_of(&sent[0]), body_of(&sent[1]));
+        assert_eq!(second["max_tokens"], 9000);
+        let mut restored = second.clone();
+        restored["max_tokens"] = first["max_tokens"].clone();
+        assert_eq!(restored, first, "only max_tokens changed");
+    }
+
+    /// `decideStreamError`: a stall that showed nothing is answered by the non-streaming re-issue
+    /// (`issueNonStreamingFallback`), on the engine's endpoint.
+    #[tokio::test]
+    async fn a_stalled_stream_falls_back_to_one_request_without_streaming() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(200, WHOLE)]);
+        let engine = gateway_engine(&dir, "opencode-go-oauth", http.clone());
+        let mut stalled = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+        stalled.code = Some("ESTREAMSTALL".into());
+        stalled.timeout_phase = Some(StreamTimeoutPhase::Idle);
+        assert!(engine.recovers_cut(&turn(), &stalled), "the stall is re-issued");
+        assert_eq!(text_of(engine.recover_spent(Arc::new(turn())).await.expect("the re-issue answers")).await, "whole");
+        let sent = http.requests.lock().unwrap();
+        assert_gateway_requests(&sent);
+        assert_eq!(body_of(&sent[0])["stream"], Value::Bool(false));
+    }
+
+    const SIGNED: &str = r#"{"id":"m1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"thinking","thinking":"plan","signature":"sig-1"},{"type":"text","text":"whole"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}"#;
+
+    /// A turn the non-streaming re-issue produced (a 404 to the stream) is replayed by the engine's next request as the
+    /// streamed turn is: its signed thinking goes back ahead of the text.
+    async fn assert_reissued_turn_is_replayed(engine: &dyn ProviderAdapter, http: &Replay) {
+        use mixdog_core_api::domain::provider::{Content, Message, Role};
+        let mut stream = engine.attempt(Arc::new(turn())).await.expect("the re-issue answers");
+        let mut replay = None;
+        while let Some(event) = stream.next().await {
+            if let StreamEvent::ReasoningReplay(envelope) = event.expect("no failure") {
+                replay = Some(envelope);
+            }
+        }
+        let mut answer = Message::new(Role::Assistant, Content::Text("whole".into()));
+        answer.push_replay(replay.expect("the re-issued turn carries its replay"));
+        let mut next = turn();
+        next.messages.push(answer);
+        next.messages.push(Message::new(Role::User, Content::Text("next".into())));
+        drop(engine.attempt(Arc::new(next)).await.expect("the next request opens"));
+        let sent = http.requests.lock().unwrap();
+        let assistant = &body_of(&sent[2])["messages"][1]["content"];
+        assert_eq!(assistant[0], serde_json::json!({ "type": "thinking", "thinking": "plan", "signature": "sig-1" }), "{assistant}");
+    }
+
+    #[tokio::test]
+    async fn a_reissued_turn_is_replayed_by_the_next_request_of_a_gateway_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(404, r#"{"type":"error","error":{"type":"not_found_error","message":"no stream"}}"#), (200, SIGNED), (200, TURN)]);
+        let engine = gateway_engine(&dir, "openrouter", http.clone());
+        assert_reissued_turn_is_replayed(&engine, &http).await;
+    }
+
+    #[tokio::test]
+    async fn a_reissued_turn_is_replayed_by_the_next_request_of_a_custom_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(404, r#"{"type":"error","error":{"type":"not_found_error","message":"no stream"}}"#), (200, SIGNED), (200, TURN)]);
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let engine = b.build_custom_parts("custom-replay", &custom_config("anthropic", json!({}))).unwrap().adapter;
+        assert_reissued_turn_is_replayed(engine.as_ref(), &http).await;
+    }
+
+    /// A custom engine's 400 over a capability floor surfaces as it did, and the native API-key route keeps the
+    /// feature: the engine has no capability replay, and floors are never kept under the native route's name for it.
+    #[tokio::test]
+    async fn a_floor_refusal_on_an_engine_leaves_the_native_routes_features() {
+        use crate::claude_floors::Feature;
+        let model = "claude-sonnet-4-6-engine-floor";
+        let refusal = r#"{"type":"error","error":{"type":"invalid_request_error","message":"thinking.adaptive.display: Extra inputs are not permitted"}}"#;
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(400, refusal), (400, refusal)]);
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let engine = b.build_custom_parts("custom-floor", &custom_config("anthropic", json!({}))).unwrap().adapter;
+        let error = engine.attempt(Arc::new(custom_turn(model, Default::default()))).await.err().expect("the refusal surfaces");
+        assert_eq!((error.status, http.requests.lock().unwrap().len()), (Some(400), 1), "no capability replay");
+        for feature in [Feature::ProgressUpdates, Feature::TurnScopedSystem, Feature::MessageThreads] {
+            assert!(crate::claude_floors::enabled(feature, "anthropic", model), "{feature:?} stays on for the native route");
+        }
+    }
+
+    /// A custom engine whose base URL is Anthropic's own sends its body plain, as its SDK did, and a 400 there leaves the
+    /// native route's compression on.
+    #[tokio::test]
+    async fn a_custom_engine_at_the_official_url_sends_its_body_plain() {
+        use mixdog_core_api::domain::provider::{Content, Message, Role};
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(400, r#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#), (200, TURN)]);
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let mut cfg = custom_config("anthropic", json!({}));
+        cfg["baseURL"] = json!("https://api.anthropic.com/v1");
+        let engine = b.build_custom_parts("custom-official", &cfg).unwrap().adapter;
+        let mut request = turn();
+        request.messages = vec![Message::new(Role::User, Content::Text("x".repeat(64 * 1024).into()))];
+        assert_eq!(engine.attempt(Arc::new(request)).await.err().expect("the refusal surfaces").status, Some(400));
+        let sent = http.requests.lock().unwrap();
+        assert_eq!(sent.len(), 1, "no plain resend of a compressed body");
+        assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
+        assert!(!sent[0].headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-encoding")), "{:?}", sent[0].headers);
+        assert!(body_of(&sent[0])["messages"].is_array(), "the body went out as JSON");
+        assert!(!crate::providers::anthropic::gzip_latched(), "the native route's compression stays on");
+    }
+
+    /// A gateway send on the Messages wire whose stream stalled before any output is re-issued without streaming, the way
+    /// a real send reaches it: through the gateway adapter, on the wire its attempt went out on.
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_messages_stream_of_a_gateway_falls_back_through_the_gateway() {
+        use crate::providers::connect::rewrite::testing::{Paced, messages};
+        let dir = tempfile::tempdir().unwrap();
+        // The re-issue is answered only on the gateway's Messages endpoint; anything else would wait out its window.
+        let http = Paced::with_unary(vec![vec![(0, messages().opening)]], |request| {
+            let body: Value = serde_json::from_slice(&request.body).ok()?;
+            (body["stream"] == Value::Bool(false) && request.url.ends_with("/anthropic/v1/messages")).then(|| (200, WHOLE.as_bytes().to_vec()))
+        });
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let cfg = json!({ "enabled": true, "apiKey": "k", "modelWires": { "claude-sonnet-4-6": "messages" } });
+        let gateway = b.build("deepseek", &cfg).await.unwrap();
+        let request = Arc::new(turn());
+        let mut stream = gateway.attempt(request.clone()).await.expect("the stream opens");
+        let stalled = loop {
+            match stream.next().await.expect("the stall ends the stream") {
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(stalled.code.as_deref(), Some("ESTREAMSTALL"), "{}", stalled.message);
+        assert!(gateway.recovers_cut(&request, &stalled), "the gateway re-issues its Messages stream");
+        let answered = gateway.recover_spent(request).await.expect("the re-issue answers");
+        assert_eq!(text_of(answered).await, "whole");
+        let streamed = http.streamed.lock().unwrap();
+        assert!(streamed.iter().all(|sent| sent.url.ends_with("/anthropic/v1/messages")), "{:?}", streamed.iter().map(|s| &s.url).collect::<Vec<_>>());
+    }
+
+    /// The engine keeps its own declarations: its name, the documents it takes, no cache warm of the native route.
+    #[test]
+    fn the_engine_keeps_its_name_and_media_declarations() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, pdf, documents) in [("openrouter", true, None), ("deepseek", false, Some(false)), ("command-code-oauth", false, None)] {
+            let engine = gateway_engine(&dir, name, endpoint(Vec::new()));
+            assert_eq!((engine.id().as_str(), engine.native_pdf(), engine.native_documents()), (name, pdf, documents));
+            assert!(engine.cache_warm().is_none() && engine.models().is_none(), "{name}");
+        }
+    }
+
+    /// A gateway's Claude model sent through the broker (the model proxy, a hosted-tool send) whose Messages ladder ran
+    /// out with nothing shown surfaces the ladder's failure: a spent ladder is re-issued on the Chat wire only.
+    #[tokio::test(start_paused = true)]
+    async fn a_spent_messages_ladder_sent_through_the_broker_is_not_reissued() {
+        use crate::admission::{Admission, AdmissionRequest, LaneKey, LaneSettings};
+        use crate::broker::{AttemptSink, ModelBroker, SendRequest};
+        use crate::retry::StandardRetryDecider;
+        struct Quiet;
+        impl AttemptSink for Quiet {
+            fn event(&mut self, _: StreamEvent) {}
+            fn discard(&mut self) {}
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let http = Arc::new(Replay::new(|request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("a JSON body");
+            if body["stream"] == Value::Bool(false) {
+                (200, WHOLE.as_bytes().to_vec())
+            } else {
+                (500, br#"{"type":"error","error":{"type":"api_error","message":"busy"}}"#.to_vec())
+            }
+        }));
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let cfg = json!({ "enabled": true, "apiKey": "k", "modelWires": { "claude-sonnet-4-6": "messages" } });
+        let gateway = b.build("deepseek", &cfg).await.unwrap();
+        let admission = Arc::new(Admission::new());
+        let lane = admission.lane(&LaneKey::new("deepseek".into(), "default"), LaneSettings::default());
+        let broker = ModelBroker::new(admission, Arc::new(StandardRetryDecider));
+        let send = SendRequest { request: Arc::new(turn()), lane, admission: AdmissionRequest::default() };
+        let result = broker.send(gateway.as_ref(), send, &mut Quiet, &tokio_util::sync::CancellationToken::new()).await;
+        assert!(result.is_err(), "the ladder's failure surfaces");
+        let sent = http.requests.lock().unwrap();
+        assert!(!sent.is_empty());
+        // The provider names no `baseURL`: its Messages endpoint is DeepSeek's own.
+        assert!(sent.iter().all(|request| request.url == "https://api.deepseek.com/anthropic/v1/messages"), "{:?}", sent.iter().map(|r| &r.url).collect::<Vec<_>>());
+        assert!(sent.iter().all(|request| body_of(request)["stream"] == Value::Bool(true)), "no request without streaming went out");
+    }
+
+    /// A send on a rerouted pin lowers its earlier assistant turns; the re-issue of its stalled Messages stream is the
+    /// request its attempt sent, lowered the same way.
+    #[tokio::test(start_paused = true)]
+    async fn a_rerouted_sends_reissue_is_the_request_its_attempt_sent() {
+        use crate::providers::connect::rewrite::testing::{Paced, messages};
+        use mixdog_core_api::domain::provider::{Content, Message, Role, WirePin};
+        let dir = tempfile::tempdir().unwrap();
+        let reissued: Arc<std::sync::Mutex<Vec<Value>>> = Arc::default();
+        let seen = reissued.clone();
+        let http = Paced::with_unary(vec![vec![(0, messages().opening)]], move |request| {
+            let body: Value = serde_json::from_slice(&request.body).ok()?;
+            (body["stream"] == Value::Bool(false)).then(|| {
+                seen.lock().unwrap().push(body);
+                (200, WHOLE.as_bytes().to_vec())
+            })
+        });
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let cfg = json!({ "enabled": true, "apiKey": "k", "modelWires": { "claude-sonnet-4-6": "messages" } });
+        let gateway = b.build("deepseek", &cfg).await.unwrap();
+        let mut earlier = Message::new(Role::Assistant, Content::Text("earlier".into()));
+        earlier.push_replay(mixdog_core_api::domain::provider::ProviderReplay {
+            owner: mixdog_protocol::ProviderId::from("anthropic"),
+            items: json!([{ "type": "thinking", "thinking": "plan", "signature": "sig-1" }, { "type": "text", "text": "earlier" }]),
+        });
+        let mut request = turn();
+        request.messages.push(earlier);
+        request.messages.push(Message::new(Role::User, Content::Text("next".into())));
+        let reroute = json!({
+            "provider": "deepseek", "model": "claude-sonnet-4-6", "wire": "messages", "source": "reroute",
+            "reroutedFrom": "chat", "reroutedReason": "unsupported", "loweredAssistantCount": 1,
+        });
+        request.options.wire_pin =
+            Some(WirePin { provider: "deepseek".into(), model: "claude-sonnet-4-6".into(), wire: "messages".into(), reroute: Some(reroute) });
+        let request = Arc::new(request);
+        let mut stream = gateway.attempt(request.clone()).await.expect("the stream opens");
+        let stalled = loop {
+            match stream.next().await.expect("the stall ends the stream") {
+                Ok(_) => {}
+                Err(error) => break error,
+            }
+        };
+        assert!(gateway.recovers_cut(&request, &stalled), "the stall is re-issued");
+        assert_eq!(text_of(gateway.recover_spent(request).await.expect("the re-issue answers")).await, "whole");
+        let attempt = body_of(&http.streamed.lock().unwrap()[0]);
+        assert!(!attempt["messages"].to_string().contains("sig-1"), "the attempt lowered the earlier turn: {}", attempt["messages"]);
+        assert_eq!(reissued.lock().unwrap()[0]["messages"], attempt["messages"]);
+    }
+
+    /// The first-party-only features (`anthropicFirstPartyRoute`: turn-scoped `clear_at` reminders and their beta, eager
+    /// tool input streaming, mid-conversation effort updates and their beta) go out on the native API-key route at
+    /// Anthropic's endpoint and on none of a custom engine's requests at the same endpoint.
+    #[tokio::test]
+    async fn first_party_fields_go_out_on_the_native_route_only() {
+        use mixdog_core_api::domain::provider::{Content, EffortProjection, Message, MessageSource, RequestOptions, Role, ToolDefinition};
+        let model = "claude-opus-5-0";
+        let request = || {
+            let mut reminder = Message::new(Role::User, Content::Text("remember the rules".into()));
+            reminder.source = Some(MessageSource::TailReminder);
+            let options = RequestOptions {
+                effort: Some("high".into()),
+                effort_projection: Some(EffortProjection { initial_effort: "low".into(), updates: [(2, "high".into())].into() }),
+                ..RequestOptions::default()
+            };
+            let mut request = custom_turn(model, options);
+            request.messages.extend([
+                Message::new(Role::Assistant, Content::Text("ok".into())),
+                Message::new(Role::User, Content::Text("next".into())),
+                reminder,
+            ]);
+            request.tools = vec![ToolDefinition {
+                name: "lookup".to_owned(),
+                description: "lookup".to_owned(),
+                input_schema: json!({"type": "object", "properties": {"key": {"type": "string"}}}),
+                defer_loading: false,
+                freeform: None,
+            }];
+            Arc::new(request)
+        };
+        let sent_by = |adapter: Arc<dyn ProviderAdapter>, http: Arc<Replay>| async move {
+            assert_eq!(text_of(adapter.attempt(request()).await.expect("the send answers")).await, "ok");
+            let sent = http.requests.lock().unwrap();
+            assert_eq!(sent.len(), 1);
+            assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
+            let body = body_of(&sent[0]);
+            let beta = sent[0].headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta")).map_or(String::new(), |(_, value)| value.clone());
+            let last = body["messages"].as_array().and_then(|all| all.last()).cloned().unwrap_or_default();
+            [
+                ("clear_at reminder", last["role"] == "system" && last.get("clear_at").is_some()),
+                ("clear_at beta", beta.contains("mid-conversation-system-clear-at-2026-08-21")),
+                ("eager_input_streaming", body["tools"][0]["eager_input_streaming"] == Value::Bool(true)),
+                ("effort update beta", beta.contains("mid-conversation-output-config-2026-07-01")),
+            ]
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(200, TURN)]);
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let native = b.build("anthropic", &json!({ "enabled": true, "apiKey": "k" })).await.unwrap();
+        for (feature, sent) in sent_by(native, http).await {
+            assert!(sent, "the native route sends its {feature}");
+        }
+
+        let http = endpoint(vec![(200, TURN)]);
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let mut cfg = custom_config("anthropic", json!({}));
+        cfg["baseURL"] = json!("https://api.anthropic.com/v1");
+        let custom = b.build_custom_parts("custom-first-party", &cfg).unwrap().adapter;
+        for (feature, sent) in sent_by(custom, http).await {
+            assert!(!sent, "a custom engine at the official URL sends no {feature}");
+        }
+    }
+
+    /// A custom engine at Anthropic's own endpoint, beta headers on, never threads (`anthropicFirstPartyRoute` is a
+    /// native provider's, anthropic-request-utils.mjs:116): neither the `thread` field nor its beta goes out, on a first
+    /// send or on the conversation's next one.
+    #[tokio::test]
+    async fn a_custom_engine_at_the_official_url_sends_neither_the_thread_field_nor_its_beta() {
+        use mixdog_core_api::domain::provider::{Content, Message, Role};
+        let dir = tempfile::tempdir().unwrap();
+        let http = endpoint(vec![(200, TURN), (200, TURN)]);
+        let b = builder_over(&dir, Arc::new(ProcessEnv), Some(http.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+        let mut cfg = custom_config("anthropic", json!({}));
+        cfg["baseURL"] = json!("https://api.anthropic.com/v1");
+        let engine = b.build_custom_parts("custom-threads", &cfg).unwrap().adapter;
+        let options = || mixdog_core_api::domain::provider::RequestOptions { session_id: Some("engine-thread-session".into()), ..Default::default() };
+        let first = custom_turn("claude-sonnet-4-6", options());
+        assert_eq!(text_of(engine.attempt(Arc::new(first.clone())).await.expect("the first send answers")).await, "ok");
+        let mut next = first;
+        next.messages.push(Message::new(Role::Assistant, Content::Text("ok".into())));
+        next.messages.push(Message::new(Role::User, Content::Text("next".into())));
+        assert_eq!(text_of(engine.attempt(Arc::new(next)).await.expect("the next send answers")).await, "ok");
+        let sent = http.requests.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        for request in sent.iter() {
+            assert!(body_of(request).get("thread").is_none(), "{}", body_of(request));
+            let beta = request.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta")).map_or("", |(_, value)| value.as_str());
+            assert!(!beta.contains("message-threads"), "{beta}");
+        }
+    }
+}

@@ -367,7 +367,7 @@ fn native_tool(provider: &str, tool: &mixdog_core_api::domain::provider::HostedW
 
 fn text_of(content: &Content) -> String {
     match content {
-        Content::Text(text) => text.clone(),
+        Content::Text(text) => text.to_string(),
         Content::Parts(_) => panic!("text expected"),
     }
 }

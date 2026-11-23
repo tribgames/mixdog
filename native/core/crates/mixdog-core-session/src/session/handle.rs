@@ -397,11 +397,12 @@ impl SessionHandle {
         if wants_positioned && !matches!(params.window, ResumeWindow::LastItems { .. }) {
             return Err(CoreError::InvalidParams { path: "positionedWindow".into(), expected: "a `lastItems` window".into() });
         }
-        // A positioned snapshot carries the newest stored records as a page of them reads: it is attached once they are read.
+        // A positioned snapshot carries the newest stored records as a page of them reads: it is attached once they are
+        // read, and not at all when they were not.
         if wants_positioned {
             let (tx, rx) = oneshot::channel();
             self.inbox.send(Inbox::TailReady { tx }).await.map_err(|_| self.closing())?;
-            rx.await.map_err(|_| self.closing())?;
+            rx.await.map_err(|_| self.closing())??;
         }
         let positioned = |window: Window| match window {
             Window::LastItems(rows) if wants_positioned => Window::Positioned(rows),
@@ -897,6 +898,22 @@ impl SessionHandle {
         let rebuilt = directory.deps.empty_surface.refresh_empty(&self.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
         Ok(Reply::Value(json!({ "promptRebuilt": rebuilt })))
     }
+}
+
+/// What the stored record of a takeover's operation answers a repeat `req` of it: the receipt, to the audience it was stored
+/// for and for the same press (method and payload). Anyone else, and any other press under the id, is told the id is taken,
+/// as the op gate tells them, and learns nothing of the receipt.
+pub(super) fn stored_receipt(stored: super::seams::StoredOp, req: &CoreRequest, op: OpId) -> Result<Reply, CoreError> {
+    use mixdog_store::schema::record::OpState;
+    if stored.state == OpState::Fenced {
+        return Err(CoreError::OpFenced { op_id: op });
+    }
+    let audience = mixdog_core_base::ops::replay_audience(&req.ctx);
+    let same_press = stored.state == OpState::Applied && stored.method == req.method.as_str() && stored.digest == super::ops::digest(&req.params);
+    if !same_press || stored.audience.as_deref() != Some(audience.as_str()) {
+        return Err(CoreError::OpIdConflict { op_id: op });
+    }
+    Ok(Reply::Value(stored.result.unwrap_or_else(|| json!({}))))
 }
 
 fn run_stop_reply(
@@ -1587,7 +1604,8 @@ impl SessionHandle {
         #[cfg(any(test, feature = "test-support"))]
         run.prompt.paused().await;
         let (tx, rx) = oneshot::channel();
-        self.cell.deliver(Ctl::StopRun { turn: run.turn.clone(), named: named_turn, restore_prompt, canceller, unreadable: unreadable.is_some(), reply: tx });
+        let stop = Ctl::StopRun { turn: run.turn.clone(), named: named_turn, restore_prompt, canceller, unreadable: unreadable.is_some(), reply: tx };
+        self.cell.deliver(stop);
         let (decision, wait, restore_id) = match rx.await.map_err(|_| self.closing())? {
             super::control::RunStop::Decided(decision, wait, restore_id) => (decision, wait, restore_id),
             super::control::RunStop::NotActive => return Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(run.turn.clone()) }),
@@ -1595,6 +1613,27 @@ impl SessionHandle {
         };
         self.stop_saved(vec![wait]).await?;
         Ok(run_stop_reply(&run.turn, &decision, restore_id, restored.as_ref(), unreadable, &facts))
+    }
+
+    /// `turn/takeover`: handed whole to the thread's own task, which alone reads the turn that runs and the queue, decides,
+    /// and answers the receipt (`SessionActor::take_over`). Nothing is stopped here: a room log, which runs no turn, is
+    /// refused there like any thread that runs none, with no member work touched.
+    async fn takeover(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let params: mixdog_app_protocol::v2::thread::TurnTakeoverParams = serde_json::from_value(req.params.clone())
+            .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "TurnTakeoverParams".into() })?;
+        // A repeat of an operation this thread's task no longer remembers (the core restarted, or the thread was loaded again)
+        // is answered the receipt stored for it, and never decided again. The task that started the named turn has been
+        // there since, and remembers every operation it took: only a turn it does not run can be from before it. The
+        // question is the op index's alone: what it holds no row of was never answered, and no log is read to learn so.
+        let remembered = self.cell.run.load().as_ref().is_some_and(|run| run.turn == params.turn_id);
+        if !remembered && let Some(op) = req.op.clone() {
+            let (store, thread, key) = (self.deps.store.clone(), self.id.clone(), op.as_str().to_owned());
+            let stored = on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| store.thread_op(lane, &thread, &key)).await??;
+            if let Some(stored) = stored {
+                return stored_receipt(stored, &req, op);
+            }
+        }
+        self.to_actor(req).await
     }
 
     fn canceller_of(&self, ctx: &CallContext) -> String {
@@ -1631,6 +1670,7 @@ impl SessionHandle {
             "thread/rewind" => self.rewind(req).await,
             "thread/fork" => self.fork(req).await,
             "turn/start" => self.turn_start(req).await,
+            "turn/takeover" => self.takeover(req).await,
             // `goalControl` makes the session when there is none (`createCurrentSession('goal')`).
             "thread/goal/set" | "thread/goal/clear" | "thread/goal/control" => {
                 self.create_session().await?;

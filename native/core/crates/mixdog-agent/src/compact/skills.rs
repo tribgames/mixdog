@@ -91,7 +91,7 @@ fn is_loader(call: &ToolCall) -> bool {
 }
 
 fn set_result(message: &mut AgentMessage, summary: String, native: Option<Value>) {
-    message.message.content = Content::Text(summary);
+    message.message.content = Content::Text(summary.into());
     message.message.native_tool_search = native;
 }
 

@@ -54,7 +54,7 @@ mod tests {
     use super::*;
 
     fn turn(id: &str) -> [Message; 2] {
-        let mut call = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut call = Message::new(Role::Assistant, Content::Text(String::new().into()));
         call.tool_calls = vec![ToolCall { id: id.to_owned(), name: "read".to_owned(), arguments: json!({}), native_type: None }];
         let mut result = Message::new(Role::Tool, Content::Text("done".into()));
         result.tool_call_id = Some(id.to_owned());

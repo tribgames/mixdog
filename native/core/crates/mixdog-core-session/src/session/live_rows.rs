@@ -182,31 +182,6 @@ pub(crate) fn compact_event_label(event: &CompactEvent) -> &'static str {
     }
 }
 
-fn fmt_tok(n: f64) -> String {
-    if n >= 1000.0 {
-        let k = n / 1000.0;
-        if n >= 10_000.0 { mixdog_js::math::to_fixed(k, 0) + "k" } else { mixdog_js::math::to_fixed(k, 1) + "k" }
-    } else {
-        format!("{}", n.round())
-    }
-}
-
-/// `compactEventDetail(event)`: the elapsed seconds (rounded up, `0s` when none), then the
-/// token move when both ends are known and differ.
-pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
-    let elapsed = match event.duration_ms {
-        0 => "0s".to_owned(),
-        ms => format!("{}s", ms.div_ceil(1000).max(1)),
-    };
-    let mut parts = vec![elapsed];
-    let before = event.before_tokens as f64;
-    let after = event.after_tokens as f64;
-    if before > 0.0 && after > 0.0 && after != before {
-        parts.push(format!("{}→{}", fmt_tok(before), fmt_tok(after)));
-    }
-    parts.join(" · ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,7 +195,7 @@ mod tests {
             delta_tool_calls: 0,
             request_ms: 0,
             delta_prompt: 1000,
-            send_tools: Vec::new(),
+            send_tools: Default::default(),
             reasoning_tokens: None,
             reasoning_tokens_complete: true,
             outgoing: Vec::new().into(),
@@ -242,6 +217,21 @@ mod tests {
         let row = usage_delta("s", &report(usage), 5);
         assert_eq!((&row["deltaInput"], &row["deltaPrompt"], &row["deltaCachedRead"]), (&json!(1000), &json!(1000), &json!(900)));
         assert_eq!((&row["contextInputTokens"], &row["contextPromptTokens"], &row["contextCachedReadTokens"]), (&json!(300), &json!(300), &json!(300)));
+    }
+
+    /// A record of a whole turn bills the turn's sum; the context it shows is the occupancy the provider measured.
+    #[test]
+    fn a_turns_usage_bills_the_sum_and_shows_the_measured_occupancy_as_the_context() {
+        let usage = Usage {
+            input_tokens: 1000,
+            cache_read_tokens: 900,
+            raw: Some(json!({ "input_tokens_known": true, "input_tokens_scope": "turn", "context_tokens": 240 })),
+            ..Usage::default()
+        };
+        let row = usage_delta("s", &report(usage), 5);
+        assert_eq!((&row["deltaInput"], &row["deltaPrompt"], &row["deltaCachedRead"]), (&json!(1000), &json!(1000), &json!(900)));
+        assert_eq!((&row["contextInputTokens"], &row["contextPromptTokens"], &row["contextCachedReadTokens"]), (&json!(0), &json!(240), &json!(0)));
+        assert_eq!(row["contextMeasuredTokens"], json!(240));
     }
 
     #[test]
@@ -294,19 +284,7 @@ mod tests {
         assert_eq!(compact_event_label(&event(false, true, CompactTrigger::Reactive)), "Compact complete (overflow recovery)");
         assert_eq!(compact_event_label(&event(true, false, CompactTrigger::Reactive)), "Compact failed (overflow retry)");
         assert_eq!(compact_event_label(&event(false, false, CompactTrigger::Auto)), "Compact checked");
-        assert_eq!(compact_event_detail(&event(false, true, CompactTrigger::Auto)), "0s");
         assert!(!compact_changed(&event(true, false, CompactTrigger::Auto)));
-        // The marker reads the pass's own numbers: seconds rounded up, and before→after tokens.
-        let timed = CompactEvent {
-            duration_ms: 1_200,
-            before_tokens: 12_345,
-            pressure_tokens: 40_000,
-            after_tokens: 3_400,
-            ..event(false, true, CompactTrigger::Auto)
-        };
-        assert_eq!(compact_event_detail(&timed), "2s · 12k→3.4k");
-        let same = CompactEvent { duration_ms: 40, before_tokens: 900, pressure_tokens: 900, after_tokens: 900, ..event(false, false, CompactTrigger::Auto) };
-        assert_eq!(compact_event_detail(&same), "1s");
         let skipped = CompactEvent { status: CompactStatus::Skipped, ..event(false, false, CompactTrigger::Auto) };
         assert_eq!(compact_event_label(&skipped), "Compact skipped");
         assert!(!compact_changed(&skipped));
@@ -336,6 +314,13 @@ pub(crate) fn compact_usage_delta(session_id: &str, report: &super::run::Compact
 fn first_hop_context(usage: &Usage, delta_prompt: u64) -> (Usage, u64) {
     let mut context = usage.clone();
     let mut context_prompt = delta_prompt;
+    // A record of a whole turn counts every model call of it: the context it shows is the occupancy the provider
+    // measured, and no prompt.
+    if mixdog_agent::compact::pressure::counts_a_turn(usage) {
+        context.input_tokens = 0;
+        context.cache_read_tokens = 0;
+        return (context, mixdog_agent::compact::pressure::measured_context_tokens(usage).unwrap_or(0));
+    }
     if let Some(raw) = usage.raw.as_ref() {
         let count = |key: &str| raw.get(key).and_then(Value::as_u64).unwrap_or(0);
         let initial = count("initialPromptTokenCount");

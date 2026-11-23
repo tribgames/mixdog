@@ -87,18 +87,17 @@ pub(crate) fn version_supported(provider: &str, model: &str) -> bool {
 
 /// What else decides whether a request carries updates.
 pub(crate) struct Gate {
-    /// The base URL is Anthropic's own.
-    pub official_url: bool,
+    /// The request goes out on the first-party route (`effortConfigurationMode`'s `ANTHROPIC_PROVIDERS`, beta headers
+    /// and base URL checks: `anthropicFirstPartyRoute`).
+    pub first_party: bool,
     /// The request sets a manual thinking budget.
     pub manual_budget: bool,
     /// The caller has not switched updates off.
     pub enabled: bool,
-    /// Beta headers are not suppressed for this route.
-    pub beta_headers: bool,
 }
 
 pub(crate) fn enabled(provider: &str, model: &str, gate: &Gate) -> bool {
-    gate.enabled && !gate.manual_budget && gate.beta_headers && gate.official_url && version_supported(provider, model)
+    gate.enabled && !gate.manual_budget && gate.first_party && version_supported(provider, model)
 }
 
 /// Lowers `messages` with the update messages placed. With a projection the

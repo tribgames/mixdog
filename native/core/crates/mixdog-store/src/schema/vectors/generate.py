@@ -400,6 +400,16 @@ RECORDS = [
         },
     ),
     (
+        "run_started_display_end",
+        {
+            "k": "run",
+            "rid": "run_2",
+            "phase": "started",
+            "end": "display",
+            "at": 1793306572000,
+        },
+    ),
+    (
         "run_started",
         {
             "k": "run",

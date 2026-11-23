@@ -22,6 +22,7 @@ use mixdog_protocol::TurnId;
 use mixdog_protocol::UserInput;
 use mixdog_protocol::UserRowDetails;
 use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::TurnEndForm;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
@@ -213,6 +214,14 @@ fn assistant_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     ThreadItem::AgentMessage { id: item_id(&id), text: MaybeBlob::Inline(text), imported_tool_runs, meta: finish(meta, row) }
 }
 
+/// A finished thinking row, stored as a display record of its turn: `{kind: 'reasoning', id, content}`.
+fn reasoning_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
+    let id = id_of(&mut row);
+    let content = take_as::<Vec<String>>(&mut row, "content").unwrap_or_default();
+    let meta = meta_of(&mut row, ctx);
+    ThreadItem::Reasoning { id: item_id(&id), summary: Vec::new(), content, meta: finish(meta, row) }
+}
+
 fn blob_text(row: &mut Row, key: &str) -> Option<MaybeBlob<String>> {
     take_str(row, key).map(MaybeBlob::Inline)
 }
@@ -247,9 +256,17 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     };
     run.share_equal_results();
     row.shift_remove("expanded");
+    // A stored call is restored as ended, and the record that stores its result says how ([`result_update`]). One no
+    // record answers ended with its turn, unanswered: it did not complete, and has no time it completed at.
+    let unanswered = run.call_id.is_some() && run.result.is_none() && is_error != Some(true) && completed_count.unwrap_or(0) > 0;
+    if unanswered {
+        run.completed_at = None;
+    }
     let mut meta = meta_of(&mut row, ctx);
     meta.status = if is_error == Some(true) {
         Some(ItemStatus::Failed)
+    } else if unanswered {
+        Some(ItemStatus::Interrupted)
     } else if completed_count.unwrap_or(0) > 0 {
         Some(ItemStatus::Completed)
     } else {
@@ -344,6 +361,7 @@ pub(in crate::session) fn item_of(row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         "notice" if ctx.source.is_some() && ctx.message.is_some() => user_item(row, ctx),
         "assistant" => assistant_item(row, ctx),
         "tool" => tool_item(row, ctx),
+        "reasoning" => reasoning_item(row, ctx),
         "turndone" => {
             let end = turn_end_item(&row, ctx);
             end.unwrap_or_else(|| status_item(row, ctx))
@@ -439,7 +457,12 @@ fn room_item(id: &str, message: &Value, ctx: &Ctx<'_>) -> Option<ThreadItem> {
 
 /// The items a stored message record shows, in order.
 pub fn message_items(record: &ItemRecord, message: &Value) -> Vec<Shown> {
-    message_shown(record, message).into_iter().map(|(shown, _)| shown).collect()
+    message_items_as(record, message, None)
+}
+
+/// [`message_items`] of a record whose turn stores its end as `end` ([`message_shown_as`]).
+pub fn message_items_as(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>) -> Vec<Shown> {
+    message_shown_as(record, message, end).into_iter().map(|(shown, _)| shown).collect()
 }
 
 /// The item of a turn's live end row, the row the transcript holds when the turn closes. Not
@@ -451,10 +474,11 @@ pub fn live_end(row: serde_json::Map<String, Value>, turn: &str) -> ThreadItem {
 /// The items a stored message record shows, each with the byte length of the display row it
 /// stands for (`JSON.stringify(row)` in bytes, what the page budget counts); `None`
 /// for a result update, which is no row. A group-room line is built straight from the message,
-/// with no display row: its length is its typed item's.
-pub fn message_shown(record: &ItemRecord, message: &Value) -> Vec<(Shown, Option<usize>)> {
+/// with no display row: its length is its typed item's. The record's turn stores its end as `end`
+/// ([`super::transcript_rows::restore_as`]).
+pub fn message_shown_as(record: &ItemRecord, message: &Value, end: Option<TurnEndForm>) -> Vec<(Shown, Option<usize>)> {
     let mut shown = Vec::new();
-    for restored in super::transcript_rows::restore(record, message) {
+    for restored in super::transcript_rows::restore_as(record, message, end) {
         let turn = record.turn.as_ref().map(|t| t.as_str());
         match restored {
             Restored::Row { row, source } => {
@@ -506,7 +530,9 @@ pub fn display_bytes(record: &ItemRecord, body: &Value) -> Option<usize> {
     }
     Some(row_bytes(&row))
 }
-/// The item of an imported display record: its body is the row shown, verbatim.
+/// The item of a display record: its body is the row shown, verbatim. A turn's end stored as a display item
+/// ([`TurnEndForm::Display`]) is one: the end row the transcript holds when the turn closes ([`live_end`]), under the
+/// record's turn.
 pub fn display_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
     let mut row = body.as_object()?.clone();
     if !row.get("id").is_some_and(Value::is_string) {

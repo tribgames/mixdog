@@ -334,7 +334,7 @@ mod tests {
         builder.push(StreamEvent::ProviderMetadata(record.clone()));
         let message = intermediate_message(&builder.finish()).expect("a committed turn");
         assert_eq!(message.provider_metadata.as_ref(), Some(&record));
-        assert_eq!(message.message.content, Content::Text("Hello".to_owned()));
+        assert_eq!(message.message.content, Content::Text("Hello".to_owned().into()));
     }
 
     /// The account that served an answer is stored on the message and read back for the next send.

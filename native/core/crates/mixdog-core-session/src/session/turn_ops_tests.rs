@@ -2385,3 +2385,1019 @@ async fn a_plain_retry_start_carries_the_failed_turns_provenance() {
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 2).then_some(())).await;
     assert_eq!(super::testing::lock(&stamped)[1], json!({ "source": "task-notification" }), "the plain retry's row carries the failed turn's provenance");
 }
+
+/// `turn/takeover` of `turn` by the queued message `queued`, under the operation id `op`: its receipt.
+async fn take_over(handle: &SessionHandle, turn: &str, queued: &str, op: &'static str) -> Value {
+    call(handle, "turn/takeover", json!({ "turnId": turn, "queuedId": queued }), op).await.expect("a takeover answers its receipt")
+}
+
+/// The queue id a `turn/start` on a busy thread answered.
+fn queued_id(reply: &Value) -> String {
+    assert_eq!(reply["kind"], json!("queued"), "{reply}");
+    reply["queuedId"].as_str().expect("the queued id").to_owned()
+}
+
+/// The refusal a takeover answers: nothing changed, and `message` is what became of the message it named.
+fn refused(turn: &str, queued: &str, reason: &str, message: &str) -> Value {
+    json!({ "kind": "refused", "turnId": turn, "queuedId": queued, "reason": reason, "message": message })
+}
+
+/// Every run notes its prompt as it starts, then ends when it is cancelled (interrupted) or when `finish` is notified (completed).
+fn working(rig: &Rig) -> (Arc<std::sync::Mutex<Vec<String>>>, Arc<tokio::sync::Notify>) {
+    use mixdog_protocol::PromptContent;
+    let (seen, finish): (Arc<std::sync::Mutex<Vec<String>>>, Arc<tokio::sync::Notify>) = Default::default();
+    let (noted, done) = (seen.clone(), finish.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (noted, done) = (noted.clone(), done.clone());
+        Box::pin(async move {
+            if run.port.input_durable().await.is_err() {
+                return RunOutcome::Interrupted;
+            }
+            let text = match &run.input.prompt {
+                PromptContent::Text(text) => text.clone(),
+                other => format!("{other:?}"),
+            };
+            super::testing::lock(&noted).push(text);
+            tokio::select! {
+                () = run.cancel.cancelled() => RunOutcome::Interrupted,
+                () = done.notified() => RunOutcome::Completed(Default::default()),
+            }
+        })
+    }));
+    (seen, finish)
+}
+
+/// The `work_stop{stopped}` bodies the store holds for the thread.
+fn stopped_bodies(rig: &Rig, handle: &SessionHandle) -> Vec<Value> {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+    use mixdog_store::schema::record::WorkStopPhase;
+    rig.store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::WorkStop(stop) if stop.phase == WorkStopPhase::Stopped => match stop.body {
+                Some(Slot::Inline(body)) => Some(body),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// The queue ids the store holds a promotion (`queue{prioritize}`) of.
+fn promotions(rig: &Rig, handle: &SessionHandle) -> Vec<String> {
+    use mixdog_store::schema::record::QueueAction;
+    use mixdog_store::schema::record::Record;
+    rig.store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Queue(queue) if queue.action == QueueAction::Prioritize => Some(queue.qid.as_str().to_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A takeover ends the running turn taken over by the queued message it names, and that message starts the next turn: the
+/// receipt says so, the turn's live end and the end a reload reads back carry the `message` cause, the stop's record names the
+/// message, and a repeat of the operation is answered the same receipt and does nothing more. The user's own Stop while the
+/// message waits ends the turn cancelled, with no cause, both ways.
+#[tokio::test(start_paused = true)]
+async fn a_turn_taken_over_by_a_message_ends_with_its_cause_live_and_after_a_reload() {
+    use mixdog_protocol::ThreadItem;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    for takeover in [true, false] {
+        let rig = Rig::new();
+        let (seen, finish) = working(&rig);
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        turn(&handle, "work", "op-1").await;
+        let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+        let queued = queued_id(&turn(&handle, "next", "op-2").await);
+        let accepted = json!({
+            "kind": "accepted", "turnId": running, "queuedId": queued, "interruptRequested": true, "message": "successor",
+        });
+        if takeover {
+            assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now").await, accepted);
+        } else {
+            let stop = Stop { turn: None, restore_prompt: Some(false), submission_id: None, ctx: CallContext::internal("test") };
+            handle.stop(stop).await.expect("stop");
+        }
+        let thread = handle.id.as_str().to_owned();
+        let live = eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+        let end_of = |item: &ThreadItem| match item {
+            ThreadItem::TurnEnd { status, meta, .. } => Some((serde_json::to_value(status).expect("status"), meta.ext.get("cause").cloned())),
+            _ => None,
+        };
+        let cause = takeover.then(|| json!("message"));
+        assert_eq!(end_of(&live), Some((json!("cancelled"), cause.clone())), "the live end (takeover {takeover}): {live:?}");
+        // The message is the next turn's input.
+        eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next"]).then_some(())).await;
+        if takeover {
+            let successor = handle.cell.run.load_full().expect("the message's turn runs").turn.clone();
+            let record = handle.cell.stop_latches.takeover(&handle.id).expect("the takeover's record");
+            assert_eq!((record.turn, record.message, record.successor), (running.clone(), queued.clone(), Some(successor)), "one record of the transition");
+            let note = json!({ "op": "send-now", "message": queued });
+            assert_eq!(stopped_bodies(&rig, &handle).iter().map(|body| body["takeover"].clone()).collect::<Vec<_>>(), [note]);
+            assert_eq!(promotions(&rig, &handle), [queued.clone()]);
+            // A repeat of the operation: the first receipt, and nothing of the turn that runs now is touched.
+            assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now").await, accepted);
+            assert!(!handle.cell.run.load_full().expect("still running").cancel.is_aborted(), "the repeat stopped nothing");
+            assert_eq!(stopped_bodies(&rig, &handle).len(), 1);
+        }
+        finish.notify_one();
+        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+
+        let mut restoring = rig.deps_parts(rig.store.clone());
+        restoring.transcript = Arc::new(super::testing::RecordTranscript::new());
+        let history = SessionDirectory::new(Arc::new(restoring)).history_items(&handle.id).await.expect("history");
+        let ends: Vec<_> = history.iter().filter_map(end_of).filter(|(status, _)| *status == json!("cancelled")).collect();
+        assert_eq!(ends, [(json!("cancelled"), cause)], "the reloaded end (takeover {takeover}): {history:?}");
+        let elapsed = |item: &ThreadItem| match item {
+            ThreadItem::TurnEnd { elapsed_ms, .. } => Some(*elapsed_ms),
+            _ => None,
+        };
+        assert_eq!(history.iter().find_map(elapsed), elapsed(&live), "the reloaded end keeps the live end's duration: {history:?}");
+    }
+}
+
+/// A run of `work` holds its end after its cancel until `gate` opens, so later stops reach it while it is still running; any
+/// other run ends once its input is durable.
+fn held_after_cancel(rig: &Rig) -> Arc<tokio::sync::Notify> {
+    use mixdog_protocol::PromptContent;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let held = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let held = held.clone();
+        Box::pin(async move {
+            if run.port.input_durable().await.is_err() {
+                return RunOutcome::Interrupted;
+            }
+            if matches!(&run.input.prompt, PromptContent::Text(text) if text == "work") {
+                run.cancel.cancelled().await;
+                held.notified().await;
+                return RunOutcome::Interrupted;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    gate
+}
+
+/// A stop the core accepted is published: the running turn's spinner reads `stopping` from the Stop on, and it goes with
+/// the spinner at the turn's end. A refused Stop (it names a turn that does not run) and a takeover (a message sent now is
+/// no stop) publish none.
+#[tokio::test(start_paused = true)]
+async fn an_accepted_stop_shows_the_turn_stopping_and_a_refused_stop_or_a_takeover_does_not() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = held_after_cancel(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    // Each published runtime section's spinner, in order.
+    let spinners = || -> Vec<Value> {
+        let runtimes = rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/runtime/updated");
+        runtimes.map(|(_, _, params)| params["value"]["spinner"].clone()).collect()
+    };
+    let stopping = |from: usize| spinners()[from..].iter().any(|spinner| spinner["stopping"] == json!(true));
+    let settled = || idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0;
+    let stop = |turn: &str| Stop {
+        turn: Some(mixdog_core_api::ids::TurnId::from(turn)),
+        restore_prompt: Some(false),
+        submission_id: None,
+        ctx: CallContext::internal("test"),
+    };
+
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    eventually_on!(&[&handle.cell.stepped], || spinners().last().is_some_and(|spinner| !spinner.is_null()).then_some(())).await;
+    let refusal = handle.stop(stop("turn-before")).await;
+    assert!(refusal.is_err(), "a stop naming a turn that does not run is refused: {refusal:?}");
+    assert!(!stopping(0), "a refused stop shows nothing stopping: {:?}", spinners());
+    handle.stop(stop(running.as_str())).await.expect("the user's stop");
+    eventually_on!(&[&handle.cell.stepped], || stopping(0).then_some(())).await;
+    assert_eq!(spinners().last().map(|spinner| spinner["stopping"].clone()), Some(json!(true)), "it stays while the turn closes");
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || settled().then_some(())).await;
+    assert_eq!(spinners().last(), Some(&Value::Null), "it goes with the spinner at the turn's end");
+
+    let before = spinners().len();
+    turn(&handle, "work", "op-2").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-3").await);
+    let accepted = take_over(&handle, running.as_str(), &queued, "press-1").await;
+    assert_eq!((accepted["kind"].clone(), accepted["interruptRequested"].clone()), (json!("accepted"), json!(true)));
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (settled() && handle.cell.queue.load().is_empty()).then_some(())).await;
+    assert!(spinners().len() > before, "the turns published their spinner");
+    assert!(!stopping(before), "a takeover is no stop: {:?}", &spinners()[before..]);
+}
+
+/// A Stop that reaches the running turn from outside the thread's task ([`super::control::ControlCell::interrupt`]) is
+/// published as one the task decided is: the spinner reads `stopping` while the turn closes, and it goes with the spinner
+/// at the turn's end.
+#[tokio::test(start_paused = true)]
+async fn a_stop_from_outside_the_task_shows_the_turn_stopping_until_its_end() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = held_after_cancel(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let spinners = || -> Vec<Value> {
+        let runtimes = rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/runtime/updated");
+        runtimes.map(|(_, _, params)| params["value"]["spinner"].clone()).collect()
+    };
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    eventually_on!(&[&handle.cell.stepped], || spinners().last().is_some_and(|spinner| !spinner.is_null()).then_some(())).await;
+    assert!(spinners().iter().all(|spinner| spinner["stopping"] != json!(true)), "nothing is stopping before the stop");
+    handle.cell.interrupt(&running, None).expect("the stop is accepted");
+    eventually_on!(&[&handle.cell.stepped], || (spinners().last().map(|spinner| spinner["stopping"].clone()) == Some(json!(true))).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    assert_eq!(spinners().last(), Some(&Value::Null), "it goes with the spinner at the turn's end");
+}
+
+/// A takeover names the turn it takes over: one naming another turn (the turn before, already ended) is refused with its
+/// message still queued, one naming none is no takeover, and neither touches the turn that runs or the queue.
+#[tokio::test(start_paused = true)]
+async fn a_takeover_leaves_a_turn_it_does_not_name_alone() {
+    let rig = Rig::new();
+    let _gate = held_after_cancel(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full().map(|_| ())).await;
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    let stale = take_over(&handle, "turn-before", &queued, "send-now-1").await;
+    assert_eq!(stale, refused("turn-before", &queued, "turnMismatch", "queued"));
+    let unnamed = call(&handle, "turn/takeover", json!({ "queuedId": queued }), "send-now-2").await;
+    assert!(matches!(unnamed, Err(CoreError::InvalidParams { .. })), "{unnamed:?}");
+    let run = handle.cell.run.load_full().expect("the turn still runs");
+    assert!(!run.cancel.is_aborted(), "the running turn was not stopped");
+    assert!(stopped_bodies(&rig, &handle).is_empty() && promotions(&rig, &handle).is_empty(), "nothing was recorded");
+    assert_eq!(handle.cell.queue.load().iter().map(|entry| entry.qid.clone()).collect::<Vec<_>>(), [queued], "the message waits as it did");
+    assert_eq!(handle.cell.stop_latches.takeover(&handle.id), None);
+}
+
+/// A Stop that ended the run decides how its end reads: a takeover reaching the run while it closes is refused, with its
+/// message still queued, and does not make the user's Stop read as a turn taken over.
+#[tokio::test(start_paused = true)]
+async fn a_takeover_behind_a_stop_leaves_the_end_cancelled() {
+    use mixdog_protocol::ThreadItem;
+    let rig = Rig::new();
+    let gate = held_after_cancel(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let stop = Stop { turn: Some(running.clone()), restore_prompt: Some(false), submission_id: None, ctx: CallContext::internal("test") };
+    handle.stop(stop).await.expect("the user's stop");
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    let late = take_over(&handle, running.as_str(), &queued, "send-now").await;
+    assert_eq!(late, refused(running.as_str(), &queued, "stopClaimed", "queued"));
+    assert!(promotions(&rig, &handle).is_empty() && handle.cell.stop_latches.takeover(&handle.id).is_none(), "the Stop's transition is not relabelled");
+    gate.notify_one();
+    let thread = handle.id.as_str().to_owned();
+    let live = eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+    let ThreadItem::TurnEnd { meta, .. } = &live else { panic!("a turn end: {live:?}") };
+    assert_eq!(meta.ext.get("cause"), None, "the Stop's end reads cancelled: {live:?}");
+}
+
+/// The other order: a Stop, or a second takeover, reaching the turn a takeover already won changes nothing of it. The end
+/// reads taken over by the first message, which stays the next turn's input.
+#[tokio::test(start_paused = true)]
+async fn a_stop_or_another_takeover_behind_a_takeover_leaves_the_end_taken_over() {
+    use mixdog_protocol::ThreadItem;
+    let rig = Rig::new();
+    let gate = held_after_cancel(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let first = queued_id(&turn(&handle, "next", "op-2").await);
+    let second = queued_id(&turn(&handle, "other", "op-3").await);
+    assert_eq!(take_over(&handle, running.as_str(), &first, "send-now-1").await["kind"], json!("accepted"));
+    assert_eq!(take_over(&handle, running.as_str(), &second, "send-now-2").await, refused(running.as_str(), &second, "takenOver", "queued"));
+    let stop = Stop { turn: Some(running.clone()), restore_prompt: Some(false), submission_id: None, ctx: CallContext::internal("test") };
+    handle.stop(stop).await.expect("the late stop");
+    assert_eq!(handle.cell.stop_latches.takeover(&handle.id).map(|record| record.message), Some(first.clone()));
+    assert_eq!(promotions(&rig, &handle), [first]);
+    gate.notify_one();
+    let thread = handle.id.as_str().to_owned();
+    let live = eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+    let ThreadItem::TurnEnd { meta, .. } = &live else { panic!("a turn end: {live:?}") };
+    assert_eq!(meta.ext.get("cause"), Some(&json!("message")), "the takeover's end keeps its cause: {live:?}");
+}
+
+/// Review finding 1, one order: the running turn reached a model-call boundary and took the queued message in before the
+/// takeover arrived. The message is that turn's input now, so the takeover is refused (`consumed`) and the turn that holds it
+/// is not stopped.
+#[tokio::test(start_paused = true)]
+async fn a_message_a_boundary_already_took_is_not_taken_over() {
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let (at_boundary, finish): (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) = Default::default();
+    let taken: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let runs: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    rig.set_script(Arc::new({
+        let (at_boundary, finish, taken, runs) = (at_boundary.clone(), finish.clone(), taken.clone(), runs.clone());
+        move |run| {
+            let (at_boundary, finish, taken, runs) = (at_boundary.clone(), finish.clone(), taken.clone(), runs.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                runs.fetch_add(1, SeqCst);
+                at_boundary.notified().await;
+                let steers = run.port.take_steers(DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }).await.expect("take");
+                super::testing::lock(&taken).extend(steers.iter().map(|steer| steer.content.as_str().unwrap_or_default().to_owned()));
+                tokio::select! {
+                    () = run.cancel.cancelled() => RunOutcome::Interrupted,
+                    () = finish.notified() => RunOutcome::Completed(Default::default()),
+                }
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let run = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await;
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    at_boundary.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&taken) == ["next"]).then_some(())).await;
+    let receipt = take_over(&handle, run.turn.as_str(), &queued, "send-now").await;
+    assert_eq!(receipt, refused(run.turn.as_str(), &queued, "tooLate", "consumed"));
+    assert!(!run.cancel.is_aborted(), "the turn that took the message in is not stopped");
+    assert!(stopped_bodies(&rig, &handle).is_empty());
+    finish.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    assert_eq!(runs.load(SeqCst), 1, "the message ran in the turn that took it, and in no other");
+}
+
+/// Review finding 1, the other order: the takeover won, and the turn it ends reaches a boundary afterwards. The boundary takes
+/// neither the message nor anything behind it: the message starts the next turn.
+#[tokio::test(start_paused = true)]
+async fn a_boundary_of_a_turn_being_taken_over_takes_nothing_and_the_message_starts_the_next_turn() {
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let taken: Arc<std::sync::Mutex<Option<Vec<String>>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (seen, taken) = (seen.clone(), taken.clone());
+        move |run| {
+            let (seen, taken) = (seen.clone(), taken.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text != "work" {
+                    return RunOutcome::Completed(Default::default());
+                }
+                run.cancel.cancelled().await;
+                let steers = run.port.closing().take_steers(DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Later }).await.expect("take");
+                *super::testing::lock(&taken) = Some(steers.iter().map(|steer| steer.content.as_str().unwrap_or_default().to_owned()).collect());
+                RunOutcome::Interrupted
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    queued_id(&turn(&handle, "after", "op-3").await);
+    assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now").await["kind"], json!("accepted"));
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.queue.load().is_empty()).then_some(())).await;
+    assert_eq!(*super::testing::lock(&taken), Some(Vec::new()), "the ending turn's boundary took nothing");
+    assert_eq!(*super::testing::lock(&seen), ["work", "next", "after"], "the message started the next turn, ahead of what was queued behind it");
+}
+
+/// Review finding 2: the turn the user saw ended on its own and the queued message started its own turn before the takeover
+/// arrived. The takeover names the turn that is gone: it is refused, and the turn the message started is not cancelled.
+#[tokio::test(start_paused = true)]
+async fn the_turn_a_queued_message_started_is_not_cancelled_by_a_takeover_of_the_turn_before_it() {
+    let rig = Rig::new();
+    let (seen, finish) = working(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let before = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    finish.notify_one();
+    let successor = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full().filter(|run| run.turn != before)).await;
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next"]).then_some(())).await;
+    let receipt = take_over(&handle, before.as_str(), &queued, "send-now").await;
+    assert_eq!(receipt, refused(before.as_str(), &queued, "tooLate", "consumed"));
+    assert!(!successor.cancel.is_aborted(), "the turn the message started is not cancelled");
+    assert!(stopped_bodies(&rig, &handle).is_empty() && handle.cell.stop_latches.takeover(&handle.id).is_none());
+}
+
+/// Review finding 3: a room log runs no turn, so a takeover on it names no running turn. It is refused before anything of the
+/// room is stopped.
+#[tokio::test(start_paused = true)]
+async fn a_takeover_on_a_room_log_is_refused_and_stops_no_member_work() {
+    let rig = Rig::new();
+    rig.room_members.hosted.lock().unwrap().insert("room01".into(), true);
+    let id = mixdog_core_api::ids::ThreadId::from("sess_room_room01");
+    let directory = SessionDirectory::new(rig.deps());
+    directory.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
+    let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    assert_eq!(take_over(&handle, "turn-gone", "q-1", "send-now-1").await, refused("turn-gone", "q-1", "noRunningTurn", "consumed"));
+    let missing = call(&handle, "turn/takeover", json!({ "queuedId": "q-1" }), "send-now-2").await;
+    assert!(matches!(missing, Err(CoreError::InvalidParams { .. })), "{missing:?}");
+    assert!(rig.room_members.stopped.lock().unwrap().is_empty(), "no member work was stopped");
+}
+
+/// Review finding 5: the named turn finished on its own and its end is parked behind a row being read, with a task-completion
+/// wake and the message next in line. The turn is not interrupted and reads as finished; the message is taken as the next
+/// turn's input, and the receipt says so; the wake is not recorded as stopped and runs after it.
+#[tokio::test(start_paused = true)]
+async fn a_takeover_of_a_turn_at_its_end_interrupts_nothing_and_the_wake_behind_it_runs() {
+    use super::run::ItemCommit;
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let emit = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (emit, seen) = (emit.clone(), seen.clone());
+        move |run| {
+            let (emit, seen) = (emit.clone(), seen.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text == "work" {
+                    emit.notified().await;
+                    let body = json!({ "text": "done" });
+                    let item = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+                    let _queued = run.port.queue_item(item).await.expect("queued");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let active = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await;
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    directory.queue_completion_durably(&handle.id, "shell", "job-b", "completed", "job-b finished.".into()).await.expect("the wake is queued");
+    let io = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    emit.notify_one();
+    io.met_by_a_submit().await;
+    let parked = || stop_ledger(&handle).iter().any(|event| event.starts_with("run:end-parked:"));
+    eventually_on!(&[&handle.cell.stepped], || parked().then_some(())).await;
+    let receipt = take_over(&handle, active.turn.as_str(), &queued, "send-now").await;
+    let next = json!({ "kind": "accepted", "turnId": active.turn, "queuedId": queued, "interruptRequested": false, "message": "successor" });
+    assert_eq!(receipt, next);
+    assert!(!active.cancel.is_aborted(), "the finished run's token was not aborted");
+    assert!(!stop_ledger(&handle).iter().any(|event| event.starts_with("stop:frozen:")), "{:?}", stop_ledger(&handle));
+    drop(io);
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    let ran = super::testing::lock(&seen).clone();
+    assert_eq!(ran[..2], ["work", "next"], "the message is the next turn: {ran:?}");
+    assert!(ran[2].contains("job-b"), "the wake runs after it: {ran:?}");
+    assert!(stopped_bodies(&rig, &handle).is_empty(), "nothing was recorded as stopped");
+    let ended: Vec<_> = rig
+        .store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            mixdog_store::schema::record::Record::Run(run) if run.phase != mixdog_store::schema::record::RunPhase::Started => Some(run.phase),
+            _ => None,
+        })
+        .collect();
+    assert!(ended.iter().all(|phase| *phase == mixdog_store::schema::record::RunPhase::Completed), "every turn reads finished: {ended:?}");
+}
+
+/// Two presses on a turn already at its end, each naming another queued message under its own operation id: the first is
+/// taken as the next turn, the second is refused as the turn is taken, and the first message is the next turn's input.
+#[tokio::test(start_paused = true)]
+async fn a_second_takeover_of_a_turn_at_its_end_is_refused_and_the_first_message_is_next() {
+    use super::run::ItemCommit;
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let emit = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (emit, seen) = (emit.clone(), seen.clone());
+        move |run| {
+            let (emit, seen) = (emit.clone(), seen.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text == "work" {
+                    emit.notified().await;
+                    let body = json!({ "text": "done" });
+                    let item = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+                    let _queued = run.port.queue_item(item).await.expect("queued");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let active = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await;
+    let first = queued_id(&turn(&handle, "one", "op-2").await);
+    let second = queued_id(&turn(&handle, "two", "op-3").await);
+    let io = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    emit.notify_one();
+    io.met_by_a_submit().await;
+    eventually_on!(&[&handle.cell.stepped], || stop_ledger(&handle).iter().any(|event| event.starts_with("run:end-parked:")).then_some(())).await;
+    // The second message stands ahead of the first only if its press is taken: it is pressed last, on the same turn.
+    let taken = take_over(&handle, active.turn.as_str(), &first, "press-1").await;
+    assert_eq!(taken, json!({ "kind": "accepted", "turnId": active.turn, "queuedId": first, "interruptRequested": false, "message": "successor" }));
+    let late = take_over(&handle, active.turn.as_str(), &second, "press-2").await;
+    assert_eq!(late, refused(active.turn.as_str(), &second, "takenOver", "queued"));
+    assert_eq!(handle.cell.stop_latches.takeover(&handle.id).map(|record| record.message), Some(first.clone()), "the first press holds the turn");
+    assert_eq!(promotions(&rig, &handle), [first], "only the first message was put at the front");
+    drop(io);
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    assert_eq!(*super::testing::lock(&seen), ["work", "one", "two"], "the receipt's successor is the turn that ran next");
+}
+
+/// A press whose turn this thread's task does not run asks the op index alone for its receipt: the thread's log is not read
+/// to learn that the operation is new.
+#[tokio::test(start_paused = true)]
+async fn a_press_naming_a_turn_that_is_not_running_reads_no_log_for_its_receipt() {
+    let rig = Rig::new();
+    let (_seen, _finish) = working(&rig);
+    let counted = super::testing::CallCounted::new(rig.store.clone());
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(counted.clone())));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full().map(|_| ())).await;
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    assert_eq!(take_over(&handle, "turn-before", &queued, "press-1").await, refused("turn-before", &queued, "turnMismatch", "queued"));
+    let calls = counted.calls();
+    assert!(calls.contains(&"thread_op"), "the index is asked: {calls:?}");
+    assert!(!calls.contains(&"committed_op"), "the log is not scanned for it: {calls:?}");
+}
+
+/// Over the real store (log and op index): after the core restarts, a repeat of a press that was accepted, and of one that
+/// was refused, is answered its first receipt from the index, with the thread reopened on the same store. Nothing is decided
+/// again: no message is delivered a second time, and the turn then running is not stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_repeat_of_a_takeover_after_a_restart_on_the_real_store_is_answered_its_first_receipt() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = super::tests::real_store(data.path()).await;
+    let rig = Rig::new();
+    let (seen, finish) = working(&rig);
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    let refusal = take_over(&handle, "turn-before", &queued, "press-1").await;
+    assert_eq!(refusal, refused("turn-before", &queued, "turnMismatch", "queued"));
+    let accepted = take_over(&handle, running.as_str(), &queued, "press-2").await;
+    assert_eq!(accepted["kind"], json!("accepted"));
+    assert_eq!(accepted["message"], json!("successor"));
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next"]).then_some(())).await;
+    finish.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+    let restarted = SessionDirectory::new(rig.deps_on(store));
+    let reopened = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("the thread reopens");
+    turn(&reopened, "later", "op-3").await;
+    let later = eventually_on!(&[&reopened.cell.stepped], || reopened.cell.run.load_full()).await;
+    eventually_on!(&[&reopened.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next", "later"]).then_some(())).await;
+    assert_eq!(take_over(&reopened, running.as_str(), &queued, "press-2").await, accepted, "the accepted press reads accepted");
+    assert_eq!(take_over(&reopened, "turn-before", &queued, "press-1").await, refusal, "the refused press reads refused");
+    let other = call(&reopened, "turn/takeover", json!({ "turnId": running, "queuedId": "another" }), "press-2").await;
+    assert!(matches!(other, Err(CoreError::OpIdConflict { .. })), "an operation id names one press: {other:?}");
+    assert!(!later.cancel.is_aborted(), "the turn now running is not stopped");
+    assert_eq!(reopened.cell.run.load_full().map(|run| run.turn.clone()), Some(later.turn.clone()), "and still runs");
+    assert_eq!(*super::testing::lock(&seen), ["work", "next", "later"], "nothing is delivered a second time");
+    finish.notify_one();
+    eventually_on!(&[&reopened.cell.stepped], || idle(&reopened).then_some(())).await;
+}
+
+/// The index is known to lack rows of the thread (it refused a projection in this process): an operation it holds no row of
+/// may still be in the log, so a press under such an id is answered an error and decides nothing, while a press whose row
+/// the index holds is still answered its receipt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_takeover_whose_receipt_the_index_may_lack_is_answered_an_error_and_decided_nothing() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_store::sqlite::SqliteStore;
+    use std::sync::atomic::Ordering::SeqCst;
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let ownership = Arc::new(MockOwnership::default());
+    let store = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, ownership, tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let (seen, finish) = working(&rig);
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    let accepted = take_over(&handle, running.as_str(), &queued, "press-1").await;
+    assert_eq!(accepted["kind"], json!("accepted"));
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next"]).then_some(())).await;
+    finish.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+
+    // The thread is unloaded and loaded again in the same process: its task remembers no operation.
+    directory.release(&handle.id).await;
+    assert!(directory.handle(&handle.id).is_none(), "the thread is unloaded");
+    let reopened = directory.open_handle(&handle.id, &CallContext::internal("test")).await.expect("the thread reopens");
+    turn(&reopened, "later", "op-3").await;
+    let later = eventually_on!(&[&reopened.cell.stepped], || reopened.cell.run.load_full()).await;
+    let waiting = queued_id(&turn(&reopened, "waiting", "op-4").await);
+    store.lose_rows(handle.id.as_str());
+    assert_eq!(take_over(&reopened, running.as_str(), &queued, "press-1").await, accepted, "the row the index holds answers");
+    let unknown = call(&reopened, "turn/takeover", json!({ "turnId": running, "queuedId": waiting }), "press-2").await;
+    assert!(matches!(unknown, Err(CoreError::Internal { .. })), "no row is not no such operation: {unknown:?}");
+    assert!(!later.cancel.is_aborted(), "nothing was decided: the running turn is not stopped");
+    assert!(reopened.cell.stop_latches.takeover(&reopened.id).is_none_or(|record| record.op != "press-2"), "and no takeover was recorded for the press");
+    assert_eq!(*super::testing::lock(&seen), ["work", "next", "later"], "nor anything delivered");
+    finish.notify_one();
+    eventually_on!(&[&reopened.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next", "later", "waiting"]).then_some(())).await;
+    finish.notify_one();
+    eventually_on!(&[&reopened.cell.stepped], || idle(&reopened).then_some(())).await;
+}
+
+/// The receipt is durable and idempotent under the operation id: what a press stored (accepted or refused) answers a repeat
+/// of that press its first outcome, and decides and delivers nothing a second time. It answers only that press, to the
+/// audience it was stored for: another payload under the id, or another caller, is told the id is taken and nothing more.
+#[tokio::test(start_paused = true)]
+async fn a_stored_takeover_receipt_answers_only_its_own_press_and_audience() {
+    use super::ThreadStore as _;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let (seen, finish) = working(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    let refusal = take_over(&handle, "turn-before", &queued, "press-1").await;
+    assert_eq!(refusal, refused("turn-before", &queued, "turnMismatch", "queued"));
+    let accepted = take_over(&handle, running.as_str(), &queued, "press-2").await;
+    assert_eq!(accepted["kind"], json!("accepted"));
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == ["work", "next"]).then_some(())).await;
+    finish.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    // What the log holds of each operation, as the op index hands it to a repeat after a restart.
+    let stored = |op: &'static str| {
+        let (store, id) = (rig.store.clone(), handle.id.clone());
+        let lane = handle.deps.lanes.io;
+        async move {
+            mixdog_core_base::support::on_lane(lane, &CancellationToken::new(), move |lane| store.committed_op(lane, &id, op))
+                .await
+                .expect("the lane")
+                .expect("the log is read")
+                .expect("the operation is stored")
+        }
+    };
+    let press = |turn: &str, queued: &str, op: &'static str| {
+        request("turn/takeover", json!({ "threadId": handle.id, "opId": op, "turnId": turn, "queuedId": queued }), op)
+    };
+    let answer = |stored, req: &CoreRequest, op: &str| super::handle::stored_receipt(stored, req, OpId::from(op));
+    let again = answer(stored("press-2").await, &press(running.as_str(), &queued, "press-2"), "press-2");
+    assert!(matches!(again, Ok(Reply::Value(receipt)) if receipt == accepted), "the accepted press reads accepted");
+    let again = answer(stored("press-1").await, &press("turn-before", &queued, "press-1"), "press-1");
+    assert!(matches!(again, Ok(Reply::Value(receipt)) if receipt == refusal), "the refused press reads refused");
+    let other = answer(stored("press-2").await, &press(running.as_str(), "another", "press-2"), "press-2");
+    assert!(matches!(other, Err(CoreError::OpIdConflict { .. })), "an operation id names one press: {other:?}");
+    let mut stranger = press(running.as_str(), &queued, "press-2");
+    stranger.ctx = CallContext::internal("another-caller");
+    let other = answer(stored("press-2").await, &stranger, "press-2");
+    assert!(matches!(other, Err(CoreError::OpIdConflict { .. })), "another audience is not answered the receipt: {other:?}");
+    assert_eq!(*super::testing::lock(&seen), ["work", "next"], "nothing is delivered a second time");
+}
+
+/// The named turn's own completion was already on its way when the takeover was decided: the run does not see the abort and
+/// ends completed. The receipt states nothing the stored end contradicts (no interruption, no cause, only that the stop was
+/// asked for and the message is the successor); the end reads finished, with no cause, and the message starts the next turn.
+#[tokio::test(start_paused = true)]
+async fn a_takeover_of_a_turn_that_completes_anyway_states_nothing_its_end_contradicts() {
+    use mixdog_protocol::PromptContent;
+    use mixdog_store::schema::record::Record;
+    use mixdog_store::schema::record::RunPhase;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let finish = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (finish, seen) = (finish.clone(), seen.clone());
+        move |run| {
+            let (finish, seen) = (finish.clone(), seen.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text == "work" {
+                    // Its final output is already delivered: it completes whatever its signal says.
+                    finish.notified().await;
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let run = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await;
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    let receipt = take_over(&handle, run.turn.as_str(), &queued, "send-now").await;
+    let stated = json!({ "kind": "accepted", "turnId": run.turn, "queuedId": queued, "interruptRequested": true, "message": "successor" });
+    assert_eq!(receipt, stated, "the receipt says what was asked and what became of the message, nothing of the end");
+    assert!(run.cancel.is_aborted(), "the stop was asked for");
+    finish.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    assert_eq!(*super::testing::lock(&seen), ["work", "next"], "the message is the next turn");
+    let ended: Vec<RunPhase> = rig
+        .store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Run(run) if run.phase != RunPhase::Started => Some(run.phase),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ended, [RunPhase::Completed, RunPhase::Completed], "the turn's stored end reads finished");
+    let claimed: Vec<String> = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd")
+        .map(|(_, _, params)| params["item"].to_string())
+        .filter(|end| end.contains("\"cause\"") || end.contains("cancelled"))
+        .collect();
+    assert!(claimed.is_empty(), "no end reads cancelled or taken over: {claimed:?}");
+    assert!(stopped_bodies(&rig, &handle).iter().all(|body| body["takeover"].get("cause").is_none()), "nor does the stop's record");
+}
+
+/// A failed turn's retry that was already pending does not start ahead of the message a takeover reserved the next turn
+/// for: the message the user sent now runs first, the retry after it.
+#[tokio::test(start_paused = true)]
+async fn a_pending_retry_does_not_start_ahead_of_the_message_sent_now() {
+    use mixdog_app_protocol::v2::thread::TurnInput;
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let seen = seen.clone();
+        move |run| {
+            let seen = seen.clone();
+            Box::pin(async move {
+                if run.port.input_durable().await.is_err() {
+                    return RunOutcome::Interrupted;
+                }
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text != "work" {
+                    return RunOutcome::Completed(Default::default());
+                }
+                run.cancel.cancelled().await;
+                RunOutcome::Interrupted
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    // The retry is pending when the taken-over turn's end drains the queue.
+    let retry = super::quota_lane::RetryTurn {
+        input: TurnInput { prompt: PromptContent::Text("again".into()), options: None },
+        hidden: false,
+        provenance: None,
+        prior: None,
+    };
+    handle.cell.stop_latches.plant_retry(&handle.id, retry);
+    assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now").await["kind"], json!("accepted"));
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    assert_eq!(*super::testing::lock(&seen), ["work", "next", "again"]);
+}
+
+/// A Stop claims the queued message it withdraws: a takeover arriving behind it finds nothing to take, is refused as claimed
+/// by the Stop, and stops nothing.
+#[tokio::test(start_paused = true)]
+async fn a_takeover_behind_a_stop_that_withdrew_its_message_is_refused() {
+    let rig = Rig::new();
+    let (seen, _finish) = working(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let run = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await;
+    let next = json!({ "input": { "prompt": "next", "options": { "clientSubmissionId": "sub-n" } } });
+    let queued = queued_id(&call(&handle, "turn/start", next, "op-2").await.expect("queued"));
+    directory.stop_work(&handle.id, vec!["sub-n".into()]).await.expect("the Stop of the queued message is saved");
+    for (named, op) in [(queued.as_str(), "send-now-1"), ("sub-n", "send-now-2")] {
+        assert_eq!(take_over(&handle, run.turn.as_str(), named, op).await, refused(run.turn.as_str(), named, "stopClaimed", "consumed"));
+    }
+    assert!(!run.cancel.is_aborted(), "the running turn is not stopped");
+    assert!(promotions(&rig, &handle).is_empty() && handle.cell.stop_latches.takeover(&handle.id).is_none());
+    assert_eq!(*super::testing::lock(&seen), ["work"], "the withdrawn message never runs");
+}
+
+/// A tool call a takeover cuts short reads that the turn was ended to deliver the user's message, not a Stop's cancellation,
+/// and no row but the turn's own end marks the takeover.
+#[tokio::test(start_paused = true)]
+async fn a_tool_call_cut_short_by_a_takeover_says_the_turn_was_ended_for_the_message() {
+    use super::run::ItemCommit;
+    use mixdog_core_api::domain::approval::ApprovalAsk;
+    use mixdog_core_api::domain::approval::ApprovalGate as _;
+    use mixdog_core_api::domain::approval::ApprovalKind;
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_protocol::PromptContent;
+    use mixdog_protocol::ThreadItem;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if !matches!(&run.input.prompt, PromptContent::Text(text) if text == "work") {
+                return RunOutcome::Completed(Default::default());
+            }
+            let call = json!({ "id": "c1", "name": "ask_user", "arguments": { "questions": [{ "question": "Add the file?" }] } });
+            let commit = |iid: &str, role: &str, body: Value| ItemCommit {
+                iid: ItemId::from(iid),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
+            run.port.commit_item(commit("a-1", "assistant", json!({ "text": "", "toolCalls": [call] }))).await.expect("call");
+            let _ = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::UserInput,
+                    call_id: Some("c1".into()),
+                    tool: Some("ask_user".into()),
+                    action_kind: None,
+                    reason: None,
+                    payload: json!({ "questions": [{ "question": "Add the file?" }] }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            run.port.closing().commit_item(commit("t-1", "tool", json!({ "toolCallId": "c1", "text": "Cancelled", "isError": true }))).await.expect("stub");
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).map(drop)).await;
+    let running = handle.cell.run.load_full().expect("the turn runs").turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now").await["kind"], json!("accepted"));
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.queue.load().is_empty()).then_some(())).await;
+    let view = handle.cell.view.load_full();
+    let result = view.items.iter().find_map(|item| match item.as_ref() {
+        ThreadItem::ToolCall { run, .. } => Some(run.result.clone()),
+        _ => None,
+    });
+    let expected =
+        format!("Error: Session \"{}\" closed: runtime abort (reason=interrupt): the turn was ended to deliver the user's message", handle.id.as_str());
+    assert_eq!(result, Some(Some(mixdog_protocol::MaybeBlob::Inline(expected.into()))));
+    let shown = serde_json::to_string(&view.items).expect("items").to_lowercase();
+    assert!(!shown.contains("user-cancel") && !shown.contains("stopped by"), "no Stop marker is written for a takeover: {shown}");
+}
+
+/// Review finding 6: an Agent's refused takeover leaves the background jobs its session started alone; they follow only a
+/// takeover that ended its turn, once.
+#[tokio::test(start_paused = true)]
+async fn a_refused_takeover_leaves_an_agents_background_jobs_alone() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let (_seen, _finish) = working(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    let mut header = (**handle.cell.header.load()).clone();
+    header.insert("visibility".into(), json!("agent-only"));
+    handle.cell.header.store(Arc::new(header));
+    let aborted = || rig.signals.0.lock().unwrap().iter().filter(|signal| signal.starts_with("agent-abort:")).count();
+    assert_eq!(take_over(&handle, "turn-before", &queued, "send-now-1").await["kind"], json!("refused"));
+    assert_eq!(take_over(&handle, running.as_str(), "not-queued", "send-now-2").await["kind"], json!("refused"));
+    assert_eq!(aborted(), 0, "a refused takeover signals no abort of the agent's jobs");
+    assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now-3").await["kind"], json!("accepted"));
+    assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now-3").await["kind"], json!("accepted"));
+    assert_eq!(aborted(), 1, "the takeover that ended the turn signals it once, a repeat of it not again");
+}
+
+/// Review finding 7: a room's Stop, from outside the thread's task, wins the turn's abort between the takeover's checks and
+/// its own abort. The takeover lost: it is refused, records nothing, and the turn's end reads cancelled, not taken over.
+#[tokio::test(start_paused = true)]
+async fn a_stop_from_outside_that_wins_the_abort_is_not_recorded_as_a_takeover() {
+    use mixdog_protocol::ThreadItem;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = held_after_cancel(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let work = json!({ "input": { "prompt": "work", "options": { "clientSubmissionId": "sub-w" } } });
+    call(&handle, "turn/start", work, "op-1").await.expect("started");
+    let run = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await;
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    // The room's Stop of the running work, landing at the takeover's fence: after its checks, before its abort.
+    let (latches, thread, sealed) = (handle.cell.stop_latches.clone(), handle.id.clone(), Arc::new(std::sync::atomic::AtomicBool::new(false)));
+    let fired = sealed.clone();
+    *handle.cell.start_fences.lock().unwrap() = Some(Arc::new(move |fence| {
+        if fence == "takeover" && !fired.swap(true, SeqCst) {
+            let abort = mixdog_agent::cancel::Abort::runtime_abort(thread.as_str(), mixdog_agent::cancel::USER_CANCEL);
+            latches.latch(&thread, [mixdog_store::work_stops::submission("sub-w")], &abort);
+        }
+    }));
+    let receipt = take_over(&handle, run.turn.as_str(), &queued, "send-now").await;
+    assert!(sealed.load(SeqCst), "the Stop landed inside the takeover");
+    assert_eq!(receipt, refused(run.turn.as_str(), &queued, "stopClaimed", "queued"));
+    assert!(run.cancel.reason().contains(mixdog_agent::cancel::USER_CANCEL), "the Stop's abort is the one that ended the run: {}", run.cancel.reason());
+    assert!(promotions(&rig, &handle).is_empty() && handle.cell.stop_latches.takeover(&handle.id).is_none(), "the takeover recorded nothing");
+    directory.stop_work(&handle.id, vec!["sub-w".into()]).await.expect("the room's stop is saved");
+    assert!(stopped_bodies(&rig, &handle).iter().all(|body| body.get("takeover").is_none()), "the Stop's record names no takeover");
+    gate.notify_one();
+    let thread = handle.id.as_str().to_owned();
+    let live = eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+    let ThreadItem::TurnEnd { meta, .. } = &live else { panic!("a turn end: {live:?}") };
+    assert_eq!(meta.ext.get("cause"), None, "the end reads cancelled, not taken over: {live:?}");
+}
+
+/// The successor is reserved: a submission that arrives after the taken-over turn ended and before its message started (the
+/// drain waits for the ended turn's records to be saved) queues behind the message instead of starting ahead of it.
+#[tokio::test(start_paused = true)]
+async fn a_submission_arriving_before_the_message_started_does_not_become_the_next_turn() {
+    use mixdog_protocol::PromptContent;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (gate, seen) = (gate.clone(), seen.clone());
+        move |run| {
+            let (gate, seen) = (gate.clone(), seen.clone());
+            Box::pin(async move {
+                if run.port.input_durable().await.is_err() {
+                    return RunOutcome::Interrupted;
+                }
+                let PromptContent::Text(text) = &run.input.prompt else { panic!("a text prompt") };
+                super::testing::lock(&seen).push(text.clone());
+                if text != "work" {
+                    return RunOutcome::Completed(Default::default());
+                }
+                run.cancel.cancelled().await;
+                gate.notified().await;
+                RunOutcome::Interrupted
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = queued_id(&turn(&handle, "next", "op-2").await);
+    assert_eq!(take_over(&handle, running.as_str(), &queued, "send-now").await["kind"], json!("accepted"));
+    let disk = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let third = {
+        let handle = handle.clone();
+        tokio::spawn(async move { turn(&handle, "third", "op-3").await })
+    };
+    let waits = |text: &str| handle.cell.queue.load().iter().any(|entry| entry.entry["message"].to_string().contains(text));
+    eventually_on!(&[&handle.cell.stepped], || waits("third").then_some(())).await;
+    drop(disk);
+    assert_eq!(third.await.expect("joined")["kind"], json!("queued"));
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    assert_eq!(*super::testing::lock(&seen), ["work", "next", "third"]);
+}

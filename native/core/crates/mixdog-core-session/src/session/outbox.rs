@@ -23,7 +23,7 @@ use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::server_request::PendingServerRequest;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_store::schema::record::Record;
-use mixdog_store::schema::record::{ApprovalPhase, QueueAction};
+use mixdog_store::schema::record::{ApprovalPhase, QueueAction, RunPhase};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
@@ -164,6 +164,9 @@ pub(crate) struct Entry {
     /// them (built from the item as the state holds it once the entry is applied, never before).
     pub notes: Vec<Note>,
     pub effects: Vec<Effect>,
+    /// The rows a page of the record reads once it is stored, as the log holds it: the record's unit for the positioned
+    /// subscriptions. Empty for a record that shows none and for a view-only entry.
+    pub unit: Vec<mixdog_protocol::ThreadItem>,
     /// The entry this view-only one stands on: it is dropped with that entry when the record fails to encode.
     pub needs: Option<u64>,
     /// Released before it was durable (its barrier failed, [`Outbox::hold`]): its change is in the acked state and its
@@ -190,6 +193,11 @@ fn withdrawn_on_failure(entry: &Entry) -> bool {
     answers_a_client(entry)
         || entry.effects.iter().any(|effect| matches!(effect, Effect::InputDurable | Effect::Decided(_)))
         || entry.durable.as_ref().is_some_and(|durable| durable.retain)
+}
+
+/// The entry holds a turn's terminal record.
+fn closes_turn(entry: &Entry) -> bool {
+    matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Run(run) if !matches!(run.phase, RunPhase::Started | RunPhase::Attempt)))
 }
 
 /// What [`Outbox::pop_ready`] gives the actor next.
@@ -407,6 +415,7 @@ impl Outbox {
             change: entry.change.clone(),
             notes: std::mem::take(&mut entry.notes),
             effects: Vec::new(),
+            unit: Vec::new(),
             needs: None,
             held: false,
             shown: false,
@@ -474,7 +483,7 @@ impl Outbox {
                 mark: self.marks.accept(),
             }
         });
-        self.entries.push_back(Entry { id, durable, change, notes, effects, needs: None, held: false, shown: false });
+        self.entries.push_back(Entry { id, durable, change, notes, effects, unit: Vec::new(), needs: None, held: false, shown: false });
         id
     }
 
@@ -521,12 +530,13 @@ impl Outbox {
     }
 
     /// Records an encode result; the bytes now count in the window. `stored`: the record as the log holds it when that
-    /// differs from the one accepted, which the log is then handed.
-    pub fn encoded(&mut self, id: u64, encoded: EncodedRecord, stored: Option<Record>) {
+    /// differs from the one accepted, which the log is then handed. `unit`: [`Entry::unit`].
+    pub fn encoded(&mut self, id: u64, encoded: EncodedRecord, stored: Option<Record>, unit: Vec<mixdog_protocol::ThreadItem>) {
         let bytes = encoded.bytes();
         let Some(entry) = self.get_mut(id) else {
             return;
         };
+        entry.unit = unit;
         let Some(durable) = entry.durable.as_mut() else {
             return;
         };
@@ -698,16 +708,36 @@ impl Outbox {
             change: entry.change.clone(),
             notes: std::mem::take(&mut entry.notes),
             effects: Vec::new(),
+            unit: Vec::new(),
             needs: None,
             held: false,
             shown: false,
         }))
     }
 
+    /// The entry [`Self::pop_ready`] gives next, when it is a turn's terminal record, stored. An entry's id is never
+    /// given to another, so what was noted of one terminal record is never read as noted of a later one.
+    pub fn closes_turn_next(&self) -> Option<u64> {
+        let acked = |entry: &Entry| matches!(entry.durable, Some(Durable { stage: Stage::Acked(_), .. }));
+        let next = match self.entries.front() {
+            Some(front) if acked(front) => Some(front),
+            _ => self.entries.iter().find(|entry| !entry.held).filter(|entry| acked(entry)),
+        };
+        next.filter(|entry| closes_turn(entry)).map(|entry| entry.id)
+    }
+
     /// The entry at `index` exists in its final form and no failure would withdraw it: it is view-only, or every record of its
     /// unit is encoded (its rows are known) and none of them is withdrawn on failure (a unit is written, failed or held whole).
     fn showable(&self, index: usize) -> bool {
         let entry = &self.entries[index];
+        // A turn's terminal record is shown once it is stored (or held by a failed barrier): the turn is told ended
+        // only after its last output and its end, stored before it, went out as the log holds them. A compaction that
+        // shows a divider likewise: what is released after it (the runtime leaving `compacting`) follows the divider.
+        let divides =
+            matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Compacted(compacted) if compacted.silent != Some(true)));
+        if closes_turn(entry) || divides {
+            return false;
+        }
         let Some(unit) = entry.durable.as_ref().map(|durable| durable.unit) else {
             return !withdrawn_on_failure(entry);
         };
@@ -793,6 +823,45 @@ impl Outbox {
     /// The changes not yet in the acked state, in accept order (a held or shown entry's is there already).
     pub fn changes(&self) -> impl Iterator<Item = &Change> {
         self.entries.iter().filter(|entry| !entry.held && !entry.shown).map(|entry| &entry.change)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_store::schema::record::RunRecord;
+
+    fn terminal(outbox: &mut Outbox, turn: &str, ordinal: u64) -> u64 {
+        let record = Arc::new(Record::Run(RunRecord {
+            rid: mixdog_store::schema::bounded::Text::try_from(turn).expect("a short id"),
+            phase: RunPhase::Completed,
+            attribution: None,
+            attempt: None,
+            end: None,
+            at: None,
+            op: None,
+            detail: None,
+        }));
+        let change = Change::Record { record: record.clone(), display: super::super::state::Display::None };
+        let id = outbox.push(Some((record, Class::Normal)), change, Vec::new(), Vec::new());
+        outbox.acked(id, ordinal);
+        id
+    }
+
+    /// A stored terminal record withdrawn by a failure leaves nothing noted of it for the next turn's: the next one is
+    /// named as a record of its own, so its close is marked on the line anew.
+    #[test]
+    fn a_withdrawn_terminal_record_is_not_the_next_turns() {
+        let mut outbox = Outbox::new(SessionLimits::default());
+        assert_eq!(outbox.closes_turn_next(), None);
+        let first = terminal(&mut outbox, "t1", 4);
+        assert_eq!(outbox.closes_turn_next(), Some(first));
+        assert_eq!(outbox.fail_all().len(), 1);
+        assert_eq!(outbox.closes_turn_next(), None, "the withdrawn record closes nothing");
+        let second = terminal(&mut outbox, "t2", 4);
+        assert_eq!(outbox.closes_turn_next(), Some(second));
+        assert_ne!(first, second, "what was marked for the first is not marked for the second");
+        outbox.fail_all();
     }
 }
 

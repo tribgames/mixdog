@@ -391,7 +391,7 @@ mod a_second_kill_during_the_recovery_leaves_each_row_once {
     use super::second_kills_after;
 
     /// The first point no test below starts from.
-    const PAST_THE_LAST: usize = 7;
+    const PAST_THE_LAST: usize = 8;
 
     #[test]
     fn after_a_first_kill_at_point_0() {
@@ -418,6 +418,7 @@ mod a_second_kill_during_the_recovery_leaves_each_row_once {
         after_a_first_kill_at_point_4: 4,
         after_a_first_kill_at_point_5: 5,
         after_a_first_kill_at_point_6: 6,
+        after_a_first_kill_at_point_7: 7,
     }
 
     #[test]

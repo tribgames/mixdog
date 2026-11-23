@@ -548,7 +548,7 @@ async fn a_history_node_1_4_5_stamped_is_sent_whole_after_the_upgrade() {
         let thinking = serde_json::json!([{ "type": "thinking", "thinking": "plan", "signature": "sig-1" }]);
         let mut unstamped = Message::new(Role::Assistant, Content::Text("before the pool".into()));
         unstamped.thinking_blocks = Some(serde_json::json!([{ "type": "thinking", "thinking": "old", "signature": "sig-0" }]));
-        let mut calling = Message::new(Role::Assistant, Content::Text(String::new()));
+        let mut calling = Message::new(Role::Assistant, Content::Text(String::new().into()));
         calling.thinking_blocks = Some(thinking.clone());
         calling.push_replay(ProviderReplay { owner: ProviderId::from(PROVIDER), items: serde_json::json!(["replay-1"]) });
         calling.account_routing = Some(AccountRouting { provider: PROVIDER.into(), account_id: ID_A.into(), session_account_id: Some(ID_A.into()) });
