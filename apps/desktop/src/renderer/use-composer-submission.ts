@@ -8,6 +8,7 @@ import type {
   DesktopSubmitOptions,
 } from '../shared/contract';
 import { reportComposerAction } from './composer-diagnostics';
+import { finishComposerComposition } from './use-composer-ime';
 import { skillTitle, withSelectedSkill } from './composer-skill';
 import type { RecordValue } from './desktop-types';
 import { replyRestoreApplied } from './use-composer-prompt-restore';
@@ -339,6 +340,7 @@ export function useComposerSubmission({
         composing: composingRef.current,
         uptimeMs: performance.now(),
       });
+      finishComposerComposition(textarea.current);
       if (showsSubmitProgress) {
         submittingRef.current = true;
         setSubmitting(true);
