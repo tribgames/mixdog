@@ -271,7 +271,7 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     fn settings_changes(&self, _: &ThreadId) -> Option<super::turn_ops::SettingsFeed> {
         let changes = lock(&self.settings).clone()?;
         Some(match lock(&self.shown).take() {
-            Some(shown) => super::turn_ops::SettingsFeed { changes, shown },
+            Some(shown) => super::turn_ops::SettingsFeed { changes, shown: shown.into() },
             None => super::turn_ops::SettingsFeed::unwatched(changes),
         })
     }

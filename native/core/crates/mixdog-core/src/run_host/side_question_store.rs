@@ -68,6 +68,7 @@ pub trait SendWarmth: Send + Sync {
 pub struct SideQuestionStore {
     requests: Mutex<HashMap<String, Slot>>,
     warm: std::sync::OnceLock<Arc<dyn SendWarmth>>,
+    ended: std::sync::OnceLock<Box<dyn Fn(&ThreadId, SideEnd) + Send + Sync>>,
 }
 
 /// The fork of a session with no saved request. A compaction only sends it for a request that
@@ -231,6 +232,14 @@ impl SideQuestionStore {
     pub fn end(&self, thread: &ThreadId, end: SideEnd) {
         self.requests().remove(thread.as_str());
         self.warm_end(thread, end);
+        if let Some(ended) = self.ended.get() {
+            ended(thread, end);
+        }
+    }
+
+    /// `hear` is told of every session end, once bound; the first binding stands.
+    pub fn on_end(&self, hear: impl Fn(&ThreadId, SideEnd) + Send + Sync + 'static) {
+        let _ = self.ended.set(Box::new(hear));
     }
 
     /// The one place the warm hears how a session's request ended: an unload keeps the chain and its touch; a detach ends
@@ -452,6 +461,16 @@ mod tests {
     use mixdog_protocol::ProviderId;
 
     use super::*;
+
+    #[test]
+    fn a_bound_listener_hears_every_session_end() {
+        let store = SideQuestionStore::new();
+        let heard: Arc<Mutex<Vec<(String, SideEnd)>>> = Arc::default();
+        let sink = heard.clone();
+        store.on_end(move |thread, end| sink.lock().unwrap().push((thread.as_str().to_owned(), end)));
+        store.end(&ThreadId::from("t"), SideEnd::Detach);
+        assert_eq!(*heard.lock().unwrap(), [("t".to_owned(), SideEnd::Detach)]);
+    }
 
     /// Records the requests it is sent, then answers from the mock script.
     struct Recording {

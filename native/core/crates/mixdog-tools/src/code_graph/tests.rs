@@ -1991,3 +1991,37 @@ fn a_graph_no_call_took_for_the_idle_period_is_released() {
     assert!(cache.held_roots().is_empty());
     assert_eq!(cache.builds(), 2, "taking a held generation again builds nothing");
 }
+
+/// Releasing an idle graph releases its resident lookups with it.
+#[test]
+fn an_idle_release_drops_the_resident_lookups_of_the_released_graph() {
+    let (_t1, one) = project_with_sentinel();
+    let (_dir, cache) = no_cache();
+    let cache = cache.with_graph_idle(std::time::Duration::from_millis(100));
+    cache.graph(&one, &[]).unwrap();
+    let key = cache.held_roots().remove(0);
+    cache.lookups_for(&key, 1, || (10, 0));
+    assert_eq!(cache.resident_roots(), [key]);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    assert!(!cache.release_idle());
+    assert!(cache.resident_roots().is_empty());
+}
+
+/// Forgetting a root removes its refresh lock and the ledger entries under it, and no other root's.
+#[test]
+fn forgetting_a_root_removes_its_lock_and_ledger_entries() {
+    let (_t1, one) = project_with_sentinel();
+    let (_t2, two) = project_with_sentinel();
+    let (_dir, cache) = no_cache();
+    cache.graph(&one, &[]).unwrap();
+    cache.graph(&two, &[]).unwrap();
+    let (a, b) = (one.join("a.txt"), two.join("b.txt"));
+    std::fs::write(&a, "x").unwrap();
+    std::fs::write(&b, "x").unwrap();
+    cache.note_resolved(&[a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned()]);
+    assert_eq!((cache.tracked_roots(), cache.ledger_len()), (2, 2));
+    cache.graph(&one, &[two.clone()]).unwrap();
+    assert_eq!(cache.tracked_roots(), 3, "the scoped build of a root has its own lock");
+    cache.forget(&one);
+    assert_eq!((cache.tracked_roots(), cache.ledger_len()), (1, 1), "the root's lock, scoped locks and ledger paths are gone");
+}

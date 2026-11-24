@@ -313,6 +313,9 @@ impl PluginsService {
         let key = plugin_key(plugin).map_err(|m| domain_error("plugins", m))?;
         let admin = Arc::clone(&self.admin);
         let removed = self.on_lane(move |lane| admin.remove_plugin(lane, &json!(key))).await?.map_err(|e| domain_error("plugins", e.0))?;
+        if let Some(root) = removed.get("root").and_then(Value::as_str).filter(|root| !root.is_empty()) {
+            self.declarations.forget(Path::new(root));
+        }
         self.host.reconcile_plugins_and_announce().await;
         Ok(json!({"plugin": removed, "status": self.status(thread).await?}))
     }

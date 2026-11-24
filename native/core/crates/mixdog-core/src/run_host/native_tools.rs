@@ -859,6 +859,17 @@ mod tests {
         assert!(!entries.contains_key("old"), "five idle minutes reclaim it");
     }
 
+    /// A helper's entry in the presence table leaves with its backend, not at the next lookup.
+    #[tokio::test]
+    async fn a_released_sessions_helper_leaves_the_presence_table() {
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), on_linux_desktop(settings())).await;
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let _ = pool.backend("a").run(read(), CancellationToken::new()).await;
+        assert_eq!(pool.presence.helpers.lock().unwrap().len(), 1);
+        pool.release("a").await;
+        assert!(pool.presence.helpers.lock().unwrap().is_empty());
+    }
+
     /// The sessions read the observation-only setting on every call: turned on between two executions, the second opens
     /// observing only, and the section says so.
     #[tokio::test]
@@ -2012,8 +2023,17 @@ impl ComputerPresence {
         if self.stops.load(std::sync::atomic::Ordering::SeqCst) > 0 || self.off_pending.load(std::sync::atomic::Ordering::SeqCst) > 0 {
             return ComputerCleanupState::Pending;
         }
-        let helpers = self.helpers.lock().unwrap_or_else(PoisonError::into_inner);
-        if helpers.values().filter_map(Weak::upgrade).any(|helper| helper.is_cleaning()) { ComputerCleanupState::Pending } else { ComputerCleanupState::Ready }
+        // Upgraded outside the lock: the last holder of a helper ending here must find the table unlocked.
+        let live: Vec<_> = self.helpers.lock().unwrap_or_else(PoisonError::into_inner).values().filter_map(Weak::upgrade).collect();
+        if live.iter().any(|helper| helper.is_cleaning()) { ComputerCleanupState::Pending } else { ComputerCleanupState::Ready }
+    }
+
+    /// A helper's backend ended: its entry leaves, unless a newer helper of the same key took the place.
+    fn forget_helper(&self, key: &str) {
+        let mut helpers = self.helpers.lock().unwrap_or_else(PoisonError::into_inner);
+        if helpers.get(key).is_some_and(|helper| helper.strong_count() == 0) {
+            helpers.remove(key);
+        }
     }
 
     fn section(&self, state: &PresenceState) -> ComputerSection {
@@ -2553,7 +2573,12 @@ impl ComputerSessionPool {
                 if self.linux_desktop {
                     helper = helper.with_ready_linux_desktop();
                 }
-                let helper = Arc::new(helper);
+                let (presence, ended) = (Arc::downgrade(&self.presence), key.to_owned());
+                let helper = Arc::new(helper.with_end_hook(move || {
+                    if let Some(presence) = presence.upgrade() {
+                        presence.forget_helper(&ended);
+                    }
+                }));
                 self.shared.user_control.register(key, Arc::downgrade(&helper));
                 self.presence.helpers.lock().unwrap_or_else(PoisonError::into_inner).insert(key.to_owned(), Arc::downgrade(&helper));
                 helper.watch_for_death();

@@ -296,13 +296,46 @@ pub trait ManualCompaction: Send + Sync {
 /// A thread's feed of the settings change counter, and where it reports the count it has shown (published in its state).
 pub struct SettingsFeed {
     pub changes: tokio::sync::watch::Receiver<u64>,
-    pub shown: tokio::sync::watch::Sender<u64>,
+    pub shown: ShownSender,
+}
+
+/// Where a thread reports the count it has shown; `release` runs when the feed ends and the sender is dropped.
+pub struct ShownSender {
+    sender: tokio::sync::watch::Sender<u64>,
+    release: Option<Box<dyn FnOnce() + Send + Sync>>,
+}
+
+impl ShownSender {
+    pub fn new(sender: tokio::sync::watch::Sender<u64>, release: impl FnOnce() + Send + Sync + 'static) -> Self {
+        Self { sender, release: Some(Box::new(release)) }
+    }
+}
+
+impl From<tokio::sync::watch::Sender<u64>> for ShownSender {
+    fn from(sender: tokio::sync::watch::Sender<u64>) -> Self {
+        Self { sender, release: None }
+    }
+}
+
+impl std::ops::Deref for ShownSender {
+    type Target = tokio::sync::watch::Sender<u64>;
+    fn deref(&self) -> &Self::Target {
+        &self.sender
+    }
+}
+
+impl Drop for ShownSender {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            release();
+        }
+    }
 }
 
 impl SettingsFeed {
     /// A feed nobody waits on.
     pub fn unwatched(changes: tokio::sync::watch::Receiver<u64>) -> Self {
-        Self { changes, shown: tokio::sync::watch::channel(0).0 }
+        Self { changes, shown: tokio::sync::watch::channel(0).0.into() }
     }
 }
 

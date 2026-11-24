@@ -307,6 +307,11 @@ impl McpHub {
         let scope = normalize_scope(Some(scope));
         let root = mixdog_js::js_trim(root);
         {
+            // Decided and written under the hold `retire_scope` takes, so a release cannot fall between the two.
+            let lives = self.lives.lock().unwrap_or_else(|e| e.into_inner());
+            if lives.get(&scope).is_some_and(|life| life.released) {
+                return;
+            }
             let mut roots = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner());
             if roots.get(&scope).map_or("", String::as_str) == root {
                 return;
@@ -780,6 +785,7 @@ impl McpHub {
             live.retain(|held, _| held.0 != scope);
             live
         });
+        self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).remove(&scope);
         drop(lives);
         closing
     }
@@ -788,6 +794,11 @@ impl McpHub {
     /// scope no other scope shares closes; the other scopes are untouched.
     pub async fn release_scope(&self, scope: &str) {
         close_retired(self.retire_scope(scope)).await;
+    }
+
+    /// Whether the scope has a workspace folder recorded.
+    pub fn has_scope_root(&self, scope: &str) -> bool {
+        self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&normalize_scope(Some(scope)))
     }
 
     /// Whether a scope other than `scope` holds `server` (a stdio connection the scopes share, `_sharedStdio`).

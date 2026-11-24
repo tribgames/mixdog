@@ -32,6 +32,8 @@ pub(crate) struct AccountGroup {
     pub servers: Vec<Arc<McpServer>>,
     service: String,
     catalogs: Mutex<HashMap<String, AccountCatalog>>,
+    /// The union of the accounts' tools, shared by every call until an account's tools change.
+    listed: Mutex<Option<Arc<Vec<Value>>>>,
 }
 
 struct AccountCatalog {
@@ -130,7 +132,7 @@ impl Transport for AccountTransport {
                 let result = match message["method"].as_str().unwrap_or_default() {
                     "initialize" => group.initialize().await,
                     "ping" => Ok(json!({})),
-                    "tools/list" => Ok(json!({"tools": group.catalog().0})),
+                    "tools/list" => Ok(json!({"tools": group.catalog().0.as_slice()})),
                     "tools/call" => Ok(group.call(&message["params"], &cancel, tx.clone()).await),
                     _ => Err("Method not found".to_owned()),
                 };
@@ -195,6 +197,28 @@ mod tests {
         assert_eq!(asked.await.unwrap_err(), "failed: the last attempt failed");
     }
 
+    /// Calls with no change in an account's tools share one catalog snapshot.
+    #[test]
+    fn the_catalog_is_one_shared_snapshot_until_an_accounts_tools_change() {
+        let tokens = mixdog_rt::testing::tokens();
+        let io = crate::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+        let dir = tempfile::tempdir().unwrap();
+        let url = "http://127.0.0.1:9/mcp";
+        let entry = json!({"connector": "linear", "url": url, "accounts": [{"name": "work", "url": url, "oauthKey": "work"}]});
+        let config = McpServerConfig::from_entry("linear", &entry, &Default::default()).unwrap();
+        let account = config.accounts[0].server.clone();
+        let spiller = crate::result::Spiller::new(dir.path().to_path_buf(), io.durability);
+        let server = McpServer::new(account, io, spiller, crate::result::OutputPolicy::default(), None);
+        let name = server.name().to_owned();
+        let runtime = AccountRuntime { health: Arc::new(AccountHealth::default()), data_dir: dir.path().to_path_buf(), maintenance: tokens.maintenance_io };
+        let group = AccountGroup::new(&config, vec![server], &runtime);
+        group.catalogs.lock().unwrap().insert(name, AccountCatalog { tools: vec![json!({"name": "search"})], instructions: String::new() });
+        let (first, _) = group.catalog();
+        let (second, _) = group.catalog();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.len(), 1);
+    }
+
     #[test]
     fn account_union_compares_schema_objects_and_rejects_conflicting_tools() {
         let lists = vec![
@@ -228,6 +252,7 @@ impl AccountGroup {
             servers,
             service: crate::connectors::connector(connector).map_or(connector, |entry| entry.name).to_owned(),
             catalogs: Mutex::new(HashMap::new()),
+            listed: Mutex::new(None),
         })
     }
 
@@ -260,12 +285,15 @@ impl AccountGroup {
         )
     }
 
-    fn catalog(&self) -> (Vec<Value>, String) {
+    fn catalog(&self) -> (Arc<Vec<Value>>, String) {
         let mut lists = Vec::new();
         let mut own = Vec::new();
         let mut catalogs = self.catalogs.lock().unwrap_or_else(|e| e.into_inner());
         for server in &self.servers {
             if let Some(ready) = server.connection() {
+                if catalogs.get(server.name()).is_none_or(|held| held.tools != ready.tools) {
+                    *self.listed.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                }
                 catalogs.insert(
                     server.name().to_owned(),
                     AccountCatalog { tools: ready.tools.clone(), instructions: ready.instructions.clone().unwrap_or_default() },
@@ -292,7 +320,7 @@ impl AccountGroup {
                 }
             }
         }
-        let listed = union_tools(&lists);
+        let listed = self.listed.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(|| Arc::new(union_tools(&lists))).clone();
         self.choice.set_listed(listed.iter().filter_map(|tool| tool["name"].as_str().map(str::to_owned)));
         let labels = self.choice.labels().into_iter().map(|(email, note)| crate::connector_instructions::ConnectorAccount { email, note }).collect::<Vec<_>>();
         let mut instructions = crate::connector_instructions::connector_accounts_instructions(&labels).into_iter().collect::<Vec<_>>();

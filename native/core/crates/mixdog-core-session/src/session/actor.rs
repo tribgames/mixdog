@@ -896,7 +896,7 @@ fn goal_lane_status(goal: &Goal) -> &str {
 pub(crate) struct SettingsFollow {
     changes: watch::Receiver<u64>,
     seen: u64,
-    shown: watch::Sender<u64>,
+    shown: super::turn_ops::ShownSender,
 }
 
 impl SettingsFollow {

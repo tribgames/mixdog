@@ -415,6 +415,12 @@ impl Ledger {
         revision
     }
 
+    /// Drops every revision of a path under root `key`.
+    pub(super) fn forget(&self, key: &str) {
+        let prefix = format!("{}/", key.trim_end_matches('/'));
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).latest.retain(|path, _| !path.starts_with(&prefix));
+    }
+
     /// How many paths have a revision.
     #[cfg(test)]
     pub(super) fn len(&self) -> usize {
@@ -1235,6 +1241,21 @@ impl GraphCache {
         self.graphs.lock().unwrap().iter().map(|h| h.key.clone()).collect()
     }
 
+    #[cfg(test)]
+    pub(super) fn resident_roots(&self) -> Vec<String> {
+        self.resident.lock().unwrap().iter().map(|r| r.root.clone()).collect()
+    }
+
+    #[cfg(test)]
+    pub(super) fn tracked_roots(&self) -> usize {
+        self.roots.lock().unwrap().len()
+    }
+
+    #[cfg(test)]
+    pub(super) fn ledger_len(&self) -> usize {
+        self.ledger.len()
+    }
+
     fn manifest_path(&self) -> PathBuf {
         self.dir.join("manifest.json")
     }
@@ -1421,6 +1442,9 @@ impl GraphCache {
     }
 
     fn forget_in_memory(&self, key: &str, removed: &mut Vec<String>) {
+        self.ledger.forget(key);
+        let scoped = format!("{key}\u{0}");
+        self.roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|held, _| held != key && !held.starts_with(&scoped));
         {
             let mut resident = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let before = resident.len();
@@ -1430,7 +1454,6 @@ impl GraphCache {
             }
         }
         // The root's scoped builds go with it.
-        let scoped = format!("{key}\u{0}");
         self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|h| h.key != key && !h.key.starts_with(&scoped));
         if self.heap_note(key).is_some() {
             let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1509,8 +1532,17 @@ impl GraphCache {
     /// Releases the held generations no call took for `graph_idle`; `true` while some are still held.
     pub(super) fn release_idle(&self) -> bool {
         let mut all = self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        all.retain(|h| h.used.elapsed() < self.graph_idle);
-        !all.is_empty()
+        let now = Instant::now();
+        let idle = |h: &Held| now.saturating_duration_since(h.used) >= self.graph_idle;
+        let released: Vec<String> = all.iter().filter(|h| idle(h)).map(|h| h.key.clone()).collect();
+        all.retain(|h| !idle(h));
+        let held = !all.is_empty();
+        let still: HashSet<&str> = all.iter().map(|h| h.key.as_str()).collect();
+        self.resident
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|r| !released.contains(&r.root) || still.contains(r.root.as_str()));
+        held
     }
 
     /// Once per idle period while generations are held, a release of the idle ones, so a root nobody queries again does

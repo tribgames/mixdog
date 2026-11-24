@@ -77,6 +77,25 @@ pub struct ManualParts {
 /// The meters of a thread's pressure on one provider, as the latest `prepare_books` left them.
 type Meters = (Arc<dyn mixdog_agent::compact::estimate::MediaMeter>, Arc<dyn mixdog_agent::compact::pressure::ImageIdentities>);
 
+fn without_thread<V>(prepared: &mut HashMap<(String, String), V>, thread: &str) {
+    prepared.retain(|(held, _), _| held != thread);
+}
+
+#[cfg(test)]
+mod prepared_tests {
+    use super::*;
+
+    #[test]
+    fn a_threads_prepared_entries_go_whatever_the_provider_and_others_stay() {
+        let mut prepared: HashMap<(String, String), ()> = HashMap::new();
+        for key in [("a", "p1"), ("a", "p2"), ("b", "p1")] {
+            prepared.insert((key.0.to_owned(), key.1.to_owned()), ());
+        }
+        without_thread(&mut prepared, "a");
+        assert_eq!(prepared.keys().cloned().collect::<Vec<_>>(), [("b".to_owned(), "p1".to_owned())]);
+    }
+}
+
 pub struct HostManualCompaction {
     parts: ManualParts,
     /// Per thread and provider: the lowering whose store facts were read for the pressure being recorded.
@@ -88,6 +107,11 @@ pub struct HostManualCompaction {
 impl HostManualCompaction {
     pub fn new(parts: ManualParts) -> Self {
         Self { parts, prepared: Mutex::new(HashMap::new()), warm_uses: None }
+    }
+
+    /// Lets go of the meters prepared for `thread`, whichever provider they were for.
+    pub fn release_thread(&self, thread: &ThreadId) {
+        without_thread(&mut self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()), thread.as_str());
     }
 
     /// The warmer's touch store, for [`ManualCompaction::cache_warm_use_at`].
@@ -623,6 +647,7 @@ impl ManualCompaction for HostManualCompaction {
 
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.parts.hooks.post(thread, trigger).await;
+        self.release_thread(thread);
     }
 
     async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
