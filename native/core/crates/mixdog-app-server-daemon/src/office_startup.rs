@@ -62,7 +62,7 @@ async fn sweep(pool: Arc<dyn ExtPool>, call: ExtCall) -> bool {
 }
 
 impl RuntimeHooks for OfficeStartup {
-    fn started(&self, thread: &ThreadId) {
+    fn started(&self, thread: &ThreadId, runtime: u64) {
         let sweeps = self.sweeps.clone();
         if sweeps.begin() {
             let pool = self.pool.clone();
@@ -83,11 +83,11 @@ impl RuntimeHooks for OfficeStartup {
                 }
             });
         }
-        self.inner.started(thread);
+        self.inner.started(thread, runtime);
     }
 
-    fn stopped(&self, thread: &ThreadId) {
-        self.inner.stopped(thread);
+    fn stopped(&self, thread: &ThreadId, runtime: u64) {
+        self.inner.stopped(thread, runtime);
     }
 }
 

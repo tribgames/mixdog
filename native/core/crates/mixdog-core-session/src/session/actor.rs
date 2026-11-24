@@ -1956,7 +1956,13 @@ pub(crate) struct SessionActor {
     /// A model call of the running turn already counted its own usage (`usageMetricsTurnIncremental`),
     /// so the turn's end adds no totals.
     usage_incremental: bool,
+    /// This runtime's identity among every runtime of the process ([`RUNTIMES`]), minted at boot: its start and stop name it,
+    /// since a reopened thread's runtime can start before the earlier one's stop lands.
+    runtime: u64,
 }
+
+/// The runtimes started in this process: each actor's identity is the next count.
+static RUNTIMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 async fn guard_run(run: impl std::future::Future<Output = ()>, ctl: mpsc::Sender<Ctl>, turn: TurnId) {
     use futures::FutureExt;
@@ -2322,6 +2328,7 @@ impl SessionActor {
             retry_prior: None,
             runs_begun: 0,
             usage_incremental: false,
+            runtime: 0,
             deps,
         }
     }
@@ -2442,7 +2449,8 @@ impl SessionActor {
         self.sync_compaction();
         self.seed_route_config();
         self.seed_todo();
-        self.deps.runtime_hooks.started(&self.id);
+        self.runtime = RUNTIMES.fetch_add(1, SeqCst) + 1;
+        self.deps.runtime_hooks.started(&self.id, self.runtime);
         self.load_persisted_prompts();
         self.pump();
         // Nobody watches it until a client attaches (a worker, a headless run never does): it starts on the idle clock.
@@ -2495,7 +2503,7 @@ impl SessionActor {
             tracing::warn!("session {}: it ends owing draft file writes; the next open takes them", self.id.as_str());
         }
         self.cancel_toast_timers();
-        self.deps.runtime_hooks.stopped(&self.id);
+        self.deps.runtime_hooks.stopped(&self.id, self.runtime);
         self.deps.snapshots.runtime_stopped(&self.id);
         let usage = self.deps.gateway_usage.clone();
         tokio::spawn(async move { usage.settle().await });

@@ -270,6 +270,7 @@ mod tests {
         let logins = HostSavedLogins::admit(desktop.clone(), ThreadId::from(SESSION), 7).await.unwrap();
         let worker = Arc::new(Worker(Mutex::new(Vec::new())));
         let turn = SavedLoginTurn { session: SESSION.to_owned(), turn: 7 };
+        registry.runtime_started(SESSION, 1);
         let admitted = registry.admit(&turn).unwrap();
         let hide = |text: &str| registry.redact(text);
         let runnable = || Ok(());
@@ -402,6 +403,7 @@ mod tests {
         let registry = SavedLoginRegistry::new();
         let logins = HostSavedLogins::admit(desktop.clone(), ThreadId::from(SESSION), 7).await.unwrap();
         let worker = logins.worker(helper.clone(), "hwnd:0x1");
+        registry.runtime_started(SESSION, 1);
         let admitted = registry.admit(&SavedLoginTurn { session: SESSION.to_owned(), turn: 7 }).unwrap();
         let hide = |text: &str| registry.redact(text);
         let runnable = || Ok(());

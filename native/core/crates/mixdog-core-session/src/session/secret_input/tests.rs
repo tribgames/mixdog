@@ -479,6 +479,7 @@ mod saved_login_backend {
         let desktop = Arc::new(Desktop { actions: Mutex::new(Vec::new()), auto_login, gone });
         let helper = Arc::new(Helper(Mutex::new(Vec::new())));
         let registry = SavedLoginRegistry::new();
+        registry.runtime_started(SESSION, 1);
         let backend = SavedLoginComputerBackend::new(
             inner.clone(),
             ThreadId::from(SESSION),
@@ -588,6 +589,66 @@ mod saved_login_backend {
         assert!(!off.desktop.actions.lock().unwrap().iter().any(|action| action == "saved_login_value"));
     }
 
+    /// A fill that read its turn and still waits on the desktop when the runtime stops is refused at its admission: nothing is
+    /// looked up, checked or written, and no redaction or pixel guard is set up.
+    #[tokio::test]
+    async fn a_fill_waiting_before_its_admission_when_the_runtime_stops_writes_nothing() {
+        use tokio::sync::Semaphore;
+
+        use super::super::computer::SavedLoginTurnClock;
+
+        /// The desktop, holding the fill's admission until `gate` lets it through.
+        struct Held {
+            desktop: Desktop,
+            reached: Semaphore,
+            gate: Semaphore,
+        }
+        #[async_trait]
+        impl HostCommands for Held {
+            async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+                if action == "saved_login_admit" {
+                    self.reached.add_permits(1);
+                    let _through = self.gate.acquire().await.unwrap();
+                }
+                self.desktop.browser(thread, action, input, cancel).await
+            }
+            async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+                unreachable!()
+            }
+        }
+        let registry = SavedLoginRegistry::new();
+        let clock = SavedLoginTurnClock::new(registry.clone());
+        clock.runtime_started(&ThreadId::from(SESSION), 1);
+        let desktop = Arc::new(Held {
+            desktop: Desktop { actions: Mutex::new(Vec::new()), auto_login: true, gone: false },
+            reached: Semaphore::new(0),
+            gate: Semaphore::new(0),
+        });
+        let helper = Arc::new(Helper(Mutex::new(Vec::new())));
+        let backend = Arc::new(SavedLoginComputerBackend::new(
+            Arc::new(Inner(AtomicUsize::new(0))),
+            ThreadId::from(SESSION),
+            desktop.clone(),
+            helper.clone(),
+            registry.clone(),
+            Arc::new(Registered(registry.clone())),
+            clock,
+        ));
+        let filling = tokio::spawn({
+            let backend = backend.clone();
+            async move { backend.run(login(), CancellationToken::new()).await }
+        });
+        drop(desktop.reached.acquire().await.unwrap());
+        registry.runtime_stopped(SESSION, 1);
+        desktop.gate.add_permits(1);
+        let (code, message) = failure(filling.await.unwrap());
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.contains("its agent turn has already ended"), "{message}");
+        assert_eq!(*desktop.desktop.actions.lock().unwrap(), ["saved_login_admit", "saved_login_release"], "no value was looked up");
+        assert!(helper.0.lock().unwrap().is_empty(), "nothing was checked or written");
+        assert!(registry.pixel_guards().is_empty() && registry.spellings().is_empty());
+    }
+
     #[tokio::test]
     async fn every_other_action_goes_to_the_backend() {
         let rig = rig(Some(7), true, false);
@@ -598,7 +659,7 @@ mod saved_login_backend {
     }
 
     /// The agent turn a fill is scoped to is the session's running one; its settlement (the actor's `turn_settled`) lifts the
-    /// redaction and the pixel guard of that turn, and a session that ends lifts all of its own.
+    /// redaction and the pixel guard of that turn, and a runtime that stops (the actor's runtime hooks) lifts all of its own.
     #[tokio::test]
     async fn a_turns_settlement_lifts_its_fills_redaction_and_pixel_guard() {
         use crate::session::turn_snapshots::TurnSnapshots;
@@ -633,6 +694,8 @@ mod saved_login_backend {
         let clock = SavedLoginTurnClock::new(registry.clone());
         let snapshots = SettlingSavedLogins::new(inner.clone(), clock.clone());
         let thread = ThreadId::from(SESSION);
+        assert_eq!(clock.turn(&thread), None, "no runtime runs yet");
+        clock.runtime_started(&thread, 1);
         assert_eq!(clock.turn(&thread), Some(1), "the first turn is turn 1");
         let first = SavedLoginTurn { session: SESSION.to_owned(), turn: 1 };
         assert!(registry.remember(&first, &[PASSWORD.to_owned()]));
@@ -646,12 +709,16 @@ mod saved_login_backend {
         // A fill of turn 2 dies with its session.
         let second = SavedLoginTurn { session: SESSION.to_owned(), turn: 2 };
         assert!(registry.remember(&second, &[PASSWORD.to_owned()]));
+        clock.runtime_stopped(&thread, 1);
         snapshots.runtime_stopped(&thread);
         until("the session to be forgotten", || registry.spellings().is_empty()).await;
+        assert_eq!(clock.turn(&thread), None, "a stopped runtime runs no turn");
+        clock.runtime_started(&thread, 2);
         assert_eq!(clock.turn(&thread), Some(3), "the turn the runtime stopped in is over: a new runtime's fills are admitted");
         assert!(registry.admit(&SavedLoginTurn { session: SESSION.to_owned(), turn: 3 }).is_ok());
         assert_eq!(inner.0.lock().unwrap().last().map(String::as_str), Some("stopped S1"));
         // Another session counts its own turns.
+        clock.runtime_started(&ThreadId::from("S2"), 3);
         assert_eq!(clock.turn(&ThreadId::from("S2")), Some(1));
         snapshots.dispose();
         assert_eq!(inner.0.lock().unwrap().last().map(String::as_str), Some("dispose"));

@@ -15,19 +15,24 @@ use super::handoff_questions::{HandoffQuestions, SectionPublisher};
 mod tests;
 
 pub trait RuntimeHooks: Send + Sync {
-    /// The thread's actor is running (called on its task, so a tokio runtime is current).
-    fn started(&self, thread: &ThreadId);
-    /// The thread's actor has stopped: its copies are dropped unanswered, as a closing runtime does.
-    fn stopped(&self, thread: &ThreadId);
+    /// The thread's actor is running (called on its task, so a tokio runtime is current). `runtime` is the identity the actor
+    /// minted for itself, unique in the process; its [`Self::stopped`] names the same, since a reopened thread's runtime can start
+    /// before the earlier one's stop lands.
+    fn started(&self, thread: &ThreadId, runtime: u64);
+    /// The thread's runtime `runtime` has stopped: what it held goes, never what a later runtime of the thread holds.
+    fn stopped(&self, thread: &ThreadId, runtime: u64);
 }
 
 /// For a core that holds no handed-off question copies.
 pub struct NoRuntimeHooks;
 
 impl RuntimeHooks for NoRuntimeHooks {
-    fn started(&self, _: &ThreadId) {}
-    fn stopped(&self, _: &ThreadId) {}
+    fn started(&self, _: &ThreadId, _: u64) {}
+    fn stopped(&self, _: &ThreadId, _: u64) {}
 }
+
+/// A running runtime's copies: its thread, its identity and its queue.
+type Held = (ThreadId, u64, Arc<HandoffQuestions>, QueueHandle);
 
 /// The question copies of every running session runtime. The section feed (`ThreadState`) is built
 /// over the session directory, which is built over the deps that carry this hook, so it is bound
@@ -35,7 +40,7 @@ impl RuntimeHooks for NoRuntimeHooks {
 pub struct HandoffQuestionsHub {
     host: Arc<DelegatedApprovalHost>,
     threads: OnceLock<Arc<dyn ThreadState>>,
-    held: Mutex<Vec<(ThreadId, Arc<HandoffQuestions>, QueueHandle)>>,
+    held: Mutex<Vec<Held>>,
     /// The publishers' drain tasks, for the tests to await.
     #[cfg(any(test, feature = "test-support"))]
     publishers: Mutex<Vec<tokio::task::JoinHandle<()>>>,
@@ -67,21 +72,34 @@ impl HandoffQuestionsHub {
         self.threads.set(threads)
     }
 
-    fn held(&self) -> MutexGuard<'_, Vec<(ThreadId, Arc<HandoffQuestions>, QueueHandle)>> {
+    fn held(&self) -> MutexGuard<'_, Vec<Held>> {
         self.held.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The question branch of the thread's `finishToolApproval`: `None` when it holds no such copy.
     pub fn finish_question(&self, thread: &ThreadId, id: &str, answered: &Answered) -> Option<bool> {
-        let queue = self.held().iter().find(|(owner, _, _)| owner == thread).map(|(_, queue, _)| queue.clone())?;
+        let queue = self.held().iter().find(|(owner, _, _, _)| owner == thread).map(|(_, _, queue, _)| queue.clone())?;
         queue.finish_question(id, answered)
+    }
+
+    /// The thread's copies go, of runtime `runtime` only, or of whichever runtime holds them when `None`.
+    fn let_go(&self, thread: &ThreadId, runtime: Option<u64>) {
+        let gone = {
+            let mut held = self.held();
+            let at = held.iter().position(|(owner, number, _, _)| owner == thread && runtime.is_none_or(|runtime| *number == runtime));
+            at.map(|at| held.remove(at))
+        };
+        if let Some((_, _, queue, handle)) = gone {
+            queue.close();
+            self.host.unregister_queue(&handle);
+        }
     }
 }
 
 impl RuntimeHooks for HandoffQuestionsHub {
-    fn started(&self, thread: &ThreadId) {
+    fn started(&self, thread: &ThreadId, runtime: u64) {
         let Some(threads) = self.threads.get() else { return };
-        self.stopped(thread);
+        self.let_go(thread, None);
         let id = thread.as_str().to_owned();
         let (publisher, task) = SectionPublisher::start(threads.clone(), thread.clone());
         #[cfg(any(test, feature = "test-support"))]
@@ -90,21 +108,13 @@ impl RuntimeHooks for HandoffQuestionsHub {
         drop(task);
         let queue = HandoffQuestions::new(Arc::new(move || id.clone()), Arc::new(publisher));
         let handle = self.host.register_queue(queue.clone());
-        self.held().push((thread.clone(), queue.clone(), handle));
+        self.held().push((thread.clone(), runtime, queue.clone(), handle));
         for delegated in self.host.delegated_approvals_for(thread.as_str()) {
             queue.offer(&delegated);
         }
     }
 
-    fn stopped(&self, thread: &ThreadId) {
-        let gone = {
-            let mut held = self.held();
-            let at = held.iter().position(|(owner, _, _)| owner == thread);
-            at.map(|at| held.remove(at))
-        };
-        if let Some((_, queue, handle)) = gone {
-            queue.close();
-            self.host.unregister_queue(&handle);
-        }
+    fn stopped(&self, thread: &ThreadId, runtime: u64) {
+        self.let_go(thread, Some(runtime));
     }
 }

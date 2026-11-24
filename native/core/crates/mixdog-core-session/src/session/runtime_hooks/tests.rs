@@ -88,7 +88,7 @@ fn last(feed: &Feed) -> Option<(String, Vec<Value>)> {
 async fn a_runtime_that_starts_before_the_feed_is_bound_holds_nothing() {
     let host = DelegatedApprovalHost::new();
     let hub = HandoffQuestionsHub::new(host.clone());
-    hub.started(&ThreadId::from("home".to_owned()));
+    hub.started(&ThreadId::from("home".to_owned()), 1);
     host.delegate_approval(question("q1", "home"));
     assert!(host.delegated_approvals_for("home").len() == 1);
     assert_eq!(hub.finish_question(&ThreadId::from("home".to_owned()), "q1", &Answered::default()), None);
@@ -104,7 +104,7 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
 
     // Waiting before the runtime exists: adopted when it starts.
     host.delegate_approval(question("q1", "home"));
-    hub.started(&thread);
+    hub.started(&thread, 1);
     let q1 = json!({ "id": "q1", "kind": "question", "sessionId": "task" });
     shown(&feed, Some(("home".into(), vec![q1.clone()]))).await;
     assert_eq!(last(&feed), Some(("home".into(), vec![q1.clone()])));
@@ -124,7 +124,7 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
     assert_eq!(ids(&feed), ["q2"]);
 
     // Stopped: nothing more is shown, and the copies were dropped silently.
-    hub.stopped(&thread);
+    hub.stopped(&thread, 1);
     host.delegate_approval(question("q3", "home"));
     assert_eq!(hub.finish_question(&thread, "q2", &answered), None);
     // A publisher that survived the stop would still hold q3. Its drain task ends only when every owner of the queue is
@@ -136,4 +136,23 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
         crate::session::testing::awaiting(|| "a drain task to end once every owner of its queue is gone".to_owned(), publisher).await.unwrap();
     }
     assert_eq!(ids(&feed), ["q2"]);
+}
+
+/// A thread closed and reopened at once: the new runtime starts before the old one's stop lands. That stop names the old runtime
+/// and leaves the reopened one's questions; its own stop drops them.
+#[tokio::test]
+async fn a_late_stop_of_the_previous_runtime_keeps_the_reopened_runtimes_questions() {
+    let host = DelegatedApprovalHost::new();
+    let hub = HandoffQuestionsHub::new(host.clone());
+    hub.bind(Arc::new(Feed::default())).ok().unwrap();
+    let thread = ThreadId::from("home".to_owned());
+    hub.started(&thread, 1);
+    hub.started(&thread, 2);
+    hub.stopped(&thread, 1);
+    host.delegate_approval(question("q1", "home"));
+    let answered = Answered { approved: true, ..Answered::default() };
+    assert_eq!(hub.finish_question(&thread, "q1", &answered), Some(true), "the reopened runtime still shows its questions");
+    hub.stopped(&thread, 2);
+    host.delegate_approval(question("q2", "home"));
+    assert_eq!(hub.finish_question(&thread, "q2", &answered), None, "its own stop drops them");
 }

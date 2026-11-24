@@ -5,9 +5,9 @@
 //!
 //! - [`SavedLoginRegistry`]: the saved-login passwords (redacted for every session as
 //!   `[saved login]`) and the pixel guards of the filled browser windows, each kept until the filling
-//!   agent turn settles, and the admission of fills (a fill of a settled turn is refused). The
-//!   owner/process protocol of the Node registry binds the separate runtime process to the desktop
-//!   process; the core is that runtime, so it is not ported.
+//!   agent turn settles, and the admission of fills (only for a session whose runtime runs, of a turn
+//!   not yet settled). The owner/process protocol of the Node registry binds the separate runtime
+//!   process to the desktop process; the core is that runtime, so it is not ported.
 //! - [`fill_saved_login`]: the check of the browser window, the vault lookup for the origin it shows,
 //!   the registration of every spelling of the password and the pixel guard, and the one write, in
 //!   Node's order, with its refusals worded as Node words them. The worker (the Windows UIA process
@@ -17,6 +17,7 @@
 //! - [`FullRedactor`]: `secretInputs.redact`, the saved-login passwords and the session's filled
 //!   secrets together.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -56,18 +57,70 @@ fn valid_fill(turn: &SavedLoginTurn) -> bool {
     !turn.session.is_empty() && turn.turn >= 1
 }
 
+/// One session's count of agent turns: the newest settled, and whether a runtime of the session runs. It outlives the runtime, so
+/// the turns of a reloaded one are numbered on and no number comes twice.
+#[derive(Clone, Copy, Default)]
+struct SessionClock {
+    settled: u64,
+    active: bool,
+    /// The identity of the newest runtime started, the one `active` is of: a stop names the runtime it ends.
+    runtime: u64,
+}
+
+/// A fill admitted and not finished. Retired once its turn settled, its runtime stopped or its session was deleted: what it
+/// registered goes when it finishes, since until then it may still type the password and arm a guard.
+struct Fill {
+    id: u64,
+    turn: SavedLoginTurn,
+    retired: bool,
+}
+
 #[derive(Default)]
 struct State {
+    /// The sessions a runtime was started for, until deleted: a session not here admits no fill.
+    sessions: HashMap<String, SessionClock>,
+    running: Vec<Fill>,
     values: Vec<(SavedLoginTurn, String)>,
     guards: Vec<PixelGuard>,
-    /// Per session, the newest settled turn: no fill of it or an older one is admitted again.
-    settled: std::collections::HashMap<String, u64>,
-    /// Fills admitted and not yet finished: a retirement first waits for the ones it covers, since a
-    /// running fill may still arm a guard.
-    running: Vec<(u64, SavedLoginTurn)>,
     next_id: u64,
 }
 
+impl State {
+    /// The turn of every running fill and of every entry held.
+    fn turns(&self) -> impl Iterator<Item = &SavedLoginTurn> {
+        self.running.iter().map(|fill| &fill.turn).chain(self.guards.iter().map(|guard| &guard.turn)).chain(self.values.iter().map(|(turn, _)| turn))
+    }
+
+    /// Retires what `covered` selects: the entries of a turn no fill runs for go now, and each running fill is marked, its
+    /// turn's entries going when it finishes ([`FillGuard`]). The ids of the fills marked.
+    fn retire(&mut self, covered: impl Fn(&SavedLoginTurn) -> bool) -> Vec<u64> {
+        let mut marked = Vec::new();
+        for fill in self.running.iter_mut().filter(|fill| covered(&fill.turn)) {
+            fill.retired = true;
+            marked.push(fill.id);
+        }
+        let running = &self.running;
+        let idle = |turn: &SavedLoginTurn| covered(turn) && !running.iter().any(|fill| fill.turn == *turn);
+        self.guards.retain(|guard| !idle(&guard.turn));
+        self.values.retain(|(turn, _)| !idle(turn));
+        marked
+    }
+
+    /// The running runtime of `session` ended: its running turn and every turn a fill runs or an entry is held for settle, and
+    /// what the session holds retires.
+    fn end_runtime(&mut self, session: &str) {
+        let held = self.turns().filter(|turn| turn.session == session).map(|turn| turn.turn).max().unwrap_or(0);
+        if let Some(clock) = self.sessions.get_mut(session) {
+            clock.settled = (clock.settled + u64::from(clock.active)).max(held);
+            clock.active = false;
+        }
+        self.retire(|entry| entry.session == session);
+    }
+}
+
+/// Every session's turn count, the fills running and what they set up, under one lock: an admission, a settlement, a runtime's
+/// start and stop and a deletion are each one step of it, so no fill is admitted for a turn that ended or a session no runtime
+/// runs for, and nothing is kept for either once its fills finished.
 #[derive(Default)]
 pub struct SavedLoginRegistry {
     state: Mutex<State>,
@@ -82,7 +135,16 @@ pub struct FillGuard {
 
 impl Drop for FillGuard {
     fn drop(&mut self) {
-        self.registry.held().running.retain(|(id, _)| *id != self.id);
+        {
+            let mut state = self.registry.held();
+            if let Some(at) = state.running.iter().position(|fill| fill.id == self.id) {
+                let fill = state.running.remove(at);
+                if fill.retired && !state.running.iter().any(|other| other.turn == fill.turn) {
+                    state.guards.retain(|guard| guard.turn != fill.turn);
+                    state.values.retain(|(turn, _)| *turn != fill.turn);
+                }
+            }
+        }
         self.registry.changed.notify_waiters();
     }
 }
@@ -151,80 +213,134 @@ impl SavedLoginRegistry {
         self.held().values.iter().map(|(_, spelling)| spelling.clone()).collect()
     }
 
+    /// The sessions anything is kept for, in order.
+    #[cfg(test)]
+    pub(super) fn sessions(&self) -> Vec<String> {
+        let state = self.held();
+        let sessions: std::collections::BTreeSet<&String> = state.turns().map(|turn| &turn.session).chain(state.sessions.keys()).collect();
+        sessions.into_iter().cloned().collect()
+    }
+
     /// Every armed pixel guard, of every session.
     pub fn pixel_guards(&self) -> Vec<PixelGuard> {
         self.held().guards.clone()
     }
 
+    /// Runtime `runtime` of `session` started, `runtime` being its identity in the process, which its stop names
+    /// ([`Self::runtime_stopped`]): its fills are admitted from here, its turns numbered on from the last one settled. A runtime of
+    /// the session whose stop has not landed yet ends here first, as its stop would end it, so the new runtime's turns are its own.
+    pub fn runtime_started(&self, session: &str, runtime: u64) {
+        let mut state = self.held();
+        if state.sessions.get(session).is_some_and(|clock| clock.active) {
+            state.end_runtime(session);
+        }
+        let clock = state.sessions.entry(session.to_owned()).or_default();
+        clock.runtime = runtime;
+        clock.active = true;
+    }
+
+    /// The number of `session`'s running agent turn, the one after the last settled; `None` while no runtime of it runs.
+    pub fn current_turn(&self, session: &str) -> Option<u64> {
+        self.held().sessions.get(session).filter(|clock| clock.active).map(|clock| clock.settled + 1)
+    }
+
     /// Admits one fill the moment it is accepted, before any target preparation: the guard to drop
-    /// when the fill has ended, however it ended, or why it is refused (its turn already settled).
+    /// when the fill has ended, however it ended, or why it is refused (its turn already settled, or
+    /// no runtime of its session runs).
     pub fn admit(self: &Arc<Self>, fill: &SavedLoginTurn) -> Result<FillGuard, String> {
         if !valid_fill(fill) {
             return Err("the request names no runtime owner and agent turn to scope its protection to".to_owned());
         }
         let mut state = self.held();
-        if fill.turn <= state.settled.get(&fill.session).copied().unwrap_or(0) {
-            return Err("its agent turn has already ended".to_owned());
+        match state.sessions.get(&fill.session) {
+            Some(clock) if fill.turn <= clock.settled => return Err("its agent turn has already ended".to_owned()),
+            Some(clock) if clock.active => {}
+            _ => return Err("no runtime of its session is running".to_owned()),
         }
         let id = state.next_id;
         state.next_id += 1;
-        state.running.push((id, fill.clone()));
+        state.running.push(Fill { id, turn: fill.clone(), retired: false });
         Ok(FillGuard { registry: self.clone(), id })
     }
 
     /// Whether `fill` was admitted and has not finished.
     pub fn admitted(&self, fill: &SavedLoginTurn) -> bool {
-        self.held().running.iter().any(|(_, running)| running == fill)
+        self.held().running.iter().any(|running| running.turn == *fill)
     }
 
-    fn mark_settled(&self, session: &str, turn: u64) -> u64 {
-        let mut state = self.held();
-        let through = state.settled.entry(session.to_owned()).or_insert(0);
-        *through = (*through).max(turn);
-        *through
-    }
-
-    /// Retires every entry `covered` selects, once the running fills it selects have finished.
-    /// Callers first make sure no new fill it covers can be admitted (a settled turn).
-    async fn drain_then_retire(&self, covered: &(dyn Fn(&SavedLoginTurn) -> bool + Sync)) {
-        loop {
-            let notified = self.changed.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            if !self.held().running.iter().any(|(_, running)| covered(running)) {
-                break;
+    /// Resolves once none of the fills `ids` runs any more: at once when none does.
+    fn drained(self: &Arc<Self>, ids: Vec<u64>) -> impl Future<Output = ()> + Send + 'static + use<> {
+        let registry = self.clone();
+        async move {
+            loop {
+                let notified = registry.changed.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if !registry.held().running.iter().any(|fill| ids.contains(&fill.id)) {
+                    return;
+                }
+                notified.await;
             }
-            notified.await;
         }
-        let mut state = self.held();
-        state.guards.retain(|guard| !covered(&guard.turn));
-        state.values.retain(|(turn, _)| !covered(turn));
     }
 
-    /// The authoritative settlement of `turn`: from this moment no fill of that turn (or an older
-    /// one of the session) is admitted, and once those still running have finished, their pixel
-    /// guards and password redaction retire.
-    pub async fn settle(&self, turn: &SavedLoginTurn) {
-        if !valid_fill(turn) {
-            return;
-        }
-        let through = self.mark_settled(&turn.session, turn.turn);
-        let session = turn.session.clone();
-        self.drain_then_retire(&move |entry| entry.session == session && entry.turn <= through).await;
-    }
-
-    /// The session ended: every turn of it a fill was admitted for is settled at once.
-    pub async fn forget(&self, session: &str) {
-        let newest = {
-            let state = self.held();
-            let turns =
-                state.running.iter().map(|(_, turn)| turn).chain(state.guards.iter().map(|guard| &guard.turn)).chain(state.values.iter().map(|(turn, _)| turn));
-            turns.filter(|turn| turn.session == session).map(|turn| turn.turn).max()
+    /// The authoritative settlement of `turn`: from this call no fill of it or an older turn of the session is admitted, and the
+    /// password redaction and pixel guards of those turns retire, a running fill's when it finishes; the future resolves once
+    /// those have. A session no runtime was started for gets no count.
+    pub fn settle(self: &Arc<Self>, turn: &SavedLoginTurn) -> impl Future<Output = ()> + Send + 'static + use<> {
+        let marked = if valid_fill(turn) {
+            let mut state = self.held();
+            let through = match state.sessions.get_mut(&turn.session) {
+                Some(clock) => {
+                    clock.settled = clock.settled.max(turn.turn);
+                    clock.settled
+                }
+                None => turn.turn,
+            };
+            state.retire(|entry| entry.session == turn.session && entry.turn <= through)
+        } else {
+            Vec::new()
         };
-        let Some(newest) = newest else { return };
-        let through = self.mark_settled(session, newest);
-        let session = session.to_owned();
-        self.drain_then_retire(&move |entry| entry.session == session && entry.turn <= through).await;
+        self.drained(marked)
+    }
+
+    /// `session`'s running turn settled: [`Self::settle`] of [`Self::current_turn`], with no wait for its fills.
+    pub fn settle_current(&self, session: &str) {
+        let mut state = self.held();
+        let Some(clock) = state.sessions.get_mut(session) else { return };
+        clock.settled += u64::from(clock.active);
+        let through = clock.settled;
+        state.retire(|entry| entry.session == session && entry.turn <= through);
+    }
+
+    /// `session`'s runtime `runtime` stopped. The newest runtime's stop settles its running turn and every turn a fill runs or an
+    /// entry is held for in this one step, so a fill that read its turn's number before the stop is refused at its admission. An
+    /// earlier runtime's stop, landing after the session was reopened, finds its turns settled by that start: only what is left of
+    /// them retires, and the new runtime runs on. A session with no count (never started, or deleted first) gets none, and what is
+    /// left of it retires.
+    pub fn runtime_stopped(&self, session: &str, runtime: u64) {
+        let mut state = self.held();
+        match state.sessions.get(session).map(|clock| (clock.runtime == runtime, clock.settled)) {
+            Some((true, _)) => state.end_runtime(session),
+            Some((false, settled)) => {
+                state.retire(|entry| entry.session == session && entry.turn <= settled);
+            }
+            None => {
+                state.retire(|entry| entry.session == session);
+            }
+        }
+    }
+
+    /// `session` was deleted: its count goes, and every fill and entry of it retires in the same step; no later admission,
+    /// settlement or stop of it keeps anything. The future resolves once its fills still running finished, which leaves nothing of
+    /// the session; `None` when none runs.
+    pub fn discard(self: &Arc<Self>, session: &str) -> Option<impl Future<Output = ()> + Send + 'static + use<>> {
+        let marked = {
+            let mut state = self.held();
+            state.sessions.remove(session);
+            state.retire(|entry| entry.session == session)
+        };
+        (!marked.is_empty()).then(|| self.drained(marked))
     }
 }
 
@@ -688,6 +804,9 @@ mod rule_tests {
     }
 
     async fn fill(registry: &Arc<SavedLoginRegistry>, command: &Value, logins: &Logins, worker: &Worker, windows: bool, admit: bool) -> Result<Value, String> {
+        if registry.current_turn(SESSION).is_none() {
+            registry.runtime_started(SESSION, 1);
+        }
         let _admitted = admit.then(|| registry.admit(&turn(SESSION, 7)).unwrap());
         let ok = || Ok(());
         let hide = |text: &str| registry.redact(text);
@@ -838,11 +957,14 @@ mod rule_tests {
         assert_eq!(worker.actions(), ["saved_login_check", "saved_login_type"], "one write, no retry");
     }
 
-    /// The registry: a fill of a settled turn (or an older one) is refused; settling waits for the fills it covers and then retires
-    /// their redaction and pixel guards; another session's entries stay; `forget` settles every turn of a session at once.
+    /// The registry: a fill of a settled turn (or an older one) is refused; a settled turn's redaction and pixel guards stay while
+    /// a fill of it runs and retire when it finishes, which the settlement's future waits for; another session's entries stay; a
+    /// stopped runtime settles every turn of its session at once.
     #[tokio::test(start_paused = true)]
     async fn settling_waits_for_the_running_fills_then_retires_their_protection() {
         let registry = SavedLoginRegistry::new();
+        registry.runtime_started("a", 1);
+        registry.runtime_started("b", 2);
         assert!(registry.remember(&turn("a", 3), &["secret-a".to_owned()]));
         assert!(registry.remember(&turn("b", 1), &["secret-b".to_owned()]));
         assert!(registry.arm_pixels(guard("a", 3, "w1", "10")));
@@ -864,9 +986,74 @@ mod rule_tests {
         assert!(registry.pixel_guards().is_empty());
         assert!(registry.admit(&turn("a", 4)).is_ok(), "a newer turn is admitted");
 
-        registry.forget("b").await;
+        registry.runtime_stopped("b", 2);
         assert_eq!(registry.redact("secret-b"), "secret-b");
         assert_eq!(registry.admit(&turn("b", 1)).err().unwrap(), "its agent turn has already ended");
+    }
+
+    /// A session no runtime was started for admits nothing, and neither a settlement nor a stopped runtime of it starts a count.
+    #[tokio::test]
+    async fn a_session_no_runtime_started_for_admits_nothing_and_gets_no_count() {
+        let registry = SavedLoginRegistry::new();
+        assert_eq!(registry.admit(&turn("s", 1)).err().unwrap(), "no runtime of its session is running");
+        assert_eq!(registry.current_turn("s"), None);
+        registry.settle(&turn("s", 4)).await;
+        registry.settle_current("s");
+        registry.runtime_stopped("s", 1);
+        assert!(registry.sessions().is_empty(), "nothing is kept: {:?}", registry.sessions());
+        assert!(registry.admit(&turn("s", 5)).is_err());
+        registry.runtime_started("s", 2);
+        assert_eq!(registry.current_turn("s"), Some(1), "no settlement before the start counted");
+    }
+
+    /// A stopped runtime settles, in one step, the turn whose number a fill read but has not yet been admitted for and every turn a
+    /// fill was admitted for: neither is admitted after the stop, and the next runtime numbers its turns after all of them.
+    #[test]
+    fn a_stopped_runtime_settles_the_turn_a_fill_read_and_every_held_turn() {
+        let registry = SavedLoginRegistry::new();
+        registry.runtime_started("s", 1);
+        registry.settle_current("s");
+        let read = registry.current_turn("s").unwrap();
+        assert_eq!(read, 2);
+        let ahead = registry.admit(&turn("s", 4)).expect("a later turn the runtime named is admitted");
+        assert!(registry.remember(&turn("s", 4), &["secret".to_owned()]));
+        registry.runtime_stopped("s", 1);
+        assert_eq!(registry.admit(&turn("s", read)).err().unwrap(), "its agent turn has already ended");
+        assert_eq!(registry.admit(&turn("s", 4)).err().unwrap(), "its agent turn has already ended");
+        assert_eq!(registry.current_turn("s"), None);
+        assert_eq!(registry.redact("secret"), "[saved login]", "hidden while its fill runs");
+        drop(ahead);
+        assert_eq!(registry.redact("secret"), "secret");
+        registry.runtime_started("s", 2);
+        assert_eq!(registry.current_turn("s"), Some(5));
+    }
+
+    /// A delete while a fill runs: the session admits nothing from then on, its protection stays while the fill runs and goes when it
+    /// finishes, and a later admission, settlement or stop of it keeps nothing.
+    #[tokio::test(start_paused = true)]
+    async fn a_session_deleted_while_a_fill_runs_leaves_nothing_once_it_finishes() {
+        let registry = SavedLoginRegistry::new();
+        registry.runtime_started("gone", 1);
+        registry.runtime_started("kept", 2);
+        let running = registry.admit(&turn("gone", 1)).expect("admitted");
+        assert!(registry.remember(&turn("gone", 1), &["secret".to_owned()]));
+        assert!(registry.arm_pixels(guard("gone", 1, "w1", "10")));
+        let drained = tokio::spawn(registry.discard("gone").expect("a fill still runs"));
+        assert_eq!(registry.admit(&turn("gone", 2)).err().unwrap(), "no runtime of its session is running");
+        assert!(registry.arm_pixels(guard("gone", 1, "w2", "10")), "the running fill still guards what it fills");
+        assert_eq!(registry.redact("secret"), "[saved login]");
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+        assert!(!drained.is_finished(), "the running fill is waited for");
+        drop(running);
+        drained.await.unwrap();
+        assert_eq!(registry.sessions(), ["kept"]);
+        assert!(registry.pixel_guards().is_empty() && registry.redact("secret") == "secret");
+        registry.settle(&turn("gone", 3)).await;
+        registry.settle_current("gone");
+        registry.runtime_stopped("gone", 1);
+        assert!(registry.admit(&turn("gone", 4)).is_err());
+        assert_eq!(registry.sessions(), ["kept"]);
+        assert!(registry.discard("gone").is_none());
     }
 
     /// What `remember` and `arm_pixels` take: a fill with no session or turn 0, no spelling, or no window or process registers
