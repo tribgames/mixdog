@@ -80,7 +80,8 @@ impl SessionToolExclusions {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner).remove(thread);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     fn held(&self) -> usize {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner).len()
     }

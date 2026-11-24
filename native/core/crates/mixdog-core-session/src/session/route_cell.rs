@@ -61,7 +61,8 @@ impl SessionRoutes {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     fn held(&self) -> usize {
         self.cells.lock().unwrap_or_else(|e| e.into_inner()).len()
     }

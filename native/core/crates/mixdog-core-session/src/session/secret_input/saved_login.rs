@@ -214,7 +214,8 @@ impl SavedLoginRegistry {
     }
 
     /// The sessions anything is kept for, in order.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(super) fn sessions(&self) -> Vec<String> {
         let state = self.held();
         let sessions: std::collections::BTreeSet<&String> = state.turns().map(|turn| &turn.session).chain(state.sessions.keys()).collect();
