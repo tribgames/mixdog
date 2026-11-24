@@ -197,7 +197,7 @@ function fakeTimers() {
 
 /** A confirmed transport session: the phone peer over a fake relay, the desk
  *  beside it, `e2ee-ready` already delivered as record 1. */
-async function session({ confirm = true } = {}) {
+async function session({ confirm = true, holdSignals, createPeer } = {}) {
   const identity = await generateRelayE2EEServerIdentity();
   const challenge = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
   const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge, {
@@ -225,7 +225,8 @@ async function session({ confirm = true } = {}) {
     },
     progress: () => progress.push(delivered.length),
     fatal: (error) => fatal.push(error),
-    createPeer: (config) => new FakePeer(config),
+    createPeer: createPeer ?? ((config) => new FakePeer(config)),
+    ...(holdSignals ? { holdSignals } : {}),
     visible: () => view.visible,
     now: () => clock.now,
     timers,
@@ -1068,4 +1069,93 @@ test('departure: closing the direct carrier fails the claims on it at once', asy
   await s.feed([await s.desk.control({ ...s.desk.ref(), t: 'close', reason: 'stall' })]);
   await s.barrier();
   assert.equal(await settledState(departed), 'failed', 'its bytes did not leave, and no timer has run to find out');
+});
+
+test('held signals: no RTCPeerConnection is made until the page releases the offer, then the offer is answered in order', async () => {
+  let release;
+  const s = await session({ holdSignals: new Promise((resolve) => (release = resolve)) });
+  s.desk.server.registerControlLane(LANE);
+  const before = FakePeer.last;
+  await s.feed([
+    await s.desk.control({
+      ...s.desk.ref(),
+      t: 'offer',
+      sdp: sdpWith(FP),
+      fingerprints: [{ algorithm: 'sha-256', value: FP }],
+      iceServers: [{ urls: ['turn:turn.example:3478'], username: 'u', credential: 'secret' }],
+    }),
+  ]);
+  await s.barrier();
+  assert.equal(FakePeer.last, before, 'the first screen does not wait on the first RTCPeerConnection');
+  assert.ok(!s.desk.controls.some((c) => c.t === 'answer'));
+  release();
+  await expectOn(s, s.relay.sent, relayLane, (d) => d.controls.some((c) => c.t === 'answer'), 'the answer after release');
+  assert.notEqual(FakePeer.last, before);
+});
+
+test('held signals: a rejected hold still releases the offer', async () => {
+  let fail;
+  const s = await session({ holdSignals: new Promise((_, reject) => (fail = reject)) });
+  s.desk.server.registerControlLane(LANE);
+  await s.feed([
+    await s.desk.control({
+      ...s.desk.ref(),
+      t: 'offer',
+      sdp: sdpWith(FP),
+      fingerprints: [{ algorithm: 'sha-256', value: FP }],
+      iceServers: [],
+    }),
+  ]);
+  await s.barrier();
+  fail(new Error('x'));
+  await expectOn(s, s.relay.sent, relayLane, (d) => d.controls.some((c) => c.t === 'answer'), 'the answer after rejection');
+});
+
+test('held signals: a suspension while the offer waits still tells the PC which connection to drop', async () => {
+  const s = await session({ holdSignals: new Promise(() => {}) });
+  s.desk.server.registerControlLane(LANE);
+  await s.feed([
+    await s.desk.control({
+      ...s.desk.ref(),
+      t: 'offer',
+      sdp: sdpWith(FP),
+      fingerprints: [{ algorithm: 'sha-256', value: FP }],
+      iceServers: [],
+    }),
+  ]);
+  await s.barrier();
+  const suspended = s.peer.suspend();
+  await expectOn(
+    s,
+    s.relay.sent,
+    relayLane,
+    (d) => d.controls.some((c) => c.t === 'close' && c.reason === 'suspended' && c.connectionId === CONN),
+    'close{suspended} naming the held offer'
+  );
+  await suspended;
+});
+
+test('held signals: a createPeer that throws on release ends the session instead of escaping', async () => {
+  let release;
+  const s = await session({ holdSignals: new Promise((resolve) => (release = resolve)), createPeer: () => { throw new Error('no peer'); } });
+  s.desk.server.registerControlLane(LANE);
+  const unhandled = [];
+  const onUnhandled = (e) => unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
+  await s.feed([
+    await s.desk.control({
+      ...s.desk.ref(),
+      t: 'offer',
+      sdp: sdpWith(FP),
+      fingerprints: [{ algorithm: 'sha-256', value: FP }],
+      iceServers: [],
+    }),
+  ]);
+  await s.barrier();
+  release();
+  await until(() => s.fatal.length > 0, 'fatal() after the failed release');
+  await new Promise((resolve) => setImmediate(resolve));
+  process.off('unhandledRejection', onUnhandled);
+  assert.equal(unhandled.length, 0);
+  assert.match(s.fatal[0].message, /no peer/);
 });

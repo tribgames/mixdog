@@ -178,6 +178,9 @@ export interface RemoteTransportPeerOptions {
   /** The session must end (protocol error, expiry, stalled assembly). */
   fatal(error: Error): void;
   createPeer(configuration: RTCConfiguration): RTCPeerConnection;
+  /** The PC's offer and ICE candidates are kept, in order, until this settles, and then handled as if they had just arrived:
+   *  the first `RTCPeerConnection` of a page blocks its main thread for hundreds of ms, which the first screen should not wait on. */
+  holdSignals?: Promise<unknown>;
   visible(): boolean;
   now?(): number;
   timers: RemoteTransportPeerTimers;
@@ -428,6 +431,8 @@ interface PeerState {
   highestHanded: number;
   /** The newest connection the PC offered, kept for `close{suspended}`. */
   lastRef: RemoteTransportSignalRef | null;
+  /** Signals that arrived while `holdSignals` was pending; null once it settled (or when none was given). */
+  heldSignals: RemoteTransportSignal[] | null;
 }
 
 const createPeerState = (options: RemoteTransportPeerOptions): PeerState => {
@@ -475,6 +480,7 @@ const createPeerState = (options: RemoteTransportPeerOptions): PeerState => {
     pendingSends: 0,
     highestHanded: 0,
     lastRef: null,
+    heldSignals: options.holdSignals ? [] : null,
   };
 };
 
@@ -1024,7 +1030,19 @@ const onControl = async (s: PeerState, box: Uint8Array, carrier: RemoteTransport
       pong(s, message.id, carrier, now);
       return;
     default:
-      signal(s, message, now);
+      if (!s.heldSignals) signal(s, message, now);
+      else if (message.sessionId === s.sessionId) {
+        s.heldSignals.push(message);
+        // A suspension while the offer waits still names it, so the PC drops its side at once.
+        if (message.t === 'offer') {
+          s.lastRef = {
+            v: REMOTE_TRANSPORT_VERSION,
+            sessionId: s.sessionId,
+            connectionId: message.connectionId,
+            generation: message.generation,
+          };
+        }
+      }
   }
 };
 
@@ -1344,6 +1362,20 @@ const diagnostics = (s: PeerState) => {
 
 export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): RemoteTransportPeer {
   const s = createPeerState(options);
+  if (options.holdSignals) {
+    void options.holdSignals
+      .catch(() => undefined)
+      .then(() => {
+        s.inbound = s.inbound
+          .then(() => {
+            const held = s.heldSignals ?? [];
+            s.heldSignals = null;
+            if (s.ended) return;
+            for (const message of held) signal(s, message, s.clock());
+          })
+          .catch((e) => end(s, e));
+      });
+  }
   return {
     receiveRelay: (data) => receive(s, data, RELAY),
     confirm: () => confirm(s),

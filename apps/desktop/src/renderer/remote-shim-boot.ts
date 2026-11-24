@@ -14,6 +14,7 @@ import {
 import { remoteBootApproval } from './remote-pairing-recovery';
 import type { PhoneProtocolAdapter } from './remote-shim-protocol';
 import { createPhoneApi } from './remote-shim-phone';
+import { createFirstScreenHold } from './remote-first-screen-hold';
 import { installRemotePairing } from './remote-shim-pairing';
 import { REMOTE_CONNECTION_READY_EVENT, createRemoteShimContext, type RemoteShimContext } from './remote-shim-state';
 
@@ -99,6 +100,7 @@ async function begin(ctx: ReturnType<typeof createRemoteShimContext>): Promise<v
 
 /** What the phone's connection needs from this page. */
 function phoneEnv(ctx: RemoteShimContext): PhoneEnv {
+  const holdSignals = createFirstScreenHold();
   return {
     // The relay serves this page at the PC's version; the core's `initialize` gate compares it exactly.
     version: desktopPackage.version,
@@ -110,6 +112,7 @@ function phoneEnv(ctx: RemoteShimContext): PhoneEnv {
       : {
           webrtc: {
             createPeer: (configuration: RTCConfiguration) => new RTCPeerConnection(configuration),
+            holdSignals,
             visible: () => document.visibilityState !== 'hidden',
             log: (line: string) => console.info(line),
           },
