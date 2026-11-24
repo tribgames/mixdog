@@ -755,6 +755,8 @@ impl Hub {
                 phone.shared.socket.close(DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON.as_bytes());
             }
         }
+        drop(guard);
+        self.dispatch.desktop_offline(device_id, generation);
     }
 
     // ---- what the routes and the other areas ask ----

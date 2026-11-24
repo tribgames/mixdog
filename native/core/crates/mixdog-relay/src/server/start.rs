@@ -289,6 +289,7 @@ async fn assemble(
     native_frames::register(hub.dispatch(), &native).map_err(|error| error.to_string())?;
     let web_push = open_web_push(data_dir, seams.web_push_client)?;
     if let Some(web_push) = &web_push {
+        web_push.registry().retain_capable(|device_id| store.is_known(device_id));
         web_push_frames::register(&hub, Arc::clone(web_push)).map_err(|error| error.to_string())?;
     }
     register_ice(&hub, &options.turn_env)?;

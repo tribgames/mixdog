@@ -9,27 +9,50 @@ export function nativePushPlatforms(leg) {
 
 const associationKey = (deviceId, clientId) => `${deviceId}\n${clientId}`;
 
+// Per table: the tokens each desktop holds an association for, so a desktop's
+// bindings are found without a scan of every token.
+const tokensByDevice = new WeakMap();
+
+function heldTokens(bindings, deviceId) {
+  let byDevice = tokensByDevice.get(bindings);
+  if (!byDevice) tokensByDevice.set(bindings, (byDevice = new Map()));
+  let tokens = byDevice.get(deviceId);
+  if (!tokens) byDevice.set(deviceId, (tokens = new Set()));
+  return tokens;
+}
+
+function forgetToken(bindings, deviceId, token) {
+  const byDevice = tokensByDevice.get(bindings);
+  const tokens = byDevice?.get(deviceId);
+  if (!tokens) return;
+  tokens.delete(token);
+  if (tokens.size === 0) byDevice.delete(deviceId);
+}
+
 /** The associations held for one token, upgrading a single-binding entry. */
 function associationsOf(bindings, token) {
   const entry = bindings.get(token);
   if (!entry || entry instanceof Map) return entry;
   const upgraded = new Map([[associationKey(entry.deviceId, entry.clientId), entry]]);
   bindings.set(token, upgraded);
+  heldTokens(bindings, entry.deviceId).add(token);
   return upgraded;
 }
 
 /** Removes the associations of `deviceId` (optionally one client, optionally
  *  one token) and forgets tokens nobody is associated with any more. */
 function dropAssociations(bindings, deviceId, { clientId = null, token = null } = {}) {
-  for (const key of token === null ? [...bindings.keys()] : [token]) {
+  for (const key of token === null ? [...(tokensByDevice.get(bindings)?.get(deviceId) ?? [])] : [token]) {
     const associations = associationsOf(bindings, key);
     if (!associations) continue;
+    let deviceHolds = false;
     for (const [id, association] of associations) {
-      if (association.deviceId === deviceId && (clientId === null || association.clientId === clientId)) {
-        associations.delete(id);
-      }
+      if (association.deviceId !== deviceId) continue;
+      if (clientId === null || association.clientId === clientId) associations.delete(id);
+      else deviceHolds = true;
     }
     if (associations.size === 0) bindings.delete(key);
+    if (!deviceHolds) forgetToken(bindings, deviceId, key);
   }
 }
 
@@ -53,7 +76,7 @@ export function bindNativeToken(leg, message) {
   const associations = associationsOf(nativeBindings, token);
   if (!associations?.has(key)) {
     let mine = 0;
-    for (const other of [...nativeBindings.keys()]) {
+    for (const other of [...(tokensByDevice.get(nativeBindings)?.get(deviceId) ?? [])]) {
       for (const association of associationsOf(nativeBindings, other).values()) {
         if (association.deviceId === deviceId) mine += 1;
       }
@@ -62,6 +85,7 @@ export function bindNativeToken(leg, message) {
   }
   if (associations) associations.set(key, { deviceId, clientId, platform });
   else nativeBindings.set(token, new Map([[key, { deviceId, clientId, platform }]]));
+  heldTokens(nativeBindings, deviceId).add(token);
 }
 
 // `clientId` is optional: without it (older desktops) every association THIS

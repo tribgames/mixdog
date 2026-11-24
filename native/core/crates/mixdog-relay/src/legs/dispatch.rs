@@ -65,6 +65,8 @@ pub struct LegCall {
     /// Work that follows the frames already read.
     pub later: Arc<Later>,
     pub hub: Arc<Hub>,
+    /// The generation of the leg that sent the frame.
+    pub generation: u64,
     /// The device the leg authenticated as.
     pub device_id: String,
     /// The frame, as `JSON.parse` produced it.
@@ -101,6 +103,9 @@ pub trait RevokeHook: Send + Sync {
 /// Called with the device id when its live leg closes (the leg's pairing code dies with it).
 pub type CloseHook = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// Called with the device id and the generation of the leg that ended when its desktop stayed gone past the offline grace.
+pub type OfflineHook = Arc<dyn Fn(&str, u64) + Send + Sync>;
+
 /// A registration that was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rejected {
@@ -129,6 +134,7 @@ struct Registry {
     connect_frames: Vec<ConnectFrame>,
     revoke_hooks: Vec<Arc<dyn RevokeHook>>,
     close_hooks: Vec<CloseHook>,
+    offline_hooks: Vec<OfflineHook>,
 }
 
 /// The registrations of the areas that sit behind the desktop leg. Registered once at start; read on every frame.
@@ -221,6 +227,18 @@ impl Dispatch {
         let hooks: Vec<Arc<dyn RevokeHook>> = self.lock().revoke_hooks.clone();
         for hook in hooks {
             hook.client_revoked(device_id, client_id);
+        }
+    }
+
+    /// Called with the device id when its desktop stayed gone past the offline grace and its entry was dropped.
+    pub fn register_offline_hook(&self, hook: OfflineHook) {
+        self.lock().offline_hooks.push(hook);
+    }
+
+    pub(super) fn desktop_offline(&self, device_id: &str, generation: u64) {
+        let hooks: Vec<OfflineHook> = self.lock().offline_hooks.clone();
+        for hook in hooks {
+            hook(device_id, generation);
         }
     }
 

@@ -44,7 +44,7 @@ pub fn register(dispatch: &Dispatch, service: &Arc<NativePushService>) -> Result
     let bind = Arc::clone(service);
     let bind_handler: Handler = Arc::new(move |call: LegCall| -> HandlerFuture {
         let service = Arc::clone(&bind);
-        Box::pin(async move { service.bind(&call.device_id, call.hub.store(), &call.message) })
+        Box::pin(async move { service.bind_for_leg(&call.device_id, call.generation, call.hub.store(), &call.message) })
     });
     dispatch.register("native-push-bind", bind_handler)?;
 
@@ -79,6 +79,9 @@ pub fn register(dispatch: &Dispatch, service: &Arc<NativePushService>) -> Result
         })
     });
     dispatch.register("native-push", send_handler)?;
+
+    let offline = Arc::clone(service);
+    dispatch.register_offline_hook(Arc::new(move |device_id: &str, generation: u64| offline.drop_ended_leg(device_id, generation)));
 
     dispatch.register_revoke_hook(Arc::new(DropBindings(Arc::clone(service))));
     Ok(())

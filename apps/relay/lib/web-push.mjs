@@ -306,6 +306,18 @@ export function createWebPushRegistry({ dataDir, log = console.error }) {
       capable.delete(deviceId);
       return 'store-failed';
     },
+    /** Forgets the capable PCs `isKnown` does not recognise (the device store
+     *  at start-up). */
+    retainCapable(isKnown) {
+      let changed = false;
+      for (const deviceId of [...capable]) {
+        if (!isKnown(deviceId)) {
+          capable.delete(deviceId);
+          changed = true;
+        }
+      }
+      if (changed) persist();
+    },
     isCapable(deviceId) {
       return capable.has(deviceId);
     },

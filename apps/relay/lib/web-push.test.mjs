@@ -450,3 +450,15 @@ test('re-stating an unchanged registration writes and announces nothing, and mut
   assert.equal((await http('/webpush/register', tokenB, { endpoint: ENDPOINT, sealed: sealed('b') })).status, 200);
   legA.socket.close();
 });
+
+test('capable devices the device store no longer knows are forgotten, on disk too', (t) => {
+  const dir = join(tempDir(t), 'data');
+  const registry = createWebPushRegistry({ dataDir: dir });
+  assert.equal(registry.markCapable('pc-a'), 'ok');
+  assert.equal(registry.markCapable('pc-b'), 'ok');
+  registry.retainCapable((deviceId) => deviceId === 'pc-b');
+  assert.equal(registry.isCapable('pc-a'), false);
+  const reloaded = createWebPushRegistry({ dataDir: dir });
+  assert.equal(reloaded.isCapable('pc-a'), false);
+  assert.equal(reloaded.isCapable('pc-b'), true);
+});
