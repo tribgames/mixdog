@@ -178,7 +178,7 @@ impl World {
             F::Session(Some((b, _))) => Some(self.model[*b].id.clone()),
             _ => None,
         };
-        CatalogHead { session: s.id.clone(), log_id: LOG_ID.into(), base_session, header }
+        CatalogHead { session: s.id.clone(), log_id: LOG_ID.into(), base_session, header: header.into() }
     }
 
     fn create(&mut self, base: Option<(usize, i64)>) {

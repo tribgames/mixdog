@@ -220,26 +220,35 @@ const WORKFLOW_KEYS: [&str; 4] = ["workflow", "orchestrationMode", "pendingWorkf
 /// `roomView`; a cleared view is `roomView: null`, distinct from an absent one (unchanged). A view with no row in its
 /// pass stays its own notification.
 fn fold_room_view(notes: &mut Vec<Note>) {
-    let mut at = 0;
-    while at < notes.len() {
-        if notes[at].method != "thread/roomView/updated" {
-            at += 1;
+    // Each view goes to the last row before it; of the views one row takes, the last.
+    let mut views: Vec<(usize, bytes::Bytes)> = Vec::new();
+    let mut folded = vec![false; notes.len()];
+    let mut row = None;
+    for (at, note) in notes.iter().enumerate() {
+        if note.method == "item/completed" {
+            row = Some(at);
+        }
+        if note.method != "thread/roomView/updated" {
             continue;
         }
-        let row = notes[..at].iter().rposition(|note| note.method == "item/completed");
-        let value = serde_json::from_slice::<Value>(&notes[at].params).ok().and_then(|mut section| section.get_mut("value").map(Value::take));
-        let item = row.and_then(|row| serde_json::from_slice::<Value>(&notes[row].params).ok().map(|item| (row, item)));
-        let (Some(value), Some((row, mut item))) = (value, item) else {
-            at += 1;
+        let Some(row) = row else { continue };
+        let Some(view) = serde_json::from_slice::<Value>(&note.params).ok().and_then(|section| section.get("value").map(super::frames::encode)) else {
             continue;
         };
-        let positioned = notes[row].positioned.clone();
-        item["roomView"] = value.clone();
-        let mut told = Note { positioned, ..Note::new("item/completed", &item) };
-        told.with_room_view(&value);
-        notes[row] = told;
-        notes.remove(at);
+        folded[at] = true;
+        match views.last_mut() {
+            Some((last, held)) if *last == row => *held = view,
+            _ => views.push((row, view)),
+        }
     }
+    for (row, view) in views {
+        notes[row].with_room_view(&view);
+    }
+    let mut at = 0;
+    notes.retain(|_| {
+        at += 1;
+        !folded[at - 1]
+    });
 }
 
 fn archives_rows(change: &Change, ordinal: Option<u64>) -> bool {
@@ -652,7 +661,7 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 }
 
 fn parse<T: DeserializeOwned>(params: &Value, expected: &str) -> Result<T, CoreError> {
-    serde_json::from_value(params.clone()).map_err(|_| invalid("params", expected))
+    <T as serde::Deserialize>::deserialize(params).map_err(|_| invalid("params", expected))
 }
 
 fn text<const N: usize>(value: &str, path: &str) -> Result<Text<N>, CoreError> {
@@ -1705,7 +1714,8 @@ pub(crate) struct SessionActor {
     /// The calls of the running turn whose wait for the person its abort ended, by call id, with what their card reads: the
     /// abort's `Error: <reason>`, which Node's question and approval waits settle with (`runAbortable`, ask-user-tool.mjs:249,
     /// before-hook.mjs:162) and its eager entry notices to the card (`notifyEarlyResult`, eager-dispatch/entry.mjs:39-44).
-    abort_ended: std::collections::HashMap<String, String>,
+    /// Shared with every record encode of the turn, which reads it off the actor.
+    abort_ended: Arc<std::collections::HashMap<String, String>>,
     /// Opened from the store, not yet resumed: the first resume drains the restored queue.
     restored_queue: bool,
     /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
@@ -1858,6 +1868,10 @@ pub(crate) struct SessionActor {
     draft_retry: Option<tokio::task::JoinHandle<()>>,
     /// The session unloads once everything it accepted is on disk ([`Self::unload`]).
     unload_due: bool,
+    /// An unload did not happen for a write's outcome: the write or reconcile it waited for failed, or it found the outcome
+    /// owed with no retry to wait on ([`Self::unload`]). Its idle clock, left unarmed, starts over once the outbox is empty
+    /// and nothing is owed.
+    unload_owed: bool,
     /// Core shutdown stops the thread (`Ctl::Shutdown`).
     shutting_down: bool,
     /// Shutdown's write failed: nothing more is written ([`Self::exit_unwritten`]).
@@ -2280,6 +2294,7 @@ impl SessionActor {
             draft_backoff: None,
             draft_retry: None,
             unload_due: false,
+            unload_owed: false,
             shutting_down: false,
             exit_failed: None,
             after_publish: Vec::new(),
@@ -2399,6 +2414,11 @@ impl SessionActor {
             }
             if !self.closed_acks.is_empty() && !self.unload_due {
                 self.try_unload();
+            }
+            // Not at once: an unload now could leave under the caller whose write settled the outcome.
+            if self.unload_owed && self.outbox.is_empty() && !self.save_risk.outstanding() {
+                self.unload_owed = false;
+                self.arm_idle_evict();
             }
             if let Some(follow) = &settings {
                 follow.shown();
@@ -2796,7 +2816,7 @@ impl SessionActor {
         // display record, which is the row it shows.
         let live = !self.recovering && !matches!(&*record, Record::Item(row) if row.form == Form::Display);
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
-        let abort_ended = self.abort_ended.clone();
+        let abort_ended = Arc::clone(&self.abort_ended);
         let at = self.deps.clock.now_ms();
         // A reply the history does not stamp shows at the time its row first showed (`streamingTail.at`), else now.
         let reply_at = self.run.as_mut().and_then(|slot| slot.live.tail_at(at)).unwrap_or(at);
@@ -4001,6 +4021,7 @@ impl SessionActor {
         }
         if std::mem::take(&mut self.unload_due) {
             tracing::warn!("session {}: its close failed on a write; it stays open with its unwritten records held", self.id.as_str());
+            self.unload_owed = true;
             self.answer_idle();
         }
         self.answer_closes();
@@ -4041,6 +4062,7 @@ impl SessionActor {
                     if self.cell.closed.load(SeqCst) {
                         self.close_undone();
                     }
+                    self.unload_owed = true;
                     self.answer_closes();
                     self.answer_idle();
                 }
@@ -4158,7 +4180,7 @@ impl SessionActor {
         self.show_stopping(&turn);
         if let Some(text) = self.run.as_ref().filter(|run| run.turn == turn).map(|run| format!("Error: {}", run.cancel.reason())) {
             for call in self.book.open_asks().filter_map(|ask| ask.call_id.as_ref()) {
-                self.abort_ended.insert(call.as_str().to_owned(), text.clone());
+                Arc::make_mut(&mut self.abort_ended).insert(call.as_str().to_owned(), text.clone());
             }
             let now = self.deps.clock.now_ms();
             for aid in self.book.take_run(&turn) {
@@ -5284,6 +5306,8 @@ impl SessionActor {
         live: bool,
         durable: Option<oneshot::Sender<Result<(), RunError>>>,
     ) {
+        // The listener's card for this completion is this notification's to use, whether or not it queues anything.
+        let listened = self.listened.remove(&task_id);
         // A closing or closed owner never queues a completion (`notification-bus.mjs` `notifySessionCompletion`: `if
         // (!open) return handled`): the close cancels the session's shells, and their completions must not enqueue
         // model work for it.
@@ -5308,7 +5332,7 @@ impl SessionActor {
         };
         let acks = |durable: Option<oneshot::Sender<Result<(), RunError>>>| durable.map(Effect::ItemAck).into_iter().collect::<Vec<_>>();
         // Queued by the listener that showed it (`execution-delivery.mjs` `suppressDisplay`).
-        if let Some(card) = self.listened.remove(&task_id) {
+        if let Some(card) = listened {
             entry["suppressDisplay"] = Value::Bool(true);
             if let Some(card) = card {
                 entry["cardId"] = Value::String(card);

@@ -164,7 +164,7 @@ impl SocketRead for EndRead {
             return None;
         }
         match self.from_client.recv().await? {
-            FromClient::Frame(text) => Some(Incoming::Text(text)),
+            FromClient::Frame(text) => Some(Incoming::Text(text.into())),
             FromClient::Closed { .. } => {
                 self.closed = true;
                 Some(Incoming::Close)

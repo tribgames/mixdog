@@ -3,9 +3,9 @@
 //! its member sessions (`agent-room.mjs`), and the agent owner (`agent-owner.mjs`).
 
 use mixdog_js::js_trim;
-use serde_json::Map;
 use serde_json::Value;
 
+use crate::schema::shared_header::HeaderFields;
 use crate::summary::truthy;
 
 const HOME_PREFIX: &str = "sess_home_";
@@ -77,21 +77,21 @@ fn valid_agent_id(v: Option<&Value>) -> String {
 }
 
 /// `resolveSessionMode({ session }).mode` for a session record header.
-fn resolve_mode(session: &Map<String, Value>) -> &'static str {
-    let owner = js_trim(&js_text(session.get("owner"))).to_lowercase();
-    if owner == "agent" || session.get("visibility").and_then(Value::as_str) == Some("agent-only") {
+fn resolve_mode<H: HeaderFields + ?Sized>(session: &H) -> &'static str {
+    let owner = js_trim(&js_text(session.field("owner"))).to_lowercase();
+    if owner == "agent" || session.field("visibility").and_then(Value::as_str) == Some("agent-only") {
         return "coding";
     }
-    let id = js_text(session.get("id"));
+    let id = js_text(session.field("id"));
     let agent = room_member_agent(&id)
         .or_else(|| Some(agent_id_of_home_session(&id)).filter(|a| !a.is_empty()))
-        .unwrap_or_else(|| valid_agent_id(session.get("ownerAgentId")));
+        .unwrap_or_else(|| valid_agent_id(session.field("ownerAgentId")));
     if agent.is_empty() { "coding" } else { "agent" }
 }
 
 /// `sessionModeOf(session)`: the stored mode; older records resolve it.
-pub fn session_mode_of(session: &Map<String, Value>) -> &'static str {
-    match session.get("sessionMode").and_then(Value::as_str) {
+pub fn session_mode_of<H: HeaderFields + ?Sized>(session: &H) -> &'static str {
+    match session.field("sessionMode").and_then(Value::as_str) {
         Some("agent") => "agent",
         Some("coding") => "coding",
         _ => resolve_mode(session),

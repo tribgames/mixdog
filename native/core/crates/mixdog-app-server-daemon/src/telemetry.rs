@@ -7,7 +7,7 @@
 //! writes nothing. A line holds counters only: no session bodies, tokens or environment. Retention is the log's own bound.
 //!
 //! Two departures from the Node module, both because a native process has none of what V8 reports: there is no managed heap,
-//! so `heapUsedBytes` is the memory the process allocated for itself (its private bytes, as the crash record states it), and
+//! so the line carries `privateBytes`, the memory the process committed for itself (the crash record's `heapUsedBytes`), and
 //! there are no heap total, heap limit, external or array-buffer fields and no post-GC minimum.
 //!
 //! The stall sampler is on while `<data dir>/lag-profile.on` exists (a file the user creates by hand; nothing in Mixdog writes
@@ -72,6 +72,8 @@ pub struct WorkCounts {
     pub queued_calls: u64,
     pub busy_sessions: u64,
     pub busy_memory_agents: u64,
+    /// The sessions loaded in memory, busy or not: a loaded session holds its window, feed ring and model context.
+    pub loaded_sessions: u64,
 }
 
 /// The process's memory; `None` where the OS does not say.
@@ -79,7 +81,7 @@ pub struct WorkCounts {
 pub struct MemoryUsage {
     /// `process.memoryUsage().rss`: the working set.
     pub rss_bytes: Option<u64>,
-    /// The heap equivalent: what the process allocated for itself.
+    /// The private bytes the process committed: the heap's committed bytes plus stacks, other heaps and private mappings.
     pub heap_bytes: Option<u64>,
 }
 
@@ -134,7 +136,7 @@ impl Reason {
 /// `formatDaemonTelemetry`: one line, counters only.
 pub fn format_line(reason: Reason, at_ms: i64, pid: u32, memory: MemoryUsage, work: WorkCounts) -> String {
     format!(
-        "daemon-telemetry reason={} ts={} pid={pid} rssBytes={} heapUsedBytes={} activeCalls={} queuedCalls={} busySessions={} busyMemoryAgents={}",
+        "daemon-telemetry reason={} ts={} pid={pid} rssBytes={} privateBytes={} activeCalls={} queuedCalls={} busySessions={} busyMemoryAgents={} loadedSessions={}",
         reason.as_str(),
         iso_from_ms(at_ms),
         bytes_field(memory.rss_bytes),
@@ -143,6 +145,7 @@ pub fn format_line(reason: Reason, at_ms: i64, pid: u32, memory: MemoryUsage, wo
         work.queued_calls,
         work.busy_sessions,
         work.busy_memory_agents,
+        work.loaded_sessions,
     )
 }
 
@@ -665,7 +668,7 @@ mod tests {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&lines);
         let seams = Seams {
-            work: Arc::new(|| WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 3, busy_memory_agents: 4 }),
+            work: Arc::new(|| WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 3, busy_memory_agents: 4, loaded_sessions: 5 }),
             memory: Arc::new(|| MemoryUsage { rss_bytes: Some(1000), heap_bytes: None }),
             log: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
             now_ms: Arc::new(|| 1_793_925_139_716),
@@ -689,7 +692,7 @@ mod tests {
         assert_eq!(
             lines(&f),
             [
-                "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"
+                "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 privateBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4 loadedSessions=5"
             ]
         );
     }
@@ -697,7 +700,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn the_heap_flag_adds_the_heaps_in_use_and_committed_bytes_to_the_line() {
-        const PLAIN: &str = "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4";
+        const PLAIN: &str = "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 privateBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4 loadedSessions=5";
         let f = fixture();
         let memory_lines = |f: &Fixture| lines(f).into_iter().filter(|line| line.starts_with("daemon-telemetry")).collect::<Vec<_>>();
         f.telemetry.note_activity();
@@ -730,7 +733,7 @@ mod tests {
         assert_eq!(
             lines(&f),
             [
-                "daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"
+                "daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 privateBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4 loadedSessions=5"
             ]
         );
         f.telemetry.tick(LagWindow::default());

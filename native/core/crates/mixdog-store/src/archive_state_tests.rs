@@ -181,7 +181,7 @@ async fn a_failed_projection_is_owed_and_settled_before_the_search_reads() {
         .expect("lane");
     let index = rx.recv().expect("job ran").expect("index");
     let header = json!({ "id": "s1", "title": "Kept", "updatedAt": 1, "desktopSession": { "classification": "task", "projectPath": "/p" } });
-    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Set).await.unwrap();
     let states = ArchiveStates::open(open_state(&data.join("core.sqlite"))).await.unwrap();
     states.bind_index(&index).await.unwrap();
@@ -217,7 +217,7 @@ async fn a_deferred_bind_owes_the_entries_and_the_search_settles_them() {
         .expect("lane");
     let index = rx.recv().expect("job ran").expect("index");
     let header = json!({ "id": "s1", "title": "Kept", "updatedAt": 1, "desktopSession": { "classification": "task", "projectPath": "/p" } });
-    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Set).await.unwrap();
     let states = ArchiveStates::open(open_state(&data.join("core.sqlite"))).await.unwrap();
     states.commit(|_, _| Ok(((), vec![("s1".to_owned(), ArchiveEntry::Archived(9.0))]))).await.unwrap();
@@ -272,7 +272,7 @@ async fn indexed(data: &Path) -> (crate::sqlite::SqliteStore, Arc<ArchiveStates>
         .expect("lane");
     let index = rx.recv().expect("job ran").expect("index");
     let header = json!({ "id": "s1", "title": "Kept", "updatedAt": 1, "desktopSession": { "classification": "task", "projectPath": "/p" } });
-    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Set).await.unwrap();
     let states = ArchiveStates::open(open_state(&data.join("core.sqlite"))).await.unwrap();
     states.bind_index(&index).await.unwrap();

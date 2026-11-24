@@ -14,7 +14,7 @@ fn head(session: &str, base: Option<&str>) -> Arc<CatalogHead> {
     let mut header = serde_json::Map::new();
     header.insert("updatedAt".into(), json!(1000.0));
     header.insert("createdAt".into(), json!(500.0));
-    Arc::new(CatalogHead { session: session.into(), log_id: LOG_ID.into(), base_session: base.map(str::to_owned), header })
+    Arc::new(CatalogHead { session: session.into(), log_id: LOG_ID.into(), base_session: base.map(str::to_owned), header: header.into() })
 }
 
 fn frame(ordinal: u64, kind: FrameKind) -> ProjectedFrame {

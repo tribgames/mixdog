@@ -218,10 +218,12 @@ impl Drop for CallCount {
 }
 
 /// The work counts of a composed core, read from what the daemon already counts (the calls in flight, and the lifecycle's running work: a `Turn` is a busy
-/// session, a `SubAgent` a memory agent in flight). `queuedCalls` is the transport's queue, which the server crate does not expose to the daemon: it reads 0 here.
+/// session, a `SubAgent` a memory agent in flight), and the sessions `loaded` counts. `queuedCalls` is the transport's queue, which the server crate does not
+/// expose to the daemon: it reads 0 here.
 fn work_counts(
     lifecycle: Arc<crate::late_lifecycle::LateLifecycle>,
     calls: Arc<std::sync::atomic::AtomicU64>,
+    loaded: Arc<dyn Fn() -> usize + Send + Sync>,
 ) -> Arc<dyn Fn() -> crate::telemetry::WorkCounts + Send + Sync> {
     Arc::new(move || {
         let (mut busy_sessions, mut busy_memory_agents) = (0, 0);
@@ -234,7 +236,13 @@ fn work_counts(
                 }
             }
         }
-        crate::telemetry::WorkCounts { active_calls: calls.load(std::sync::atomic::Ordering::Acquire), queued_calls: 0, busy_sessions, busy_memory_agents }
+        crate::telemetry::WorkCounts {
+            active_calls: calls.load(std::sync::atomic::Ordering::Acquire),
+            queued_calls: 0,
+            busy_sessions,
+            busy_memory_agents,
+            loaded_sessions: loaded() as u64,
+        }
     })
 }
 
@@ -600,19 +608,25 @@ mod telemetry_work_tests {
         fx.lifecycle.set_serving().unwrap();
         let late = Arc::new(crate::late_lifecycle::LateLifecycle::default());
         let calls = Arc::new(AtomicU64::new(0));
-        let work = work_counts(late.clone(), calls.clone());
+        let loaded = Arc::new(AtomicU64::new(0));
+        let work = work_counts(late.clone(), calls.clone(), {
+            let loaded = loaded.clone();
+            Arc::new(move || loaded.load(Ordering::Acquire) as usize)
+        });
         assert_eq!(work(), WorkCounts::default(), "nothing is counted before the bind");
         late.bind(fx.lifecycle.clone()).unwrap();
         calls.store(2, Ordering::Release);
+        loaded.store(3, Ordering::Release);
         let turn = late.busy(&ThreadId::from("thread-1"), "a turn");
         let memory = late.begin_work(
             ActivityInfo { kind: ActivityKind::SubAgent, thread_id: None, turn_id: None, title: "memory agent".into() },
             MEMORY_AGENT_ACTIVITY_CHANGED,
         );
-        assert_eq!(work(), WorkCounts { active_calls: 2, queued_calls: 0, busy_sessions: 1, busy_memory_agents: 1 });
+        assert_eq!(work(), WorkCounts { active_calls: 2, queued_calls: 0, busy_sessions: 1, busy_memory_agents: 1, loaded_sessions: 3 });
         drop(turn);
         drop(memory);
         calls.store(0, Ordering::Release);
+        loaded.store(0, Ordering::Release);
         assert_eq!(work(), WorkCounts::default());
     }
 
@@ -1146,7 +1160,10 @@ async fn compose_inner(
         stop.clone(),
     );
     let calls_in_flight = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let work = work_counts(real.late_lifecycle.clone(), calls_in_flight.clone());
+    let work = work_counts(real.late_lifecycle.clone(), calls_in_flight.clone(), {
+        let directory = real.directory.clone();
+        Arc::new(move || directory.loaded_ids().len())
+    });
     let telemetry = build_telemetry(data_dir, tokens, &log, &stop, work.clone());
     mixdog_core_session::session::read_trace::log_to(log.line_log());
     let stall_description = crate::lifecycle::StallDescription {

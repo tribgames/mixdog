@@ -7526,6 +7526,35 @@ async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
+/// A thread nobody watches whose idle deadline found a Goal continuation decision on its way stays loaded when the decision
+/// lands, its idle clock deciding again a whole delay on: whoever opened it meanwhile keeps a live thread.
+#[tokio::test(start_paused = true)]
+async fn a_thread_a_pending_goal_decision_kept_at_its_deadline_stays_when_the_decision_lands() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let started = start_thread(&directory).await;
+    let id = started.id.clone();
+    started.cell.subscribed(false);
+    directory.release(&id).await;
+    assert!(directory.handle(&id).is_none(), "released before the reopen");
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (go, go_rx) = tokio::sync::oneshot::channel::<crate::session::goal_lane::DecisionFault>();
+    crate::session::goal_lane::DECISION_HOLDS.lock().unwrap().push((id.as_str().to_owned(), arrived_tx, go_rx));
+    let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopen");
+    arrived.await.expect("the open's continuation decision is held");
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.goal_pending.load(SeqCst).then_some(())).await;
+    handle.inbox.send(super::actor::Inbox::IdleDue).await.expect("the actor takes the deadline");
+    caught_up(&handle).await;
+    assert!(directory.handle(&id).is_some(), "the decision on its way holds the thread");
+    drop(go);
+    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.goal_pending.load(SeqCst)).then_some(())).await;
+    caught_up(&handle).await;
+    assert!(directory.handle(&id).is_some_and(|loaded| Arc::ptr_eq(&loaded.cell, &handle.cell)), "the landed decision left the thread loaded");
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+}
+
 /// What the process remembers of a thread's surface (`NewThreadTools::unloaded`) is let go each time the thread's slot
 /// leaves the directory, whichever way it leaves: the idle unload, the idle sweep's tombstone, a delete. A thread that is
 /// still loaded has let go of nothing.

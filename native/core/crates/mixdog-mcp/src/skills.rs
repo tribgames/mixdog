@@ -3,6 +3,7 @@
 //! (for example `jsRuntime`, the bundled script runtime) is offered only while that feature is
 //! active. Project-local `.mixdog/skills` is intentionally not read.
 
+use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -378,11 +379,11 @@ impl SkillGate {
     }
 
     /// Indexes of `skills` by name, in order of each name's first appearance.
-    fn groups(skills: &[Skill]) -> Vec<Vec<usize>> {
+    fn groups<S: Borrow<Skill>>(skills: &[S]) -> Vec<Vec<usize>> {
         let mut at: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         let mut groups: Vec<Vec<usize>> = Vec::new();
         for (index, skill) in skills.iter().enumerate() {
-            let slot = *at.entry(entry_key(&skill.name)).or_insert_with(|| {
+            let slot = *at.entry(entry_key(&skill.borrow().name)).or_insert_with(|| {
                 groups.push(Vec::new());
                 groups.len() - 1
             });
@@ -392,22 +393,22 @@ impl SkillGate {
     }
 
     /// [`states_where`](Self::states_where) with every skill in scope.
-    pub fn states(&self, skills: &[Skill]) -> Vec<SkillState> {
+    pub fn states<S: Borrow<Skill>>(&self, skills: &[S]) -> Vec<SkillState> {
         self.states_where(skills, |_| true)
     }
 
     /// The state of each of `skills` (in source order) where `in_scope` tells the skills the caller's project scope admits:
     /// of a name, the first that is not turned off, has its required features and is in scope is in use and the rest of
     /// those are hidden by it; the others are off.
-    pub fn states_where(&self, skills: &[Skill], in_scope: impl Fn(&Skill) -> bool) -> Vec<SkillState> {
+    pub fn states_where<S: Borrow<Skill>>(&self, skills: &[S], in_scope: impl Fn(&Skill) -> bool) -> Vec<SkillState> {
         let mut states = vec![SkillState::Off; skills.len()];
         for group in Self::groups(skills) {
-            if self.name_off(&skills[group[0]]) {
+            if self.name_off(skills[group[0]].borrow()) {
                 continue;
             }
             let mut used = None;
             for index in group {
-                let skill = &skills[index];
+                let skill = skills[index].borrow();
                 if self.turned_off(skill) || self.missing_feature(skill).is_some() || !in_scope(skill) {
                     continue;
                 }
@@ -424,25 +425,25 @@ impl SkillGate {
     }
 
     /// One skill of each name: the one in use, or the first of the name when every one is turned off (it reads as disabled).
-    pub fn in_use<'a>(&self, skills: &'a [Skill]) -> Vec<&'a Skill> {
+    pub fn in_use<'a, S: Borrow<Skill>>(&self, skills: &'a [S]) -> Vec<&'a S> {
         self.in_use_where(skills, |_| true)
     }
 
     /// [`in_use`](Self::in_use) among the skills `in_scope` admits.
-    pub fn in_use_where<'a>(&self, skills: &'a [Skill], in_scope: impl Fn(&Skill) -> bool) -> Vec<&'a Skill> {
+    pub fn in_use_where<'a, S: Borrow<Skill>>(&self, skills: &'a [S], in_scope: impl Fn(&Skill) -> bool) -> Vec<&'a S> {
         let states = self.states_where(skills, in_scope);
         Self::groups(skills).into_iter().map(|group| &skills[group.iter().copied().find(|&i| states[i] == SkillState::InUse).unwrap_or(group[0])]).collect()
     }
 
-    pub fn offered<'a>(&self, skills: &'a [Skill]) -> Vec<&'a Skill> {
-        self.in_use(skills).into_iter().filter(|s| self.refusal(s).is_none()).collect()
+    pub fn offered<'a, S: Borrow<Skill>>(&self, skills: &'a [S]) -> Vec<&'a S> {
+        self.in_use(skills).into_iter().filter(|s| self.refusal((*s).borrow()).is_none()).collect()
     }
 
     /// Why an off skill is off: `"name"` when a bare entry covers its name, `"source"` when its own key is listed,
     /// `"feature"` when a required feature is missing, else `"scope"` (the caller's project scope excludes it).
-    pub fn off_by(&self, skills: &[Skill], index: usize) -> &'static str {
-        let skill = &skills[index];
-        let first = skills.iter().find(|s| entry_key(&s.name) == entry_key(&skill.name)).unwrap_or(skill);
+    pub fn off_by<S: Borrow<Skill>>(&self, skills: &[S], index: usize) -> &'static str {
+        let skill = skills[index].borrow();
+        let first = skills.iter().map(|s| -> &Skill { s.borrow() }).find(|s| entry_key(&s.name) == entry_key(&skill.name)).unwrap_or(skill);
         if self.name_off(first) {
             "name"
         } else if self.turned_off(skill) {

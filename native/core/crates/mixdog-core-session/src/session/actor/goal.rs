@@ -183,6 +183,11 @@ impl SessionActor {
         }));
     }
 
+    /// The Goal the lane shows is active.
+    pub(super) fn goal_active(&self) -> bool {
+        self.projected.sections.goal.as_ref().and_then(|goal| goal.get("status")).and_then(Value::as_str) == Some("active")
+    }
+
     /// Idle with nothing queued: queued user work runs first, and a queued Goal entry already
     /// carries the next continuation.
     fn goal_idle(&self) -> bool {

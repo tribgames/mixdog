@@ -20,6 +20,7 @@ use super::room_log::RoomLog;
 use super::room_log::SessionRoomLog;
 use super::testing::Rig;
 use super::testing::lock;
+use super::tests::caught_up;
 use super::tests::start_thread;
 use crate::eventually_on;
 use crate::eventually_on_until;
@@ -229,4 +230,55 @@ async fn an_inheritance_whose_write_fails_answers_and_its_rows_land_with_the_nex
     assert_eq!(stored(&rig, &heir), expected());
     let header = handle.cell.header.load();
     assert_eq!(header.get("inheritedFromSessionId"), Some(&json!("sess_source")), "the inheritance's header keys went with the rows");
+}
+
+/// The idle deadline of a thread nobody watches, decided now: answered once the thread stays or has left.
+async fn idle_decided(handle: &SessionHandle) {
+    let (ack, decided) = tokio::sync::oneshot::channel();
+    handle.inbox.send(super::actor::Inbox::IdleRelease(ack)).await.expect("the actor takes the deadline");
+    decided.await.expect("the idle decision");
+}
+
+/// An idle unload waits for the rows a failed write kept, and their write fails again: the thread stays, and once the next
+/// write lands them its idle clock starts over, so it unloads a whole delay later.
+#[tokio::test(start_paused = true)]
+async fn an_unload_whose_write_fails_unloads_a_delay_after_the_next_write_lands() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    rig.store.fail_next.store(true, SeqCst);
+    let failed = handle.request(inherited_append(vec![json!({ "role": "user", "content": "kept" })])).await;
+    assert!(matches!(failed, Err(CoreError::BarrierFailed { .. })), "{failed:?}");
+    rig.store.fail_next.store(true, SeqCst);
+    idle_decided(&handle).await;
+    assert!(!rig.store.fail_next.load(SeqCst), "the unload wrote the kept rows again");
+    assert!(directory.handle(&handle.id).is_some(), "the failed write keeps the thread");
+
+    handle.request(header_patch(&handle, "next")).await.expect("the next write lands");
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + std::time::Duration::from_secs(1)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+/// An idle unload waits for an unknown outcome to be reconciled, and the reconcile fails: the thread stays, and once a
+/// later reconcile settles the outcome its idle clock starts over, so it unloads a whole delay later.
+#[tokio::test(start_paused = true)]
+async fn an_unload_whose_reconcile_fails_unloads_a_delay_after_the_outcome_is_reconciled() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    rig.store.indeterminate_next.store(true, SeqCst);
+    let failed = handle.request(inherited_append(vec![json!({ "role": "user", "content": "uncertain" })])).await;
+    assert!(matches!(failed, Err(CoreError::StorageIndeterminate { .. })), "{failed:?}");
+    eventually_on!(&[&handle.cell.stepped], || handle.recovered().then_some(())).await;
+    rig.store.retry_fails_next.store(true, SeqCst);
+    idle_decided(&handle).await;
+    assert!(!rig.store.retry_fails_next.load(SeqCst), "the unload asked for the outcome");
+    assert!(directory.handle(&handle.id).is_some(), "the failed reconcile keeps the thread");
+
+    handle.retry_storage().expect("request reconciliation");
+    eventually_on!(&[&rig.notices.1], || (lock(&rig.notices.2).last().map(|(event, _)| *event) == Some("save-resolved")).then_some(())).await;
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + std::time::Duration::from_secs(1)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }

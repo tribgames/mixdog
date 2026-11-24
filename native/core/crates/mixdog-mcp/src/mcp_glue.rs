@@ -390,28 +390,31 @@ impl McpGlue {
         out
     }
 
-    /// What the skill list depends on, as watch targets: every skills root watched deep, or, while it does not exist yet, its
-    /// nearest existing ancestor watched shallow; each plugin root (its manifests) and the registry's folder
+    /// What the skill list depends on, as watch targets: every skills root watched deep, or, while it does not exist yet, the
+    /// step toward it in its nearest existing ancestor; each plugin root (its manifests) and the registry's folder
     /// shallow, so a plugin installed, removed or edited is seen.
     pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillWatchTargets {
         use crate::skills_watch::WatchTargets;
+        fn push(list: &mut Vec<PathBuf>, path: PathBuf) {
+            if !list.contains(&path) {
+                list.push(path);
+            }
+        }
         fn add(lane: &mixdog_rt::InLane<MaintenanceIo>, targets: &mut WatchTargets, dir: PathBuf, deep: bool) {
             let mut at = dir.as_path();
             while !McpGlue::path_present(lane, at) {
                 let Some(parent) = at.parent() else { return };
                 at = parent;
             }
-            let deep = deep && at == dir;
-            if deep
-                && let Some(parent) = at.parent()
-                && !targets.shallow.iter().any(|p| p == parent)
-            {
-                // The parent still reports removal or replacement if the deep watch loses its directory.
-                targets.shallow.push(parent.to_path_buf());
-            }
-            let list = if deep { &mut targets.deep } else { &mut targets.shallow };
-            if !list.iter().any(|p| p == at) {
-                list.push(at.to_path_buf());
+            if at != dir {
+                // Its creation is seen as the entry of the ancestor on the way to it; the collection it causes registers the rest.
+                if let Some(step) = dir.strip_prefix(at).ok().and_then(|rest| rest.components().next()) {
+                    push(&mut targets.entries, at.join(step));
+                }
+            } else {
+                // Its parent reports its removal or rename, which a watch of the folder itself may miss or not outlive.
+                push(&mut targets.entries, dir.clone());
+                push(if deep { &mut targets.deep } else { &mut targets.shallow }, dir);
             }
         }
         Arc::new(move |lane| {

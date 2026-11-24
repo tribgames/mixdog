@@ -395,6 +395,8 @@ pub struct MemStore {
     pub fail_next: Arc<AtomicBool>,
     /// The next barrier returns an unknown outcome; a subsequent retry or append finds nothing had landed.
     pub indeterminate_next: Arc<AtomicBool>,
+    /// The next reconcile of an unknown outcome (`retry`) fails.
+    pub retry_fails_next: Arc<AtomicBool>,
     /// Every barrier fails (rolled back) with this cause while it is set.
     pub failing: Arc<Mutex<Option<Arc<str>>>>,
     /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
@@ -574,6 +576,7 @@ struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
     indeterminate_next: Arc<AtomicBool>,
+    retry_fails_next: Arc<AtomicBool>,
     failing: Arc<Mutex<Option<Arc<str>>>>,
     fail_after_write: Arc<AtomicBool>,
     fail_when: FailWhen,
@@ -661,6 +664,9 @@ impl SessionLog for MemLog {
     }
 
     fn retry(&mut self, _lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+        if self.retry_fails_next.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::Indeterminate { io_kind: "sync".into(), cause: "test: reconcile failed".into() });
+        }
         Ok(())
     }
 }
@@ -889,6 +895,7 @@ impl ThreadStore for MemStore {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
             indeterminate_next: self.indeterminate_next.clone(),
+            retry_fails_next: self.retry_fails_next.clone(),
             failing: self.failing.clone(),
             fail_after_write: self.fail_after_write.clone(),
             fail_when: self.fail_when.clone(),
@@ -912,6 +919,7 @@ impl ThreadStore for MemStore {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
             indeterminate_next: self.indeterminate_next.clone(),
+            retry_fails_next: self.retry_fails_next.clone(),
             failing: self.failing.clone(),
             fail_after_write: self.fail_after_write.clone(),
             fail_when: self.fail_when.clone(),

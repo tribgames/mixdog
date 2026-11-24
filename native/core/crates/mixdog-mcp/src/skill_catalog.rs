@@ -93,7 +93,8 @@ fn key_of(name: &str) -> String {
 
 struct Cached {
     generation: u64,
-    skills: Arc<Vec<Skill>>,
+    /// Each skill behind its own count: every list handed out shares them.
+    skills: Arc<Vec<Arc<Skill>>>,
 }
 
 pub struct SkillCatalog {
@@ -105,6 +106,9 @@ pub struct SkillCatalog {
     cache: ArcSwap<Option<Cached>>,
     /// What the watcher watches, re-registered with every collection (set once at composition).
     watching: OnceLock<(Arc<SkillsWatch>, SkillWatchTargets)>,
+    /// Held by the collection a miss runs: a read that misses meanwhile waits for it and takes what it collected.
+    #[allow(clippy::disallowed_types, reason = "one collection at a time, across the lane job it awaits")]
+    collecting: tokio::sync::Mutex<()>,
 }
 
 /// The directories the skill list depends on, evaluated on the maintenance lane.
@@ -140,7 +144,16 @@ pub fn skills_disabled(value: &str) -> bool {
 }
 impl SkillCatalog {
     pub fn new(data_dir: PathBuf, maintenance: MaintenanceIo, roots: SkillRoots, settings: Arc<dyn SkillSettingsSource>, watch: &SkillsWatch) -> Arc<Self> {
-        Arc::new(Self { data_dir, maintenance, roots, settings, changes: watch.subscribe(), cache: ArcSwap::from_pointee(None), watching: OnceLock::new() })
+        Arc::new(Self {
+            data_dir,
+            maintenance,
+            roots,
+            settings,
+            changes: watch.subscribe(),
+            cache: ArcSwap::from_pointee(None),
+            watching: OnceLock::new(),
+            collecting: tokio::sync::Mutex::new(()),
+        })
     }
 
     /// Has `watch` follow the skill and plugin roots: each collection registers `targets` on it first,
@@ -158,35 +171,47 @@ impl SkillCatalog {
     /// One installed skill of each name: the one in use ([`SkillGate::in_use`] under the current
     /// settings, no project scope applied; a session's is [`skills_at`](Self::skills_at)); empty
     /// while skills are switched off by the environment.
-    pub async fn skills(&self) -> Result<Arc<Vec<Skill>>, CatalogError> {
+    pub async fn skills(&self) -> Result<Vec<Arc<Skill>>, CatalogError> {
         let every = self.every_skill().await?;
         Ok(self.in_use(&every))
     }
 
-    fn in_use(&self, every: &[Skill]) -> Arc<Vec<Skill>> {
-        Arc::new(self.settings.current().gate.in_use(every).into_iter().cloned().collect())
+    fn in_use(&self, every: &[Arc<Skill>]) -> Vec<Arc<Skill>> {
+        self.settings.current().gate.in_use(every).into_iter().cloned().collect()
     }
 
     /// One skill of each name as a session in `cwd` has it: the one in use among those the project scope admits there.
-    pub async fn skills_at(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
+    pub async fn skills_at(&self, cwd: &Path) -> Result<Vec<Arc<Skill>>, CatalogError> {
         let every = self.every_skill().await?;
         let settings = self.settings.current();
         Ok(settings.gate.in_use_where(&every, |s| settings.scopes.skill_allowed_for_cwd(s, cwd)).into_iter().cloned().collect())
     }
 
+    /// The collected list, when nothing has changed since it was collected.
+    fn fresh(&self) -> Option<Arc<Vec<Arc<Skill>>>> {
+        let generation = *self.changes.borrow();
+        match &**self.cache.load() {
+            Some(cached) if cached.generation == generation => Some(Arc::clone(&cached.skills)),
+            _ => None,
+        }
+    }
+
     /// Every installed skill of every source, in source order; empty while skills are switched
     /// off by the environment.
-    pub async fn every_skill(&self) -> Result<Arc<Vec<Skill>>, CatalogError> {
+    pub async fn every_skill(&self) -> Result<Arc<Vec<Arc<Skill>>>, CatalogError> {
         if skills_disabled_by_env() {
-            return Ok(Arc::new(Vec::new()));
+            return Ok(Arc::default());
+        }
+        if let Some(skills) = self.fresh() {
+            return Ok(skills);
+        }
+        let _collecting = self.collecting.lock().await;
+        // The collection this one waited for answers it, unless something changed since.
+        if let Some(skills) = self.fresh() {
+            return Ok(skills);
         }
         let generation = *self.changes.borrow();
         let before = self.cache.load_full();
-        if let Some(cached) = before.as_ref()
-            && cached.generation == generation
-        {
-            return Ok(Arc::clone(&cached.skills));
-        }
         let (data_dir, roots) = (self.data_dir.clone(), Arc::clone(&self.roots));
         let watching = self.watching.get().cloned();
         let (collected, watch_complete) = self
@@ -201,7 +226,7 @@ impl SkillCatalog {
                 (skills, complete)
             })
             .await?;
-        let skills = Arc::new(collected);
+        let skills = Arc::new(collected.into_iter().map(Arc::new).collect::<Vec<_>>());
         if watch_complete {
             let _ = self.cache.compare_and_swap(&before, Arc::new(Some(Cached { generation, skills: Arc::clone(&skills) })));
         }
@@ -210,15 +235,11 @@ impl SkillCatalog {
 
     /// The list [`skills`](Self::skills) last collected, when nothing has changed since: no lane job, no wait. For readers that
     /// cannot await (Node's `skillsStatus()` is an in-memory read); `None` while the list is cold or stale, never a guess.
-    pub fn cached(&self) -> Option<Arc<Vec<Skill>>> {
+    pub fn cached(&self) -> Option<Vec<Arc<Skill>>> {
         if skills_disabled_by_env() {
-            return Some(Arc::new(Vec::new()));
+            return Some(Vec::new());
         }
-        let generation = *self.changes.borrow();
-        match &**self.cache.load() {
-            Some(cached) if cached.generation == generation => Some(self.in_use(&cached.skills)),
-            _ => None,
-        }
+        self.fresh().map(|every| self.in_use(&every))
     }
 
     /// Runs `job` on the maintenance lane, waiting for room when the lane is full. A job the
@@ -235,11 +256,16 @@ impl SkillCatalog {
 
     /// The skills a session in `cwd` may see: not switched off, feature available, inside the
     /// skill's (and its plugin's) project scope.
-    pub async fn visible(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
+    pub async fn visible_skills(&self, cwd: &Path) -> Result<Vec<Arc<Skill>>, CatalogError> {
         Ok(self.filter_visible(&self.skills_at(cwd).await?, cwd))
     }
 
-    fn filter_visible(&self, skills: &[Skill], cwd: &Path) -> Vec<Skill> {
+    /// [`visible_skills`](Self::visible_skills), each skill copied, for a caller that needs the skills themselves.
+    pub async fn visible(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
+        Ok(self.visible_skills(cwd).await?.iter().map(|skill| Skill::clone(skill)).collect())
+    }
+
+    fn filter_visible(&self, skills: &[Arc<Skill>], cwd: &Path) -> Vec<Arc<Skill>> {
         let settings = self.settings.current();
         skills
             .iter()
@@ -250,7 +276,7 @@ impl SkillCatalog {
     }
 
     /// Why the `Skill` tool refuses `name` at `cwd`, or `None`.
-    fn refusal(&self, skills: &[Skill], name: &str, cwd: &Path) -> Option<SkillRefusal> {
+    fn refusal(&self, skills: &[Arc<Skill>], name: &str, cwd: &Path) -> Option<SkillRefusal> {
         let settings = self.settings.current();
         let key = key_of(name);
         let skill = skills.iter().find(|s| key_of(&s.name) == key)?;
@@ -278,24 +304,28 @@ impl SkillCatalog {
     /// when there is one (the one the editor writes), else the one in use.
     pub async fn named(&self, value: &str) -> Result<Option<Skill>, CatalogError> {
         let every = self.every_skill().await?;
-        let wanted = js_trim(value);
+        Ok(self.named_shared(&every, js_trim(value)).map(|skill| Skill::clone(&skill)))
+    }
+
+    fn named_shared(&self, every: &[Arc<Skill>], wanted: &str) -> Option<Arc<Skill>> {
         if wanted.contains(':') {
-            return Ok(every.iter().find(|s| entry_key(&s.key()) == entry_key(wanted)).cloned());
+            return every.iter().find(|s| entry_key(&s.key()) == entry_key(wanted)).cloned();
         }
         if let Some(own) = every.iter().find(|s| s.source == SkillSource::Global && s.name == wanted) {
-            return Ok(Some(own.clone()));
+            return Some(Arc::clone(own));
         }
-        Ok(self.in_use(&every).iter().find(|s| s.name == wanted).cloned())
+        self.in_use(every).into_iter().find(|s| s.name == wanted)
     }
 
     /// `loadSkillResource`: the skill [`named`](Self::named) by `value`, with its body.
     pub async fn resource(&self, value: &str) -> Result<Option<SkillResource>, CatalogError> {
-        let Some(skill) = self.named(value).await? else { return Ok(None) };
+        let every = self.every_skill().await?;
+        let Some(skill) = self.named_shared(&every, js_trim(value)) else { return Ok(None) };
         let name = skill.name.clone();
         self.resource_from(&[skill], &name).await
     }
 
-    async fn resource_from(&self, skills: &[Skill], name: &str) -> Result<Option<SkillResource>, CatalogError> {
+    async fn resource_from(&self, skills: &[Arc<Skill>], name: &str) -> Result<Option<SkillResource>, CatalogError> {
         let wanted = js_trim(name);
         let Some(skill) = skills.iter().find(|s| s.name == wanted).cloned() else { return Ok(None) };
         let path = skill.file_path.clone();
@@ -312,6 +342,6 @@ impl SkillCatalog {
         let Ok(document) = parse_document(text) else { return Ok(None) };
         let parent = skill.file_path.parent().unwrap_or_else(|| Path::new(""));
         let dir = skill_execution_dir(parent, skill.source);
-        Ok(Some(SkillResource { body: document.body, dir, skill }))
+        Ok(Some(SkillResource { body: document.body, dir, skill: Skill::clone(&skill) }))
     }
 }

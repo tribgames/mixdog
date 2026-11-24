@@ -4818,7 +4818,7 @@ impl HeldHead {
         use serde::Deserialize as _;
         let mut de = serde_json::Deserializer::from_slice(&self.header);
         de.disable_recursion_limit();
-        let header = serde_json::Map::<String, serde_json::Value>::deserialize(&mut de)
+        let header = crate::schema::shared_header::SharedHeader::deserialize(&mut de)
             .and_then(|header| de.end().map(|()| header))
             .map_err(|e| format!("{}: the held header: {e}", self.session))?;
         Ok(CatalogHead { session: self.session, log_id: self.log_id, base_session: self.base_session, header })
@@ -4834,7 +4834,7 @@ mod held_head_tests {
     fn a_held_head_decodes_to_the_head_it_holds() {
         let header = serde_json::json!({"z": 1, "a": [0.1, 1e300, -0.0, 18446744073709551615u64, -9007199254740993i64], "\"q\"": "é\u{1F600}\n", "o": {"b": null, "a": true}});
         let head =
-            CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: Some("sess_b".into()), header: header.as_object().unwrap().clone() };
+            CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: Some("sess_b".into()), header: header.as_object().unwrap().clone().into() };
         let back = HeldHead::of(&head).head().unwrap();
         assert_eq!(back, head);
         assert_eq!(back.header.keys().collect::<Vec<_>>(), head.header.keys().collect::<Vec<_>>());
@@ -4853,7 +4853,7 @@ mod held_head_tests {
         let mut header = serde_json::Map::new();
         header.insert("title".into(), serde_json::json!("t"));
         crate::work_stops::apply(&mut header, "stop_1", crate::schema::record::WorkStopPhase::Stopped, Some(&body));
-        let head = CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: None, header };
+        let head = CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: None, header: header.into() };
         let held = HeldHead::of(&head);
         assert!(serde_json::from_slice::<serde_json::Value>(&held.header).is_err(), "the folded header is past one record's limit");
         assert_eq!(held.head().unwrap(), head);
@@ -5434,7 +5434,7 @@ fn damage_text(dir: &Path, at: Option<crate::log::Damage>, error: &str) -> Strin
 /// The row of a session whose log has no readable `session` frame: no header, no
 /// `log_id`, so it is never listed, searched or summarized; only its damage is kept.
 fn unreadable_head(id: &str) -> CatalogHead {
-    let mut header = serde_json::Map::new();
+    let mut header = crate::schema::shared_header::SharedHeader::new();
     header.insert("id".into(), id.into());
     CatalogHead { session: id.to_owned(), log_id: String::new(), base_session: None, header }
 }

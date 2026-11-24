@@ -7,6 +7,7 @@
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::schema::shared_header::HeaderFields;
 use crate::summary::truthy;
 
 /// The indexed keys of a `worker` map, normalized as 1.4.5 `agent-tool` reads a worker row.
@@ -25,8 +26,8 @@ pub struct WorkerKeys {
 impl WorkerKeys {
     /// `None` without a `worker` object, and for a Lead pool row (`agent` "lead"), which
     /// 1.4.5 `normalizeWorkerRows` hides from every reader.
-    pub fn of(header: &Map<String, Value>) -> Option<WorkerKeys> {
-        let row = header.get("worker")?.as_object()?;
+    pub fn of<H: HeaderFields + ?Sized>(header: &H) -> Option<WorkerKeys> {
+        let row = header.field("worker")?.as_object()?;
         if clean(row.get("agent")).to_lowercase() == "lead" {
             return None;
         }
@@ -82,12 +83,16 @@ pub const LISTED_FIELDS: [&str; 35] = [
 
 /// The [`LISTED_FIELDS`] members `header` has, in its own order, as JSON. `None` for a session kept only to host a
 /// worker row, which has no record a listing reads.
-pub fn listed_row(header: &Map<String, Value>) -> Option<String> {
-    if header.get(crate::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true) {
+pub fn listed_row<H: HeaderFields + ?Sized>(header: &H) -> Option<String> {
+    if header.field(crate::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true) {
         return None;
     }
-    let listed: Map<String, Value> =
-        header.iter().filter(|(key, _)| LISTED_FIELDS.contains(&key.as_str())).map(|(key, value)| (key.clone(), value.clone())).collect();
+    let mut listed = Map::new();
+    header.each_field(&mut |key, value| {
+        if LISTED_FIELDS.contains(&key.as_str()) {
+            listed.insert(key.clone(), value.clone());
+        }
+    });
     Some(Value::Object(listed).to_string())
 }
 
@@ -105,20 +110,20 @@ impl TagKeys {
     /// `None` unless the session is in the agent registry (agent-only, or a legacy
     /// `owner: agent` child, with a parent link that is a session id other than its own),
     /// has a tag, and is not a Lead pool session (`agent || sourceName` "lead").
-    pub fn of(session: &str, header: &Map<String, Value>) -> Option<TagKeys> {
+    pub fn of<H: HeaderFields + ?Sized>(session: &str, header: &H) -> Option<TagKeys> {
         let owner = owner_of(header).filter(|o| crate::summary::is_stored_session_id(o) && o != session)?;
-        let agent_only = crate::summary::session_visibility(header) == "agent-only" || clean(header.get("owner")).to_lowercase() == "agent";
-        let agent = header.get("agent");
-        let agent = if truthy(agent) { agent } else { header.get("sourceName") };
-        let tag = clean(header.get("agentTag"));
+        let agent_only = crate::summary::session_visibility(header) == "agent-only" || clean(header.field("owner")).to_lowercase() == "agent";
+        let agent = header.field("agent");
+        let agent = if truthy(agent) { agent } else { header.field("sourceName") };
+        let tag = clean(header.field("agentTag"));
         (agent_only && !tag.is_empty() && clean(agent).to_lowercase() != "lead").then_some(TagKeys { tag, owner })
     }
 }
 
 /// `clean(x.parentSessionId || x.ownerSessionId)`, `None` when empty.
-fn owner_of(row: &Map<String, Value>) -> Option<String> {
-    let parent = row.get("parentSessionId");
-    let owner = if truthy(parent) { parent } else { row.get("ownerSessionId") };
+fn owner_of<H: HeaderFields + ?Sized>(row: &H) -> Option<String> {
+    let parent = row.field("parentSessionId");
+    let owner = if truthy(parent) { parent } else { row.field("ownerSessionId") };
     Some(clean(owner)).filter(|o| !o.is_empty())
 }
 

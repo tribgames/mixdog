@@ -423,3 +423,21 @@ async fn link_log_refused_upgrade_leaves_a_structured_line_with_its_reason_and_n
     assert_eq!(ids.len(), 2, "each refusal names its own connection id: {lines:?}");
     assert!(lines.iter().all(|line| !line.contains(TOKEN) && !line.contains("not-the-token")));
 }
+
+/// A reply longer than a fragment leaves in frames no longer than one, so the socket's write buffer never takes the size of
+/// the longest reply: a client that refuses longer frames still reads it whole, multi-byte characters included.
+#[tokio::test]
+async fn a_long_reply_arrives_whole_in_frames_no_longer_than_a_fragment() {
+    use mixdog_app_server_transport::websocket::TEXT_FRAGMENT_BYTES;
+    use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+    let (_hub, mut listener) = listen(Limits::default()).await;
+    let addr = listener.local_addr();
+    let mut request = format!("ws://{addr}/rpc").into_client_request().unwrap();
+    request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+    let config = WebSocketConfig::default().max_frame_size(Some(TEXT_FRAGMENT_BYTES));
+    let (mut client, _) = tokio_tungstenite::client_async_with_config(request, TcpStream::connect(addr).await.unwrap(), Some(config)).await.unwrap();
+    let server = listener.accept().await.expect("listener open");
+    let reply = format!(r#"{{"id":1,"result":"{}"}}"#, "é".repeat(100_000));
+    server.sink.send_control(Bytes::from(reply.clone())).unwrap();
+    assert_eq!(client.next().await.unwrap().unwrap(), Message::text(reply));
+}

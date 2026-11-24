@@ -94,7 +94,7 @@ mod tests {
                 header["roomMembers"] = members;
             }
             let head =
-                CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+                CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
             index.upsert(head, DirtyMark::Set).await.unwrap();
         }
         let (state, _) = CoreState::open(t.sqlite_writer_thread, t.interactive_io, &data.path().join("core.sqlite")).unwrap();

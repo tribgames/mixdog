@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn the_stall_line_carries_the_in_flight_work() {
         let fx = fixture();
-        let (reporter, path, _) = reporter_with(&fx, WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 1, busy_memory_agents: 0 });
+        let (reporter, path, _) = reporter_with(&fx, WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 1, busy_memory_agents: 0, loaded_sessions: 1 });
         reporter.report(2500);
         reporter.report(0);
         let text = std::fs::read_to_string(path).unwrap();

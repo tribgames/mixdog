@@ -237,7 +237,7 @@ fn pending_row(
         last,
         last_routine: row.shift_remove("lastMessageRoutine").unwrap_or(Value::Null),
     };
-    (mixdog_store::summary::CatalogHead { session, log_id: mixdog_store::sqlite::PENDING_LOG_ID.to_owned(), base_session: None, header: row }, stats)
+    (mixdog_store::summary::CatalogHead { session, log_id: mixdog_store::sqlite::PENDING_LOG_ID.to_owned(), base_session: None, header: row.into() }, stats)
 }
 
 /// Withdraws the rows of sessions listed as still to convert that the migration, now complete, did not convert (it set them aside): such a row lists a session there is

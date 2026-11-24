@@ -284,7 +284,8 @@ impl SessionActor {
         if self.projected.sections.agents.clone().unwrap_or_default() != agents {
             self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
         }
-        if listener {
+        // Only an active Goal continues: a decision for a thread with none would only hold it loaded while it is made.
+        if listener && self.goal_active() {
             self.schedule_goal_continuation();
         }
     }

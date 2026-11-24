@@ -316,8 +316,8 @@ pub trait SkillNames: Send + Sync {
 #[async_trait::async_trait]
 impl SkillNames for crate::skill_catalog::SkillCatalog {
     async fn names(&self, cwd: &std::path::Path) -> Result<HashSet<String>, String> {
-        let visible = self.visible(cwd).await.map_err(|e| e.to_string())?;
-        Ok(visible.into_iter().map(|skill| skill.name).collect())
+        let visible = self.visible_skills(cwd).await.map_err(|e| e.to_string())?;
+        Ok(visible.iter().map(|skill| skill.name.clone()).collect())
     }
 }
 

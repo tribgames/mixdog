@@ -49,15 +49,33 @@ impl Note {
         self
     }
 
-    /// The positioned form with `roomView` set: what an event carries beside the transcript reaches a positioned
-    /// subscription too.
-    pub fn with_room_view(&mut self, view: &serde_json::Value) {
-        let Some((method, params)) = &self.positioned else { return };
-        if let Ok(mut params) = serde_json::from_slice::<serde_json::Value>(params) {
-            params["roomView"] = view.clone();
-            self.positioned = Some((method, encode(&params)));
+    /// Both forms with `roomView` set to `view` (encoded JSON): what an event carries beside the transcript reaches a
+    /// positioned subscription too. Neither form holds a `roomView` before ([`ItemNotificationParams`] and
+    /// [`ThreadTranscriptChangedParams`] leave an unset one out).
+    ///
+    /// [`ItemNotificationParams`]: mixdog_app_protocol::v2::thread::ItemNotificationParams
+    pub fn with_room_view(&mut self, view: &[u8]) {
+        self.params = with_member(&self.params, "roomView", view);
+        if let Some((_, params)) = &mut self.positioned {
+            *params = with_member(params, "roomView", view);
         }
     }
+}
+
+/// `object` (encoded JSON, no member `key` in it) with `key` set to `value` (encoded JSON) after its members: a note that
+/// gains a member is not decoded and encoded again whole.
+fn with_member(object: &[u8], key: &str, value: &[u8]) -> Bytes {
+    let body = object.strip_suffix(b"}").expect("params are a JSON object");
+    let mut out = Vec::with_capacity(object.len() + key.len() + value.len() + 4);
+    out.extend_from_slice(body);
+    if body != b"{" {
+        out.push(b',');
+    }
+    serde_json::to_writer(&mut out, key).expect("string serializes");
+    out.push(b':');
+    out.extend_from_slice(value);
+    out.push(b'}');
+    Bytes::from(out)
 }
 
 /// The frame of a stored record's unit for a subscription whose grant holds it: `thread/transcript/changed` with
@@ -128,5 +146,22 @@ mod tests {
         // Taking the frame's buffer back shows what it holds.
         let held = Vec::from(framed).capacity();
         assert!(held < length + 256, "a frame of {length} bytes holds a buffer of {held}");
+    }
+
+    /// A room view set on a note reads as the note encoded with it, in both forms, a cleared (`null`) view included.
+    #[test]
+    fn a_room_view_set_on_a_note_reads_as_the_note_encoded_with_it() {
+        let thread = ThreadId::from("sess_room_room01");
+        let item = serde_json::json!({ "threadId": "sess_room_room01", "item": { "text": "x".repeat(1000) } });
+        for view in [serde_json::json!({ "speaking": ["a"] }), serde_json::Value::Null] {
+            let mut note = Note::new("item/completed", &item).of_record(3, &thread, &TurnId::from("t1"));
+            note.with_room_view(&encode(&view));
+            let mut expected = item.clone();
+            expected["roomView"] = view.clone();
+            assert_eq!(serde_json::from_slice::<serde_json::Value>(&note.params).unwrap(), expected);
+            let (_, positioned) = note.positioned.as_ref().unwrap();
+            assert_eq!(serde_json::from_slice::<serde_json::Value>(positioned).unwrap()["roomView"], view);
+        }
+        assert_eq!(&with_member(b"{}", "roomView", b"null")[..], br#"{"roomView":null}"#);
     }
 }
