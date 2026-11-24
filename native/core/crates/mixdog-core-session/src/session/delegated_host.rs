@@ -220,7 +220,8 @@ impl DelegatedApprovalHost {
         self.lock().ended.retain(|(_, task)| task.as_deref() != Some(session_id));
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     fn ended_held(&self) -> usize {
         self.lock().ended.len()
     }

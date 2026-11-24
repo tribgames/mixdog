@@ -620,7 +620,8 @@ impl Views {
         self.scoped.remove(&scope_key(scope));
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(super) fn scopes_held(&self) -> usize {
         self.scoped.len()
     }

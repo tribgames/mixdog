@@ -2585,13 +2585,15 @@ impl SessionDirectory {
     }
 
     /// How many sessions are joined to a tree as created ([`Self::join_created`]).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(crate) fn created_linked(&self) -> usize {
         lock(&self.inner.created_links).values().map(Vec::len).sum()
     }
 
     /// Whether the work submitted under `submission` is latched as stopped in thread `id` ([`Self::latch_work`]).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(crate) fn work_latched(&self, id: &ThreadId, submission: &str) -> bool {
         self.inner.stop_latches.latched(id, &mixdog_store::work_stops::submission(submission))
     }

@@ -184,7 +184,8 @@ impl ContextLens {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(super) fn holds(&self, thread: &str) -> bool {
         self.threads().contains_key(thread)
     }

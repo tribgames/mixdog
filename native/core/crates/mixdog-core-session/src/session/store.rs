@@ -1927,7 +1927,8 @@ impl StoreThreads {
 
     /// What is kept for the reads of `id`: whether its shape is, how many lists of header members, and whether its context
     /// length entry is.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests"))]
     pub(super) fn kept_for(&self, id: &ThreadId) -> (bool, usize, bool) {
         let shape = self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(id.as_str());
         let picked = self.picked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id.as_str()).map_or(0, |by_fields| by_fields.len());
