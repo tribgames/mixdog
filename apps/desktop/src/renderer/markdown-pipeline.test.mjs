@@ -242,6 +242,94 @@ test('a streaming tail never shows syntax that is about to become something else
   assert.equal(heal('Intro\n2. T'), 'Intro\n2. T');
 });
 
+test('an unclosed $$ block streams as pending math, never as healed prose', () => {
+  const heal = (text) => healStreamingMarkdownTail(text);
+  const open = 'So:\n\n$$\n\\mathbb{R}_{+} \\times c_{j} * d^{*}';
+  // Whole lines only, and no emphasis closer inside the math.
+  assert.equal(heal(open), 'So:\n\n');
+  assert.equal(heal(`${open}\n`), `${open}\n`);
+  assert.equal(heal(`${open}\n$`), `${open}\n`);
+  assert.equal(heal(`${open}\n$$\n`), `${open}\n$$\n`);
+  // A one-line `$$…$$` waits for its closing run.
+  assert.equal(heal('Line:\n\n$$ a_{1} + {b}_{2} $'), 'Line:\n\n');
+  assert.equal(heal('Line:\n\n$$ a_{1} + {b}_{2} $$'), 'Line:\n\n$$ a_{1} + {b}_{2} $$');
+  // A lone `$` is prose and inline `$…$` / `\$` stay prose.
+  assert.equal(heal('Price $5 and _x'), 'Price $5 and _x_');
+  assert.equal(heal('Price $5 and $y_2$ or \\$3'), 'Price $5 and $y_2$ or \\$3');
+
+  const reply = 'So:\n\n$$\n\\frac{a}{b}_{i} + c_{j} * d^{*} + \\mathbb{R}_{+}\n$$\n\nDone.';
+  const render = (text) =>
+    new JSDOM(
+      renderToStaticMarkup(
+        React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: CopyControl })
+      )
+    ).window.document;
+  const settled = render(reply).querySelector('.katex-display .katex-html').outerHTML;
+  let shown = false;
+  for (let end = 1; end <= reply.length; end += 1) {
+    const prefix = reply.slice(0, end);
+    const document = render(heal(prefix));
+    assert.equal(document.querySelector('.katex-error, em, strong'), null, JSON.stringify(prefix));
+    const display = document.querySelector('.katex-display .katex-html');
+    assert.ok(display || !shown, `math vanished at ${JSON.stringify(prefix)}`);
+    if (display) assert.equal(display.outerHTML, settled, JSON.stringify(prefix));
+    shown ||= Boolean(display);
+  }
+  assert.ok(shown);
+});
+
+test('math spans and blocks mask exactly what the settled renderer reads as math', () => {
+  const markup = (text) =>
+    renderToStaticMarkup(
+      React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: CopyControl })
+    );
+  for (const text of [
+    '- **echo $$** prints the PID\n- Repeat $$ to check',
+    '- See [echo $$](https://example.com)\n- Repeat $$',
+    '| cmd | note |\n|---|---|\n| **echo $$** | pid |\n| echo $$ | again |',
+    'Bounds:\n\n$$\n[\\$0, \\$10) _a\n$$$\n',
+    'Range $$[\\$0, \\$10) * x$$ and more',
+  ]) {
+    assert.equal(healStreamingMarkdownTail(text), text, JSON.stringify(text));
+    assert.equal(markup(healStreamingMarkdownTail(text)), markup(text), JSON.stringify(text));
+  }
+  const tail = 'Range $$[\\$0, \\$10)$$ then **bold';
+  assert.equal(healStreamingMarkdownTail(tail), `${tail}**`);
+  assert.equal(markup(healStreamingMarkdownTail(tail)), markup(`${tail}**`));
+  const banner = `Cost $$ ${'$'.repeat(400)} then **bold`;
+  assert.equal(healStreamingMarkdownTail(banner), `${banner}**`);
+});
+
+test('open environments, groups and \\left in streaming math never paint an error frame', () => {
+  const render = (text) =>
+    new JSDOM(
+      renderToStaticMarkup(
+        React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: CopyControl })
+      )
+    ).window.document;
+  for (const reply of [
+    'Sum:\n\n$$\n\\begin{aligned}\na_{1} &= b_{2} + c \\\\\nd &= \\frac{e}{f}\n\\end{aligned}\n$$\n\nDone.',
+    'Def:\n\n$$\nf(x) = \\begin{cases}\n1 & x > 0 \\\\\n0 & \\text{otherwise}\n\\end{cases}\n$$\n\nDone.',
+    'M:\n\n$$\nA = \\begin{pmatrix}\n1 & 2 \\\\\n3 & 4\n\\end{pmatrix}\n$$\n\nDone.',
+    'L:\n\n$$\ny = \\left( \\frac{a}{b}\n+ c^{2 +\nd} \\right)\n$$\n\nDone.',
+  ]) {
+    let shown = false;
+    for (let end = 1; end <= reply.length; end += 1) {
+      const prefix = reply.slice(0, end);
+      const document = render(healStreamingMarkdownTail(prefix));
+      assert.equal(document.querySelector('.katex-error'), null, JSON.stringify(prefix));
+      const display = document.querySelector('.katex-display');
+      assert.ok(display || !shown, `math vanished at ${JSON.stringify(prefix)}`);
+      shown ||= Boolean(display);
+    }
+    assert.ok(shown, reply);
+  }
+  // A finished block that is really unbalanced keeps its error, as its source in the muted tone.
+  const error = render(healStreamingMarkdownTail('Bad:\n\n$$\n\\left( a\n$$\n')).querySelector('.katex-error');
+  assert.equal(error?.textContent, '\\left( a');
+  assert.equal(error?.getAttribute('style'), 'color:var(--mx-text-muted)');
+});
+
 test('a streaming table appears only once its delimiter row is complete', () => {
   const render = (text) => {
     const markup = renderToStaticMarkup(

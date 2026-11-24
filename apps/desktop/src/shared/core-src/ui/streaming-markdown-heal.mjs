@@ -1,31 +1,46 @@
-const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,}|\${2,})(.*)$/;
 const FENCED_BLOCK = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
 const INLINE_CODE_SPAN = /`+[^`\n]*`+/g;
+// Closes only on a run of exactly its own two `$`; `\$` is TeX inside it.
+// Each longer run is taken whole, so a line of `$` is read once.
+const INLINE_MATH_SPAN = /(?<![\\$])\$\$(?!\$)(?:[^$\n]|\$(?!\$)|\${3,}(?!\$))+?(?<!\$)\$\$(?!\$)/g;
 const EMPHASIS_MARKERS = new Set(['*', '_', '~']);
 const MARKDOWN_PUNCTUATION = /[!-/:-@[-`{-~\u00a1-\u00bf\u2010-\u2027\u2030-\u205e]/;
 const HEALABLE_MARKDOWN_SYNTAX = /[`*_~[]/;
 
-function openFence(text) {
+// Display math opens only where nothing after its `$$` holds a `$`: a line
+// like `$$a$$` is inline math. The last line still waits for that closing
+// run, and paints once its span closes.
+function opensMathBlock(marks, rest, last) {
+  if (!rest.includes('$')) return true;
+  return last && !Array.from(rest.matchAll(/\\.|\$+/g)).some(([run]) => run.length === marks.length && run[0] === '$');
+}
+
+/** The fence still open at the end, and where each closed `$$` block spans. */
+function scanFences(text) {
   let marker = '';
   let length = 0;
   let start = 0;
   let lineStart = 0;
-  for (const rawLine of String(text ?? '').split('\n')) {
+  const mathBlocks = [];
+  const lines = String(text ?? '').split('\n');
+  for (const [index, rawLine] of lines.entries()) {
     const fence = FENCE_LINE.exec(rawLine.replace(/\r$/, ''));
-    if (fence) {
+    if (fence && (marker || fence[1][0] !== '$' || opensMathBlock(fence[1], fence[2], index === lines.length - 1))) {
       const marks = fence[1];
       if (!marker) {
         marker = marks[0];
         length = marks.length;
         start = lineStart;
       } else if (marks[0] === marker && marks.length >= length && !fence[2].trim()) {
+        if (marker === '$') mathBlocks.push([start, lineStart + rawLine.length]);
         marker = '';
         length = 0;
       }
     }
     lineStart += rawLine.length + 1;
   }
-  return marker ? { marker, length, start } : null;
+  return { open: marker ? { marker, length, start } : null, mathBlocks };
 }
 
 function trimPartialOpeningFence(text, fence) {
@@ -33,7 +48,39 @@ function trimPartialOpeningFence(text, fence) {
   return lineEnd >= 0 && /\S/.test(text.slice(lineEnd + 1)) ? text : text.slice(0, fence.start);
 }
 
-const PENDING_BLOCK_MARKER_LINE = /(?:^|\n)[ \t]*(?:[-+*=_#>~`]+|\d{1,9}[.)]?)[ \t]*$/;
+const TEX_TOKEN = /\\(begin|end)\s*\{([^{}]*)\}|\\[a-zA-Z]+|\\[\s\S]|%[^\n]*|\S/g;
+
+// The closers an unfinished formula still owes: an environment, group or
+// `\left` that is open only because the rest has not arrived yet would
+// otherwise fail to typeset.
+function closeOpenTex(tex) {
+  const owed = [];
+  let delimiter = false;
+  for (const [token, kind, name] of tex.matchAll(TEX_TOKEN)) {
+    if (token[0] === '%') continue;
+    if (delimiter) {
+      delimiter = false;
+      continue;
+    }
+    if (kind === 'begin') owed.push(`\\end{${name}}`);
+    else if (kind === 'end') {
+      const at = owed.lastIndexOf(`\\end{${name}}`);
+      if (at >= 0) owed.length = at;
+    } else if (token === '{') owed.push('}');
+    else if (token === '}' && owed.at(-1) === '}') owed.pop();
+    else if (token === '\\left') {
+      owed.push('\\right.');
+      delimiter = true;
+    } else if (token === '\\right') {
+      const at = owed.lastIndexOf('\\right.');
+      if (at >= 0) owed.length = at;
+      delimiter = true;
+    }
+  }
+  return `${delimiter ? '.' : ''}${owed.reverse().join('')}`;
+}
+
+const PENDING_BLOCK_MARKER_LINE = /(?:^|\n)[ \t]*(?:[-+*=_#>~`]+|\$|\d{1,9}[.)]?)[ \t]*$/;
 
 function trimPendingBlockMarker(text) {
   const pending = PENDING_BLOCK_MARKER_LINE.exec(text);
@@ -79,11 +126,24 @@ function closeInlineCode(text, isPendingLocalPath) {
   return open > 0 ? `${text}${'`'.repeat(open)}` : text;
 }
 
+// Math is literal like code: its `_`, `*` and `[` are TeX, never markdown.
 function maskCode(text) {
-  FENCED_BLOCK.lastIndex = 0;
-  return text
-    .replace(FENCED_BLOCK, (block) => block.replace(/[^\n]/g, ' '))
-    .replace(INLINE_CODE_SPAN, (span) => ' '.repeat(span.length));
+  const blank = (block) => block.replace(/[^\n]/g, ' ');
+  let masked = text;
+  if (text.includes('$$')) {
+    const parts = [];
+    let cursor = 0;
+    for (const [start, end] of scanFences(text).mathBlocks) {
+      parts.push(text.slice(cursor, start), blank(text.slice(start, end)));
+      cursor = end;
+    }
+    parts.push(text.slice(cursor));
+    masked = parts.join('');
+  }
+  return masked
+    .replace(FENCED_BLOCK, blank)
+    .replace(INLINE_CODE_SPAN, blank)
+    .replace(INLINE_MATH_SPAN, blank);
 }
 
 function isMarkdownSpace(character) {
@@ -291,7 +351,13 @@ function hasCellPipe(line) {
 
 export function healStreamingMarkdownTail(text, isPendingLocalPath) {
   const source = String(text ?? '');
-  const fence = source.includes('`') || source.includes('~') ? openFence(source) : null;
+  const fence = /[`~$]/.test(source) ? scanFences(source).open : null;
+  if (fence?.marker === '$') {
+    // TeX cut mid-command fails to typeset: open math grows by whole lines.
+    const shown = trimPartialOpeningFence(source.slice(0, source.lastIndexOf('\n') + 1), fence);
+    if (shown.length === fence.start) return shown;
+    return `${shown}${closeOpenTex(shown.slice(shown.indexOf('\n', fence.start) + 1))}`;
+  }
   if (fence) return trimPartialOpeningFence(trimPartialClosingFence(source, fence), fence);
   const unmarked = trimPendingBlockMarker(source);
   const value = unmarked.includes('|') ? trimPendingTableHead(unmarked) : unmarked;
