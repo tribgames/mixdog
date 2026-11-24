@@ -2931,6 +2931,11 @@ jobs:
           key: core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      # The drift check's script imports tomllib (Python 3.11+); the image's own python3 is 3.10.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: matrix.os == 'linux'
+        with:
+          python-version: "3.12"
       # The test-only features of the core's manifests are one unified set, so every `-p <crate>` test build shares its
       # compiles (reads `cargo metadata`; once, on Linux).
       - name: Check that the core manifests' test features have not drifted
