@@ -966,32 +966,30 @@ test('an appended row is laid out at its real size before any observer delivery'
 });
 
 test('a tool group keeps its row key when a page supplies the tools cut off its head', async () => {
-  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { createSettledProjector } = await import('./transcript-rows.ts');
   const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
   const items = turnItems(3);
-  const groupKey = (from) => {
-    const window = items.slice(from);
-    const { rows } = projectSettledTranscriptRows({
+  // One pane's projector owns the keys its groups were given.
+  const project = (projector, window) =>
+    projector.project({
       sessionKey: 'group-key',
       items: window,
       turnKeys: transcriptTurnKeys(window),
       failedTurns: new Set(),
-    });
-    return rows.find((row) => row._tag === 'ToolActivity' && row.items.some((item) => item.id === 'i9'))?.key;
-  };
-  const cut = groupKey(9);
+    }).rows;
+  const groupKey = (projector, from) =>
+    project(projector, items.slice(from)).find(
+      (row) => row._tag === 'ToolActivity' && row.items.some((item) => item.id === 'i9')
+    )?.key;
+  const pane = createSettledProjector();
+  const cut = groupKey(pane, 9);
   assert.ok(cut);
-  assert.equal(groupKey(8), cut);
-  assert.equal(groupKey(0), cut);
+  assert.equal(groupKey(pane, 8), cut);
+  assert.equal(groupKey(pane, 0), cut);
   // A live turn appending tools keeps the key as well.
-  const growing = items.slice(0, 9);
-  const { rows } = projectSettledTranscriptRows({
-    sessionKey: 'group-key',
-    items: growing,
-    turnKeys: transcriptTurnKeys(growing),
-    failedTurns: new Set(),
-  });
-  assert.equal(rows.at(-1)?.key, cut);
+  const live = createSettledProjector();
+  const growingKey = project(live, items.slice(0, 9)).at(-1)?.key;
+  assert.equal(groupKey(live, 0), growingKey);
 });
 
 test('prepending an older page keeps the first visible row at the same viewport offset', async () => {

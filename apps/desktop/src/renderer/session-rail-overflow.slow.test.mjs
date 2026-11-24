@@ -362,6 +362,7 @@ const HARNESS = `
   }
   let root = null;
   window.mountJobs = (props) => {
+    openedKinds.clear();
     installScrollbarMetrics();
     root ??= createRoot(document.getElementById('root'));
     flushSync(() => root.render(<Jobs {...props} />));
@@ -438,6 +439,7 @@ const HARNESS = `
     };
   };
   window.mountFixture = (width, folded, height) => {
+    openedKinds.clear();
     // The app measures the scrollbar's reserve at start; the lists pay their inset with it.
     installScrollbarMetrics();
     root ??= createRoot(document.getElementById('root'));
