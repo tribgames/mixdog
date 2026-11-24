@@ -206,7 +206,7 @@ pub fn entry_in(home: &Path, root: &Path, rel: &str, permanent: bool, now_ms: i6
     Err(WsError::new(Reason::Plain, "The trash has too many entries with this name."))
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

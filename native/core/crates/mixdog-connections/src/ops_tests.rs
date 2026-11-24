@@ -417,6 +417,7 @@ fn resolved(proxy_jump: Option<&str>, proxy_command: bool) -> ResolvedHost {
         known_hosts_files: Vec::new(),
         global_known_hosts_files: Vec::new(),
         host_key_algorithms: Vec::new(),
+        host_key_signatures: Vec::new(),
         proxy_jump: proxy_jump.map(str::to_owned),
         proxy_command,
         proxied: proxy_jump.is_some() || proxy_command,

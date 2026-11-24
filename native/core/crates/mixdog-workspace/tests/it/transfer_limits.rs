@@ -1,6 +1,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 
 use std::path::Path;
+#[cfg(windows)]
 use std::process::Command;
 
 use mixdog_workspace::inplace::open_authorized_ro;
