@@ -349,6 +349,10 @@ pub enum RunEvent {
     ReasoningDelta(String),
     /// A progress update of the turn (`StreamEvent::ProgressDelta`): shown where its text is, no part of the reply's content.
     ProgressDelta(String),
+    /// A cut attempt that kept no text (it showed progress, reasoning or blank text) settled for display only, as soon as
+    /// the loop decides so and before any wait, replay or end of the send: closes its open segments and reasoning, none of
+    /// it entering model history.
+    AttemptDisplaySettled,
     /// Mid-turn assistant text surfaced before a tool card, or a kept answer.
     AssistantText {
         text: String,

@@ -221,7 +221,7 @@ impl Run {
         }
     }
 
-    fn record_segment(&mut self, text: &str, committed: bool) {
+    pub(crate) fn record_segment(&mut self, text: &str, committed: bool) {
         self.no_tool.parts.push(if committed { format!("{}\n\n", mixdog_js::js_trim_end(text)) } else { text.to_owned() });
         self.emit(RunEvent::AssistantText { text: text.to_owned(), committed });
     }

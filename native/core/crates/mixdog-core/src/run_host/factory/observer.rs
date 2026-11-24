@@ -285,6 +285,7 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Stage("requesting".to_owned(), None));
             }
             RunEvent::ProviderSendStarted => {
+                self.end_reasoning();
                 lock(&self.observed).tools = false;
                 self.sink.draft(true);
                 let index = self.requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -374,6 +375,12 @@ impl RunObserver for PortObserver {
                 self.sink.draft(false);
                 self.reasoning(text);
             }
+            RunEvent::AttemptDisplaySettled => {
+                // The reasoning still open goes with the settle, stored behind the end of the draft's message as its text is.
+                let reasoning = lock(&self.reasoning).take();
+                let segments = lock(&self.streaming).drain_display();
+                self.sink.jobs.settle(segments, reasoning);
+            }
             RunEvent::Stage(Stage::Notice { message, tone }) => {
                 let _ = self.out.send(Shown::Notice(message, tone));
             }
@@ -411,6 +418,8 @@ impl RunObserver for PortObserver {
             RunEvent::Transport => self.progress.stream_delta(StreamKind::Transport),
             RunEvent::Boundary { submission, attempt, boundary } => self.progress.boundary(submission, attempt, boundary),
             RunEvent::SubmissionStarted { id } => {
+                // No thinking row spans two attempts: a replay's reasoning is an item of its own.
+                self.end_reasoning();
                 self.chunked.submission_started();
                 self.progress.submission_started(id);
             }

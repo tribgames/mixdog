@@ -263,6 +263,9 @@ pub(crate) struct Facts {
     pub restorable: bool,
     /// The turn produced output: nothing is handed back after that (`commitPromptRestore`).
     pub committed: bool,
+    /// `committed` by text the turn has only shown so far, with what `restorable` was before it: the settle of that text as
+    /// display only gives it back ([`PromptState::shown_settled`]). `None` once output the turn keeps commits the prompt.
+    pub shown_commit: Option<bool>,
     /// The prompt in the shape of a queue entry (`{message, options}`): what the attachments are read from.
     pub entry: Value,
     /// The user's Stop reached this work: its cancellation provenance, set with the decision and never inferred from the run's
@@ -322,6 +325,28 @@ impl PromptState {
         let mut facts = self.facts();
         facts.committed = true;
         facts.restorable = false;
+        facts.shown_commit = None;
+    }
+
+    /// [`Self::commit`] by text the turn has only shown: no output it keeps yet, so a settle of that text as display only
+    /// takes the commit back.
+    pub fn commit_shown(&self) {
+        let mut facts = self.facts();
+        if !facts.committed {
+            facts.shown_commit = Some(facts.restorable);
+            facts.committed = true;
+            facts.restorable = false;
+        }
+    }
+
+    /// The text that alone committed the prompt settled as display only: none of it is an answer, so the prompt is the user's
+    /// to take back as before it showed, unless a Stop already took it.
+    pub fn shown_settled(&self) {
+        let mut facts = self.facts();
+        if let Some(restorable) = facts.shown_commit.take() {
+            facts.committed = false;
+            facts.restorable = restorable && !facts.user_stopped;
+        }
     }
 
     /// [`decide`] over the prompt's facts as they are at this instant and the hand-back recorded in the same hold of the lock: an
@@ -360,6 +385,10 @@ pub(crate) struct Decision {
     pub discard_images: bool,
     pub discard_texts: bool,
     pub reclaim: Option<Reclaim>,
+    /// The prompt stays in the stored transcript, whatever the turn's close finds of its output: a user Stop that hands it to
+    /// no composer, for its own reason ([`Reason::KeepPrompt`]) or because output had committed it, decides its keeping here,
+    /// once. Output that committed it may be gone by the close (a cut attempt's text settled as display only).
+    pub keeps_prompt: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -409,6 +438,7 @@ pub(crate) fn decide(facts: &Facts, restore_prompt: Option<bool>, canceller: &st
         discard_images: facts.restorable && steering && has(&facts.entry, "/options/pastedImages"),
         discard_texts: facts.restorable && steering && has(&facts.entry, "/options/pastedTexts"),
         reclaim,
+        keeps_prompt: !steering && (keeps_prompt || facts.committed),
     }
 }
 
