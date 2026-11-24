@@ -317,6 +317,15 @@ let requests = 0;
 const keepFailed = new WeakMap<object, Map<string, { version: number; rows: number }>>();
 /** The rows the tail held when the core last read it anew, by thread (`windowOwes`). */
 const freshTail = new WeakMap<object, Map<string, number>>();
+/** The thread ended (unsubscribed or lost): what the window kept of it goes with it. */
+export function releaseTranscriptWindow(client: object, threadId: string): void {
+  standing.get(client)?.delete(threadId);
+  keepFailed.get(client)?.delete(threadId);
+  freshTail.get(client)?.delete(threadId);
+  // A lane still running removes itself when its queue is empty.
+  if (!driving.get(client)?.get(threadId)?.running) driving.get(client)?.delete(threadId);
+}
+
 /** `needed`: a reader asks (its move), not a change of the thread. A window that holds no tail has nothing to show and
  *  nothing that grows: whoever needs its rows asks for them, whatever failed before. */
 function owedNow(client: object, threadId: string, held: HeldWindow, needed = false): boolean {
@@ -374,7 +383,7 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
   const subscriptionId = client.threadSubscription(threadId).subscriptionId;
   if (!held || !subscriptionId) {
     // A thread no longer followed has no readers: each says where it stands again when it is.
-    standing.get(client)?.delete(threadId);
+    releaseTranscriptWindow(client, threadId);
     return false;
   }
   let owed = false;
@@ -403,11 +412,11 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
       // asked again from the window held once that one is folded.
       if (!refused(error) || attempt >= 1) {
         moved.stop();
-        if (owed) {
+        const now = client.store.thread(threadId)?.state.held;
+        if (owed && now) {
           let failed = keepFailed.get(client);
           if (!failed) keepFailed.set(client, (failed = new Map()));
-          const now = client.store.thread(threadId)?.state.held;
-          failed.set(threadId, { version: base, rows: now ? rangeRows(now, TAIL_RANGE) : 0 });
+          failed.set(threadId, { version: base, rows: rangeRows(now, TAIL_RANGE) });
         }
         return false;
       }
@@ -415,11 +424,11 @@ async function step(client: ProtocolClient<SessionFold>, threadId: string, move:
       continue;
     }
     await moved.landed;
-    if (owed) {
-      const read = client.store.thread(threadId)?.state.held;
+    const read = owed ? client.store.thread(threadId)?.state.held : undefined;
+    if (read) {
       let fresh = freshTail.get(client);
       if (!fresh) freshTail.set(client, (fresh = new Map()));
-      if (read) fresh.set(threadId, rangeRows(read, TAIL_RANGE));
+      fresh.set(threadId, rangeRows(read, TAIL_RANGE));
     }
     return servedBy(client, threadId, move);
   }
@@ -438,9 +447,13 @@ export function moveTranscriptWindow(
   let stood = standing.get(client);
   if (!stood) standing.set(client, (stood = new Map()));
   let readers = stood.get(threadId);
-  if (!readers) stood.set(threadId, (readers = new Map()));
-  if (move.kind === 'follow') readers.delete(move.reader ?? '');
-  else readers.set(move.reader ?? '', move);
+  if (move.kind === 'follow') {
+    readers?.delete(move.reader ?? '');
+    if (readers?.size === 0) stood.delete(threadId);
+  } else {
+    if (!readers) stood.set(threadId, (readers = new Map()));
+    readers.set(move.reader ?? '', move);
+  }
   return drive(client, threadId, move);
 }
 

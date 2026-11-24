@@ -20,22 +20,38 @@ const read = (host: PhoneProtocolHost, action: string, input: Record<string, unk
 
 /** The picture each tab's last forwarded event carried: a change repeats a picture never (every tab's ≤60 KB picture in every publish
  *  made the state the bulk of the traffic; a card keeps the picture it got, one it missed asks for its version's). */
-function thumbnailRule() {
-  let forwarded = new Map<string, string>();
-  return (state: VisualizeSessionState): VisualizeSessionState => {
+const digestOf = (text: string): string => {
+  let a = 0xdeadbeef;
+  let b = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 2654435761);
+    b = Math.imul(b ^ c, 1597334677);
+  }
+  a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909);
+  b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909);
+  return `${text.length}:${a >>> 0}:${b >>> 0}`;
+};
+
+/** Holds a digest of each forwarded picture, not the picture; `forget` drops a session's. */
+export function thumbnailRule() {
+  const forwarded = new Map<string, Map<string, string>>();
+  const rule = (state: VisualizeSessionState): VisualizeSessionState => {
     const next = new Map<string, string>();
+    const before = forwarded.get(state.sessionId);
     const tabs = state.tabs.map((tab) => {
-      const key = `${state.sessionId}\0${tab.id}`;
       if (!tab.thumbnail) return tab;
-      next.set(key, tab.thumbnail);
-      if (forwarded.get(key) !== tab.thumbnail) return tab;
+      const digest = digestOf(tab.thumbnail);
+      next.set(tab.id, digest);
+      if (before?.get(tab.id) !== digest) return tab;
       const { thumbnail: _thumbnail, thumbnailVersion: _version, ...rest } = tab;
       return rest;
     });
-    for (const key of forwarded.keys()) if (key.startsWith(`${state.sessionId}\0`)) forwarded.delete(key);
-    forwarded = new Map([...forwarded, ...next]);
+    if (next.size) forwarded.set(state.sessionId, next);
+    else forwarded.delete(state.sessionId);
     return { ...state, tabs };
   };
+  return Object.assign(rule, { forget: (sessionId: string): void => void forwarded.delete(sessionId) });
 }
 
 const hostState = (value: unknown): VisualizeHostState | null => {
@@ -200,11 +216,20 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     const offEvents = client.on((incoming) => {
       if (incoming.type !== 'notification') return;
       const { method, params } = incoming.notification as { method: string; params?: unknown };
+      if (method === 'thread/deleted') {
+        const threadId = (params as { threadId?: unknown } | undefined)?.threadId;
+        if (typeof threadId === 'string') withoutRepeatedThumbnails.forget(threadId);
+        return;
+      }
       if (method !== 'visualize/changed') return;
       const event = remoteVisualizeEvent(assemble(params), withoutRepeatedThumbnails);
       if (event) emit(event);
     });
+    const offLost = client.store.subscribe((change) => {
+      if (change.type === 'subscription' && change.state === 'lost') withoutRepeatedThumbnails.forget(change.feedId);
+    });
     unwire = () => {
+      offLost();
       offStatus();
       offStore();
       offEvents();
