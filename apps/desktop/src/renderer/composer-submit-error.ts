@@ -2,6 +2,7 @@ import { t } from './i18n';
 import { displayErrorMessage, errorParams } from '../shared/coded-error';
 import { roomErrorCode, ROOM_MEMBER_SWITCHED_OFF } from '../shared/room-error-codes';
 import { STALE_SESSION_VIEW_MARKER } from '../shared/session-devices';
+import { FRAME_NOT_SENT_MESSAGE } from '../shared/remote-transport';
 
 export function localizedInvocationError(message: string): string {
   return message.includes(STALE_SESSION_VIEW_MARKER)
@@ -13,8 +14,8 @@ export function localizedInvocationError(message: string): string {
  *  translated by its code (desktop and phone alike, the code survives both
  *  transports); any other message is shown as it came. */
 export function composerSubmitErrorText(error: unknown): string {
-  if (!(error instanceof Error) || !error.message) {
-    return 'The connection was interrupted. Your message has been kept for retry.';
+  if (!(error instanceof Error) || !error.message || error.message === FRAME_NOT_SENT_MESSAGE) {
+    return t('The connection was interrupted. Your message has been kept for retry.');
   }
   const code = roomErrorCode(error);
   const name = errorParams(error)?.name;

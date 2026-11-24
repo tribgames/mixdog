@@ -17,7 +17,7 @@ Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessõ
 ### Novos recursos
 
 - **Quadros do Studio** — Agrupe criações do Studio em quadros pelo menu do campo de mensagem e explore trabalhos anteriores com busca na barra lateral esquerda.
-- **Projetos em Sessões** — Agrupa sessões por projeto no painel Sessões, com subcategorias para cada branch quando um projeto tem mais de uma ramificação.
+- **Projetos em Sessões** — Agrupa sessões por projeto no painel Sessões, com subcategorias para cada branch quando um projeto tem mais de uma branch.
 - **Configuração da tela inicial** — Escolha nas configurações o que uma nova janela do desktop abre, iniciando por padrão uma sessão sem projeto sem acumular abas em branco (#312).
 - **Respostas mais rápidas do Claude** — Conversas contínuas com o Claude agora enviam apenas as novas mensagens após o turno inicial, acelerando as respostas e recorrendo ao envio completo quando necessário.
 - **Dispositivos HID no navegador integrado** — Sites no navegador integrado agora podem se conectar ao hardware HID selecionado (#250).
@@ -26,7 +26,7 @@ Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessõ
 ### Alterações
 
 - Alterado o painel Sessões para iniciar tarefas a partir de um botão + no cabeçalho e exibir os bots como linhas com seus respectivos status.
-- Alterado o Registro de solicitações para mostrar durações em segundos, modelos solicitados e que responderam para solicitações substituídas (#306) e preços de tabela da API de assinaturas.
+- Alterado o Log de solicitações para mostrar durações em segundos, modelos solicitados e que responderam para solicitações substituídas (#306) e preços de tabela da API de assinaturas.
 - Alteradas as notificações no canto superior direito para alertar sobre instalações, atualizações do app, pausas por limite de uso, logins expirados e conversas não salvas.
 - Alteradas as listas de tarefas para acompanhar itens pendentes, em andamento, concluídos e descartados, impedindo que uma etapa bloqueada torne vermelho o anel de progresso.
 - Ajustados os painéis laterais e a galeria do Studio para compartilhar espaçamento consistente, estilos de estado vazio e transições suaves nas bordas superior e inferior.
@@ -38,17 +38,17 @@ Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessõ
 - Corrigido o problema em que o Claude ignorava uma mensagem enviada após um turno terminado sem resposta, como se fosse a saída de uma ferramenta.
 - Corrigido o problema em que as verificações de worktrees em segundo plano levavam dois minutos no Windows após cada inicialização do app.
 - Corrigido o problema em que as atualizações de plugins terminavam silenciosamente sem exibir aviso de conclusão (#307).
-- Corrigido o problema em que popovers de contexto ficavam cobertos em telas móveis (#309) e carimbos de data/hora longos extrapolavam sua coluna no Registro de solicitações (#310).
+- Corrigido o problema em que popovers de contexto ficavam cobertos em telas móveis (#309) e carimbos de data/hora longos extrapolavam sua coluna no Log de solicitações (#310).
 - Corrigido o problema em que pressionar `F2` no campo de mensagem da sessão não renomeava a sessão ativa.
 - Corrigido o problema em que as contagens de busca exibiam caminhos completos em vez de relativos em pastas com números e hífens no nome (#304).
 
 ## v1.4.4 - 2026-11-02
 
-Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo real para subagentes, histórico de navegação entre sessões e opções avançadas para provedores personalizados.
+Adicionada a aba Log de solicitações em Uso, painéis laterais em tempo real para subagentes, histórico de navegação entre sessões e opções avançadas para provedores personalizados.
 
 ### Novos recursos
 
-- **Registro de solicitações** — Adicionada a aba Registro de solicitações em Uso, que filtra por período, status e modelo, mostrando tokens, custo, duração e status (#300).
+- **Log de solicitações** — Adicionada a aba Log de solicitações em Uso, que filtra por período, status e modelo, mostrando tokens, custo, duração e status (#300).
 - **Painel lateral de subagentes** — Adicionada a abertura de subagentes pela janela Agentes ou pela lista de escrita; recolhe com `Ctrl+B` e mantém legíveis as sessões encerradas.
 - **Navegación de sessões** — Adicionada a navegação para avançar e voltar no histórico de sessões e locais do editor usando `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` e botões laterais do mouse (#289).
 - **Opções de provedores personalizados** — Adicionados parâmetros JSON avançados, cabeçalhos HTTP personalizados e estratégias de roteamento no OpenRouter (Auto, Price, Speed, Latency) em Configurações → Modelos (#231).
@@ -67,7 +67,7 @@ Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo r
 ### Correções de bugs
 
 - Corrigidos cartões de conclusão e linhas de progresso duplicados em cadeias de repasse, exibindo um único cartão e uma única linha de progresso por resposta.
-- Corrigidas as execuções em segundo plano (ciclo de memória, busca web) que mostravam seus prompts como nome de sessão no Registro de solicitações; agora mostram sua ação com a tag Interno.
+- Corrigidas as execuções em segundo plano (ciclo de memória, busca web) que mostravam seus prompts como nome de sessão no Log de solicitações; agora mostram sua ação com a tag Interno.
 - Corrigida a inicialização do Explore quando configurado exclusivamente com um provedor de modelos OAuth (#301).
 - Corrigida a falha em tarefas iniciadas fora de repositórios Git quando as configurações padrão de worktree estavam ativas (#297).
 - Corrigida a remoção de plugins que podia excluir arquivos externos por links dentro da pasta do plugin, e corrigidos erros `EPERM` de bloqueio de arquivo no Windows durante atualizações (#296).
@@ -84,7 +84,7 @@ Adicionadas as configurações de Worktrees e a limpeza de branches, substituíd
 ### Novos recursos
 
 - **Configurações de Worktrees** — Adicionado Configurações → Worktrees com uso de disco, ações de abrir e excluir, e limpeza automática após 15 worktrees ou 30 dias sem uso.
-- **Ações de branches para worktrees** — Adicionadas as ações Novo branch, Novo worktree e Limpar no rodapé do menu de branches, com destaque na busca; Limpar permanece desativado quando não há nada seguro para remover.
+- **Ações de branches para worktrees** — Adicionadas as ações Nova branch, Nova worktree e Limpar no rodapé do menu de branches, com destaque na busca; Limpar permanece desativado quando não há nada seguro para remover.
 - **Lista de tarefas da sessão** — Adicionada uma lista de tarefas da sessão que substitui as tarefas de Goal, exibindo o progresso do agente em tempo real e preservando tarefas e objetivos ao fechar.
 - **Estilos do campo de mensagem** — Adicionados os estilos Simples, Padrão e Detalhado nas Configurações com prévia, barra responsiva e confirmação opcional de respostas (#270, #276).
 - **Configurações de delegação** — Adicionada uma página dedicada em Configurações → Delegação para instruções de orquestração, e edição direta no Estilo de saída com restauração dos padrões (#291).
@@ -122,22 +122,22 @@ Adicionadas as configurações de Worktrees e a limpeza de branches, substituíd
 - Corrigida a busca na memória que descartava palavras de conteúdo em coreano em consultas mistas e otimizada a varredura por termos exatos.
 - Corrigido o problema em que links da web e abas de navegador transmitidas em celulares não se ajustavam às telas móveis ou não abriam no Visualize.
 - Corrigida a sobreposição das opções de cores com descrições em janelas estreitas de Configurações e evitada a substituição de edições simultâneas de instruções (#287).
-- Corrigido o problema em que executar `npm ci` dentro de um worktree esvaziava o `node_modules` do checkout principal; agora cada worktree instala suas próprias dependências.
+- Corrigido o problema em que executar `npm ci` dentro de uma worktree esvaziava o `node_modules` do checkout principal; agora cada worktree instala suas próprias dependências.
 - Corrigido o problema em que reenviar uma tarefa que falhou ao iniciar (como em pastas sem suporte a worktrees) repetia "could not be resumed" até reiniciar (#279).
 - Corrigida a falha nas ferramentas do Git e de documentos do Office no Windows quando o caminho da pasta temporária da sessão ficava longo demais.
-- Corrigida a falta do controle de esforço de raciocínio nos modelos Gemini 4 Argon e Gemini 3.8 Flash do Vertex AI; agora a opção (Baixo, Médio, Alto) é exibida e enviada com a requisição (#292).
+- Corrigida a falta do controle de esforço de raciocínio nos modelos Gemini 4 Argon e Gemini 3.8 Flash do Vertex AI; agora a opção (Baixo, Médio, Alto) é exibida e enviada com a solicitação (#292).
 
 ## v1.4.2 - 2026-10-29
 
-Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploração, e uma verificação mais rigorosa com a habilidade Test Suite, além do suporte ao Vertex AI e a várias contas por conector.
+Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploração, e uma verificação mais rigorosa com a skill Test Suite, além do suporte ao Vertex AI e a várias contas por conector.
 
 ### Novos recursos
 
 - **Explore** — Adicionado um agente opcional de exploração somente leitura ao qual o Lead pode delegar várias perguntas sobre o código de uma só vez; escolha o modelo em Workflows → Agentes integrados.
-- **Habilidade Test Suite** — Adicionada uma habilidade integrada para escrever, executar, diagnosticar e limpar os testes de um projeto.
+- **Skill Test Suite** — Adicionada uma skill integrada para escrever, executar, diagnosticar e limpar os testes de um projeto.
 - **Vertex AI** — Adicionado o Vertex AI com modelos Gemini, Claude e abertos, fazendo login com chave de conta de serviço, login do gcloud ou chave de API no modo expresso (#249).
 - **Várias contas em um conector** — Adicionada a opção de conectar várias contas a um mesmo conector; os agentes usam a última conta utilizada, a menos que você indique outra.
-- **Chaves e cabeçalhos de provedor personalizado** — Adicionadas chaves de API extras que assumem quando a cota de uma acaba, além de cabeçalhos HTTP personalizados em cada requisição (#233, #239).
+- **Chaves e cabeçalhos de provedor personalizado** — Adicionadas chaves de API extras que assumem quando a cota de uma acaba, além de cabeçalhos HTTP personalizados em cada solicitação (#233, #239).
 - **Permissões de ferramentas de conectores para bots** — Adicionadas as opções Auto, Requer aprovação e Desativado por ferramenta para cada conector no perfil do bot (#264).
 - **Aprovação pelo bot na tela** — Adicionada a solicitação com os botões Permitir e Negar direto no balão de fala do bot na tela.
 - **Parar todos os comandos em segundo plano** — Adicionado o comando `/stop` para encerrar todos os comandos em segundo plano de uma sessão, além de `/shells` e `/mcp login` no aplicativo para computador.
@@ -161,7 +161,7 @@ Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploraç
 - Corrigido o corte de URLs longas de login na TUI e adicionado o atalho `Ctrl+Y` para copiá-las (#261).
 - Corrigida a falha ao iniciar a entrada de voz e ao salvar configurações ou sessões em PCs com Windows sobrecarregados.
 - Corrigido o problema em que células com texto em chinês ou japonês ultrapassavam a borda da tabela.
-- Corrigida a falta da opção de nível de serviço (Standard, Flex, Priority) nos modelos do Vertex AI e o corte das requisições Flex na fila após um minuto (#271).
+- Corrigida a falta da opção de nível de serviço (Standard, Flex, Priority) nos modelos do Vertex AI e o corte das solicitações Flex na fila após um minuto (#271).
 - Corrigido o problema em que uma única falha na leitura do progresso impedia a atualização do temporizador de atividade, fazendo o agente ser interrompido por engano como se tivesse parado de avançar.
 - Corrigido o problema em que o `verify` do Computer Use desistia após 2 segundos independentemente de `timeout_ms` e aguardava sem necessidade quando não era possível ler o texto de uma janela com privilégios elevados (#274).
 
@@ -189,7 +189,7 @@ Corrigidos o login via SSH, as falhas de configuração de acesso ao PC e a inte
 - Corrigida a escolha de um modelo principal no provedor de um fallback que falhava com "duplicate route provider".
 - Corrigida a alternância automática para um modelo de fallback que enviava todas as ferramentas MCP de uma só vez.
 - Corrigida a perda de histórico inicial, títulos ou páginas em conversas importadas do Claude e Codex, e exibido o uso de ferramentas como linhas de atividade recolhidas (#245).
-- Corrigidos os worktrees órfãos que permaneciam e a branch padrão que era incorporada a um worktree gerenciado (#247).
+- Corrigidas as worktrees órfãs que permaneciam e a branch padrão que era incorporada a uma worktree gerenciada (#247).
 - Corrigido o bot que continuava sendo exibido como trabalhando após o término do trabalho delegado e a falta do ponto de conclusão em uma sessão compactada.
 - Corrigida a recriação do cache de prompts após uma solicitação interrompida ou reinicialização.
 - Corrigida a perda da borda inferior em tabelas ou blocos de código ao final de uma resposta, e tabelas estreitas em celulares que perdiam o espaçamento entre células.
@@ -203,7 +203,7 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - **Tela remota do PC** — Adicionada a visualização e o controle da tela do seu PC a partir do celular por meio de uma conexão direta WebRTC com teclas especiais e uma pílula de status no PC.
 - **Acesso ao PC** — Adicionado o acesso opcional a solicitações de administrador, à tela de bloqueio e a `Ctrl`+`Alt`+`Del` a partir do celular, aprovado uma vez na configuração de Computer Use ou com sua senha do Windows.
 - **Visualização ao vivo do navegador** — Adicionada a transmissão do navegador integrado para o celular via WebRTC, ajustando páginas assumidas à tela com digitação direta pelo teclado do celular.
-- **Controles de notificação** — Adicionadas configurações de notificação por dispositivo, silenciamento de conversas, horários de silêncio e notificações de erro em Configurações → Notificações, com Permitir em notificações de aprovação (#221, thanks @dislight1123).
+- **Controles de notificação** — Adicionadas configurações de notificação por dispositivo, silenciamento de conversas, horários de silêncio e notificações de erro em Configurações → Notificações, com Permitir em notificações de aprovação (#221, obrigado @dislight1123).
 - **Trabalho delegado por bots** — Adicionada uma linha em tempo real por tarefa abaixo da resposta para trabalhos que um bot delega, exibindo o progresso e permitindo responder a perguntas no chat.
 - **Logins salvos** — Adicionado o login automático com credenciais salvas e códigos de uso único, gerenciado em Configurações → Autenticação, sem que o modelo veja os dados secretos.
 - **Importação de logins do Chrome** — Adicionada a importação de logins salvos do Chrome, incluindo os criptografados vinculados a aplicativos mais recentes, na página de Logins remodelada com um alternador de salvar/manter conectado.
@@ -221,8 +221,8 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - Alteradas as aprovações de sessões delegadas por bots para aparecerem em todos os chats que aguardam por elas, com a mesma redação e atalhos em cada cartão de aprovação.
 - Alteradas as linhas de sessões e bots para exibir um triângulo âmbar para espera de aprovação, um ícone de interrogação para perguntas e a contagem de tarefas em espera.
 - Alteradas as sessões de tarefas de bots e subagentes para terem seu próprio ponto de não lido, marcado como lido junto com o chat ao qual respondem.
-- Alterado o telefone emparelhado para ler, pré-visualizar, baixar e abrir arquivos da mesma forma que o PC.
-- Alterado o seletor de arquivos `@` para classificar caminhos rasos primeiro, abrir com trabalhos recentes e encontrar arquivos em pastas vinculadas (#228, thanks @reeves-ai-lch).
+- Alterado o celular pareado para ler, pré-visualizar, baixar e abrir arquivos da mesma forma que o PC.
+- Alterado o seletor de arquivos `@` para classificar caminhos rasos primeiro, abrir com trabalhos recentes e encontrar arquivos em pastas vinculadas (#228, obrigado @reeves-ai-lch).
 - Alterado o Visualize para abrir páginas a partir de qualquer pasta local, nomeando páginas de índice pelo nome da pasta.
 - Alterados o popup de uso e a barra de uso fixada para exibir cada limite como uma linha sobre uma barra de largura total.
 - Alterada a ferramenta shell para aceitar um diretório de trabalho opcional e recusar comandos de pausa sleep de 2 segundos ou mais.
@@ -231,7 +231,7 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - Alteradas as esperas de novas tentativas para exibir um motivo fixo e uma contagem regressiva em tempo real em vez do texto de erro bruto.
 - Alterados os chats de bots para não exibirem cartão de arquivos modificados sob uma resposta, separarem mensagens distantes e compartilharem uma única linha para transferência e horário.
 - Alterada a lista de idiomas para exibir o coreano pelo seu próprio nome.
-- Alterada a verificação periódica do Mixy para rodar a cada hora por padrão, com intervalo selecionável em Configurações → Bots.
+- Alterada a verificação periódica da Mixy para rodar a cada hora por padrão, com intervalo selecionável em Configurações → Bots.
 - Alterado o aplicativo para celular para se conectar diretamente ao seu PC quando a rede permitir, revertendo automaticamente para o relay.
 - Alterados os painéis laterais para compartilharem uma única largura, ajustável de 280 a 1160 pixels.
 - Ajustado o dock lateral do celular para fechar deslizando em qualquer lugar da folha, com animação mais suave para linhas da gaveta e efeitos de brilho do texto.
@@ -241,18 +241,18 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - Corrigida a perda de layout de painéis divididos quando o armazenamento local do aplicativo é redefinido.
 - Corrigido o deslocamento de bordas, divisores e cores de painéis ao abrir ou fechar um painel lateral.
 - Corrigido o desaparecimento do conteúdo da gaveta do celular durante o fechamento por deslizamento.
-- Corrigido o bot fixado que saía da extremidade direita do compositor após o fechamento de um painel lateral, e chats caindo uma linha ao entrar.
+- Corrigido o bot fixado que saía da extremidade direita do campo de mensagem após o fechamento de um painel lateral, e chats caindo uma linha ao entrar.
 - Corrigida a linha de um bot que não girava nem exibia pontos de não lido enquanto suas sessões de tarefas trabalhavam.
 - Corrigido o clique em uma notificação da área de trabalho que mantinha a barra lateral na sessão anterior ou não fazia nada com a janela oculta.
 - Corrigida a resposta a um cartão de pergunta no final de um chat que impedia o histórico de acompanhar a resposta.
 - Corrigidas as sessões de tarefas criadas com um modelo explícito que falhavam com "service is not defined".
-- Corrigida a verificação periódica do Mixy que era executada enquanto o aplicativo de desktop ainda estava em uso.
+- Corrigida a verificação periódica da Mixy que era executada enquanto o aplicativo de desktop ainda estava em uso.
 - Corrigido o Computer Use digitando em janelas que se sobrepunham sozinhas e escrevendo em campos somente leitura ou desativados.
 - Corrigidas senhas salvas com mais de 4.096 caracteres que eram truncadas e dados secretos com menos de quatro caracteres que ficavam sem máscara nos chats.
-- Corrigida a perda de uma nova tentativa enfileirada de um turno com falha e da escolha de habilidade de uma rotina após a reinicialização (#229, thanks @22nsuk).
-- Corrigida a retomada automática de cota via SSH que lia a cota do servidor em vez da do PC quando o PC mantinha o login (#232, thanks @22nsuk).
-- Corrigido `Option`+`Left`/`Right` que não se movia por palavras em campos de texto no macOS (#230, thanks @wudys).
-- Corrigida a seleção de contexto do perfil de um agente que não era preservada (#226, thanks @22nsuk) e falhas do Cursor em conflitos de contexto armazenado (#225, thanks @22nsuk).
+- Corrigida a perda de uma nova tentativa enfileirada de um turno com falha e da escolha de skill de uma rotina após a reinicialização (#229, obrigado @22nsuk).
+- Corrigida a retomada automática de cota via SSH que lia a cota do servidor em vez da do PC quando o PC mantinha o login (#232, obrigado @22nsuk).
+- Corrigido `Option`+`Left`/`Right` que não se movia por palavras em campos de texto no macOS (#230, obrigado @wudys).
+- Corrigida a seleção de contexto do perfil de um agente que não era preservada (#226, obrigado @22nsuk) e falhas do Cursor em conflitos de contexto armazenado (#225, obrigado @22nsuk).
 - Corrigida uma sessão de tarefas em espera exibida como travada e uma conta de conector desativada que não podia ser reativada.
 - Corrigida a perda de nova tentativa em erro de turno por login expirado e o painel do navegador exibindo uma página em branco após fechar sua última página.
 - Corrigido o erro "This conversation has no such attachment." ao clicar em um anexo em conversas longas ou compactadas.
@@ -260,9 +260,9 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - Corrigida a visualização Alterações do painel lateral intitulada Perfil após o perfil de um bot ter sido aberto lá pela última vez.
 - Corrigida a lista de sessões e o chat em celulares Android travando após rolagem rápida e saltando em seguida.
 - Corrigidos os cabeçalhos de seção da barra lateral que permaneciam destacados após um clique e seu indicador giratório que sumia enquanto o botão de menu era exibido.`
-- Corrigida a compactação de uma conversa que descartava as habilidades e regras atuais em vez de reconstruí-las a partir de fontes ativas.
-- Corrigido o Mixy aparecendo sozinho após uma verificação de inicialização com falha, lendo verificações periódicas e depois desaparecendo (#243, thanks @Jichiro-S).
-- Corrigidas as sessões existentes ignorando as configurações atuais de compactação e bifurcações sendo compactadas cedo demais (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Corrigida a compactação de uma conversa que descartava as skills e regras atuais em vez de reconstruí-las a partir de fontes ativas.
+- Corrigida a Mixy aparecendo sozinha após uma verificação de inicialização com falha, lendo verificações periódicas e depois desaparecendo (#243, obrigado @Jichiro-S).
+- Corrigidas as sessões existentes ignorando as configurações atuais de compactação e bifurcações sendo compactadas cedo demais (#237, obrigado @22nsuk; #238, obrigado @skywhale345).
 - Corrigidos bots solicitando no chat que você resolva um CAPTCHA ou etapa de login em vez de passar a página.
 
 ## v1.3.5 - 2026-10-24
@@ -335,7 +335,7 @@ Adicionada a configuração de horário de 12/24 horas, anexos do Office em form
 - A posição do bot principal foi alterada para um único menu suspenso em Configurações, adicionou-se um posicionamento livre e sua foto enviada passou a ser exibida (#178, #179).
 - As sessões de agentes na barra lateral foram alteradas para mostrar apenas o nome do modelo, e a sessão de tarefa de um bot para ser exibida como um único cartão de resultado.
 - As respostas de código passaram a aparecer palavra por palavra, com os grupos de ferramentas concluídos nomeados no passado e a linha de status no final.
-- Os provedores personalizados passaram a exibir o nome registrado nos seletores de modelos, no uso, nos fluxos de trabalho e nos avisos.
+- Os provedores personalizados passaram a exibir o nome registrado nos seletores de modelos, no uso, nos workflows e nos avisos.
 - Conectores com várias contas, como três contas do Gmail, passaram a ser exibidos como uma única linha e um único ícone.
 - O toque em uma notificação foi alterado para abrir a sessão na sua mensagem mais recente.
 - As abas do navegador no celular passaram a se conectar diretamente em vez de exibir o guia Adicionar à tela inicial.
@@ -349,13 +349,13 @@ Adicionada a configuração de horário de 12/24 horas, anexos do Office em form
 - Corrigida a conversa que parava de acompanhar uma resposta longa ou cancelava o acompanhamento ao tocar no texto.
 - Corrigido o ponto de não lido que permanecia em um chat que estava sendo lido em um painel lateral.
 - Corrigida a edição de uma mensagem anterior que perdia seus anexos e reversões que ignoravam o histórico posterior (#186).
-- Corrigidas conversas abertas que não reconheciam agentes habilitados ou desabilitados (#184).
+- Corrigidas conversas abertas que não reconheciam agentes ativados ou desativados (#184).
 - Corrigidas respostas que paravam no limite de saída e um avaliador de esforço de raciocínio com falha que continuava quebrado (#183).
 - Corrigido um bot removido que continuava suas atividades em salas e conversas (#180).
 - Corrigidos bots que contornavam o limite de bot para bot passando por tarefas em segundo plano.
-- Corrigido um backup de configurações com falha que descartava backups íntegros prematuramente (thanks @22nsuk).
-- Corrigido o Windows Computer Use que perdia elementos de tela durante uma captura (#173, thanks @22nsuk).
-- Corrigida a ordenação de memória que rejeitava respostas do classificador que listavam intervalos de linhas (#170, thanks @134634623).
+- Corrigido um backup de configurações com falha que descartava backups íntegros prematuramente (obrigado @22nsuk).
+- Corrigido o Windows Computer Use que perdia elementos de tela durante uma captura (#173, obrigado @22nsuk).
+- Corrigida a ordenação de memória que rejeitava respostas do classificador que listavam intervalos de linhas (#170, obrigado @134634623).
 - Corrigido o preparo (staging) de alterações do Git em arquivos que não estão em UTF-8 (#177).
 - Corrigido o mascote que não aparecia quando sua imagem não possuía dimensões.
 
@@ -383,15 +383,15 @@ Adicionados temas e skins com foto, a sobreposição do bot principal e a troca 
 - As solicitações de aprovação dos subagentes agora também aparecem no chat principal, com "Abrir sessão" para ir direto até lá.
 - Os perfis de bots agora listam itens definidos como "Permitir sempre" e permitem reverter cada um com "Pergunte novamente".
 - Agendamentos e webhooks agora pedem confirmação uma vez ao serem salvos e não perguntam novamente durante a execução; pagamentos e exclusão permanente nunca rodam sem supervisão.
-- Um telefone vinculado agora só pode restringir, nunca ampliar, as permissões e conectores dos bots.
+- Um celular vinculado agora só pode restringir, nunca ampliar, as permissões e conectores dos bots.
 - Um bot desativado permanece na página de bots como "Desativado" para que possa ser reativado, e pode ser ocultado da barra lateral separadamente (#153).
 - Os subagentes agora são expandidos clicando no rosto ou com clique direito em "Mostrar subagentes" em vez de uma seta.
 - O seletor de modelos removeu o interruptor de "Raciocínio automático" e passou a listar Auto no topo da lista de esforço.
 - O seletor de modelos agora abre logo abaixo de sua linha, e os provedores personalizados exibem o nome que você definiu.
 - Ajustadas as salas de bots para que conversem naturalmente em vez de concordarem entre si o tempo todo; sem um modelo Maintainer, cada bot mencionado responde uma vez.
 - As mensagens entre bots agora exibem o bot remetente e o destinatário, com limite de ida e volta entre bots a três trocas.
-- Notificações de resposta de bot no PC e no telefone agora usam o nome do bot ou da sala como título.
-- O botão Git do compositor agora abre a aba Git, onde "Criar PR", "Confirmar · enviar" e "Confirmar" têm cada um seu próprio botão "Executar".
+- Notificações de resposta de bot no PC e no celular agora usam o nome do bot ou da sala como título.
+- O botão Git do campo de mensagem agora abre a aba Git, onde "Criar PR", "Commit e push" e "Fazer commit" têm cada um seu próprio botão "Executar".
 - O cartão de fim de tarefa agora mostra miniaturas apenas dos arquivos vinculados na resposta ou abertos no painel lateral.
 - Ajustada a rolagem para que a visualização se mova apenas quando você rolar e volte a seguir novas respostas assim que alcançar o fim; respostas longas que chegam de uma só vez começam a partir de sua primeira linha.
 - Um servidor MCP lento atrasa a primeira resposta em no máximo 3 segundos; ferramentas conectadas posteriormente ficam disponíveis a partir do próximo turno.
@@ -399,7 +399,7 @@ Adicionados temas e skins com foto, a sobreposição do bot principal e a troca 
 - Adicionada a fixação de agentes na página de bots pelo menu de clique com o botão direito, e "Manter agentes finalizados" no menu `…` por 1 hora, 1 dia, 7 dias ou Para sempre.
 - Adicionado "Ilimitado" à limpeza automática de sessões ociosas.
 - Ajustada a linha de tokens e custo na janela do agente para reservar seu espaço desde o início, evitando deslocamentos visuais.
-- Ajustadas as orientações da ferramenta setup para que a IA possa definir a linha de acionamento (`when_to_use`) ao criar ou editar uma habilidade.
+- Ajustadas as orientações da ferramenta setup para que a IA possa definir a linha de acionamento (`when_to_use`) ao criar ou editar uma skill.
 
 ### Correções de bugs
 
@@ -420,10 +420,10 @@ Adicionados temas e skins com foto, a sobreposição do bot principal e a troca 
 - Corrigidas tarefas aguardando aprovação exibidas como travadas ou cortadas por tempo limite.
 - Corrigidos subagentes que seguiam as configurações de contexto, esforço de raciocínio e velocidade do chat principal, ignorando a configuração do Maintainer.
 - Corrigida resposta longa que chegava de uma só vez e parecia em branco e esmaecida por um momento.
-- Corrigida entrada em fila interrompida que voltava a rodar após a recuperação (#142, thanks @22nsuk).
-- Corrigidos trabalhos de shell cuja saída nunca foi confirmada que eram tratados como concluídos (#133, thanks @22nsuk).
-- Corrigidas tarefas em execução que perdiam sua proteção quando o registro do workspace estava danificado (#117, thanks @22nsuk).
-- Corrigidos modelos do Cursor que perdiam IDs de chamadas de ferramenta e transferências travadas de ferramentas que nunca terminavam (#156, thanks @22nsuk).
+- Corrigida entrada em fila interrompida que voltava a rodar após a recuperação (#142, obrigado @22nsuk).
+- Corrigidos trabalhos de shell cuja saída nunca foi confirmada que eram tratados como concluídos (#133, obrigado @22nsuk).
+- Corrigidas tarefas em execução que perdiam sua proteção quando o registro do workspace estava danificado (#117, obrigado @22nsuk).
+- Corrigidos modelos do Cursor que perdiam IDs de chamadas de ferramenta e transferências travadas de ferramentas que nunca terminavam (#156, obrigado @22nsuk).
 - Corrigido o indicador de digitação que nunca terminava em salas de bots e mensagens enviadas no meio de uma resposta que sumiam.
 - Corrigido o aviso "results omitted" que não aparecia no chat do bot quando muitos resultados de rotina se acumulavam.
 - Corrigida a contagem de não lidos da lista de bots que também contava chamadas de ferramentas.
@@ -433,7 +433,7 @@ Adicionados temas e skins com foto, a sobreposição do bot principal e a troca 
 - Corrigidos os hooks PreToolUse sendo ignorados em sessões reabertas posteriormente, como no turno de acompanhamento de um agente (#161).
 - Corrigido o login do GitHub travando em "Iniciando login no GitHub…" (#162).
 - Corrigido o esforço de raciocínio ainda exibindo Auto após escolher outro (#131).
-- Corrigido o botão de tela cheia de vídeos no painel lateral que não fazia nada (#160, thanks @Deno2026).
+- Corrigido o botão de tela cheia de vídeos no painel lateral que não fazia nada (#160, obrigado @Deno2026).
 - Corrigido o aplicativo exibindo "Object has been destroyed" quando sua janela era fechada com a sobreposição do bot principal ativada.
 - Corrigido um comando Git lento que fazia o aplicativo se reconectar ao seu serviço em segundo plano e perder brevemente as atualizações da sessão ao vivo.
 
@@ -441,21 +441,21 @@ Adicionados temas e skins com foto, a sobreposição do bot principal e a troca 
 
 Um patch de estabilização para problemas encontrados desde a versão 1.3.0, com um avaliador de esforço de raciocínio atualizado.
 
-Pedimos desculpas pelo fato de a atualização 1.3.0 ter redefinido dados de fluxo de trabalho para alguns usuários.
+Pedimos desculpas pelo fato de a atualização 1.3.0 ter redefinido dados de workflow para alguns usuários.
 
 ### Alterações
 
-- Alteradas as mensagens enviadas durante uma tarefa em andamento para aparecerem no chat imediatamente, com **Enviar agora** até serem lidas; a fila acima do compositor foi removida.
+- Alteradas as mensagens enviadas durante uma tarefa em andamento para aparecerem no chat imediatamente, com **Enviar agora** até serem lidas; a fila acima do campo de mensagem foi removida.
 - Alterados os cartões de aprovação para ações externas para aparecerem apenas quando um bot envia, publica ou exclui; as sessões de código não perguntam mais.
 - Alterados o bot representativo e o Lead para manterem modelos separados, e enviar sem um modelo abre o seletor de modelos em vez de escolher um automaticamente.
 - Alterados os bots e agentes para repassarem anexos e arquivos gerados ao transferirem tarefas entre si.
 - Alterados os cartões de visualize para um cartão por tarefa, reunindo as páginas abertas como miniaturas.
 - Alteradas as caixas de diálogo de confirmação, como exclusão, do padrão do Windows para caixas que combinam com o tema do app.
-- Removidos o seletor de modelos e o indicador de contexto do compositor das salas de bots.
+- Removidos o seletor de modelos e o indicador de contexto do campo de mensagem das salas de bots.
 - Alterado o GitHub para não ser mais um conector; ele agora usa diretamente a GitHub CLI conectada.
 - Ajustados os avisos de erro para fornecerem um erro claro em vez da mensagem bruta quando um modelo estiver indisponível ou uma chave for inválida.
 - Ajustados os estilos de saída para que as respostas escolham parágrafos, tabelas ou listas adequados ao conteúdo.
-- Alterado o tok/s do compositor para contar a espera pelo primeiro token, correspondendo à janela de Uso.
+- Alterado o tok/s do campo de mensagem para contar a espera pelo primeiro token, correspondendo à janela de Uso.
 - Alterado o esforço de raciocínio automático para usar o avaliador de raciocínio automático v7, que concorda com as avaliações de referência com mais frequência que a v6.
 
 ### Correções de bugs
@@ -468,11 +468,11 @@ Pedimos desculpas pelo fato de a atualização 1.3.0 ter redefinido dados de flu
 - Corrigido o bot representativo não reportando de volta após transferir trabalho para outra sessão; os relatórios agora continuam após reiniciar.
 - Corrigidas as sessões de tarefas de agentes criadas pelo bot representativo que abriam com um modelo vazio ("Selecionar modelo").
 - Corrigida a alternância para a página Bots que substituía a área principal pelo chat do bot representativo.
-- Corrigido o compositor não aceitando entrada após excluir uma sala de bots.
+- Corrigido o campo de mensagem não aceitando entrada após excluir uma sala de bots.
 - Corrigidos os agentes que não avançavam para o próximo modelo quando o primeiro atingia seu limite de uso.
-- Corrigido o carregamento infinito no telefone quando o PC conectado estava desligado; agora informa que não foi possível conectar e permite tentar novamente (#134).
-- Corrigida a rolagem no telefone travando ou saltando enquanto mensagens anteriores eram carregadas.
-- Corrigida a abertura lenta do painel visualize no telefone.
+- Corrigido o carregamento infinito no celular quando o PC conectado estava desligado; agora informa que não foi possível conectar e permite tentar novamente (#134).
+- Corrigida a rolagem no celular travando ou saltando enquanto mensagens anteriores eram carregadas.
+- Corrigida a abertura lenta do painel visualize no celular.
 - Corrigida a falha do Gemini 4 Argon com 404 ao fazer login com Antigravity.
 
 ## v1.3.0 - 2026-10-20
@@ -490,25 +490,25 @@ Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com 
 
 ### Alterações
 
-- Alterado o compositor no PC para uma barra de entrada de linha única que se expande com mensagens mais longas.
+- Alterado o campo de mensagem no PC para uma barra de entrada de linha única que se expande com mensagens mais longas.
 - Alteradas as listas longas de sessões e transcrições extensas para rolarem de forma mais suave.
 - Alteradas as visualizações de diferenças da sessão para recolher linhas não modificadas e remover avisos de arquivos ausentes.
 - Alteradas as atualizações do app para celular para serem baixadas em segundo plano, com status em Configurações e na barra de atividades.
 - Ajustado o painel lateral visualize para alargar no mesmo intervalo do painel do navegador.
-- Alteradas as rotinas para dispensar campos próprios de modelo e fluxo de trabalho e usar as configurações do bot responsável.
+- Alteradas as rotinas para dispensar campos próprios de modelo e workflow e usar as configurações do bot responsável.
 
 ### Correções de bugs
 
 - Corrigida a rolagem da transcrição no celular travando quando uma palavra em streaming terminava de esmaecer durante um arrasto.
-- Corrigidas mensagens na fila e seus anexos perdidos ou ignorados após reiniciar (#119, thanks @22nsuk).
-- Corrigidas configurações restauradas de um backup antigo quando dois salvamentos ocorriam no mesmo instante (#120, thanks @22nsuk).
-- Corrigidos comandos de shell finalizados com processos filhos ainda em execução após falha ao iniciar ou cancelamento (#124, thanks @22nsuk).
-- Corrigida a busca listando o mesmo arquivo duas vezes com grafias de caminho diferentes (#118, thanks @22nsuk).
-- Corrigido o salto da lista de sessões ao favoritar, desfavoritar ou excluir uma sessão (#129, thanks @oh1701).
+- Corrigidas mensagens na fila e seus anexos perdidos ou ignorados após reiniciar (#119, obrigado @22nsuk).
+- Corrigidas configurações restauradas de um backup antigo quando dois salvamentos ocorriam no mesmo instante (#120, obrigado @22nsuk).
+- Corrigidos comandos de shell finalizados com processos filhos ainda em execução após falha ao iniciar ou cancelamento (#124, obrigado @22nsuk).
+- Corrigida a busca listando o mesmo arquivo duas vezes com grafias de caminho diferentes (#118, obrigado @22nsuk).
+- Corrigido o salto da lista de sessões ao favoritar, desfavoritar ou excluir uma sessão (#129, obrigado @oh1701).
 
 ### Outros
 
-- Atualizadas as traduções da interface em todos os idiomas suportados.
+- Atualizadas as traduções da interface em todos os idiomas compatíveis.
 
 ## v1.2.6 - 2026-10-18
 
@@ -531,38 +531,38 @@ O desktop agora consome menos recursos quando ocioso e alterna entre sessões ma
 
 - Corrigido o backend travando sob alta carga de agentes e reiniciando a si mesmo, o que interrompia os agentes em execução.
 - Corrigido o cancelamento deixando processos filhos e servidores em execução (#115).
-- Corrigido o texto colado sendo difícil de ler ou editar quando longo (#110), e a digitação de uma `/` simples no compositor (thanks @oh1701).
+- Corrigido o texto colado sendo difícil de ler ou editar quando longo (#110), e a digitação de uma `/` simples no campo de mensagem (obrigado @oh1701).
 - Corrigida a caixa de diálogo de confirmação do shell empurrando seus botões para fora da tela (#114) e pastas `.git` vazias bloqueando tarefas (#108).
-- Corrigido o total de uso dos agentes deixando de fora agentes encerrados (#99, thanks @22nsuk).
+- Corrigido o total de uso dos agentes deixando de fora agentes encerrados (#99, obrigado @22nsuk).
 - Corrigida a perda de anexos durante o carregamento e um agente com falha marcando toda a aba de sua sessão como com falha.
 - Corrigido cada turno falhando com "Workspace activity cannot be verified" após uma falha danificar o registro do espaço de trabalho.
-- Corrigidos tempos de espera de contas expiradas não tentando novamente (#106), backups de configurações perdendo os originais (#105) e histórico de uso ilegível bloqueando os totais (#103), thanks @22nsuk.
+- Corrigidos tempos de espera de contas expiradas não tentando novamente (#106), backups de configurações perdendo os originais (#105) e histórico de uso ilegível bloqueando os totais (#103), obrigado @22nsuk.
 
 ## v1.2.5 - 2026-10-18
 
-Os telefones agora se conectam mais rápido e sem pop-ups, o desktop não fica mais lento quando muitos agentes são executados e as respostas em streaming aparecem com mais suavidade.
+Os celulares agora se conectam mais rápido e sem pop-ups, o desktop não fica mais lento quando muitos agentes são executados e as respostas em streaming aparecem com mais suavidade.
 
 ### Alterações
 
-- Alteradas as conexões do telefone para reconectar automaticamente sem pop-ups ou contagens regressivas; um ponto pequeno aparece apenas durante uma desconexão longa.
+- Alteradas as conexões do celular para reconectar automaticamente sem pop-ups ou contagens regressivas; um ponto pequeno aparece apenas durante uma desconexão longa.
 - Alteradas as respostas em streaming para aparecerem palavra por palavra com um fade suave, sem saltos de Markdown incompleto; blocos de código aparecem com seu conteúdo.
 - Alterado o status do agente para mostrar Done até você abrir o resultado, e depois Idle.
-- Alterado o menu de ramificação para abrir a partir de um botão `…` ou clique com o botão direito; em telefones, pressione e segure uma ramificação.
-- Alteradas as páginas de visualize em telefones para abrirem diretamente sem a solicitação Run, assim como no desktop.
-- Ajustados o painel de uso e o resumo da ilha do compositor para manter sua altura enquanto os valores carregam.
+- Alterado o menu de branch para abrir a partir de um botão `…` ou clique com o botão direito; em celulares, pressione e segure uma branch.
+- Alteradas as páginas de visualize em celulares para abrirem diretamente sem a solicitação Run, assim como no desktop.
+- Ajustados o painel de uso e o resumo da ilha do campo de mensagem para manter sua altura enquanto os valores carregam.
 - Alterado o código QR de instalação do Android para baixar o aplicativo diretamente.
 
 ### Correções de bugs
 
-- Corrigidas mensagens enviadas e respostas que não apareciam na conversa após o aplicativo reiniciar até que fosse reaberto (#113, thanks @oh1701).
+- Corrigidas mensagens enviadas e respostas que não apareciam na conversa após o aplicativo reiniciar até que fosse reaberto (#113, obrigado @oh1701).
 - Corrigido o desktop pausando cerca de um segundo por vez quando existiam mais de 256 sessões de agentes.
-- Corrigidas solicitações de telefones aguardando leituras lentas de uso e do Git no desktop.
-- Corrigidos telefones desconectados enquanto o desktop estava ocupado e a primeira conexão após abrir o aplicativo demorando mais de 10 segundos.
-- Corrigidos telefones que permaneciam em "Allowed. Connecting…" indefinidamente ou exibiam "Request expired" após o PC ter aprovado.
-- Corrigido o telefone solicitando aprovação novamente ao iniciar após perder seu login salvo.
-- Corrigidos telefones que pareciam conectados enquanto o PC reiniciava, com todas as mensagens expirando por tempo limite.
-- Corrigidos telefones pareados desconectados em definitivo quando o PC falhava ao ler sua identidade de conexão.
-- Corrigida uma verificação lenta de caminho de arquivo que travava todas as outras solicitações do telefone.
+- Corrigidas solicitações de celulares aguardando leituras lentas de uso e do Git no desktop.
+- Corrigidos celulares desconectados enquanto o desktop estava ocupado e a primeira conexão após abrir o aplicativo demorando mais de 10 segundos.
+- Corrigidos celulares que permaneciam em "Allowed. Connecting…" indefinidamente ou exibiam "Request expired" após o PC ter aprovado.
+- Corrigido o celular solicitando aprovação novamente ao iniciar após perder seu login salvo.
+- Corrigidos celulares que pareciam conectados enquanto o PC reiniciava, com todas as mensagens expirando por tempo limite.
+- Corrigidos celulares pareados desconectados em definitivo quando o PC falhava ao ler sua identidade de conexão.
+- Corrigida uma verificação lenta de caminho de arquivo que travava todas as outras solicitações do celular.
 - Corrigida a rolagem para cima em conversas longas travando enquanto mensagens antigas eram carregadas (#104).
 - Corrigida a conversa sendo puxada de volta para baixo ao rolar para cima no celular durante uma resposta em streaming.
 - Corrigidos ícones sobrepostos em cartões de arquivo e avisos repetidos de falha no download.
@@ -590,18 +590,18 @@ Atualização com controle de sessões de agentes e atribuição de modelos de f
 
 ### 5. Estabilização de chamadas de ferramentas por provedor
 
-- Corrigidos erros no processamento de pensamento do Claude no Antigravity, adicionada a exibição de uso e reforçada a confiabilidade de raciocínio e chamadas de ferramentas em gateways personalizados (#79, #94, thanks @22nsuk and @sukjong2002).
+- Corrigidos erros no processamento de pensamento do Claude no Antigravity, adicionada a exibição de uso e reforçada a confiabilidade de raciocínio e chamadas de ferramentas em gateways personalizados (#79, #94, obrigado @22nsuk e @sukjong2002).
 - A conexão e as novas tentativas do Antigravity foram estabilizadas, e a execução de ferramentas em ambientes compatíveis com Cursor e OpenAI foi melhorada.
-- Adicionada a capacidade de verificar o status dos provedores registrados no PC diretamente das janelas SSH remotas (#77, thanks @22nsuk).
+- Adicionada a capacidade de verificar o status dos provedores registrados no PC diretamente das janelas SSH remotas (#77, obrigado @22nsuk).
 - Melhorada a compressão de solicitações da Anthropic e do ChatGPT com fallback seguro para acelerar o início das respostas.
 
 ### 6. Renovação do gerenciamento de sessões de agentes
 
 - Ajustado para que agentes concluídos permaneçam no painel por 1 hora, restaurando o resumo de contagem de tarefas por status e os avisos de espera.
 
-### 7. Gerenciamento de sessões pelo agente principal
+### 7. Gerenciamento de sessões pelo agente Lead
 
-- Adicionada a capacidade de o agente principal visualizar a lista e os conteúdos de outras sessões e gerenciá-las diretamente enviando mensagens, cancelando ou excluindo sessões.
+- Adicionada a capacidade de o agente Lead visualizar a lista e os conteúdos de outras sessões e gerenciá-las diretamente enviando mensagens, cancelando ou excluindo sessões.
 
 ### 8. Otimizações de desempenho remoto e no desktop
 
@@ -616,7 +616,7 @@ Atualização com controle de sessões de agentes e atribuição de modelos de f
 
 ### 10. Outras correções de bugs e pequenas melhorias
 
-- Removidos limites de chamadas e taxa de requisições nas conexões de modelos remotos via SSH (#101).
+- Removidos limites de chamadas e taxa de solicitações nas conexões de modelos remotos via SSH (#101).
 - Retomada automática de Goals pausados assim que o uso for redefinido e corrigidos vários bugs no painel de alterações e na exibição de status dos comandos.
 - Corrigido o bloqueio do navegador interno no login do Google e nas verificações antibot (#102).
 
@@ -626,24 +626,24 @@ Desde o lançamento, muito mais pessoas do que esperávamos estão usando o Mixd
 
 Novo no raciocínio automático? Um pequeno modelo avaliador no seu PC escolhe o quanto o modelo deve pensar para cada mensagem e etapa. Veja como funciona e o desempenho no Terminal-Bench 2.1 em [Esforço de raciocínio automático](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
 
-Adicionada a movimentação de um chat para um worktree a partir da ilha do compositor, streaming de texto mais suave e um serviço em segundo plano mais rápido e confiável.
+Adicionada a movimentação de um chat para uma worktree a partir da ilha do campo de mensagem, streaming de texto mais suave e um serviço em segundo plano mais rápido e confiável.
 
 ### Novos recursos
 
-- **Worktrees a partir da ilha** — Adicionado um segmento de ramificação à ilha do compositor que move um chat para um worktree, mantendo ou deixando alterações não confirmadas.
+- **Worktrees a partir da ilha** — Adicionado um segmento de branch à ilha do campo de mensagem que move um chat para uma worktree, mantendo ou deixando alterações sem commit.
 - **Cartões de perguntas** — Adicionado um cartão para perguntas que um agente faz a você, no aplicativo desktop e na TUI.
 - **`/btw`** — Adicionado `/btw` para fazer uma pergunta rápida sem interromper a tarefa atual.
-- **Ferramenta de sessão** — Adicionada uma ferramenta que permite ao agente renomear, compactar, bifurcar e mover a sessão atual (#14, thanks @hyeon1035298).
-- **Vários PCs no Android** — Adicionada a alternância entre até 16 PCs salvos no aplicativo Android (#83, thanks @yupguni).
-- **Recuperar edições interrompidas** — Adicionado um painel de recuperação que mostra edições de arquivo interrompidas por falhas e as restaura ou descarta com segurança (#60, thanks @22nsuk).
+- **Ferramenta de sessão** — Adicionada uma ferramenta que permite ao agente renomear, compactar, bifurcar e mover a sessão atual (#14, obrigado @hyeon1035298).
+- **Vários PCs no Android** — Adicionada a alternância entre até 16 PCs salvos no aplicativo Android (#83, obrigado @yupguni).
+- **Recuperar edições interrompidas** — Adicionado um painel de recuperação que mostra edições de arquivo interrompidas por falhas e as restaura ou descarta com segurança (#60, obrigado @22nsuk).
 
 ### Alterações
 
 - Alteradas as respostas em streaming para aparecerem suavemente à medida que são escritas, em vez de rajadas linha por linha.
 - Alteradas a saída, novos chats e o painel Alterações para responderem muito mais rápido.
 - Alterados os esquemas de ferramentas MCP para serem convertidos para cada provedor, para que ferramentas que funcionam em outros aplicativos funcionem no Mixdog; uma ferramenta com falha é ignorada com um aviso.
-- Alterados os totais de uso para permanecerem ocultos quando um provedor não relatar o uso de cada chamada (#90, #91, thanks @22nsuk).
-- Alterada a migração de alterações para um worktree para recusar arquivos ocultados pelo Git no status, evitando perda de edições.
+- Alterados os totais de uso para permanecerem ocultos quando um provedor não relatar o uso de cada chamada (#90, #91, obrigado @22nsuk).
+- Alterada a migração de alterações para uma worktree para recusar arquivos ocultados pelo Git no status, evitando perda de edições.
 - Alterados os backups de configurações para permanecerem em cada perfil, de forma que as configurações de um perfil nunca sejam sobrescritas por outro.
 - Alterada a faixa de versões do Visualize para um menu Versões, adicionando renomeação de abas com clique duplo e destaque de comandos com barra.
 - Alterados os ícones de provedores para os logotipos oficiais.
@@ -651,21 +651,21 @@ Adicionada a movimentação de um chat para um worktree a partir da ilha do comp
 
 ### Correções de bugs
 
-- Corrigida a falha com HTTP 400 em modelos Claude no Antigravity devido a esquemas de ferramentas (#80, thanks @ProofPage).
-- Corrigido o botão Nova ramificação no chat que não fazia nada (#85, thanks @oh1701).
-- Corrigidos agentes recém-iniciados que não viam as ferramentas MCP em seu primeiro turno (#88, thanks @oh1701).
+- Corrigida a falha com HTTP 400 em modelos Claude no Antigravity devido a esquemas de ferramentas (#80, obrigado @ProofPage).
+- Corrigido o botão Nova branch no chat que não fazia nada (#85, obrigado @oh1701).
+- Corrigidos agentes recém-iniciados que não viam as ferramentas MCP em seu primeiro turno (#88, obrigado @oh1701).
 - Corrigido o congelamento do serviço em segundo plano ao excluir sessões e o retorno de sessões excluídas ou de suas abas.
 - Corrigido o banco de dados que às vezes permanecia aberto após sair do aplicativo.
 - Corrigida a primeira mensagem após trocar o modelo de um chat que falhava com "Session state changed unexpectedly".
 - Corrigido o botão Voltar do Android que não fechava o painel lateral direito.
-- Corrigido o nome da ramificação na ilha que aparecia com atraso e deslocava o layout, e linhas de shell que piscavam ao concluir um comando.
+- Corrigido o nome da branch na ilha que aparecia com atraso e deslocava o layout, e linhas de shell que piscavam ao concluir um comando.
 - Corrigido o painel lateral que permanecia aberto após fechar sua última aba e o painel Visualize que permanecia recolhido ao abrir um elemento visual.
 - Corrigidos os seletores de provedores de desenvolvedor que apareciam desativados após ativá-los e erros de provedores personalizados que mostravam mensagens internas.
-- Corrigido o salto da transcrição quando o compositor alterava sua altura.
+- Corrigido o salto da transcrição quando o campo de mensagem alterava sua altura.
 
 ### Outros
 
-- Corrigido um erro de compilação do desktop (#89, thanks @22nsuk).
+- Corrigido um erro de compilação do desktop (#89, obrigado @22nsuk).
 
 ## v1.2.2 - 2026-10-14
 
@@ -673,10 +673,10 @@ Adicionados login OAuth explícito para MCP, troca de modelo no local e um banne
 
 ### Novos recursos
 
-- **Login no MCP** — Adicionado login OAuth explícito para servidores MCP com status, diálogo de login compartilhado, colagem remota e comandos TUI (#74, thanks @oh1701).
-- **Trocar modelo no local** — Adicionada a troca de modelo de um chat sem iniciar uma nova sessão, e Bifurcar no menu da sessão (#73, #52, thanks @grapefruit0205).
-- **Banner de cota** — Adicionado um banner de linha única acima do compositor quando um limite é atingido; Continuar reserva a próxima execução para o horário de redefinição.
-- **Menu de arquivos** — Adicionada uma contagem de arquivos na ilha que rastreia alterações não confirmadas da sessão, com Ver alterações e Excluir histórico.
+- **Login no MCP** — Adicionado login OAuth explícito para servidores MCP com status, diálogo de login compartilhado, colagem remota e comandos TUI (#74, obrigado @oh1701).
+- **Trocar modelo no local** — Adicionada a troca de modelo de um chat sem iniciar uma nova sessão, e Bifurcar no menu da sessão (#73, #52, obrigado @grapefruit0205).
+- **Banner de cota** — Adicionado um banner de linha única acima do campo de mensagem quando um limite é atingido; Continuar reserva a próxima execução para o horário de redefinição.
+- **Menu de arquivos** — Adicionada uma contagem de arquivos na ilha que rastreia alterações sem commit da sessão, com Ver alterações e Excluir histórico.
 - **Tamanho do texto do chat** — Adicionada uma configuração de tamanho de texto do chat por dispositivo.
 
 ### Alterações
@@ -690,15 +690,15 @@ Adicionados login OAuth explícito para MCP, troca de modelo no local e um banne
 
 - Corrigido o congelamento de um a dois segundos do serviço em segundo plano a cada 30 minutos.
 - Corrigida a perda de avisos de conclusão de agentes quando um turno que já possuía saída era cancelado.
-- Corrigida a ilha do compositor exibindo agentes em execução como ociosos ou concluídos.
+- Corrigida a ilha do campo de mensagem exibindo agentes em execução como ociosos ou concluídos.
 - Corrigido o travamento na troca de sessões ao aguardar varreduras de alterações de outras sessões.
 - Corrigidos os diálogos de página do navegador saindo do painel, a confirmação de saída não concluindo e o não funcionamento dos atalhos de cópia do navegador.
-- Corrigida a falha no cache de prompts em provedores Responses personalizados e projetos de sessão herdados que não correspondiam à barra lateral (#70, #75, thanks @sukjong2002).
+- Corrigida a falha no cache de prompts em provedores Responses personalizados e projetos de sessão herdados que não correspondiam à barra lateral (#70, #75, obrigado @sukjong2002).
 - Corrigidas a oscilação de tabelas em streaming, a oscilação da transcrição durante a execução de um turno e a permanência do cartão de cota após a troca de provedores.
 
 ### Outros
 
-- Removidos helpers não utilizados (#67, thanks @22nsuk).
+- Removidos helpers não utilizados (#67, obrigado @22nsuk).
 
 ## v1.2.1 - 2026-10-14
 
@@ -709,9 +709,9 @@ Adicionada a importação de conversas do Codex e do Claude Code, o provedor Com
 - **Importação de conversas** — Adicionado Configurações > Geral > Importar conversas para trazer chats do Codex e do Claude Code deste PC para o Mixdog.
 - **Command Code** — Adicionado o Command Code como provedor que faz login com sua conta do Command Code.
 - **Políticas de troca de conta** — Adicionadas as opções Manualmente, Trocar no limite e Mais folga primeiro para provedores com várias contas.
-- **Menções de skills com `$`** — Adicionado `$` no compositor e na TUI para escolher uma skill e aplicá-la à mensagem.
+- **Menções de skills com `$`** — Adicionado `$` no campo de mensagem e na TUI para escolher uma skill e aplicá-la à mensagem.
 - **Barra de uso de 5 horas** — Adicionada uma opção no menu de uso que exibe uma barra de 5 horas ao lado do período mais longo na barra lateral (#66).
-- **Cartões de feedback de visualização** — Adicionados cartões no compositor para fixações, seleções e ajustes em fila, além de marcadores em imagens, vídeos e áreas.
+- **Cartões de feedback de visualização** — Adicionados cartões no campo de mensagem para fixações, seleções e ajustes em fila, além de marcadores em imagens, vídeos e áreas.
 - **Fechar Goal** — Adicionado um botão para dispensar um Goal concluído.
 
 ### Alterações
@@ -724,7 +724,7 @@ Adicionada a importação de conversas do Codex e do Claude Code, o provedor Com
 - Alteradas as miniaturas de imagens enviadas para carregar como prévias reduzidas no PC e celulares pareados.
 - Ajustados o carregamento de ferramentas MCP, buscas de arquivos e salvamento de contas para não travar o serviço em segundo plano em sessões longas.
 - Ajustada a marca de progresso do Goal para exibir sempre cinco células.
-- Ajustada a ilha do compositor para ficar 12px acima do cartão de prompt e restauradas as linhas de atividade de ferramentas para 14px.
+- Ajustada a ilha do campo de mensagem para ficar 12px acima do cartão de prompt e restauradas as linhas de atividade de ferramentas para 14px.
 
 ### Correções de bugs
 
@@ -751,7 +751,7 @@ Adicionada a importação de conversas do Codex e do Claude Code, o provedor Com
 
 ## v1.2.0 - 2026-10-13
 
-Esta versão introduz o painel de alterações e cartões de alterações por turno com controles de desfazer e reaplicar por turno, mantém o histórico anterior visível após a compactação e adiciona uma ferramenta integrada de visualização para maquetes interativas de interface e diagramas. Os fluxos de trabalho remotos são expandidos com conexões de servidor SSH, sessões isoladas de worktree do Git, gerenciamento de shells em segundo plano e downloads diretos de arquivos em telefones pareados. A interface também traz maior contraste, rolagem mais suave em dispositivos móveis e organização flexível de sessões.
+Esta versão introduz o painel de alterações e cartões de alterações por turno com controles de desfazer e reaplicar por turno, mantém o histórico anterior visível após a compactação e adiciona uma ferramenta integrada de visualização para maquetes interativas de interface e diagramas. Os fluxos de trabalho remotos são expandidos com conexões de servidor SSH, sessões isoladas de worktree do Git, gerenciamento de shells em segundo plano e downloads diretos de arquivos em celulares pareados. A interface também traz maior contraste, rolagem mais suave em dispositivos móveis e organização flexível de sessões.
 
 ### Novos recursos
 
@@ -760,14 +760,14 @@ Esta versão introduz o painel de alterações e cartões de alterações por tu
 - Um cartão de alterações sob cada turno exibe o número de arquivos modificados, um resumo de linhas diff com +N −N, um botão para visualizar alterações e a lista de arquivos editados.
 - Os cartões de ferramentas reprojetados exibem a alteração feita por cada edição individual em vez do total acumulado do turno, renderizados na mesma visualização de diff do painel de alterações, e mostram adições e exclusões de linhas durante a execução da ferramenta.
 - Uma ferramenta integrada de visualização gera maquetes de projeto e diagramas inline (Mermaid, SVG, ECharts, HTML e Markdown) em abas dedicadas do painel lateral. Você pode inspecionar elementos, capturar erros de página, deixar comentários com marcadores e seleções de dados para a próxima mensagem, comparar e restaurar versões e exportar designs para PNG ou PDF.
-- As sessões de worktree do Git permitem trabalhar em ramificações isoladas sem alterar o ambiente de trabalho atual. Um seletor de ramificação acima do compositor permite escolher ou criar uma nova ramificação de worktree ao iniciar uma tarefa, com mesclagens protegidas que evitam resíduos de conflito.
+- As sessões de worktree do Git permitem trabalhar em branches isoladas sem alterar a árvore de trabalho atual. Um seletor de branch acima do campo de mensagem permite escolher ou criar uma nova branch de worktree ao iniciar uma tarefa, com mesclagens protegidas que evitam resíduos de conflito.
 - Conecte-se a servidores remotos via SSH em Configurações > Conexão. O Mixdog é instalado automaticamente no servidor, abre em sua própria janela com um painel de portas com encaminhamento de portas, navegação remota de arquivos e terminais, e redireciona chamadas de modelos pelo PC para que as credenciais nunca precisem ficar no servidor.
-- Celulares pareados agora podem baixar e compartilhar arquivos produzidos pelo assistente e mídias geradas diretamente a partir de links no chat, com progresso de transferência, novas tentativas e cancelamento (salva em Downloads no Android e via folha de compartilhamento no iOS; com a próxima atualização do aplicativo Android ou compilação iOS) (#40). Os telefones pareados também ficam estritamente restritos a projetos registrados e arquivos produzidos naquela sessão.
-- Comandos de shell em segundo plano podem ser interrompidos diretamente no aplicativo ou remotamente. Comandos finalizados permanecem listados até serem dispensados em vez de sumirem imediatamente, e o painel de tarefas no compositor se expande para mostrar comandos em execução ao lado de agentes com uso acumulado de tokens e chamadas de ferramentas.
+- Celulares pareados agora podem baixar e compartilhar arquivos produzidos pelo assistente e mídias geradas diretamente a partir de links no chat, com progresso de transferência, novas tentativas e cancelamento (salva em Downloads no Android e via folha de compartilhamento no iOS; com a próxima atualização do aplicativo Android ou compilação iOS) (#40). Os celulares pareados também ficam estritamente restritos a projetos registrados e arquivos produzidos naquela sessão.
+- Comandos de shell em segundo plano podem ser interrompidos diretamente no aplicativo ou remotamente. Comandos finalizados permanecem listados até serem dispensados em vez de sumirem imediatamente, e o painel de tarefas no campo de mensagem se expande para mostrar comandos em execução ao lado de agentes com uso acumulado de tokens e chamadas de ferramentas.
 - Mova uma sessão para outro projeto a partir do menu lateral ou arrastando e soltando sem mover a pasta no disco; sessões em subpastas e worktrees de um projeto são agrupadas automaticamente sob esse projeto.
 - Os painéis laterais em celulares (navegador, terminal, alterações e pré-visualização) compartilham o mesmo cabeçalho do PC, com abas, menu para alternar painéis e botão de fechar. No navegador do celular, `+` abre uma nova aba no painel lateral dessa sessão, e as abas alternam e fecham exatamente como no PC (requer o aplicativo de PC atualizado).
 - Imagens enviadas no chat mantêm miniaturas após reiniciar o app, e cartões de arquivos HTML e de visualização exibem uma pré-visualização visual real da página renderizada localmente em um ambiente isolado sem acesso à rede para arquivos dentro do projeto.
-- O compositor lista agentes em execução no mesmo formato da janela de agentes e oculta automaticamente a seção de shell quando não há shells em segundo plano ativos.
+- O campo de mensagem lista agentes em execução no mesmo formato da janela de agentes e oculta automaticamente a seção de shell quando não há shells em segundo plano ativos.
 - Fechar a última aba de terminal, navegador ou arquivo fecha automaticamente o painel lateral, e reabrir o terminal inicia uma nova aba limpa (baseado em #49 por @moveju112).
 - Pastas de projeto e seções da barra lateral permanecem abertas por padrão e lembram seu estado recolhido, enquanto selecionar uma sessão em uma pasta recolhida a abre automaticamente. As sessões também podem ser reorganizadas arrastando ou ordenadas por atividade recente.
 - O aplicativo Android agora pode verificar atualizações em segundo plano, baixar, verificar assinaturas e instalar novas versões diretamente (com a próxima atualização do aplicativo Android).
@@ -777,15 +777,15 @@ Esta versão introduz o painel de alterações e cartões de alterações por tu
 
 - Cores de destaque mais nítidas e maior contraste de texto; cabeçalhos de cartões de ferramentas e turnos usam cinza sutil com caixas apenas com contorno; código inline é exibido como blocos cinzas e citações com uma barra à esquerda; texto selecionado e números de linha de diff atendem ao contraste de 4.5:1 em ambos os temas.
 - O menu lateral abre sem sombra e escurece a tela de fundo em 40%.
-- O seletor de ramificação e worktree acima do compositor aparece apenas em projetos Git e antes do início da conversa.
-- A contagem de arquivos alterados no compositor agora abrange toda a sessão em vez de ser redefinida após cada turno.
+- O seletor de branch e worktree acima do campo de mensagem aparece apenas em projetos Git e antes do início da conversa.
+- A contagem de arquivos alterados no campo de mensagem agora abrange toda a sessão em vez de ser redefinida após cada turno.
 - O botão de visualização foi removido do cabeçalho do painel; visualizações abrem automaticamente ou a partir de seu cartão na conversa.
 - O anel de contexto abre apenas com clique, não mais ao passar o mouse (#48).
 - Em celulares, a tecla Enter insere uma quebra de linha; o envio é feito pelo botão.
-- As mensagens esmaecem gradualmente sob o compositor em vez de serem cortadas de forma abrupta.
+- As mensagens esmaecem gradualmente sob o campo de mensagem em vez de serem cortadas de forma abrupta.
 - Arquivos fora do projeto exibem seu nome com o caminho completo na dica de ferramenta em vez de um selo.
-- Rolagem mais suave, especialmente no Android: a conversa é redesenhada no máximo uma vez por quadro, o indicador de carregamento é animado na GPU, a posição de rolagem é salva ao parar, toques não são mais bloqueados e o esmaecimento sob o compositor não redesenha a lista inteira.
-- Chamadas de ferramentas MCP aplicam limites de tempo de execução (padrão de 120 segundos) sem travar ou repetir solicitações canceladas, relatam falhas de processos stdio com detalhes de erro e suportam paginação para listas extensas de ferramentas.
+- Rolagem mais suave, especialmente no Android: a conversa é redesenhada no máximo uma vez por quadro, o indicador de carregamento é animado na GPU, a posição de rolagem é salva ao parar, toques não são mais bloqueados e o esmaecimento sob o campo de mensagem não redesenha a lista inteira.
+- Chamadas de ferramentas MCP aplicam limites de tempo de execução (padrão de 120 segundos) sem travar ou repetir solicitações canceladas, relatam falhas de processos stdio com detalhes de erro e oferecem suporte à paginação para listas extensas de ferramentas.
 - Limpeza automática de sessões ociosas é executada antes que conclusões em segundo plano reativem a conversa.
 - No macOS, a inicialização do aplicativo desktop anexa diretórios do Homebrew ao `PATH` sem descartar entradas existentes.
 - O terminal remoto no celular inclui uma barra de teclas dedicada com modificadores e teclas de navegação (com a próxima atualização do aplicativo Android ou compilação iOS).
@@ -794,7 +794,7 @@ Esta versão introduz o painel de alterações e cartões de alterações por tu
 
 - Tocar em um link no chat abria um navegador interno em branco; a página agora carrega corretamente e em celulares o painel do navegador abre em tela cheia (#41).
 - O indicador de pensamento permanecia em inglês até o carregamento do idioma do aplicativo; a animação de brilho em celulares foi corrigida.
-- O cartão de turno, o compositor e o painel de alterações podiam exibir números divergentes de arquivos modificados.
+- O cartão de turno, o campo de mensagem e o painel de alterações podiam exibir números divergentes de arquivos modificados.
 - A primeira rolagem para cima em conversas longas podia causar saltos visuais.
 - Fechar a última aba do terminal criava uma nova aba indevidamente e piscava (#49).
 - A leitura de arquivos não retorna mais conteúdo obsoleto nem informa intervalos de linhas que não foram realmente entregues, mesmo ao sobrescrever um arquivo grande no mesmo local com tamanho idêntico (#54, obrigado a @22nsuk).
@@ -807,7 +807,7 @@ Esta versão introduz o painel de alterações e cartões de alterações por tu
 
 ### Outros
 
-- Revisão de traduções de termos novos e alterados em todos os 11 idiomas suportados.
+- Revisão de traduções de termos novos e alterados em todos os 11 idiomas compatíveis.
 - Publicação de dados brutos de avaliação para DeepSeek V4.1 Flash no Terminal-Bench em 89 tarefas comparando Mixdog com DSH (#43), e adição do perfil completo de avaliação do GPT-6.1 Sol.
 - Ícones do aplicativo móvel atualizados para corresponder ao design em titânio da versão desktop (com a próxima atualização do aplicativo Android).
 
@@ -821,7 +821,7 @@ O uso do Muse Code e do MiMo agora aparece em uma linha própria na barra latera
 
 A velocidade Ultrafast é mostrada em laranja nos rótulos de modelo, incluindo as linhas de agentes no painel lateral.
 
-Na ilha do compositor, clicar no segmento de arquivos abre a lista de arquivos alterados no painel lateral direito quando vários arquivos mudaram (com um único arquivo alterado, o diff dele continua sendo aberto). Os segmentos de agentes e shell também abrem suas listas no painel lateral, no formato da barra lateral Agentes e navegáveis pelo teclado.
+Na ilha do campo de mensagem, clicar no segmento de arquivos abre a lista de arquivos alterados no painel lateral direito quando vários arquivos mudaram (com um único arquivo alterado, o diff dele continua sendo aberto). Os segmentos de agentes e shell também abrem suas listas no painel lateral, no formato da barra lateral Agentes e navegáveis pelo teclado.
 
 As linhas de ferramentas não mostram mais o brilho em movimento durante a execução.
 
@@ -843,9 +843,9 @@ O Daybreak Blue agora é uma chave por rota em "Raciocínio automático" nos mod
 
 - O avaliador de raciocínio automático v6 é instalado automaticamente após a atualização. Ele é o EmbeddingGemma 2 ajustado exclusivamente para avaliar o esforço de raciocínio e avalia tanto solicitações quanto etapas de ferramenta dos agentes. Nos mesmos 12,029 itens reservados, é mais preciso que o Jev 1.13 (nível exato 78,5% contra 72,7%; dois ou mais níveis de diferença 0,6% contra 1,4%) e decide em cerca de 115 ms no seu PC. Detalhes: `docs/auto-reasoning-effort.md`
 
-O raciocínio automático agora aparece como "Auto" em todo lugar onde modelo e esforço são exibidos, incluindo a barra lateral de agentes, os fluxos de trabalho, os agendamentos e os webhooks. A linha de status de trabalho mostra o esforço que o Auto realmente escolheu, traduzido para o seu idioma (por exemplo, "Pensando (medium)").
+O raciocínio automático agora aparece como "Auto" em todo lugar onde modelo e esforço são exibidos, incluindo a barra lateral de agentes, os workflows, os agendamentos e os webhooks. A linha de status de trabalho mostra o esforço que o Auto realmente escolheu, traduzido para o seu idioma (por exemplo, "Pensando (médio)").
 
-A ilha do compositor acima do campo de mensagem foi redesenhada. Os objetivos mostram um ícone de estado, indicadores de progresso por tarefa e "Em andamento"; agentes, shells e arquivos alterados são contados separadamente com ícones próprios; e os agentes aguardando sua aprovação exibem "Aguardando aprovação" e uma contagem "Precisa de você" em vez de parecerem ocupados. Clicar em um agente abre a sessão dele, o tempo decorrido do agente agora conta a partir do turno atual e não da criação, e a ilha permanece por um instante após o fim do trabalho em vez de piscar e sumir. O painel Agentes também marca os agentes que aguardam aprovação.
+A ilha acima do campo de mensagem foi redesenhada. Os objetivos mostram um ícone de estado, indicadores de progresso por tarefa e "Em andamento"; agentes, shells e arquivos alterados são contados separadamente com ícones próprios; e os agentes aguardando sua aprovação exibem "Aguardando aprovação" e uma contagem "Precisa de você" em vez de parecerem ocupados. Clicar em um agente abre a sessão dele, o tempo decorrido do agente agora conta a partir do turno atual e não da criação, e a ilha permanece por um instante após o fim do trabalho em vez de piscar e sumir. O painel Agentes também marca os agentes que aguardam aprovação.
 
 Suas próprias mensagens não mostram mais "deste PC"; a identificação do dispositivo aparece apenas em mensagens enviadas de outros dispositivos.
 
@@ -887,9 +887,9 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - O consumo de recursos em segundo plano foi significativamente reduzido quando o sistema está ocioso, com menos revisões do daemon, monitoramento de arquivos suavizado na busca e consolidações diárias em cache para estatísticas de uso.
 
-- Shift+Enter insere quebras de linha de forma confiável no compositor de mensagens mesmo após caracteres com Shift, e pressionar Enter não dispara mais o envio prematuro durante a composição de texto em coreano no IME.
+- Shift+Enter insere quebras de linha de forma confiável no campo de mensagem mesmo após caracteres com Shift, e pressionar Enter não dispara mais o envio prematuro durante a composição de texto em coreano no IME.
 
-- Revisão da qualidade das traduções em todos os 11 idiomas suportados, corrigindo rótulos da interface e atualizando caixas de diálogo localizadas.
+- Revisão da qualidade das traduções em todos os 11 idiomas compatíveis, corrigindo rótulos da interface e atualizando caixas de diálogo localizadas.
 
 ## v1.0.12 - 2026-10-10
 
@@ -931,7 +931,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Arquivos do Word, PowerPoint e Excel (.docx, .pptx, .xlsx, .xlsm) podem ser anexados a mensagens e automações, e o texto deles chega a todos os modelos. Tipos de arquivo que não podem ser anexados agora avisam isso e inserem o caminho do arquivo no lugar, e arquivos vazios ou que não são PDFs de verdade são rejeitados com uma mensagem clara.
 
-- PDFs e imagens do início de uma conversa continuam sendo enviados ao modelo depois que o app reinicia. Modelos sem suporte nativo a PDF recebem o texto do PDF. A leitura de um PDF com mais de 100 páginas retorna as primeiras páginas como texto, e PDFs protegidos por senha ou inválidos retornam um erro claro em vez de quebrar as requisições seguintes.
+- PDFs e imagens do início de uma conversa continuam sendo enviados ao modelo depois que o app reinicia. Modelos sem suporte nativo a PDF recebem o texto do PDF. A leitura de um PDF com mais de 100 páginas retorna as primeiras páginas como texto, e PDFs protegidos por senha ou inválidos retornam um erro claro em vez de quebrar as solicitações seguintes.
 
 - Imagens e arquivos retornados por ferramentas MCP chegam ao modelo como imagens e arquivos, e não como texto codificado bruto; mídias não compatíveis ou grandes demais são descritas.
 
@@ -989,7 +989,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Sessões usadas recentemente abrem mais rápido após uma reinicialização e ao serem revisitadas.
 
-- A ferramenta setup pode gerenciar contas OAuth, opções de desenvolvedor, fixações da barra de atividades e o servidor MCP de um plugin, e as requisições de sessões em painéis divididos são tratadas. A janela de limpeza automática de um provedor agora substitui a global.
+- A ferramenta setup pode gerenciar contas OAuth, opções de desenvolvedor, fixações da barra de atividades e o servidor MCP de um plugin, e as solicitações de sessões em painéis divididos são tratadas. A janela de limpeza automática de um provedor agora substitui a global.
 
 - A ferramenta Git é ativada onde quer que `git` esteja instalado, sem instalar uma extensão. Agendamentos e webhooks sempre entregam na sessão do app.
 
@@ -1029,7 +1029,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - As linhas de agentes do Workflow têm a mesma aparência em todos os lugares: uma linha sem modelo fixado, inclusive Web Search, mostra "Padrão", e os nomes de agentes e rótulos de modelos permanecem sem tradução. As abas do workspace não selecionadas repousam sobre uma placa suave, em vez de divisórias finas.
 
-- A ferramenta Goal e a habilidade goal-management descrevem os Objetivos como uma lista de tarefas para trabalho aprovado que se estende por vários turnos, e excluem agendamentos recorrentes e objetivos que esperam semanas por eventos externos.
+- A ferramenta Goal e a skill goal-management descrevem os Objetivos como uma lista de tarefas para trabalho aprovado que se estende por vários turnos, e excluem agendamentos recorrentes e objetivos que esperam semanas por eventos externos.
 
 ## v1.0.3 - 2026-10-01
 
@@ -1041,7 +1041,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Varreduras idênticas e simultâneas de grep e read compartilham uma única varredura nativa, os resultados em cache são invalidados por caminho após edições, e um patch cancelado para antes de gravar mais arquivos. A busca do code graph reconhece caminhos do Windows independentemente de maiúsculas, separadores e prefixos verbatim (`\\?\`) e UNC. Um hook pré-ferramenta com falha agora bloqueia a ferramenta em vez de deixá-la executar.
 
-- A habilidade browser mantém as páginas em segundo plano, a menos que a própria página seja o resultado entregue ou que o usuário precise agir nela. O desenvolvimento do desktop (`npm run dev`) e os scripts E2E diretos do Windows rodam em um perfil novo e isolado na porta CDP `9342`.
+- A skill browser mantém as páginas em segundo plano, a menos que a própria página seja o resultado entregue ou que o usuário precise agir nela. O desenvolvimento do desktop (`npm run dev`) e os scripts E2E diretos do Windows rodam em um perfil novo e isolado na porta CDP `9342`.
 
 ## v1.0.2 - 2026-10-01
 
@@ -1067,25 +1067,25 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 ## v1.0.0 - 2026-09-30
 
-- A Memória não pode mais ser derrubada por uma reconstrução do runtime. Um runtime de memória reconstruído é publicado com uma nova tag de versão, em vez de substituir arquivos que os apps instalados verificam, um novo runtime é instalado ao lado do que está em uso, em vez de excluí-lo enquanto o PostgreSQL ainda roda a partir dele, e dois processos instalando ao mesmo tempo não apagam mais o download um do outro. Os deploys de desenvolvimento local se recusam a rodar a partir de um branch atrás do seu upstream.
+- A Memória não pode mais ser derrubada por uma reconstrução do runtime. Um runtime de memória reconstruído é publicado com uma nova tag de versão, em vez de substituir arquivos que os apps instalados verificam, um novo runtime é instalado ao lado do que está em uso, em vez de excluí-lo enquanto o PostgreSQL ainda roda a partir dele, e dois processos instalando ao mesmo tempo não apagam mais o download um do outro. Os deploys de desenvolvimento local se recusam a rodar a partir de uma branch atrás do seu upstream.
 
 - Os cartões de ferramentas não marcam mais chamadas concluídas como falhas. Um comando cuja saída contém uma linha `status:`, um `git diff --quiet` ou `git grep` que informa uma diferença ou nenhuma correspondência, uma consulta code_graph que não encontra o símbolo e a paginação de resultados tidy armazenados agora aparecem como concluídos; um comando git que sai com código diferente de zero aparece como uma saída, como no shell; e um comando de navegador ou computador interrompido porque o usuário assumiu o controle aparece como cancelado.
 
 - Menos chamadas de ferramentas falham por um deslize de argumento na primeira tentativa: a ferramenta git adiciona um `git` inicial ausente, read declara no esquema seu limite de 10 alvos, e um Goal cheio de tarefas concluídas diz como abrir espaço para novas. Os logs de falha agora registram os alvos de read e o tamanho total dos lotes de caminhos.
 
-- As requisições são cobradas na faixa com que realmente foram enviadas: requisições Fast e Priority usam suas tarifas publicadas, uma requisição Fast repetida como padrão é cobrada como padrão, e as variantes Cursor Fast são cobradas como seu modelo do catálogo. Alternar o Fast atualiza a linha de status imediatamente.
+- As solicitações são cobradas na faixa com que realmente foram enviadas: solicitações Fast e Priority usam suas tarifas publicadas, uma solicitação Fast repetida como padrão é cobrada como padrão, e as variantes Cursor Fast são cobradas como seu modelo do catálogo. Alternar o Fast atualiza a linha de status imediatamente.
 
 - As regras de validação de dados do Excel são verificadas antes de a pasta de trabalho ser criada, de modo que um tipo de regra desconhecido ou um limite ausente falha logo no início em ambos os backends. O brilho de atividade ao vivo é uma faixa mais curta e mais pálida, e os nomes dos resumos de ferramentas usam o peso médio.
 
 ## v0.9.175 - 2026-09-29
 
-- Os agentes Claude agora mantêm o cache da conversa por 5 minutos, em vez de uma hora. Quando a próxima requisição de um agente chega depois que esse cache expirou — após uma compilação ou teste longo, ou quando um agente concluído é retomado — ele primeiro compacta a conversa, de modo que a requisição reescreve a conversa compactada, e não tudo o que o agente havia acumulado. Em uma reprodução do uso recente de agentes Claude, isso reduziu o custo em tokens dos agentes em cerca de um quarto. As sessões Lead não mudam.
+- Os agentes Claude agora mantêm o cache da conversa por 5 minutos, em vez de uma hora. Quando a próxima solicitação de um agente chega depois que esse cache expirou — após uma compilação ou teste longo, ou quando um agente concluído é retomado — ele primeiro compacta a conversa, de modo que a solicitação reescreve a conversa compactada, e não tudo o que o agente havia acumulado. Em uma reprodução do uso recente de agentes Claude, isso reduziu o custo em tokens dos agentes em cerca de um quarto. As sessões Lead não mudam.
 
 - Muitas sessões rodando lado a lado não se atrapalham mais. As mensagens pendentes são mantidas por sessão, os resumos de sessão e o uso do gateway são acrescentados em vez de reescritos, as transcrições armazenadas são analisadas fora do loop principal, e um ciclo de memória com falha recua em vez de tentar de novo em um loop apertado. Quando o daemon encerra, ele registra o motivo. O host de sessões multiprocesso separado foi removido; as sessões rodam no próprio daemon.
 
 - O uso da assinatura registrado antes de uma troca de conta agora conta para a conta que estava em uso quando o registro começou. Grok, Claude e Cursor informam suas versões de cliente atuais em vez de fixas.
 
-- O app desktop não mostra mais uma sessão em branco quando o daemon entrega o conteúdo logo depois de responder à requisição de abertura. O script de inicialização do app empacotado é permitido pela política de segurança de conteúdo, e foram corrigidas as verificações da raiz do projeto, os erros de despacho do relay e a restauração de sessões do navegador.
+- O app desktop não mostra mais uma sessão em branco quando o daemon entrega o conteúdo logo depois de responder à solicitação de abertura. O script de inicialização do app empacotado é permitido pela política de segurança de conteúdo, e foram corrigidas as verificações da raiz do projeto, os erros de despacho do relay e a restauração de sessões do navegador.
 
 - Pastas de trabalho e documentos editados sem o Office: limpar uma célula vazia não exclui mais a célula seguinte, excluir um comentário encontra comentários com formatação de autor, partes vinculadas por caminhos absolutos são resolvidas, e texto que parece um padrão de substituição é inserido literalmente.
 
@@ -1093,7 +1093,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 ## v0.9.174 - 2026-09-29
 
-- A caixa de diálogo de uso agora responde a uma segunda pergunta: como a cota de uma assinatura foi consumida. Ao lado do uso de tokens, uma aba Uso da assinatura acompanha as janelas de limite de cada provedor — Codex, Claude, Grok, Cursor, Antigravity e OpenCode Go — conforme sobem e são redefinidas, com os modelos que moveram o medidor e o histórico das janelas anteriores. O Mixdog registra cada leitura de cota que mede; um aumento sem nenhuma requisição do Mixdog por trás aparece como uso externo ao Mixdog, como o app web do provedor. Um medidor de provedor no menu de uso abre diretamente a assinatura correspondente.
+- A caixa de diálogo de uso agora responde a uma segunda pergunta: como a cota de uma assinatura foi consumida. Ao lado do uso de tokens, uma aba Uso da assinatura acompanha as janelas de limite de cada provedor — Codex, Claude, Grok, Cursor, Antigravity e OpenCode Go — conforme sobem e são redefinidas, com os modelos que moveram o medidor e o histórico das janelas anteriores. O Mixdog registra cada leitura de cota que mede; um aumento sem nenhuma solicitação do Mixdog por trás aparece como uso externo ao Mixdog, como o app web do provedor. Um medidor de provedor no menu de uso abre diretamente a assinatura correspondente.
 
 - `/doctor` também funciona no app desktop, como uma caixa de diálogo (também em Configurações → Sistema → Doctor). Ele executa as mesmas verificações de integridade somente leitura do TUI, todas de uma vez, com um prazo por verificação para que uma travada não oculte as outras, e todo aviso ou falha diz como corrigir.
 
@@ -1135,7 +1135,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Saltar duas vezes no mesmo instante não perde mais o segundo salto. Dois pedidos de "ir para esta linha" dentro do mesmo milissegundo traziam o mesmo carimbo, e o editor lia só o carimbo, então o segundo era descartado e o cursor ficava na primeira linha.
 
-- Uma busca que falha não derruba mais todo o mecanismo de busca. O mecanismo já sabia responder a uma requisição ruim com um erro e continuar atendendo, mas o build distribuído era compilado de modo que qualquer falha matava o processo — perdendo todas as outras buscas em andamento e o índice de arquivos aquecido. Agora ele sobrevive, responde só àquela requisição com um erro e mantém seus caches. Se uma falha ocorrer enquanto os arquivos estão sendo coletados, os caminhos já coletados ainda são publicados, em vez de sumir silenciosamente da resposta.
+- Uma busca que falha não derruba mais todo o mecanismo de busca. O mecanismo já sabia responder a uma solicitação ruim com um erro e continuar atendendo, mas o build distribuído era compilado de modo que qualquer falha matava o processo — perdendo todas as outras buscas em andamento e o índice de arquivos aquecido. Agora ele sobrevive, responde só àquela solicitação com um erro e mantém seus caches. Se uma falha ocorrer enquanto os arquivos estão sendo coletados, os caminhos já coletados ainda são publicados, em vez de sumir silenciosamente da resposta.
 
 - Aplicar e Excluir em uma linha de provedor local ficam na mesma linha. Eles diferiam em dois pixels porque a linha misturava um campo mais alto com um botão mais baixo.
 
@@ -1153,23 +1153,23 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Uma mudança de rota no lado do cliente é respondida com a tela que ela produziu, não com a que quem chamou deixou. Apps de página única movem o endereço com `history.pushState` e renderizam a nova visualização um instante depois; nenhum documento é carregado, então a espera de estabilização viu uma página quieta e retornava de imediato — e um `expect.url` era satisfeito pelo novo endereço antes de qualquer coisa ser desenhada. Clicar em "Learn" em react.dev respondia com a página inicial sob o endereço `/learn`. Quando uma ação muda o endereço sem carregamento, a resposta agora espera a página se acalmar, e uma condição de URL não pode encurtar isso. Medido no harness com dispositivo real: as latências de navigate, click e snapshot não mudaram, pois só mudanças de rota no mesmo documento têm a espera extra.
 
-- O detalhe de um WebSocket mostra a requisição de upgrade que ele realmente enviou. Apenas o endereço e a resposta do handshake eram registrados, então `network` respondia com uma seção de cabeçalhos de requisição vazia — e um upgrade recusado costuma ser explicado por `Origin`, `Sec-WebSocket-Protocol` ou um cookie. As credenciais continuam ocultas.
+- O detalhe de um WebSocket mostra a solicitação de upgrade que ele realmente enviou. Apenas o endereço e a resposta do handshake eram registrados, então `network` respondia com uma seção de cabeçalhos de solicitação vazia — e um upgrade recusado costuma ser explicado por `Origin`, `Sec-WebSocket-Protocol` ou um cookie. As credenciais continuam ocultas.
 
 - Um clique que abre uma aba não é mais relatado como um clique que não fez nada. Um link `target="_blank"` deixa o documento atual intacto, então a resposta dizia "No observable change" e mandava procurar um elemento que o cobria — enquanto a página recém-aberta estava em `list_tabs` sem ser mencionada. A resposta agora cita a página que abriu e como agir sobre ela.
 
 - `drag` aceita alvos sem snapshot como toda outra ação de ponteiro. Suas duas pontas só aceitavam refs ou coordenadas brutas, e os elementos que uma página torna arrastáveis — cartões, linhas de lista, zonas de soltar — muitas vezes não têm nome acessível e, portanto, nenhuma ref, então mover um exigia ancorar antes um snapshot visual, mesmo quando o seletor CSS era conhecido. `target` e `dropTarget` agora nomeiam as duas pontas, resolvidas juntas em uma observação; refs e coordenadas funcionam como antes, e as duas pontas ainda precisam ser endereçadas do mesmo jeito.
 
-- Um arquivo salvo não é mais anunciado como requisição com falha. Um endereço que vira download cancela a própria navegação, e o Chromium informa esse cancelamento como `net::ERR_ABORTED`, então uma resposta que listava o download também o listava como falha de rede recente. As requisições canceladas — downloads, fetches que a página abandonou, navegações substituídas por outra — continuam legíveis por `network`, mas não são mais apontadas espontaneamente como falhas da página; uma requisição que realmente falhou continua sendo.
+- Um arquivo salvo não é mais anunciado como solicitação com falha. Um endereço que vira download cancela a própria navegação, e o Chromium informa esse cancelamento como `net::ERR_ABORTED`, então uma resposta que listava o download também o listava como falha de rede recente. As solicitações canceladas — downloads, fetches que a página abandonou, navegações substituídas por outra — continuam legíveis por `network`, mas não são mais apontadas espontaneamente como falhas da página; uma solicitação que realmente falhou continua sendo.
 
 - Uma resposta `brief` não transforma mais um campo preenchido em uma mudança em toda a página. Ela compara com a observação anterior de quem chamou, e quando essa observação foi limitada ou filtrada, nunca havia informado o resto da página — então todo elemento fora dela era listado como "changed or new". Preencher três caixas de um formulário respondia com quinze elementos, e digitar uma palavra de busca respondia com cento e quarenta e seis. A resposta agora separa o que a ação comprovadamente mudou do que a observação anterior simplesmente nunca cobriu, e diz quanto da página essa observação continha. Nada é omitido em nenhum dos casos.
 
-- Os cabeçalhos de requisição em `network` são os que realmente foram enviados. O Chromium informa primeiro um conjunto provisório e acrescenta idioma, codificação, client hints e cookies depois, então o detalhe de uma requisição podia mostrar dois cabeçalhos e parecer que a página nunca pediu conteúdo em coreano. O conjunto posterior é mesclado; as credenciais continuam sendo citadas e nunca exibidas. Os nomes de cabeçalhos não diferenciam maiúsculas de minúsculas e os dois relatos os grafam de modo diferente, então a mesclagem mantém uma entrada por cabeçalho — a grafia e o valor que foram para a rede — em vez de listar `User-Agent` e `user-agent` como se a requisição levasse os dois.
+- Os cabeçalhos de solicitação em `network` são os que realmente foram enviados. O Chromium informa primeiro um conjunto provisório e acrescenta idioma, codificação, client hints e cookies depois, então o detalhe de uma solicitação podia mostrar dois cabeçalhos e parecer que a página nunca pediu conteúdo em coreano. O conjunto posterior é mesclado; as credenciais continuam sendo citadas e nunca exibidas. Os nomes de cabeçalhos não diferenciam maiúsculas de minúsculas e os dois relatos os grafam de modo diferente, então a mesclagem mantém uma entrada por cabeçalho — a grafia e o valor que foram para a rede — em vez de listar `User-Agent` e `user-agent` como se a solicitação levasse os dois.
 
 - Os sites veem o Browser Use como o build do Chrome que os renderiza. A string de agente ainda trazia a versão do app desktop e o runtime do Electron, enquanto os client hints recebidos pelas mesmas páginas citavam só o Chromium; o GitHub respondeu a essa contradição com um muro de login em um repositório público. A partição do navegador agora apresenta a string simples do Chrome — uma impressão digital a menos e menos desvios por "navegador não compatível" — e um user agent emulado ainda prevalece quando uma tarefa pede um.
 
 - Páginas que não param de anexar frames voltam a poder ser observadas. Portais e primeiras páginas de notícias abrem espaços de anúncio e widgets em rajadas, e um snapshot iniciado no meio de uma rajada costumava desistir com "frame topology changed during observation" — de forma reproduzível, na primeira e na segunda tentativa. Observações não têm efeitos colaterais, então o coletor agora espera brevemente a rajada se acomodar e lê de novo, até um pequeno limite, em vez de entregar um erro a quem chamou por uma página que estava apenas ocupada. Quando uma leitura ainda falha, a resposta agora diz que a página está carregada e só a leitura dela falhou, de modo que o próximo passo é observar de novo, e não abandonar uma página que está bem.
 
-- Uma página informa apenas as próprias falhas. Requisições e erros de console do documento anterior permaneciam nos registros, então um snapshot de uma página saudável podia listar requisições abortadas do site visitado antes dela, e `console` em uma página limpa podia responder com os erros da página anterior — ambos mandando o leitor atrás de uma falha que não existia. Carregar um novo documento os limpa; navegar dentro do mesmo documento os mantém, pois nada foi recarregado.
+- Uma página informa apenas as próprias falhas. Requisições e erros de console do documento anterior permaneciam nos registros, então um snapshot de uma página saudável podia listar solicitações abortadas do site visitado antes dela, e `console` em uma página limpa podia responder com os erros da página anterior — ambos mandando o leitor atrás de uma falha que não existia. Carregar um novo documento os limpa; navegar dentro do mesmo documento os mantém, pois nada foi recarregado.
 
 - As disputas de exibição do Browser Use não são mais falhas. Uma captura que perde para uma navegação ou um redimensionamento de janela agora responde com um marcador de nova amostragem em vez de um erro, pois o painel sempre ia pedir de novo o que a página mostrasse em seguida. A navegação comum costumava encher o log do app com falhas de captura — dezessete em uma execução do harness, nenhuma agora — e um celular pareado relatava a mesma disputa como "could not connect to browser screen"; agora ele refaz a amostragem na cadência ativa e só relata uma exibição que realmente deixa de progredir.
 
@@ -1207,39 +1207,39 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 ## v0.9.170 - 2026-09-17
 
-- Consolidação do prompt do sistema. Cada regra agora tem um único dono: a camada compartilhada (`rules/shared/*.md`) é apenas política de ferramentas e abre com `# Tool Calls` (agrupamento primeiro; `05-parallel-calls.md`), o papel Lead é um arquivo (`rules/lead/LEAD.md`: comunicação com o usuário, briefing de agentes e notificações de conclusão atrás de `<!-- tools: agent -->`, tom), e o contrato comum dos agentes é um arquivo (`rules/agent/AGENT.md`: cadeia de comando, sem autoverificação, inglês, formato do handoff). `00-general.md`, `02-persona.md`, `lead-brief.md`, `00-core.md`, `00-common.md` e `75-goal.md` foram removidos — as frases que sobreviveram foram para o arquivo que as possui, e as frases que a descrição de uma ferramenta já declara (`load_tool`, `Skill`, `goal`, aprovação de `memory`, `task wait`, outline do `code_graph`, forma da chamada de read, roteamento do Git, roteamento de browser/computer) ficam declaradas somente ali. A precedência é por papel: a última solicitação explícita do usuário para o Lead, o último briefing do Lead para os agentes. A regra de preâmbulo do Lead agora traz seu motivo (o usuário vê apenas o seu texto) e pede uma linha, não uma contagem de palavras; a regra de briefing diz que um agente nunca vê a conversa, que as descobertas são sintetizadas em caminhos, linhas e na mudança exata (nunca "com base nas suas descobertas") e que o resultado de um agente nunca é previsto. As regras de ações destrutivas que estavam espalhadas por quatro seções ficam em uma única seção `# Destructive Actions`. Os arquivos de papel (`agents/*/AGENT.md`) abandonam as frases de bloqueio/handoff que o contrato possui; `maintainer` ganha frontmatter de nome e descrição. Estilos de saída: o título `## Depth` substitui `## Depth Variation`, e a redação do relatório de progresso fica apenas nas regras do Lead. O workflow Default não traz mais o parágrafo de fallback do revisor; ele acompanha o bloco do modo de orquestração que os modos delegantes injetam. Descrições de ferramentas: `edit` não aponta mais para `apply_patch` em superfícies que o filtraram, `shell` diz que o Git vai para `git` apenas quando essa ferramenta está presente, `read`/`grep` abandonam limites de bytes que o runtime informa de qualquer forma, `code_graph` declara que `symbols` é o outline. Provedores que entregam eles mesmos o lembrete de rodada (`anthropic-oauth` como mensagem de sistema com escopo de turno, `cursor` por seu relay) declaram `deliversRoundReminder` para que o canal do runtime fique em silêncio — as sessões do Cursor não recebem mais o lembrete de agrupamento duas vezes por rodada. A verificação de procedência do aviso de agrupamento normaliza separadores de caminho e aceita um diretório mostrado como prefixo de um caminho mais profundo no resultado anterior, de modo que uma chamada seguinte sobre um caminho que o último resultado revelou não parece mais uma chamada única sem relação (dois falsos positivos por sessão antes). O esquema de rota de `setup` declara `contextPercent` como inteiro limitado (o executor ainda exige um múltiplo de 10) para que o Gemini deixe de receber um placeholder de enum irrepresentável. As expectativas de testes obsoletas deixadas pelo commit de agrupamento foram atualizadas, e dois testes dependentes de tempo/ambiente foram tornados determinísticos. A habilidade de projeto `gamerscroll-article` tem escopo restrito ao seu projeto.
+- Consolidação do prompt do sistema. Cada regra agora tem um único dono: a camada compartilhada (`rules/shared/*.md`) é apenas política de ferramentas e abre com `# Tool Calls` (agrupamento primeiro; `05-parallel-calls.md`), o papel Lead é um arquivo (`rules/lead/LEAD.md`: comunicação com o usuário, briefing de agentes e notificações de conclusão atrás de `<!-- tools: agent -->`, tom), e o contrato comum dos agentes é um arquivo (`rules/agent/AGENT.md`: cadeia de comando, sem autoverificação, inglês, formato do handoff). `00-general.md`, `02-persona.md`, `lead-brief.md`, `00-core.md`, `00-common.md` e `75-goal.md` foram removidos — as frases que sobreviveram foram para o arquivo que as possui, e as frases que a descrição de uma ferramenta já declara (`load_tool`, `Skill`, `goal`, aprovação de `memory`, `task wait`, outline do `code_graph`, forma da chamada de read, roteamento do Git, roteamento de browser/computer) ficam declaradas somente ali. A precedência é por papel: a última solicitação explícita do usuário para o Lead, o último briefing do Lead para os agentes. A regra de preâmbulo do Lead agora traz seu motivo (o usuário vê apenas o seu texto) e pede uma linha, não uma contagem de palavras; a regra de briefing diz que um agente nunca vê a conversa, que as descobertas são sintetizadas em caminhos, linhas e na mudança exata (nunca "com base nas suas descobertas") e que o resultado de um agente nunca é previsto. As regras de ações destrutivas que estavam espalhadas por quatro seções ficam em uma única seção `# Destructive Actions`. Os arquivos de papel (`agents/*/AGENT.md`) abandonam as frases de bloqueio/handoff que o contrato possui; `maintainer` ganha frontmatter de nome e descrição. Estilos de saída: o título `## Depth` substitui `## Depth Variation`, e a redação do relatório de progresso fica apenas nas regras do Lead. O workflow Default não traz mais o parágrafo de fallback do revisor; ele acompanha o bloco do modo de orquestração que os modos delegantes injetam. Descrições de ferramentas: `edit` não aponta mais para `apply_patch` em superfícies que o filtraram, `shell` diz que o Git vai para `git` apenas quando essa ferramenta está presente, `read`/`grep` abandonam limites de bytes que o runtime informa de qualquer forma, `code_graph` declara que `symbols` é o outline. Provedores que entregam eles mesmos o lembrete de rodada (`anthropic-oauth` como mensagem de sistema com escopo de turno, `cursor` por seu relay) declaram `deliversRoundReminder` para que o canal do runtime fique em silêncio — as sessões do Cursor não recebem mais o lembrete de agrupamento duas vezes por rodada. A verificação de procedência do aviso de agrupamento normaliza separadores de caminho e aceita um diretório mostrado como prefixo de um caminho mais profundo no resultado anterior, de modo que uma chamada seguinte sobre um caminho que o último resultado revelou não parece mais uma chamada única sem relação (dois falsos positivos por sessão antes). O esquema de rota de `setup` declara `contextPercent` como inteiro limitado (o executor ainda exige um múltiplo de 10) para que o Gemini deixe de receber um placeholder de enum irrepresentável. As expectativas de testes obsoletas deixadas pelo commit de agrupamento foram atualizadas, e dois testes dependentes de tempo/ambiente foram tornados determinísticos. A skill de projeto `gamerscroll-article` tem escopo restrito ao seu projeto.
 - As releases do GitHub agora trazem como notas a seção do CHANGELOG.md da versão, seguida do link de comparação; o rascunho antes dependia das notas geradas pelo GitHub, que listam apenas PRs mesclados e deixavam a página com um link `Full Changelog` solto porque o Deploy faz commit direto na main.
-- Agrupamento de ferramentas: após três rodadas de chamada única da mesma ferramenta em sequência cujas chamadas não dependiam umas das outras (nenhum argumento tirado do resultado anterior, nenhum passo ordenado depois de uma mutação; uma ferramenta diferente reinicia a sequência, então read → shell → apply_patch nunca é reportado; esperas de task, Computer Use, passos de browser e carregamentos de esquema/habilidade nunca contam), ou uma rodada de chamadas da mesma ferramenta que diferem apenas em um campo de array, o runtime acrescenta um breve `<system-reminder>` citando os argumentos de array da superfície de ferramentas da sessão; ele se repete sempre que o padrão reaparece e apenas uma rodada agrupada o limpa (registrado como `batching_nudge`). Um `read` de arquivo único logo após uma rodada de grep/code_graph/glob/find que localizou vários arquivos recebe de volta o conjunto localizado na forma que uma chamada `read` aceita (`[{file_path, offset, limit}, …]`; um read por arquivo na mesma resposta em provedores cujo esquema de read aceita apenas strings de caminho), registrado como `located_sites`: uma sessão registrada do Gemini 3.8 Flash localizou arquivos com grep 13 vezes e ainda os leu uma janela por vez (63 leituras, 20 de 28 arquivos lidos duas vezes ou mais). As descrições de `read` e `grep` agora dizem o que é o lote — todo arquivo e intervalo que você vai tocar, antes de editar, em uma só chamada — e o rodapé da leitura em janelas pede uma leitura mais ampla em vez da próxima janela. As regras compartilhadas agora declaram a ordem de trabalho em arquivos uma única vez (`# Tool Calls`: enumerar só quando o escopo é desconhecido → localizar todos os pontos → um estágio de leitura de janelas `{file_path, offset, limit}`, ≤10 por chamada → todas as edições em uma resposta → uma verificação) e eliminam as frases que antes diziam partes disso em três lugares; as descrições de `read`, `grep`, `edit`, `apply_patch` e `code_graph` encolhem para esse contrato (code_graph de ~150 para ~90 palavras), e o marcador de limite inteligente de uma leitura em janelas cita a forma de janelas localizadas; uma nova passada apara a prosa de parâmetros que repetia as regras ou detalhes internos (`Skill`, `find`, `cwd`, `git`, `code_graph.mode`, `grep.path`/`text`, `include_noise`, o guia rápido de PowerShell do shell e `timeout_ms`) — a superfície de ferramentas do Lead cai de 13.4 KB para 12.7 KB. Execuções de oito tarefas com o GPT-5.6 antes e depois permanecem em 8/8 com o mesmo envelope de rodadas, tempo e custo; a única regressão encontrada no caminho (uma rodada de backup para entradas somente leitura e levantamentos de `git log` depois que duas cláusulas de proteção foram cortadas) foi restaurada. A regra de backup agora diz para onde vai a cópia — na mesma resposta da primeira inspeção, nunca em uma rodada própria — porque "dentro da primeira chamada de inspeção" fazia o GPT-5.6 abrir 2.8 rodadas só de backup por execução de oito tarefas quando a primeira inspeção era uma chamada `read` ou `git`; com a redação corrigida, não abriu nenhuma e agrupou todo backup com essa inspeção. O lembrete serial não trata mais um array dentro de uma única chamada como um lote: uma revisão registrada do Gemini 3.8 Flash executou quinze rodadas de uma chamada, alternando chamadas `git` de um e de dois comandos, e nunca o recebeu porque toda rodada com array zerava a sequência. A verificação de procedência também lembra seis rodadas em vez de duas, de modo que uma lista de arquivos de `git diff --name-only` percorrida um item por rodada não faz mais cada item passar por algo que o diff anterior revelou. Mais dois lembretes do runtime: `late_locating` (uma busca depois de uma leitura que não tirou nada dela) e `located_sites` entregando uma janela por ponto localizado — incluindo as linhas `(Lstart-end)` do code_graph — divididas em várias chamadas read acima de dez. Os arquivos de política de rota (`rules/routes/*.md`) agora também declaram um `turn-reminder:` de uma linha (lido uma vez no bloco `<system-reminder>` final do turno do usuário, antes da primeira resposta do turno) e um `round-reminder:` de uma linha ao lado de suas regras estáticas; o loop do agente resolve este último por provedor/modelo e ele chega ao modelo depois de cada rodada de ferramentas — como mensagem de sistema com escopo de turno da Anthropic (`clear_at: next_user_message`) no `anthropic-oauth`, o padrão que a Anthropic documenta para o Claude Fable 5.1, ou como `<system-reminder>` do runtime após rodadas de chamada única nos demais (`per_round`). O lembrete do Fable 5.1 sai de uma constante de provedor fixa no código para os arquivos de rota; históricos gravados sob a frase anterior a reproduzem byte a byte. Um arquivo, `routes/common.md`, carrega os lembretes de agrupamento de todas as rotas (um arquivo sem restrição é a base; um arquivo que cita `models:` ou `providers:` acrescenta a essa linha para suas rotas em vez de substituí-la) — o Gemini vai de uma chamada por rodada assim que chegam os resultados das ferramentas, o Grok agrupa chamadas mas nunca usou argumentos de array: seus esquemas de ferramentas achatados mantinham só o ramo escalar de todo campo de um-ou-muitos (`read.file_path`, `grep.pattern`, `git.command`, …). O achatamento do Grok agora mantém o ramo de array desses campos (um valor viaja como array de um elemento) e diz isso na descrição do campo, de modo que o contrato de agrupamento vale também nesse provedor. As regras compartilhadas ganham uma seção `# Parallel Tool Calls` que declara o contrato com clareza (sessões registradas do Gemini 3.8 Flash emitiram uma chamada por rodada em 105/105 rodadas; com a seção no lugar, uma execução headless agrupou quatro arquivos e git em uma resposta). As regras vinculadas a provedor/modelo são carregadas de `rules/routes/*.md` por meio do frontmatter `providers:` / `models:` e renderizadas depois das regras compartilhadas em BP1. `MIXDOG_ANTIGRAVITY_DUMP_DIR=<dir>` grava todo corpo de requisição do Antigravity (conteúdo, ferramentas, config; nunca cabeçalhos nem tokens) para inspeção do protocolo, o equivalente Gemini de `MIXDOG_OAI_WS_DUMP_DIR`; `mixdog exec` também repassa `MIXDOG_XAI_CACHE_TRACE` e `MIXDOG_XAI_RESPONSES_CACHE_SCOPE` para sondagens de cache da xAI.
-- As requisições Responses da xAI não enviam mais um `prompt_cache_key` por sessão por padrão (`MIXDOG_XAI_RESPONSES_CACHE_SCOPE` agora tem `none` como padrão, o corpo literal do Grok Build): a chave de sessão dividia o cache do serviço em faixas e media duas rodadas frias por execução contra uma, e nenhum reaproveitamento de prefixo entre sessões. `session` e `prefix` continuam selecionáveis. `MIXDOG_ANTIGRAVITY_FC_MODE=AUTO|ANY|VALIDATED` substitui o modo de chamada de funções do Antigravity em execuções de A/B, e `benchmarks/terminal-bench-2.1/analysis/tool-batching-by-model.mjs` informa as taxas de múltiplas chamadas e de argumentos de array por modelo a partir de `agent-trace.jsonl`.
+- Agrupamento de ferramentas: após três rodadas de chamada única da mesma ferramenta em sequência cujas chamadas não dependiam umas das outras (nenhum argumento tirado do resultado anterior, nenhum passo ordenado depois de uma mutação; uma ferramenta diferente reinicia a sequência, então read → shell → apply_patch nunca é reportado; esperas de task, Computer Use, passos de browser e carregamentos de esquema/skill nunca contam), ou uma rodada de chamadas da mesma ferramenta que diferem apenas em um campo de array, o runtime acrescenta um breve `<system-reminder>` citando os argumentos de array da superfície de ferramentas da sessão; ele se repete sempre que o padrão reaparece e apenas uma rodada agrupada o limpa (registrado como `batching_nudge`). Um `read` de arquivo único logo após uma rodada de grep/code_graph/glob/find que localizou vários arquivos recebe de volta o conjunto localizado na forma que uma chamada `read` aceita (`[{file_path, offset, limit}, …]`; um read por arquivo na mesma resposta em provedores cujo esquema de read aceita apenas strings de caminho), registrado como `located_sites`: uma sessão registrada do Gemini 3.8 Flash localizou arquivos com grep 13 vezes e ainda os leu uma janela por vez (63 leituras, 20 de 28 arquivos lidos duas vezes ou mais). As descrições de `read` e `grep` agora dizem o que é o lote — todo arquivo e intervalo que você vai tocar, antes de editar, em uma só chamada — e o rodapé da leitura em janelas pede uma leitura mais ampla em vez da próxima janela. As regras compartilhadas agora declaram a ordem de trabalho em arquivos uma única vez (`# Tool Calls`: enumerar só quando o escopo é desconhecido → localizar todos os pontos → um estágio de leitura de janelas `{file_path, offset, limit}`, ≤10 por chamada → todas as edições em uma resposta → uma verificação) e eliminam as frases que antes diziam partes disso em três lugares; as descrições de `read`, `grep`, `edit`, `apply_patch` e `code_graph` encolhem para esse contrato (code_graph de ~150 para ~90 palavras), e o marcador de limite inteligente de uma leitura em janelas cita a forma de janelas localizadas; uma nova passada apara a prosa de parâmetros que repetia as regras ou detalhes internos (`Skill`, `find`, `cwd`, `git`, `code_graph.mode`, `grep.path`/`text`, `include_noise`, o guia rápido de PowerShell do shell e `timeout_ms`) — a superfície de ferramentas do Lead cai de 13.4 KB para 12.7 KB. Execuções de oito tarefas com o GPT-5.6 antes e depois permanecem em 8/8 com o mesmo envelope de rodadas, tempo e custo; a única regressão encontrada no caminho (uma rodada de backup para entradas somente leitura e levantamentos de `git log` depois que duas cláusulas de proteção foram cortadas) foi restaurada. A regra de backup agora diz para onde vai a cópia — na mesma resposta da primeira inspeção, nunca em uma rodada própria — porque "dentro da primeira chamada de inspeção" fazia o GPT-5.6 abrir 2.8 rodadas só de backup por execução de oito tarefas quando a primeira inspeção era uma chamada `read` ou `git`; com a redação corrigida, não abriu nenhuma e agrupou todo backup com essa inspeção. O lembrete serial não trata mais um array dentro de uma única chamada como um lote: uma revisão registrada do Gemini 3.8 Flash executou quinze rodadas de uma chamada, alternando chamadas `git` de um e de dois comandos, e nunca o recebeu porque toda rodada com array zerava a sequência. A verificação de procedência também lembra seis rodadas em vez de duas, de modo que uma lista de arquivos de `git diff --name-only` percorrida um item por rodada não faz mais cada item passar por algo que o diff anterior revelou. Mais dois lembretes do runtime: `late_locating` (uma busca depois de uma leitura que não tirou nada dela) e `located_sites` entregando uma janela por ponto localizado — incluindo as linhas `(Lstart-end)` do code_graph — divididas em várias chamadas read acima de dez. Os arquivos de política de rota (`rules/routes/*.md`) agora também declaram um `turn-reminder:` de uma linha (lido uma vez no bloco `<system-reminder>` final do turno do usuário, antes da primeira resposta do turno) e um `round-reminder:` de uma linha ao lado de suas regras estáticas; o loop do agente resolve este último por provedor/modelo e ele chega ao modelo depois de cada rodada de ferramentas — como mensagem de sistema com escopo de turno da Anthropic (`clear_at: next_user_message`) no `anthropic-oauth`, o padrão que a Anthropic documenta para o Claude Fable 5.1, ou como `<system-reminder>` do runtime após rodadas de chamada única nos demais (`per_round`). O lembrete do Fable 5.1 sai de uma constante de provedor fixa no código para os arquivos de rota; históricos gravados sob a frase anterior a reproduzem byte a byte. Um arquivo, `routes/common.md`, carrega os lembretes de agrupamento de todas as rotas (um arquivo sem restrição é a base; um arquivo que cita `models:` ou `providers:` acrescenta a essa linha para suas rotas em vez de substituí-la) — o Gemini vai de uma chamada por rodada assim que chegam os resultados das ferramentas, o Grok agrupa chamadas mas nunca usou argumentos de array: seus esquemas de ferramentas achatados mantinham só o ramo escalar de todo campo de um-ou-muitos (`read.file_path`, `grep.pattern`, `git.command`, …). O achatamento do Grok agora mantém o ramo de array desses campos (um valor viaja como array de um elemento) e diz isso na descrição do campo, de modo que o contrato de agrupamento vale também nesse provedor. As regras compartilhadas ganham uma seção `# Parallel Tool Calls` que declara o contrato com clareza (sessões registradas do Gemini 3.8 Flash emitiram uma chamada por rodada em 105/105 rodadas; com a seção no lugar, uma execução headless agrupou quatro arquivos e git em uma resposta). As regras vinculadas a provedor/modelo são carregadas de `rules/routes/*.md` por meio do frontmatter `providers:` / `models:` e renderizadas depois das regras compartilhadas em BP1. `MIXDOG_ANTIGRAVITY_DUMP_DIR=<dir>` grava todo corpo de solicitação do Antigravity (conteúdo, ferramentas, config; nunca cabeçalhos nem tokens) para inspeção do protocolo, o equivalente Gemini de `MIXDOG_OAI_WS_DUMP_DIR`; `mixdog exec` também repassa `MIXDOG_XAI_CACHE_TRACE` e `MIXDOG_XAI_RESPONSES_CACHE_SCOPE` para sondagens de cache da xAI.
+- As solicitações Responses da xAI não enviam mais um `prompt_cache_key` por sessão por padrão (`MIXDOG_XAI_RESPONSES_CACHE_SCOPE` agora tem `none` como padrão, o corpo literal do Grok Build): a chave de sessão dividia o cache do serviço em faixas e media duas rodadas frias por execução contra uma, e nenhum reaproveitamento de prefixo entre sessões. `session` e `prefix` continuam selecionáveis. `MIXDOG_ANTIGRAVITY_FC_MODE=AUTO|ANY|VALIDATED` substitui o modo de chamada de funções do Antigravity em execuções de A/B, e `benchmarks/terminal-bench-2.1/analysis/tool-batching-by-model.mjs` informa as taxas de múltiplas chamadas e de argumentos de array por modelo a partir de `agent-trace.jsonl`.
 - `mixdog exec` vincula a conta OAuth selecionada no pool de contas de provedores do host (a credencial que o login grava hoje), recorrendo ao único arquivo de credencial legado; antes só o arquivo legado ou um `*_CREDENTIALS_PATH` explícito era aceito, então hosts apenas com pool falhavam com "credentials are unavailable". `mixdog exec` também não fica mais 2–4 minutos além da resposta antes de emitir `result`: a remoção da raiz limpa repetia tentativas no Windows por todo o orçamento do rmSync (50 tentativas lineares ≈ 128s, duas vezes quando o caminho do postmaster a reexecutava) enquanto o handle SQLite do ledger de uso e o `pg.log` de um daemon de memória em encerramento ainda estavam abertos. O ledger é fechado antes da remoção e o exec passa um orçamento de 10 tentativas (≈5.5s) (`cleanup({ rootRemovalRetries })`); uma raiz retardatária é deixada para a varredura periódica de órfãos em vez de para quem chamou.
 
 ## v0.9.169 - 2026-09-16
 
 - Code Tidy: Instalar agora baixa os mecanismos principais (Biome, ruff, shfmt, shellcheck, PSScriptAnalyzer) com progresso, e o cartão integrado lista cada mecanismo com sua versão, linguagem, origem e tamanho; mecanismos descobertos depois por um projeto aparecem na mesma lista. Os mecanismos ausentes na hora do tidy são baixados automaticamente por padrão (`tidy.downloads` ainda respeita `ask` e `never`). O PSScriptAnalyzer é um download gerenciado, verificado por sha256, da PowerShell Gallery, em vez de um módulo apenas do host, e o C# ganha um runner de dotnet-format de verdade. Correções: os cabeçalhos de diff do rustfmt 1.9 e os caminhos `\\?\` são interpretados, relatórios grandes do Biome não colapsam mais para zero achados quando a saída vem em blocos, a possibilidade de correção é classificada por meio de `biome explain`, e a regra de comentários de histórico só remove comentários inteiramente de histórico e nunca passa do comentário (ela podia apagar a instrução seguinte).
-- As linhas da barra lateral compartilham uma etiqueta de status ao lado do título em integrados, plugins, habilidades, servidores MCP, agendamentos, webhooks e agentes: nada quando ativado; do contrário `Not used` (Não utilizado), `Not installed` (Não instalado), `Installing… N%` (Instalando… N%), `Failed` (Falhou) ou `Not connected` (Não conectado). Agentes desativados mantêm a linha de modelo.
+- As linhas da barra lateral compartilham uma etiqueta de status ao lado do título em integrados, plugins, skills, servidores MCP, agendamentos, webhooks e agentes: nada quando ativado; do contrário `Not used` (Não utilizado), `Not installed` (Não instalado), `Installing… N%` (Instalando… N%), `Failed` (Falhou) ou `Not connected` (Não conectado). Agentes desativados mantêm a linha de modelo.
 - O FastDirect se recusa a reempacotar ou instalar um `app.asar` cujo fechamento de dependências de produção está incompleto e recorre a um build completo, de modo que um atualizador quebrado (`Cannot find module 'graceful-fs'`) não é mais herdado por toda atualização incremental.
 - Workers de agentes que foram coletados não são mais ressuscitados por varreduras de sessão nem pela lista de agentes do desktop; sessões concluídas e registradas de novo mantêm o horário real de término, de modo que as concessões expiram em vez de reiniciar a cada hora.
 - Os modos de orquestração `none`, `focused`, `balanced` e `swarm` substituem o workflow Solo e são escolhidos por sessão; as configurações estão localizadas.
 - Desktop: links de caminhos locais em markdown abrem no editor, e o editor abre arquivos fora do projeto.
 - O Browser Use serializa os snapshots por página e reforça os caminhos de estabilização e captura.
 - Computer Use: um renderer de overlay congelado é aposentado e substituído, o estado de recuperação de entrada sobrevive à troca, e as fixtures do overlay não saem mais cedo em uma máquina de tela única.
-- Shell: os hosts PowerShell não bloqueiam mais `grep`, `sed` e `awk` no preflight; a descrição da ferramenta roteia o trabalho para as ferramentas dedicadas. Regras, habilidades, README e o novo `docs/context-efficiency.md` foram atualizados.
+- Shell: os hosts PowerShell não bloqueiam mais `grep`, `sed` e `awk` no preflight; a descrição da ferramenta roteia o trabalho para as ferramentas dedicadas. Regras, skills, README e o novo `docs/context-efficiency.md` foram atualizados.
 - O repositório é formatado com Biome 2.5.13 (`biome.json` fixa o estilo existente), rustfmt, dotnet-format e PSScriptAnalyzer; imports não usados, helpers mortos e exports usados apenas no próprio arquivo foram removidos.
 
 ## v0.9.168 - 2026-09-16
 
-- Fechar uma sessão do Computer Use sempre envia sua própria requisição de liberação. A liberação especulativa do temporizador de inatividade costumava ser herdada enquanto ainda estava em andamento, de modo que uma liberação antecipada recusada podia deixar o worker e as reservas de janela da sessão que estava fechando presos até o app reiniciar.
+- Fechar uma sessão do Computer Use sempre envia sua própria solicitação de liberação. A liberação especulativa do temporizador de inatividade costumava ser herdada enquanto ainda estava em andamento, de modo que uma liberação antecipada recusada podia deixar o worker e as reservas de janela da sessão que estava fechando presos até o app reiniciar.
 
-- Overlay do Computer Use: dois controles, Parar e Retomar. O botão de pausa foi removido (tocar na área de trabalho já passa o controle ao usuário); a pílula agora mostra por que um controle não está disponível ou por que uma requisição falhou, em vez de reagir em silêncio. Parar recupera uma falha de limpeza travada assim que todos os workers de entrada saíram, de modo que o host não precisa mais reiniciar o app, e a confirmação de saída do worker espera até 5 segundos em vez de 1.
+- Overlay do Computer Use: dois controles, Parar e Retomar. O botão de pausa foi removido (tocar na área de trabalho já passa o controle ao usuário); a pílula agora mostra por que um controle não está disponível ou por que uma solicitação falhou, em vez de reagir em silêncio. Parar recupera uma falha de limpeza travada assim que todos os workers de entrada saíram, de modo que o host não precisa mais reiniciar o app, e a confirmação de saída do worker espera até 5 segundos em vez de 1.
 - O Computer Use captura uma janela a partir da própria superfície renderizada, em vez de copiar a área de trabalho, com um orçamento de captura limitado; uma liberação de recurso não confirmada aposenta aquele worker. Teclado e digitação em segundo plano são verificados antes de qualquer entrada ser enviada, de modo que uma rota não compatível não faz nada. Um novo comando espera até que a liberação da sessão anterior seja confirmada. Parar também espera o cancelamento do turno do agente, independentemente da limpeza de entrada nativa.
 - As esperas do Browser Use respeitam o cancelamento e se recusam a misturar uma URL com texto de um documento posterior; uma restauração falha de captura de tela da página inteira é terminal. Os seletores CSS mantêm espaços internos, recusam conjuntos de correspondências grandes demais e endereçam cada correspondência de modo único. Downloads simultâneos compartilham um total de bytes por sessão; os pedidos de aprovação descrevem ações e endereços, nunca valores de formulários.
-- O Code Tidy é um recurso integrado instalável, como o Office: Configurações → Integrado o instala e o ativa ou desativa, e a habilidade `code-tidy` conduz a ferramenta `tidy`. A varredura detecta as linguagens de um projeto e resolve cada formatador ou linter a partir da configuração do projeto, depois dos binários locais do projeto, do PATH ou de um download gerenciado verificado por sha256 (ask, auto ou never). Ele executa Biome, ruff, clang-format, shfmt, shellcheck, StyLua, gofumpt, dprint, Air e Mago, além de rustfmt, gofmt e PSScriptAnalyzer da toolchain, e aplica pacotes estruturais (remoção de comentários de histórico, `debugger`, catch vazio, marcadores TODO) em 31 linguagens. `fix` é uma simulação, a menos que apply esteja definido, e as gravações passam pelo mesmo pipeline das outras edições. As licenças dos mecanismos acompanham a ferramenta.
+- O Code Tidy é um recurso integrado instalável, como o Office: Configurações → Integrado o instala e o ativa ou desativa, e a skill `code-tidy` conduz a ferramenta `tidy`. A varredura detecta as linguagens de um projeto e resolve cada formatador ou linter a partir da configuração do projeto, depois dos binários locais do projeto, do PATH ou de um download gerenciado verificado por sha256 (ask, auto ou never). Ele executa Biome, ruff, clang-format, shfmt, shellcheck, StyLua, gofumpt, dprint, Air e Mago, além de rustfmt, gofmt e PSScriptAnalyzer da toolchain, e aplica pacotes estruturais (remoção de comentários de histórico, `debugger`, catch vazio, marcadores TODO) em 31 linguagens. `fix` é uma simulação, a menos que apply esteja definido, e as gravações passam pelo mesmo pipeline das outras edições. As licenças dos mecanismos acompanham a ferramenta.
 - Os chamadores e chamados de `code_graph` vêm de pontos de chamada analisados, e não de busca por texto; referências em forma de chamada também usam esses pontos. Um binário de grafo mais antigo que não consegue emiti-los falha com uma indicação de reconstrução em vez de uma resposta vazia. As linhas do outline usam um único vocabulário de tipos, marcam exports, mostram assinaturas e aninham membros sob o pai. `find_symbol` prefere um arquivo de implementação a um `.d.ts` acompanhante e informa quando a declaração está fora dos arquivos solicitados. Os tokens de identificadores vêm da árvore de análise, de modo que um nome que aparece apenas em um comentário não conta mais como referência. Solidity, Haskell e HCL entram no conjunto de extração com arestas de import (24 linguagens de extração, 31 analisadas). Os dados de pontos de chamada ficam em um cache auxiliar para que o cache principal do grafo mantenha o mesmo tamanho.
 - O binário nativo do grafo incorpora tree-sitter 0.27 e ast-grep 0.45.3, adiciona os modos `--scan`, `--langs` e `--outline` e extrai símbolos, imports e tokens de identificadores a partir de regras YAML.
 - O outline de fallback do grafo no editor do desktop interpreta as novas linhas de símbolos em um outline aninhado com ícones de tipo.
 - As perguntas de estrutura (exports, assinaturas, membros, chamadores, importadores) vão para `code_graph` antes de `read` ou `grep`; a redação de paralelismo do fluxo de ferramentas virou uma só regra.
 - A manutenção da memória não promove mais resumos de conversa a instruções permanentes: não há um terceiro ciclo. O ciclo 2 revisa o histórico de busca em busca de duplicatas e linhagem sem reescrever resumos. A memória permanente continua curada pelo usuário por meio de `memory`; `recall` pesquisa todo o histórico por padrão, inclusive linhas arquivadas anteriormente.
-- O uso do Antigravity Gemini mostra as janelas compartilhadas de 5 horas e semanais do resumo de cota da conta, e não contadores de catálogo por modelo, e as requisições usam o canal diário sem failover automático de host.
+- O uso do Antigravity Gemini mostra as janelas compartilhadas de 5 horas e semanais do resumo de cota da conta, e não contadores de catálogo por modelo, e as solicitações usam o canal diário sem failover automático de host.
 - O painel Agentes expande apenas as linhas que você abre, mostra a contagem de descendentes no lead e diz "Waiting for agents" enquanto os descendentes ainda trabalham, em vez de tratar o pai como ocioso ou concluído.
 - O campo de redação oferece uma pequena paleta de comandos com barra para os comandos frequentes (`/new`, `/model`, `/compact`, `/context`, `/goal`, `/inherit`, `/fast`); o registro completo continua funcionando quando digitado diretamente.
 - As menções de arquivos na conversa permanecem texto simples até o caminho ser confirmado no Projeto dono; pastas e documentos ainda abrem no sistema operacional, e as aberturas do editor passam um token de acesso.
@@ -1269,10 +1269,10 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 ## v0.9.164 - 2026-09-14
 
 - Compactar as regras compartilhadas e do Lead e as descrições das ferramentas integradas para o mesmo comportamento com menos tokens; a descrição de `shell` mantém apenas seu papel, a fronteira com as ferramentas dedicadas de arquivos/busca/Git e o contrato de tarefas em segundo plano.
-- As execuções headless (`mixdog exec`) declaram que nenhum usuário intervém no meio da execução: a requisição é tratada como aprovada e levada até o fim antes de relatar, em vez de parar para fazer uma pergunta que ninguém pode responder.
+- As execuções headless (`mixdog exec`) declaram que nenhum usuário intervém no meio da execução: a solicitação é tratada como aprovada e levada até o fim antes de relatar, em vez de parar para fazer uma pergunta que ninguém pode responder.
 - `apply_patch` digitado no shell não é mais redirecionado ao mecanismo de patch; o modelo chama `apply_patch`/`edit` diretamente.
 - Um Goal interrompido se aposenta como um concluído: o próximo prompt do usuário o arquiva, e confirmar uma interrupção o arquiva de imediato.
-- As estatísticas de uso atribuem tokens e custo medidos por requisição no ledger, e o explorador de uso do desktop mostra a divisão resultante.
+- As estatísticas de uso atribuem tokens e custo medidos por solicitação no ledger, e o explorador de uso do desktop mostra a divisão resultante.
 - Correções no protocolo do provedor Cursor.
 
 ## v0.9.163 - 2026-09-10
@@ -1298,11 +1298,11 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - O `capture` do Computer Use abandona os parâmetros `quality`, `maxWidth` e `max_ocr_words`: valem os padrões ajustados do host (qualidade JPEG, largura de redução e um limite de palavras de OCR que o orçamento de elementos já limita), e um detalhe ilegível é um `zoom`, e não uma nova codificação. Os filtros de elementos (`query`, `role`, `visible_only`, `include_noninteractive`, `continuation`) e a geometria de movimento de `window` agora dizem o que fazem, em vez de viajar no esquema sem explicação.
 
-- O Browser Use e o Computer Use declaram seu degrau na escada de ferramentas onde o modelo decide. A descrição de `browser` abre com "last resort: prefer web_fetch, an MCP tool, or a CLI in shell", `computer` com "last resort after an MCP tool, shell/CLI, and Browser Use; never a stand-in for a page action browser refused", e as regras compartilhadas e as duas habilidades trazem a mesma escada, de modo que um serviço que tem API ou CLI é alcançado por ela, e não por uma tela. Nenhuma descrição cresceu: a escada substituiu redação que as habilidades já possuíam.
+- O Browser Use e o Computer Use declaram seu degrau na escada de ferramentas onde o modelo decide. A descrição de `browser` abre com "last resort: prefer web_fetch, an MCP tool, or a CLI in shell", `computer` com "last resort after an MCP tool, shell/CLI, and Browser Use; never a stand-in for a page action browser refused", e as regras compartilhadas e as duas skills trazem a mesma escada, de modo que um serviço que tem API ou CLI é alcançado por ela, e não por uma tela. Nenhuma descrição cresceu: a escada substituiu redação que as skills já possuíam.
 
 - O Browser Use passa a ser duas ferramentas. `browser` mantém o trabalho cotidiano com páginas — navigate, snapshot, read, click, fill, formulários, diálogos, abas, downloads, leituras de console e de rede — enquanto os controles de desenvolvedor `emulate`, `cookies`, `storage`, `intercept`, `init_script` e `performance` passam para a ferramenta adiada `browser_devtools`, que conduz as mesmas páginas e logins e carrega seu esquema na primeira chamada. O esquema cotidiano abandona os 33 campos que só essas ações usavam (atributos de cookie, geolocalização, limitação de CPU, corpos de interceptação, opções de trace), as notas de campo de cada ferramenta citam apenas as próprias ações, e uma chamada que chega à ferramenta errada é recusada com a indicação da ferramenta a chamar. O host, seu registro de ações, a política de aprovação e o harness de integração mantêm o contrato único e compartilhado de ações.
 
-- Os esquemas das ferramentas integradas declaram apenas contratos. As descrições e notas de campo das ferramentas `office`, `computer`, `media` e `setup` abandonam as frases de método e política que suas habilidades já possuem — agrupamento, quando fazer snapshot ou `describe`, corrigir uma auditoria no mesmo turno, reutilização de `design.content`, tratamento de macros, não reorganizar, conteúdo da tela nunca autorizar uma ação, polling de vídeo, o procedimento de aprovação de exclusão — o que remove cerca de 2.2 KB (office −878 B, computer −492 B, media −432 B, setup −424 B) da superfície de ferramentas enviada a cada turno. As habilidades pptx, xlsx e pdf agora carregam as regras que viviam apenas no esquema (um lote de operações conhecidas, `describe` só para um campo desconhecido, conteúdo de documento não confiável), e a habilidade computer-use declara o contrato de chamada uma vez, em vez de repetir cada frase do esquema.
+- Os esquemas das ferramentas integradas declaram apenas contratos. As descrições e notas de campo das ferramentas `office`, `computer`, `media` e `setup` abandonam as frases de método e política que suas skills já possuem — agrupamento, quando fazer snapshot ou `describe`, corrigir uma auditoria no mesmo turno, reutilização de `design.content`, tratamento de macros, não reorganizar, conteúdo da tela nunca autorizar uma ação, polling de vídeo, o procedimento de aprovação de exclusão — o que remove cerca de 2.2 KB (office −878 B, computer −492 B, media −432 B, setup −424 B) da superfície de ferramentas enviada a cada turno. As skills pptx, xlsx e pdf agora carregam as regras que viviam apenas no esquema (um lote de operações conhecidas, `describe` só para um campo desconhecido, conteúdo de documento não confiável), e a skill computer-use declara o contrato de chamada uma vez, em vez de repetir cada frase do esquema.
 
 - O Browser Use precisa de menos chamadas por tarefa. `click`, `fill`, `type`, `select`, `hover`, `upload` e `scroll` — e todo item de `fill.fields` e passo de `sequence` — aceitam um `target` sem snapshot (`{role, name}`, `{name}` ou `{selector}`) em vez de uma `ref`: o host observa a página por conta própria, age apenas sobre exatamente uma correspondência (várias correspondências por substring se resolvem na única literal), e um alvo ambíguo falha com os candidatos e suas refs novas. `query` em `snapshot`, `read` e `wait` casa palavras-chave separadas por espaço com OR (as correspondências de todas as palavras vêm primeiro) e aceita expressões regulares `/pattern/i`, e um filtro que não casa com nada diz quantos elementos ou caracteres estava filtrando. Controles transparentes ou com pointer-events:none não são mais recusados de imediato: uma caixa de seleção oculta é clicada por meio do seu rótulo, e a proteção do alvo de entrada aceita a ativação do rótulo. `fill` em um editor `contenteditable` substitui o conteúdo como entrada digitada sobre um selecionar-tudo, em vez de sobrescrever seu DOM. As respostas indicam "No observable change" quando um gesto deixou o documento, a URL e os valores dos controles intactos, `brief:true` lista apenas elementos novos ou alterados desde a observação anterior, os erros de console são informados uma vez quando novos, e uma pós-condição que já valia é um aviso, e não um erro. Os snapshots marcam campos de arquivo com `file-input`, `accept=…` e `multiple`; as capturas de tela da página inteira ancoram elementos fixos e sticky no fluxo durante a captura; e os cookies de sessão são armazenados criptografados com o chaveiro do sistema e restaurados na inicialização, de modo que os logins sobrevivem a uma reinicialização do app.
 
@@ -1310,7 +1310,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Uma cápsula de Objetivo não surge e some mais sozinha. Dois caminhos de publicação produziam o pisca: o pulso de rota de 2s lia o registro bruto do Goal enquanto o arquivo de entrada do usuário de um Goal concluído ainda estava sendo gravado, de modo que a cápsula encerrada voltava por um quadro; e no Windows uma leitura do Goal que caía dentro da substituição atômica do arquivo (`EPERM`/`EACCES`/`EBUSY`, ou a própria gravação em andamento do runtime) aparecia como "no Goal" naquele quadro. As publicações de rota agora leem o Goal pela máscara de arquivo da continuação do goal, e o armazenamento de Goal responde a essas leituras a partir do último registro confirmado.
 
-- O Browser Use não para mais para pedir aprovação: a caixa de diálogo "Permitir uma vez" do desktop que protegia `upload` e o `clear` compartilhado de cookie/localStorage foi removida, o campo `confirm` sai do contrato da ferramenta de navegador, e a habilidade browser-use abandona suas regras de autorização na conversa. `MIXDOG_BROWSER_CONFIRM_ACTIONS` e `MIXDOG_BROWSER_DENY_ACTIONS` continuam sendo a única forma de confirmar ou recusar ações nomeadas.
+- O Browser Use não para mais para pedir aprovação: a caixa de diálogo "Permitir uma vez" do desktop que protegia `upload` e o `clear` compartilhado de cookie/localStorage foi removida, o campo `confirm` sai do contrato da ferramenta de navegador, e a skill browser-use abandona suas regras de autorização na conversa. `MIXDOG_BROWSER_CONFIRM_ACTIONS` e `MIXDOG_BROWSER_DENY_ACTIONS` continuam sendo a única forma de confirmar ou recusar ações nomeadas.
 
 - A coluna de leitura do painel — campo de redação, transcrição e o dock do Studio — não espera mais um painel de 1536px se alargar: a partir de 768px ela mantém 800px até o painel passar de 1000px, depois acompanha 80% do painel até o teto de 1000px em 1250px, de modo que janelas de 1536/1680 e 1920 com um painel lateral aberto deixam de ficar estacionadas em 800px, e um divisor cruzando o degrau não estala mais a coluna em 200px.
 
@@ -1318,7 +1318,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - O destino Workflows da barra de atividades se funde ao painel Projetos: uma barra de ferramentas `Project | Workflow` — a chave de seção do painel Extensões, agora compartilhada como um único componente `SidebarSectionToolbar` — alterna entre a lista de projetos e os pacotes de workflow, agentes padrão e definições de agentes; o `+` do cabeçalho acompanha a aba Projeto; `/workflow` e `/websearch` abrem a aba Workflow; e um layout de barra armazenado descarta a vista `workflows` aposentada ao carregar.
 
-- O kit da habilidade pptx ganha um vocabulário de design no estilo dos sistemas de design baseados em tokens: `palette()` deriva três intensidades de linha (`lineSubtle`, `line`, `lineStrong`) e quatro cores de estado (`T.state.positive | warning | critical | informative`, cada uma como `solid` / `weak` / `text`, com contraste garantido e mantidas abaixo da faixa saturada do revisor, para que uma coluna de veredito nunca dispare `accent_hue_overuse`); toda distância fica em uma única escada de espaçamento (`SPACE`) nomeada por relação (`GAP.bind` / `within` / `between`, `GUTTER`, `PAD`, `M`); cada papel de texto carrega um entrelinha fixo; os portadores repetidos (selo, callout, sequência de chevrons, estatística, tabela) leem sua anatomia de `SPEC` com variantes de `tone`, um degrau de escala de `stat` e um auxiliar `statBand()`; os ícones mapeiam para quatro faixas de tamanho; e um novo `references/writing.md` fixa regras de frase, registro, número, data, dinheiro, unidade e espaço para tradução, com link a partir das habilidades docx e xlsx. Cada portador de spec assina sua forma, e o recibo de composição lê as assinaturas de volta (`slides[].specs`, `deck.specs`: contagem, slides, variantes, anatomias), de modo que um portador cujo tamanho de tipo ou face divergiu entre slides aparece como uma segunda anatomia.
+- O kit da skill pptx ganha um vocabulário de design no estilo dos sistemas de design baseados em tokens: `palette()` deriva três intensidades de linha (`lineSubtle`, `line`, `lineStrong`) e quatro cores de estado (`T.state.positive | warning | critical | informative`, cada uma como `solid` / `weak` / `text`, com contraste garantido e mantidas abaixo da faixa saturada do revisor, para que uma coluna de veredito nunca dispare `accent_hue_overuse`); toda distância fica em uma única escada de espaçamento (`SPACE`) nomeada por relação (`GAP.bind` / `within` / `between`, `GUTTER`, `PAD`, `M`); cada papel de texto carrega um entrelinha fixo; os portadores repetidos (selo, callout, sequência de chevrons, estatística, tabela) leem sua anatomia de `SPEC` com variantes de `tone`, um degrau de escala de `stat` e um auxiliar `statBand()`; os ícones mapeiam para quatro faixas de tamanho; e um novo `references/writing.md` fixa regras de frase, registro, número, data, dinheiro, unidade e espaço para tradução, com link a partir das skills docx e xlsx. Cada portador de spec assina sua forma, e o recibo de composição lê as assinaturas de volta (`slides[].specs`, `deck.specs`: contagem, slides, variantes, anatomias), de modo que um portador cujo tamanho de tipo ou face divergiu entre slides aparece como uma segunda anatomia.
 
 - Os tokens de design do Office derivam as mesmas quatro cores de estado (`positive`, `warning`, `critical`, `informative`, cada uma com um campo `Weak` e um degrau `Text`, com contraste verificado contra a tela, o painel claro e o campo); os portões de decisão de docx e xlsx desenham Liberar e Parar nos estados positivo e crítico em vez de um tom literal e do segundo destaque, e o `calloutTone` da seção de um `compose_document` coloca seu callout em um estado. A área de impressão do dashboard de um `compose_sheet` agora acompanha o painel de decisão, de modo que um portão Stop em uma coluna além da tela não é mais cortado da página renderizada e exportada.
 
@@ -1330,41 +1330,41 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - O Computer Use abandona o editor de autorização do lado das configurações (bloqueio de janela e de ação, expiração): ele permanece irrestrito por padrão, com as proteções permanentes — proteções de entrada, tratamento de elevação, tomada de controle pelo usuário, proteções de ambiente — e um arquivo de autorização salvo não pode mais expirar e causar um bloqueio. A restrição em processo continua para um host incorporador por meio de `MIXDOG_COMPUTER_POLICY_FILE` e `host.updateAuthorization`, nada é persistido, e a exportação de diagnóstico de falhas permanece. A ferramenta ganha `wait_for_user`: quando o usuário assume o controle, o modelo espera por um intervalo limitado e captura um estado novo depois, em vez de adivinhar permissões.
 
-- Todo cartão de Extensões e de Integrados abre a mesma caixa de detalhes — placa de identidade e título, seções em um mesmo ritmo, um rodapé com uma hierarquia de ações, com a ação destrutiva à esquerda, um único estilo de botão de ação — e as caixas de adicionar/editar de Projetos se juntam a ela. O cartão Git e GitHub carrega a conta do GitHub (login do gh por código de dispositivo); o cartão Local Provider lista os modelos instalados com tamanho, contexto e estado de execução, uma seção de carregamento de modelo para descarregar quando ocioso, e fatos ao vivo (build do runtime, GPU, memória livre, servidor), enquanto reparo e verificação continuam conduzidos pelo chat por meio da habilidade local-provider. Os fatos de status/plataforma saem das caixas porque o controle do cabeçalho e o selo da lista já os dizem. As folhas de estilo das extensões se dividem em `extension-list.css`, `extension-dialog.css`, `extension-editors.css` e `rail-controls.css`.
+- Todo cartão de Extensões e de Integrados abre a mesma caixa de detalhes — placa de identidade e título, seções em um mesmo ritmo, um rodapé com uma hierarquia de ações, com a ação destrutiva à esquerda, um único estilo de botão de ação — e as caixas de adicionar/editar de Projetos se juntam a ela. O cartão Git e GitHub carrega a conta do GitHub (login do gh por código de dispositivo); o cartão Provedor local lista os modelos instalados com tamanho, contexto e estado de execução, uma seção de carregamento de modelo para descarregar quando ocioso, e fatos ao vivo (build do runtime, GPU, memória livre, servidor), enquanto reparo e verificação continuam conduzidos pelo chat por meio da skill local-provider. Os fatos de status/plataforma saem das caixas porque o controle do cabeçalho e o selo da lista já os dizem. As folhas de estilo das extensões se dividem em `extension-list.css`, `extension-dialog.css`, `extension-editors.css` e `rail-controls.css`.
 
-- Goal: retomar um Goal pausado e iniciar sua tarefa aprovada são uma só gravação durável — `resume` aceita atualizações e adições de tarefas, marcar uma tarefa como `in_progress` retoma o Goal, e a simples contabilidade nunca concede aprovação. O estado de um Goal pausado chega ao modelo quando a requisição é preparada, depois da hidratação, em vez de um lembrete único na resposta do usuário, de modo que nenhum turno pode perder o fato de que um Goal está esperando.
+- Goal: retomar um Goal pausado e iniciar sua tarefa aprovada são uma só gravação durável — `resume` aceita atualizações e adições de tarefas, marcar uma tarefa como `in_progress` retoma o Goal, e a simples contabilidade nunca concede aprovação. O estado de um Goal pausado chega ao modelo quando a solicitação é preparada, depois da hidratação, em vez de um lembrete único na resposta do usuário, de modo que nenhum turno pode perder o fato de que um Goal está esperando.
 
 - Os celulares sincronizam suas visualizações ao reconectar: após o handshake seguro, o navegador pede ao desktop uma base consistente de suas sessões abertas (snapshot, lista de sessões, pool de agentes, estados das sessões) e as publicações ao vivo ficam retidas até ela chegar, de modo que um celular reconectado não pinta mais uma transcrição obsoleta nem perde o final de um turno. A transcrição entregue aos celulares omite o material de replay do provedor, tanto em deltas quanto em bases.
 
-- A criação de nova tarefa sobrevive a uma conexão remota interrompida: cada requisição carrega um recibo durável, de modo que uma nova tentativa após um timeout ou reconexão cai na mesma sessão reservada em vez de criar uma duplicata, e o observador do armazenamento de projetos se recupera sozinho e reconcilia o catálogo enquanto está fora do ar.
+- A criação de nova tarefa sobrevive a uma conexão remota interrompida: cada solicitação carrega um recibo durável, de modo que uma nova tentativa após um timeout ou reconexão cai na mesma sessão reservada em vez de criar uma duplicata, e o observador do armazenamento de projetos se recupera sozinho e reconcilia o catálogo enquanto está fora do ar.
 
 - Conversas e faixas de abas aparecem sem salto: uma transcrição visitada é exibida quando suas linhas visíveis e o deslocamento final concordam entre quadros (limitado a um segundo, para que streaming ou uma fonte lenta nunca a esconda), e uma faixa de abas decide o overflow pelo layout de destino, e não por uma aba pela metade do crescimento.
 
-- As ações do catálogo do Local Provider (`searchLocalProviderModels`, `inspectHuggingFaceModel`, `registerHuggingFaceModel`) existem na superfície de sessão em que o daemon as resolve, de modo que uma chamada de setup roteada pelo desktop não falha mais como ação de sessão indisponível.
+- As ações do catálogo do Provedor local (`searchLocalProviderModels`, `inspectHuggingFaceModel`, `registerHuggingFaceModel`) existem na superfície de sessão em que o daemon as resolve, de modo que uma chamada de setup roteada pelo desktop não falha mais como ação de sessão indisponível.
 
 - Os catálogos de idioma da interface do desktop voltaram a ficar em sincronia com o renderer: as strings que as vistas de controle de código-fonte e os comandos com barra leem por `t()` estavam ausentes de todos os catálogos (a aba aparecia como "History" em coreano), as frases em coreano do pacote de tradução legado aposentado foram migradas para `ko.json`, de modo que rótulos dinâmicos ("Ln 42", "Callers of …") voltam a ser traduzidos, e as strings dos menus nativos e das caixas de diálogo são geradas a partir dos mesmos catálogos. O coreano está completo; os outros dez idiomas recorrem ao inglês nas frases mais novas até que sejam traduzidas.
 
 - O build do importador de navegadores substitui um checkout upstream pela metade em TEMP em vez de falhar nele. Harness de testes: as suítes do renderer podem importar módulos que puxam uma folha de estilo de recurso (um import `.css` é resolvido como módulo vazio no Node), a verificação de import do daemon do artefato construído roda na faixa live depois de um build, e as fixtures de caminho do armazenamento de configurações são resolvidas na gramática de caminhos do próprio host.
 
-- A habilidade pdf e o runtime adotam a disciplina de inspecionar primeiro das habilidades de PDF de referência. Leitura: um snapshot informa `encrypted` e `passwordRequired` em vez do erro próprio do pdf-lib, `open`/`snapshot` com `password` leem o texto de um arquivo bloqueado nessa chamada sem guardar a senha, toda edição em um arquivo criptografado aponta para `secure` → decrypt, as páginas carregam seu tamanho e rotação, os marcadores voltam em `outline` com a página que cada um abre, e a extração de texto (snapshots do office, anexos do chat, a ferramenta read) mantém as quebras de linha como newlines, de modo que parágrafos e linhas de tabela sobrevivem. Formulários: os campos expõem o tipo `text|checkbox|radio|dropdown|optionlist`, `options`, `readOnly` e `multiline` de que um preenchimento precisa; `fill_form` nomeia um campo ou opção desconhecidos junto com o que existe e informa `filled`; `add_form_field` e `create` aceitam `optionlist`, `required`, `readOnly`, `maxLength` e `fontSize`; o lint sinaliza uma caixa pequena demais para uso (`formIssues` no create, `field_too_small` em `issues`); `preview_fields` grava uma cópia com cada campo e qualquer caixa proposta contornados e nomeados, para que uma renderização mostre o posicionamento antes de um preenchimento; um dropdown ou lista com opções em coreano não falha mais na criação porque o widget é pintado com a fonte incorporada desde o início; e um campo multilinha usa 11 pt por padrão em vez do tamanho automático do pdf-lib, que desenhava a primeira linha enorme e descartava o resto. Fontes: `create`, `add_text`, `watermark`, `fill_form` e OCR incorporam por conta própria uma fonte Unicode instalada quando o texto é coreano, CJK, cirílico ou grego (`pdf-fonts.mjs`; `fontPath` ainda escolhe; `detect` nomeia a fonte como `portable.pdfUnicodeFont`). Escrita: `create` quebra prosa sem espaços por caractere, respeita `\n`, quebra células de tabela e aumenta as linhas, repete o cabeçalho após uma quebra de página, numera saídas de várias páginas e aceita `columnWidths`, `level` de título, `align` de imagem, `orientation`, `footer` e mais tamanhos de página. Edição: `merge_pdf` aceita `sources:[path | { path, pages, title }]`, `index` e `bookmarks:true`; `add_bookmark` grava uma entrada de outline; `extract_pages` grava em `output` e `split_pages` um arquivo numerado por página ou a cada `every` páginas sem tocar o documento da sessão; `extract_attachment` faz round-trip de arquivos incorporados; `rotate_pages` soma à rotação atual; `delete_pages` mantém uma página; `compress` informa `bytesBefore`/`bytesAfter`; `add_text` aceita `align:'center'|'right'` e numera um arquivo existente por meio de `{page}`/`{pages}`; `highlight` marca cada correspondência de `find` (ou uma caixa; `wholeWord`, `regex` e `first` a restringem) com uma marca de mesclagem multiply que deixa o texto legível; `add_link` coloca um link invisível sobre uma correspondência que abre uma URL ou outra página, ou com `urls:true` faz todo endereço http(s) no texto abrir a si mesmo; `stamp_image` se ajusta dentro das margens, a menos que seja dimensionado; `issues` não informa mais uma página escaneada duas vezes e nomeia conteúdo ativo (`active_content`: JavaScript, Launch, ações ao abrir, links para arquivos ou outros esquemas que não são da web) sem segui-lo. Análise: `pdf-layout` com `query` retorna apenas as correspondências com suas caixas; suas caixas de texto acompanham a sequência em páginas giradas e em texto diagonal, e ele e o snapshot informam `origin` quando a caixa de uma página não começa em 0,0. As marcas de `find` invertem a transformação de exibição para tratar tanto deslocamentos de origem quanto rotações de página de 90/180/270 graus sem reorientar o documento; `first:true` preserva a ordem das linhas do documento em toda rotação. O layout lista os links de cada página (`url` ou a `page` de destino) e acrescenta as linhas (`lines`) e `boxes` (pequenos quadrados sinalizados como `checkbox`) de cada página, o que é necessário para preencher um formulário sem campos; `pdf-tables` lê uma tabela com bordas a partir dos retângulos de suas células (`source:'ruled'`, células quebradas intactas) antes do palpite de alinhamento de texto (`source:'alignment'`) e grava um CSV por tabela quando `output:<dir>` é dado, como `pdf-images` grava arquivos PNG e informa onde cada imagem fica na página; o OCR ajusta cada palavra invisível à sua caixa para que a camada de texto mantenha espaços simples. As prévias de página (`render`, `qa`, `finalize`) entregam ao pdf.js suas fontes padrão empacotadas, de modo que uma página em Helvetica ou Times não é mais renderizada com espaçamento entre letras. O adaptador é dividido em `pdf-writer`, `pdf-forms`, `pdf-draw` e `pdf-fonts`, e a habilidade é reescrita como inspect → create → edit → secure → verify, com o requisito do qpdf (PATH ou `MIXDOG_QPDF_PATH`), a ressalva dos bits de permissão e o limite do texto no lugar declarados.
+- A skill pdf e o runtime adotam a disciplina de inspecionar primeiro das skills de PDF de referência. Leitura: um snapshot informa `encrypted` e `passwordRequired` em vez do erro próprio do pdf-lib, `open`/`snapshot` com `password` leem o texto de um arquivo bloqueado nessa chamada sem guardar a senha, toda edição em um arquivo criptografado aponta para `secure` → decrypt, as páginas carregam seu tamanho e rotação, os marcadores voltam em `outline` com a página que cada um abre, e a extração de texto (snapshots do office, anexos do chat, a ferramenta read) mantém as quebras de linha como newlines, de modo que parágrafos e linhas de tabela sobrevivem. Formulários: os campos expõem o tipo `text|checkbox|radio|dropdown|optionlist`, `options`, `readOnly` e `multiline` de que um preenchimento precisa; `fill_form` nomeia um campo ou opção desconhecidos junto com o que existe e informa `filled`; `add_form_field` e `create` aceitam `optionlist`, `required`, `readOnly`, `maxLength` e `fontSize`; o lint sinaliza uma caixa pequena demais para uso (`formIssues` no create, `field_too_small` em `issues`); `preview_fields` grava uma cópia com cada campo e qualquer caixa proposta contornados e nomeados, para que uma renderização mostre o posicionamento antes de um preenchimento; um dropdown ou lista com opções em coreano não falha mais na criação porque o widget é pintado com a fonte incorporada desde o início; e um campo multilinha usa 11 pt por padrão em vez do tamanho automático do pdf-lib, que desenhava a primeira linha enorme e descartava o resto. Fontes: `create`, `add_text`, `watermark`, `fill_form` e OCR incorporam por conta própria uma fonte Unicode instalada quando o texto é coreano, CJK, cirílico ou grego (`pdf-fonts.mjs`; `fontPath` ainda escolhe; `detect` nomeia a fonte como `portable.pdfUnicodeFont`). Escrita: `create` quebra prosa sem espaços por caractere, respeita `\n`, quebra células de tabela e aumenta as linhas, repete o cabeçalho após uma quebra de página, numera saídas de várias páginas e aceita `columnWidths`, `level` de título, `align` de imagem, `orientation`, `footer` e mais tamanhos de página. Edição: `merge_pdf` aceita `sources:[path | { path, pages, title }]`, `index` e `bookmarks:true`; `add_bookmark` grava uma entrada de outline; `extract_pages` grava em `output` e `split_pages` um arquivo numerado por página ou a cada `every` páginas sem tocar o documento da sessão; `extract_attachment` faz round-trip de arquivos incorporados; `rotate_pages` soma à rotação atual; `delete_pages` mantém uma página; `compress` informa `bytesBefore`/`bytesAfter`; `add_text` aceita `align:'center'|'right'` e numera um arquivo existente por meio de `{page}`/`{pages}`; `highlight` marca cada correspondência de `find` (ou uma caixa; `wholeWord`, `regex` e `first` a restringem) com uma marca de mesclagem multiply que deixa o texto legível; `add_link` coloca um link invisível sobre uma correspondência que abre uma URL ou outra página, ou com `urls:true` faz todo endereço http(s) no texto abrir a si mesmo; `stamp_image` se ajusta dentro das margens, a menos que seja dimensionado; `issues` não informa mais uma página escaneada duas vezes e nomeia conteúdo ativo (`active_content`: JavaScript, Launch, ações ao abrir, links para arquivos ou outros esquemas que não são da web) sem segui-lo. Análise: `pdf-layout` com `query` retorna apenas as correspondências com suas caixas; suas caixas de texto acompanham a sequência em páginas giradas e em texto diagonal, e ele e o snapshot informam `origin` quando a caixa de uma página não começa em 0,0. As marcas de `find` invertem a transformação de exibição para tratar tanto deslocamentos de origem quanto rotações de página de 90/180/270 graus sem reorientar o documento; `first:true` preserva a ordem das linhas do documento em toda rotação. O layout lista os links de cada página (`url` ou a `page` de destino) e acrescenta as linhas (`lines`) e `boxes` (pequenos quadrados sinalizados como `checkbox`) de cada página, o que é necessário para preencher um formulário sem campos; `pdf-tables` lê uma tabela com bordas a partir dos retângulos de suas células (`source:'ruled'`, células quebradas intactas) antes do palpite de alinhamento de texto (`source:'alignment'`) e grava um CSV por tabela quando `output:<dir>` é dado, como `pdf-images` grava arquivos PNG e informa onde cada imagem fica na página; o OCR ajusta cada palavra invisível à sua caixa para que a camada de texto mantenha espaços simples. As prévias de página (`render`, `qa`, `finalize`) entregam ao pdf.js suas fontes padrão empacotadas, de modo que uma página em Helvetica ou Times não é mais renderizada com espaçamento entre letras. O adaptador é dividido em `pdf-writer`, `pdf-forms`, `pdf-draw` e `pdf-fonts`, e a skill é reescrita como inspect → create → edit → secure → verify, com o requisito do qpdf (PATH ou `MIXDOG_QPDF_PATH`), a ressalva dos bits de permissão e o limite do texto no lugar declarados.
 
-- A habilidade xlsx e o runtime adotam a disciplina de modelagem que um leitor espera de uma planilha: uma auditoria de fórmulas neutra quanto ao backend (compartilhada por `issues` portátil e pela revisão de qualidade) informa uma referência a planilha de várias palavras sem aspas, um vínculo com pasta de trabalho externa, uma porcentagem guardada como número inteiro, um ano sob separador de milhares e um valor guardado como texto em toda pasta de trabalho (além de, como informação, uma planilha longa cujo cabeçalho não está congelado e uma coluna de tabela de números em Geral), e, sob `auditProfile:'financial-model'`, uma taxa embutida em uma fórmula, uma divisão sem proteção, uma fórmula isolada que quebra o padrão de sua linha ou coluna, uma referência única além da extensão preenchida da planilha (o erro de deslocamento de uma posição que recalcula sem problemas), um valor fixo dentro de uma linha de fórmulas e entradas indistinguíveis de fórmulas, além de uma entrada que uma fórmula lê sem nota de fonte e uma conferência da planilha Checks que avalia como FALSE — em ambos os backends, pois o `issues` do Excel agora incorpora a auditoria compartilhada aos achados do próprio host. Os snapshots expõem o formato numérico, a fonte, a cor e o preenchimento de cada célula estilizada (os inteiros BGR do Excel são normalizados para o mesmo formato RRGGBB), notas legadas por célula e por planilha, tabelas do Excel por planilha (os registros dentro de uma são dados que a tabela origina, então a auditoria só pede nota nas premissas fora dela), intervalos mesclados e painéis congelados no formato do Excel, booleanos como booleanos, o `defaultStyle` da pasta de trabalho e um resumo `document.conventions` (fonte padrão, fontes em uso, formatos numéricos por coluna, marcadores de entrada, exemplos de entradas) para que uma edição possa seguir as convenções do próprio arquivo; `set_formula` coloca entre aspas os nomes de planilha de várias palavras que a pasta de trabalho contém (e, em ambos os backends, qualquer nome de várias palavras escrito antes de `!` e de uma referência) e informa o `normalizedFormula`, o recálculo do LibreOffice retorna um `status` com `totalErrors`, um `errorSummary` por tipo de erro e célula, e as `unparsedFormulas` que o LibreOffice gravou de volta em minúsculas, e `finalize` recusa uma pasta de trabalho cujo recálculo encontrou qualquer erro, mesmo quando a revisão foi ignorada. A habilidade reescreve suas regras em torno de zero erros de fórmula, fórmulas em vez de resultados colados, especificações literais, premissas documentadas, a legenda de preenchimento e a adequação às convenções de um arquivo existente, com `references/model-conventions.md` para cores, formatos numéricos, estrutura, a planilha Checks e fontes.
+- A skill xlsx e o runtime adotam a disciplina de modelagem que um leitor espera de uma planilha: uma auditoria de fórmulas neutra quanto ao backend (compartilhada por `issues` portátil e pela revisão de qualidade) informa uma referência a planilha de várias palavras sem aspas, um vínculo com pasta de trabalho externa, uma porcentagem guardada como número inteiro, um ano sob separador de milhares e um valor guardado como texto em toda pasta de trabalho (além de, como informação, uma planilha longa cujo cabeçalho não está congelado e uma coluna de tabela de números em Geral), e, sob `auditProfile:'financial-model'`, uma taxa embutida em uma fórmula, uma divisão sem proteção, uma fórmula isolada que quebra o padrão de sua linha ou coluna, uma referência única além da extensão preenchida da planilha (o erro de deslocamento de uma posição que recalcula sem problemas), um valor fixo dentro de uma linha de fórmulas e entradas indistinguíveis de fórmulas, além de uma entrada que uma fórmula lê sem nota de fonte e uma conferência da planilha Checks que avalia como FALSE — em ambos os backends, pois o `issues` do Excel agora incorpora a auditoria compartilhada aos achados do próprio host. Os snapshots expõem o formato numérico, a fonte, a cor e o preenchimento de cada célula estilizada (os inteiros BGR do Excel são normalizados para o mesmo formato RRGGBB), notas legadas por célula e por planilha, tabelas do Excel por planilha (os registros dentro de uma são dados que a tabela origina, então a auditoria só pede nota nas premissas fora dela), intervalos mesclados e painéis congelados no formato do Excel, booleanos como booleanos, o `defaultStyle` da pasta de trabalho e um resumo `document.conventions` (fonte padrão, fontes em uso, formatos numéricos por coluna, marcadores de entrada, exemplos de entradas) para que uma edição possa seguir as convenções do próprio arquivo; `set_formula` coloca entre aspas os nomes de planilha de várias palavras que a pasta de trabalho contém (e, em ambos os backends, qualquer nome de várias palavras escrito antes de `!` e de uma referência) e informa o `normalizedFormula`, o recálculo do LibreOffice retorna um `status` com `totalErrors`, um `errorSummary` por tipo de erro e célula, e as `unparsedFormulas` que o LibreOffice gravou de volta em minúsculas, e `finalize` recusa uma pasta de trabalho cujo recálculo encontrou qualquer erro, mesmo quando a revisão foi ignorada. A skill reescreve suas regras em torno de zero erros de fórmula, fórmulas em vez de resultados colados, especificações literais, premissas documentadas, a legenda de preenchimento e a adequação às convenções de um arquivo existente, com `references/model-conventions.md` para cores, formatos numéricos, estrutura, a planilha Checks e fontes.
 
-- A habilidade pptx abre com uma tabela de rotas — uma apresentação nova é um script de `author`, uma apresentação existente é `open` → `snapshot` → `batch`, e a leitura é um `snapshot` paginado ou o extrator de origem — e resolve seus caminhos de script por `${MIXDOG_SKILL_DIR}`, de modo que o QC de páginas, o revisor independente e `source-extract.mjs` (movido para a habilidade, com um teste) rodam de qualquer Projeto. A seção de edição nomeia as armadilhas que o runtime realmente tem: um slide duplicado compartilha sua parte de gráfico com a origem, a decoração do modelo fica onde a contagem de linhas do placeholder a colocou, e um script que declara seu próprio `pres` herda a tela de 10 × 5.625 pol do pptxgenjs. As habilidades docx, xlsx e pdf adicionam os gatilhos que os usuários realmente escrevem ("Word", "Excel", "PDF 읽어", "PDF 만들어"), e a habilidade docx diz como um snapshot mostra uma quebra de linha.
+- A skill pptx abre com uma tabela de rotas — uma apresentação nova é um script de `author`, uma apresentação existente é `open` → `snapshot` → `batch`, e a leitura é um `snapshot` paginado ou o extrator de origem — e resolve seus caminhos de script por `${MIXDOG_SKILL_DIR}`, de modo que o QC de páginas, o revisor independente e `source-extract.mjs` (movido para a skill, com um teste) rodam de qualquer Projeto. A seção de edição nomeia as armadilhas que o runtime realmente tem: um slide duplicado compartilha sua parte de gráfico com a origem, a decoração do modelo fica onde a contagem de linhas do placeholder a colocou, e um script que declara seu próprio `pres` herda a tela de 10 × 5.625 pol do pptxgenjs. As skills docx, xlsx e pdf adicionam os gatilhos que os usuários realmente escrevem ("Word", "Excel", "PDF 읽어", "PDF 만들어"), e a skill docx diz como um snapshot mostra uma quebra de linha.
 
 - A edição portátil do PowerPoint resolve o destino de relacionamento de um gráfico como o pacote faz: o pptxgenjs o grava como nome de parte absoluto (`/ppt/charts/chart1.xml`), o que `set_chart_data` e as outras operações de gráfico em uma apresentação criada por author costumavam informar como parte ausente. Os snapshots portáteis agora mantêm quebras de linha e fins de parágrafo como newlines — o texto de formas e notas de uma apresentação, e o texto de parágrafos, células, comentários, revisões, notas e controles de conteúdo de um documento do Word — em vez de juntar "4주차" e "잔존율".
 
 - As faixas de abas dos painéis animam adições e fechamentos no mesmo ritmo das animações da interface: uma nova aba cresce a partir do nada enquanto as vizinhas encolhem, de modo que a sequência nunca transborda a faixa e volta deslizando, e uma aba fechada colapsa no lugar enquanto as sobreviventes deslizam para o espaço dela, em vez de saltar. Um rascunho promovido à sua sessão ainda troca instantaneamente, e a faixa abandona seu estado não usado de retenção de largura.
 
-- A criação de Office ganha três estruturas de qualidade de saída: `author` e `batch` retornam uma `audit` medida (ajuste, limites, contraste, espaçamento, pacote) com contagens por slide e uma ordem de correção no mesmo turno que conta suas rodadas; `author` se recusa a entregar uma apresentação cujos números não têm fato por trás (`facts_gate`), a menos que o briefing declare `facts: sample`, o que leva uma divulgação de números ilustrativos por qa e finalize; e a habilidade pptx traz `scripts/qc-pages.mjs`, um corretor por página que roda uma sessão nova por slide apenas com a ferramenta office e só adota sua cópia de trabalho quando os defeitos medidos da página não cresceram e nenhum outro slide mudou.
+- A criação de Office ganha três estruturas de qualidade de saída: `author` e `batch` retornam uma `audit` medida (ajuste, limites, contraste, espaçamento, pacote) com contagens por slide e uma ordem de correção no mesmo turno que conta suas rodadas; `author` se recusa a entregar uma apresentação cujos números não têm fato por trás (`facts_gate`), a menos que o briefing declare `facts: sample`, o que leva uma divulgação de números ilustrativos por qa e finalize; e a skill pptx traz `scripts/qc-pages.mjs`, um corretor por página que roda uma sessão nova por slide apenas com a ferramenta office e só adota sua cópia de trabalho quando os defeitos medidos da página não cresceram e nenhum outro slide mudou.
 
-- As habilidades dividem sua linha de listagem em uma descrição de uma frase e um gatilho `when_to_use`; a lista de habilidades do modelo mostra `description — trigger` cortado em 250 caracteres, o editor de habilidades ganha um campo Acionador separado, o validador do skill-creator avisa quando uma linha de listagem será cortada, e toda habilidade integrada foi reescrita no novo formato.
+- As skills dividem sua linha de listagem em uma descrição de uma frase e um gatilho `when_to_use`; a lista de skills do modelo mostra `description — trigger` cortado em 250 caracteres, o editor de skills ganha um campo Acionador separado, o validador do skill-creator avisa quando uma linha de listagem será cortada, e toda skill integrada foi reescrita no novo formato.
 
 - A ilha de Objetivo da sessão alinha sua lista de tarefas com o cabeçalho recolhido, separa as linhas com linhas finas e recolhe ao clicar fora ou com Escape.
 
 - A interface do celular segue a do desktop: o medidor de contexto fica ao lado do gatilho de modelo do campo de redação, as marcas da barra de ferramentas compartilham a família lucide, e a folha da direita abre como uma única unidade de dock cujo cabeçalho traz as mesmas alternâncias de vista da faixa do desktop.
 
-- As habilidades integradas são distribuídas a partir de uma fonte de habilidades empacotada, e os guias do Office viram as habilidades pptx, docx, xlsx e pdf, condicionadas ao recurso que conduzem. As Configurações agrupam habilidades, servidores MCP e hooks dependentes sob seu plugin ou recurso integrado.
+- As skills integradas são distribuídas a partir de uma fonte de skills empacotada, e os guias do Office viram as skills pptx, docx, xlsx e pdf, condicionadas ao recurso que conduzem. As Configurações agrupam skills, servidores MCP e hooks dependentes sob seu plugin ou recurso integrado.
 
 - O Office cria apresentações PPTX a partir de scripts pptxgenjs com um guia de design, kit auxiliar, menu de layouts e QC visual conduzido pelo modelo, e tolera diferenças na ordem dos filhos de apresentações e gráficos.
 
@@ -1374,7 +1374,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - O aquecimento de inicialização do desktop, a restauração do dock lateral, o momento da redefinição de uso, os arquivos de descoberta de propriedade da bridge e a recuperação do transporte de sessões mantêm as partidas a frio e as reconexões responsivas. Os deploys FastDirect pré-aquecem o runtime instalado.
 
-- O executor de testes separa as faixas rápida, lenta e live com relatórios de tempo; os armazenamentos de sessões fazem cache de resumos de transcrições e varreduras de listagem; os utilitários de requisição de provedores reforçam o tratamento de protocolo do Anthropic, Cursor e OpenCode.
+- O executor de testes separa as faixas rápida, lenta e live com relatórios de tempo; os armazenamentos de sessões fazem cache de resumos de transcrições e varreduras de listagem; os utilitários de solicitação de provedores reforçam o tratamento de protocolo do Anthropic, Cursor e OpenCode.
 
 ## v0.9.160 - 2026-09-02
 
@@ -1386,7 +1386,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - Os módulos de runtime do Office são organizados por papéis de core, design, qualidade, portátil, PDF, COM e benchmark. Composição livre, seleção de layout guiada por referências, cenas de PowerPoint criadas por author e verificações renderizadas de garantia melhoram a qualidade visual sem enfraquecer a saída editável nem os limites de transação.
 
-- As sessões OAuth da Anthropic agora aprendem uma versão mínima do CLI exigida pelo provedor, persistem apenas atualizações seguras para versões superiores e repetem uma vez a requisição rejeitada sem substituir a configuração explícita de versão.
+- As sessões OAuth da Anthropic agora aprendem uma versão mínima do CLI exigida pelo provedor, persistem apenas atualizações seguras para versões superiores e repetem uma vez a solicitação rejeitada sem substituir a configuração explícita de versão.
 
 ## v0.9.159 - 2026-09-01
 
@@ -1409,7 +1409,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 - O hub de Extensões agora oferece a Git, Memória, Browser Use, Computer Use, Office e voz um fluxo consistente de instalação, progresso, ativação e desativação. Os runtimes opcionais são preparados sob demanda, o Office pode instalar o LibreOffice pelo gerenciador de pacotes da plataforma, e desativar a voz preserva os recursos baixados.
 - O empacotamento do runtime do desktop é menor e mais determinístico: as cargas de recursos opcionais ficam fora do app base, o código de runtime é preparado uma vez, os deploys por snapshot toleram edições simultâneas, e o CI de release compartilha um build de runtime multiplataforma com portões explícitos de Git e Computer Use.
 - O Studio preserva rascunhos por item e torna a edição de detalhes, a seleção e as interações de teclado resilientes à navegação. Os controles de uso de contexto e de ditado por voz também informam seu estado atual de forma mais consistente.
-- A rota OAuth da OpenAI deixa o pré-aquecimento de prompts por WebSocket desativado por padrão, evitando uma requisição de aquecimento desnecessária, a menos que seja explicitamente ativado.
+- A rota OAuth da OpenAI deixa o pré-aquecimento de prompts por WebSocket desativado por padrão, evitando uma solicitação de aquecimento desnecessária, a menos que seja explicitamente ativado.
 - O Terminal-Bench 2.1 publica a comparação completa `k=5` do Codex CLI com artefatos Harbor brutos, verificação do commit de origem, proveniência de custos recuperados e geração reproduzível de relatórios.
 
 ## v0.9.157 - 2026-08-31
@@ -1439,7 +1439,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - As sessões do Computer Use são recuperadas em todos os caminhos de saída, em vez de depender de um temporizador unref'd que um runtime em saída nunca dispara: o encerramento do daemon e dos workers as libera, uma sessão que fecha libera a sua, os workers ociosos do host expiram no mesmo relógio das reservas de janela que mantêm, e uma conexão de cliente interrompida aborta a entrada em andamento em vez de deixá-la comandar a área de trabalho até o timeout do comando. O cliente também tenta uma vez de novo contra uma bridge republicada, de modo que reiniciar o app desktop não faz mais o próximo comando falhar de imediato.
 - Uma página do Browser Use que travou se recupera no próximo comando em vez de fazê-lo falhar. As refs vinculadas ao documento morto são descartadas com ele, de modo que a recuperação nunca pode devolver coordenadas de uma página que não existe mais.
-- A compactação que roda entre um prompt e a requisição ao provedor não trava mais quando o runtime de memória emperra: a chamada de memória recall-fasttrack é limitada para todo chamador, e não apenas para o único caminho que por acaso tinha um timeout.
+- A compactação que roda entre um prompt e a solicitação ao provedor não trava mais quando o runtime de memória emperra: a chamada de memória recall-fasttrack é limitada para todo chamador, e não apenas para o único caminho que por acaso tinha um timeout.
 - O analisador de entradas ocultas do Windows Explorer divide a saída do attrib.exe com as regras de caminho do Windows em qualquer host, e a sonda de capacidade do hook de commit agora funciona em versões do git que discordam sobre se o nome de um hook não nativo precisa de uma flag.
 - O Deploy deixa de reconstruir runtimes de plataforma idênticos byte a byte. As fontes de teste saem tanto do pacote publicado quanto da chave de cache do runtime, de modo que uma mudança apenas em testes acerta o cache de runtime preparado em vez de pagar uma reconstrução de sete minutos no Windows. As suítes do desktop rodam como jobs paralelos do portão, inclusive uma etapa Windows que finalmente exercita o Computer Use no CI, e a suíte de git de 240 segundos não fica mais na execução local padrão.
 
@@ -1479,8 +1479,8 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 ## v0.9.149 - 2026-08-24
 
-- As sessões OAuth da OpenAI agora falam por padrão o formato de protocolo do cliente de referência: identidade estável de instalação e de thread, a forma mais leve de requisição nos modelos atuais e tratamento correto, pelo provedor, de um socket que atinge o limite de vida no meio da sessão.
-- A inicialização da sessão reserva sua conexão pré-aquecida para o primeiro turno apenas quando o prompt que ela aqueceu ainda corresponde, de modo que um turno cujo ambiente ou superfície de ferramentas mudou começa limpo em vez de reenviar a requisição inteira.
+- As sessões OAuth da OpenAI agora falam por padrão o formato de protocolo do cliente de referência: identidade estável de instalação e de thread, a forma mais leve de solicitação nos modelos atuais e tratamento correto, pelo provedor, de um socket que atinge o limite de vida no meio da sessão.
+- A inicialização da sessão reserva sua conexão pré-aquecida para o primeiro turno apenas quando o prompt que ela aqueceu ainda corresponde, de modo que um turno cujo ambiente ou superfície de ferramentas mudou começa limpo em vez de reenviar a solicitação inteira.
 - As listagens de diretório retornam uma primeira página dimensionada para varredura em vez de um despejo, e as consultas à estrutura de código buscam corpos completos de símbolos apenas quando a implementação exata é necessária.
 
 ## v0.9.148 - 2026-08-24
@@ -1520,13 +1520,13 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 ## v0.9.143 - 2026-08-20
 
 - A execução de sessões agora compartilha um único worker de runtime supervisionado, em vez de um pool de shards de processos. Os agentes em segundo plano permanecem no mesmo processo, as esperas por provedores cedem seu espaço de admissão local de CPU, e os limites de spawn em toda a máquina e a recuperação da saúde do runtime continuam sendo aplicados.
-- As aprovações de dispositivos remotos aparecem apenas enquanto Configurações → Conexão está aberta, recuperam as requisições pendentes quando esse painel abre e só terminam depois que o navegador comprova sua conexão E2EE autenticada.
+- As aprovações de dispositivos remotos aparecem apenas enquanto Configurações → Conexão está aberta, recuperam as solicitações pendentes quando esse painel abre e só terminam depois que o navegador comprova sua conexão E2EE autenticada.
 
 ## v0.9.142 - 2026-08-20
 
 - O empacotamento do desktop para Linux valida a arquitetura de destino no diretório de prebuild da ABI que o `node-pty` realmente carrega, enquanto os pacotes compilados para Windows e macOS mantêm seu caminho de validação `build/Release`.
 
-- Os apps web instalados retomam uma aprovação pendente do desktop entre recarregamentos, enquanto o desktop substitui prompts obsoletos, os expira junto com a requisição do relay e aceita cada decisão apenas depois que o serviço a confirma.
+- Os apps web instalados retomam uma aprovação pendente do desktop entre recarregamentos, enquanto o desktop substitui prompts obsoletos, os expira junto com a solicitação do relay e aceita cada decisão apenas depois que o serviço a confirma.
 - O FastDirect reutiliza alvos de build novos, um cache persistente do renderer de produção, a saída de runtime preparada e um template de shell ASAR extraído. Os deploys live do relay calculam independentemente a impressão digital das mudanças de renderer/servidor e enviam apenas deltas verificados do renderer antes da troca atômica na VPS.
 - O código inline segue a fonte e o tamanho da prosa ao redor, deixando a cor como sua única distinção inline, enquanto o código em bloco continua monoespaçado.
 
@@ -1539,7 +1539,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 - As exclusões no Studio têm efeito no primeiro clique: uma execução concluída libera seu espaço na grade assim que seu recurso é indexado, de modo que excluir esse recurso não reanima mais o espaço como um bloco fantasma "generating". A galeria não é mais limitada a 2,000 entradas — um recurso só sai do armazenamento por uma exclusão explícita — e uma execução que falha, começa sem uma tarefa ou perde seu snapshot de runtime agora informa isso, em vez de girar em silêncio.
 - O alternador de abas no celular aparece como uma grade de cartões e só ganha um campo de filtro quando a lista é longa o bastante para precisar de um, enquanto o chrome do celular refaz os discos do campo de redação, a ilha de status e as folhas de painéis em proporções de toque, e traz ao alcance os controles que só apareciam ao passar o cursor.
 - Um app web instalado pode se parear sozinho: ele abre uma URL de entrada roteada por dispositivo, pede aprovação a esse desktop por trás de um código de dois dígitos mostrado nas duas telas e recebe o material de pareamento selado para sua própria chave descartável. Os navegadores pareados agora registram quais faixas de push eles leem, de modo que um celular conectado não paga mais por tráfego de terminal, editor e arquivos que nunca mostra.
-- O servidor de busca do code-graph atende clientes de pipe compartilhado com filas de resposta por conexão e ids de requisição com escopo de cliente, e encerra sozinho após uma janela de inatividade, de modo que um dono morto à força deixa de abandonar servidores aquecidos.
+- O servidor de busca do code-graph atende clientes de pipe compartilhado com filas de resposta por conexão e ids de solicitação com escopo de cliente, e encerra sozinho após uma janela de inatividade, de modo que um dono morto à força deixa de abandonar servidores aquecidos.
 - As chamadas de ferramentas sobrevivem ao ruído nos argumentos do provedor: um caminho base opcional omitido é resolvido para o Projeto atual em vez de falhar a chamada, os argumentos de task são restringidos à ação escolhida, e a saída do git mantém seu último quadro de progresso e sua linha fatal final, em vez de enterrar o motivo sob quadros de redesenho.
 - O renderer carrega um único catálogo de idioma da interface em vez de onze, define o idioma antes de o primeiro módulo do app ser avaliado e pré-busca um chunk de superfície ao selecionar; /inherit leva uma conversa existente para uma nova sessão na rota atualmente selecionada.
 - O crédito a terceiros é carregado apenas por LICENSES e NOTICE.
@@ -1556,7 +1556,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - As sessões web remotas agora usam assinaturas com escopo de cliente, quadros binários E2EE, deltas compactos de estado/catálogo, agrupamento do terminal e sondas de latência de pintura, reduzindo o volume transferido e preservando a recuperação ao vivo em conexões lentas.
 - A rolagem da transcrição web e a entrada no campo de redação permanecem visualmente estáveis durante snapshots remotos simultâneos, trocas de sessão e renderização no celular.
-- O contexto de runtime, a recuperação de requisições ao provedor, as notificações de tarefas em segundo plano e a restauração de conclusões foram reforçados em sessões de longa duração.
+- O contexto de runtime, a recuperação de solicitações ao provedor, as notificações de tarefas em segundo plano e a restauração de conclusões foram reforçados em sessões de longa duração.
 
 ## v0.9.137 - 2026-08-19
 
@@ -1666,7 +1666,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 ## v0.9.118 - 2026-08-11
 
 - O desktop consolida Agentes, Busca e Controle de Código-Fonte no dock de utilitários, mantém Utilitários selecionado ao lançar ferramentas e alinha o tratamento de aviso versus falha entre cartões de ferramentas restaurados e ativos.
-- A listagem de arquivos e a busca nativa agora combinam enumerações concorrentes, aceitam requisições persistentes canceláveis e snapshots de processos, e preservam o comportamento de fallback limitado sob forte fan-out do sistema de arquivos.
+- A listagem de arquivos e a busca nativa agora combinam enumerações concorrentes, aceitam solicitações persistentes canceláveis e snapshots de processos, e preservam o comportamento de fallback limitado sob forte fan-out do sistema de arquivos.
 - O agrupamento do code-graph, a reutilização de standby do PowerShell, o rastreamento da árvore de processos do shell e a invalidação de cache foram reforçados contra trabalho concorrente e estado obsoleto.
 
 ## v0.9.117 - 2026-08-11
@@ -1747,7 +1747,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 - A navegação, o campo de redação, o Studio, as configurações e as superfícies de transcrição do desktop agora compartilham um layout responsivo mais compacto, com um acompanhamento mais forte da rolagem virtual, tratamento de arquivos locais e cobertura ampliada de regressão do DOM.
 - O renderer remoto é distribuído como um app web instalável, com manifesto estável, ícone e service worker apenas de rede, enquanto o relay serve esses recursos com os tipos de conteúdo exigidos de manifesto e service worker.
 - A execução Solo não carrega mais as definições obsoletas de agentes de depurador, tarefa de agendador ou manipulador de webhook e remove seu protocolo obsoleto de roteamento/cache, mantendo os serviços integrados separados dos agentes personalizados editáveis.
-- A geração de imagens hospedada do Codex seleciona explicitamente a ferramenta de imagem nos modelos compatíveis, com cobertura focada do corpo da requisição.
+- A geração de imagens hospedada do Codex seleciona explicitamente a ferramenta de imagem nos modelos compatíveis, com cobertura focada do corpo da solicitação.
 
 ## v0.9.102 - 2026-08-08
 
@@ -1771,7 +1771,7 @@ O Mixdog para Android 0.1.12 traz um novo pareamento: no PC, abra Configuraçõe
 
 - A tipografia da transcrição do desktop agora separa conteúdo, status operacional e metadados em uma hierarquia mais estável, enquanto o Fast usa um ícone compacto com estado.
 - A recuperação do Explorer agora distribui uma vez cada faceta concreta de localização, preserva literalmente os caminhos retornados e interrompe a recuperação limitada em vez de retornar uma âncora fraca ou reconstruída.
-- As leituras síncronas do catálogo de modelos não iniciam mais uma requisição de rede global implícita. O aquecimento da sessão continua sendo o único dono da E/S do catálogo remoto, de modo que os transportes injetados pelo provedor permanecem herméticos em uma instalação a frio.
+- As leituras síncronas do catálogo de modelos não iniciam mais uma solicitação de rede global implícita. O aquecimento da sessão continua sendo o único dono da E/S do catálogo remoto, de modo que os transportes injetados pelo provedor permanecem herméticos em uma instalação a frio.
 - A faixa de release isolada agora prepara explicitamente um único runtime nativo verificado do code-graph, em vez de depender de um binário ambiente deixado por um job anterior.
 - Os recursos de release do macOS Intel usam uploads HTTP/1.1 limitados, arquivo por arquivo, com verificações de conclusão remota e novas tentativas, impedindo que uma transferência travada do CLI segure indefinidamente a release inteira.
 - A recuperação de releases não publicadas da mesma versão agora incorpora suas notas acumuladas a essa versão antes de publicar, em vez de deixar o trabalho distribuído marcado como Unreleased.

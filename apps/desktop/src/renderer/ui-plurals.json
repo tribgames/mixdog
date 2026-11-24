@@ -48,6 +48,7 @@
   "Discard {{count}} selected changes, staged and unstaged? This cannot be undone.": "Discard {{count}} selected change, staged and unstaged? This cannot be undone.",
   "Discard all {{count}} changes, staged and unstaged? This cannot be undone.": "Discard {{count}} change, staged and unstaged? This cannot be undone.",
   "Limited to {{count}} projects.": "Limited to {{count}} project.",
+  "Pasted text · {{count}} lines": "Pasted text · {{count}} line",
   "the following {{count}} items": "the following {{count}} item",
   "Island: {{count}} agents": "{{count}} agent",
   "Island: {{count}} shells": "{{count}} shell",

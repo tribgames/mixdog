@@ -123,7 +123,7 @@ function endpointUrl(publicBase: string, name: string): string {
 function generateSigningSecret(): string {
   const bytes = new Uint8Array(24);
   if (typeof globalThis.crypto?.getRandomValues !== 'function') {
-    throw new Error('Secure random generation is unavailable, so a signing secret cannot be created.');
+    throw new Error(t('Secure random generation is unavailable, so a signing secret cannot be created.'));
   }
   globalThis.crypto.getRandomValues(bytes);
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');

@@ -204,7 +204,7 @@ function noticeText(
     return {
       title: t('This PC’s model sign-in has expired'),
       lines: [
-        t('The server’s turn uses this PC’s sign-in. Sign in again under Settings → Models in this PC’s window.'),
+        t('The server’s turn uses this PC’s sign-in. Sign in again under Settings → Providers in this PC’s window.'),
       ],
       tone: 'error',
     };

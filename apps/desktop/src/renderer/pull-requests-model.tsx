@@ -3,6 +3,7 @@
 import { GitMerge, GitPullRequestArrow, GitPullRequestDraft, Github } from 'lucide-react';
 import type { DesktopPullRequestCategory, DesktopPullRequestEntry } from '../shared/contract';
 import { t } from './i18n';
+import { uiTimeUnit } from './ui-format';
 import type { ScmStatusKind } from './ScmStatusIcon';
 
 /** The base a new pull request targets when the remote names none. */
@@ -104,11 +105,11 @@ export function relativeAge(iso: string): string {
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return '';
   const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return 'now';
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h`;
-  if (seconds < 2_592_000) return `${Math.round(seconds / 86_400)}d`;
-  return `${Math.round(seconds / 2_592_000)}mo`;
+  if (seconds < 60) return uiTimeUnit(seconds, 'second');
+  if (seconds < 3600) return uiTimeUnit(Math.round(seconds / 60), 'minute');
+  if (seconds < 86_400) return uiTimeUnit(Math.round(seconds / 3600), 'hour');
+  if (seconds < 2_592_000) return uiTimeUnit(Math.round(seconds / 86_400), 'day');
+  return uiTimeUnit(Math.round(seconds / 2_592_000), 'month');
 }
 
 /** The PR payload carries no per-file status (contract: DesktopPullRequestFile

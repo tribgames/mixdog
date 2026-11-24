@@ -16,9 +16,9 @@ Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn
 
 ### Tính năng mới
 
-- **Bảng Studio** — Nhóm các sản phẩm tạo trong Studio thành bảng từ menu khung soạn thảo và duyệt lại các tác phẩm trước bằng tính năng tìm kiếm trên thanh bên trái.
+- **Bảng Studio** — Nhóm các sản phẩm tạo trong Studio thành bảng từ menu ô nhập và duyệt lại các tác phẩm trước bằng tính năng tìm kiếm trên thanh bên trái.
 - **Dự án trong Phiên** — Gom nhóm các phiên theo dự án trong bảng Phiên, kèm danh mục con cho từng nhánh khi một dự án có nhiều nhánh.
-- **Cài đặt màn hình bắt đầu** — Chọn nội dung mở ra khi tạo cửa sổ mới trong phần cài đặt, mặc định bắt đầu một phiên mới không gắn dự án mà không tích tụ các thẻ trống (#312).
+- **Cài đặt màn hình bắt đầu** — Chọn nội dung mở ra khi tạo cửa sổ mới trong phần cài đặt, mặc định bắt đầu một phiên mới không gắn dự án mà không tích tụ các tab trống (#312).
 - **Phản hồi Claude nhanh hơn** — Các cuộc trò chuyện Claude đang diễn ra giờ đây chỉ gửi tin nhắn mới sau lượt đầu tiên, giúp tăng tốc câu trả lời và tự động gửi lại toàn bộ khi cần.
 - **Thiết bị HID trong trình duyệt tích hợp** — Các trang web trong trình duyệt tích hợp giờ đây có thể kết nối với phần cứng HID bạn chọn (#250).
 - **Thao tác trang trong Visualize** — Agent giờ đây có thể nhấp chuột, nhập liệu và cuộn trang bên trong các trang HTML đang mở trong Visualize để tự mình kiểm tra giao diện.
@@ -26,7 +26,7 @@ Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn
 ### Thay đổi
 
 - Thay đổi bảng Phiên để bắt đầu tác vụ từ nút + ở tiêu đề và hiển thị bot dưới dạng hàng cùng trạng thái tương ứng.
-- Thay đổi Nhật ký yêu cầu để hiển thị thời lượng tính bằng giây, mô hình yêu cầu và mô hình phản hồi cho các yêu cầu thay thế (#306), cùng giá niêm yết API gói thuê bao.
+- Thay đổi Nhật ký yêu cầu để hiển thị thời lượng tính bằng giây, mô hình yêu cầu và mô hình phản hồi cho các yêu cầu thay thế (#306), cùng giá niêm yết API gói đăng ký.
 - Thay đổi thông báo ở góc trên bên phải để cảnh báo về các lượt cài đặt, cập nhật ứng dụng, tạm dừng do giới hạn mức dùng, đăng nhập hết hạn và cuộc trò chuyện chưa lưu.
 - Thay đổi danh sách việc cần làm để theo dõi các bước đang chờ, đang thực hiện, đã hoàn thành và đã bỏ qua, đồng thời không để bước bị chặn biến vòng tiến trình thành màu đỏ.
 - Điều chỉnh các bảng bên và bộ sưu tập Studio để dùng chung khoảng cách nhất quán, kiểu trạng thái trống và hiệu ứng mờ dần ở cạnh trên và dưới.
@@ -39,17 +39,17 @@ Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn
 - Sửa lỗi quá trình kiểm tra worktree chạy nền mất tới hai phút trên Windows sau mỗi lần khởi chạy ứng dụng.
 - Sửa lỗi cập nhật plugin hoàn tất trong im lặng mà không hiển thị thông báo hoàn thành nào (#307).
 - Sửa lỗi popover ngữ cảnh bị che khuất trên màn hình điện thoại (#309) và dấu thời gian quá dài tràn khỏi cột trong Nhật ký yêu cầu (#310).
-- Sửa lỗi nhấn phím `F2` trong khung soạn thảo phiên không đổi được tên của phiên đang mở.
+- Sửa lỗi nhấn phím `F2` trong ô nhập của phiên không đổi được tên của phiên đang mở.
 - Sửa lỗi số lượng kết quả tìm kiếm hiển thị đường dẫn đầy đủ thay vì đường dẫn tương đối trong các thư mục có tên chứa số và dấu gạch nối (#304).
 
 ## v1.4.4 - 2026-11-02
 
-Đã thêm thẻ Nhật ký yêu cầu trong Mức dùng, bảng bên trực tiếp cho sub-agent, lịch sử điều hướng phiên và các tùy chọn nâng cao cho nhà cung cấp tùy chỉnh.
+Đã thêm tab Nhật ký yêu cầu trong Mức dùng, bảng bên trực tiếp cho agent phụ, lịch sử điều hướng phiên và các tùy chọn nâng cao cho nhà cung cấp tùy chỉnh.
 
 ### Tính năng mới
 
 - **Nhật ký yêu cầu** — Thêm thẻ Nhật ký yêu cầu trong Mức dùng giúp lọc theo khoảng thời gian, trạng thái và mô hình, hiển thị token, chi phí, thời gian và trạng thái (#300).
-- **Bảng bên cho sub-agent** — Thêm khả năng mở sub-agent từ cửa sổ Agent hoặc danh sách soạn thảo; thu gọn bằng `Ctrl+B` và vẫn đọc được các phiên đã kết thúc.
+- **Bảng bên cho agent phụ** — Thêm khả năng mở agent phụ từ cửa sổ Agent hoặc danh sách ô nhập; thu gọn bằng `Ctrl+B` và vẫn đọc được các phiên đã kết thúc.
 - **Điều hướng phiên** — Thêm tính năng điều hướng tới và lui qua lịch sử phiên cùng vị trí trình soạn thảo bằng `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` và các nút phụ chuột (#289).
 - **Tùy chọn nhà cung cấp tùy chỉnh** — Thêm tham số yêu cầu JSON nâng cao, tiêu đề HTTP tùy chỉnh và chiến lược định tuyến OpenRouter (Auto, Price, Speed, Latency) trong Cài đặt → Mô hình (#231).
 - **Phím tắt thu phóng giao diện** — Thêm tính năng thu phóng giao diện máy tính từ 85% đến 150% theo bước 5% bằng `Ctrl/Cmd+=`, `Ctrl/Cmd+-` và `Ctrl/Cmd+0` (#286).
@@ -57,7 +57,7 @@ Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn
 ### Thay đổi
 
 - Điều chỉnh Computer Use để truyền delta phần tử, lưu vào bộ đệm OCR, đồng thời cuộn trang và gửi tổ hợp phím nền tới cửa sổ Mixdog mà không chiếm tiêu điểm.
-- Thay đổi Mixy để tự trả lời những việc có thể giải quyết ngay, chỉ chuyển việc cho bot khác khi được chỉ định hoặc tiếp tục công việc, còn lại dùng sub-agent.
+- Thay đổi Mixy để tự trả lời những việc có thể giải quyết ngay, chỉ chuyển việc cho bot khác khi được chỉ định hoặc tiếp tục công việc, còn lại dùng agent phụ.
 - Đồng bộ hóa các thẻ câu hỏi của phiên chuyển giao giữa các cuộc trò chuyện, xử lý cả hai thẻ cùng lúc khi trả lời, đóng hoặc hết thời gian.
 - Thay đổi quản lý bộ nhớ để tự động lưu các tùy chọn rõ ràng, đồng thời yêu cầu xác nhận đối với các mục do agent đề xuất hoặc có phạm vi dự án chưa rõ.
 - Thay đổi biểu tượng linh vật bot trên màn hình để chỉ xuất hiện khi bạn bật trong phần cài đặt.
@@ -88,11 +88,11 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - **Danh sách việc cần làm của phiên** — Thêm danh sách việc cần làm thay thế tác vụ Goal, hiển thị tiến độ trực tiếp của agent và giữ lại việc cùng Goal khi đóng.
 - **Kiểu ô nhập** — Thêm các kiểu ô nhập Đơn giản, Tiêu chuẩn và Chi tiết trong Cài đặt với xem trước trực tiếp, thanh công cụ thích ứng và xác nhận câu trả lời (#270, #276).
 - **Cài đặt cách giao việc** — Thêm trang Cài đặt → Cách giao việc cho chỉ dẫn điều phối, cùng tính năng sửa trực tiếp chỉ dẫn Kiểu đầu ra với nút khôi phục mặc định (#291).
-- **Chỉ định sub-agent thực thi quy trình** — Bổ sung lựa chọn sub-agent thực thi chạy mô hình riêng cho các tác vụ theo lịch và webhook.
+- **Chỉ định agent phụ thực thi quy trình** — Bổ sung lựa chọn agent phụ thực thi chạy mô hình riêng cho các tác vụ theo lịch và webhook.
 - **Nhập dữ liệu từ Claude Desktop Cowork** — Thêm tính năng nhập cuộc trò chuyện từ Claude Desktop Cowork, ưu tiên hiển thị các cuộc trò chuyện có gắn dấu sao (#283).
 - **Liên kết đường dẫn trong trò chuyện** — Hỗ trợ mở liên kết đường dẫn trên máy tính từ khung trò chuyện: thư mục mở như gốc trong bảng Tệp và tệp xem được mở trong Visualize (#277).
 - **Thao tác chạm cho ảnh trên điện thoại** — Thêm thao tác chụm ngón tay, vuốt và chạm hai lần để thu phóng ảnh trong trò chuyện và Visualize trên điện thoại (#275).
-- **Mức sử dụng lượt gọi Fast** — Thêm dòng thống kê riêng cho các lượt gọi Fast của mô hình, với bảng sử dụng căn chỉnh phù hợp màn hình điện thoại (#288).
+- **Mức sử dụng chế độ nhanh** — Thêm dòng thống kê riêng cho các lượt gọi ở chế độ nhanh của mô hình, với bảng sử dụng căn chỉnh phù hợp màn hình điện thoại (#288).
 - **Tự động hóa vòng đời phiên** — Tự động lưu trữ các phiên không hoạt động sau 7 ngày và xóa sau 90 ngày trong thời gian rảnh.
 - **Tạm dừng thông báo khi đang dùng máy tính** — Tạm dừng gửi thông báo đẩy đến điện thoại khi bạn đang chủ động dùng máy tính này.
 
@@ -111,21 +111,21 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - Khắc phục tình trạng mất lượt chưa lưu sau sự cố hoặc khởi động lại nhờ cơ chế chuyển giao lượt bền bỉ và khôi phục điểm kiểm tra.
 - Sửa lỗi tiến trình kết xuất của bản máy tính bị văng khi thả chuột sau khi quét chọn văn bản.
 - Sửa lỗi chuyển phiên phải dựng lại nhật ký hoặc phát lại hiệu ứng chuyển động bằng cách giữ các cuộc trò chuyện gần đây luôn sẵn sàng.
-- Sửa lỗi Goal bị đình trệ tính cả thời gian chờ vào ngân sách, lặp lại thông báo hoặc thay thế Goal hiện có mà không có xác nhận.
+- Sửa lỗi Goal bị đình trệ tính cả thời gian chờ vào giới hạn thời gian, lặp lại thông báo hoặc thay thế Goal hiện có mà không có xác nhận.
 - Sửa lỗi đăng nhập trình kết nối hết hạn sau một giờ bằng cách yêu cầu mã làm mới, và tránh nhầm tài khoản khi tái sử dụng tên cũ (#285).
 - Sửa lỗi cập nhật plugin trên Windows thất bại do lỗi khóa tệp `EPERM` khi đổi tên thư mục (#284).
 - Sửa lỗi cài đặt thất bại do các tập lệnh của onnxruntime-node bị xóa khi thu gọn embedding (#282).
 - Sửa lỗi khởi động dịch vụ bộ nhớ bị treo do các khóa PostgreSQL mồ côi sau khi tiến trình dừng đột ngột (#278).
 - Sửa lỗi reCAPTCHA và tiện ích xác thực trong trình duyệt nội bộ bằng cách cấp quyền truy cập bộ lưu trữ tương thích với Chrome.
-- Sửa lỗi báo cáo của sub-agent không đến được agent Lead khi bị gián đoạn bởi nhắc nhở, dữ liệu đầu vào đang chờ hoặc lỗi phát sinh sau đó.
+- Sửa lỗi báo cáo của agent phụ không đến được agent Lead khi bị gián đoạn bởi nhắc nhở, dữ liệu đầu vào đang chờ hoặc lỗi phát sinh sau đó.
 - Sửa lỗi Computer Use khởi động lại máy chủ nhập liệu khi đọc màn hình chậm và báo lỗi trình quan sát trong các khoảng dừng nhập liệu ngắn.
-- Sửa lỗi tìm kiếm ký ức bỏ sót từ nội dung tiếng Hàn trong các truy vấn đa ngữ, đồng thời tối ưu hóa quét từ khóa chính xác.
+- Sửa lỗi tìm kiếm bộ nhớ bỏ sót từ nội dung tiếng Hàn trong các truy vấn đa ngữ, đồng thời tối ưu hóa quét từ khóa chính xác.
 - Sửa lỗi liên kết web và tab trình duyệt truyền trực tiếp trên điện thoại không vừa màn hình hoặc không mở trong Visualize.
 - Sửa lỗi các hàng chọn màu bị đè lên phần mô tả trong cửa sổ Cài đặt thu hẹp và tránh ghi đè các chỉnh sửa chỉ dẫn diễn ra đồng thời (#287).
 - Sửa lỗi việc chạy `npm ci` bên trong một worktree làm trống `node_modules` của checkout chính; nay mỗi worktree sẽ tự cài đặt các phụ thuộc riêng.
 - Sửa lỗi gửi lại tác vụ bị lỗi khởi động (như trong thư mục không hỗ trợ worktree) liên tục lặp lại thông báo "could not be resumed" cho đến khi khởi động lại (#279).
 - Sửa lỗi các công cụ Git và tài liệu Office gặp lỗi trên Windows khi đường dẫn thư mục tạm thời của phiên trở nên quá dài.
-- Sửa lỗi các mô hình Vertex AI Gemini 4 Argon và Gemini 3.8 Flash thiếu tùy chọn mức suy luận; giờ đây lựa chọn (Low, Medium, High) đã xuất hiện và được gửi kèm theo yêu cầu (#292).
+- Sửa lỗi các mô hình Vertex AI Gemini 4 Argon và Gemini 3.8 Flash thiếu tùy chọn mức suy luận; giờ đây lựa chọn (Thấp, Trung bình, Cao) đã xuất hiện và được gửi kèm theo yêu cầu (#292).
 
 ## v1.4.2 - 2026-10-29
 
@@ -145,7 +145,7 @@ Cải thiện bộ điều phối agent với Explore, một agent chuyên khả
 ### Thay đổi
 
 - Khi bước kiểm tra thất bại, agent sẽ sửa tận gốc nguyên nhân thay vì chạy lại, tăng thời gian chờ hoặc bỏ qua.
-- Tắt mặc định tính năng bot tự kiểm tra định kỳ và làm ấm bộ nhớ đệm prompt.
+- Tắt mặc định tính năng bot tự kiểm tra định kỳ và giữ nóng bộ nhớ đệm prompt.
 - Bản máy tính và CLI nay tuân theo proxy hệ thống, áp dụng kịch bản PAC và danh sách ngoại lệ cho từng địa chỉ trên máy tính, đồng thời kết nối trực tiếp với các địa chỉ nội bộ (local) và mạng LAN.
 - Dòng hoạt động của công cụ chỉ hiển thị thời gian đã trôi qua khi lệnh vẫn đang chạy.
 - Khi agent bị dừng vì được cho là không còn tiến triển, hệ thống sẽ ghi lại một dòng `stall_abort` vào `history/tool-failures.jsonl` để có thể báo cáo nếu agent bị dừng nhầm.
@@ -190,8 +190,8 @@ Cải thiện bộ điều phối agent với Explore, một agent chuyên khả
 - Đã sửa lỗi việc tự động chuyển sang mô hình dự phòng gửi tất cả các công cụ MCP cùng một lúc.
 - Đã sửa lỗi các cuộc trò chuyện Claude và Codex được nhập bị mất lịch sử ban đầu, tiêu đề hoặc trang, và hiển thị việc sử dụng công cụ của chúng dưới dạng các hàng hoạt động thu gọn (#245).
 - Đã sửa lỗi các worktree mồ côi còn sót lại và nhánh mặc định bị đưa vào một worktree được quản lý (#247).
-- Đã sửa lỗi bot vẫn hiển thị là đang làm việc sau khi công việc được ủy quyền đã kết thúc, và phiên được nén bị thiếu dấu chấm hoàn thành.
-- Đã sửa lỗi bộ nhớ đệm lời nhắc bị tạo lại sau một yêu cầu bị gián đoạn hoặc sau khi khởi động lại.
+- Đã sửa lỗi bot vẫn hiển thị là đang làm việc sau khi công việc được giao đã kết thúc, và phiên được nén bị thiếu dấu chấm hoàn thành.
+- Đã sửa lỗi bộ nhớ đệm prompt bị tạo lại sau một yêu cầu bị gián đoạn hoặc sau khi khởi động lại.
 - Đã sửa lỗi bảng hoặc khối mã ở cuối câu trả lời bị mất viền dưới, và các bảng hẹp trên điện thoại bị mất khoảng cách giữa các ô.
 
 ## v1.4.0 - 2026-10-27
@@ -201,28 +201,28 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 ### Tính năng mới
 
 - **Màn hình PC từ xa** — Đã thêm tính năng xem và điều khiển màn hình PC từ điện thoại của bạn qua kết nối WebRTC trực tiếp với các phím đặc biệt và viên trạng thái trên PC.
-- **Truy cập PC** — Đã thêm quyền truy cập tùy chọn vào lời nhắc quản trị viên, màn hình khóa và `Ctrl`+`Alt`+`Del` từ điện thoại của bạn, được phê duyệt một lần trong phần thiết lập Computer Use hoặc bằng mật khẩu Windows của bạn.
+- **Truy cập PC** — Đã thêm quyền truy cập tùy chọn vào yêu cầu quyền quản trị, màn hình khóa và `Ctrl`+`Alt`+`Del` từ điện thoại của bạn, được phê duyệt một lần trong phần thiết lập Computer Use hoặc bằng mật khẩu Windows của bạn.
 - **Xem trực tiếp trình duyệt** — Đã thêm tính năng truyền phát trình duyệt trong ứng dụng tới điện thoại của bạn qua WebRTC, điều chỉnh các trang tiếp quản cho vừa màn hình kèm khả năng gõ trực tiếp từ bàn phím di động.
-- **Kiểm soát thông báo** — Đã thêm cài đặt thông báo theo từng thiết bị, tắt tiếng cuộc trò chuyện, giờ yên tĩnh và thông báo lỗi trong Cài đặt → Thông báo, kèm theo Cho phép trên thông báo phê duyệt (#221, thanks @dislight1123).
-- **Công việc do bot ủy quyền** — Đã thêm một dòng trực tiếp cho mỗi công việc bên dưới câu trả lời đối với các tác vụ mà bot ủy quyền, hiển thị tiến độ và cho phép bạn trả lời câu hỏi trong cuộc trò chuyện.
+- **Kiểm soát thông báo** — Đã thêm cài đặt thông báo theo từng thiết bị, tắt tiếng cuộc trò chuyện, giờ yên tĩnh và thông báo lỗi trong Cài đặt → Thông báo, kèm theo Cho phép trên thông báo phê duyệt (#221, cảm ơn @dislight1123).
+- **Công việc do bot giao** — Đã thêm một dòng trực tiếp cho mỗi công việc bên dưới câu trả lời đối với các tác vụ mà bot giao, hiển thị tiến độ và cho phép bạn trả lời câu hỏi trong cuộc trò chuyện.
 - **Thông tin đăng nhập đã lưu** — Đã thêm tính năng tự động đăng nhập bằng thông tin lưu sẵn và mã dùng một lần, được quản lý trong Cài đặt → Xác thực mà mô hình không bao giờ nhìn thấy thông tin bảo mật.
 - **Nhập thông tin đăng nhập Chrome** — Đã thêm tính năng nhập thông tin đăng nhập đã lưu trên Chrome, bao gồm cả các thông tin đăng nhập mã hóa liên kết ứng dụng mới hơn, vào trang Đăng nhập được thiết kế lại với công tắc lưu/duy trì đăng nhập.
 - **Đăng nhập từ email của bạn** — Đã thêm tính năng mở liên kết đăng nhập và điền mã từ email đã xác minh của bạn, đồng thời ghi nhớ nhà cung cấp danh tính mà mỗi trang web đã sử dụng.
 - **Thông tin đăng nhập đã lưu trong Chrome và Edge** — Đã thêm khả năng Computer Use tự điền thông tin đăng nhập đã lưu vào chính Chrome hoặc Edge của bạn mà không để lộ cho mô hình.
-- **Làm ấm bộ nhớ đệm lời nhắc** — Đã thêm tính năng tự động làm ấm bộ nhớ đệm lời nhắc cho các mô hình Anthropic trong Cài đặt → Ngữ cảnh, học thói quen quay lại của bạn và làm ấm bot trước các lần chạy theo lịch trình.
+- **Giữ nóng bộ nhớ đệm prompt** — Đã thêm tính năng tự động giữ nóng bộ nhớ đệm prompt cho các mô hình Anthropic trong Cài đặt → Ngữ cảnh, học thói quen quay lại của bạn và giữ nóng bot trước các lần chạy theo lịch.
 - **Thêm kết nối Google** — Đã thêm tính năng kết nối nhiều tài khoản Google vào Gmail, Calendar và Drive, chọn tài khoản cho từng yêu cầu với lời nhắc đăng nhập rõ ràng.
 
 ### Thay đổi
 
-- Đã thay đổi các agent để xác minh một lần sau tất cả chỉnh sửa thay vì giữa nhiệm vụ, chạy các lệnh gọi công cụ độc lập cùng nhau và giữ cho các cập nhật tiến độ ngắn gọn.
+- Đã thay đổi các agent để xác minh một lần sau tất cả chỉnh sửa thay vì giữa tác vụ, chạy các lệnh gọi công cụ độc lập cùng nhau và giữ cho các cập nhật tiến độ ngắn gọn.
 - Đã chia Cài đặt thành bốn phần: Cơ bản, Hành vi AI, Tích hợp và Hỗ trợ.
 - Đã thay đổi menu Phiên để cho phép bạn chọn phần thanh bên nào sẽ hiển thị.
 - Đã thay đổi thao tác gõ phím, chuyển đổi phiên và thẻ, Tìm kiếm, Cài đặt, các bảng bên, terminal và Thay đổi để mở ngay lập tức, với hiệu ứng hoạt họa trạng thái mượt mà hơn.
-- Đã thay đổi các yêu cầu phê duyệt từ phiên ủy quyền của bot để hiển thị trong mọi cuộc trò chuyện đang chờ, với cùng từ ngữ và phím trên mỗi thẻ phê duyệt.
+- Đã thay đổi các yêu cầu phê duyệt từ phiên giao việc của bot để hiển thị trong mọi cuộc trò chuyện đang chờ, với cùng từ ngữ và phím trên mỗi thẻ phê duyệt.
 - Đã thay đổi các hàng phiên và bot để hiển thị biểu tượng tam giác màu hổ phách khi chờ phê duyệt, biểu tượng dấu hỏi cho câu hỏi và số lượng công việc đang chờ.
 - Đã thay đổi các phiên tác vụ của bot và agent phụ để có dấu chấm chưa đọc riêng, được đánh dấu đã đọc cùng với cuộc trò chuyện mà chúng báo cáo.
 - Đã thay đổi để điện thoại được ghép nối đọc, xem trước, tải xuống và mở tệp tương tự như trên PC.
-- Đã thay đổi bộ chọn tệp `@` để xếp hạng các đường dẫn nông trước, mở với các tệp làm việc gần đây và tìm tệp trong các thư mục liên kết (#228, thanks @reeves-ai-lch).
+- Đã thay đổi bộ chọn tệp `@` để xếp hạng các đường dẫn nông trước, mở với các tệp làm việc gần đây và tìm tệp trong các thư mục liên kết (#228, cảm ơn @reeves-ai-lch).
 - Đã thay đổi Visualize để mở các trang từ bất kỳ thư mục cục bộ nào, đặt tên trang chỉ mục theo thư mục của chúng.
 - Đã thay đổi cửa sổ bật lên mức sử dụng và thanh ghim mức sử dụng để hiển thị từng giới hạn thành một dòng phía trên thanh có chiều rộng đầy đủ.
 - Đã thay đổi công cụ shell để chấp nhận thư mục làm việc tùy chọn và từ chối các lệnh sleep từ 2 giây trở lên.
@@ -249,10 +249,10 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi tính năng kiểm tra định kỳ của Mixy vẫn chạy trong khi bạn vẫn đang sử dụng ứng dụng máy tính.
 - Đã sửa lỗi Computer Use gõ phím vào các cửa sổ tự đưa lên trên cùng và ghi vào các trường chỉ đọc hoặc bị vô hiệu hóa.
 - Đã sửa lỗi mật khẩu đã lưu dài hơn 4.096 ký tự bị cắt ngắn và các thông tin bí mật ngắn hơn bốn ký tự không được che trong cuộc trò chuyện.
-- Đã sửa lỗi lượt thử lại trong hàng đợi của một lượt thất bại và lựa chọn kỹ năng của quy trình bị mất sau khi khởi động lại (#229, thanks @22nsuk).
-- Đã sửa lỗi tính năng tự động tiếp tục hạn ngạch qua SSH đọc hạn ngạch của máy chủ thay vì của PC khi PC đang giữ phiên đăng nhập (#232, thanks @22nsuk).
-- Đã sửa lỗi phím tắt `Option`+`Left`/`Right` không di chuyển theo từng từ trong các trường văn bản trên macOS (#230, thanks @wudys).
-- Đã sửa lỗi lựa chọn ngữ cảnh của hồ sơ agent không được giữ lại (#226, thanks @22nsuk) và Cursor bị lỗi khi xảy ra xung đột ngữ cảnh được lưu trữ (#225, thanks @22nsuk).
+- Đã sửa lỗi lượt thử lại trong hàng đợi của một lượt thất bại và lựa chọn kỹ năng của quy trình bị mất sau khi khởi động lại (#229, cảm ơn @22nsuk).
+- Đã sửa lỗi tính năng tự động tiếp tục hạn mức qua SSH đọc hạn mức của máy chủ thay vì của PC khi PC đang giữ phiên đăng nhập (#232, cảm ơn @22nsuk).
+- Đã sửa lỗi phím tắt `Option`+`Left`/`Right` không di chuyển theo từng từ trong các trường văn bản trên macOS (#230, cảm ơn @wudys).
+- Đã sửa lỗi lựa chọn ngữ cảnh của hồ sơ agent không được giữ lại (#226, cảm ơn @22nsuk) và Cursor bị lỗi khi xảy ra xung đột ngữ cảnh được lưu trữ (#225, cảm ơn @22nsuk).
 - Đã sửa lỗi phiên tác vụ đang chờ hiển thị là bị đình trệ và tài khoản kết nối bị vô hiệu hóa không thể bật lại được.
 - Đã sửa lỗi mất lần thử lại khi gặp lỗi hết hạn đăng nhập trong lượt làm việc, và bảng trình duyệt hiển thị trang trống sau khi đóng trang cuối cùng.
 - Đã sửa lỗi nhấp vào tệp đính kèm trong cuộc trò chuyện dài hoặc đã nén bị báo lỗi "This conversation has no such attachment."
@@ -261,8 +261,8 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi danh sách phiên và cuộc trò chuyện trên điện thoại Android bị đơ sau thao tác vuốt nhanh rồi nhảy vị trí.
 - Đã sửa lỗi tiêu đề mục trên thanh bên vẫn được làm nổi bật sau khi nhấp, và biểu tượng xoay của chúng bị ẩn trong khi nút menu hiển thị.
 - Đã sửa lỗi việc nén cuộc trò chuyện làm mất các kỹ năng và quy tắc hiện tại thay vì xây dựng lại chúng từ các nguồn đang hoạt động.
-- Đã sửa lỗi Mixy tự xuất hiện sau khi kiểm tra khởi động thất bại, đọc các lượt kiểm tra rồi biến mất (#243, thanks @Jichiro-S).
-- Đã sửa lỗi các phiên hiện có bỏ qua cài đặt nén hiện tại và các nhánh rẽ bị nén quá sớm (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Đã sửa lỗi Mixy tự xuất hiện sau khi kiểm tra khởi động thất bại, đọc các lượt kiểm tra rồi biến mất (#243, cảm ơn @Jichiro-S).
+- Đã sửa lỗi các phiên hiện có bỏ qua cài đặt nén hiện tại và các nhánh rẽ bị nén quá sớm (#237, cảm ơn @22nsuk; #238, cảm ơn @skywhale345).
 - Đã sửa lỗi bot yêu cầu bạn trong cuộc trò chuyện giải CAPTCHA hoặc thực hiện bước đăng nhập thay vì bàn giao trang cho bạn.
 
 ## v1.3.5 - 2026-10-24
@@ -283,7 +283,7 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã thay đổi để có thể đổi tên lịch trình, bot, phòng và phiên Lead từ menu của chúng, đồng thời giữ nguyên thời gian chạy một lần.
 - Đã thay đổi kho lưu trữ bí mật trên Linux để dùng tệp cục bộ được bảo vệ khi không có chùm chìa khóa, đồng thời giải thích lý do không thể đọc khóa (#204).
 - Đã thay đổi cuộc trò chuyện với bot để hiển thị nội dung trao đổi với các phiên khác ngay trong dòng, và nhấp vào bong bóng thoại của bot chính để đóng lại.
-- Đã thay đổi ứng dụng để mở nhanh hơn bằng cách hiển thị cuộc trò chuyện và danh sách phiên trước khi tải tác nhân, và việc chuyển lại phiên gần đây giờ đây sẽ hiển thị ngay lập tức.
+- Đã thay đổi ứng dụng để mở nhanh hơn bằng cách hiển thị cuộc trò chuyện và danh sách phiên trước khi tải agent, và việc chuyển lại phiên gần đây giờ đây sẽ hiển thị ngay lập tức.
 
 ### Sửa lỗi
 
@@ -291,10 +291,10 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi thẻ phê duyệt chiếm tiêu điểm khi đang nhập trong ô nhập, và hiển thị biểu tượng chờ phê duyệt trên trình duyệt trong danh sách phiên điện thoại.
 - Đã sửa lỗi đầu ra công cụ dài trên điện thoại không tải được qua Hiển thị đầu ra đầy đủ, và cuộc trò chuyện đã mở bị kẹt ở khung xương tải.
 - Đã sửa lỗi chuyển đổi giữa các phiên gửi bản nháp ô nhập đang soạn dở đến nhầm cuộc trò chuyện (#217).
-- Đã sửa lỗi menu chuột phải và menu hàng đóng bất ngờ mỗi khi tác nhân nền cập nhật hoặc bản chép lời cuộn.
+- Đã sửa lỗi menu chuột phải và menu hàng đóng bất ngờ mỗi khi agent nền cập nhật hoặc bản ghi cuộc trò chuyện cuộn.
 - Đã sửa lỗi tự động đăng nhập trình duyệt thất bại khi gặp thử thách CAPTCHA hoặc tiến trình worker bị sự cố, giữ nguyên định danh trình duyệt qua các lượt kiểm tra Cloudflare.
-- Đã sửa lỗi các cặp thay thế emoji bị hỏng khiến yêu cầu mô hình thất bại, và cô lập khoảng thời gian hết hạn ngạch để chỉ chặn các mô hình bị ảnh hưởng (#209).
-- Đã sửa lỗi tác nhân đã hoàn thành bị đánh dấu là đã hủy khi đóng, và cho phép chỉnh sửa trực tiếp định nghĩa tại chỗ (#211, #216).
+- Đã sửa lỗi các cặp thay thế emoji bị hỏng khiến yêu cầu mô hình thất bại, và cô lập khoảng thời gian hết hạn mức để chỉ chặn các mô hình bị ảnh hưởng (#209).
+- Đã sửa lỗi agent đã hoàn thành bị đánh dấu là đã hủy khi đóng, và cho phép chỉnh sửa trực tiếp định nghĩa tại chỗ (#211, #216).
 
 ## v1.3.4 - 2026-10-23
 
@@ -307,8 +307,8 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi các bảng bị rung lắc sang hai bên khi câu trả lời đang phát trực tuyến trong đoạn chat lập trình.
 - Đã sửa lỗi lệnh Stop của phòng bỏ sót phản hồi, phê duyệt hoặc tin nhắn của thành viên kết thúc ngay sau đó (#201).
 - Đã sửa lỗi các tùy chọn đã chọn trên thẻ câu hỏi bị mất khi trả lời từ ô soạn thảo (#202).
-- Đã sửa lỗi sub-agent không khởi động được khi mô hình của nó được cung cấp bằng tên hiển thị (#203).
-- Đã sửa lỗi các agent yêu cầu bạn đóng các sub-agent đã hoàn thành thay vì tự đóng chúng.
+- Đã sửa lỗi agent phụ không khởi động được khi mô hình của nó được cung cấp bằng tên hiển thị (#203).
+- Đã sửa lỗi các agent yêu cầu bạn đóng các agent phụ đã hoàn thành thay vì tự đóng chúng.
 - Đã sửa lỗi danh sách mô hình trong trình chỉnh sửa agent, hồ sơ bot và ô soạn thảo thiếu các mô hình từ OpenCode Go, OpenRouter và các nhà cung cấp khác (#205).
 
 ## v1.3.3 - 2026-10-22
@@ -353,22 +353,22 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi phản hồi bị dừng tại giới hạn đầu ra và bộ đánh giá mức suy luận bị lỗi vẫn giữ nguyên trạng thái lỗi (#183).
 - Đã sửa lỗi bot đã bị xóa vẫn tiếp tục làm việc trong phòng và cuộc trò chuyện (#180).
 - Đã sửa lỗi bot vượt qua giới hạn giao tiếp giữa các bot bằng cách chuyển tiếp qua các tác vụ nền.
-- Đã sửa lỗi sao lưu cài đặt thất bại làm đẩy sớm các bản sao lưu tốt ra ngoài (thanks @22nsuk).
-- Đã sửa lỗi Windows Computer Use bị mất các phần tử màn hình trong khi chụp ảnh nhanh (#173, thanks @22nsuk).
-- Đã sửa lỗi sắp xếp bộ nhớ từ chối câu trả lời của bộ phân loại khi liệt kê phạm vi hàng (#170, thanks @134634623).
-- Đã sửa lỗi đưa các thay đổi Git vào vùng chờ (staging) đối với các tệp không phải UTF-8 (#177).
+- Đã sửa lỗi sao lưu cài đặt thất bại làm đẩy sớm các bản sao lưu tốt ra ngoài (cảm ơn @22nsuk).
+- Đã sửa lỗi Windows Computer Use bị mất các phần tử màn hình trong khi chụp ảnh nhanh (#173, cảm ơn @22nsuk).
+- Đã sửa lỗi sắp xếp bộ nhớ từ chối câu trả lời của bộ phân loại khi liệt kê phạm vi hàng (#170, cảm ơn @134634623).
+- Đã sửa lỗi đưa các thay đổi Git vào vùng chờ đối với các tệp không phải UTF-8 (#177).
 - Đã sửa lỗi linh vật không hiển thị khi hình ảnh không có kích thước.
 
 ## v1.3.2 - 2026-10-21
 
-Đã thêm giao diện và skin hình ảnh, lớp phủ bot chính và chuyển đổi quy trình cùng chế độ ủy quyền ngay trong cuộc trò chuyện, cùng chữ ký mã nguồn Windows và các bản sửa lỗi toàn diện về nén, phê duyệt và tệp đính kèm.
+Đã thêm giao diện và skin hình ảnh, lớp phủ bot chính và chuyển đổi quy trình cùng chế độ giao việc ngay trong cuộc trò chuyện, cùng chữ ký mã nguồn Windows và các bản sửa lỗi toàn diện về nén, phê duyệt và tệp đính kèm.
 
 ### Tính năng mới
 
-- **Giao diện** — Đã thêm Cài đặt → Giao diện để chọn Hệ thống, Tối tăm hoặc Trắng, một trong bốn skin hình ảnh động, ảnh của riêng bạn hoặc video ngắn, cùng phông chữ và kích cỡ văn bản trên cùng một màn hình.
+- **Giao diện** — Đã thêm Cài đặt → Giao diện để chọn Hệ thống, Tối hoặc Trắng, một trong bốn skin hình ảnh động, ảnh của riêng bạn hoặc video ngắn, cùng phông chữ và kích cỡ văn bản trên cùng một màn hình.
 - **Lớp phủ bot chính** — Đã thêm bot chính xuất hiện phía trên ô nhập của ứng dụng PC, hiển thị câu trả lời trong bong bóng tự động lật trang cho các câu trả lời dài; nhấp vào đó để gửi tin nhắn hoặc nhấp chuột phải để chỉnh kích cỡ, ghim vị trí và cài đặt. Chọn bot trong Cài đặt → Bot.
 - **Mô hình dự phòng** — Đã thêm mô hình dự phòng cho Lead, bot chính và hồ sơ bot, tự động chuyển sang mô hình tiếp theo khi một mô hình đạt đến giới hạn sử dụng.
-- **Chuyển đổi quy trình và ủy quyền** — Đã thêm tính năng chuyển đổi quy trình và chế độ ủy quyền từ menu mô hình trong cuộc trò chuyện; áp dụng từ lượt tiếp theo chỉ cho riêng cuộc trò chuyện đó.
+- **Chuyển đổi quy trình và giao việc** — Đã thêm tính năng chuyển đổi quy trình và chế độ giao việc từ menu mô hình trong cuộc trò chuyện; áp dụng từ lượt tiếp theo chỉ cho riêng cuộc trò chuyện đó.
 - **Nén thông minh** — Đã thêm Cài đặt → Ngữ cảnh → "Mô hình tóm tắt nén" với các tùy chọn Thông minh, Maintainer hoặc Mô hình cuộc trò chuyện. Thông minh là mặc định.
 - **Mức suy luận tự động cơ sở** — Đã thêm Cài đặt → Chung → "Mức suy luận tự động cơ sở" để chọn mức suy luận mà Tự động căn cứ vào.
 - **Tạo hình ảnh** — Đã thêm tính năng tạo hình ảnh trong Studio với các mô hình hình ảnh OpenRouter và NanoGPT.
@@ -391,7 +391,7 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã điều chỉnh các phòng bot để bot trò chuyện tự nhiên hơn thay vì đồng ý với nhau mọi lúc; khi không có mô hình Maintainer, mỗi bot được nhắc đến sẽ trả lời một lần.
 - Tin nhắn giữa các bot hiện hiển thị bot gửi và bot nhận, đồng thời giới hạn qua lại liên tục giữa các bot tối đa ba lượt trao đổi.
 - Thông báo trả lời của bot trên PC và điện thoại hiện sử dụng tên của bot hoặc phòng làm tiêu đề.
-- Nút Git của khung soạn thảo hiện mở tab Git, nơi "Tạo PR", "Cam kết · đẩy" và "Tạo commit" đều có nút "Chạy" riêng.
+- Nút Git của ô nhập hiện mở tab Git, nơi "Tạo PR", "Commit · đẩy" và "Tạo commit" đều có nút "Chạy" riêng.
 - Thẻ kết thúc tác vụ hiện chỉ hiển thị hình thu nhỏ của các tệp được liên kết trong câu trả lời hoặc mở trong bảng bên.
 - Đã thay đổi thao tác cuộn để khung xem chỉ di chuyển khi bạn cuộn và tiếp tục cuộn theo các câu trả lời mới khi bạn chạm đáy; các câu trả lời dài gửi đến cùng lúc bắt đầu hiển thị từ dòng đầu tiên.
 - Máy chủ MCP phản hồi chậm chỉ làm trễ câu trả lời đầu tiên tối đa 3 giây; các công cụ kết nối sau đó sẽ khả dụng từ lượt tiếp theo.
@@ -420,10 +420,10 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi các tác vụ đang chờ phê duyệt hiển thị như bị dừng hoặc bị ngắt do hết thời gian chờ.
 - Đã sửa lỗi agent phụ áp dụng cài đặt ngữ cảnh, mức suy luận và tốc độ của cuộc trò chuyện chính mà bỏ qua cài đặt Maintainer.
 - Đã sửa lỗi câu trả lời dài gửi đến cùng lúc trông bị trắng và mờ trong giây lát.
-- Đã sửa lỗi đầu vào trong hàng đợi đã dừng bị chạy lại sau khi khôi phục (#142, thanks @22nsuk).
-- Đã sửa lỗi các tác vụ shell chưa được xác nhận thoát vẫn bị coi là đã hoàn thành (#133, thanks @22nsuk).
-- Đã sửa lỗi các tác vụ đang chạy bị mất chế độ bảo vệ khi bản ghi không gian làm việc bị hỏng (#117, thanks @22nsuk).
-- Đã sửa lỗi các mô hình Cursor làm mất ID lệnh gọi công cụ và quá trình chuyển giao công cụ bị kẹt không bao giờ kết thúc (#156, thanks @22nsuk).
+- Đã sửa lỗi đầu vào trong hàng đợi đã dừng bị chạy lại sau khi khôi phục (#142, cảm ơn @22nsuk).
+- Đã sửa lỗi các tác vụ shell chưa được xác nhận thoát vẫn bị coi là đã hoàn thành (#133, cảm ơn @22nsuk).
+- Đã sửa lỗi các tác vụ đang chạy bị mất chế độ bảo vệ khi bản ghi không gian làm việc bị hỏng (#117, cảm ơn @22nsuk).
+- Đã sửa lỗi các mô hình Cursor làm mất ID lệnh gọi công cụ và quá trình chuyển giao công cụ bị kẹt không bao giờ kết thúc (#156, cảm ơn @22nsuk).
 - Đã sửa lỗi chỉ báo đang gõ không bao giờ kết thúc trong phòng bot và tin nhắn gửi giữa lúc đang trả lời bị thất lạc.
 - Đã sửa lỗi thông báo "results omitted" không xuất hiện trong cuộc trò chuyện của bot khi tích tụ nhiều kết quả quy trình.
 - Đã sửa lỗi số lượng chưa đọc trong danh sách Bot tính gộp cả các lệnh gọi công cụ.
@@ -433,7 +433,7 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi các hook PreToolUse bị bỏ qua trong các phiên mở lại sau đó, chẳng hạn như lượt theo dõi của một agent (#161).
 - Đã sửa lỗi đăng nhập GitHub bị kẹt ở "Đang bắt đầu đăng nhập GitHub…" (#162).
 - Đã sửa lỗi mức suy luận vẫn hiển thị Tự động sau khi bạn chọn một mức khác (#131).
-- Đã sửa lỗi nút toàn màn hình của video trong bảng bên không hoạt động (#160, thanks @Deno2026).
+- Đã sửa lỗi nút toàn màn hình của video trong bảng bên không hoạt động (#160, cảm ơn @Deno2026).
 - Đã sửa lỗi ứng dụng hiển thị "Object has been destroyed" khi đóng cửa sổ trong lúc lớp phủ bot chính đang bật.
 - Đã sửa lỗi lệnh Git chậm khiến ứng dụng kết nối lại với dịch vụ nền và tạm thời mất các cập nhật phiên trực tiếp.
 
@@ -447,8 +447,8 @@ Chúng tôi rất tiếc vì bản cập nhật 1.3.0 đã đặt lại một s�
 
 - Đã thay đổi tin nhắn gửi trong lúc tác vụ đang chạy để hiển thị ngay trong cuộc trò chuyện, kèm theo **Gửi ngay** cho đến khi chúng được đọc; hàng đợi phía trên trình soạn thảo đã được gỡ bỏ.
 - Đã thay đổi thẻ phê duyệt cho hành động gửi ra ngoài để chỉ xuất hiện khi bot gửi, đăng hoặc xóa; các phiên lập trình sẽ không hỏi nữa.
-- Đã thay đổi bot đại diện và Lead để duy trì các mô hình riêng biệt, và việc gửi khi chưa có mô hình sẽ mở bộ chọn mô hình thay vì tự động chọn một mô hình.
-- Đã thay đổi bot và tác nhân để chuyển tiếp tệp đính kèm và tệp đã tạo khi bàn giao công việc cho nhau.
+- Đã thay đổi bot chính và Lead để duy trì các mô hình riêng biệt, và việc gửi khi chưa có mô hình sẽ mở bộ chọn mô hình thay vì tự động chọn một mô hình.
+- Đã thay đổi bot và agent để chuyển tiếp tệp đính kèm và tệp đã tạo khi bàn giao công việc cho nhau.
 - Đã thay đổi thẻ visualize thành một thẻ cho mỗi tác vụ, tập hợp các trang đã mở dưới dạng hình thu nhỏ.
 - Đã thay đổi các hộp thoại xác nhận chẳng hạn như xóa từ mặc định của Windows sang các hộp thoại phù hợp với chủ đề ứng dụng.
 - Đã gỡ bỏ bộ chọn mô hình và chỉ báo ngữ cảnh khỏi trình soạn thảo phòng bot.
@@ -463,13 +463,13 @@ Chúng tôi rất tiếc vì bản cập nhật 1.3.0 đã đặt lại một s�
 - Đã sửa lỗi lưu tùy chọn mô hình của Lead thất bại với "model selection contains an unsupported field" (#132).
 - Đã sửa lỗi các cuộc trò chuyện với bot thất bại với "provider message prefix changed outside compaction".
 - Đã sửa lỗi mô hình Lead bị trống sau khi cập nhật lên 1.3.0; giờ đây nó sẽ lấy mô hình bạn đã sử dụng gần nhất trong tác vụ mới, và các bot vẫn giữ mô hình đã trò chuyện cùng.
-- Đã sửa lỗi các tác nhân tùy chỉnh cũ hiển thị dưới dạng bot sau khi cập nhật lên 1.3.0.
-- Đã sửa lỗi tính cách của bot đại diện bị rò rỉ vào các phiên lập trình.
-- Đã sửa lỗi bot đại diện không báo cáo lại sau khi bàn giao công việc cho phiên khác; các báo cáo giờ đây vẫn tiếp tục sau khi khởi động lại.
-- Đã sửa lỗi các phiên tác vụ của tác nhân do bot đại diện tạo mở ra với mô hình trống ("Chọn mô hình").
-- Đã sửa lỗi việc chuyển sang trang Bot thay thế vùng chính bằng cuộc trò chuyện của bot đại diện.
+- Đã sửa lỗi các agent tùy chỉnh cũ hiển thị dưới dạng bot sau khi cập nhật lên 1.3.0.
+- Đã sửa lỗi tính cách của bot chính bị rò rỉ vào các phiên lập trình.
+- Đã sửa lỗi bot chính không báo cáo lại sau khi bàn giao công việc cho phiên khác; các báo cáo giờ đây vẫn tiếp tục sau khi khởi động lại.
+- Đã sửa lỗi các phiên tác vụ của agent do bot chính tạo mở ra với mô hình trống ("Chọn mô hình").
+- Đã sửa lỗi việc chuyển sang trang Bot thay thế vùng chính bằng cuộc trò chuyện của bot chính.
 - Đã sửa lỗi trình soạn thảo không nhận dữ liệu nhập sau khi xóa một phòng bot.
-- Đã sửa lỗi các tác nhân không chuyển sang mô hình tiếp theo khi mô hình đầu tiên đạt giới hạn sử dụng.
+- Đã sửa lỗi các agent không chuyển sang mô hình tiếp theo khi mô hình đầu tiên đạt giới hạn sử dụng.
 - Đã sửa lỗi điện thoại tải vô tận khi PC được kết nối đang tắt; giờ đây nó thông báo không thể kết nối và cho phép bạn thử lại (#134).
 - Đã sửa lỗi cuộn trên điện thoại bị dừng hoặc giật khi tải các tin nhắn trước đó.
 - Đã sửa lỗi bảng visualize mở chậm trên điện thoại.
@@ -481,7 +481,7 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 
 ### Tính năng mới
 
-- **Trò chuyện với bot** — Đã thêm trò chuyện với bot theo phong cách tin nhắn với luồng chính cố định, hồ sơ bot có thể tùy chỉnh và bot đại diện mặc định Mixy.
+- **Trò chuyện với bot** — Đã thêm trò chuyện với bot theo phong cách tin nhắn với luồng chính cố định, hồ sơ bot có thể tùy chỉnh và bot chính mặc định Mixy.
 - **Phòng nhóm** — Đã thêm các phòng nhóm nơi nhiều bot cùng cộng tác, hỗ trợ nhắc đến bằng `@`, định tuyến tệp đính kèm đến các bot được chỉ định và điều phối nhẹ nhàng thông qua mô hình Maintainer.
 - **Thẻ phê duyệt cho hành động gửi ra ngoài** — Đã thêm thẻ phê duyệt cho việc gửi tin nhắn, email, bài đăng, thanh toán và xóa vĩnh viễn, hiển thị chi tiết chính xác trước khi thực hiện.
 - **Quy trình trong trò chuyện bot** — Đã thêm tính năng chạy lịch trình và webhook dưới dạng các lượt phản hồi ngay trong cuộc trò chuyện của bot sở hữu.
@@ -500,11 +500,11 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 ### Sửa lỗi
 
 - Đã sửa lỗi cuộn bản ghi chép trên điện thoại bị dừng khi một từ đang truyền phát hoàn tất hiệu ứng mờ dần trong lúc kéo.
-- Đã sửa lỗi tin nhắn đang chờ và tệp đính kèm bị mất hoặc bị bỏ qua sau khi khởi động lại (#119, thanks @22nsuk).
-- Đã sửa lỗi cài đặt được khôi phục từ bản sao lưu cũ khi hai lần lưu trùng thời điểm (#120, thanks @22nsuk).
-- Đã sửa lỗi lệnh shell bị coi là đã xong dù tiến trình con vẫn chạy sau khi khởi động lỗi hoặc bị hủy (#124, thanks @22nsuk).
-- Đã sửa lỗi tìm kiếm liệt kê cùng một tệp hai lần với cách viết đường dẫn khác nhau (#118, thanks @22nsuk).
-- Đã sửa lỗi danh sách phiên bị nhảy khi đánh dấu yêu thích, bỏ yêu thích hoặc xóa một phiên (#129, thanks @oh1701).
+- Đã sửa lỗi tin nhắn đang chờ và tệp đính kèm bị mất hoặc bị bỏ qua sau khi khởi động lại (#119, cảm ơn @22nsuk).
+- Đã sửa lỗi cài đặt được khôi phục từ bản sao lưu cũ khi hai lần lưu trùng thời điểm (#120, cảm ơn @22nsuk).
+- Đã sửa lỗi lệnh shell bị coi là đã xong dù tiến trình con vẫn chạy sau khi khởi động lỗi hoặc bị hủy (#124, cảm ơn @22nsuk).
+- Đã sửa lỗi tìm kiếm liệt kê cùng một tệp hai lần với cách viết đường dẫn khác nhau (#118, cảm ơn @22nsuk).
+- Đã sửa lỗi danh sách phiên bị nhảy khi đánh dấu yêu thích, bỏ yêu thích hoặc xóa một phiên (#129, cảm ơn @oh1701).
 
 ### Khác
 
@@ -529,24 +529,24 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 
 ### Sửa lỗi
 
-- Đã sửa lỗi phần phụ trợ bị treo khi tải tác nhân nặng và tự khởi động lại, làm gián đoạn các tác nhân đang chạy.
+- Đã sửa lỗi backend bị treo khi tải nhiều agent và tự khởi động lại, làm gián đoạn các agent đang chạy.
 - Đã sửa lỗi thao tác hủy vẫn để các tiến trình con và máy chủ tiếp tục chạy (#115).
-- Đã sửa lỗi văn bản dán dài khó đọc hoặc chỉnh sửa (#110), và lỗi khi nhập ký tự `/` đơn lẻ trong trình soạn thảo (thanks @oh1701).
+- Đã sửa lỗi văn bản dán dài khó đọc hoặc chỉnh sửa (#110), và lỗi khi nhập ký tự `/` đơn lẻ trong trình soạn thảo (cảm ơn @oh1701).
 - Đã sửa lỗi hộp thoại xác nhận shell đẩy các nút ra ngoài màn hình (#114) và các thư mục `.git` trống chặn tác vụ (#108).
-- Đã sửa lỗi tổng mức sử dụng tác nhân bỏ sót các tác nhân đã đóng (#99, thanks @22nsuk).
-- Đã sửa lỗi mất tệp đính kèm trong khi tải và một tác nhân bị lỗi đánh dấu toàn bộ tab phiên của nó là thất bại.
+- Đã sửa lỗi tổng mức sử dụng agent bỏ sót các agent đã đóng (#99, cảm ơn @22nsuk).
+- Đã sửa lỗi mất tệp đính kèm trong khi tải và một agent bị lỗi đánh dấu toàn bộ tab phiên của nó là thất bại.
 - Đã sửa lỗi mọi lượt đều thất bại với "Workspace activity cannot be verified" sau khi sự cố làm hỏng sổ cái không gian làm việc.
-- Đã sửa lỗi thời gian hồi tài khoản đã hết hạn không thử lại (#106), sao lưu cài đặt làm mất bản gốc (#105) và lịch sử sử dụng không thể đọc được chặn tính tổng (#103), thanks @22nsuk.
+- Đã sửa lỗi thời gian hồi tài khoản đã hết hạn không thử lại (#106), sao lưu cài đặt làm mất bản gốc (#105) và lịch sử sử dụng không thể đọc được chặn tính tổng (#103), cảm ơn @22nsuk.
 
 ## v1.2.5 - 2026-10-18
 
-Điện thoại giờ đây kết nối nhanh hơn và không có cửa sổ bật lên, ứng dụng trên máy tính không còn bị chậm khi chạy nhiều tác nhân, và câu trả lời phát trực tuyến hiển thị mượt mà hơn.
+Điện thoại giờ đây kết nối nhanh hơn và không có cửa sổ bật lên, ứng dụng trên máy tính không còn bị chậm khi chạy nhiều agent, và câu trả lời phát trực tuyến hiển thị mượt mà hơn.
 
 ### Thay đổi
 
 - Đã thay đổi kết nối điện thoại để tự động kết nối lại mà không cần cửa sổ bật lên hay đếm ngược; một dấu chấm nhỏ chỉ xuất hiện khi mất kết nối trong thời gian dài.
 - Đã thay đổi phản hồi phát trực tuyến để xuất hiện từng từ một với hiệu ứng mờ dần mềm mại, không bị nhảy do Markdown chưa hoàn chỉnh; các khối mã xuất hiện cùng nội dung.
-- Đã thay đổi trạng thái tác nhân để hiển thị Done cho đến khi bạn mở kết quả, sau đó là Idle.
+- Đã thay đổi trạng thái agent để hiển thị Xong cho đến khi bạn mở kết quả, sau đó là Đang chờ.
 - Đã thay đổi menu nhánh để mở từ nút `…` hoặc nhấp chuột phải; trên điện thoại, nhấn giữ vào một nhánh.
 - Đã thay đổi các trang visualize trên điện thoại để mở trực tiếp mà không cần lời nhắc Run, giống như trên máy tính.
 - Đã điều chỉnh bảng mức sử dụng và phần tóm tắt trên đảo trình soạn thảo để giữ nguyên chiều cao trong khi tải số liệu.
@@ -554,8 +554,8 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 
 ### Sửa lỗi
 
-- Đã sửa lỗi tin nhắn đã gửi và câu trả lời không xuất hiện trong cuộc trò chuyện sau khi ứng dụng khởi động lại cho đến khi được mở lại (#113, thanks @oh1701).
-- Đã sửa lỗi ứng dụng trên máy tính tạm dừng khoảng một giây mỗi lần khi có hơn 256 phiên tác nhân tồn tại.
+- Đã sửa lỗi tin nhắn đã gửi và câu trả lời không xuất hiện trong cuộc trò chuyện sau khi ứng dụng khởi động lại cho đến khi được mở lại (#113, cảm ơn @oh1701).
+- Đã sửa lỗi ứng dụng trên máy tính tạm dừng khoảng một giây mỗi lần khi có hơn 256 phiên agent tồn tại.
 - Đã sửa lỗi các yêu cầu từ điện thoại phải chờ sau các thao tác đọc Git và mức sử dụng chậm trên máy tính.
 - Đã sửa lỗi điện thoại bị ngắt kết nối khi máy tính đang bận, và kết nối đầu tiên sau khi mở ứng dụng mất hơn 10 giây.
 - Đã sửa lỗi điện thoại mãi ở trạng thái "Allowed. Connecting…" hoặc hiển thị "Request expired" sau khi máy tính đã phê duyệt.
@@ -565,24 +565,24 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 - Đã sửa lỗi một lần kiểm tra đường dẫn tệp chậm làm nghẽn mọi yêu cầu khác từ điện thoại.
 - Đã sửa lỗi cuộn lên trong các cuộc trò chuyện dài bị gián đoạn trong khi tải tin nhắn cũ hơn (#104).
 - Đã sửa lỗi cuộc trò chuyện bị kéo ngược xuống khi cuộn lên trên điện thoại trong lúc câu trả lời đang được truyền.
-- Đã sửa lỗi các biểu tượng bị chồng chéo trên thẻ tệp và thông báo lỗi tải xuống lặp lại.
+- Đã sửa lỗi các biểu tượng bị chồng chéo trên tab tệp và thông báo lỗi tải xuống lặp lại.
 
 ## v1.2.4 - 2026-10-17
 
-Bản cập nhật bao gồm kiểm soát phiên tác nhân và gán mô hình dự phòng, tự động chuẩn bị worktree, tối ưu hóa đầu ra harness và cải thiện hiệu năng tổng thể.
+Bản cập nhật bao gồm kiểm soát phiên agent và gán mô hình dự phòng, tự động chuẩn bị worktree, tối ưu hóa đầu ra harness và cải thiện hiệu năng tổng thể.
 
 ### 1. Cải tiến harness: giảm lượng đầu ra, tinh chỉnh kiểu hiển thị và ổn định chung
 
-- Đơn giản hóa báo cáo hoàn thành của tác nhân cùng thẻ câu hỏi, đồng thời giảm bớt đầu ra của các công cụ Git, tìm kiếm và GitHub để tiết kiệm token.
-- Ổn định quy trình dọn dẹp tiến trình shell chạy ngầm và công cụ bên ngoài, cải thiện tiêu chí nhận diện tác nhân không phản hồi trong các tác vụ dài.
+- Đơn giản hóa báo cáo hoàn thành của agent cùng thẻ câu hỏi, đồng thời giảm bớt đầu ra của các công cụ Git, tìm kiếm và GitHub để tiết kiệm token.
+- Ổn định quy trình dọn dẹp tiến trình shell chạy ngầm và công cụ bên ngoài, cải thiện tiêu chí nhận diện agent không phản hồi trong các tác vụ dài.
 
 ### 2. Cải tiến công cụ tạo phương tiện
 
 - Nâng cao tính ổn định khi tạo hình ảnh ChatGPT, hỗ trợ nền trong suốt và cho phép ghim mô hình ưu tiên theo từng loại phương tiện.
 
-### 3. Gán mô hình dự phòng cho tác nhân
+### 3. Gán mô hình dự phòng cho agent
 
-- Bổ sung hỗ trợ các mô hình dự phòng chuyển đổi theo thứ tự khi mô hình chính gặp lỗi, đồng thời cho phép chỉ định trực tiếp mô hình khi khởi chạy tác nhân phụ (#86).
+- Bổ sung hỗ trợ các mô hình dự phòng chuyển đổi theo thứ tự khi mô hình chính gặp lỗi, đồng thời cho phép chỉ định trực tiếp mô hình khi khởi chạy agent phụ (#86).
 
 ### 4. Cải tiến tính năng worktree
 
@@ -590,18 +590,18 @@ Bản cập nhật bao gồm kiểm soát phiên tác nhân và gán mô hình d
 
 ### 5. Ổn định gọi công cụ theo nhà cung cấp
 
-- Sửa lỗi xử lý suy nghĩ của Claude trên Antigravity, bổ sung hiển thị mức sử dụng và tăng cường độ tin cậy khi suy luận cũng như gọi công cụ trên gateway tùy chỉnh (#79, #94, thanks @22nsuk and @sukjong2002).
+- Sửa lỗi xử lý suy nghĩ của Claude trên Antigravity, bổ sung hiển thị mức sử dụng và tăng cường độ tin cậy khi suy luận cũng như gọi công cụ trên gateway tùy chỉnh (#79, #94, cảm ơn @22nsuk and @sukjong2002).
 - Ổn định kết nối và cơ chế thử lại của Antigravity, cải thiện khả năng thực thi công cụ trong môi trường tương thích Cursor và OpenAI.
-- Bổ sung khả năng kiểm tra trực tiếp trạng thái các nhà cung cấp đã đăng ký trên PC ngay từ cửa sổ SSH từ xa (#77, thanks @22nsuk).
+- Bổ sung khả năng kiểm tra trực tiếp trạng thái các nhà cung cấp đã đăng ký trên PC ngay từ cửa sổ SSH từ xa (#77, cảm ơn @22nsuk).
 - Cải thiện nén yêu cầu Anthropic và ChatGPT với cơ chế dự phòng an toàn để tăng tốc thời gian bắt đầu phản hồi.
 
-### 6. Làm mới quản lý phiên tác nhân
+### 6. Làm mới quản lý phiên agent
 
-- Thay đổi để các tác nhân đã hoàn thành lưu lại trên bảng điều khiển trong 1 giờ, khôi phục tóm tắt số lượng tác vụ theo trạng thái và thông báo chờ.
+- Thay đổi để các agent đã hoàn thành lưu lại trên bảng điều khiển trong 1 giờ, khôi phục tóm tắt số lượng tác vụ theo trạng thái và thông báo chờ.
 
-### 7. Hỗ trợ tác nhân chính quản lý phiên
+### 7. Hỗ trợ agent chính quản lý phiên
 
-- Bổ sung khả năng để tác nhân chính xem danh sách và nội dung các phiên khác, trực tiếp quản lý phiên bằng cách gửi tin nhắn, hủy hoặc xóa phiên.
+- Bổ sung khả năng để agent chính xem danh sách và nội dung các phiên khác, trực tiếp quản lý phiên bằng cách gửi tin nhắn, hủy hoặc xóa phiên.
 
 ### 8. Tối ưu hóa hiệu năng từ xa và trên máy tính
 
@@ -630,19 +630,19 @@ Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đ�
 
 ### Tính năng mới
 
-- **Worktree từ đảo** — Đã thêm phân đoạn nhánh vào đảo trình soạn thảo để chuyển đoạn chat sang worktree, đồng thời mang theo hoặc để lại các thay đổi chưa cam kết.
+- **Worktree từ thanh nổi** — Đã thêm mục nhánh vào thanh nổi ô nhập để chuyển đoạn chat sang worktree, đồng thời mang theo hoặc giữ lại các thay đổi chưa commit.
 - **Thẻ câu hỏi** — Đã thêm thẻ cho các câu hỏi mà agent hỏi bạn trong ứng dụng máy tính để bàn và TUI.
 - **`/btw`** — Đã thêm `/btw` để đặt câu hỏi nhanh mà không làm gián đoạn tác vụ hiện tại.
-- **Công cụ phiên** — Đã thêm công cụ cho phép agent đổi tên, thu gọn, rẽ nhánh và di chuyển phiên hiện tại (#14, thanks @hyeon1035298).
-- **Nhiều PC trên Android** — Đã thêm tính năng chuyển đổi giữa tối đa 16 PC đã lưu trong ứng dụng Android (#83, thanks @yupguni).
-- **Khôi phục chỉnh sửa bị gián đoạn** — Đã thêm bảng điều khiển khôi phục hiển thị các chỉnh sửa tệp bị gián đoạn do sự cố và khôi phục hoặc hủy bỏ chúng một cách an toàn (#60, thanks @22nsuk).
+- **Công cụ phiên** — Đã thêm công cụ cho phép agent đổi tên, thu gọn, rẽ nhánh và di chuyển phiên hiện tại (#14, cảm ơn @hyeon1035298).
+- **Nhiều PC trên Android** — Đã thêm tính năng chuyển đổi giữa tối đa 16 PC đã lưu trong ứng dụng Android (#83, cảm ơn @yupguni).
+- **Khôi phục chỉnh sửa bị gián đoạn** — Đã thêm bảng điều khiển khôi phục hiển thị các chỉnh sửa tệp bị gián đoạn do sự cố và khôi phục hoặc hủy bỏ chúng một cách an toàn (#60, cảm ơn @22nsuk).
 
 ### Thay đổi
 
 - Đã thay đổi phản hồi phát trực tuyến để hiển thị mượt mà khi được viết thay vì bùng nổ theo từng dòng.
 - Đã thay đổi thao tác thoát, tạo đoạn chat mới và bảng Thay đổi để phản hồi nhanh hơn nhiều.
 - Đã thay đổi lược đồ công cụ MCP để được chuyển đổi cho từng nhà cung cấp, giúp các công cụ hoạt động trong các ứng dụng khác cũng hoạt động trong Mixdog; công cụ bị lỗi sẽ được bỏ qua kèm theo thông báo.
-- Đã thay đổi tổng mức sử dụng để luôn ẩn khi nhà cung cấp không báo cáo mức sử dụng cho mỗi lệnh gọi (#90, #91, thanks @22nsuk).
+- Đã thay đổi tổng mức sử dụng để luôn ẩn khi nhà cung cấp không báo cáo mức sử dụng cho mỗi lệnh gọi (#90, #91, cảm ơn @22nsuk).
 - Đã thay đổi thao tác chuyển các thay đổi sang worktree để từ chối các tệp bị Git ẩn khỏi status, giúp không làm mất bất kỳ chỉnh sửa nào.
 - Đã thay đổi bản sao lưu cài đặt để duy trì theo từng hồ sơ, giúp cài đặt của một hồ sơ không bao giờ bị hồ sơ khác ghi đè.
 - Đã thay đổi dải phiên bản Visualize thành menu Phiên bản, đồng thời thêm tính năng đổi tên tab bằng cách nhấp đúp và làm nổi bật lệnh gạch chéo.
@@ -651,9 +651,9 @@ Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đ�
 
 ### Sửa lỗi
 
-- Đã sửa lỗi các mô hình Claude trên Antigravity gặp sự cố với HTTP 400 do lược đồ công cụ (#80, thanks @ProofPage).
-- Đã sửa lỗi nút Nhánh mới trong đoạn chat không hoạt động (#85, thanks @oh1701).
-- Đã sửa lỗi các agent mới khởi động không thấy các công cụ MCP ở lượt đầu tiên (#88, thanks @oh1701).
+- Đã sửa lỗi các mô hình Claude trên Antigravity gặp sự cố với HTTP 400 do lược đồ công cụ (#80, cảm ơn @ProofPage).
+- Đã sửa lỗi nút Nhánh mới trong đoạn chat không hoạt động (#85, cảm ơn @oh1701).
+- Đã sửa lỗi các agent mới khởi động không thấy các công cụ MCP ở lượt đầu tiên (#88, cảm ơn @oh1701).
 - Đã sửa lỗi dịch vụ nền bị đơ khi xóa các phiên, và các phiên đã xóa hoặc tab của chúng xuất hiện trở lại.
 - Đã sửa lỗi cơ sở dữ liệu đôi khi vẫn mở sau khi thoát ứng dụng.
 - Đã sửa lỗi tin nhắn đầu tiên sau khi chuyển mô hình của đoạn chat bị lỗi với "Session state changed unexpectedly".
@@ -665,7 +665,7 @@ Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đ�
 
 ### Khác
 
-- Đã sửa lỗi bản dựng máy tính để bàn (#89, thanks @22nsuk).
+- Đã sửa lỗi bản dựng máy tính để bàn (#89, cảm ơn @22nsuk).
 
 ## v1.2.2 - 2026-10-14
 
@@ -673,10 +673,10 @@ Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đ�
 
 ### Tính năng mới
 
-- **Đăng nhập MCP** — Đã thêm đăng nhập OAuth rõ ràng cho máy chủ MCP với trạng thái, hộp thoại đăng nhập dùng chung, dán từ xa và lệnh TUI (#74, thanks @oh1701).
-- **Chuyển mô hình tại chỗ** — Đã thêm tính năng chuyển đổi mô hình của đoạn chat mà không cần bắt đầu phiên mới, và Fork trong menu phiên (#73, #52, thanks @grapefruit0205).
+- **Đăng nhập MCP** — Đã thêm đăng nhập OAuth rõ ràng cho máy chủ MCP với trạng thái, hộp thoại đăng nhập dùng chung, dán từ xa và lệnh TUI (#74, cảm ơn @oh1701).
+- **Chuyển mô hình tại chỗ** — Đã thêm tính năng chuyển đổi mô hình của đoạn chat mà không cần bắt đầu phiên mới, và Fork trong menu phiên (#73, #52, cảm ơn @grapefruit0205).
 - **Biểu ngữ giới hạn** — Đã thêm biểu ngữ một dòng phía trên trình soạn thảo khi đạt giới hạn; Tiếp tục sẽ đặt trước lần chạy tiếp theo cho thời điểm đặt lại.
-- **Menu tệp** — Đã thêm số lượng tệp trên đảo theo dõi các thay đổi chưa cam kết của phiên, với Xem thay đổi và Xóa lịch sử.
+- **Menu tệp** — Đã thêm số lượng tệp trên thanh nổi theo dõi các thay đổi chưa commit của phiên, với Xem thay đổi và Xóa lịch sử.
 - **Kích thước chữ chat** — Đã thêm cài đặt kích thước chữ chat cho từng thiết bị.
 
 ### Thay đổi
@@ -693,12 +693,12 @@ Bạn mới sử dụng tính năng suy luận tự động? Một mô hình đ�
 - Đã sửa lỗi đảo trình soạn thảo hiển thị các Agent đang chạy thành không hoạt động hoặc đã xong.
 - Đã sửa lỗi chuyển đổi phiên bị treo khi chờ quét thay đổi từ các phiên khác.
 - Đã sửa lỗi hộp thoại trang trình duyệt rời khỏi ngăn, xác nhận rời trang không hoàn tất và phím tắt sao chép trong trình duyệt bị lỗi.
-- Đã sửa lỗi lưu bộ nhớ cache prompt trên các nhà cung cấp Responses tùy chỉnh và các dự án phiên kế thừa không khớp với thanh bên (#70, #75, thanks @sukjong2002).
+- Đã sửa lỗi lưu bộ nhớ cache prompt trên các nhà cung cấp Responses tùy chỉnh và các dự án phiên kế thừa không khớp với thanh bên (#70, #75, cảm ơn @sukjong2002).
 - Đã sửa lỗi bảng phát trực tuyến bị nhấp nháy, bản ghi bị giật khi một lượt đang hoạt động và thẻ giới hạn vẫn hiển thị sau khi đổi nhà cung cấp.
 
 ### Khác
 
-- Đã xóa các hàm trợ giúp không sử dụng (#67, thanks @22nsuk).
+- Đã xóa các hàm trợ giúp không sử dụng (#67, cảm ơn @22nsuk).
 
 ## v1.2.1 - 2026-10-14
 
@@ -766,7 +766,7 @@ Bản phát hành này giới thiệu bảng thay đổi và thẻ thay đổi t
 - Các lệnh shell nền có thể được dừng trực tiếp từ ứng dụng hoặc từ xa. Các lệnh đã hoàn thành vẫn được liệt kê cho đến khi bị đóng thay vì biến mất ngay lập tức, và bảng công việc trên ô nhập liệu mở rộng nội tuyến để hiển thị các lệnh nền đang chạy cùng với các tác tử với số lượng mã token tích lũy và số lần gọi công cụ.
 - Di chuyển phiên sang dự án khác từ menu thanh bên hoặc bằng cách kéo và thả mà không làm thay đổi thư mục trên đĩa; các phiên trong thư mục con và worktree của dự án sẽ tự động được nhóm lại dưới dự án đó.
 - Các bảng điều khiển bên trên điện thoại (trình duyệt, cửa sổ dòng lệnh, thay đổi và xem trước) có cùng tiêu đề như trên PC: tab, menu chuyển đổi bảng điều khiển và nút đóng. Trong trình duyệt trên điện thoại, `+` mở một tab mới trong bảng bên của phiên đó, và các tab chuyển đổi cũng như đóng giống như trên PC (yêu cầu ứng dụng PC đã cập nhật).
-- Hình ảnh gửi trong đoạn chat vẫn giữ lại hình thu nhỏ sau khi khởi động lại ứng dụng, đồng thời thẻ tệp HTML và trực quan hóa hiển thị bản xem trước trực quan thực tế của trang được kết xuất cục bộ trong hộp cát cô lập không có kết nối mạng đối với các tệp trong dự án.
+- Hình ảnh gửi trong đoạn chat vẫn giữ lại hình thu nhỏ sau khi khởi động lại ứng dụng, đồng thời tab tệp HTML và trực quan hóa hiển thị bản xem trước trực quan thực tế của trang được kết xuất cục bộ trong sandbox cô lập không có kết nối mạng đối với các tệp trong dự án.
 - Ô nhập liệu liệt kê các tác tử đang chạy theo định dạng tương tự như cửa sổ tác tử và tự động ẩn phần shell khi không có lệnh nền nào đang hoạt động.
 - Đóng tab cửa sổ dòng lệnh, trình duyệt hoặc tệp cuối cùng sẽ tự động đóng bảng bên, và mở lại cửa sổ dòng lệnh sẽ khởi tạo một tab mới sạch sẽ (dựa trên #49 bởi @moveju112).
 - Thư mục dự án và các phần trên thanh bên vẫn mở theo mặc định và ghi nhớ trạng thái thu gọn, trong khi chọn một phiên trong thư mục bị thu gọn sẽ tự động mở thư mục đó ra. Các phiên cũng có thể được sắp xếp lại bằng cách kéo hoặc sắp xếp theo hoạt động gần đây.
@@ -841,11 +841,11 @@ Mục "Tệp hướng dẫn" mới trong Cài đặt → Chung có thể tự đ
 
 Daybreak Blue nay là công tắc theo từng tuyến trong "Suy luận tự động" trên các mô hình hỗ trợ, dựa trên danh sách mô hình của nhà cung cấp. Mô hình Blue riêng đã bị loại bỏ, và các tuyến hiện có chuyển sang một mô hình được hỗ trợ với Blue được bật.
 
-- Bộ đánh giá suy luận tự động v6 được cài đặt tự động sau khi cập nhật. Đây là EmbeddingGemma 2 được tinh chỉnh riêng để đánh giá mức nỗ lực suy luận, và đánh giá cả yêu cầu lẫn các bước công cụ của tác nhân. Trên cùng 12,029 mục giữ lại, nó chính xác hơn Jev 1.13 (đúng chính xác mức 78,5% so với 72,7%; lệch từ hai mức trở lên 0,6% so với 1,4%) và đưa ra quyết định trong khoảng 115 ms trên PC của bạn. Chi tiết: `docs/auto-reasoning-effort.md`
+- Bộ đánh giá suy luận tự động v6 được cài đặt tự động sau khi cập nhật. Đây là EmbeddingGemma 2 được tinh chỉnh riêng để đánh giá mức suy luận, và đánh giá cả yêu cầu lẫn các bước công cụ của agent. Trên cùng 12.029 mục giữ lại, nó chính xác hơn Jev 1.13 (đúng chính xác mức 78,5% so với 72,7%; lệch từ hai mức trở lên 0,6% so với 1,4%) và đưa ra quyết định trong khoảng 115 ms trên PC của bạn. Chi tiết: `docs/auto-reasoning-effort.md`
 
-Suy luận tự động nay hiển thị là "Auto" ở mọi nơi có hiển thị mô hình và mức nỗ lực, gồm thanh bên tác nhân, quy trình làm việc, lịch trình và webhook. Dòng trạng thái đang làm việc hiển thị mức nỗ lực mà Auto thực sự đã chọn, được dịch sang ngôn ngữ của bạn (ví dụ "Đang suy nghĩ (medium)").
+Suy luận tự động nay hiển thị là "Auto" ở mọi nơi có hiển thị mô hình và mức suy luận, gồm thanh bên agent, quy trình, lịch và webhook. Dòng trạng thái đang làm việc hiển thị mức suy luận mà Auto thực sự đã chọn, được dịch sang ngôn ngữ của bạn (ví dụ "Đang suy nghĩ (Trung bình)").
 
-Đảo trình soạn thảo phía trên ô nhập tin nhắn đã được thiết kế lại. Mục tiêu hiển thị biểu tượng trạng thái, chấm tiến độ theo từng tác vụ và "Đang xử lý"; tác nhân, shell và tệp đã thay đổi được đếm riêng với biểu tượng riêng; và các tác nhân đang chờ bạn phê duyệt hiển thị "Đang chờ phê duyệt" cùng số "Cần bạn xử lý" thay vì trông như đang bận. Nhấp vào một tác nhân sẽ mở phiên của nó, thời gian chạy của tác nhân nay tính từ lượt hiện tại thay vì từ lúc tạo, và đảo vẫn hiện thêm một lúc sau khi hoàn tất công việc thay vì chớp tắt. Ngăn Tác nhân cũng đánh dấu các tác nhân đang chờ phê duyệt.
+Thanh nổi phía trên ô nhập tin nhắn đã được thiết kế lại. Mục tiêu hiển thị biểu tượng trạng thái, chấm tiến độ theo từng tác vụ và "Đang xử lý"; agent, shell và tệp đã thay đổi được đếm riêng với biểu tượng riêng; và các agent đang chờ bạn phê duyệt hiển thị "Đang chờ phê duyệt" cùng số "Cần bạn xử lý" thay vì trông như đang bận. Nhấp vào một agent sẽ mở phiên của nó, thời gian chạy của agent nay tính từ lượt hiện tại thay vì từ lúc tạo, và thanh nổi vẫn hiện thêm một lúc sau khi hoàn tất công việc thay vì chớp tắt. Ngăn Agent cũng đánh dấu các agent đang chờ phê duyệt.
 
 Tin nhắn của chính bạn không còn hiển thị "từ PC này"; thông tin thiết bị chỉ xuất hiện trên tin nhắn gửi từ thiết bị khác.
 
@@ -887,7 +887,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 
 - Mức tiêu thụ tài nguyên nền giảm đáng kể khi không hoạt động, với ít lượt kiểm tra daemon hơn, giảm tần suất theo dõi tệp khi tìm kiếm và lưu trữ bộ nhớ đệm tổng hợp hàng ngày cho thống kê sử dụng.
 
-- Tổ hợp phím Shift+Enter luôn chèn dấu ngắt dòng một cách ổn định trong khung soạn thảo ngay cả sau khi nhập ký tự có phím Shift, và nhấn phím Enter không còn gửi tin nhắn sớm ngoài ý muốn khi đang gõ văn bản tiếng Hàn bằng bộ gõ IME.
+- Tổ hợp phím Shift+Enter luôn chèn dấu ngắt dòng ổn định trong ô nhập ngay cả sau khi nhập ký tự có phím Shift, và nhấn phím Enter không còn gửi tin nhắn sớm ngoài ý muốn khi đang gõ văn bản tiếng Hàn bằng bộ gõ IME.
 
 - Đã rà soát và nâng cao chất lượng dịch thuật trên toàn bộ 11 ngôn ngữ được hỗ trợ, sửa các nhãn giao diện và cập nhật các hộp thoại được bản địa hóa.
 
@@ -897,7 +897,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 
 - Nhật ký thay đổi có sẵn bằng mọi ngôn ngữ của ứng dụng, và sau khi cập nhật, ứng dụng hiển thị một lần những điểm mới của phiên bản đó.
 
-- Suy luận tự động được bật theo mặc định trên các mô hình được hỗ trợ: mỗi tin nhắn và mỗi bước công cụ nhận được mức nỗ lực suy luận mà nó cần. Mô hình của tính năng này được tải xuống nền ở lần dùng đầu tiên thay vì lúc khởi động, và thẻ Tích hợp hiển thị mô hình cùng nền tảng mà nó dựa trên.
+- Suy luận tự động được bật theo mặc định trên các mô hình được hỗ trợ: mỗi tin nhắn và mỗi bước công cụ nhận được mức suy luận phù hợp. Mô hình của tính năng này được tải xuống nền ở lần dùng đầu tiên thay vì lúc khởi động, và thẻ Tích hợp hiển thị mô hình cùng nền tảng mà nó dựa trên.
 
 - Các liên kết tệp trong cuộc hội thoại mở cạnh cuộc hội thoại, trong bảng bên, dưới dạng tab. Một liên kết mới thay thế tab xem trước, nên các liên kết không còn chất đống thành nhiều tab; một tab được giữ lại khi bạn nhấp đúp vào nó, chọn Giữ mở hoặc chỉnh sửa tệp. Tối đa tám tab tệp được mở cùng lúc. Cài đặt > Chung > Xem trước liên kết sẽ tắt hành vi này.
 
@@ -965,7 +965,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 
 - Thẻ phê duyệt công cụ khớp với các thẻ xếp chồng phía trên ô nhập: biểu tượng cảnh báo, tiêu đề và công cụ nằm trên cùng một dòng, lý do nằm bên dưới chỉ kèm lệnh, đường dẫn hoặc URL cần phê duyệt (không có hàng thư mục hay danh sách đối số), và nút Từ chối nằm kín đáo bên cạnh nút Cho phép.
 
-- Các mô hình mới nhận khả năng từ danh mục của nhà cung cấp thay vì chờ một bản phát hành: đổi mức nỗ lực giữa cuộc hội thoại trên tuyến ChatGPT, Fast mode và cài đặt cache trên tuyến OpenAI API, Fast mode trên Claude, và mức suy luận trên xAI. GPT-6.1 Sol và Claude Sonnet 5.5 hiện đã được hỗ trợ, và nút chuyển Fast không còn xuất hiện trên các mô hình Claude không thể dùng nó.
+- Các mô hình mới nhận khả năng từ danh mục của nhà cung cấp thay vì chờ một bản phát hành: đổi mức suy luận giữa cuộc hội thoại trên định tuyến ChatGPT, chế độ nhanh và cài đặt cache trên định tuyến OpenAI API, chế độ nhanh trên Claude, và mức suy luận trên xAI. GPT-6.1 Sol và Claude Sonnet 5.5 hiện đã được hỗ trợ, và nút chuyển chế độ nhanh không còn xuất hiện trên các mô hình Claude không hỗ trợ.
 
 - Claude Sonnet 5.5 hiển thị lại các ghi chú của nó giữa các lần gọi công cụ, và các mô hình Claude Fable và Mythos có thể dùng tìm kiếm web được lưu trữ.
 
@@ -1035,7 +1035,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 
 - Việc tạo phương tiện ghi một hàng mức dùng cho mỗi tác vụ ảnh hoặc video với số token, ảnh, giây và chi phí mà nhà cung cấp báo cáo, nên phương tiện của Gemini, Antigravity, Codex và xAI xuất hiện trong tổng mức dùng và chi phí cùng với các mô hình văn bản. Giá phương tiện lấy từ danh mục giá đã công bố.
 
-- Dừng và Tiếp tục của Computer Use khôi phục gọn gàng sau khi dọn dẹp thất bại: các worker rảnh được cho nghỉ thay vì hết thời gian chờ, và thao tác Dừng hoặc Tiếp tục của người dùng xóa trạng thái cũ "input not confirmed released".
+- Dừng và Tiếp tục của Computer Use khôi phục gọn gàng sau khi dọn dẹp thất bại: các worker rảnh được dừng thay vì hết thời gian chờ, và thao tác Dừng hoặc Tiếp tục của người dùng xóa trạng thái cũ "input not confirmed released".
 
 - Các phiên đang chờ tác vụ shell nền hiển thị là đang chờ thay vì rảnh, và chỉ báo tác vụ shell không còn hiển thị tác vụ của chủ sở hữu trước hoặc mất các cập nhật đến trong lúc thăm dò. Danh sách phiên và agent bỏ qua các lần vẽ lại dư thừa khi không có gì thay đổi. Biểu đồ mức dùng, các trang trên thanh, tab không gian làm việc, danh sách tiện ích mở rộng và hộp thoại có giao diện được làm mới.
 
@@ -1222,9 +1222,9 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 - Các chế độ điều phối `none`, `focused`, `balanced` và `swarm` thay thế quy trình Solo và được chọn theo từng phiên; các cài đặt đã được bản địa hóa.
 - Desktop: các liên kết đường dẫn cục bộ trong markdown mở trong trình soạn thảo, và trình soạn thảo mở được các tệp ngoài dự án.
 - Browser Use tuần tự hóa snapshot theo từng trang và củng cố các đường ổn định và chụp.
-- Computer Use: một renderer lớp phủ bị đóng băng được cho nghỉ và thay thế, trạng thái khôi phục đầu vào sống sót qua việc chuyển, và các fixture lớp phủ không còn thoát sớm trên máy một màn hình.
+- Computer Use: renderer lớp phủ bị treo sẽ được dừng và thay thế, trạng thái khôi phục đầu vào vẫn giữ nguyên khi chuyển đổi, và các fixture lớp phủ không còn thoát sớm trên máy một màn hình.
 - Shell: các host PowerShell không còn chặn cứng `grep`, `sed` và `awk` ở bước kiểm tra trước; mô tả công cụ định tuyến công việc sang công cụ chuyên dụng. Các quy tắc, kỹ năng, README và `docs/context-efficiency.md` mới được làm mới.
-- Kho mã được định dạng bằng Biome 2.5.13 (`biome.json` cố định phong cách hiện có), rustfmt, dotnet-format và PSScriptAnalyzer; các import không dùng, helper chết và export chỉ dùng trong tệp đã bị loại bỏ.
+- Kho lưu trữ được định dạng bằng Biome 2.5.13 (`biome.json` cố định phong cách hiện có), rustfmt, dotnet-format và PSScriptAnalyzer; các import không dùng, helper chết và export chỉ dùng trong tệp đã bị loại bỏ.
 
 ## v0.9.168 - 2026-09-16
 
@@ -1232,7 +1232,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 
 - Lớp phủ Computer Use: hai điều khiển, Dừng và Tiếp tục. Nút tạm dừng đã bị bỏ (chạm vào desktop đã trao quyền điều khiển cho người dùng); viên thuốc giờ hiển thị vì sao một điều khiển không khả dụng hoặc vì sao một yêu cầu thất bại thay vì phản ứng im lặng. Dừng khôi phục một lỗi dọn dẹp bị chốt khi mọi worker đầu vào đã thoát, nên host không còn cần khởi động lại ứng dụng, và việc xác nhận worker thoát chờ tối đa 5 giây thay vì 1.
 - Computer Use chụp một cửa sổ từ bề mặt đã kết xuất của chính nó thay vì sao chép desktop, với ngân sách chụp có giới hạn; một lần giải phóng tài nguyên chưa xác nhận sẽ cho worker đó nghỉ. Phím và gõ ở nền được kiểm tra trước khi gửi bất kỳ đầu vào nào, nên một lộ trình không được hỗ trợ không làm gì. Một lệnh mới chờ cho đến khi lần giải phóng phiên trước được xác nhận. Dừng cũng chờ việc hủy lượt agent, độc lập với việc dọn dẹp đầu vào gốc.
-- Việc chờ của Browser Use tôn trọng hủy và từ chối trộn một URL với văn bản từ tài liệu sau; việc khôi phục ảnh chụp toàn trang thất bại là kết thúc. Bộ chọn CSS giữ khoảng trắng bên trong, từ chối tập khớp quá lớn, và định địa chỉ duy nhất cho từng kết quả khớp. Các lượt tải xuống đồng thời dùng chung một tổng byte của phiên; lời nhắc phê duyệt mô tả hành động và địa chỉ, không bao giờ nêu giá trị biểu mẫu.
+- Việc chờ của Browser Use tôn trọng hủy và từ chối trộn một URL với văn bản từ tài liệu sau; khi khôi phục ảnh chụp toàn trang thất bại, thao tác sẽ dừng hẳn. Bộ chọn CSS giữ khoảng trắng bên trong, từ chối tập khớp quá lớn, và định địa chỉ duy nhất cho từng kết quả khớp. Các lượt tải xuống đồng thời dùng chung một tổng byte của phiên; yêu cầu phê duyệt mô tả hành động và địa chỉ, không bao giờ nêu giá trị biểu mẫu.
 - Code Tidy là một tính năng tích hợp có thể cài đặt, giống Office: Cài đặt → Tích hợp cài và bật tắt nó, và kỹ năng `code-tidy` điều khiển công cụ `tidy`. Quét phát hiện các ngôn ngữ của dự án và phân giải từng formatter hoặc linter từ cấu hình dự án, rồi các tệp nhị phân cục bộ của dự án, PATH, hoặc bản tải xuống được quản lý xác minh sha256 (ask, auto, hoặc never). Nó chạy Biome, ruff, clang-format, shfmt, shellcheck, StyLua, gofumpt, dprint, Air và Mago, cùng rustfmt, gofmt và PSScriptAnalyzer của toolchain, và áp dụng các gói cấu trúc (xóa history-comment, `debugger`, catch rỗng, dấu TODO) trên 31 ngôn ngữ. `fix` là chạy thử trừ khi đặt apply, và việc ghi đi qua cùng đường ống như các chỉnh sửa khác. Giấy phép của các engine đi kèm công cụ.
 - Người gọi và người được gọi của `code_graph` đến từ các vị trí gọi đã phân tích, không phải tìm kiếm văn bản; các tham chiếu có dạng lệnh gọi cũng dùng các vị trí đó. Một tệp nhị phân graph cũ không thể phát chúng sẽ thất bại kèm cách khắc phục là dựng lại thay vì một câu trả lời trống. Các hàng outline dùng một từ vựng loại duy nhất, đánh dấu export, hiển thị chữ ký, và lồng các thành viên dưới cha của chúng. `find_symbol` ưu tiên tệp triển khai hơn `.d.ts` đi kèm và báo khi khai báo nằm ngoài các tệp được yêu cầu. Các token định danh đến từ cây phân tích, nên một tên chỉ xuất hiện trong chú thích không còn được tính là tham chiếu. Solidity, Haskell và HCL gia nhập tập trích xuất cùng các cạnh import (24 ngôn ngữ trích xuất, 31 được phân tích). Dữ liệu vị trí gọi nằm trong một cache phụ nên cache graph chính giữ nguyên kích thước.
 - Tệp nhị phân graph gốc nhúng tree-sitter 0.27 và ast-grep 0.45.3, thêm các chế độ `--scan`, `--langs` và `--outline`, và trích xuất ký hiệu, import và token định danh từ các quy tắc YAML.
@@ -1253,7 +1253,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 - `git` chạy các lệnh nối bằng `&&` như một mảng có thứ tự (tới 10) thay vì từ chối chúng, và nhận ra các kho bare.
 - Cache read của phiên tôn trọng danh sách cho phép công cụ, phát hiện các thay đổi chỉ ở `ctime`, không bao giờ lưu nội dung chụp trước một thay đổi giữa lúc đọc, tách riêng gợi ý offset công khai và cũ, và bao phủ các lần read mảng công khai.
 - Các mảng `web_search` giữ cờ lỗi cho các thất bại một phần và toàn phần.
-- Các quy tắc và mô tả công cụ tích hợp ngắn hơn với cùng hành vi: mô tả `shell` mang bản đồ lệnh→công cụ và cấm dùng tên công cụ làm lệnh shell; hướng dẫn `timeout_ms` bao gồm các kiểm tra dùng một lần; hướng dẫn Lead chỉ áp dụng với công cụ `agent` bị bỏ khỏi các quy trình không ủy quyền; các quy tắc yêu cầu mọi hành động độc lập mà bằng chứng hiện tại đòi hỏi trong một phản hồi, vá trực tiếp từ bằng chứng quyết định, một mẫu trước khi viết logic phân tích, và các lát có giới hạn cho dữ liệu lớn hoặc nhị phân.
+- Các quy tắc và mô tả công cụ tích hợp ngắn hơn với cùng hành vi: mô tả `shell` mang bản đồ lệnh→công cụ và cấm dùng tên công cụ làm lệnh shell; hướng dẫn `timeout_ms` bao gồm các kiểm tra dùng một lần; hướng dẫn Lead chỉ áp dụng với công cụ `agent` bị bỏ khỏi các quy trình không giao việc; các quy tắc yêu cầu mọi hành động độc lập mà bằng chứng hiện tại đòi hỏi trong một phản hồi, vá trực tiếp từ bằng chứng quyết định, một mẫu trước khi viết logic phân tích, và các lát có giới hạn cho dữ liệu lớn hoặc nhị phân.
 - Runtime desktop được đồng bộ với công việc harness browser và computer hiện tại, và các bài kiểm thử hợp đồng công cụ được củng cố tương ứng.
 
 ## v0.9.166 - 2026-09-14
@@ -1271,7 +1271,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 - Nén các quy tắc chung và Lead cùng các mô tả công cụ tích hợp về cùng hành vi với ít token hơn; mô tả `shell` chỉ giữ vai trò của nó, ranh giới với các công cụ tệp/tìm kiếm/Git chuyên dụng, và hợp đồng tác vụ nền.
 - Các lần chạy headless (`mixdog exec`) nêu rằng không có người dùng can thiệp giữa chừng: yêu cầu được coi là đã phê duyệt và thực hiện đến cùng trước khi báo cáo, thay vì dừng lại hỏi một câu mà không ai trả lời được.
 - `apply_patch` gõ vào shell không còn bị định tuyến lại sang engine vá; mô hình gọi `apply_patch`/`edit` trực tiếp.
-- Một Goal đã dừng được cho nghỉ như một Goal đã hoàn thành: lời nhắc kế tiếp của người dùng lưu trữ nó, và xác nhận dừng lưu trữ nó ngay lập tức.
+- Goal đã dừng được đóng lại như Goal đã hoàn thành: tin nhắn kế tiếp của người dùng sẽ lưu trữ Goal đó, và xác nhận dừng sẽ lưu trữ ngay lập tức.
 - Thống kê mức dùng gán token và chi phí đo được cho từng yêu cầu trong sổ cái, và trình khám phá mức dùng trên desktop hiển thị bảng phân tích kết quả.
 - Sửa lỗi giao thức của nhà cung cấp Cursor.
 
@@ -1575,7 +1575,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 ## v0.9.134 - 2026-08-17
 
 - Desktop giờ phát hành dấu thương hiệu đã chọn, một trình soạn thảo route mô hình hợp nhất với tham số mô hình và thứ tự danh sách được lưu, và giải nén node-pty bên cạnh daemon đóng gói.
-- Thu gọn phiên bị khóa cứng theo chủ sở hữu: các phiên agent giữ ngữ nghĩa, các phiên người dùng dùng recall-fasttrack. Cài đặt không còn liệt kê Ký ức cốt lõi (chúng nằm trên dự án), và bản kiểm kê nghiệm thu Windows khớp theo.
+- Nén phiên bị khóa cứng theo chủ sở hữu: các phiên agent giữ ngữ nghĩa, các phiên người dùng dùng recall-fasttrack. Cài đặt không còn liệt kê Bộ nhớ cốt lõi (chúng nằm trên dự án), và bản kiểm kê nghiệm thu Windows khớp theo.
 
 - Các tích hợp nhà cung cấp và công cụ giờ gồm vòng đời OAuth và khôi phục token trên Anthropic, Cursor, Grok và OpenAI, chuẩn hóa schema công cụ riêng của Grok, và việc tản đường dẫn/mẫu của tìm kiếm và grep được phân rã.
 - Điều phối phiên và quy trình TUI giờ thực thi phạm vi theo phiên chủ sở hữu, giữ các thẻ bàn giao đã hoàn tất và hoàn tất nền qua các lần khôi phục, giữ các prompt đã đưa ra ngoài trong hàng đợi, và phân loại kết quả giữa lỗi lệnh, lỗi công cụ và các lần trượt vô hại.
@@ -1678,11 +1678,11 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 
 ## v0.9.116 - 2026-08-11
 
-- Phân tích vòng Terminal-Bench H5 thêm các dấu vết tác vụ được thưởng và số vòng tổng hợp cho so sánh cuối cùng ở mức nỗ lực cao.
+- Phân tích vòng Terminal-Bench H5 thêm các dấu vết tác vụ đạt điểm và số vòng tổng hợp cho so sánh cuối cùng ở mức suy luận cao.
 
 ## v0.9.115 - 2026-08-11
 
-- Phân tích vòng Terminal-Bench H4 ghi lại các thăm dò tác vụ thành công ở mức nỗ lực cao và nhịp truy xuất, vá và xác minh của chúng.
+- Phân tích vòng Terminal-Bench H4 ghi lại các thăm dò tác vụ thành công ở mức suy luận cao và nhịp truy xuất, vá và xác minh của chúng.
 - Hướng dẫn thực thi công cụ giờ coi các sự kiện tác vụ và các kiểm tra đã chứng minh là trạng thái đã biết bền vững và giữ xác minh patch trong cùng lượt thực thi.
 
 ## v0.9.114 - 2026-08-11
@@ -1740,7 +1740,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 ## v0.9.104 - 2026-08-09
 
 - Định tuyến công cụ giờ định vị các tọa độ kho chưa biết một lần, gán mỗi khía cạnh bằng chứng cho một công cụ chuyên dụng, chỉ gộp lô các lệnh gọi độc lập, và giữ các chỉnh sửa văn bản và xác minh sau rào cản thực thi patch.
-- Kiểm tra thư mục hiển thị tệp dotfile và siêu dữ liệu tệp mà không cần thăm dò bằng Shell, trong khi các quy trình không ủy quyền bỏ bản giao việc Lead không dùng và dùng một bề mặt công cụ nhỏ hơn, khớp khả năng.
+- Kiểm tra thư mục hiển thị tệp dotfile và siêu dữ liệu tệp mà không cần thăm dò bằng Shell, trong khi các quy trình không giao việc bỏ phần giao việc Lead không dùng và dùng một bề mặt công cụ nhỏ hơn, khớp khả năng.
 
 ## v0.9.103 - 2026-08-08
 
@@ -1756,7 +1756,7 @@ Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặ
 ## v0.9.101 - 2026-08-08
 
 - Escape giờ gọi lại các tin nhắn đã xếp hàng, chưa xử lý vào ô soạn thảo trước mọi thứ khác — thứ tự hàng đợi trước — nên một lần Esc giữa lượt chỉnh sửa tin nhắn tiếp theo đang chờ thay vì ngắt lượt; lần nhấn thứ hai vẫn hủy.
-- Quy trình là các định nghĩa phong cách làm việc thuần túy: các gói không còn mang danh sách agent. Mọi agent đã định nghĩa (tích hợp và tùy chỉnh) đều khả dụng cho bất kỳ quy trình ủy quyền nào, Solo vẫn không ủy quyền qua `delegation: none`, và xóa một agent tùy chỉnh gỡ nó khỏi mọi bề mặt cùng lúc, kể cả sinh theo tên.
+- Quy trình là các định nghĩa phong cách làm việc thuần túy: các gói không còn mang danh sách agent. Mọi agent đã định nghĩa (tích hợp và tùy chỉnh) đều khả dụng cho bất kỳ quy trình giao việc nào, Solo vẫn không giao việc qua `delegation: none`, và xóa một agent tùy chỉnh sẽ gỡ khỏi mọi bề mặt cùng lúc, kể cả khi khởi tạo theo tên.
 - Cài đặt → Chung có thêm các công tắc độc lập Tìm kiếm web, Trình khám phá và Ghi nhớ; Ghi nhớ giờ kiểm soát các công cụ ghi nhớ/recall cùng việc chèn ghi nhớ cốt lõi, trong khi các chu kỳ ghi nhớ nền chuyển sang Ngữ cảnh như một công tắc riêng.
 - Các lần chạy vai trò headless và phiên bench bắt đầu với khám phá, tìm kiếm web và ghi nhớ tắt (bề mặt cổ điển) và bật lại theo từng lần chạy qua cờ hoặc biến MIXDOG_FEATURE_*.
 - Chính sách công cụ chung bỏ vòng xác minh bắt buộc sau chỉnh sửa, lấy bằng chứng rẻ nhất đủ dùng cho mỗi tra cứu, và định nghĩa explore là tìm kiếm nguồn thuần túy trên cây nguồn và tệp với một mục tiêu cụ thể cho mỗi truy vấn.

@@ -10,6 +10,7 @@ import {
   looksLikeCode,
   type FileTone,
 } from './file-thumbnail-art';
+import { localizedAttachmentName } from './attachment-name';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { sha256Hex } from './sha256';
@@ -102,7 +103,7 @@ export function composerCardMeta(attachment: { kind: ComposerAttachment['kind'];
 
 export function AttachmentCard({
   kind,
-  name,
+  name: storedName,
   tooltip,
   imageUrl,
   content,
@@ -134,6 +135,7 @@ export function AttachmentCard({
   onRemove?: () => void;
   removeDisabled?: boolean;
 }) {
+  const name = localizedAttachmentName(storedName);
   const imageFallback = kind === 'image' && !imageUrl;
   const pasted = kind === 'pasted' && !!meta;
   const label = pasted ? `${t('Paste')} · ${meta}` : name;

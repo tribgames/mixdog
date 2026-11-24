@@ -298,7 +298,7 @@ export function useComposerSubmission({
       cleared?: () => void
     ) => {
       if (commandBusy) {
-        setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
+        setAttachmentError(t('Wait for the current command to finish. Your command is still in the editor.'));
         return;
       }
       const origin = routeRef.current;
@@ -406,7 +406,7 @@ export function useComposerSubmission({
           committedAttachments,
         } = prepareMessageSubmission(submittedDraft, submittedAttachments, feedback, hasFeedback);
         if (expandedText.length + feedbackText.length > MAX_SUBMIT_TEXT_LENGTH) {
-          setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
+          setAttachmentError(t('This prompt is too large to send. Remove or shorten an inline text attachment.'));
           return;
         }
         // The key waits for any chip digest still being worked out; a second

@@ -46,7 +46,7 @@ function desktopNoticeToast(notice: DesktopNotice): { text: string; tone: Deskto
   switch (notice.code) {
     case 'provider-sign-in-expired':
       return {
-        text: t('Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.', { name }),
+        text: t('Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Providers.', { name }),
         tone: 'warn',
       };
     case 'connector-sign-in-expired':

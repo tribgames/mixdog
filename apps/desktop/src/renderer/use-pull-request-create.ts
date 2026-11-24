@@ -72,7 +72,7 @@ export function usePullRequestCreate({
     setError('');
     try {
       if (!prUrl) {
-        if (!api.gitPush) throw new Error(createHint || 'Publish or push this branch before creating a pull request.');
+        if (!api.gitPush) throw new Error(createHint || t('Publish or push this branch before creating a pull request.'));
         await api.gitPush(projectPath);
       }
       const created = await api.ghPrCreate(projectPath, {

@@ -2,6 +2,7 @@ import { type Dispatch, type ReactNode, type SetStateAction, useEffect, useRef, 
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { DesktopCapability } from '../shared/contract';
 import { t } from './i18n';
+import { uiNumber } from './ui-format';
 import { record } from './record-utils';
 import MarkdownBody from './MarkdownBody';
 import { CopyControl } from './transcript-primitives';
@@ -124,7 +125,7 @@ function entryPreviewContents({
           <ChevronLeft size={16} />
         </button>
         <h3>{entry ? entryLabel(entry) : ''}</h3>
-        <span>{entry ? `≈${entry.tokens.toLocaleString()}` : ''}</span>
+        <span>{entry ? `≈${uiNumber(entry.tokens)}` : ''}</span>
       </header>
       {preview.truncated ? (
         <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
@@ -193,7 +194,7 @@ function entryListContents({
         {entry.state === 'deferred' ? <small className="context-entry-badge">{t('Deferred')}</small> : null}
         {entry.toolResults?.length ? <small className="context-entry-tools">{toolResultLine(entry)}</small> : null}
       </span>
-      <strong>{entry.state === 'deferred' ? '—' : `≈${entry.tokens.toLocaleString()}`}</strong>
+      <strong>{entry.state === 'deferred' ? '—' : `≈${uiNumber(entry.tokens)}`}</strong>
     </button>
   );
   return (
@@ -202,7 +203,7 @@ function entryListContents({
         <i aria-hidden="true" data-context-key={category.key} />
         <h3>{t(category.label)}</h3>
         <span title={tokenTitle(category)}>
-          {t('{{count}} items', { count: category.count })} · ≈{category.tokens.toLocaleString()}
+          {t('{{count}} items', { count: category.count })} · ≈{uiNumber(category.tokens)}
         </span>
         <button type="button" className="context-detail-icon" onClick={onClose} aria-label={t('Close entries')}>
           <X size={16} />
@@ -225,7 +226,7 @@ function entryListContents({
                   <ChevronRight size={14} aria-hidden="true" />
                   <span>{groupLabel(key)}</span>
                   <small>{t('{{count}} items', { count: rows.length })}</small>
-                  <strong>{key === 'deferred' ? '—' : `≈${total.toLocaleString()}`}</strong>
+                  <strong>{key === 'deferred' ? '—' : `≈${uiNumber(total)}`}</strong>
                 </button>
                 {open ? rows.map(row) : null}
               </div>
@@ -307,7 +308,7 @@ export function ContextInspector({
   const calibrated = calibration?.source === 'provider';
   const tokenTitle = (entry: { tokens: number; estimatedTokens?: number }) =>
     calibrated && entry.estimatedTokens !== undefined && entry.estimatedTokens !== entry.tokens
-      ? t('Raw estimate: ≈{{tokens}}', { tokens: entry.estimatedTokens.toLocaleString() })
+      ? t('Raw estimate: ≈{{tokens}}', { tokens: uiNumber(entry.estimatedTokens) })
       : undefined;
   const entries = inspection.entries.filter((entry) => entry.category === category);
   // Ranked by estimated size for scanning; empty categories fall to the tail
@@ -322,7 +323,7 @@ export function ContextInspector({
   const cellKey = (node: EventTarget | null) => (node instanceof HTMLElement ? node.dataset.contextKey || '' : '');
   const cellSummary = (key: string) => {
     if (key === 'free') {
-      return [t('Free space'), percentLabel(freeTokens), `≈${freeTokens.toLocaleString()}`].filter(Boolean).join(' · ');
+      return [t('Free space'), percentLabel(freeTokens), `≈${uiNumber(freeTokens)}`].filter(Boolean).join(' · ');
     }
     const row = inspection.categories.find((item) => item.key === key);
     if (!row) return '';
@@ -330,7 +331,7 @@ export function ContextInspector({
       t(row.label),
       t('{{count}} items', { count: row.count }),
       percentLabel(row.tokens),
-      `≈${row.tokens.toLocaleString()}`,
+      `≈${uiNumber(row.tokens)}`,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -364,7 +365,7 @@ export function ContextInspector({
   };
   const mapNote = [
     t('Each block represents approximately {{tokens}} tokens.', {
-      tokens: Math.ceil(map.blockTokens).toLocaleString(),
+      tokens: uiNumber(Math.ceil(map.blockTokens)),
     }),
     t('Category estimates are not provider measurements.'),
     map.overflow ? t('Estimated content exceeds the context window.') : '',
@@ -449,7 +450,7 @@ export function ContextInspector({
               data-hot={hovered === row.key ? 'true' : undefined}
               aria-pressed={category === row.key}
               onClick={() => selectCategory(row.key)}
-              aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${row.tokens.toLocaleString()}`}
+              aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${uiNumber(row.tokens)}`}
             >
               <i aria-hidden="true" />
               <span>
@@ -457,7 +458,7 @@ export function ContextInspector({
                 <small>{t('{{count}} items', { count: row.count })}</small>
               </span>
               <em>{percentLabel(row.tokens)}</em>
-              <strong title={tokenTitle(row)}>≈{row.tokens.toLocaleString()}</strong>
+              <strong title={tokenTitle(row)}>≈{uiNumber(row.tokens)}</strong>
             </button>
           ))}
           <div className="context-mix-remainder">
@@ -465,7 +466,7 @@ export function ContextInspector({
               <i aria-hidden="true" />
               <span>{t('Free space')}</span>
               <em>{percentLabel(freeTokens)}</em>
-              <strong>≈{freeTokens.toLocaleString()}</strong>
+              <strong>≈{uiNumber(freeTokens)}</strong>
             </div>
           </div>
         </div>

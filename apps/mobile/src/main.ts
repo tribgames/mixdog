@@ -18,10 +18,11 @@ import { createNativeFetch } from './native-fetch.ts';
 import { openHostFlow } from './open-host.ts';
 import { originsOfBook } from './origins.ts';
 import { nativeAppInfo } from '../../desktop/src/shared/native-app.ts';
+import { uiLanguageForLocale } from '../../desktop/src/shared/ui-language.ts';
 import {
   previewFromLocation,
   renderPairing,
-  STRINGS,
+  stringsFor,
   stateForPreview,
   trackKeyboardInset,
   viewFor,
@@ -63,9 +64,8 @@ async function updateBridge(method: string, args?: unknown): Promise<unknown> {
   return info.call(method, args);
 }
 
-const korean = navigator.language.toLowerCase().startsWith('ko');
-const strings = korean ? STRINGS.ko : STRINGS.en;
-document.documentElement.lang = korean ? 'ko' : 'en';
+const strings = stringsFor(navigator.language);
+document.documentElement.lang = uiLanguageForLocale(navigator.language) ?? 'en';
 
 const screen = document.getElementById('screen') as HTMLElement;
 trackKeyboardInset(screen);

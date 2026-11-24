@@ -39,7 +39,7 @@ interface AttachmentItem extends DesktopFeedbackAttachment {
 function readBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error('Read failed.'));
+    reader.onerror = () => reject(reader.error ?? new Error(t('Read failed.')));
     reader.onload = () => {
       const result = String(reader.result);
       resolve(result.slice(result.indexOf(',') + 1));
@@ -227,7 +227,7 @@ export function FeedbackDialog({
       .then(() => submit(input))
       .then(
         (receipt) => {
-          if (receipt?.status !== 'accepted') throw new Error('Feedback was not accepted.');
+          if (receipt?.status !== 'accepted') throw new Error(t('Feedback was not accepted.'));
           // A later submission is new feedback and gets a fresh id.
           attemptRef.current = null;
           if (mountedRef.current) setPhase('sent');

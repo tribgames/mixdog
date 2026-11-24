@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import { stashComposerDraft, stashedComposerDraft } from './composer-draft';
+import { t } from './i18n';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { subscribeSetupChanges } from './setup-change-refresh';
@@ -130,7 +131,7 @@ export function withTranscript(draft: string, text: string): string {
 function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error('Recorded audio could not be read.'));
+    reader.onerror = () => reject(reader.error || new Error(t('Recorded audio could not be read.')));
     reader.onload = () => resolve(String(reader.result || ''));
     reader.readAsDataURL(blob);
   });
@@ -140,13 +141,15 @@ function microphoneFailureText(reason: unknown): string {
   const name = reason instanceof DOMException ? reason.name : '';
   if (name === 'NotAllowedError') {
     return isRemoteHostRenderer()
-      ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
-      : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.';
+      ? t('Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.')
+      : t(
+          'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.'
+        );
   }
   if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-    return 'No microphone was detected. Connect one and try again.';
+    return t('No microphone was detected. Connect one and try again.');
   }
-  if (name === 'NotReadableError') return 'The microphone is busy in another app. Close it and try again.';
+  if (name === 'NotReadableError') return t('The microphone is busy in another app. Close it and try again.');
   return reason instanceof Error ? reason.message : String(reason);
 }
 
@@ -327,10 +330,10 @@ export function useComposerDictation({
       if (!voiceAvailableRef.current) {
         if (voiceStatus?.installed === false) {
           requestVoiceInstall();
-          showNotice('Install voice transcription from Extensions first.');
+          showNotice(t('Install voice transcription from Extensions first.'));
         } else if (voiceStatus?.enabled === false) {
-          showNotice('Turn on voice transcription in Extensions to dictate.');
-        } else showNotice('Voice transcription is unavailable on this host.');
+          showNotice(t('Turn on voice transcription in Extensions to dictate.'));
+        } else showNotice(t('Voice transcription is unavailable on this host.'));
         return;
       }
       const generation = voiceGeneration.current;

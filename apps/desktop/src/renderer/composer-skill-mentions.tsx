@@ -69,7 +69,7 @@ async function readSkillsStatus(sessionId?: string | null, projectPath?: string 
   const [result] = await window.mixdogDesktop.readCapabilities([
     { capability: 'skillsStatus', args: [{ projectPath: projectPath || '' }] },
   ]);
-  if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
+  if (!result?.ok) throw new Error(result && !result.ok ? result.error : t('Skills unavailable.'));
   return result.value;
 }
 

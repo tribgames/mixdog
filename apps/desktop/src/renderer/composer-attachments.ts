@@ -13,6 +13,7 @@ import {
   type ComposerAttachment,
 } from './composer-support';
 import { t } from './i18n';
+import { uiNumber } from './ui-format';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from './remote-ui-projection';
 import { learnedRelayUplinkBinaryBytes } from './remote-shim-payload-limit';
 import {
@@ -87,7 +88,11 @@ export function remoteAttachmentSizeError(
   const limit = remoteAttachmentLimitBytes(binaryCeiling);
   if (limit === null || rawBytes <= limit) return '';
   const mb = (value: number) => `${(value / (1024 * 1024)).toFixed(value >= 1024 * 1024 ? 1 : 2)} MB`;
-  return `${name}: ${mb(rawBytes)} is over this remote connection's ${mb(limit)} limit per attachment.`;
+  return t("{{name}}: {{size}} is over this remote connection's {{limit}} limit per attachment.", {
+    name,
+    size: mb(rawBytes),
+    limit: mb(limit),
+  });
 }
 
 /** Empty when the attachment fits the per-turn budget, else the user message. */
@@ -103,18 +108,18 @@ export function attachmentPolicyError(
   );
   if (remoteError) return remoteError;
   if (currentAttachments.length >= MAX_COMPOSER_ATTACHMENTS) {
-    return `Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`;
+    return t('Attach up to {{count}} items at a time.', { count: MAX_COMPOSER_ATTACHMENTS });
   }
   const dataTotal = (matches: (item: ComposerAttachment) => boolean) =>
     [...currentAttachments, attachment].reduce((sum, item) => sum + (matches(item) ? item.data.length : 0), 0);
   if (dataTotal((item) => item.kind === 'text') > MAX_INLINE_TEXT_TOTAL) {
-    return 'Inline text attachments are too large together. Keep the total under 850 KB.';
+    return t('Inline text attachments are too large together. Keep the total under 850 KB.');
   }
   if (attachment.kind === 'image' && attachment.data.length > MAX_PROMPT_IMAGE_BASE64_LENGTH) {
-    return `${attachment.name}: use PNG, JPEG, GIF, or WebP under 12 MB.`;
+    return t('{{name}}: use PNG, JPEG, GIF, or WebP under 12 MB.', { name: attachment.name });
   }
   if (dataTotal((item) => item.kind === 'image') > MAX_INLINE_IMAGE_BASE64_TOTAL) {
-    return 'Attached images are too large together. Remove one or use smaller files.';
+    return t('Attached images are too large together. Remove one or use smaller files.');
   }
   if (dataTotal((item) => item.kind === 'pdf' || item.kind === 'office') > MAX_INLINE_FILE_BASE64_TOTAL) {
     return t('Attached PDFs and Office files are too large together. Remove one or use smaller files.');
@@ -154,14 +159,14 @@ function imageMetadataText(
 
 function canvasBlob(canvas: HTMLCanvasElement, mimeType: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('image encoding failed'))), mimeType, quality);
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error(t('Image encoding failed.')))), mimeType, quality);
   });
 }
 
 function decodeImageElement(objectUrl: string, displayName: string): Promise<HTMLImageElement> {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const element = new Image();
-    element.onerror = () => reject(new Error(`${displayName}: could not decode image.`));
+    element.onerror = () => reject(new Error(t('{{name}}: could not decode image.', { name: displayName })));
     element.onload = () => resolve(element);
     element.src = objectUrl;
   });
@@ -178,7 +183,7 @@ async function reencodedImage(
   canvas.width = displayWidth;
   canvas.height = displayHeight;
   const context = canvas.getContext('2d');
-  if (!context) throw new Error(`${displayName}: image resize is unavailable.`);
+  if (!context) throw new Error(t('{{name}}: image resize is unavailable.', { name: displayName }));
   context.drawImage(image, 0, 0, displayWidth, displayHeight);
   let payload = await canvasBlob(canvas, 'image/webp', 0.85);
   if (payload.type !== 'image/webp') {
@@ -204,7 +209,7 @@ async function browserResizedImage(
     const image = await decodeImageElement(objectUrl, displayName);
     const originalWidth = image.naturalWidth;
     const originalHeight = image.naturalHeight;
-    if (!originalWidth || !originalHeight) throw new Error(`${displayName}: image dimensions are invalid.`);
+    if (!originalWidth || !originalHeight) throw new Error(t('{{name}}: image dimensions are invalid.', { name: displayName }));
     const scale = Math.min(1, WEB_IMAGE_MAX_WIDTH / originalWidth, WEB_IMAGE_MAX_HEIGHT / originalHeight);
     const displayWidth = Math.max(1, Math.floor(originalWidth * scale));
     const displayHeight = Math.max(1, Math.floor(originalHeight * scale));
@@ -214,7 +219,7 @@ async function browserResizedImage(
       ? await reencodedImage(image, file, displayName, displayWidth, displayHeight)
       : file;
     return {
-      data: await base64Payload(payload, `${displayName}: could not read image.`),
+      data: await base64Payload(payload, t('{{name}}: could not read image.', { name: displayName })),
       mimeType: payload.type || file.type,
       metadataText: imageMetadataText(displayName, originalWidth, originalHeight, displayWidth, displayHeight),
     };
@@ -297,12 +302,12 @@ async function imageAttachment({
   displayName,
   cancelled,
 }: AttachmentInput): Promise<ComposerAttachment | null> {
-  const unsupported = `${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`;
+  const unsupported = t('{{name}}: use PNG, JPEG, GIF, or WebP under 12 MB.', { name: displayName });
   if (!SUPPORTED_IMAGE_TYPES.test(file.type)) throw new UnsupportedComposerFileError(unsupported);
   if (file.size > MAX_IMAGE_FILE_BYTES) throw new Error(unsupported);
   // A remote browser re-encodes below the ceiling, so only the final payload
   // is judged (attachmentPolicyError); a local raw attach is judged here.
-  const raw = await base64Payload(file, `${displayName}: could not read image.`);
+  const raw = await base64Payload(file, t('{{name}}: could not read image.', { name: displayName }));
   if (cancelled()) return null;
   // A browser resizes the image itself, so its original goes up beside that resize.
   const staging = isRemoteBrowserRenderer() ? stageOriginalImage(raw, file, displayName) : null;
@@ -334,14 +339,14 @@ async function pdfAttachment({
   displayName,
   cancelled,
 }: AttachmentInput): Promise<ComposerAttachment | null> {
-  if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${displayName}: PDFs must be under 20 MB.`);
+  if (file.size > MAX_PDF_FILE_BYTES) throw new Error(t('{{name}}: PDFs must be under 20 MB.', { name: displayName }));
   const remoteSize = remoteAttachmentSizeError(displayName, file.size);
   if (remoteSize) throw new RejectedComposerFileError(remoteSize);
   if (!(await hasPdfHeader(file))) {
     throw new Error(t('{{name}}: this file is not a valid PDF.', { name: displayName }));
   }
   if (cancelled()) return null;
-  const data = await base64Payload(file, `${displayName}: could not read PDF.`);
+  const data = await base64Payload(file, t('{{name}}: could not read PDF.', { name: displayName }));
   if (cancelled()) return null;
   const pageCount = pdfPageCount(new Uint8Array(await file.arrayBuffer()));
   if (cancelled()) return null;
@@ -396,7 +401,7 @@ export function attachmentContextNotice(attachments: ComposerAttachment[]): stri
   if (tokens < ATTACHMENT_NOTICE_TOKENS) return '';
   return t(
     'The attached PDFs total about {{pages}} pages (~{{tokens}} tokens). If that is too much for the model, they stay on this computer and the model reads only the pages it needs.',
-    { pages: pages.toLocaleString(), tokens: tokens.toLocaleString() }
+    { pages: uiNumber(pages), tokens: uiNumber(tokens) }
   );
 }
 
@@ -409,7 +414,7 @@ async function officeAttachment(
   }
   const remoteSize = remoteAttachmentSizeError(displayName, file.size);
   if (remoteSize) throw new RejectedComposerFileError(remoteSize);
-  const data = await base64Payload(file, `${displayName}: could not read file.`);
+  const data = await base64Payload(file, t('{{name}}: could not read file.', { name: displayName }));
   if (cancelled()) return null;
   return {
     id,
@@ -434,17 +439,17 @@ async function textAttachment(
     TEXT_LIKE_EXTENSION.test(displayName) ||
     (await fileLooksLikeText(file));
   if (!textLike) {
-    throw new UnsupportedComposerFileError(`${displayName}: this file type can't be attached.`);
+    throw new UnsupportedComposerFileError(t("{{name}}: this file type can't be attached.", { name: displayName }));
   }
   if (file.size > MAX_INLINE_FILE_BYTES) {
-    throw new Error(`${displayName}: text files must be under 750 KB.`);
+    throw new Error(t('{{name}}: text files must be under 750 KB.', { name: displayName }));
   }
   const remoteSize = remoteAttachmentSizeError(displayName, file.size);
   if (remoteSize) throw new RejectedComposerFileError(remoteSize);
   const text = await file.text();
   if (cancelled()) return null;
   if (text.length > MAX_INLINE_FILE_BYTES) {
-    throw new Error(`${displayName}: inline text is too large after decoding.`);
+    throw new Error(t('{{name}}: inline text is too large after decoding.', { name: displayName }));
   }
   return {
     id,

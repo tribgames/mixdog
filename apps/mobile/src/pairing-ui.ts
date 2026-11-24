@@ -1,3 +1,6 @@
+import { uiLanguageForLocale } from '../../desktop/src/shared/ui-language.ts';
+import { OTHER_STRINGS } from './pairing-strings.ts';
+
 export const PREVIEW_STATES = [
   'start-empty',
   'start-with-pcs',
@@ -141,6 +144,13 @@ export const STRINGS = {
   },
 };
 export type Strings = typeof STRINGS.en;
+
+/** The screens' strings for a system locale; a language with no table reads English. */
+export function stringsFor(locale: string): Strings {
+  const language = uiLanguageForLocale(locale);
+  if (language === 'ko') return STRINGS.ko;
+  return (language && OTHER_STRINGS[language]) || STRINGS.en;
+}
 
 export interface ScreenState {
   step: Step;

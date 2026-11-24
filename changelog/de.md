@@ -12,11 +12,11 @@ Wenn Sie auf Probleme stoßen, melden Sie diese bitte unter [GitHub Issues](http
 
 ## v1.4.5 - 2026-11-03
 
-Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich „Sitzungen“ nach Projekt und Branch, führt Studio-Boards ein und verbessert die Stabilität bei paralleler Arbeit.
+Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich „Sitzungen“ nach Projekt und Branch, führt Studio-Pinnwände ein und verbessert die Stabilität bei paralleler Arbeit.
 
 ### Neue Funktionen
 
-- **Studio-Boards** — Studio-Ergebnisse über das Menü der Eingabezeile in Boards organisieren und frühere Arbeiten über die linke Seitenleiste durchsuchen.
+- **Studio-Pinnwände** — Studio-Ergebnisse über das Menü des Eingabefelds auf Pinnwänden organisieren und frühere Arbeiten über die linke Seitenleiste durchsuchen.
 - **Projekte in Sitzungen** — Gruppiert Sitzungen im Bereich „Sitzungen“ nach Projekt, mit Unterkategorien für jeden Branch bei Projekten mit mehreren Branches.
 - **Startbildschirm-Einstellung** — In den Einstellungen festlegen, womit ein neues Desktop-Fenster geöffnet wird; standardmäßig wird eine neue Sitzung ohne Projekt gestartet, ohne leere Tabs anzuhäufen (#312).
 - **Schnellere Claude-Antworten** — Laufende Claude-Unterhaltungen senden nach der ersten Anfrage nur noch neue Nachrichten, was Antworten beschleunigt und bei Bedarf auf eine vollständige Anfrage zurückgreift.
@@ -35,7 +35,7 @@ Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich �
 
 - Einfrieren, Ruckeln oder Abstürze der App bei Speicherüberlastung während intensiver Vorgänge wie der Codesuche behoben (#308).
 - Behoben, dass eine App-Update-Installation noch laufende Arbeiten unterbrach (#308).
-- Behoben, dass Claude eine Nachricht ignorierte, die nach einem Durchgang ohne Antwort gesendet wurde, als wäre sie eine Werkzeugausgabe.
+- Behoben, dass Claude eine Nachricht ignorierte, die nach einem Durchgang ohne Antwort gesendet wurde, als wäre sie eine Tool-Ausgabe.
 - Behoben, dass Hintergrund-Worktree-Prüfungen unter Windows nach jedem App-Start zwei Minuten dauerten.
 - Behoben, dass Plugin-Updates ohne jede Abschlussmeldung abgeschlossen wurden (#307).
 - Behoben, dass Kontext-Popovers auf Mobilgeräten verdeckt wurden (#309) und lange Zeitstempel ihre Spalte im Anfrageprotokoll überragten (#310).
@@ -44,32 +44,32 @@ Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich �
 
 ## v1.4.4 - 2026-11-02
 
-Registerkarte „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Subagenten, Sitzungsverlauf-Navigation und erweiterte Optionen für benutzerdefinierte Provider hinzugefügt.
+Tab „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Sub-Agenten, Sitzungsverlauf-Navigation und erweiterte Optionen für benutzerdefinierte Anbieter hinzugefügt.
 
 ### Neue Funktionen
 
-- **Anfrageprotokoll** — Registerkarte „Anfrageprotokoll“ unter Nutzung hinzugefügt, die Anfragen nach Zeitraum, Status und Modell filtert und Tokens, Kosten, Dauer und Status anzeigt (#300).
-- **Subagenten-Seitenbereich** — Öffnen von Subagenten aus dem Agenten-Fenster oder der Eingabeliste hinzugefügt; klappt mit `Ctrl+B` ein und hält beendete Sitzungen lesbar.
+- **Anfrageprotokoll** — Tab „Anfrageprotokoll“ unter Nutzung hinzugefügt, der Anfragen nach Zeitraum, Status und Modell filtert und Token, Kosten, Dauer und Status anzeigt (#300).
+- **Sub-Agenten-Seitenbereich** — Öffnen von Sub-Agenten aus dem Agenten-Fenster oder der Eingabeliste hinzugefügt; klappt mit `Ctrl+B` ein und hält beendete Sitzungen lesbar.
 - **Sitzungsnavigation** — Vor- und Zurück-Navigation durch Sitzungen und Editor-Positionen mit `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` und Maustasten hinzugefügt (#289).
-- **Optionen für benutzerdefinierte Provider** — Erweiterte JSON-Parameter, eigene HTTP-Header und OpenRouter-Routing-Strategien (Auto, Price, Speed, Latency) in Einstellungen → Modelle hinzugefügt (#231).
-- **Zoom-Tastenkürzel** — Skalieren der Desktop-Oberfläche in 5%-Schritten von 85% bis 150% mit `Ctrl/Cmd+=`, `Ctrl/Cmd+-` und `Ctrl/Cmd+0` hinzugefügt (#286).
+- **Optionen für benutzerdefinierte Anbieter** — Erweiterte JSON-Parameter, eigene HTTP-Header und OpenRouter-Routing-Strategien (Auto, Price, Speed, Latency) in Einstellungen → Modelle hinzugefügt (#231).
+- **Zoom-Tastenkürzel** — Skalieren der Desktop-Oberfläche in 5-%-Schritten von 85 % bis 150 % mit `Ctrl/Cmd+=`, `Ctrl/Cmd+-` und `Ctrl/Cmd+0` hinzugefügt (#286).
 
 ### Änderungen
 
 - Computer Use angepasst, um Element-Deltas zu übertragen, OCR-Ergebnisse wiederzuverwenden und Hintergrund-Scrollen sowie Tastenkombinationen an Mixdog-Fenster ohne Fokusverlust zu senden.
-- Mixy angepasst, um lösbare Anfragen direkt zu beantworten, Aufgaben nur bei Nennung oder Fortführung an andere Bots zu übergeben und sonst Subagenten einzusetzen.
+- Mixy angepasst, um lösbare Anfragen direkt zu beantworten, Aufgaben nur bei Nennung oder Fortführung an andere Bots zu übergeben und sonst Sub-Agenten einzusetzen.
 - Fragen übergebener Sitzungen zwischen Chats synchronisiert, sodass das Beantworten, Schließen oder Ablaufen beide Karten gleichzeitig abschließt.
-- Speicherverwaltung angepasst, um ausdrückliche Präferenzen direkt zu speichern und bei vorgeschlagenen Einträgen oder unklarem Projektbereich eine Bestätigung einzuholen.
+- Erinnerungsverwaltung angepasst, um ausdrückliche Präferenzen direkt zu speichern und bei vorgeschlagenen Einträgen oder unklarem Projektbereich eine Bestätigung einzuholen.
 - Das Desktop-Bot-Maskottchen so geändert, dass es nur erscheint, wenn es in den Einstellungen aktiviert wird.
 - Bots-Seite so geändert, dass die Agenten-Gruppe standardmäßig ausgeblendet ist; sie lässt sich über das ⋯-Menü aktivieren, frühere Auswahlen bleiben erhalten.
 - To-do-Liste über dem Eingabefeld angepasst, um die Lesbarkeit zu verbessern: Die Notiz jedes Eintrags steht nun in einer eigenen Zeile darunter.
 
 ### Fehlerbehebungen
 
-- Mehrfache Abschlusskarten und Fortschrittszeilen bei Weiterleitungsketten behoben, sodass nun genau eine Karte und eine Fortschrittszeile pro Antwort erscheinen.
-- Hintergrundläufe (Speicherzyklus, Websuche), die ihren Prompt als Sitzungsnamen im Anfrageprotokoll anzeigten, behoben; sie zeigen nun ihre Aktion mit einem Intern-Tag.
-- Behoben, dass Explore bei ausschließlicher Konfiguration von OAuth-Modell-Providern nicht gestartet werden konnte (#301).
-- Behoben, dass Aufgaben außerhalb von Git-Repositories fehlschlugen, wenn die Standard-Worktree-Einstellung aktiv war (#297).
+- Mehrfache Abschlusskarten und Fortschrittszeilen bei Übergabeketten behoben, sodass nun genau eine Karte und eine Fortschrittszeile pro Antwort erscheinen.
+- Hintergrundläufe (Erinnerungszyklus, Websuche), die ihren Prompt als Sitzungsnamen im Anfrageprotokoll anzeigten, behoben; sie zeigen nun ihre Aktion mit einem Intern-Tag.
+- Behoben, dass Explore bei ausschließlicher Konfiguration von OAuth-Modellanbietern nicht gestartet werden konnte (#301).
+- Behoben, dass Aufgaben außerhalb von Git-Repositorys fehlschlugen, wenn die Standard-Worktree-Einstellung aktiv war (#297).
 - Behoben, dass beim Entfernen eines Plugins über Links innerhalb des Plugin-Ordners externe Dateien gelöscht werden konnten, sowie Windows-`EPERM`-Dateisperren bei Updates behoben (#296).
 - Behoben, dass Zeitpläne und Webhooks archivierter Bots im deaktivierten Zustand auslösten oder nach der Wiederherstellung nicht reaktiviert wurden.
 - Behoben, dass lautlose Hintergrund-Terminalbefehle fälschlicherweise als fehlerfrei galten, wenn sie über den Fortschrittsschwellenwert hinaus hingen.
@@ -83,24 +83,24 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 
 ### Neue Funktionen
 
-- **Worktrees-Einstellungen** — Einstellungen → Worktrees mit Speicherplatzanzeige, Aktionen zum Öffnen und Löschen sowie automatischer Bereinigung nach 15 Worktrees oder 30 ungenutzten Tagen hinzugefügt.
+- **Worktree-Einstellungen** — Einstellungen → Worktrees mit Speicherplatzanzeige, Aktionen zum Öffnen und Löschen sowie automatischer Bereinigung nach 15 Worktrees oder 30 ungenutzten Tagen hinzugefügt.
 - **Worktree-Branch-Aktionen** — Die Aktionen Neuer Branch, Neuer Worktree und Bereinigen mit Such-Hervorhebung zur Fußzeile des Branch-Menüs hinzugefügt; Bereinigen bleibt deaktiviert, wenn nichts sicher gelöscht werden kann.
 - **Sitzungs-To-do-Liste** — Sitzungs-To-do-Liste als Ersatz für Ziel-Aufgaben hinzugefügt, die den Live-Fortschritt von Agenten anzeigt und letzte Aufgaben sowie Ziele beim Schließen bewahrt.
 - **Eingabefeld-Stile** — Eingabefeld-Stile Einfach, Standard und Ausführlich in den Einstellungen mit Live-Vorschau, responsiver Leiste und optionaler Bestätigung bei Antworten hinzugefügt (#270, #276).
 - **Delegationseinstellungen** — Dedizierte Seite Einstellungen → Delegation für Orchestrierungsanweisungen und direktes Bearbeiten der Ausgabestil-Anweisungen mit Zurücksetzen auf Standard hinzugefügt (#291).
 - **Sub-Agenten für Routinen** — Auswahl eines ausführenden Sub-Agenten mit eigenem Modell für geplante Aufgaben und Webhooks hinzugefügt.
 - **Import aus Claude Desktop Cowork** — Import von Unterhaltungen aus Claude Desktop Cowork hinzugefügt, wobei mit Stern markierte Unterhaltungen zuerst aufgeführt werden (#283).
-- **Pfadlinks im Chat** — Öffnen von Pfadlinks überall auf dem PC aus dem Chat hinzugefügt: Ordner öffnen sich als Wurzeln im Dateifenster, vorschaufähige Dateien in Visualize (#277).
-- **Bildgesten auf Smartphones** — Zoom per Zusammendrücken, Verschieben und Doppeltippen für Bilder im Chat und in Visualize auf Smartphones hinzugefügt (#275).
+- **Pfadlinks im Chat** — Öffnen von Pfadlinks überall auf dem PC aus dem Chat hinzugefügt: Ordner öffnen sich als Stammordner im Dateifenster, vorschaufähige Dateien in Visualize (#277).
+- **Bildgesten auf Smartphones** — Zoom per Auf- und Zuziehen, Verschieben und Doppeltippen für Bilder im Chat und in Visualize auf Smartphones hinzugefügt (#275).
 - **Fast-Aufruf-Nutzung** — Eigene Zeile zur Aufschlüsselung der Fast-Aufrufe eines Modells mit responsiven, für Smartphones optimierten Nutzungstabellen hinzugefügt (#288).
 - **Automatischer Sitzungslebenszyklus** — Automatische Archivierung inaktiver Sitzungen nach 7 Tagen und Löschung nach 90 Tagen während Leerlaufzeiten hinzugefügt.
 - **Benachrichtigungspause bei PC-Nutzung** — Pausieren von Smartphone-Push-Benachrichtigungen hinzugefügt, während dieser PC aktiv genutzt wird.
 
 ### Änderungen
 
-- Werkzeug-Aktivitätszeilen fassen wiederholte Aktionen nun in gezählten Bezeichnungen mit Aufgabennamen wie „Worktree-Verwaltung ×4“ zusammen.
+- Tool-Aktivitätszeilen fassen wiederholte Aktionen nun in gezählten Bezeichnungen mit Aufgabennamen wie „Worktree-Verwaltung ×4“ zusammen.
 - An beliebiger Stelle vorgenommene Einstellungs- und Prompt-Änderungen greifen im nächsten Durchlauf, ohne Sitzungen neu zu starten oder den Cache zu brechen.
-- Die Websuche wird sofort geladen, ohne Verzögerung durch Werkzeugaufrufe, was Suchabfragen beschleunigt.
+- Die Websuche wird sofort geladen, ohne Verzögerung durch Tool-Aufrufe, was Suchabfragen beschleunigt.
 - Das Wischen zum Schließen des Remote-Browsers auf Smartphones greift nur noch am linken Randstreifen, um versehentliches Schließen bei Interaktionen zu verhindern.
 - Die Anzeige der Token-Nutzung des Agenten im Eingabefeld aktualisiert sich nun innerhalb von etwa einer Sekunde nach jedem Modellaufruf.
 - Die Garbage Collection im Leerlauf bereinigt nun auch externen Pufferspeicher, was den Speicherbedarf des Daemons senkt.
@@ -115,7 +115,7 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 - Ablauf von Konnektor-Anmeldungen nach einer Stunde durch Anforderung von Refresh-Tokens behoben und Kontowechsel bei wiederverwendeten Namen verhindert (#285).
 - Fehler behoben, durch den Plugin-Aktualisierungen unter Windows beim Umbenennen von Ordnern mit `EPERM`-Dateisperren fehlschlugen (#284).
 - Installationsfehler behoben, bei denen Skripte von onnxruntime-node während des Embedding-Bereinigens entfernt wurden (#282).
-- Hängenbleiben des Speicherdiensts beim Start durch verwaiste PostgreSQL-Sperren nach unerwartetem Prozessende behoben (#278).
+- Hängenbleiben des Erinnerungsdiensts beim Start durch verwaiste PostgreSQL-Sperren nach unerwartetem Prozessende behoben (#278).
 - Fehler behoben, durch den reCAPTCHA und Authentifizierungs-Widgets im In-App-Browser fehlschlugen, indem Chrome-kompatibler Speicherzugriff gewährt wird.
 - Fehler behoben, durch den Berichte von Sub-Agenten den Lead bei Unterbrechungen durch Erinnerungen, Warteschlangen-Eingaben oder spätere Fehler nicht erreichten.
 - Fehler behoben, durch den Computer Use bei langsamen Bildschirmlesevorgängen den Eingabe-Host neu startete oder Beobachter bei kurzen Eingabepausen als defekt meldete.
@@ -138,8 +138,8 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - **Vertex AI** — Vertex AI mit Gemini, Claude und offenen Modellen hinzugefügt; die Anmeldung erfolgt per Dienstkontoschlüssel, gcloud-Login oder Express-Mode-API-Schlüssel (#249).
 - **Mehrere Konten in einem Konnektor** — Ein Konnektor kann nun mehrere Konten enthalten; Agenten nutzen das zuletzt verwendete Konto, sofern kein anderes angegeben wird.
 - **Eigene Anbieter-Schlüssel und Header** — Zusätzliche API-Schlüssel hinzugefügt, die einspringen, wenn das Kontingent eines Schlüssels erschöpft ist, sowie eigene HTTP-Header für jede Anfrage (#233, #239).
-- **Konnektor-Tool-Berechtigungen für Bots** — Pro Tool die Optionen Auto, Freigabe nötig und Deaktiviert für jeden Konnektor im Profil eines Bots hinzugefügt (#264).
-- **Freigabe über den Bot auf dem Bildschirm** — Die Anfrage samt Schaltflächen Zulassen und Ablehnen wird nun direkt in der Sprechblase des Bots auf dem Bildschirm angezeigt.
+- **Konnektor-Tool-Berechtigungen für Bots** — Pro Tool die Optionen Auto, Genehmigung nötig und Deaktiviert für jeden Konnektor im Profil eines Bots hinzugefügt (#264).
+- **Genehmigung über den Bot auf dem Bildschirm** — Die Anfrage samt Schaltflächen Zulassen und Ablehnen wird nun direkt in der Sprechblase des Bots auf dem Bildschirm angezeigt.
 - **Alle Hintergrundbefehle beenden** — `/stop` zum Beenden aller Hintergrundbefehle einer Sitzung sowie `/shells` und `/mcp login` in der Desktop-App hinzugefügt.
 
 ### Änderungen
@@ -147,7 +147,7 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - Agenten beheben bei einer fehlgeschlagenen Prüfung nun die Ursache, statt sie einfach erneut auszuführen, das Zeitlimit zu erhöhen oder sie zu überspringen.
 - Regelmäßige Bot-Check-ins und das Vorwärmen des Prompt-Caches sind standardmäßig ausgeschaltet.
 - Desktop-App und CLI folgen nun dem System-Proxy, wobei in der Desktop-App PAC-Skripte und Ausnahmen pro Adresse angewendet und lokale sowie LAN-Adressen direkt verbunden werden.
-- Werkzeug-Aktivitätszeilen zeigen die verstrichene Zeit nur noch an, solange ein Befehl tatsächlich läuft.
+- Tool-Aktivitätszeilen zeigen die verstrichene Zeit nur noch an, solange ein Befehl tatsächlich läuft.
 - Wenn ein Agent abgebrochen wird, weil er keinen Fortschritt mehr macht, wird nun eine `stall_abort`-Zeile in `history/tool-failures.jsonl` geschrieben, damit sich ein fälschlich gestoppter Agent melden lässt.
 - Git startet unter Windows nun `git.exe` direkt und zeichnet Änderungen pro Durchlauf mit weniger Prozessen auf, wodurch Durchläufe, Rückgängigmachen/Wiederholen und Git-Tool-Aufrufe schneller ablaufen.
 
@@ -157,7 +157,7 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - Behoben: In Gruppenräumen wiederholte jeder Bot „konnte nicht antworten“, wenn das Nutzungslimit erreicht war; nun stoppt der Raum einmalig und nennt den Grund.
 - Behoben: In den Sitzungsansichten ließen sich lange oder komprimierte Sitzungen nicht bis zur ersten Nachricht zurückscrollen, es erschien „Sitzung nicht verfügbar“, während andere Sitzungen große Aktualisierungen sendeten, und der Sitzungen-Drawer auf dem Smartphone öffnete die Bots-Seite statt den Chat.
 - Behoben: Nur als komprimierte Dateien gespeicherte Codex-Unterhaltungen ließen sich nicht importieren (#262).
-- Behoben: Bei der Konnektor-Anmeldung trat wiederholt der Fehler "Unrecognized client_id" auf, wenn der Dienst die Registrierung von Mixdog vergessen hatte (#269).
+- Behoben: Bei der Konnektor-Anmeldung trat wiederholt der Fehler „Unrecognized client_id“ auf, wenn der Dienst die Registrierung von Mixdog vergessen hatte (#269).
 - Behoben: Lange Anmelde-URLs wurden in der TUI abgeschnitten; mit `Ctrl+Y` lassen sie sich nun kopieren (#261).
 - Behoben: Auf ausgelasteten Windows-PCs startete die Spracheingabe nicht oder das Speichern von Einstellungen und Sitzungen schlug fehl.
 - Behoben: Tabellenzellen mit chinesischem oder japanischem Text ragten über den Tabellenrahmen hinaus.
@@ -185,9 +185,9 @@ Anmeldung über SSH, Fehler bei der Einrichtung des PC-Zugriffs sowie das Anhalt
 - Behoben: Die Einrichtung des PC-Zugriffs schlug auf PCs fehl, deren Laufwerkstammverzeichnis eine Nur-Vererbungs-Berechtigung aufweist, und es wird angezeigt, warum eine Genehmigung nicht abgeschlossen wurde (#251).
 - Behoben: Agenten bei Anthropic-Modellen wurden als inaktiv angehalten, während sie nachdachten oder eine große Datei schrieben (#248).
 - Behoben: Agenten auf benutzerdefinierten Responses-Routen wurden vor ihrer ersten Ausgabe als inaktiv eingestuft (#244).
-- Behoben: Computer Use, Browser Use und Anmelde-Callbacks schlugen auf einigen PCs mit dem Fehler "bad port" fehl.
-- Behoben: Die Auswahl eines Hauptmodells beim Anbieter eines Fallbacks schlug mit "duplicate route provider" fehl.
-- Behoben: Beim automatischen Wechsel zu einem Fallback-Modell wurden alle MCP-Werkzeuge auf einmal gesendet.`
+- Behoben: Computer Use, Browser Use und Anmelde-Callbacks schlugen auf einigen PCs mit dem Fehler „bad port“ fehl.
+- Behoben: Die Auswahl eines Hauptmodells beim Anbieter eines Fallbacks schlug mit „duplicate route provider“ fehl.
+- Behoben: Beim automatischen Wechsel zu einem Fallback-Modell wurden alle MCP-Tools auf einmal gesendet.
 - Behoben: Importierte Claude- und Codex-Unterhaltungen verloren den früheren Verlauf, Titel oder Seiten, und ihre Tool-Nutzung wurde als eingeklappte Aktivitätszeilen dargestellt (#245).
 - Behoben: Verwaiste Worktrees blieben zurück und der Standard-Branch wurde in einen verwalteten Worktree übernommen (#247).
 - Behoben: Ein Bot wurde nach Beendigung seiner delegierten Arbeit weiterhin als arbeitend angezeigt, und bei einer komprimierten Sitzung fehlte der Fertig-Punkt.
@@ -203,7 +203,7 @@ Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbes
 - **Remote-PC-Bildschirm** — Anzeigen und Steuern Ihres PC-Bildschirms von Ihrem Smartphone über eine direkte WebRTC-Verbindung mit Sondertasten und einer Status-Pille auf dem PC hinzugefügt.
 - **PC-Zugriff** — Optionaler Zugriff auf Administratorabfragen, den Sperrbildschirm und `Ctrl`+`Alt`+`Del` von Ihrem Smartphone hinzugefügt, einmalig in der Computer Use-Einrichtung oder mit Ihrem Windows-Passwort genehmigt.
 - **Browser-Live-Ansicht** — Streaming des In-App-Browsers auf Ihr Smartphone über WebRTC hinzugefügt, wobei übernommene Seiten an Ihren Bildschirm angepasst werden und direktes Tippen über Ihre Smartphone-Tastatur möglich ist.
-- **Benachrichtigungssteuerung** — Gerätespezifische Benachrichtigungseinstellungen, Gesprächsstummschaltungen, Ruhezeiten und Fehlerbenachrichtigungen unter Einstellungen → Benachrichtigungen hinzugefügt, mit Zulassen bei Genehmigungsbenachrichtigungen (#221, thanks @dislight1123).
+- **Benachrichtigungssteuerung** — Gerätespezifische Benachrichtigungseinstellungen, Gesprächsstummschaltungen, Ruhezeiten und Fehlerbenachrichtigungen unter Einstellungen → Benachrichtigungen hinzugefügt, mit Zulassen bei Genehmigungsbenachrichtigungen (#221, danke an @dislight1123).
 - **Von Bots delegierte Arbeit** — Eine Live-Zeile pro Aufgabe unter der Antwort für Arbeiten hinzugefügt, die ein Bot delegiert, die den Fortschritt anzeigt und es Ihnen ermöglicht, Fragen im Chat zu beantworten.
 - **Gespeicherte Anmeldungen** — Automatische Anmeldung mit gespeicherten Logins und Einmalcodes unter Einstellungen → Authentifizierung hinzugefügt, ohne dass das Modell die Geheimnisse jemals sieht.
 - **Chrome-Login-Import** — Import gespeicherter Chrome-Logins einschließlich neuerer App-gebundener verschlüsselter Anmeldungen in die überarbeitete Anmeldeseite mit einem Schalter für Gespeichert/Angemeldet bleiben hinzugefügt.
@@ -222,12 +222,12 @@ Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbes
 - Sitzungs- und Bot-Zeilen so geändert, dass sie ein bernsteinfarbenes Dreieck für ein Warten auf Genehmigung, ein Fragezeichensymbol für eine Frage und die Anzahl wartender Arbeiten anzeigen.
 - Bot-Aufgabensitzungen und Sub-Agenten so geändert, dass sie einen eigenen Ungelesen-Punkt tragen, der zusammen mit dem Chat gelesen wird, an den sie berichten.
 - Ein gekoppeltes Smartphone so geändert, dass es Dateien auf dieselbe Weise wie der PC liest, in der Vorschau anzeigt, herunterlädt und öffnet.
-- Die `@`-Dateiauswahl so geändert, dass kurze, flache Pfade zuerst aufgeführt werden, mit kürzlich bearbeiteten Arbeiten geöffnet wird und Dateien in verknüpften Ordnern gefunden werden (#228, thanks @reeves-ai-lch).
+- Die `@`-Dateiauswahl so geändert, dass kurze, flache Pfade zuerst aufgeführt werden, mit kürzlich bearbeiteten Arbeiten geöffnet wird und Dateien in verknüpften Ordnern gefunden werden (#228, danke an @reeves-ai-lch).
 - Visualize so geändert, dass Seiten aus jedem lokalen Ordner geöffnet werden und Indexseiten nach ihrem Ordner benannt werden.
 - Das Nutzungs-Popup und die angeheftete Nutzungsleiste so geändert, dass jedes Limit als eine Zeile über einer Leiste in voller Breite angezeigt wird.
-- Das shell-Werkzeug so geändert, dass es ein optionales Arbeitsverzeichnis akzeptiert und Pausen von 2 Sekunden oder mehr ablehnt.
+- Das shell-Tool so geändert, dass es ein optionales Arbeitsverzeichnis akzeptiert und Pausen von 2 Sekunden oder mehr ablehnt.
 - Agenten-Terminalausführungen und Browser-Seiten so geändert, dass sie ihren Tab auf dem PC und gekoppelten Geräten anzeigen, direkt geöffnet aus Transkriptzeilen.
-- Browser Use so geändert, dass Hintergrundseiten pro Sitzung begrenzt und nach Beendigung eines Zugs geschlossen werden.
+- Browser Use so geändert, dass Hintergrundseiten pro Sitzung begrenzt und nach Beendigung eines Durchgangs geschlossen werden.
 - Wiederholungs-Wartezeiten so geändert, dass sie einen festen Grund und einen Live-Countdown anstelle des reinen Fehlertexts anzeigen.
 - Bot-Chats so geändert, dass keine Karte mit geänderten Dateien unter einer Antwort angezeigt wird, weit auseinanderliegende Nachrichten getrennt werden und sich Übergabe und Zeit eine Zeile teilen.
 - Die Sprachenliste so geändert, dass Koreanisch unter seinem eigenen Namen angezeigt wird.
@@ -245,24 +245,24 @@ Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbes
 - Behoben: Die Zeile eines Bots drehte sich nicht oder zeigte keine Ungelesen-Punkte an, während seine Aufgabensitzungen arbeiteten.
 - Behoben: Beim Klicken auf eine Desktop-Benachrichtigung blieb die Seitenleiste auf der vorherigen Sitzung stehen oder tat bei ausgeblendetem Fenster nichts.
 - Behoben: Das Beantworten einer Fragekarte am Ende eines Chats verhinderte, dass das Transkript der Antwort folgte.
-- Behoben: Mit einem expliziten Modell erstellte Aufgabensitzungen schlugen mit "service is not defined" fehl.
+- Behoben: Mit einem expliziten Modell erstellte Aufgabensitzungen schlugen mit „service is not defined“ fehl.
 - Behoben: Mixys regelmäßiger Check-in wurde ausgeführt, während die Desktop-App noch verwendet wurde.
 - Behoben: Computer Use tippte in Fenster, die sich selbst in den Vordergrund drängten, und schrieb in schreibgeschützte oder deaktivierte Felder.
 - Behoben: Gespeicherte Passwörter länger als 4.096 Zeichen wurden abgeschnitten, und Geheimnisse kürzer als vier Zeichen blieben in Chats unmaskiert.
-- Behoben: Ein eingereihter Wiederholungsversuch eines fehlgeschlagenen Zugs sowie die Skill-Auswahl einer Routine gingen nach einem Neustart verloren (#229, thanks @22nsuk).
-- Behoben: Die automatische Kontingentfortsetzung über SSH las das Serverkontingent anstelle des PC-Kontingents aus, wenn der PC die Anmeldung hielt (#232, thanks @22nsuk).
-- Behoben: `Option`+`Left`/`Right` bewegte sich in Textfeldern unter macOS nicht wortweise (#230, thanks @wudys).
-- Behoben: Die Kontextauswahl eines Agentenprofils wurde nicht beibehalten (#226, thanks @22nsuk), und Cursor schlug bei gespeicherten Kontextkonflikten fehl (#225, thanks @22nsuk).
+- Behoben: Ein eingereihter Wiederholungsversuch eines fehlgeschlagenen Durchgangs sowie die Skill-Auswahl einer Routine gingen nach einem Neustart verloren (#229, danke an @22nsuk).
+- Behoben: Die automatische Kontingentfortsetzung über SSH las das Serverkontingent anstelle des PC-Kontingents aus, wenn der PC die Anmeldung hielt (#232, danke an @22nsuk).
+- Behoben: `Option`+`Left`/`Right` bewegte sich in Textfeldern unter macOS nicht wortweise (#230, danke an @wudys).
+- Behoben: Die Kontextauswahl eines Agentenprofils wurde nicht beibehalten (#226, danke an @22nsuk), und Cursor schlug bei gespeicherten Kontextkonflikten fehl (#225, danke an @22nsuk).
 - Behoben: Eine wartende Aufgabensitzung wurde als blockiert angezeigt, und ein deaktiviertes Konnektorkonto konnte nicht wieder aktiviert werden.
 - Behoben: Bei einem Fehler wegen abgelaufener Anmeldung ging der Wiederholungsversuch verloren, und das Browser-Panel zeigte nach Schließen der letzten Seite eine leere Seite an.
-- Behoben: Das Klicken auf einen Anhang in einer langen oder komprimierten Unterhaltung schlug mit "This conversation has no such attachment." fehl.
+- Behoben: Das Klicken auf einen Anhang in einer langen oder komprimierten Unterhaltung schlug mit „This conversation has no such attachment.“ fehl.
 - Behoben: Das Smartphone-Agenten-Panel zeigte einen doppelten Profil-Titel über seinen eigenen Tabs an.
 - Behoben: Die Ansicht „Änderungen“ des Seitenpanels trug den Titel Profil, nachdem dort zuletzt das Profil eines Bots geöffnet war.
 - Behoben: Die Sitzungsliste und der Chat auf Android-Smartphones froren nach schnellem Scrollen ein und sprangen anschließend.
 - Behoben: Seitenleisten-Abschnittsüberschriften blieben nach einem Klick hervorgehoben, und ihr Spinner wurde ausgeblendet, während die Menüschaltfläche angezeigt wurde.
 - Behoben: Beim Komprimieren einer Unterhaltung gingen aktuelle Skills und Regeln verloren, anstatt sie aus den aktiven Quellen neu aufzubauen.
-- Behoben: Mixy erschien nach einer fehlgeschlagenen Startprüfung von selbst, las Check-ins vor und verschwand dann (#243, thanks @Jichiro-S).
-- Behoben: Bestehende Sitzungen ignorierten aktuelle Komprimierungseinstellungen, und Forks wurden zu früh komprimiert (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Behoben: Mixy erschien nach einer fehlgeschlagenen Startprüfung von selbst, las Check-ins vor und verschwand dann (#243, danke an @Jichiro-S).
+- Behoben: Bestehende Sitzungen ignorierten aktuelle Komprimierungseinstellungen, und Forks wurden zu früh komprimiert (#237, danke an @22nsuk; #238, danke an @skywhale345).
 - Behoben: Bots baten im Chat darum, ein CAPTCHA oder einen Anmeldeschritt zu lösen, anstatt Ihnen die Seite zu übergeben.
 
 ## v1.3.5 - 2026-10-24
@@ -271,9 +271,9 @@ Emoji-Reaktionen, regelmäßige Check-ins und SSH-Server-Modell-Logins hinzugef�
 
 ### Neue Funktionen
 
-- **Emoji-Reaktionen** — Bot-Emoji-Reaktionen auf Benutzernachrichten mit einem Schalter unter Einstellungen → Allgemein → "Reaktionen" hinzugefügt.
+- **Emoji-Reaktionen** — Bot-Emoji-Reaktionen auf Benutzernachrichten mit einem Schalter unter Einstellungen → Allgemein → „Reaktionen“ hinzugefügt.
 - **Regelmäßige Check-ins** — 30-minütige Hintergrundprüfungen unter Einstellungen → Profil hinzugefügt, bei denen Ihr Hauptbot aktive Sitzungen überprüft und nur aufwacht, wenn etwas Aufmerksamkeit erfordert.
-- **SSH-Server-Logins** — Ausführen von Modellen über die eigenen Provider-Logins eines SSH-Servers und Festlegen einer privaten Schlüsseldatei beim Verbinden hinzugefügt (#204).
+- **SSH-Server-Anmeldungen** — Ausführen von Modellen über die eigenen Anbieter-Anmeldungen eines SSH-Servers und Festlegen einer privaten Schlüsseldatei beim Verbinden hinzugefügt (#204).
 - **Google-Konnektoren** — Integrierte Google Kalender- und Drive-Konnektoren mit verifizierter Anmeldung hinzugefügt, die alle Berechtigungen anfordern und Gmail weiterhin über App-Passwörter betreiben.
 - **Wisch-Navigation auf dem Smartphone** — Horizontales Wischen an beliebiger Stelle auf dem Smartphone zum Öffnen der Sitzungsliste oder des Dateien-Docks hinzugefügt.
 
@@ -288,9 +288,9 @@ Emoji-Reaktionen, regelmäßige Check-ins und SSH-Server-Modell-Logins hinzugef�
 ### Fehlerbehebungen
 
 - Behoben: Ausgeschaltete Raum-Bots nahmen weiterhin an Spielzügen teil; sie werden nun bei direkter Ansprache deutlich benannt (#215).
-- Behoben: Genehmigungskarten stahlen beim Tippen im Composer den Fokus; in der Smartphone-Sitzungsliste wird nun eine Markierung für ausstehende Browser-Genehmigungen angezeigt.
-- Behoben: Lange Werkzeugausgaben auf dem Smartphone konnten über Vollständige Ausgabe anzeigen nicht geladen werden, und geöffnete Chats blieben an Ladeskeletten hängen.
-- Behoben: Beim Wechseln zwischen Sitzungen wurde ein laufender Composer-Entwurf an den falschen Chat gesendet (#217).
+- Behoben: Genehmigungskarten stahlen beim Tippen im Eingabefeld den Fokus; in der Smartphone-Sitzungsliste wird nun eine Markierung für ausstehende Browser-Genehmigungen angezeigt.
+- Behoben: Lange Tool-Ausgaben auf dem Smartphone konnten über Vollständige Ausgabe anzeigen nicht geladen werden, und geöffnete Chats blieben an Ladeskeletten hängen.
+- Behoben: Beim Wechseln zwischen Sitzungen wurde ein laufender Entwurf im Eingabefeld an den falschen Chat gesendet (#217).
 - Behoben: Rechtsklick- und Zeilenmenüs schlossen sich unerwartet, sobald ein Hintergrund-Agent aktualisiert wurde oder das Transkript scrollte.
 - Behoben: Die automatische Browser-Anmeldung schlug bei CAPTCHA-Abfragen oder Worker-Abstürzen fehl; die Browser-Identität bleibt nun über Cloudflare-Prüfungen hinweg konsistent.
 - Behoben: Defekte Emoji-Surrogatpaare führten zu Fehlern bei Modellanfragen; vollständige Kontingentfenster wurden isoliert, sodass sie nur betroffene Modelle blockieren (#209).
@@ -306,30 +306,30 @@ Scrollen auf dem Smartphone behoben, das stoppte oder sprang, sowie Modelllisten
 - Behoben: Das Hochscrollen in einem Chat auf Android stockte oder sprang auf halbem Weg.
 - Behoben: Tabellen wackelten seitlich, während in einem Coding-Chat eine Antwort gestreamt wurde.
 - Behoben: Das Stop eines Raums übersah die Antwort, Genehmigung oder Nachricht eines Mitglieds, die kurz danach abgeschlossen wurde (#201).
-- Behoben: Auf einer Fragekarte ausgewählte Optionen gingen verloren, wenn die Antwort über den Composer erfolgte (#202).
+- Behoben: Auf einer Fragekarte ausgewählte Optionen gingen verloren, wenn die Antwort über das Eingabefeld erfolgte (#202).
 - Behoben: Ein Sub-Agent startete nicht, wenn dessen Modell über seinen Anzeigenamen angegeben wurde (#203).
 - Behoben: Agenten forderten Sie auf, ihre beendeten Sub-Agenten zu schließen, anstatt sie selbst zu schließen.
-- Behoben: Modelllisten im Agenten-Editor, Bot-Profil und Composer zeigten keine Modelle von OpenCode Go, OpenRouter und anderen Anbietern an (#205).
+- Behoben: Modelllisten im Agenten-Editor, Bot-Profil und Eingabefeld zeigten keine Modelle von OpenCode Go, OpenRouter und anderen Anbietern an (#205).
 
 ## v1.3.3 - 2026-10-22
 
-12/24-Stunden-Zeiteinstellung, ältere Office-Anhänge und das Einklappen langer Einfügungen hinzugefügt, mit flüssigerem Scrollen auf dem Smartphone, stabilerer Kompaktierung sowie umfassenden Fehlerbehebungen für Räume und Bots.
+12/24-Stunden-Zeiteinstellung, ältere Office-Anhänge und das Einklappen langer Einfügungen hinzugefügt, mit flüssigerem Scrollen auf dem Smartphone, stabilerer Komprimierung sowie umfassenden Fehlerbehebungen für Räume und Bots.
 
 ### Neue Funktionen
 
-- **Zeitformat** — Einstellungen → Allgemein → "Zeitformat" (Smartphone: Einstellungen → Anzeige) hinzugefügt, um Zeiten als System, 12-Stunden oder 24-Stunden anzuzeigen.
+- **Zeitformat** — Einstellungen → Allgemein → „Zeitformat“ (Smartphone: Einstellungen → Anzeige) hinzugefügt, um Zeiten als System, 12-Stunden oder 24-Stunden anzuzeigen.
 - **Ältere Office-Anhänge** — Senden von `.xls`-, `.doc`- und `.ppt`-Dateien hinzugefügt; sie werden über LibreOffice konvertiert, wenn die Office-Funktion installiert ist (#163).
-- **Lange Einfügungen** — Einklappen von Einfügungen mit mehr als 1.000 Zeichen im Composer sowie das Einklappen gesendeter Nachrichten mit mehr als 20 Zeilen hinter "Mehr anzeigen" hinzugefügt (#186).
+- **Lange Einfügungen** — Einklappen von Einfügungen mit mehr als 1.000 Zeichen im Eingabefeld sowie das Einklappen gesendeter Nachrichten mit mehr als 20 Zeilen hinter „Mehr anzeigen“ hinzugefügt (#186).
 - **Alle in einem Raum** — `@all` zur Adressierung aller Raummitglieder sowie die Nennung eines Raummitglieds aus einer anderen Sitzung hinzugefügt, um es zu erreichen (#164, #180).
 - **Neue Aufgabe ohne Projekt** — `Ctrl+Alt+N` hinzugefügt, um eine neue Aufgabe zu öffnen, die an kein Projekt gebunden ist (#185).
 - **Alle Nutzungskonten** — Aufklappen aller angemeldeten Konten im Nutzungspanel und der Aktivitätsleiste hinzugefügt.
-- **Bildeingabe pro Modell** — Auswahl "Bildeingabe" mit Auto/Ein/Aus für jedes benutzerdefinierte Anbietermodell hinzugefügt (#191).
+- **Bildeingabe pro Modell** — Auswahl „Bildeingabe“ mit Auto/Ein/Aus für jedes benutzerdefinierte Anbietermodell hinzugefügt (#191).
 - **Zielleiste** — Fortschrittsring, kompakte reine Zählerleiste und Inline-Stopp-Bestätigung zur Zielleiste hinzugefügt.
 
 ### Änderungen
 
 - Sitzungsliste so geändert, dass Sub-Agenten- und archivierte Sitzungen ausgeblendet werden; inaktive Sub-Agenten-Sitzungen werden nach 3 Tagen archiviert und nach 30 gelöscht (#165).
-- Modellwechsel eines Bots so geändert, dass er ab dem nächsten Zug für seine offenen Chats gilt (#166).
+- Modellwechsel eines Bots so geändert, dass er ab dem nächsten Durchgang für seine offenen Chats gilt (#166).
 - Bot-Genehmigungen so geändert, dass nur in den eigenen Chats des Bots gefragt wird, während Raummitglieder den Regeln ihres Stamm-Chats folgen (#167).
 - Mixys Aussehen auf zwei herabhängende Ohren und einen dicken Schwanz mit hellerer Spitze geändert.
 - Position des Hauptbots auf ein einzelnes Dropdown in den Einstellungen umgestellt, eine freie Platzierung hinzugefügt und das hochgeladene Bild angezeigt (#178, #179).
@@ -345,32 +345,32 @@ Scrollen auf dem Smartphone behoben, das stoppte oder sprang, sowie Modelllisten
 
 - Behoben: Das Hochscrollen auf dem Smartphone stoppte auf halbem Weg oder sprang, wenn ältere Nachrichten geladen wurden.
 - Behoben: Tippen und Ziehen erreichten das Browser-Panel nicht, wenn Mixdog von einem iPhone oder iPad aus ferngesteuert verwendet wurde.
-- Behoben: Agentenberichte, Tool-Ergebnisse und spät geladene MCP-Tools gingen nach dem Kompaktieren einer Konversation verloren.
-- Behoben: Die Konversation folgte einer langen Antwort nicht mehr oder löste das Folgen, sobald Text angetippt wurde.
+- Behoben: Agentenberichte, Tool-Ergebnisse und spät geladene MCP-Tools gingen nach dem Komprimieren einer Unterhaltung verloren.
+- Behoben: Die Unterhaltung folgte einer langen Antwort nicht mehr oder löste das Folgen, sobald Text angetippt wurde.
 - Behoben: Der Ungelesen-Punkt blieb bei einem Chat bestehen, der im Seitenbereich gelesen wurde.
 - Behoben: Das Bearbeiten einer vorherigen Nachricht verwarf deren Anhänge, und Rückspulungen ignorierten den späteren Verlauf (#186).
-- Behoben: Offene Konversationen erkannten aktivierte oder deaktivierte Agenten nicht (#184).
+- Behoben: Offene Unterhaltungen erkannten aktivierte oder deaktivierte Agenten nicht (#184).
 - Behoben: Antworten stoppten am Ausgabelimit und eine fehlerhafte Bewertung des Reasoning-Aufwands blieb fehlerhaft (#183).
-- Behoben: Ein entfernter Bot setzte seine Arbeit in Räumen und Konversationen fort (#180).
+- Behoben: Ein entfernter Bot setzte seine Arbeit in Räumen und Unterhaltungen fort (#180).
 - Behoben: Bots umgingen das Bot-zu-Bot-Limit über Hintergrundaufgaben.
-- Behoben: Ein fehlgeschlagenes Einstellungs-Backup verdrängte intakte Backups vorzeitig (thanks @22nsuk).
-- Behoben: Windows Computer Use verlor Bildschirmelemente während eines Snapshots (#173, thanks @22nsuk).
-- Behoben: Die Speichersortierung lehnte Klassifikator-Antworten ab, die Zeilenbereiche auflisteten (#170, thanks @134634623).
+- Behoben: Ein fehlgeschlagenes Einstellungs-Backup verdrängte intakte Backups vorzeitig (danke an @22nsuk).
+- Behoben: Windows Computer Use verlor Bildschirmelemente während eines Snapshots (#173, danke an @22nsuk).
+- Behoben: Die Erinnerungssortierung lehnte Klassifikator-Antworten ab, die Zeilenbereiche auflisteten (#170, danke an @134634623).
 - Behoben: Staging von Git-Änderungen in Dateien, die nicht UTF-8 sind (#177).
 - Behoben: Das Maskottchen wurde nicht angezeigt, wenn sein Bild keine Größe hatte.
 
 ## v1.3.2 - 2026-10-21
 
-Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und des Delegationsmodus mitten in der Konversation hinzugefügt, zusammen mit Windows-Codesignierung und umfassenden Fehlerbehebungen für Kompaktierung, Genehmigungen und Anhänge.
+Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und des Delegationsmodus mitten in der Unterhaltung hinzugefügt, zusammen mit Windows-Codesignierung und umfassenden Fehlerbehebungen für Kompaktierung, Genehmigungen und Anhänge.
 
 ### Neue Funktionen
 
-- **Designs** — Einstellungen → Design hinzugefügt, um System, Dunkel oder Weiß, einen von vier bewegten Foto-Skins oder ein eigenes Foto oder kurzes Video sowie Schriftart und Textgröße auf einem Bildschirm auszuwählen.
-- **Hauptbot-Overlay** — Hauptbot hinzugefügt, der über dem Composer der PC-App sitzt und Antworten in einer Sprechblase anzeigt, die bei langen Antworten selbstständig durch die Seiten blättert; klicken Sie darauf, um eine Nachricht zu senden, oder per Rechtsklick für Größe, Positionsanheftung und Einstellungen. Wählbar unter Einstellungen → Bots.
+- **Designs** — Einstellungen → Design hinzugefügt, um System, Dunkel oder Hell, einen von vier bewegten Foto-Skins oder ein eigenes Foto oder kurzes Video sowie Schriftart und Textgröße auf einem Bildschirm auszuwählen.
+- **Hauptbot-Overlay** — Hauptbot hinzugefügt, der über dem Eingabefeld der PC-App sitzt und Antworten in einer Sprechblase anzeigt, die bei langen Antworten selbstständig durch die Seiten blättert; klicken Sie darauf, um eine Nachricht zu senden, oder per Rechtsklick für Größe, Positionsanheftung und Einstellungen. Wählbar unter Einstellungen → Bots.
 - **Fallback-Modelle** — Fallback-Modelle für Lead, den Hauptbot und Bot-Profile hinzugefügt, die zum nächsten Modell wechseln, wenn eines sein Nutzungslimit erreicht.
-- **Workflow- und Delegationswechsel** — Wechsel des Workflows und des Delegationsmodus über das Modellmenü während einer Konversation hinzugefügt; gilt ab dem nächsten Zug nur für diese Konversation.
-- **Intelligente Kompaktierung** — Einstellungen → Kontext → "Kompaktierungs-Zusammenfassungsmodell" mit Intelligent, Maintainer oder Unterhaltungsmodell hinzugefügt. Intelligent ist der Standard.
-- **Basis für automatisches Reasoning** — Einstellungen → Allgemein → "Basis für automatisches Reasoning" hinzugefügt, um den Aufwand auszuwählen, an dem sich Auto orientiert.
+- **Workflow- und Delegationswechsel** — Wechsel des Workflows und des Delegationsmodus über das Modellmenü während einer Unterhaltung hinzugefügt; gilt ab dem nächsten Durchgang nur für diese Unterhaltung.
+- **Intelligente Komprimierung** — Einstellungen → Kontext → „Modell für Komprimierungszusammenfassungen“ mit Intelligent, Maintainer oder Unterhaltungsmodell hinzugefügt. Intelligent ist der Standard.
+- **Basis für automatisches Reasoning** — Einstellungen → Allgemein → „Basis für automatisches Reasoning“ hinzugefügt, um den Aufwand auszuwählen, an dem sich Auto orientiert.
 - **Bilderzeugung** — Bilderzeugung in Studio mit OpenRouter- und NanoGPT-Bildmodellen hinzugefügt.
 - **Position des Seitenpanels** — Option unter Einstellungen → Allgemein hinzugefügt, um das Seitenpanel rechts, unten oder automatisch zu platzieren.
 - **Layout der Bots-Seite** — Ziehen von Bots zum Neuanordnen, Anzeigen oder Ausblenden des Hauptbots, der Bots, Räume und Agenten über das Menü `…` hinzugefügt, und ein zentraler Ort für laufende Aufgaben.
@@ -380,30 +380,30 @@ Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und
 - Windows-Installer und App werden nun mit Codesignatur versehen, wodurch Windows-Sicherheitswarnungen und Fehlalarme von Antivirenprogrammen reduziert werden.
 - Genehmigungen für browser-use von OS-Fenstern auf Genehmigungskarten im Chat umgestellt, und Datei-Uploads fragen jetzt ebenfalls nach.
 - Genehmigungskarten zeigen nun den anfragenden Bot und eine einzeilige Frage, lassen sich mit einem Klick ablehnen und werden beim Warten niemals von selbst abgelehnt.
-- Genehmigungsanfragen von Sub-Agenten erscheinen jetzt auch im Haupt-Chat, mit "Sitzung öffnen", um direkt dorthin zu springen.
-- Bot-Profile listen nun auf "Immer erlauben" gesetzte Elemente auf und erlauben es, diese einzeln auf "Nochmals fragen" zurückzusetzen.
+- Genehmigungsanfragen von Sub-Agenten erscheinen jetzt auch im Haupt-Chat, mit „Sitzung öffnen“, um direkt dorthin zu springen.
+- Bot-Profile listen nun auf „Immer erlauben“ gesetzte Elemente auf und erlauben es, diese einzeln auf „Nochmals fragen“ zurückzusetzen.
 - Zeitpläne und Webhooks fragen nun beim Speichern einmal nach und nicht erneut während der Ausführung; Zahlungen und endgültiges Löschen laufen niemals unbeaufsichtigt.
-- Ein verknüpftes Telefon kann Bot-Berechtigungen und Connectors nur noch einschränken, niemals erweitern.
-- Ein deaktivierter Bot bleibt auf der Bots-Seite als "Aus" erhalten, damit er wieder eingeschaltet werden kann, und lässt sich separat in der Seitenleiste ausblenden (#153).
-- Sub-Agenten werden nun durch Klick auf das Gesicht oder Rechtsklick auf "Sub-Agenten anzeigen" statt über einen Pfeil ausgeklappt.
-- Im Modellwähler wurde der Schalter für "Automatisches Reasoning" entfernt und Auto an den Anfang der Aufwandsliste gesetzt.
-- Der Modellwähler öffnet sich nun direkt unter seiner Zeile, und benutzerdefinierte Provider zeigen den ihnen zugewiesenen Namen.
+- Ein verknüpftes Smartphone kann Bot-Berechtigungen und Konnektoren nur noch einschränken, niemals erweitern.
+- Ein deaktivierter Bot bleibt auf der Bots-Seite als „Aus“ erhalten, damit er wieder eingeschaltet werden kann, und lässt sich separat in der Seitenleiste ausblenden (#153).
+- Sub-Agenten werden nun durch Klick auf das Gesicht oder Rechtsklick auf „Sub-Agenten anzeigen“ statt über einen Pfeil ausgeklappt.
+- Im Modellwähler wurde der Schalter für „Automatisches Reasoning“ entfernt und Auto an den Anfang der Aufwandsliste gesetzt.
+- Der Modellwähler öffnet sich nun direkt unter seiner Zeile, und benutzerdefinierte Anbieter zeigen den ihnen zugewiesenen Namen.
 - Bot-Räume angepasst, damit Bots natürlich sprechen, statt sich jedes Mal gegenseitig zuzustimmen; ohne Maintainer-Modell antwortet jeder erwähnte Bot einmal.
 - Nachrichten zwischen Bots zeigen nun den sendenden und empfangenden Bot, und das Hin und Her zwischen Bots wurde auf drei Wechsel beschränkt.
-- Benachrichtigungen über Bot-Antworten auf PC und Telefon verwenden nun den Namen des Bots oder Raums als Titel.
-- Die Git-Schaltfläche des Composers öffnet nun den Git-Tab, in dem "PR erstellen", "Commit · Push" und "Committen" jeweils über eine eigene "Ausführen"-Schaltfläche verfügen.
+- Benachrichtigungen über Bot-Antworten auf PC und Smartphone verwenden nun den Namen des Bots oder Raums als Titel.
+- Die Git-Schaltfläche des Eingabefelds öffnet nun den Git-Tab, in dem „PR erstellen“, „Commit · Push“ und „Committen“ jeweils über eine eigene „Ausführen“-Schaltfläche verfügen.
 - Die Karte am Aufgabenende zeigt nur noch Vorschaubilder von Dateien an, die in der Antwort verlinkt oder im Seitenpanel geöffnet wurden.
 - Das Scrollen so geändert, dass sich die Ansicht nur beim Scrollen bewegt und neuen Antworten erst wieder folgt, wenn das Ende erreicht ist; auf einmal eintreffende lange Antworten beginnen bei ihrer ersten Zeile.
-- Ein langsamer MCP-Server verzögert die erste Antwort um höchstens 3 Sekunden; später verbundene Tools stehen ab dem nächsten Zug bereit.
+- Ein langsamer MCP-Server verzögert die erste Antwort um höchstens 3 Sekunden; später verbundene Tools stehen ab dem nächsten Durchgang bereit.
 - Streaming-Antworten so geändert, dass sie in kleinen Schritten mit einem kurzen Einblenden neuer Wörter erscheinen, sodass Text nicht mehr in Blöcken aufspringt.
-- Anheften von Agenten auf der Bots-Seite über das Rechtsklickmenü hinzugefügt sowie "Beendete Agenten behalten" im Menü `…` für 1 Stunde, 1 Tag, 7 Tage oder Dauerhaft.
-- "Unbegrenzt" zum automatischen Leeren inaktiver Sitzungen hinzugefügt.
+- Anheften von Agenten auf der Bots-Seite über das Rechtsklickmenü hinzugefügt sowie „Beendete Agenten behalten“ im Menü `…` für 1 Stunde, 1 Tag, 7 Tage oder Dauerhaft.
+- „Unbegrenzt“ zum automatischen Leeren inaktiver Sitzungen hinzugefügt.
 - Die Token- und Kostenzeile im Agentenfenster hält ihren Platz nun von Beginn an frei, sodass sich die Ansicht nicht mehr verschiebt.
 - Anleitung des Setup-Tools angepasst, damit die KI beim Erstellen oder Bearbeiten eines Skills dessen Trigger-Zeile (`when_to_use`) festlegen kann.
 
 ### Fehlerbehebungen
 
-- Behoben: Anthropic-Chats mit einem großen Bild oder PDF schlugen wiederholt mit "attachmentReference: Extra inputs are not permitted" fehl.
+- Behoben: Anthropic-Chats mit einem großen Bild oder PDF schlugen wiederholt mit „attachmentReference: Extra inputs are not permitted“ fehl.
 - Behoben: Das Anhängen mehrerer PDFs blockierte den Chat durch Überschreiten des Kontextfensters; große Anhänge verbleiben auf diesem PC und nur benötigte Teile werden gelesen (#150).
 - Behoben: Aus Word, Excel oder dem Browser kopierter Rich Text wurde als Bild angehängt (#135).
 - Behoben: Ungesendete Anhänge verschwanden nach dem Besuch einer anderen Sitzung (#139).
@@ -413,28 +413,28 @@ Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und
 - Behoben: Das Erstellen oder Bearbeiten von Dateien in Synchronisationsordnern wie NAVER MYBOX schlug mit EPERM fehl (#138).
 - Behoben: Die Modellliste blieb nach der Anmeldung bei OpenCode Go leer (#141).
 - Behoben: Eine unterbrochene Installation der code-tidy-Engine blieb hängen und installierte nie erneut; der Fehler wird nun gemeldet und die Installation pro Engine wiederholt (#152).
-- Behoben: Das Speichern eines benutzerdefinierten Providers mit einer langsamen Modellliste schlug mit einem Timeout fehl.
+- Behoben: Das Speichern eines benutzerdefinierten Anbieters mit einer langsamen Modellliste schlug mit einem Timeout fehl.
 - Behoben: Das Starten einer neuen Aufgabe kehrte zu einem leeren Bildschirm zurück.
 - Behoben: Die Liste abgeschlossener Sub-Agenten verschwand nach dem Neustart der App oder des Hintergrunddienstes.
 - Behoben: Sub-Agenten bei vom Hauptbot übergebenen Aufgaben meldeten vor dem Abschluss eine Zwischenantwort als Ergebnis.
 - Behoben: Aufgaben, die auf Genehmigung warteten, wurden als festgefahren angezeigt oder durch einen Timeout abgebrochen.
 - Behoben: Sub-Agenten übernahmen Kontext-, Reasoning-Aufwands- und Geschwindigkeitseinstellungen des Haupt-Chats und ignorierten die Maintainer-Einstellung.
 - Behoben: Eine auf einmal eintreffende lange Antwort sah für einen Moment leer und blass aus.
-- Behoben: Eine angehaltene Eingabe in der Warteschlange wurde nach der Wiederherstellung erneut ausgeführt (#142, thanks @22nsuk).
-- Behoben: Shell-Jobs, deren Beendigung nie bestätigt wurde, wurden als abgeschlossen behandelt (#133, thanks @22nsuk).
-- Behoben: Laufende Aufgaben verloren ihren Schutz, wenn der Datensatz des Arbeitsbereichs beschädigt war (#117, thanks @22nsuk).
-- Behoben: Cursor-Modelle verloren Toolaufruf-IDs und festgefahrene Tool-Übergaben endeten nie (#156, thanks @22nsuk).
+- Behoben: Eine angehaltene Eingabe in der Warteschlange wurde nach der Wiederherstellung erneut ausgeführt (#142, danke an @22nsuk).
+- Behoben: Shell-Jobs, deren Beendigung nie bestätigt wurde, wurden als abgeschlossen behandelt (#133, danke an @22nsuk).
+- Behoben: Laufende Aufgaben verloren ihren Schutz, wenn der Datensatz des Arbeitsbereichs beschädigt war (#117, danke an @22nsuk).
+- Behoben: Cursor-Modelle verloren Toolaufruf-IDs und festgefahrene Tool-Übergaben endeten nie (#156, danke an @22nsuk).
 - Behoben: Die Tippanzeige in Bot-Räumen endete nie und mitten während der Antwort gesendete Nachrichten gingen verloren.
-- Behoben: Der Hinweis "results omitted" erschien im Chat eines Bots nicht, wenn sich viele Routine-Ergebnisse ansammelten.
+- Behoben: Der Hinweis „results omitted“ erschien im Chat eines Bots nicht, wenn sich viele Routine-Ergebnisse ansammelten.
 - Behoben: Der Zähler ungelesener Nachrichten in der Bots-Liste zählte auch Toolaufrufe mit.
 - Behoben: Abschlussbenachrichtigungen für andere Sitzungen erschienen nicht, während die App im Vordergrund sichtbar war.
-- Behoben: Die Sitzungsliste sprang auf Telefonen, wenn sich ihre Reihenfolge beim Scrollen änderte, und iPhone-Einstellungsblätter schlossen sich nicht beim Tippen außerhalb.
+- Behoben: Die Sitzungsliste sprang auf Smartphones, wenn sich ihre Reihenfolge beim Scrollen änderte, und iPhone-Einstellungsblätter schlossen sich nicht beim Tippen außerhalb.
 - Behoben: E-Mail-Links in Antworten reagierten beim Anklicken nicht.
 - Behoben: PreToolUse-Hooks wurden bei später wieder geöffneten Sitzungen übersprungen, etwa beim Folgezug eines Agenten (#161).
-- Behoben: Die GitHub-Anmeldung blieb bei "GitHub-Anmeldung wird gestartet…" hängen (#162).
+- Behoben: Die GitHub-Anmeldung blieb bei „GitHub-Anmeldung wird gestartet…“ hängen (#162).
 - Behoben: Das Reasoning-Niveau zeigte nach der Auswahl eines anderen Werts weiterhin Auto an (#131).
-- Behoben: Die Vollbild-Schaltfläche von Videos im Seitenpanel reagierte nicht (#160, thanks @Deno2026).
-- Behoben: Die App zeigte "Object has been destroyed" an, wenn ihr Fenster bei aktivem Hauptbot-Overlay geschlossen wurde.
+- Behoben: Die Vollbild-Schaltfläche von Videos im Seitenpanel reagierte nicht (#160, danke an @Deno2026).
+- Behoben: Die App zeigte „Object has been destroyed“ an, wenn ihr Fenster bei aktivem Hauptbot-Overlay geschlossen wurde.
 - Behoben: Ein langsamer Git-Befehl führte dazu, dass sich die App erneut mit ihrem Hintergrunddienst verband und Live-Sitzungsaktualisierungen kurzzeitig verlor.
 
 ## v1.3.1 - 2026-10-20
@@ -445,39 +445,39 @@ Wir bitten um Entschuldigung, dass das Update auf 1.3.0 bei einigen Benutzern Wo
 
 ### Änderungen
 
-- Während einer laufenden Aufgabe gesendete Nachrichten so geändert, dass sie sofort im Chat erscheinen, mit **Jetzt senden**, bis sie gelesen werden; die Warteschlange über dem Composer entfällt.
+- Während einer laufenden Aufgabe gesendete Nachrichten so geändert, dass sie sofort im Chat erscheinen, mit **Jetzt senden**, bis sie gelesen werden; die Warteschlange über dem Eingabefeld entfällt.
 - Genehmigungskarten für externe Aktionen so geändert, dass sie nur erscheinen, wenn ein Bot sendet, postet oder löscht; Coding-Sitzungen fragen nicht mehr nach.
 - Repräsentativen Bot und Lead so geändert, dass sie getrennte Modelle behalten, und das Senden ohne Modell die Modellauswahl öffnet, statt automatisch eines auszuwählen.
 - Bots und Agenten so geändert, dass sie Anhänge und erstellte Dateien weitergeben, wenn sie sich gegenseitig Aufgaben übergeben.
 - visualize-Karten auf eine Karte pro Aufgabe geändert, die die geöffneten Seiten als Miniaturbilder zusammenfasst.
 - Bestätigungsdialoge wie beim Löschen vom Windows-Standard auf Dialoge umgestellt, die zum App-Design passen.
-- Modellauswahl und Kontextanzeige aus dem Composer von Bot-Räumen entfernt.
-- GitHub so geändert, dass es kein Connector mehr ist; es verwendet direkt die angemeldete GitHub CLI.
+- Modellauswahl und Kontextanzeige aus dem Eingabefeld von Bot-Räumen entfernt.
+- GitHub so geändert, dass es kein Konnektor mehr ist; es verwendet direkt die angemeldete GitHub CLI.
 - Fehlerhinweise angepasst, um bei nicht verfügbarem Modell oder ungültigem Schlüssel eine klare Fehlermeldung statt der Rohmeldung anzuzeigen.
 - Ausgabestile so angepasst, dass Antworten je nach Inhalt Absätze, Tabellen oder Listen wählen.
-- tok/s des Composers so geändert, dass das Warten auf das erste Token mitgezählt wird, passend zum Nutzungsfenster.
+- tok/s des Eingabefelds so geändert, dass das Warten auf das erste Token mitgezählt wird, passend zum Nutzungsfenster.
 - Automatischen Reasoning-Aufwand so geändert, dass der Auto-Reasoning-Bewerter v7 verwendet wird, der häufiger als v6 mit Referenzbewertungen übereinstimmt.
 
 ### Fehlerbehebungen
 
-- Behoben: Das Speichern der Modelloptionen von Lead schlug mit "model selection contains an unsupported field" fehl (#132).
-- Behoben: Bot-Chats schlugen mit "provider message prefix changed outside compaction" fehl.
+- Behoben: Das Speichern der Modelloptionen von Lead schlug mit „model selection contains an unsupported field“ fehl (#132).
+- Behoben: Bot-Chats schlugen mit „provider message prefix changed outside compaction“ fehl.
 - Behoben: Nach der Aktualisierung auf 1.3.0 war das Lead-Modell leer; es übernimmt nun das in einer neuen Aufgabe zuletzt verwendete Modell, und Bots behalten das Modell, mit dem sie gechattet haben.
 - Behoben: Ältere benutzerdefinierte Agenten wurden nach der Aktualisierung auf 1.3.0 als Bots angezeigt.
 - Behoben: Die Persona des repräsentativen Bots floss in Coding-Sitzungen ein.
 - Behoben: Der repräsentative Bot erstattete nach der Übergabe von Aufgaben an eine andere Sitzung keinen Bericht; Berichte werden nun auch nach einem Neustart fortgesetzt.
-- Behoben: Vom repräsentativen Bot erstellte Agent-Aufgabensitzungen öffneten sich mit leerem Modell ("Modell auswählen").
+- Behoben: Vom repräsentativen Bot erstellte Agent-Aufgabensitzungen öffneten sich mit leerem Modell („Modell auswählen“).
 - Behoben: Beim Wechsel zur Bots-Seite wurde der Hauptbereich durch den Chat des repräsentativen Bots ersetzt.
-- Behoben: Der Composer nahm nach dem Löschen eines Bot-Raums keine Eingaben mehr an.
+- Behoben: Das Eingabefeld nahm nach dem Löschen eines Bot-Raums keine Eingaben mehr an.
 - Behoben: Agenten wechselten nicht zum nächsten Modell, wenn das erste sein Nutzungslimit erreichte.
-- Behoben: Auf dem Telefon wurde endlos geladen, wenn der verbundene PC ausgeschaltet war; es meldet nun, dass keine Verbindung möglich ist, und erlaubt einen erneuten Versuch (#134).
-- Behoben: Das Scrollen auf dem Telefon stockte oder sprang, während frühere Nachrichten geladen wurden.
-- Behoben: Das visualize-Panel öffnete sich auf dem Telefon nur langsam.
+- Behoben: Auf dem Smartphone wurde endlos geladen, wenn der verbundene PC ausgeschaltet war; es meldet nun, dass keine Verbindung möglich ist, und erlaubt einen erneuten Versuch (#134).
+- Behoben: Das Scrollen auf dem Smartphone stockte oder sprang, während frühere Nachrichten geladen wurden.
+- Behoben: Das visualize-Panel öffnete sich auf dem Smartphone nur langsam.
 - Behoben: Gemini 4 Argon schlug bei Anmeldung über Antigravity mit 404 fehl.
 
 ## v1.3.0 - 2026-10-20
 
-Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passwort und eine stabilere Client-App.
+Neues Bot-System, Unterstützung für weitere Konnektoren wie Gmail per App-Passwort und eine stabilere Client-App.
 
 ### Neue Funktionen
 
@@ -486,25 +486,25 @@ Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passw
 - **Genehmigungskarten für externe Aktionen** — Genehmigungskarten für das Senden von Nachrichten, E-Mails, Beiträgen, Zahlungen und Löschungen hinzugefügt, die vor der Ausführung genaue Details anzeigen.
 - **Routinen in Bot-Chats** — Ausführung von Zeitplänen und Webhooks als direkte Gesprächszüge im Chat des jeweiligen Bots hinzugefügt.
 - **Einrichtungsassistent** — Ersteinrichtungs-Leitfaden mit rollenbasierten Modellempfehlungen und Erkennung des Abonnementplans hinzugefügt.
-- **Connectors** — Connectors für externe Dienste hinzugefügt, darunter Gmail per App-Passwort, damit Bots mit Ihren Konten arbeiten können.
+- **Konnektoren** — Konnektoren für externe Dienste hinzugefügt, darunter Gmail per App-Passwort, damit Bots mit Ihren Konten arbeiten können.
 
 ### Änderungen
 
-- PC-Composer zu einer einzeiligen Eingabeleiste geändert, die bei längeren Prompts mitwächst.
+- PC-Eingabefeld zu einer einzeiligen Eingabeleiste geändert, die bei längeren Prompts mitwächst.
 - Lange Sitzungslisten und lange Transkripte so geändert, dass sie flüssiger scrollen.
 - Sitzungs-Diff-Ansichten so geändert, dass unveränderte Zeilen eingeklappt und Banner für fehlende Dateien entfernt werden.
-- Telefon-App-Updates so geändert, dass sie im Hintergrund heruntergeladen werden, mit Statusanzeige in den Einstellungen und der Aktivitätsleiste.
+- Smartphone-App-Updates so geändert, dass sie im Hintergrund heruntergeladen werden, mit Statusanzeige in den Einstellungen und der Aktivitätsleiste.
 - Visualize-Seitenleiste so angepasst, dass sie sich über denselben Bereich wie das Browser-Panel verbreitern lässt.
 - Routinen so geändert, dass eigene Modell- und Workflow-Felder entfallen und die Einstellungen des besitzenden Bots verwendet werden.
 
 ### Fehlerbehebungen
 
-- Behoben: Das Scrollen des Telefon-Transkripts stockte, wenn ein gestreamtes Wort während des Ziehens ausblendete.
-- Behoben: Wartende Nachrichten und ihre Anhänge gingen nach einem Neustart verloren oder wurden übersprungen (#119, thanks @22nsuk).
-- Behoben: Einstellungen wurden aus einer älteren Sicherung wiederhergestellt, wenn zwei Speichervorgänge gleichzeitig erfolgten (#120, thanks @22nsuk).
-- Behoben: Shell-Befehle galten nach fehlgeschlagenem Start oder Abbruch als beendet, obwohl Kindprozesse noch liefen (#124, thanks @22nsuk).
-- Behoben: Die Suche listete dieselbe Datei unter verschiedenen Pfadschreibweisen doppelt (#118, thanks @22nsuk).
-- Behoben: Die Sitzungsliste sprang beim Favorisieren, Entfernen aus den Favoriten oder Löschen einer Sitzung (#129, thanks @oh1701).
+- Behoben: Das Scrollen des Smartphone-Transkripts stockte, wenn ein gestreamtes Wort während des Ziehens ausblendete.
+- Behoben: Wartende Nachrichten und ihre Anhänge gingen nach einem Neustart verloren oder wurden übersprungen (#119, danke an @22nsuk).
+- Behoben: Einstellungen wurden aus einer älteren Sicherung wiederhergestellt, wenn zwei Speichervorgänge gleichzeitig erfolgten (#120, danke an @22nsuk).
+- Behoben: Shell-Befehle galten nach fehlgeschlagenem Start oder Abbruch als beendet, obwohl Kindprozesse noch liefen (#124, danke an @22nsuk).
+- Behoben: Die Suche listete dieselbe Datei unter verschiedenen Pfadschreibweisen doppelt (#118, danke an @22nsuk).
+- Behoben: Die Sitzungsliste sprang beim Favorisieren, Entfernen aus den Favoriten oder Löschen einer Sitzung (#129, danke an @oh1701).
 
 ### Sonstiges
 
@@ -531,16 +531,16 @@ Der Desktop verbraucht im Leerlauf nun weniger Ressourcen und wechselt Sitzungen
 
 - Behoben: Das Backend geriet unter hoher Agenten-Last ins Stocken und startete sich selbst neu, wodurch laufende Agenten abbrachen.
 - Behoben: Beim Abbrechen blieben Kindprozesse und Server weiterhin aktiv (#115).
-- Behoben: Lange eingefügte Texte waren schwer zu lesen oder zu bearbeiten (#110), und die Eingabe eines einfachen `/` im Composer schlug fehl (thanks @oh1701).
+- Behoben: Lange eingefügte Texte waren schwer zu lesen oder zu bearbeiten (#110), und die Eingabe eines einfachen `/` im Eingabefeld schlug fehl (danke an @oh1701).
 - Behoben: Der Shell-Bestätigungsdialog schob seine Schaltflächen aus dem Bildschirm (#114) und leere `.git`-Ordner blockierten Aufgaben (#108).
-- Behoben: Abgeschlossene Agenten fehlten in den Gesamtwerten der Agenten-Nutzung (#99, thanks @22nsuk).
+- Behoben: Abgeschlossene Agenten fehlten in den Gesamtwerten der Agenten-Nutzung (#99, danke an @22nsuk).
 - Behoben: Anhänge gingen beim Laden verloren, und ein fehlgeschlagener Agent markierte seinen gesamten Sitzungs-Tab als fehlgeschlagen.
-- Behoben: Jeder Durchlauf schlug mit "Workspace activity cannot be verified" fehl, nachdem ein Absturz das Workspace-Ledger beschädigt hatte.
-- Behoben: Abgelaufene Konten-Abklingzeiten wurden nicht wiederholt (#106), Einstellungssicherungen verloren Originale (#105) und unlesbare Nutzungshistorie blockierte die Gesamtwerte (#103), thanks @22nsuk.
+- Behoben: Jeder Durchlauf schlug mit „Workspace activity cannot be verified“ fehl, nachdem ein Absturz das Workspace-Ledger beschädigt hatte.
+- Behoben: Abgelaufene Konten-Abklingzeiten wurden nicht wiederholt (#106), Einstellungssicherungen verloren Originale (#105) und unlesbare Nutzungshistorie blockierte die Gesamtwerte (#103), danke an @22nsuk.
 
 ## v1.2.5 - 2026-10-18
 
-Smartphones verbinden sich jetzt schneller und ohne Popups, der Desktop wird auch bei vielen ausgeführten Agents nicht mehr langsamer, und Streaming-Antworten werden flüssiger angezeigt.
+Smartphones verbinden sich jetzt schneller und ohne Popups, der Desktop wird auch bei vielen ausgeführten Agenten nicht mehr langsamer, und Streaming-Antworten werden flüssiger angezeigt.
 
 ### Änderungen
 
@@ -554,17 +554,17 @@ Smartphones verbinden sich jetzt schneller und ohne Popups, der Desktop wird auc
 
 ### Fehlerbehebungen
 
-- Behoben: Gesendete Nachrichten und Antworten wurden nach einem Neustart der App erst wieder in der Konversation angezeigt, nachdem diese erneut geöffnet wurde (#113, thanks @oh1701).
+- Behoben: Gesendete Nachrichten und Antworten wurden nach einem Neustart der App erst wieder in der Unterhaltung angezeigt, nachdem diese erneut geöffnet wurde (#113, danke an @oh1701).
 - Behoben: Der Desktop pausierte für jeweils etwa eine Sekunde, sobald mehr als 256 Agent-Sitzungen vorhanden waren.
 - Behoben: Smartphone-Anfragen mussten hinter langsamen Nutzungs- und Git-Lesevorgängen auf dem Desktop warten.
 - Behoben: Smartphones wurden getrennt, während der Desktop ausgelastet war, und die erste Verbindung nach dem Öffnen der App dauerte über 10 Sekunden.
-- Behoben: Smartphones blieben dauerhaft bei "Allowed. Connecting…" stehen oder zeigten "Request expired" an, nachdem der PC die Verbindung genehmigt hatte.
+- Behoben: Smartphones blieben dauerhaft bei „Allowed. Connecting…“ stehen oder zeigten „Request expired“ an, nachdem der PC die Verbindung genehmigt hatte.
 - Behoben: Ein Smartphone fragte nach dem Start erneut nach einer Genehmigung, wenn die gespeicherte Anmeldung verloren gegangen war.
 - Behoben: Smartphones erschienen während eines PC-Neustarts als verbunden, während bei jeder Nachricht ein Timeout auftrat.
 - Behoben: Gekoppelte Smartphones wurden dauerhaft getrennt, wenn der PC seine Verbindungsidentität nicht lesen konnte.
 - Behoben: Eine einzelne langsame Dateipfadprüfung blockierte alle anderen Smartphone-Anfragen.
-- Behoben: Das Hochscrollen in langen Konversationen stockte, während ältere Nachrichten geladen wurden (#104).
-- Behoben: Beim Hochscrollen auf dem Smartphone während einer gestreamten Antwort wurde die Konversation wieder nach unten gezogen.
+- Behoben: Das Hochscrollen in langen Unterhaltungen stockte, während ältere Nachrichten geladen wurden (#104).
+- Behoben: Beim Hochscrollen auf dem Smartphone während einer gestreamten Antwort wurde die Unterhaltung wieder nach unten gezogen.
 - Behoben: Überlappende Symbole auf Dateikarten und wiederholte Fehlermeldungen beim Download.
 
 ## v1.2.4 - 2026-10-17
@@ -573,8 +573,8 @@ Aktualisierung mit Steuerung von Agentensitzungen und Zuweisung von Fallback-Mod
 
 ### 1. Harness-Verbesserungen: Reduzierte Ausgabe, sauberere Stile und allgemeine Stabilisierung
 
-- Agenten-Abschlussberichte und Fragekarten wurden vereinfacht und die Ausgaben der Git-, Such- und GitHub-Werkzeuge reduziert, um Tokens zu sparen.
-- Bereinigung von Hintergrund-Shells und externen Werkzeugprozessen wurde stabilisiert und die Kriterien zur Erkennung nicht reagierender Agenten bei langen Aufgaben wurden verbessert.
+- Agenten-Abschlussberichte und Fragekarten wurden vereinfacht und die Ausgaben der Git-, Such- und GitHub-Tools reduziert, um Token zu sparen.
+- Bereinigung von Hintergrund-Shells und externen Tool-Prozessen wurde stabilisiert und die Kriterien zur Erkennung nicht reagierender Agenten bei langen Aufgaben wurden verbessert.
 
 ### 2. Verbesserungen bei der Mediengenerierung
 
@@ -588,11 +588,11 @@ Aktualisierung mit Steuerung von Agentensitzungen und Zuweisung von Fallback-Mod
 
 - Automatische Paketinstallation und Umgebungseinrichtung beim Erstellen eines neuen Worktrees hinzugefügt und Reaktionszeit des Branch-Menüs verbessert.
 
-### 5. Stabilisierung von Provider-Toolaufrufen
+### 5. Stabilisierung von Anbieter-Tool-Aufrufen
 
-- Fehler bei der Claude-Denkverarbeitung auf Antigravity behoben, Nutzungsanzeige hinzugefügt und Zuverlässigkeit von Reasoning und Toolaufrufen auf benutzerdefinierten Gateways verstärkt (#79, #94, thanks @22nsuk and @sukjong2002).
-- Antigravity-Verbindungen und Wiederholungsversuche stabilisiert und Werkzeugausführung in Cursor- und OpenAI-kompatiblen Umgebungen verbessert.
-- Status von auf dem PC registrierten Providern kann nun direkt in Remote-SSH-Fenstern überprüft werden (#77, thanks @22nsuk).
+- Fehler bei der Claude-Denkverarbeitung auf Antigravity behoben, Nutzungsanzeige hinzugefügt und Zuverlässigkeit von Reasoning und Toolaufrufen auf benutzerdefinierten Gateways verstärkt (#79, #94, danke an @22nsuk and @sukjong2002).
+- Antigravity-Verbindungen und Wiederholungsversuche stabilisiert und Tool-Ausführung in Cursor- und OpenAI-kompatiblen Umgebungen verbessert.
+- Status von auf dem PC registrierten Anbietern kann nun direkt in Remote-SSH-Fenstern überprüft werden (#77, danke an @22nsuk).
 - Anthropic- und ChatGPT-Anfragekomprimierung mit sicherem Fallback verbessert, um den Beginn von Antworten zu beschleunigen.
 
 ### 6. Überarbeitung der Agenten-Sitzungsverwaltung
@@ -630,19 +630,19 @@ Verschieben eines Chats von der Composer-Insel in einen Worktree, flüssigeres T
 
 ### Neue Funktionen
 
-- **Worktrees von der Insel** — Verzweigungsabschnitt auf der Composer-Insel hinzugefügt, der einen Chat in einen Worktree verschiebt und nicht committete Änderungen mitnimmt oder zurücklässt.
+- **Worktrees von der Insel** — Branch-Abschnitt auf der Composer-Insel hinzugefügt, der einen Chat in einen Worktree verschiebt und nicht committete Änderungen mitnimmt oder zurücklässt.
 - **Fragekarten** — Karte für Fragen, die ein Agent an Sie richtet, in der Desktop-App und im TUI hinzugefügt.
 - **`/btw`** — `/btw` hinzugefügt, um eine kurze Frage zu stellen, ohne die laufende Aufgabe zu unterbrechen.
-- **Sitzungswerkzeug** — Werkzeug hinzugefügt, mit dem der Agent die aktuelle Sitzung umbenennen, zusammenfassen, forken und verschieben kann (#14, thanks @hyeon1035298).
-- **Mehrere PCs auf Android** — Wechseln zwischen bis zu 16 gespeicherten PCs in der Android-App hinzugefügt (#83, thanks @yupguni).
-- **Unterbrochene Bearbeitungen wiederherstellen** — Wiederherstellungsleiste hinzugefügt, die durch Abstürze unterbrochene Dateibearbeitungen anzeigt und diese sicher wiederherstellt oder verwirft (#60, thanks @22nsuk).
+- **Sitzungs-Tool** — Tool hinzugefügt, mit dem der Agent die aktuelle Sitzung umbenennen, zusammenfassen, forken und verschieben kann (#14, danke an @hyeon1035298).
+- **Mehrere PCs auf Android** — Wechseln zwischen bis zu 16 gespeicherten PCs in der Android-App hinzugefügt (#83, danke an @yupguni).
+- **Unterbrochene Bearbeitungen wiederherstellen** — Wiederherstellungsleiste hinzugefügt, die durch Abstürze unterbrochene Dateibearbeitungen anzeigt und diese sicher wiederherstellt oder verwirft (#60, danke an @22nsuk).
 
 ### Änderungen
 
 - Streaming-Antworten so geändert, dass sie flüssig bei der Entstehung angezeigt werden, anstatt in zeilenweisen Schüben.
 - Beenden, neue Chats und den Änderungen-Bereich so geändert, dass sie deutlich schneller reagieren.
-- MCP-Werkzeugschemata so geändert, dass sie für jeden Anbieter konvertiert werden, sodass Werkzeuge, die in anderen Apps funktionieren, auch in Mixdog funktionieren; ein defektes Werkzeug wird mit einem Hinweis übersprungen.
-- Gesamtnutzung so geändert, dass sie ausgeblendet bleibt, wenn ein Anbieter die Nutzung nicht für jeden Aufruf gemeldet hat (#90, #91, thanks @22nsuk).
+- MCP-Tool-Schemata so geändert, dass sie für jeden Anbieter konvertiert werden, sodass Tools, die in anderen Apps funktionieren, auch in Mixdog funktionieren; ein defektes Werkzeug wird mit einem Hinweis übersprungen.
+- Gesamtnutzung so geändert, dass sie ausgeblendet bleibt, wenn ein Anbieter die Nutzung nicht für jeden Aufruf gemeldet hat (#90, #91, danke an @22nsuk).
 - Verschieben von Änderungen in einen Worktree so geändert, dass Dateien abgelehnt werden, die Git im Status verbirgt, damit keine Bearbeitung verloren geht.
 - Einstellungssicherungen so geändert, dass sie bei jedem Profil verbleiben, sodass die Einstellungen eines Profils niemals von einem anderen überschrieben werden.
 - Visualize-Versionsleiste in ein Versionsmenü geändert sowie Umbenennen von Tabs durch Doppelklick und Hervorhebung von Slash-Befehlen hinzugefügt.
@@ -651,9 +651,9 @@ Verschieben eines Chats von der Composer-Insel in einen Worktree, flüssigeres T
 
 ### Fehlerbehebungen
 
-- Behoben: Claude-Modelle auf Antigravity schlugen aufgrund von Werkzeugschemata mit HTTP 400 fehl (#80, thanks @ProofPage).
-- Behoben: Die Schaltfläche „Neuer Branch“ im Chat führte keine Aktion aus (#85, thanks @oh1701).
-- Behoben: Neu gestartete Agents sahen MCP-Werkzeuge in ihrem ersten Durchlauf nicht (#88, thanks @oh1701).
+- Behoben: Claude-Modelle auf Antigravity schlugen aufgrund von Tool-Schemata mit HTTP 400 fehl (#80, danke an @ProofPage).
+- Behoben: Die Schaltfläche „Neuer Branch“ im Chat führte keine Aktion aus (#85, danke an @oh1701).
+- Behoben: Neu gestartete Agenten sahen MCP-Tools in ihrem ersten Durchlauf nicht (#88, danke an @oh1701).
 - Behoben: Der Hintergrunddienst fror beim Löschen von Sitzungen ein und gelöschte Sitzungen oder deren Tabs kehrten zurück.
 - Behoben: Die Datenbank blieb nach dem Beenden der App manchmal geöffnet.
 - Behoben: Die erste Nachricht nach dem Wechseln des Modells eines Chats schlug mit „Session state changed unexpectedly“ fehl.
@@ -661,11 +661,11 @@ Verschieben eines Chats von der Composer-Insel in einen Worktree, flüssigeres T
 - Behoben: Der Insel-Branch-Name erschien verzögert und verschob das Layout, und Shell-Zeilen flackerten bei Befehlsabschluss.
 - Behoben: Die Seitenleiste blieb geöffnet, nachdem ihr letzter Tab geschlossen wurde, und das Visualize-Panel blieb eingeklappt, wenn sich eine Visualisierung öffnete.
 - Behoben: Entwickler-Anbieter-Schalter wurden nach dem Einschalten als deaktiviert angezeigt und benutzerdefinierte Anbieterfehler zeigten interne Meldungen.
-- Behoben: Das Protokoll sprang, wenn der Composer seine Höhe änderte.
+- Behoben: Das Protokoll sprang, wenn das Eingabefeld seine Höhe änderte.
 
 ### Sonstiges
 
-- Desktop-Build-Fehler behoben (#89, thanks @22nsuk).
+- Desktop-Build-Fehler behoben (#89, danke an @22nsuk).
 
 ## v1.2.2 - 2026-10-14
 
@@ -673,9 +673,9 @@ Explizite MCP-OAuth-Anmeldung, Modellwechsel an Ort und Stelle und einzeiliges K
 
 ### Neue Funktionen
 
-- **MCP-Anmeldung** — Explizite OAuth-Anmeldung für MCP-Server mit Statusanzeige, geteiltem Anmeldedialog, Remote-Einfügen und TUI-Befehlen hinzugefügt (#74, thanks @oh1701).
-- **Modell an Ort und Stelle wechseln** — Wechseln des Modells eines Chats ohne Starten einer neuen Sitzung sowie Fork im Sitzungsmenü hinzugefügt (#73, #52, thanks @grapefruit0205).
-- **Kontingent-Banner** — Einzeiliges Banner über dem Composer bei Erreichen eines Limits hinzugefügt; Fortsetzen reserviert den nächsten Lauf für den Zurücksetzungszeitpunkt.
+- **MCP-Anmeldung** — Explizite OAuth-Anmeldung für MCP-Server mit Statusanzeige, geteiltem Anmeldedialog, Remote-Einfügen und TUI-Befehlen hinzugefügt (#74, danke an @oh1701).
+- **Modell an Ort und Stelle wechseln** — Wechseln des Modells eines Chats ohne Starten einer neuen Sitzung sowie Fork im Sitzungsmenü hinzugefügt (#73, #52, danke an @grapefruit0205).
+- **Kontingent-Banner** — Einzeiliges Banner über dem Eingabefeld bei Erreichen eines Limits hinzugefügt; Fortsetzen reserviert den nächsten Lauf für den Zurücksetzungszeitpunkt.
 - **Dateien-Menü** — Dateien-Zähler auf der Insel zur Erfassung ungespeicherter Sitzungsänderungen mit Änderungen anzeigen und Verlauf löschen hinzugefügt.
 - **Chat-Textgröße** — Geräteabhängige Einstellung für die Chat-Textgröße hinzugefügt.
 
@@ -684,21 +684,21 @@ Explizite MCP-OAuth-Anmeldung, Modellwechsel an Ort und Stelle und einzeiliges K
 - Anbieter-Wiederholungsversuche so geändert, dass sie den eigenen Limits und Wartezeiten des jeweiligen Anbieters folgen und die verbleibende Wartezeit mit einer Abbruchmöglichkeit anzeigen.
 - Fehlermeldungen so geändert, dass sie Ursache und nächsten Schritt benennen und Wiederholen ausblenden, wenn ein erneuter Versuch nicht hilft.
 - Shell-Befehle so geändert, dass sie standardmäßig 10 Sekunden und bis zu 30 Sekunden im Vordergrund verbleiben, bevor sie in den Hintergrund wechseln.
-- Desktop-App, automatisches Denken und Hintergrunddienst so angepasst, dass sie in langen Sitzungen weniger Polling, Rendering und Speicher beanspruchen.
+- Desktop-App, automatisches Reasoning und Hintergrunddienst so angepasst, dass sie in langen Sitzungen weniger Polling, Rendering und Speicher beanspruchen.
 
 ### Fehlerbehebungen
 
 - Behoben: Der Hintergrunddienst fror alle 30 Minuten für ein bis zwei Sekunden ein.
-- Behoben: Abschlussbenachrichtigungen von Agents gingen verloren, wenn ein Durchlauf mit bereits vorhandener Ausgabe abgebrochen wurde.
-- Behoben: Die Composer-Insel zeigte laufende Agents als untätig oder fertig an.
+- Behoben: Abschlussbenachrichtigungen von Agenten gingen verloren, wenn ein Durchlauf mit bereits vorhandener Ausgabe abgebrochen wurde.
+- Behoben: Die Composer-Insel zeigte laufende Agenten als untätig oder fertig an.
 - Behoben: Der Sitzungswechsel geriet ins Stocken, während auf Änderungsscans anderer Sitzungen gewartet wurde.
 - Behoben: Browser-Seitendialoge verließen den Bereich, die Verlassen-Bestätigung wurde nicht abgeschlossen und Tastenkombinationen zum Kopieren im Browser schlugen fehl.
-- Behoben: Prompt-Caching bei benutzerdefinierten Responses-Anbietern schlug fehl und übernommene Sitzungsprojekte stimmten nicht mit der Seitenleiste überein (#70, #75, thanks @sukjong2002).
+- Behoben: Prompt-Caching bei benutzerdefinierten Responses-Anbietern schlug fehl und übernommene Sitzungsprojekte stimmten nicht mit der Seitenleiste überein (#70, #75, danke an @sukjong2002).
 - Behoben: Streaming-Tabellen flackerten, das Protokoll sprang während eines aktiven Durchlaufs und die Kontingentkarte blieb nach dem Anbieterwechsel sichtbar.
 
 ### Sonstiges
 
-- Nicht verwendete Helfer entfernt (#67, thanks @22nsuk).
+- Nicht verwendete Helfer entfernt (#67, danke an @22nsuk).
 
 ## v1.2.1 - 2026-10-14
 
@@ -709,7 +709,7 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 - **Unterhaltungen importieren** — Einstellungen > Allgemein > Unterhaltungen importieren hinzugefügt, um Chats aus Codex und Claude Code auf diesem PC in Mixdog zu übernehmen.
 - **Command Code** — Command Code als Anbieter hinzugefügt, der die Anmeldung mit Ihrem Command Code-Konto ermöglicht.
 - **Richtlinien zum Kontowechsel** — Manuell, Beim Limit wechseln und Meiste Reserve zuerst für Anbieter mit mehreren Konten hinzugefügt.
-- **`$`-Skill-Erwähnungen** — `$` im Composer und im TUI hinzugefügt, um einen Skill auszuwählen und auf die Nachricht anzuwenden.
+- **`$`-Skill-Erwähnungen** — `$` im Eingabefeld und im TUI hinzugefügt, um einen Skill auszuwählen und auf die Nachricht anzuwenden.
 - **5-Stunden-Nutzungsbalken** — Option im Nutzungsmenü hinzugefügt, die einen 5-Stunden-Balken neben dem längsten Zeitraum auf der Leiste anzeigt (#66).
 - **Karten für Visualisierungs-Feedback** — Composer-Karten für gepinnte Visualisierungen, Auswahlen und Tweaks sowie Pins auf Bildern, Video-Frames und Bereichen hinzugefügt.
 - **Goal schließen** — Schaltfläche hinzugefügt, um ein beendetes Goal zu schließen.
@@ -728,8 +728,8 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 
 ### Fehlerbehebungen
 
-- Behoben: Computer Use blieb mit "foreground input observation is unavailable" nicht verfügbar; verpasste Eingaben zählen nun als Nutzereingaben, Beobachtung erholt sich selbst und Diagnose nennt die Ursache (#66).
-- Behoben: Das Hinzufügen eines SSH-Servers in der installierten App blieb dauerhaft bei "Verbindung wird hergestellt…" stehen; die Server-Lockdatei wird nun mitgeliefert (#69, danke an @victorwon2001).
+- Behoben: Computer Use blieb mit „foreground input observation is unavailable“ nicht verfügbar; verpasste Eingaben zählen nun als Nutzereingaben, Beobachtung erholt sich selbst und Diagnose nennt die Ursache (#66).
+- Behoben: Das Hinzufügen eines SSH-Servers in der installierten App blieb dauerhaft bei „Verbindung wird hergestellt…“ stehen; die Server-Lockdatei wird nun mitgeliefert (#69, danke an @victorwon2001).
 - Behoben: Chat-Links öffneten den In-App-Browser auf einer leeren `about:blank`-Seite statt des Links (#63).
 - Behoben: Gebündelte Skill-Skripte, einschließlich des Skill-Validators, schlugen bei manchen Installationen und Shells fehl (#62).
 - Behoben: Neue Aufgaben, die einen gelöschten Workflow gespeichert hatten, starten nun mit Default (#64).
@@ -751,33 +751,33 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 
 ## v1.2.0 - 2026-10-13
 
-Diese Version führt das Änderungen-Panel und änderungsbezogene Verlaufskarten pro Durchlauf mit Steuerelementen zum Rückgängigmachen und Wiederholen ein, hält den früheren Gesprächsverlauf nach einer Kompaktierung lesbar und fügt ein integriertes Visualisierungstool für interaktive UI-Entwürfe und Diagramme hinzu. Remote-Workflows werden durch SSH-Serververbindungen, isolierte Git-Worktree-Sitzungen, Steuerung von Hintergrund-Shells und direkte Dateidownloads auf gekoppelten Mobiltelefonen erweitert. Die Benutzeroberfläche bietet zudem kontrastreichere Farben, flüssigeres Scrollen auf Mobilgeräten und flexible Sitzungsorganisation.
+Diese Version führt das Änderungen-Panel und änderungsbezogene Verlaufskarten pro Durchlauf mit Steuerelementen zum Rückgängigmachen und Wiederholen ein, hält den früheren Gesprächsverlauf nach einer Komprimierung lesbar und fügt ein integriertes Visualisierungstool für interaktive UI-Entwürfe und Diagramme hinzu. Remote-Workflows werden durch SSH-Serververbindungen, isolierte Git-Worktree-Sitzungen, Steuerung von Hintergrund-Shells und direkte Dateidownloads auf gekoppelten Smartphones erweitert. Die Benutzeroberfläche bietet zudem kontrastreichere Farben, flüssigeres Scrollen auf Mobilgeräten und flexible Sitzungsorganisation.
 
 ### Neue Funktionen
 
-- Nach dem Kompaktieren einer Unterhaltung bleiben frühere Nachrichten, Werkzeugkarten und Diffs oberhalb einer Trennlinie "Unterhaltung kompaktiert" lesbar, anstatt zu verschwinden. Sie dienen nur zur Anzeige (werden nie an das Modell gesendet), werden beim Hochscrollen nach einem Neustart wieder geladen, belegen bis zu etwa 32 MB pro Sitzung (älteste Einträge werden zuerst verworfen), filtern vertrauliche Werte wie der übrige Verlauf und werden mit der Sitzung gelöscht; fortgesetzte Sitzungen verknüpfen den Verlauf, anstatt ihn zu duplizieren. Für Durchläufe vor der Kompaktierung stehen Rückgängigmachen, Wiederholen und erneutes Ausführen nicht zur Verfügung.
-- Das neue Änderungen-Panel bietet eine fortlaufende Ansicht aller Diffs geänderter Dateien mit Reitern an der Seite: Der Reiter "Änderungen" zeigt alle Dateien, während das Anklicken einer Datei in einer Verlaufskarte nur deren Reiter öffnet. Das Panel funktioniert ohne Git über die sitzungseigenen Änderungsprotokolle, hebt Syntax hervor, bricht lange Zeilen um statt horizontal zu scrollen, klappt Dateien beim Klick auf eine Zeile ein oder aus, öffnet Dateien in einem Reiter mit `↗`, macht Dateiänderungen mit `↶` rückgängig und listet projektfremde Dateien schreibgeschützt mit vollständigem Pfad im Tooltip auf. Das Schließen des letzten Reiters schließt das Panel.
+- Nach dem Komprimieren einer Unterhaltung bleiben frühere Nachrichten, Tool-Karten und Diffs oberhalb einer Trennlinie „Unterhaltung komprimiert“ lesbar, anstatt zu verschwinden. Sie dienen nur zur Anzeige (werden nie an das Modell gesendet), werden beim Hochscrollen nach einem Neustart wieder geladen, belegen bis zu etwa 32 MB pro Sitzung (älteste Einträge werden zuerst verworfen), filtern vertrauliche Werte wie der übrige Verlauf und werden mit der Sitzung gelöscht; fortgesetzte Sitzungen verknüpfen den Verlauf, anstatt ihn zu duplizieren. Für Durchläufe vor der Komprimierung stehen Rückgängigmachen, Wiederholen und erneutes Ausführen nicht zur Verfügung.
+- Das neue Änderungen-Panel bietet eine fortlaufende Ansicht aller Diffs geänderter Dateien mit Tabs an der Seite: Der Tab „Änderungen“ zeigt alle Dateien, während das Anklicken einer Datei in einer Verlaufskarte nur deren Tab öffnet. Das Panel funktioniert ohne Git über die sitzungseigenen Änderungsprotokolle, hebt Syntax hervor, bricht lange Zeilen um statt horizontal zu scrollen, klappt Dateien beim Klick auf eine Zeile ein oder aus, öffnet Dateien in einem Tab mit `↗`, macht Dateiänderungen mit `↶` rückgängig und listet projektfremde Dateien schreibgeschützt mit vollständigem Pfad im Tooltip auf. Das Schließen des letzten Tabs schließt das Panel.
 - Eine Änderungskarte unter jedem Durchlauf zeigt die Anzahl geänderter Dateien, eine Diff-Zusammenfassung mit +N −N Zeilen, eine Schaltfläche zum Anzeigen der Änderungen sowie die Liste bearbeiteter Dateien an.
-- Überarbeitete Werkzeugkarten zeigen die genaue Änderung jedes einzelnen Bearbeitungsschritts anstelle der laufenden Gesamtsumme des Durchlaufs in derselben Diff-Ansicht wie das Änderungen-Panel und zeigen hinzugefügte sowie gelöschte Zeilen bereits während der Ausführung an.
-- Ein integriertes Visualisierungstool erstellt Projektentwürfe und Inline-Diagramme (Mermaid, SVG, ECharts, HTML und Markdown) in eigenen Reitern im Seitenbereich. Sie können Elemente untersuchen, Seitenfehler erfassen, angeheftetes Feedback mit Datenauswahlen für die nächste Nachricht hinterlassen, Versionen vergleichen und wiederherstellen sowie Designs als PNG oder PDF exportieren.
-- Git-Worktree-Sitzungen ermöglichen das Arbeiten auf isolierten Zweigen, ohne den aktuellen Arbeitsbereich zu verändern. Ein Zweig-Chip über dem Eingabefeld erlaubt das Auswählen oder Erstellen eines neuen Worktree-Zweigs beim Starten einer Aufgabe mit abgesicherten Zusammenführungen, die Konfliktreste verhindern.
+- Überarbeitete Tool-Karten zeigen die genaue Änderung jedes einzelnen Bearbeitungsschritts anstelle der laufenden Gesamtsumme des Durchlaufs in derselben Diff-Ansicht wie das Änderungen-Panel und zeigen hinzugefügte sowie gelöschte Zeilen bereits während der Ausführung an.
+- Ein integriertes Visualisierungstool erstellt Projektentwürfe und Inline-Diagramme (Mermaid, SVG, ECharts, HTML und Markdown) in eigenen Tabs im Seitenbereich. Sie können Elemente untersuchen, Seitenfehler erfassen, angeheftetes Feedback mit Datenauswahlen für die nächste Nachricht hinterlassen, Versionen vergleichen und wiederherstellen sowie Designs als PNG oder PDF exportieren.
+- Git-Worktree-Sitzungen ermöglichen das Arbeiten auf isolierten Branches, ohne den aktuellen Arbeitsbereich zu verändern. Ein Branch-Chip über dem Eingabefeld erlaubt das Auswählen oder Erstellen eines neuen Worktree-Branches beim Starten einer Aufgabe mit abgesicherten Zusammenführungen, die Konfliktreste verhindern.
 - Verbinden Sie sich über Einstellungen > Verbindung per SSH mit Remote-Servern. Mixdog installiert sich automatisch auf dem Server, öffnet sich in einem eigenen Fenster mit einem Ports-Panel samt Portweiterleitung, Remote-Dateiverwaltung und Terminals und leitet Modellaufrufe über Ihren PC weiter, sodass keine Zugangsdaten auf dem Server liegen müssen.
-- Gekoppelte Smartphones können nun vom Assistenten erstellte Dateien und generierte Medien direkt über Chat-Links herunterladen und teilen, inklusive Fortschrittsanzeige, Wiederholungsversuchen und Abbruch (Speichern im Download-Ordner unter Android und über das Share-Menü unter iOS; mit dem nächsten Update der Android-App oder iOS-App) (#40). Gekoppelte Mobiltelefone sind zudem strikt auf registrierte Projekte und in dieser Sitzung erstellte Dateien beschränkt.
-- Hintergrund-Shell-Befehle können direkt in der App oder aus der Ferne gestoppt werden. Beendete Befehle bleiben bis zum Schließen aufgelistet, anstatt sofort zu verschwinden, und die Aufgabenübersicht im Eingabebereich klappt inline auf, um laufende Hintergrundbefehle neben Agenten mit kumuliertem Token-Verbrauch und Werkzeugaufrufen anzuzeigen.
+- Gekoppelte Smartphones können nun vom Assistenten erstellte Dateien und generierte Medien direkt über Chat-Links herunterladen und teilen, inklusive Fortschrittsanzeige, Wiederholungsversuchen und Abbruch (Speichern im Download-Ordner unter Android und über das Share-Menü unter iOS; mit dem nächsten Update der Android-App oder iOS-App) (#40). Gekoppelte Smartphones sind zudem strikt auf registrierte Projekte und in dieser Sitzung erstellte Dateien beschränkt.
+- Hintergrund-Shell-Befehle können direkt in der App oder aus der Ferne gestoppt werden. Beendete Befehle bleiben bis zum Schließen aufgelistet, anstatt sofort zu verschwinden, und die Aufgabenübersicht im Eingabebereich klappt inline auf, um laufende Hintergrundbefehle neben Agenten mit kumuliertem Token-Verbrauch und Tool-Aufrufen anzuzeigen.
 - Verschieben Sie Sitzungen über das Seitenleistenmenü oder per Drag-and-Drop in ein anderes Projekt, ohne den Ordner auf der Festplatte zu verschieben; Sitzungen in Unterordnern und Worktrees eines Projekts werden automatisch darunter gruppiert.
-- Seitenbereiche auf Mobiltelefonen (Browser, Terminal, Änderungen und Vorschau) nutzen dieselbe Kopfzeile wie auf dem PC, inklusive Reiter, Menü zum Wechseln von Panels und Schließen-Schaltfläche. Im mobilen Browser öffnet `+` einen neuen Reiter im Seitenbereich dieser Sitzung, und Reiter lassen sich wie am PC wechseln und schließen (erfordert die aktualisierte PC-App).
+- Seitenbereiche auf Smartphones (Browser, Terminal, Änderungen und Vorschau) nutzen dieselbe Kopfzeile wie auf dem PC, inklusive Tabs, Menü zum Wechseln von Panels und Schließen-Schaltfläche. Im mobilen Browser öffnet `+` einen neuen Tab im Seitenbereich dieser Sitzung, und Tabs lassen sich wie am PC wechseln und schließen (erfordert die aktualisierte PC-App).
 - Im Chat gesendete Bilder behalten nach einem Neustart ihre Miniaturansichten, und Karten für Visualisierungen sowie HTML-Dateien zeigen eine echte visuelle Vorschau der Seite, die lokal in einer isolierten Sandbox ohne Netzwerkzugriff für Dateien innerhalb des Projekts gerendert wird.
 - Der Eingabebereich listet aktive Agenten im selben Format wie das Agentenfenster auf und blendet den Shell-Bereich automatisch aus, wenn keine Hintergrund-Shells aktiv sind.
-- Das Schließen des letzten Terminal-, Browser- oder Datei-Reiters schließt den Seitenbereich automatisch, und das erneute Öffnen des Terminals startet einen neuen Reiter (basierend auf #49 von @moveju112).
+- Das Schließen des letzten Terminal-, Browser- oder Datei-Tabs schließt den Seitenbereich automatisch, und das erneute Öffnen des Terminals startet einen neuen Tab (basierend auf #49 von @moveju112).
 - Projektordner und Seitenleistenabschnitte bleiben standardmäßig geöffnet und merken sich ihren eingeklappten Zustand, während das Auswählen einer Sitzung in einem eingeklappten Ordner diesen automatisch öffnet. Sitzungen können zudem per Drag-and-Drop neu angeordnet oder nach letzter Aktivität sortiert werden.
 - Die Android-App kann nun im Hintergrund nach Updates suchen, Aktualisierungen herunterladen, Signaturen verifizieren und neue Versionen direkt installieren (mit dem nächsten Update der Android-App).
-- Die automatische Überlegungssteuerung lässt sich nun pro Modellroute in den Routeneinstellungen festlegen und für Automatisierungen mit `+noauto` deaktivieren. Unter Einstellungen > Verbindung können gekoppelten Geräten zudem benutzerdefinierte lokale Spitznamen zugewiesen werden.
+- Die automatische Reasoning-Steuerung lässt sich nun pro Modellroute in den Routeneinstellungen festlegen und für Automatisierungen mit `+noauto` deaktivieren. Unter Einstellungen > Verbindung können gekoppelten Geräten zudem benutzerdefinierte lokale Spitznamen zugewiesen werden.
 
 ### Änderungen
 
-- Kräftigere Akzentfarben und höherer Textkontrast; Überschriften von Werkzeug- und Verlaufskarten nutzen ein dezentes Grau mit reinen Umrandungen; Inline-Code erscheint als graue Chips und Zitate mit einer linken Linie; ausgewählter Text und Diff-Zeilennummern erreichen in beiden Designs ein Kontrastverhältnis von mindestens 4.5:1.
-- Das Seitenmenü öffnet sich ohne Schattenwurf und dunkelt den Hintergrund um 40% ab.
-- Der Zweig- und Worktree-Chip über dem Eingabefeld erscheint nur in Git-Projekten und ausschließlich vor dem Beginn einer Unterhaltung.
+- Kräftigere Akzentfarben und höherer Textkontrast; Überschriften von Tool- und Verlaufskarten nutzen ein dezentes Grau mit reinen Umrandungen; Inline-Code erscheint als graue Chips und Zitate mit einer linken Linie; ausgewählter Text und Diff-Zeilennummern erreichen in beiden Designs ein Kontrastverhältnis von mindestens 4,5:1.
+- Das Seitenmenü öffnet sich ohne Schattenwurf und dunkelt den Hintergrund um 40 % ab.
+- Der Branch- und Worktree-Chip über dem Eingabefeld erscheint nur in Git-Projekten und ausschließlich vor dem Beginn einer Unterhaltung.
 - Die Anzahl geänderter Dateien im Eingabebereich deckt nun die gesamte Sitzung ab, anstatt nach jedem Durchlauf zurückgesetzt zu werden.
 - Der Schalter für die Visualisierung wurde aus der Kopfzeile des Panels entfernt; Visualisierungen öffnen sich automatisch oder über ihre Karte in der Unterhaltung.
 - Der Kontextring öffnet sich nur noch beim Anklicken und nicht mehr beim Daraufzeigen mit der Maus (#48).
@@ -785,7 +785,7 @@ Diese Version führt das Änderungen-Panel und änderungsbezogene Verlaufskarten
 - Nachrichten werden unterhalb des Eingabebereichs sanft ausgeblendet, anstatt abrupt abgeschnitten zu werden.
 - Dateien außerhalb des Projekts zeigen ihren Namen mit dem vollständigen Pfad im Tooltip anstelle eines Abzeichens.
 - Flüssigeres Scrollen, insbesondere unter Android: Die Unterhaltung wird maximal einmal pro Bildwiederholung neu gezeichnet, die Ladeanzeige animiert auf der GPU, die Scrollposition wird beim Anhalten gespeichert, Toucheingaben werden nicht mehr blockiert und das Ausblenden unter dem Eingabebereich zeichnet nicht mehr die gesamte Liste neu.
-- MCP-Werkzeugaufrufe erzwingen Ausführungs-Timeouts (standardmäßig 120 Sekunden) ohne hängenzubleiben oder abgebrochene Anfragen zu wiederholen, melden Abstürze von stdio-Prozessen mit Fehlerdetails und unterstützen Paginierung für lange Werkzeuglisten.
+- MCP-Tool-Aufrufe erzwingen Ausführungs-Timeouts (standardmäßig 120 Sekunden) ohne hängenzubleiben oder abgebrochene Anfragen zu wiederholen, melden Abstürze von stdio-Prozessen mit Fehlerdetails und unterstützen Paginierung für lange Werkzeuglisten.
 - Automatisch leeren wird für inaktive Sitzungen ausgeführt, bevor Hintergrundabschlüsse die Unterhaltung wieder aufwecken.
 - Beim Starten der Desktop-App unter macOS werden Homebrew-Verzeichnisse an `PATH` angehängt, ohne bestehende Pfadeinträge zu verwerfen.
 - Das mobile Remote-Terminal enthält eine eigene Tastenleiste mit Modifikatoren und Navigationstasten (mit dem nächsten Update der Android-App oder iOS-App).
@@ -796,14 +796,14 @@ Diese Version führt das Änderungen-Panel und änderungsbezogene Verlaufskarten
 - Die Nachdenkanzeige blieb bis zum Laden der App-Sprache auf Englisch; der Schimmereffekt auf Smartphones wurde korrigiert.
 - Die Verlaufskarte, der Eingabebereich und das Änderungen-Panel konnten voneinander abweichende Anzahlen geänderter Dateien anzeigen.
 - Das erste Hochscrollen in langen Unterhaltungen konnte zu Darstellungsprüngen führen.
-- Das Schließen des letzten Terminal-Reiters erstellte fälschlicherweise einen neuen Reiter und flackerte (#49).
+- Das Schließen des letzten Terminal-Tabs erstellte fälschlicherweise einen neuen Tab und flackerte (#49).
 - Das Lesen von Dateien liefert keine veralteten Inhalte mehr zurück und meldet keine Zeilenbereiche, die nicht tatsächlich übermittelt wurden, selbst wenn eine große Datei an derselben Stelle mit identischer Größe überschrieben wird (#54, danke an @22nsuk).
 - Das Speichern von Dateien und die Batch-Wiederherstellung behalten die Textkodierung bei, verwerfen verlustbehaftete Speicherungen, schützen geänderte Puffer bei Lesekonflikten und protokollieren Batch-Schreibvorgänge unter Beibehaltung von Dateiberechtigungen und Pfadschreibweise (#39, danke an @22nsuk).
 - Unter macOS bewegen `Cmd+Up` und `Cmd+Down` den Cursor innerhalb von Textfeldern, anstatt Tastenkürzel für die Arbeitsbereichsnavigation auszulösen.
 - Konfigurations- und Statusdateien, die mit einer Byte-Reihenfolge-Markierung (BOM) beginnen, laden fehlerfrei, anstatt abzustürzen oder neu initialisiert zu werden.
 - Bei der Anmeldung bei OpenAI bleibt der vollständige Modellkatalog erhalten, anstatt verfügbare Modelle versehentlich auszublenden.
 - Unter Linux führte das Einfügen oder Lesen von Bildern zum Absturz des Mixdog-Hintergrunddienstes und brach den laufenden Durchlauf ab; Bilder werden nun über ein Build der Bildbibliothek verarbeitet, das dort zuverlässig funktioniert (#56, #57, danke an @cronoboris).
-- Nach einem unvorhergesehenen Beenden von Mixdog (Herunterfahren von Windows, Installationsprogramme, Beenden über den Task-Manager) konnte jede Aktion mit dem Fehler "daemon session endpoint is unavailable" fehlschalgen und keine Unterhaltungen anzeigen, bis eine verbliebene Sperrdatei entfernt wurde; veraltete Sperren werden nun automatisch erkannt und behoben. Eine unlesbare Datei im temporären Ordner verhindert den Start des Hintergrunddienstes ebenfalls nicht mehr, und falls der Start dennoch fehlschlägt, zeigen die Fehlerdetails die tatsächliche Ursache und den Speicherort der Protokolle an.
+- Nach einem unvorhergesehenen Beenden von Mixdog (Herunterfahren von Windows, Installationsprogramme, Beenden über den Task-Manager) konnte jede Aktion mit dem Fehler „daemon session endpoint is unavailable“ fehlschlagen und keine Unterhaltungen anzeigen, bis eine verbliebene Sperrdatei entfernt wurde; veraltete Sperren werden nun automatisch erkannt und behoben. Eine unlesbare Datei im temporären Ordner verhindert den Start des Hintergrunddienstes ebenfalls nicht mehr, und falls der Start dennoch fehlschlägt, zeigen die Fehlerdetails die tatsächliche Ursache und den Speicherort der Protokolle an.
 
 ### Sonstiges
 
@@ -845,7 +845,7 @@ Daybreak Blue ist jetzt ein Schalter pro Route unter „Automatisches Reasoning�
 
 Automatisches Reasoning erscheint jetzt überall, wo Modell und Aufwand angezeigt werden, als „Auto“ – etwa in der Agenten-Seitenleiste, in Workflows, Zeitplänen und Webhooks. Die Arbeitsstatuszeile zeigt den Aufwand, den Auto tatsächlich gewählt hat, in Ihrer Sprache (z. B. „Denkt nach (medium)“).
 
-Die Composer-Insel über dem Nachrichtenfeld wurde überarbeitet. Ziele zeigen ein Statussymbol, Fortschrittspunkte pro Aufgabe und „In Bearbeitung“; Agenten, Shells und geänderte Dateien werden getrennt mit eigenen Symbolen gezählt; und Agenten, die auf Ihre Genehmigung warten, zeigen „Warten auf Genehmigung“ und eine „Wartet auf Sie“-Anzahl, statt beschäftigt zu wirken. Ein Klick auf einen Agenten öffnet seine Sitzung, die Laufzeit eines Agenten zählt jetzt ab dem aktuellen Zug statt ab der Erstellung, und die Insel bleibt nach Abschluss kurz sichtbar, statt zu flackern. Auch im Agenten-Bereich werden Agenten markiert, die auf Genehmigung warten.
+Die Composer-Insel über dem Nachrichtenfeld wurde überarbeitet. Ziele zeigen ein Statussymbol, Fortschrittspunkte pro Aufgabe und „In Bearbeitung“; Agenten, Shells und geänderte Dateien werden getrennt mit eigenen Symbolen gezählt; und Agenten, die auf Ihre Genehmigung warten, zeigen „Warten auf Genehmigung“ und eine „Wartet auf Sie“-Anzahl, statt beschäftigt zu wirken. Ein Klick auf einen Agenten öffnet seine Sitzung, die Laufzeit eines Agenten zählt jetzt ab dem aktuellen Durchgang statt ab der Erstellung, und die Insel bleibt nach Abschluss kurz sichtbar, statt zu flackern. Auch im Agenten-Bereich werden Agenten markiert, die auf Genehmigung warten.
 
 Ihre eigenen Nachrichten zeigen nicht mehr „von <diesem PC>“; die Geräteangabe erscheint nur bei Nachrichten von anderen Geräten.
 
@@ -857,7 +857,7 @@ Der Hinweis „Neuigkeiten“ nach einem Update geht nicht mehr verloren, wenn e
 
 Die Seite mit den Verbindungseinstellungen springt beim Öffnen nicht mehr, und die Schaltfläche „Verwenden“ für Reset-Guthaben ist auf dem Smartphone kompakter.
 
-Werkzeugpfade wie /C:/… werden jetzt akzeptiert, edit akzeptiert old_str / new_str als Aliase, mehrere in einer Zeichenfolge verbundene Pfade werden verstanden (innerhalb des Projekts), und Fehlermeldungen sind klarer.
+Tool-Pfade wie /C:/… werden jetzt akzeptiert, edit akzeptiert old_str / new_str als Aliase, mehrere in einer Zeichenfolge verbundene Pfade werden verstanden (innerhalb des Projekts), und Fehlermeldungen sind klarer.
 
 Lang laufende Shell-Befehle im Hintergrund, etwa Dev-Server, blockieren neue Shell-Befehle nicht mehr.
 
@@ -869,7 +869,7 @@ Mixdog für Android 0.1.12 bringt eine neue Kopplung: Öffnen Sie auf Ihrem PC E
 
 ## v1.1.0 - 2026-10-11
 
-- Eine neue Option „Telefon“ unter Einstellungen > Verbindung zeigt einen QR-Code zur Installation der Mixdog-Mobil-App (verfügbar für iPhone über die TestFlight-Beta und für Android als APK). Nach der Installation wird die Kopplung durch Eingabe eines 6-stelligen Codes in der App und Bestätigung auf dem Desktop-PC abgeschlossen.
+- Eine neue Option „Smartphone“ unter Einstellungen > Verbindung zeigt einen QR-Code zur Installation der Mixdog-Mobil-App (verfügbar für iPhone über die TestFlight-Beta und für Android als APK). Nach der Installation wird die Kopplung durch Eingabe eines 6-stelligen Codes in der App und Bestätigung auf dem Desktop-PC abgeschlossen.
 
 - Die Web-App kann jetzt Push-Benachrichtigungen von allen gekoppelten PCs empfangen, sodass Sie über abgeschlossene Aufgaben und Modellantworten auf allen Computern auf dem Laufenden bleiben.
 
@@ -877,7 +877,7 @@ Mixdog für Android 0.1.12 bringt eine neue Kopplung: Öffnen Sie auf Ihrem PC E
 
 - Registrierte Projekte in der Sitzungs-Seitenleiste sind jetzt als Ordner über den letzten Sitzungen organisiert und zeigen ihre neuesten Unterhaltungen sowie eine Schaltfläche zum Starten einer neuen Aufgabe in diesem Projekt. Kategorien und Ordner lassen sich per Drag-and-Drop neu anordnen, und Kontextmenüs per Rechtsklick ermöglichen das Öffnen, Umbenennen, Favorisieren, Archivieren, Löschen oder Vererben von Sitzungen.
 
-- Die Desktop-App unterstützt wieder Intel-basierte Macs (macOS x64) ohne ONNX-Abhängigkeiten. Die lexikalische Speichersuche bleibt erhalten, während die lokale semantische Suche und automatisches Reasoning auf Intel-Geräten entfallen.
+- Die Desktop-App unterstützt wieder Intel-basierte Macs (macOS x64) ohne ONNX-Abhängigkeiten. Die lexikalische Erinnerungssuche bleibt erhalten, während die lokale semantische Suche und automatisches Reasoning auf Intel-Geräten entfallen.
 
 - Beim Speichern unter wird die bestehende Zieldatei nicht mehr überschrieben oder gelöscht, wenn der Download fehlschlägt. Das Entfernen eines gekoppelten Geräts unter Einstellungen > Verbindung wird bei einer Wiederverbindung automatisch wiederholt, falls das Relay vorübergehend nicht erreichbar war.
 
@@ -1250,7 +1250,7 @@ Mixdog für Android 0.1.12 bringt eine neue Kopplung: Öffnen Sie auf Ihrem PC E
 
 - Der Sitzungsstart meldet, welche gängigen Shell-Tools vorhanden sind („Shell tools at startup“), gemessen in der Login-Shell unter POSIX und im Prozess-PATH unter Windows, sodass ein Modell nicht mehr `python` gegen `python3` rät oder `file` aufruft, wo es fehlt; eine unbekannte Antwort wird nicht dargestellt.
 - `read` stellt überlappende Fenster einer Datei einmal dar, meldet ungelesene Bearbeitungsbereiche nicht mehr als bereits geliefert und erbt nach einer Dateiänderung nie eine veraltete Markierung „gesamter Body geliefert“; Array-Lesevorgänge beachten ihre No-Stub-Option, und die Beschreibung nennt die tatsächlichen Ausgabe-Obergrenzen.
-- `git` führt mit `&&` verkettete Befehle als geordnetes Array (bis zu 10) aus, statt sie abzulehnen, und erkennt Bare-Repositories.
+- `git` führt mit `&&` verkettete Befehle als geordnetes Array (bis zu 10) aus, statt sie abzulehnen, und erkennt Bare-Repositorys.
 - Der Lese-Cache der Sitzung beachtet die Tool-Allowlist, erkennt reine `ctime`-Änderungen, speichert nie einen Body, der vor einer Änderung mitten im Lesen erfasst wurde, hält öffentliche und Legacy-Offset-Hinweise getrennt und deckt öffentliche Array-Lesevorgänge ab.
 - `web_search`-Arrays kennzeichnen teilweise und vollständige Fehlschläge weiterhin als Fehler.
 - Regeln und eingebaute Tool-Beschreibungen sind bei gleichem Verhalten kürzer: Die `shell`-Beschreibung trägt die Zuordnung Befehl→Tool und verbietet Tool-Namen als Shell-Befehle; die Hinweise zu `timeout_ms` decken Wegwerfprüfungen ab; Lead-Hinweise, die nur mit dem Tool `agent` gelten, entfallen in Workflows ohne Delegation; die Regeln verlangen jede unabhängige Aktion, die die aktuelle Evidenz erfordert, in einer Antwort, das direkte Patchen aus entscheidender Evidenz, ein Muster vor der Parsing-Logik und begrenzte Ausschnitte für große oder binäre Daten.
@@ -1310,7 +1310,7 @@ Mixdog für Android 0.1.12 bringt eine neue Kopplung: Öffnen Sie auf Ihrem PC E
 
 - Eine Goal-Kapsel erscheint und verschwindet nicht mehr von selbst. Zwei Veröffentlichungspfade erzeugten das Blinken: Der 2-s-Routenpuls las den rohen Goal-Datensatz, während das Nutzereingabe-Archiv eines abgeschlossenen Goals noch geschrieben wurde, sodass die zurückgezogene Kapsel für einen Frame zurückkam; und unter Windows erschien ein Goal-Lesevorgang, der in den atomaren Dateiaustausch fiel (`EPERM`/`EACCES`/`EBUSY` oder der eigene laufende Schreibvorgang der Runtime), für diesen Frame als „kein Goal“. Routenveröffentlichungen lesen das Goal jetzt durch die Maske des Goal-Fortsetzungsarchivs, und der Goal-Speicher beantwortet solche Lesevorgänge aus dem zuletzt festgeschriebenen Datensatz.
 
-- Browser Use hält nicht mehr für eine Genehmigung an: Der Desktop-Dialog „Einmal zulassen“, der `upload` und das gemeinsame `clear` von Cookie/localStorage schützte, entfällt, das Feld `confirm` verlässt den Browser-Tool-Vertrag, und der Skill browser-use lässt seine Freigaberegeln in der Unterhaltung weg. `MIXDOG_BROWSER_CONFIRM_ACTIONS` und `MIXDOG_BROWSER_DENY_ACTIONS` bleiben der einzige Weg, benannte Aktionen zu bestätigen oder abzulehnen.
+- Browser Use hält nicht mehr für eine Genehmigung an: Der Desktop-Dialog „Einmal zulassen“, der `upload` und das gemeinsame `clear` von Cookie/localStorage schützte, entfällt, das Feld `confirm` verlässt den Browser-Tool-Vertrag, und der Skill browser-use lässt seine Genehmigungsregeln in der Unterhaltung weg. `MIXDOG_BROWSER_CONFIRM_ACTIONS` und `MIXDOG_BROWSER_DENY_ACTIONS` bleiben der einzige Weg, benannte Aktionen zu bestätigen oder abzulehnen.
 
 - Die Lesespalte des Bereichs – Eingabefeld, Transkript und das Studio-Dock – wartet nicht mehr darauf, dass ein 1536px-Bereich breiter wird: Ab 768px hält sie 800px, bis der Bereich 1000px überschreitet, und folgt dann 80 % des Bereichs bis zur Obergrenze von 1000px bei 1250px, sodass Fenster mit 1536/1680 und 1920 mit geöffnetem Seitenpanel nicht mehr bei 800px hängen bleiben und ein Teiler, der die Stufe überquert, die Spalte nicht mehr um 200px einrasten lässt.
 
@@ -1555,7 +1555,7 @@ Mixdog für Android 0.1.12 bringt eine neue Kopplung: Öffnen Sie auf Ihrem PC E
 ## v0.9.138 - 2026-08-19
 
 - Remote-Websitzungen nutzen jetzt clientbezogene Abonnements, binäre E2EE-Frames, kompakte Zustands-/Katalog-Deltas, Terminal-Batching und Paint-Latenz-Sonden, was das Übertragungsvolumen verringert und die Live-Wiederherstellung auf langsamen Verbindungen bewahrt.
-- Das Scrollen im Web-Transkript und die Eingabe im Composer bleiben bei gleichzeitigen Remote-Snapshots, Sitzungswechseln und mobilem Rendering visuell stabil.
+- Das Scrollen im Web-Transkript und die Eingabe im Eingabefeld bleiben bei gleichzeitigen Remote-Snapshots, Sitzungswechseln und mobilem Rendering visuell stabil.
 - Runtime-Kontext, Wiederherstellung von Anbieteranfragen, Hintergrund-Task-Benachrichtigungen und Wiederherstellung von Abschlüssen sind über lang laufende Sitzungen hinweg gehärtet.
 
 ## v0.9.137 - 2026-08-19

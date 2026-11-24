@@ -246,7 +246,7 @@ function ImportRow({
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
       <span className="settings-import-item-title">
         {row.starred && (
-          <span role="img" aria-label={t('Starred')} title={t('Starred')}>
+          <span role="img" aria-label={t('Imported: Starred')} title={t('Imported: Starred')}>
             ★{' '}
           </span>
         )}

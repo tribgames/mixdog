@@ -30,7 +30,7 @@ test('auto-clear and compact completion render polished localized labels', async
         item: { kind: 'statusdone', label: 'Auto-clear skipped', detail: 'conversation kept · nothing to compact' },
       })
     );
-    assert.match(autoClearSkippedMarkup, /자동 정리 생략 \(대화 유지\)/);
+    assert.match(autoClearSkippedMarkup, /자동 정리 생략\(대화 유지\)/);
     assert.match(autoClearSkippedMarkup, /대화 내용 보존/);
 
     const compactMarkup = renderToStaticMarkup(

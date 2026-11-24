@@ -8,6 +8,7 @@ import {
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
+import { t } from './i18n';
 import { record } from './record-utils';
 import { type SectionStore, windowSectionStore } from './section-store';
 
@@ -100,7 +101,7 @@ export function useProviderModelCatalog() {
       } catch (reason) {
         if (!shared.isCurrent()) return;
         console.warn('[model-catalog] quick catalog refresh failed', reason);
-        setCatalogError(reason instanceof Error ? reason.message : String(reason || 'Model catalog failed.'));
+        setCatalogError(reason instanceof Error ? reason.message : String(reason || t('Model catalog failed.')));
       } finally {
         if (shared.isCurrent()) {
           setCatalogLoaded(true);

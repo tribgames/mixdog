@@ -33,7 +33,7 @@ export function OnboardingProgress({
         />
       ))}
       <span className="onboarding-progress-count">
-        {t('{{current}} of {{total}}', {
+        {t('Setup: {{current}} of {{total}}', {
           current: step + 1,
           total: steps.length,
         })}

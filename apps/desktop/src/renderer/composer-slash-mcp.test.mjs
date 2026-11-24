@@ -105,6 +105,6 @@ test('/mcp login and logout need a server name', async () => {
     const { accepted, calls, errors } = await runMcp(`/mcp ${action}`);
     assert.equal(accepted, false);
     assert.deepEqual(calls, []);
-    assert.deepEqual(errors, [`usage: /mcp ${action} <name>`]);
+    assert.deepEqual(errors, [`Usage: /mcp ${action} <name>`]);
   }
 });

@@ -4,6 +4,7 @@ import type {
   DesktopWorkspaceTextFileResult,
   DesktopWorkspaceTextSearchOptions,
 } from '../shared/contract';
+import { t } from './i18n';
 import { useSurfaceNavigationReset } from './surface-activity';
 
 export type SearchNameResults = Array<{ project: string; paths: string[] }>;
@@ -50,7 +51,7 @@ async function searchContents(
   const rows = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
   if (!rows.length && results.every((result) => result.status === 'rejected')) {
     const rejected = results.find((result) => result.status === 'rejected');
-    throw rejected && rejected.status === 'rejected' ? rejected.reason : new Error('Search failed.');
+    throw rejected && rejected.status === 'rejected' ? rejected.reason : new Error(t('Search failed.'));
   }
   return rows;
 }

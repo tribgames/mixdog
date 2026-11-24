@@ -12,7 +12,9 @@ import {
   trackKeyboardInset,
   viewFor,
   type Hooks,
+  stringsFor,
 } from './pairing-ui.ts';
+import { OTHER_STRINGS } from './pairing-strings.ts';
 
 const BANNED = /desktop|데스크톱|relay|릴레이|pairing|페어링|main PC|메인 PC|unpair/iu;
 const noHooks: Hooks = {
@@ -211,6 +213,21 @@ test('app copy has no developer wording and the shell page is a single full-scre
   assert.equal((html.match(/<main/g) || []).length, 0);
   assert.match(html, /<div id="screen" class="mxp-screen"><\/div>/);
   assert.deepEqual(Object.keys(STRINGS.ko).sort(), Object.keys(STRINGS.en).sort());
+});
+
+test('every UI language has the full phone copy, and a system locale picks its own', () => {
+  for (const [language, strings] of Object.entries(OTHER_STRINGS)) {
+    assert.deepEqual(Object.keys(strings).sort(), Object.keys(STRINGS.en).sort(), language);
+    for (const [key, text] of Object.entries(strings)) {
+      const placeholders = (value: string) => (value.match(/\{\w+\}/g) ?? []).sort().join();
+      assert.equal(placeholders(text), placeholders(STRINGS.en[key as keyof typeof STRINGS.en]), `${language}.${key}`);
+    }
+  }
+  assert.equal(stringsFor('ja-JP').cancel, OTHER_STRINGS.ja.cancel);
+  assert.equal(stringsFor('zh-Hant-TW').heading, OTHER_STRINGS['zh-TW'].heading);
+  assert.equal(stringsFor('ko-KR'), STRINGS.ko);
+  assert.equal(stringsFor('en-GB'), STRINGS.en);
+  assert.equal(stringsFor('sv-SE'), STRINGS.en);
 });
 
 test('code step: one redemption at a time — input and button wait with a pending label', () => {

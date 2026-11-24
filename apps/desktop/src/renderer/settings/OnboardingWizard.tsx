@@ -821,7 +821,7 @@ function ProfileStep({
       <div className="onboarding-profile-fields">
         <label>
           <span>
-            <b>{t('Title')}</b>
+            <b>{t('Profile: Title')}</b>
             <small>{t('How you are addressed.')}</small>
           </span>
           <input
