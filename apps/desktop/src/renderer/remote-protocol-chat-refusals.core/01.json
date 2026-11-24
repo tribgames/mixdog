@@ -9,7 +9,7 @@
     },
     "recorder": {
       "remote-protocol-chat-refusals.record.mjs": "8de931c0ec88db4d93efacf2c65465143f9e12e2c10639a4fe0937c5300b9b0e",
-      "../../../../packages/protocol-client/src/client.ts": "b6fede123339c314bd8c145fc55da294a3cd8067b711f0aa560733b4560a09fb",
+      "../../../../packages/protocol-client/src/client.ts": "0b728b356410a36b32aa1b0723010fd4b48073ddbb30509448aa4fcad79c23a3",
       "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
       "../shared/core-lanes/service-route.ts": "a3dc121df9b6b7312ca4f31d7c78dde3e11abfd53f4656996f006b7933683748",
       "remote-protocol-chat-abort-live.mjs": "ab8a94b2f2ec6617be3b96fda8102176b67c1d4ab4345e1a0063517fc1728b7b",
