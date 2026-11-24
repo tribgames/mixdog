@@ -84,6 +84,20 @@ pub struct InitializeCapabilities {
     /// connection (Node's phone mailbox, `remote-streaming-mailbox.ts`). A client without it gets every frame.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feed_ranges: Option<bool>,
+    /// What this connection shows of a tool's output (a phone). The core sends the rows of `thread/snapshot`, `thread/window/changed`,
+    /// `thread/transcript/changed` and the feed's item events with each tool output already cut to it, and says on the row how long
+    /// the output was (`meta.ext.remoteOutputTruncated`); `thread/items/read` answers the item whole. Absent: every row whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_output: Option<ToolOutputDisplay>,
+}
+
+/// The size a client shows a tool's output at: its first lines lines, at most chars characters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolOutputDisplay {
+    pub chars: u32,
+    pub lines: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

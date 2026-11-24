@@ -38,9 +38,10 @@ import { coreErrorForWindow } from '../main/protocol/core-error';
 import { routeService } from '../main/protocol/service-route';
 import { reissuedOnceIfNotApplied } from '../shared/outcome-unknown';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows';
-import { remoteToolOutput, remoteTranscriptSnapshot } from '../main/remote-transcript';
+import { findToolRecord, remoteToolOutput, remoteTranscriptSnapshot } from '../main/remote-transcript';
 import { approvalAllowIsPointerOnly } from '../shared/approval-enter-rule';
 import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
+import { outputCutByCore, readWholeToolOutput, type WholeOutputReader } from './remote-item-output';
 import { record } from './record-utils';
 import { createRosterFeed, type RosterTimers, type ThreadRow } from './remote-roster-feed';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
@@ -73,6 +74,7 @@ export interface ChatLane {
     args: unknown[],
     sessionId: string | undefined
   ): Promise<{ value: unknown; snapshot: SessionSnapshot }>;
+  invokeValue(capability: string, args: unknown[], sessionId: string | undefined): Promise<{ value: unknown }>;
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<void>;
@@ -157,7 +159,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
     } as unknown as SessionSnapshot;
   };
   const addressed = async (capability: string, args: unknown[], sessionId: string): Promise<boolean> =>
-    (await lane.invoke(capability, args, sessionId)).value === true;
+    (await lane.invokeValue(capability, args, sessionId)).value === true;
 
   // Node's host answered once the daemon had resolved the approval (session-host resolveToolApproval awaits the daemon's reply), so a
   // second answer to it found it settled: an answer here is over when the core has resolved the request it answered.
@@ -237,7 +239,17 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       if (replayToken !== undefined) return null;
       const output = shared.transcript.output(sessionId, state, itemId);
       if (!output) throw new Error(READ_NOT_HELD);
-      return output;
+      // The core sent this row's output cut to what the phone shows: the rest is read from the core, now that it is asked for.
+      if (!outputCutByCore(state, itemId)) return output;
+      const coreItemId = findToolRecord(state, itemId)?.coreItemId;
+      return (
+        (await readWholeToolOutput(
+          client as WholeOutputReader,
+          sessionId,
+          itemId,
+          typeof coreItemId === 'string' ? coreItemId : itemId
+        )) ?? output
+      );
     },
     setSessionArchived: (sessionId: string, archived: boolean): Promise<void> =>
       lane.setSessionArchived(sessionId, archived),

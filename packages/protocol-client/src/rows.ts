@@ -1,6 +1,7 @@
 import type { Json } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
+import { CORE_CUT_FIELDS, cutOutputStatsOf, paddedToWholeLines } from './rows/cut-output.ts';
 import * as node from './rows/index.mjs';
 import type { AggregateCall, AggregateHeader } from './rows/index.mjs';
 
@@ -748,6 +749,9 @@ function aggregateCall(item: Obj, category: string, live: boolean): AggregateCal
   }
   const resultText = String(item.result ?? '');
   const rawResultText = String(item.rawResult ?? item.result ?? '');
+  // The summary is read from the whole output: a row the core cut says the counts the whole had.
+  const stats = cutOutputStatsOf(item);
+  const summarized = (text: string): string => (stats ? paddedToWholeLines(text, stats) : text);
   if (live) {
     const outcome = node.toolResultDisplay({ isError: item.isError === true }, rawResultText, item.name as string);
     return {
@@ -766,7 +770,7 @@ function aggregateCall(item: Obj, category: string, live: boolean): AggregateCal
       startedAt: item.startedAt,
       completedAt: item.completedAt,
       summary: !outcome.isError
-        ? node.summarizeToolResult(item.name as string, item.args, rawResultText, outcome.isError)
+        ? node.summarizeToolResult(item.name as string, item.args, summarized(rawResultText), outcome.isError)
         : null,
     };
   }
@@ -791,7 +795,7 @@ function aggregateCall(item: Obj, category: string, live: boolean): AggregateCal
     completedAt: item.completedAt,
     summary:
       !isCallError && resultText.trim()
-        ? node.summarizeToolResult(item.name as string, item.args, resultText, false)
+        ? node.summarizeToolResult(item.name as string, item.args, summarized(resultText), false)
         : null,
   };
 }
@@ -819,6 +823,12 @@ function* aggregateRowSteps(
       const meta = members[i]?.item.toolMeta;
       if (meta !== undefined) member.toolMeta = meta;
       if (members[i]?.item.stopped === true) member.stopped = true;
+      const item = members[i]?.item;
+      if (!item) continue;
+      // What the core said of a member whose output it cut: its length, that the whole is read on request, and the counts its facts
+      // read. A live member is named by its call; the core knows the row by its own id.
+      for (const field of CORE_CUT_FIELDS) if (item[field] !== undefined) member[field] = item[field];
+      if (live && item.remoteOutputOnRequest === true && item.id != null) member.coreItemId = item.id;
     }
     return toolMembers;
   }

@@ -3355,7 +3355,18 @@ modelProxy?: boolean,
  * Folds a feed frame that stands for a run of positions (`feed.from`): the writer may coalesce a thread's text appends for this
  * connection (Node's phone mailbox, `remote-streaming-mailbox.ts`). A client without it gets every frame.
  */
-feedRanges?: boolean, };
+feedRanges?: boolean,
+/**
+ * What this connection shows of a tool's output (a phone). The core sends the rows of `thread/snapshot`, `thread/window/changed`,
+ * `thread/transcript/changed` and the feed's item events with each tool output already cut to it, and says on the row how long
+ * the output was (`meta.ext.remoteOutputTruncated`); `thread/items/read` answers the item whole. Absent: every row whole.
+ */
+toolOutput?: ToolOutputDisplay, };
+
+/**
+ * The size a client shows a tool's output at: its first `lines` lines, at most `chars` characters.
+ */
+export type ToolOutputDisplay = { chars: number, lines: number, };
 
 export type InitializeParams = { clientInfo: ClientInfo, capabilities?: InitializeCapabilities, };
 

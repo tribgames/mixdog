@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { connect, sessionReducer } from '../../../../packages/protocol-client/src/index.ts';
 import { MockNetwork } from '../../../../packages/protocol-client/src/mock.ts';
+import { invokePhoneCapability } from './remote-capability-lane.ts';
 import { adapter } from './remote-protocol-capabilities.ts';
 
 const protocolOptions = JSON.parse(
@@ -146,4 +147,16 @@ test('a project path is absolute in either syntax on the phone, the host platfor
     if (path === '' || isAbsolute(path)) assert.doesNotThrow(ask, path);
     else assert.throws(ask, /projectPath is invalid/, path);
   }
+});
+
+test('a read capability is answered with its value alone: the session state is not read beside it, a change still answers with it', async () => {
+  const { client, sent } = await phoneClient({ enabled: true, installed: true });
+  const host = { ctx: {}, client: () => client, declareLane() {} };
+  const read = await adapter.calls.invokeCapability([{ capability: 'getVoiceStatus', args: [] }], host);
+  assert.equal(read.value.installed, true);
+  assert.equal('snapshot' in read, false);
+  assert.equal(sent.filter((request) => request.method === 'thread/read').length, 0, 'no state read for a read');
+  const change = await invokePhoneCapability(host, { capability: 'setFast', args: [true] }, false);
+  assert.ok('snapshot' in change, 'a change answers with the session state');
+  assert.ok(sent.some((request) => request.method === 'thread/read'));
 });

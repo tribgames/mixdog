@@ -1,6 +1,6 @@
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route';
-import type { DesktopCapability } from '../shared/contract';
+import { DESKTOP_READ_CAPABILITIES, type DesktopCapability } from '../shared/contract';
 import type { PhoneProtocolHost } from './remote-shim-protocol';
 import { phoneTransferCall } from './remote-transfer-call';
 
@@ -88,6 +88,8 @@ function relayedError(error: unknown): unknown {
   return rebuilt;
 }
 
+const READ_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_READ_CAPABILITIES);
+
 /** One checked capability call: the lane's answer, value-only where Node's relay sent the value alone. */
 export async function invokePhoneCapability(
   host: PhoneProtocolHost,
@@ -95,12 +97,12 @@ export async function invokePhoneCapability(
   valueOnly: boolean
 ): Promise<unknown> {
   try {
-    const result = await laneOf(host.client()).invoke(
-      request.capability as DesktopCapability,
-      request.args,
-      request.sessionId
-    );
-    return valueOnly ? { value: result.value } : result;
+    const lane = laneOf(host.client());
+    const capability = request.capability as DesktopCapability;
+    // A read changes nothing of the session, so the state read that would answer beside it is not asked of the core.
+    return valueOnly || READ_CAPABILITIES.has(request.capability)
+      ? await lane.invokeValue(capability, request.args, request.sessionId)
+      : await lane.invoke(capability, request.args, request.sessionId);
   } catch (error) {
     throw relayedError(error);
   }

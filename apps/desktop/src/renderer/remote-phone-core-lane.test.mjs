@@ -250,6 +250,104 @@ test('a large tool result reaches the page bounded with its truncation note, and
   await phone.client.close();
 });
 
+test('a tool output the core sent cut is read from the core when "show full output" asks, and not before', async () => {
+  const c = core();
+  const whole = 'a line of output\n'.repeat(500);
+  const shown = 'a line of output\n'.repeat(4).trimEnd();
+  const stored = {
+    id: 'call1',
+    type: 'toolCall',
+    name: 'read',
+    input: { path: 'a.txt' },
+    output: whole,
+    run: { result: whole },
+    meta: { status: 'completed', at: 1 },
+  };
+  // What the core sends a phone that announced `toolOutput`: the output cut, its length and "on request" said on the row.
+  c.items.push({
+    ...stored,
+    output: shown,
+    run: { result: shown },
+    meta: {
+      ...stored.meta,
+      ext: { remoteOutputTruncated: whole.length, remoteOutputOnRequest: true, remoteOutputNotes: { result: { kind: 'omitted', at: shown.length, omitted: whole.length - shown.length } } },
+    },
+  });
+  const reads = [];
+  const serve = (request, conn) => {
+    if (request.method !== 'thread/items/read') return c.serve(request, conn);
+    reads.push(request);
+    conn.serverSend({ id: request.id, result: { items: [stored] } });
+  };
+  const phone = await realClient(serve);
+  const adapter = phoneChatAdapter();
+  const page = pageOf(phone.client);
+  const stop = adapter.install(page.host);
+  await phone.client.resumeThread('t1', { lastItems: 50 });
+  await settled();
+  const tool = page.seen[0].snapshot.items.find((item) => item.kind === 'tool');
+  assert.equal(tool.result, shown, 'the page is shown the cut output the core sent');
+  assert.equal(tool.remoteOutputOnRequest, true);
+  assert.equal(reads.length, 0, 'nothing is read ahead of the ask');
+  const full = await adapter.calls.readTranscriptItem(['t1', 'call1'], page.host);
+  assert.equal(full.result, whole, 'the ask reads the uncut output from the core');
+  assert.deepEqual(reads.map((request) => request.params), [{ threadId: 't1', itemIds: ['call1'] }]);
+  stop();
+  await phone.client.close();
+});
+
+test('"show full output" of an aggregate\'s member reads the row from the core under the core\'s id, and a blob-backed output through the real blob read', async () => {
+  const c = core();
+  const wholeOf = (id) => `${id} line\n`.repeat(300);
+  const shown = (id) => `${id} line\n`.repeat(4).trimEnd();
+  const wire = (id, live) => ({
+    id,
+    type: 'toolCall',
+    name: 'read',
+    input: { path: `${id}.ts` },
+    output: shown(id),
+    run: { result: shown(id), ...(live ? { live: true, callId: `call-${id}` } : {}) },
+    meta: {
+      status: 'completed',
+      at: 1,
+      ext: { remoteOutputTruncated: wholeOf(id).length, remoteOutputOnRequest: true, remoteOutputStats: { lines: 300, nonBlankLines: 300 } },
+    },
+  });
+  // Two restored calls and two live ones: an aggregate each. The core stores the live one `c` out of line (a blob).
+  c.items.push(wire('a', false), wire('b', false), wire('c', true), wire('d', true));
+  const blobText = new TextEncoder().encode(wholeOf('c'));
+  const reads = [];
+  const serve = (request, conn) => {
+    if (request.method === 'blob/read') {
+      assert.equal(request.params.digest, 'sha256:cc', 'the real client reads the stub\'s own descriptor');
+      return conn.serverSend({ id: request.id, result: { bytesB64: Buffer.from(blobText).toString('base64') } });
+    }
+    if (request.method !== 'thread/items/read') return c.serve(request, conn);
+    reads.push(request.params);
+    const [id] = request.params.itemIds;
+    const stored = { ...wire(id, false), output: wholeOf(id), run: { result: wholeOf(id) } };
+    if (id === 'c') stored.output = { blob: { digest: 'sha256:cc', bytes: blobText.length, mediaType: 'text/plain' } };
+    conn.serverSend({ id: request.id, result: { items: [stored] } });
+  };
+  const phone = await realClient(serve);
+  const adapter = phoneChatAdapter();
+  const page = pageOf(phone.client);
+  const stop = adapter.install(page.host);
+  await phone.client.resumeThread('t1', { lastItems: 50 });
+  await settled();
+  const cards = page.seen[0].snapshot.items.filter((item) => item.aggregate === true);
+  assert.equal(cards.length, 2);
+  for (const member of cards.flatMap((card) => card.toolMembers)) assert.equal(member.remoteOutputOnRequest, true, `${member.id} is read on request`);
+  assert.equal(reads.length, 0, 'nothing is read ahead of the ask');
+  assert.equal((await adapter.calls.readTranscriptItem(['t1', 'a'], page.host)).result, wholeOf('a'));
+  const live = await adapter.calls.readTranscriptItem(['t1', 'call-c'], page.host);
+  assert.equal(live.id, 'call-c');
+  assert.equal(live.result, wholeOf('c'), 'the blob-backed output is read whole');
+  assert.deepEqual(reads.map((params) => params.itemIds), [['a'], ['c']], 'the live member is asked for under the core\'s id');
+  stop();
+  await phone.client.close();
+});
+
 test('a thread the core lost while the phone was away ends on the page as gone, once; a released one as unloaded, once', async () => {
   const c = core();
   const phone = await realClient(c.serve);

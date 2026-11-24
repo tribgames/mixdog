@@ -540,6 +540,8 @@ pub(crate) struct Shared {
     media: OnceLock<Arc<dyn HostMediaSink>>,
     /// The peer announced `feedRanges`: text appends are coalesced ([`crate::append_batch`]).
     appends_on: AtomicBool,
+    /// The peer announced `toolOutput`: the size its notification frames' tool outputs are cut to ([crate::tool_output_cut]).
+    tool_output: OnceLock<crate::tool_output_cut::Display>,
     /// The daemon log's line sink (the hub's, set once after connections may exist): where the close of a slow consumer says
     /// what the connection held. `tracing` goes to the process's stderr, which the ready daemon does not keep.
     log: Arc<OnceLock<LineSink>>,
@@ -649,6 +651,10 @@ impl ConnectionSink for ConnectionWriter {
 
     fn coalesce_appends(&self) {
         self.shared.appends_on.store(true, Ordering::Release);
+    }
+
+    fn cut_tool_output(&self, chars: usize, lines: usize) {
+        let _ = self.shared.tool_output.set(crate::tool_output_cut::Display { chars: chars.max(1), lines: lines.max(1) });
     }
 
     fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
@@ -1024,6 +1030,7 @@ impl Shared {
             abort: CancellationToken::new(),
             media: OnceLock::new(),
             appends_on: AtomicBool::new(false),
+            tool_output: OnceLock::new(),
             log,
         }
     }
@@ -1038,6 +1045,14 @@ impl Shared {
         match state.ready.pop_front() {
             Some((frame, holds)) => Work::Batch(frame, holds),
             None => Work::Held,
+        }
+    }
+
+    /// `frame` as this peer is shown it: its tool outputs cut, when it announced `toolOutput`.
+    fn shown(&self, frame: Bytes) -> Bytes {
+        match self.tool_output.get() {
+            Some(display) => crate::tool_output_cut::cut_frame(frame, display),
+            None => frame,
         }
     }
 
@@ -1416,13 +1431,13 @@ pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: 
     loop {
         let step = match shared.next_work() {
             Work::Text(frame, hold) => {
-                let sent = write_text(&shared, &mut socket, frame).await;
+                let sent = write_text(&shared, &mut socket, shared.shown(frame)).await;
                 // The bytes return to the budget when the socket has taken the frame.
                 drop(hold);
                 sent
             }
             Work::Batch(frame, holds) => {
-                let sent = write_text(&shared, &mut socket, frame).await;
+                let sent = write_text(&shared, &mut socket, shared.shown(frame)).await;
                 drop(holds);
                 sent
             }

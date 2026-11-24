@@ -28,6 +28,7 @@ import {
   splitRemoteTransportPayload,
 } from '../../desktop/src/shared/remote-transport.ts';
 import { connectPhone } from './phone-client.ts';
+import { REMOTE_TOOL_OUTPUT_DISPLAY } from '../../desktop/src/shared/remote-tool-output-display.ts';
 import type { PhoneConnection } from './phone-status.ts';
 import type { RelaySocket } from './relay-connector.ts';
 const conformance = new URL('../../../packages/protocol-client/conformance/', import.meta.url);
@@ -293,6 +294,7 @@ test('initialize refusal preserves which side is out of date without retrying', 
     far.start();
     const init = await far.next();
     assert.equal(init.method, 'initialize');
+    assert.deepEqual(init.params.capabilities.toolOutput, REMOTE_TOOL_OUTPUT_DISPLAY, 'the phone says what it shows of a tool output');
     await far.send({
       id: init.id,
       error: {
