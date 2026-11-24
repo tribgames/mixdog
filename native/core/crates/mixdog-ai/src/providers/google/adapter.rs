@@ -870,7 +870,7 @@ impl ProviderAdapter for GoogleAdapter {
     }
 }
 
-/// The unary answer has already been read and decoded.
+/// Nothing left to read: the unary answer, already decoded, or a continued hop's given-up response.
 struct EmptyBody;
 
 #[async_trait]
@@ -1416,6 +1416,9 @@ impl GoogleStream {
     /// A failure of the response being read: a continued hop takes it under its own ladders; any other ends the turn.
     async fn failed(&mut self, err: ProviderError) {
         if self.continuation.as_ref().is_some_and(|c| c.hop.is_some()) {
+            // The hop's response is given up: let go of now, so it is reset, never left for the completion of a later hop
+            // or of the re-issue to mark.
+            self.body = Box::new(EmptyBody);
             self.advance(HopStep::Failed(err, true)).await;
         } else {
             self.fail_turn(err);
@@ -1594,6 +1597,11 @@ impl ModelStream for GoogleStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
         loop {
             if let Some(item) = self.queue.pop_front() {
+                // The completion goes to a consumer that may stop at it, before the body's end: the body is read off when
+                // let go. A turn that fails before this point cancels it.
+                if matches!(item, Ok(StreamEvent::Completed { .. })) {
+                    self.body.drain_on_drop();
+                }
                 return Some(item);
             }
             if self.ended {
@@ -1602,11 +1610,6 @@ impl ModelStream for GoogleStream {
             match self.body.next().await {
                 Some(Ok(chunk)) => {
                     let decoded = decode_read(self.decoder.wire(), Some(&chunk));
-                    // The response ended: a consumer that stops at a completion decoded before the body's end drops the
-                    // body, which is read off then.
-                    if self.decoder.wire().terminal_seen() {
-                        self.body.drain_on_drop();
-                    }
                     self.publish_usage();
                     match decoded {
                         Ok((events, held)) => {

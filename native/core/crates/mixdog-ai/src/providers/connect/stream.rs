@@ -167,6 +167,11 @@ impl ModelStream for DecodedStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
         loop {
             if let Some(item) = self.queue.pop_front() {
+                // The completion goes to a consumer that may stop at it, before the body's end: the body is read off when
+                // let go. A turn that fails before this point cancels it.
+                if matches!(item, Ok(StreamEvent::Completed { .. })) {
+                    self.body.drain_on_drop();
+                }
                 return Some(item);
             }
             if self.ended {
@@ -180,15 +185,10 @@ impl ModelStream for DecodedStream {
                         self.report(events);
                     }
                     self.settle(decoded);
-                    if !self.ended && self.decoder.terminal_seen() {
-                        // The response ended: a consumer that stops at the completion drops the body before its end,
-                        // which is read off then.
-                        self.body.drain_on_drop();
-                        if self.billed.is_some() {
-                            self.ended = true;
-                            let decoded = decode_read(self.decoder.as_mut(), None);
-                            self.settle(decoded);
-                        }
+                    if self.billed.is_some() && !self.ended && self.decoder.terminal_seen() {
+                        self.ended = true;
+                        let decoded = decode_read(self.decoder.as_mut(), None);
+                        self.settle(decoded);
                     }
                 }
                 Some(Err(fault)) => {
