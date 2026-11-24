@@ -8,6 +8,7 @@ use std::path::Path;
 use mixdog_store::schema::bounded::Digest;
 use mixdog_store::schema::migration::Contract;
 use mixdog_store::schema::migration::ItemKind;
+use mixdog_store::schema::migration::ItemState;
 use mixdog_store::schema::migration::KindGroup;
 use mixdog_store::schema::migration::ManifestItem;
 use mixdog_store::schema::migration::QuarantineCode;
@@ -90,7 +91,6 @@ const RETIRED_FILES: &[&str] = &[
     "session-catalog.sqlite",
     "session-catalog.sqlite-wal",
     "session-catalog.sqlite-shm",
-    "agent-kind-migration.json",
     "pending-dispatches.json",
     "session-log-migration.json",
     "litellm-catalog.json",
@@ -100,6 +100,11 @@ const RETIRED_FILES: &[&str] = &[
     "update-check-cache.json",
     "cache.local.json",
 ];
+
+/// Records the core reads where 1.4.5 left them (`mixdog-core-agents` `store_migration`: the kind stamp runs again without
+/// its record, once the worker index it reads is gone). No plan retires them; an item an earlier build planned to retire
+/// one settles with the file left in place.
+const KEPT_RECORDS: &[&str] = &["agent-kind-migration.json"];
 
 const CATALOG_APPLICATION_ID: i64 = 0x4d58_5343;
 
@@ -289,9 +294,9 @@ fn handles(kind: ItemKind) -> bool {
 }
 
 /// A preserved store as it stands. It is its own target, verified in its wave; the core that serves while the sessions
-/// convert may have written it since, so its links are read from the file there is, not from the planned bytes.
-fn standing(cx: &ItemContext<'_>, source: &mixdog_store::schema::migration::SourceFile) -> Result<Vec<u8>> {
-    durable::read(&cx.source_path(source)?)
+/// convert may have written or removed it since, so its links are read from the file there is, not from the planned bytes.
+fn standing(cx: &ItemContext<'_>, source: &mixdog_store::schema::migration::SourceFile) -> Result<Option<Vec<u8>>> {
+    durable::read_optional(&cx.source_path(source)?)
 }
 
 /// Session ids named by a preserved keyed store (SM §11.6 `links`).
@@ -304,10 +309,11 @@ fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<Stri
     }
 }
 
-/// Every session a goal, a connector conversation or a worktree names, as those stores stand.
+/// Every session a goal, a connector conversation or a worktree names, as those stores stand. A store that did not verify
+/// is set aside, out of the core's reach, and names none.
 pub(crate) fn linked_session_ids(cx: &ItemContext<'_>) -> Result<std::collections::BTreeSet<String>> {
     let mut ids = std::collections::BTreeSet::new();
-    for item in &cx.manifest.items {
+    for item in cx.manifest.items.iter().filter(|item| cx.state(item.key.as_str()) == Some(ItemState::Verified)) {
         ids.extend(linked_sessions(item, cx)?);
     }
     Ok(ids)
@@ -331,8 +337,10 @@ fn goal_session_ids(sources: &[SourceFile]) -> Vec<String> {
 fn conversation_session_ids(sources: &[SourceFile], cx: &ItemContext<'_>) -> Result<Vec<String>> {
     let mut ids = Vec::new();
     for s in sources {
-        if s.path == "connector-accounts-by-conversation.json" {
-            let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
+        if s.path == "connector-accounts-by-conversation.json"
+            && let Some(bytes) = standing(cx, s)?
+        {
+            let value = json::parse_source(&bytes).map_err(Blocked::journal)?.value;
             if let Some(map) = value.as_object() {
                 ids.extend(map.keys().cloned());
             }
@@ -359,8 +367,10 @@ fn collect_owner_ids(v: &Value, out: &mut Vec<String>) {
 fn worktree_owner_ids(sources: &[SourceFile], cx: &ItemContext<'_>) -> Result<Vec<String>> {
     let mut ids = Vec::new();
     for s in sources {
-        if s.path.ends_with(".json") {
-            let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
+        if s.path.ends_with(".json")
+            && let Some(bytes) = standing(cx, s)?
+        {
+            let value = json::parse_source(&bytes).map_err(Blocked::journal)?.value;
             collect_owner_ids(&value, &mut ids);
         }
     }
@@ -629,6 +639,7 @@ impl ItemDriver for StoresDriver {
         if item.kind == K::Retired {
             let rel = item.key.as_str().split_once("/data/").map_or("", |(_, r)| r);
             return RETIRED_FILES.contains(&rel)
+                || KEPT_RECORDS.contains(&rel)
                 || RETIRED_DIRS.contains(&rel)
                 || (!rel.contains('/') && is_retired_pattern(rel))
                 || temp_files::is_store_leftover(rel)
@@ -696,6 +707,11 @@ impl ItemDriver for StoresDriver {
     }
 
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
-        item.contract == Contract::Preserve || item.key.as_str() == LEGACY_COMPACTION_ITEM || in_legacy_attachments(item)
+        item.contract == Contract::Preserve
+            || item.key.as_str() == LEGACY_COMPACTION_ITEM
+            || in_legacy_attachments(item)
+            // Retained for the usage history import, which reads them where they are (`mixdog-ledger` `history`).
+            || (item.kind == K::LedgerLegacyInputs && item.contract == Contract::Retain)
+            || (item.kind == K::Retired && KEPT_RECORDS.iter().any(|rel| item.key.as_str() == plan::retire_key(D, rel)))
     }
 }

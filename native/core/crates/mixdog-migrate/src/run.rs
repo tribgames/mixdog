@@ -354,12 +354,12 @@ impl Back {
             let json = file(JSON_SUFFIX).map(|source| cx.read_source(source)).transpose()?;
             let log = file(LOG_SUFFIX).map(|source| cx.open_source(source)).transpose()?;
             let mut replaced = 0;
-            let (header, messages) = header_and_messages(id, json.as_deref(), log, &mut replaced).map_err(|error| match error {
-                Fail::Blocked(error) => error,
-                Fail::Quarantine(code, detail) => {
-                    Blocked::StoreSchema { key: k.into(), detail: format!("bot classification cannot read the legacy home ({code:?}): {detail}") }
-                }
-            })?;
+            let (header, messages) = match header_and_messages(id, json.as_deref(), log, &mut replaced) {
+                Ok(read) => read,
+                Err(Fail::Blocked(error)) => return Err(error),
+                // Its conversion reads the same and quarantines it: a damaged home is no evidence.
+                Err(Fail::Quarantine(..)) => continue,
+            };
             homes.insert(agent, summarize(&header, &messages));
         }
         Ok(homes)
@@ -1227,6 +1227,8 @@ impl Migrator {
                 }
                 self.remove_sources(shared, cx, item)?;
             }
+            // Retained where this version reads it; its reason is in the quarantine folder.
+            ItemState::Quarantined if item.contract == Contract::Retain && driver.keeps_sources(item) => {}
             ItemState::Quarantined => {
                 let code = progress.quarantined.ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
                 let dir = quarantine_dir(&self.roots.data, code, k);

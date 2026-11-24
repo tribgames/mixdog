@@ -8,7 +8,7 @@ O Mixdog 1.5.0 reconstrói o motor em Rust. Foi um trabalho de grande porte feit
 
 Esta atualização levou muito mais tempo do que o planejado. Pedimos desculpas pela espera e agradecemos pela sua paciência. Alguns erros ainda podem restar logo após a mudança, mas a partir de agora voltaremos a responder e corrigir problemas rapidamente, como antes. Com essa nova base pronta, poderemos melhorar e estabilizar o Mixdog mais rápido daqui para frente.
 
-Se encontrar algum problema, relate-o em [GitHub Issues](https://github.com/tribgames/mixdog/issues) ou no aplicativo em Configurações › Sobre › Enviar feedback. Observe que voltar para a versão 1.4.5 depois de atualizar para a 1.5.0 mantém os arquivos anexados, mas não a lista de conversas; por isso, copie sua pasta de dados antes de atualizar caso possa querer voltar.
+Se encontrar algum problema, relate-o em [GitHub Issues](https://github.com/tribgames/mixdog/issues) ou no aplicativo em Configurações › Sobre › Enviar feedback. Observe que a versão 1.4.5 não consegue abrir uma pasta de dados na qual a 1.5.0 já tenha sido iniciada. Caso possa querer voltar, copie sua pasta de dados antes de atualizar; para retornar à 1.4.5, reinstale-a e coloque essa cópia de volta.
 
 ## v1.4.5 - 2026-11-03
 

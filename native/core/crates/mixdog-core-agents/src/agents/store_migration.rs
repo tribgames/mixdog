@@ -103,10 +103,15 @@ fn read_json(file: &Path) -> Option<Map<String, Value>> {
 }
 
 /// A plain `writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`)`.
-fn write_plain_json(file: &Path, value: &Map<String, Value>) -> io::Result<()> {
+fn write_plain_json(lane: &InLane<DurabilityIo>, file: &Path, value: &Map<String, Value>) -> io::Result<()> {
     let mut text = serde_json::to_string_pretty(value).map_err(io::Error::other)?;
     text.push('\n');
-    std::fs::write(file, text)
+    write_text_atomic(lane, file, &text)
+}
+
+/// The text goes to a synced sibling that is renamed over `file`: a crash or a full disk leaves the old file or the new one.
+fn write_text_atomic(lane: &InLane<DurabilityIo>, file: &Path, text: &str) -> io::Result<()> {
+    state::write_file(lane, file, text.as_bytes(), &state::Opts { mode: 0o644, ..Default::default() }).map(|_| ()).map_err(|error| io::Error::other(error.to_string()))
 }
 
 fn complete_route(route: Option<&Value>) -> Option<Value> {
@@ -312,12 +317,12 @@ fn strings(value: Option<&Value>) -> Vec<String> {
 }
 
 /// A bot's `agent.json` in `staging`, with `route` (when complete) over what the copy carries.
-fn write_staged_manifest(staging: &Path, route: Option<&Value>) -> io::Result<()> {
+fn write_staged_manifest(lane: &InLane<DurabilityIo>, staging: &Path, route: Option<&Value>) -> io::Result<()> {
     let mut manifest = read_json(&staging.join("agent.json")).unwrap_or_default();
     if let Some(route) = complete_route(route) {
         manifest.insert("route".into(), route);
     }
-    write_plain_json(&staging.join("agent.json"), &manifest)
+    write_plain_json(lane, &staging.join("agent.json"), &manifest)
 }
 
 /// What one run of the split changed, undone in reverse on a failure before the commit.
@@ -627,6 +632,19 @@ mod tests {
         assert_eq!(read_json(&path.join(KIND_RECORD)).unwrap()["version"], 1);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "the test links the definition to a second name")]
+    async fn a_stamp_replaces_the_definition_instead_of_rewriting_it_in_place() {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        agent(&path, "measurer", "---\nname: m\n---\nMeasure.\n", "{}");
+        let (file, held) = (path.join("agents/measurer/AGENT.md"), path.join("held.md"));
+        std::fs::hard_link(&file, &held).unwrap();
+        let dir = path.clone();
+        run_on(move |lane| stamp_file(lane, &dir.join("agents/measurer/AGENT.md")).unwrap()).await;
+        assert!(read_text(&file).contains("kind: agent"));
+        assert_eq!(read_text(&held), "---\nname: m\n---\nMeasure.\n", "an in-place write would have changed every name of the file");
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_restore_the_last_run_stopped_in_the_middle_of_is_finished() {
         let data = tempfile::tempdir().unwrap();
         let path = data.path().to_path_buf();
@@ -832,7 +850,7 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
             if !bots_root.join(&id).exists() {
                 before_copy();
                 let staging = stage(&id, Some(&source))?;
-                write_staged_manifest(&staging, own_route(&id).as_ref())?;
+                write_staged_manifest(lane, &staging, own_route(&id).as_ref())?;
                 swap_in(&mut changes, &id, staging, false)?;
             }
             bots.insert(id.clone());
@@ -858,7 +876,7 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
             before_copy();
             let route = read_json(&target.join("agent.json")).and_then(|manifest| manifest.get("route").cloned());
             let staging = stage(&id, Some(&source))?;
-            write_staged_manifest(&staging, route.as_ref())?;
+            write_staged_manifest(lane, &staging, route.as_ref())?;
             swap_in(&mut changes, &id, staging, true)?;
             record(&mut copies, &id, &source);
         }
@@ -885,7 +903,7 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
                 let first_copy = mixy_entry.is_none();
                 let staging = stage(MIXY_BOT_ID, (mixy_dir.exists() && first_copy).then_some(mixy_dir.as_path()))?;
                 copy_lead_files(&lead_dir, &staging, first_copy)?;
-                write_plain_json(&staging.join("agent.json"), &mixy_manifest(&lead_dir, &current, first_copy, facts))?;
+                write_plain_json(lane, &staging.join("agent.json"), &mixy_manifest(&lead_dir, &current, first_copy, facts))?;
                 swap_in(&mut changes, MIXY_BOT_ID, staging, true)?;
                 record(&mut copies, MIXY_BOT_ID, &lead_dir);
                 mixy = true;
@@ -958,8 +976,8 @@ pub fn with_agent_kind_marker(text: &str) -> String {
     }
     format!("{}{}{}{}", &text[..head_end], lines.join(eol), &text[close_start..close_end], &text[close_end..])
 }
-fn stamp_file(file: &Path) -> io::Result<()> {
-    std::fs::write(file, with_agent_kind_marker(&read_text(file)))
+fn stamp_file(lane: &InLane<DurabilityIo>, file: &Path) -> io::Result<()> {
+    write_text_atomic(lane, file, &with_agent_kind_marker(&read_text(file)))
 }
 fn plan_kind_stamps(data: &Path, facts: &Facts) -> (Vec<String>, Vec<String>) {
     let agents_root = data.join("agents");
@@ -1000,7 +1018,7 @@ fn plan_kind_stamps(data: &Path, facts: &Facts) -> (Vec<String>, Vec<String>) {
     (stamp, restore)
 }
 /// The bot's files (edited since the split) are the definition to keep; its route is returned for the config.
-fn restore_bot(bots_root: &Path, agents_root: &Path, id: &str) -> io::Result<Option<Value>> {
+fn restore_bot(lane: &InLane<DurabilityIo>, bots_root: &Path, agents_root: &Path, id: &str) -> io::Result<Option<Value>> {
     let (source, target) = (bots_root.join(id), agents_root.join(id));
     copy_dir(&source, &target)?;
     let route = read_json(&source.join("agent.json")).and_then(|manifest| manifest.get("route").cloned());
@@ -1008,7 +1026,7 @@ fn restore_bot(bots_root: &Path, agents_root: &Path, id: &str) -> io::Result<Opt
         for key in KIND_STORE_ONLY_KEYS {
             manifest.shift_remove(key);
         }
-        write_plain_json(&target.join("agent.json"), &manifest)?;
+        write_plain_json(lane, &target.join("agent.json"), &manifest)?;
     }
     Ok(complete_route(route.as_ref()))
 }
@@ -1029,12 +1047,12 @@ pub fn stamp_agent_kinds(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts
         }
         for id in &stamp {
             if let Some(file) = definition_file(&agents_root.join(id)) {
-                stamp_file(&file)?;
+                stamp_file(lane, &file)?;
             }
         }
         let mut restoring = Vec::new();
         for id in restore {
-            let route = restore_bot(&bots_root, &agents_root, &id)?;
+            let route = restore_bot(lane, &bots_root, &agents_root, &id)?;
             restoring.push((id, route));
         }
         stamp.sort();
@@ -1071,7 +1089,7 @@ pub fn finish_kind_stamp(lane: &InLane<DurabilityIo>, data: &Path, stage: &KindS
                 write_json(lane, &bots_root.join(MANIFEST), &Value::Object(split.clone()))?;
             }
             if let Some(file) = definition_file(&agents_root.join(id)) {
-                stamp_file(&file)?;
+                stamp_file(lane, &file)?;
             }
             remove_best_effort(&bots_root.join(id));
             restored.push(id.clone());

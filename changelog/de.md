@@ -8,7 +8,7 @@ Mixdog 1.5.0 baut die Engine in Rust neu auf. Das war ein großes Vorhaben für 
 
 Dieses Update hat viel länger gedauert als geplant. Es tut uns leid für die Wartezeit, und wir danken Ihnen für Ihre Geduld. Direkt nach dem Wechsel können vereinzelt noch Fehler bestehen, doch ab jetzt reagieren und beheben wir Probleme wieder so schnell wie zuvor. Mit dieser neuen Grundlage können wir Mixdog künftig schneller verbessern und stabilisieren.
 
-Wenn Sie auf Probleme stoßen, melden Sie diese bitte unter [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben. Beachten Sie, dass bei einer Rückkehr zu 1.4.5 nach dem Update auf 1.5.0 angehängte Dateien erhalten bleiben, die Unterhaltungsliste jedoch nicht zurückkehrt. Kopieren Sie daher vor dem Update Ihren Datenordner, falls Sie eventuell zurückkehren möchten.
+Wenn Sie auf Probleme stoßen, melden Sie diese bitte unter [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben. Beachten Sie, dass 1.4.5 keinen Datenordner öffnen kann, auf dem 1.5.0 bereits gestartet wurde. Falls Sie eventuell zurückkehren möchten, kopieren Sie vor dem Update Ihren Datenordner; um zu 1.4.5 zurückzukehren, installieren Sie diese Version neu und stellen Sie diese Kopie wieder her.
 
 ## v1.4.5 - 2026-11-03
 
