@@ -115,6 +115,8 @@ async function mountChat({ surface }) {
   const root = createRoot(viewport);
   let rows = [];
   let follow = null;
+  // As the conversation wires its transcript: every scroll event is judged.
+  viewport.addEventListener('scroll', () => follow?.handleScroll());
   function Chat() {
     const viewportRef = React.useRef(viewport);
     const content = React.useRef(null);

@@ -7,10 +7,30 @@ type ReadingAnchorState = ReturnType<typeof useReadingAnchor>;
 
 type PendingResizes = MutableRefObject<Map<unknown, { index: number; size: number }>>;
 
-/** The row elements read once since they mounted. A size the list holds for a row from an earlier mount (a session
- *  shown before, a row scrolled away and back) is what the row measured then: a row that mounts is read in its own
- *  commit all the same, so it is never drawn for a frame at a size it no longer has. */
-const readRows = new WeakSet<HTMLElement>();
+/** The row elements read once since they mounted, with the spacing they took from the rows around them then. A size
+ *  the list holds for a row from an earlier mount (a session shown before, a row scrolled away and back) is what the
+ *  row measured then: a row that mounts is read in its own commit all the same, so it is never drawn for a frame at a
+ *  size it no longer has. A row whose neighbours changed its spacing (a tool card arriving above a streaming reply
+ *  gives it the part step) is read in that commit too. */
+const readRows = new WeakMap<HTMLElement, string>();
+
+/** The marks a row's content takes from the rows around it (TranscriptList.tsx `renderVirtualRow`). */
+function neighbourMarks(row: HTMLElement): string {
+  const content = row.firstElementChild;
+  if (!(content instanceof HTMLElement)) return '';
+  const marks = content.dataset;
+  return [
+    marks.turnEnd,
+    marks.bandSeat,
+    marks.bandLead,
+    marks.stepBefore,
+    marks.afterChanges,
+    marks.dividerStep,
+    marks.dividerGap,
+    marks.blank,
+    marks.variant,
+  ].join('|');
+}
 
 function mountedRowsToMeasure(
   root: HTMLElement,
@@ -21,11 +41,12 @@ function mountedRowsToMeasure(
 ) {
   return [...root.children].filter((row): row is HTMLElement => {
     if (!(row instanceof HTMLElement) || row.dataset.timelineKey === undefined) return false;
-    const mounted = !readRows.has(row);
-    readRows.add(row);
+    const marks = neighbourMarks(row);
+    const changed = readRows.get(row) !== marks;
+    readRows.set(row, marks);
     return (
       landing ||
-      mounted ||
+      changed ||
       handoff.has(row.dataset.timelineKey) ||
       (!instance.itemSizeCache.has(row.dataset.timelineKey) && !pendingResizes.current.has(row.dataset.timelineKey))
     );

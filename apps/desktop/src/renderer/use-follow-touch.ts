@@ -135,13 +135,20 @@ export function useFollowTouch({
 
   const handleTouchMove = useCallback(
     (event: TouchLike) => {
-      const next = event.touches[0]?.clientY;
+      const point = event.touches[0];
+      const next = point?.clientY;
       const previous = touchGesture.current;
       touchGesture.current = next;
       if (next === undefined || previous === undefined) return;
-      if (touchTravelled(signals.current.touchStartY, next)) signals.current.touchMoved = true;
+      const state = signals.current;
+      const start = { x: state.touchStartX, y: state.touchStartY };
+      const at = { x: point?.clientX ?? state.touchStartX, y: next };
+      if (touchTravelled(start, at)) state.touchMoved = true;
+      // A sideways swipe traverses panes; its vertical drift is no scroll of the transcript.
+      if (Math.abs(at.x - start.x) > Math.abs(at.y - start.y)) return;
       const delta = previous - next;
       if (!delta) return;
+      state.touchDragsUp = delta < 0;
       const transcriptReached = !scrollerTakes(touchScroller.current, delta);
       if (transcriptReached) {
         markGesture();
@@ -186,13 +193,14 @@ export function useFollowTouch({
         // The first finger down: what the lift is judged against.
         const root = viewport.current;
         state.touchStartTop = root ? scrollMetrics(root).top : 0;
+        state.touchStartX = event.touches[0]?.clientX ?? 0;
         state.touchStartY = event.touches[0]?.clientY ?? 0;
         state.touchStartWriteAt = lastWriteAt();
         touchScroller.current = gestureScroller(event.currentTarget, event.target);
         state.touchMoved = false;
+        state.touchDragsUp = false;
         state.touchScrolled = false;
         state.touchEndUpAt = 0;
-        state.mutationAt = Number.NEGATIVE_INFINITY;
         // A new touch stops any fling. A drag that could not move the
         // transcript (at an edge) gets no scrollend, so its latch would
         // otherwise reopen with every later tap's lift.

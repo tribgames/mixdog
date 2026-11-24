@@ -142,9 +142,16 @@ const HARNESS = `
   };
   // Every painted frame: where the sent bubble, the last history row, the
   // composer and its field sit, and how far the transcript is from its end.
+  // Read after the frame's layout and its resize observers (the list's and its
+  // dock inset's, created before this one), as the frame paints.
   window.sampleFrames = (frames, key) => new Promise((resolve) => {
     const out = [];
-    const step = () => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;left:-20px;top:0;width:1px;height:1px';
+    document.body.append(probe);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (frame === 0 || out.length >= frames) return;
       const view = document.querySelector('.transcript');
       out.push({
         t: performance.now(),
@@ -155,8 +162,16 @@ const HARNESS = `
         composer: rect(document.querySelector('form.composer')),
         gap: view.scrollHeight - view.clientHeight - view.scrollTop,
       });
-      if (out.length >= frames) resolve(out);
-      else requestAnimationFrame(step);
+      if (out.length < frames) return;
+      observer.disconnect();
+      probe.remove();
+      resolve(out);
+    });
+    observer.observe(probe);
+    const step = () => {
+      frame += 1;
+      probe.style.width = (frame % 2) + 1 + 'px';
+      if (out.length < frames) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   });

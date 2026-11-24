@@ -59,7 +59,7 @@ function timeline(t, { width = 600, anchorTo = 'end', scrollOffset = 0, sizes })
       },
     },
     suppressAdjustment,
-    endPin: { request: () => calls.push({ kind: 'end-pin' }) },
+    endPin: { now: () => calls.push({ kind: 'end-pin' }) },
     anchorHold,
     restoreReadingAnchor: (landing) => calls.push({ kind: 'anchor', landing, hold: { ...anchorHold.current } }),
   });

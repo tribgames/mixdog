@@ -87,6 +87,8 @@ const HARNESS = `
     const selection = document.getSelection();
     return {
       following: pane.follow.following && pane.follow.followingRef.current,
+      // Follow not let go of by the reader, though a held selection may keep the end unwritten meanwhile.
+      armed: pane.follow.followingRef.current,
       jump: pane.follow.showJump,
       gap: Math.round(view.scrollHeight - view.clientHeight - view.scrollTop),
       releases: releases.slice(),
@@ -361,7 +363,10 @@ test("a click on a reply's text keeps follow while the turn streams; a selection
   for (const state of states.slice(2, 7)) {
     for (const [at, sample] of (await page.evaluate((s) => window.fixture.step(s), state)).entries()) {
       assert.deepEqual(sample.releases, [], `frame ${at}: a selection released follow`);
-      assert.ok(sample.following, `frame ${at}: not following`);
+      assert.ok(sample.armed, `frame ${at}: follow was let go of`);
+      // The end is not kept under the selection: follow says so in the same frame the jump control does.
+      assert.ok(!sample.following, `frame ${at}: follow claims the end is kept under the selection`);
+      assert.ok(!(sample.following && sample.jump), `frame ${at}: follow and the jump control disagree`);
       assert.equal(sample.selected, selectedAt, `frame ${at}: the selected text moved`);
     }
   }
@@ -413,7 +418,8 @@ test('a selection inside the reply that is still streaming holds follow: the sel
   for (const count of [60, 90, 120, 160, 200]) {
     for (const [at, sample] of (await page.evaluate((s) => window.fixture.step(s), streaming(count))).entries()) {
       assert.deepEqual(sample.releases, [], `${count} words, frame ${at}: a selection released follow`);
-      assert.ok(sample.following, `${count} words, frame ${at}: not following`);
+      assert.ok(sample.armed, `${count} words, frame ${at}: follow was let go of`);
+      assert.ok(!sample.following, `${count} words, frame ${at}: follow claims the end is kept under the selection`);
       assert.equal(sample.selected, selectedAt, `${count} words, frame ${at}: the selected words moved`);
     }
   }

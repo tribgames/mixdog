@@ -345,7 +345,9 @@ function ownsTranscriptKey(event: ReactKeyboardEvent<HTMLElement>, target: HTMLE
 function scrollTranscriptForKey(element: HTMLDivElement, key: string): void {
   if (key === 'PageUp' || key === 'PageDown') {
     const direction = key === 'PageDown' ? 1 : -1;
-    element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
+    // A page is what shows above the dock: the scroller runs on under it (its shell clips that part).
+    const shown = Math.min(element.clientHeight, element.parentElement?.clientHeight ?? element.clientHeight);
+    element.scrollBy({ top: Math.round(shown * 0.9) * direction, behavior: 'auto' });
     return;
   }
   // An absolute target is logical: a row offset the timeline still

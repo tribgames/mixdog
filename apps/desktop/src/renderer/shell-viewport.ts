@@ -52,7 +52,13 @@ function syncViewportVars(): void {
     if (keyboard) root.dataset.mixdogKeyboard = 'open';
     else delete root.dataset.mixdogKeyboard;
   }
+  // The height the keyboard covers: a transcript keeps it under its dock (12-transcript.css), so the keyboard
+  // opening moves the dock and the transcript's bottom inset, never the transcript's size.
+  if (keyboard) writeViewportVar(root, KEYBOARD_INSET, `${Math.round(window.innerHeight - height)}px`);
+  else if (appliedViewportVars.delete(KEYBOARD_INSET)) root.style.removeProperty(KEYBOARD_INSET);
 }
+
+const KEYBOARD_INSET = '--mx-keyboard-inset';
 
 /** Smaller visual-viewport losses are URL bars and zoom, not a keyboard. */
 const KEYBOARD_MIN_HEIGHT = 120;

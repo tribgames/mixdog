@@ -5,6 +5,7 @@ import { type MutableRefObject, useLayoutEffect, useRef, useSyncExternalStore } 
 import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 import { usePaneKey } from './pane-key-context';
 import { useSurfaceActive } from './surface-activity';
+import { transcriptDockInset } from './transcript-list-dock-inset';
 import {
   coreScrollState,
   firstRowEndingAfter,
@@ -206,6 +207,12 @@ export function holdsReaderTop(
   return false;
 }
 
+/** The top that puts a row of `size` mid-way down the part of the view the dock floating over its bottom leaves shown. */
+function centered(instance: TranscriptVirtualizer, element: HTMLElement | null, size: number): number {
+  const shown = viewportSize(instance) - (element ? transcriptDockInset(element) : 0);
+  return Math.max(0, (shown - size) / 2);
+}
+
 type AnchorHold = MutableRefObject<(ReadingAnchor & { start: number | null }) | null>;
 
 /** The list's part in its reader's place. It tells the place as the reader scrolls and when the list leaves the
@@ -222,6 +229,7 @@ export function useReaderPlace({
   anchorHold,
   restoreReadingAnchor,
   flushDeferredResizes,
+  syncDockInset,
 }: {
   sessionKey: string;
   viewport: { readonly current: HTMLDivElement | null };
@@ -234,6 +242,8 @@ export function useReaderPlace({
   restoreReadingAnchor: (landing?: boolean) => void;
   /** Lands the sizes the list holds back for rows above the reader while a scroll goes on. */
   flushDeferredResizes: () => void;
+  /** Lays the dock's inset out from the layout as it stands (transcript-list-dock-inset.ts). */
+  syncDockInset: () => void;
 }) {
   const pane = usePaneKey();
   const active = useSurfaceActive();
@@ -255,7 +265,8 @@ export function useReaderPlace({
       const top = reading();
       const visibleTop = top - scrollInset.current;
       const low = firstRowEndingAfter(measurements, count, visibleTop);
-      const bottom = visibleTop + viewportSize(instance);
+      // The rows under the dock floating over the viewport's bottom are not in view.
+      const bottom = visibleTop + viewportSize(instance) - transcriptDockInset(element);
       let to = low;
       while (to + 1 < count && (measurements[to + 1]?.start ?? 0) < bottom) to += 1;
       return { from: low, to, top };
@@ -320,8 +331,7 @@ export function useReaderPlace({
     if (index >= 0) {
       instance.getTotalSize();
       const measured = instance.measurementsCache[index];
-      const top =
-        handed.top === 'center' ? Math.max(0, (viewportSize(instance) - (measured?.size ?? 0)) / 2) : handed.top;
+      const top = handed.top === 'center' ? centered(instance, element, measured?.size ?? 0) : handed.top;
       if (measured) coreScrollState(instance).scrollOffset = Math.max(0, measured.start - top);
     }
   }
@@ -331,14 +341,17 @@ export function useReaderPlace({
     const place = pendingReaderPlace(pane, sessionKey);
     if (!place) return;
     const instance = virtualizerRef.current;
-    if (instance.options.anchorTo === 'end') return;
+    // A viewport laid out at no size (its pane hidden) has no end to put the reader against yet: the commit that
+    // lays it out resolves the place.
+    if (instance.options.anchorTo === 'end' || viewportSize(instance) <= 0) return;
     const rows = rowsRef.current;
     const index = rowOfPlace(rows, place);
     const row = rows[index];
     if (!row) return;
     instance.getTotalSize();
     const size = instance.measurementsCache[index]?.size ?? 0;
-    const top = place.top === 'center' ? Math.max(0, (viewportSize(instance) - size) / 2) : place.top;
+    if (place.top === 'center') syncDockInset();
+    const top = place.top === 'center' ? centered(instance, element, size) : place.top;
     // The row's own box, once it is mounted: a row that begins above the view and is taller or shorter than the size
     // held for it would otherwise be corrected from its lower edge, and its top is what the place names.
     const node = [...(element?.querySelectorAll<HTMLElement>('.transcript-virtual-row') ?? [])].find(

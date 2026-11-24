@@ -38,9 +38,24 @@ test('rows of a measured shape take that shape’s median height', () => {
   // Never-measured rows of the same shapes.
   assert.equal(store.estimate(reply(4, report(13)), 411), 264);
   assert.equal(store.estimate(tools(2, 4), 411), 38);
-  // A different shape or width is not guessed from them.
-  assert.equal(store.estimate(reply(5, 'ok'), 411), TRANSCRIPT_ROW_ESTIMATE);
+  // Another width is not guessed from them.
   assert.equal(store.estimate(reply(4, report(13)), 1200), TRANSCRIPT_ROW_ESTIMATE);
+});
+
+test('a row of a shape not measured yet takes the median height of its kind and length, not the flat estimate', () => {
+  const store = createTranscriptRowHeightStore(null);
+  store.record(reply(1, report(1)), 411, 264);
+  store.record(reply(2, 'a short reply'), 411, 30);
+  store.record(reply(3, '- one\n- two'), 411, 34);
+  store.record(tools(1, 4), 411, 38);
+  // A short reply of another shape, a round of four calls of other kinds: each from the rows of its kind.
+  assert.equal(store.estimate(reply(4, '```\nx\n```'), 411), 34);
+  const searches = { ...tools(2, 4), items: tools(2, 4).items.map((item) => ({ ...item, kind: 'search' })) };
+  assert.equal(store.estimate(searches, 411), 38);
+  assert.equal(store.knows(searches, 411), false, 'a kind estimate is still a guess the session may relearn');
+  // A reply of a length never measured is not guessed from short or long ones; nor is a round of another size.
+  assert.equal(store.estimate(reply(5, 'x'.repeat(600)), 411), TRANSCRIPT_ROW_ESTIMATE);
+  assert.equal(store.estimate(tools(3, 1), 411), TRANSCRIPT_ROW_ESTIMATE);
 });
 
 test('a row remembers its own height, and one row is one shape sample', () => {
@@ -91,6 +106,7 @@ test('an agent chat learns its hidden tool rounds as 0px; coding estimates stay 
   store.record(reply(3, report(3)), 411, 120, 'agent');
   assert.equal(store.estimate(reply(9, report(9)), 411), 264);
   assert.equal(store.estimate(reply(9, report(9)), 411, 'agent'), 120);
+  assert.equal(store.estimate(reply(8, report(8)), 411, 'agent'), 120, "a new reply takes the agent chat's own");
   assert.equal(store.estimate(reply(8, 'ok'), 411, 'agent'), TRANSCRIPT_ROW_ESTIMATE);
 });
 

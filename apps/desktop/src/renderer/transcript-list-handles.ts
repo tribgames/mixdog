@@ -66,6 +66,7 @@ export function useTranscriptHandles({
       anchorOverride.current = bottom;
       const instance = virtualizerRef.current;
       const anchorTo = bottom ? 'end' : 'start';
+      const takenBack = bottom && instance.options.anchorTo !== 'end';
       if (
         instance.options.anchorTo !== anchorTo ||
         instance.options.followOnAppend !== bottom ||
@@ -78,6 +79,9 @@ export function useTranscriptHandles({
           scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
         });
       }
+      // Follow taken back where the view may not stand at the end (the place it was opened at let go, the end moved
+      // while a selection held it): the list lands the end it keeps from now on.
+      if (takenBack) endPin.request();
       // A slot held for the followed tail is the reader's geometry now: its
       // real size lands in this same task, not at the next render.
       if (!bottom) settleHeldShrinks();
@@ -88,7 +92,7 @@ export function useTranscriptHandles({
         setAnchorBottomRef.current = () => {};
       }
     };
-  }, [setAnchorBottomRef, anchorOverride, virtualizerRef, settleHeldShrinks]);
+  }, [setAnchorBottomRef, anchorOverride, virtualizerRef, settleHeldShrinks, endPin]);
 }
 
 /** Chromium owns the drag range; transcript-selection-drag.ts only pins the

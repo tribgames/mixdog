@@ -121,8 +121,8 @@ function selectionFixture(t) {
     emit('pointerdown', 200, 240, 1, rows[1]);
     // Native selection runs after the capture listener.
     selection.collapse(rows[1].firstChild, 2);
-    // The drag's first move, still inside the press row.
-    emit('pointermove', 202, 240);
+    // The drag's first move past the click slop, still inside the press row.
+    emit('pointermove', 206, 240);
   };
   const nativeFallback = () => selection.extend(rows[0].firstChild, 0);
   const snapshot = () => ({
@@ -339,6 +339,57 @@ test('a mouse click without a drag never marks, pins or reads the Selection', (t
   f.emit('pointermove', 900, 700, 1);
   f.flushFrame();
   noGesture(f);
+});
+
+test('a press whose pointer trembles within the slop is a click: it holds nothing, whatever the tremble selected', (t) => {
+  const f = selectionFixture(t);
+  const changed = () => f.document.dispatchEvent(new f.window.Event('selectionchange'));
+  f.emit('pointerdown', 200, 240, 1, f.rows[1]);
+  f.selection.collapse(f.rows[1].firstChild, 2);
+  f.emit('pointermove', 202, 241);
+  // The tremble drags a character out natively.
+  f.selection.extend(f.rows[1].firstChild, 3);
+  changed();
+  f.emit('pointermove', 203, 242);
+  assert.equal(f.document.documentElement.dataset.transcriptSelecting, undefined, 'no drag started');
+  assert.equal(f.holds.includes(true), false, 'the click holds nothing while pressed');
+  f.emit('pointerup', 203, 242, 0);
+  // The click collapses the selection where it landed.
+  f.selection.collapse(f.rows[1].firstChild, 3);
+  changed();
+  assert.equal(f.holds.includes(true), false, 'nor after it');
+});
+
+test('a double click selecting a word holds as a drag does', (t) => {
+  const f = selectionFixture(t);
+  const changed = () => f.document.dispatchEvent(new f.window.Event('selectionchange'));
+  f.emit('pointerdown', 200, 240, 1, f.rows[1]);
+  f.selection.setBaseAndExtent(f.rows[1].firstChild, 0, f.rows[1].firstChild, 6);
+  changed();
+  f.emit('pointerup', 200, 240, 0);
+  f.rows[1].dispatchEvent(new f.window.MouseEvent('click', { bubbles: true, detail: 2 }));
+  assert.equal(f.holds.at(-1), true, 'the word it selected holds follow');
+  f.selection.removeAllRanges();
+  changed();
+  assert.equal(f.holds.at(-1), false, 'collapsed, it lets go');
+});
+
+test('a Shift+click extending the selection over transcript text holds as a drag does', (t) => {
+  const f = selectionFixture(t);
+  const changed = () => f.document.dispatchEvent(new f.window.Event('selectionchange'));
+  // A caret an earlier click left in the middle row.
+  f.selection.collapse(f.rows[1].firstChild, 2);
+  changed();
+  // Chromium extends the selection to the Shift+click on its press, within the slop.
+  f.emit('pointerdown', 200, 420, 1, f.rows[2]);
+  f.selection.extend(f.rows[2].firstChild, 3);
+  changed();
+  f.emit('pointerup', 200, 420, 0);
+  f.rows[2].dispatchEvent(new f.window.MouseEvent('click', { bubbles: true, detail: 1, shiftKey: true }));
+  assert.equal(f.holds.at(-1), true, 'the extended selection holds follow');
+  f.selection.removeAllRanges();
+  changed();
+  assert.equal(f.holds.at(-1), false, 'collapsed, it lets go');
 });
 
 test('a mouse drag fences the document and reports autoscroll only while it lasts', (t) => {

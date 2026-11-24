@@ -1317,7 +1317,8 @@ for (const [what, written, listed, before, after] of [
         [...document.querySelectorAll('.pane-cell .transcript-virtual-row')]
           .filter((row) => {
             const box = row.getBoundingClientRect();
-            const view = row.closest('.transcript').getBoundingClientRect();
+            // What shows of the transcript: its shell clips what runs on under the dock.
+            const view = row.closest('.transcript-shell').getBoundingClientRect();
             return box.bottom > view.top && box.top < view.bottom;
           })
           .flatMap((row) =>

@@ -23,6 +23,8 @@ const ROW_SELECTOR = '.transcript-virtual-row';
  *  enough to clear a row's horizontal padding and the floating jump pill. */
 const INWARD_STEP_PX = 16;
 const INWARD_ATTEMPTS = 8;
+/** A press whose pointer moves no further than this from where it landed is a click: it holds nothing. */
+const SELECTION_SLOP_PX = 4;
 
 /** Only the primary button's release ends a selection gesture; a move that
  *  arrives without it means the release happened outside the renderer. */
@@ -85,11 +87,16 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
       delete root.dataset.transcriptSelectionRoot;
     }
   };
-  /** The scroller's content box: its bounding rect includes the scrollbar
-   *  gutter, where a caret read resolves to the scroller itself, not a row. */
+  /** The scroller's content box as it shows: its bounding rect includes the
+   *  scrollbar gutter, where a caret read resolves to the scroller itself, not a
+   *  row, and the part running on under the dock, which its shell clips. */
   const contentBox = (): DOMRect => {
     const rect = root.getBoundingClientRect();
-    return new DOMRect(rect.left + root.clientLeft, rect.top + root.clientTop, root.clientWidth, root.clientHeight);
+    const top = rect.top + root.clientTop;
+    const shell = root.parentElement?.getBoundingClientRect();
+    const bottom =
+      shell && shell.height > 0 ? Math.min(top + root.clientHeight, shell.bottom) : top + root.clientHeight;
+    return new DOMRect(rect.left + root.clientLeft, top, root.clientWidth, bottom - top);
   };
   const pointerRegion = (view: DOMRect) =>
     transcriptSelectionPointerRegion(lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
@@ -183,7 +190,8 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
       return;
     }
     const selection = window.getSelection();
-    onHold(selecting || coversTranscript(selection));
+    // A press still within its slop is a click: what its tremor selected holds nothing yet.
+    onHold(selecting || (!pressed && coversTranscript(selection)));
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       if (!selecting) setPin(null);
       return;
@@ -249,10 +257,15 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
   };
   const handlePointerMove = (event: PointerEvent) => {
     if (pressed) {
+      // Without the button the release happened outside: it was a click.
+      if (!transcriptSelectionPrimaryButtonDown(event.buttons)) {
+        pressed = null;
+        return;
+      }
+      // A pointer trembling within the slop is still a click.
+      if (Math.hypot(event.clientX - lastPointer.x, event.clientY - lastPointer.y) <= SELECTION_SLOP_PX) return;
       const endpoint = pressed;
       pressed = null;
-      // Without the button the release happened outside: it was a click.
-      if (!transcriptSelectionPrimaryButtonDown(event.buttons)) return;
       startSelection(endpoint);
     }
     if (!selecting || finishing) return;
@@ -274,7 +287,14 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     onAutoScroll(delta);
   };
 
+  /** A double or triple click selects a word or a line on purpose, within the slop, and a Shift+click extends the
+   *  selection to where it lands: each holds as a drag does. */
+  const handleClick = (event: MouseEvent) => {
+    if (event.detail >= 2 || event.shiftKey) syncPin();
+  };
+
   root.addEventListener('pointerdown', handlePointerDown, true);
+  root.addEventListener('click', handleClick, true);
   root.addEventListener('scroll', handleScroll, { passive: true });
   document.addEventListener('pointermove', handlePointerMove, true);
   document.addEventListener('pointerup', handlePointerUp, true);
@@ -285,6 +305,7 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
   if (coversTranscript(window.getSelection())) syncPin();
   return () => {
     root.removeEventListener('pointerdown', handlePointerDown, true);
+    root.removeEventListener('click', handleClick, true);
     root.removeEventListener('scroll', handleScroll);
     document.removeEventListener('pointermove', handlePointerMove, true);
     document.removeEventListener('pointerup', handlePointerUp, true);

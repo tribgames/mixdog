@@ -215,7 +215,7 @@ test('a provisional estimate is not a slot to hold: the first parsed height belo
       hasScrollGestureRef: useRef(() => false),
       visibleTop: () => 0,
       maxScrollTop: () => 0,
-      endPin: { request() {} },
+      endPin: { request() {}, now() {} },
       resizePinned: useRef([]),
       resizePinFrame: useRef(0),
       pendingResizes: useRef(new Map()),
@@ -359,7 +359,7 @@ test("the reader's release and the measurement snapshot land held sizes without 
       settleHeldShrinks,
     });
     useTranscriptHandles({
-      endPin: { request() {} },
+      endPin: { request() {}, now() {} },
       scrollToEndRef,
       setAnchorBottomRef,
       virtualizerRef,

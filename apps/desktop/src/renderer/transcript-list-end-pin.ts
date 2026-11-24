@@ -45,9 +45,9 @@ export function useTranscriptEndPin({
         getSpacer: () => spacer.current,
         getMaxScrollTop: maxScrollTop,
         hasReaderGesture: () => hasScrollGestureRef.current(),
-        markProgrammaticScroll: (top, intended) => {
+        markProgrammaticScroll: (top, intended) => markProgrammaticScrollRef.current?.(top, intended),
+        noteOffset: (top) => {
           domTop.current = top;
-          markProgrammaticScrollRef.current?.(top, intended);
         },
         dropDeviation: () => deviation.drop(),
       }),

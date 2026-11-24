@@ -126,6 +126,62 @@ test('a page landing above the reader reads each mounted row once in its commit'
   assert.deepEqual(restores, [true]);
 });
 
+test('a measured row whose neighbours changed its spacing is read again in that commit, before the spacer is written', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement'] });
+  const { useMountedRowMeasurement } = await import('./transcript-list-row-measure.ts');
+  const spacer = document.createElement('div');
+  const row = document.createElement('div');
+  row.dataset.index = '0';
+  row.dataset.timelineKey = 'reply';
+  const content = document.createElement('div');
+  row.append(content);
+  let height = 26;
+  row.getBoundingClientRect = () => ({ top: 0, left: 0, right: 720, bottom: height, width: 720, height });
+  spacer.append(row);
+  document.body.append(spacer);
+  const applied = [];
+  const core = {
+    options: { anchorTo: 'end', getItemKey: () => 'reply' },
+    itemSizeCache: new Map(),
+    measurementsCache: [{ key: 'reply', index: 0, start: 0, end: 60, size: 60 }],
+    resizeItem: (index, size) => {
+      applied.push([index, size]);
+      core.itemSizeCache.set('reply', size);
+    },
+  };
+  let rerender;
+  function Harness() {
+    const [, set] = React.useState(0);
+    rerender = () => set((n) => n + 1);
+    useMountedRowMeasurement({
+      rows: useRef([{ _tag: 'AssistantPart', key: 'reply' }]).current,
+      spacer: useRef(spacer),
+      virtualizerRef: useRef(core),
+      baseResizeItem: useRef((index, size) => core.resizeItem(index, size)),
+      pendingResizes: useRef(new Map()),
+      indexForPendingKey: (_key, hint) => hint,
+      laidOutRows: useRef([]),
+      pendingAnchor: useRef(null),
+      anchorHold: useRef(null),
+      restoreReadingAnchor() {},
+    });
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Harness)));
+  assert.deepEqual(applied, [[0, 26]], 'read once as it mounted');
+  // A tool card arrives above the streaming reply: the reply takes the part step.
+  content.dataset.stepBefore = 'true';
+  height = 34;
+  await act(async () => rerender());
+  assert.deepEqual(applied, [
+    [0, 26],
+    [0, 34],
+  ]);
+  // A commit that changes nothing around it reads nothing.
+  await act(async () => rerender());
+  assert.equal(applied.length, 2);
+});
+
 test('a row pending at 0px takes it; only a hidden pane keeps the size the timeline holds', async (t) => {
   // An unread turn-changes card marks its row pending; in a reaction-only
   // turn it then resolves to nothing without any box change to observe.

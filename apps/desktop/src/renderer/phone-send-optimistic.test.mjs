@@ -181,12 +181,13 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
   }
 });
 
-async function keyCapture() {
+async function keyCapture({ shellHeight } = {}) {
   const { conversationKeyDownCapture } = await import('./conversation-support.tsx');
   const log = [];
   const element = {
     clientHeight: 1000,
     scrollHeight: 5000,
+    parentElement: shellHeight === undefined ? null : { clientHeight: shellHeight },
     scrollBy: (options) => log.push(['scrollBy', options.top]),
     scrollTo: (options) => log.push(['scrollTo', options.top]),
   };
@@ -240,6 +241,19 @@ test('key capture: paging keys scroll the transcript unless a field, a palette o
   press('PageDown', { ctrlKey: true });
   press('PageDown', { readOnly: true });
   assert.deepEqual(log, []);
+});
+
+test('key capture: a page is the part of the transcript shown above the composer dock', async () => {
+  const { log, press } = await keyCapture({ shellHeight: 700 });
+  press('PageDown');
+  press('PageUp');
+  assert.deepEqual(
+    log.filter(([kind]) => kind === 'scrollBy'),
+    [
+      ['scrollBy', 630],
+      ['scrollBy', -630],
+    ]
+  );
 });
 
 test('key capture: a printable or IME key pressed outside a field refocuses the composer', async () => {

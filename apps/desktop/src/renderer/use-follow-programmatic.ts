@@ -1,26 +1,23 @@
 import { useCallback, useRef } from 'react';
-import { attributeWrite } from './transcript-follow-rules';
+import { atWrittenOffset } from './transcript-follow-rules';
 
 export function useProgrammaticWrites() {
-  // Only the LAST write counts: scroll events coalesce per frame, and the one
-  // that follows a burst reports where the burst ended.
+  // The offsets written since the last scroll event: scroll events coalesce per frame, and the one that follows a
+  // burst reports where one of its writes left the scroller.
   const lastWrite = useRef<{ at: number; tops: number[] }>({ at: 0, tops: [] });
 
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
-    const tops = [Math.round(top)];
+    const tops = [...lastWrite.current.tops, Math.round(top)];
     if (typeof intended === 'number' && Number.isFinite(intended)) tops.push(Math.round(intended));
     lastWrite.current = { at: Date.now(), tops };
   }, []);
 
-  /** Does the timeline's last write explain a scroll event at this offset?
-   *  Within the write window any event is that write; later, only the first
-   *  event that lands exactly on what it wrote (see settleWrites). `own`, a
-   *  write the app made into the viewport from outside the timeline
-   *  (own-scroll-writes.ts), counts as the timeline's. */
+  /** Does a write explain a scroll event at this offset: one the timeline made since the last event (see settleWrites),
+   *  or `own`, a write the app made into the viewport from outside the timeline (own-scroll-writes.ts), which is that
+   *  write's own event? */
   const attributeScroll = useCallback((top: number, own?: { at: number; top: number }) => {
-    if (own && own.at >= lastWrite.current.at) lastWrite.current = { at: own.at, tops: [own.top] };
-    const { at, tops } = lastWrite.current;
-    return attributeWrite({ lastWriteAt: at, writtenTops: tops, top, now: Date.now() });
+    if (own) lastWrite.current = { at: Math.max(own.at, lastWrite.current.at), tops: [own.top] };
+    return atWrittenOffset(lastWrite.current.tops, top);
   }, []);
 
   /** A scroll event has been judged: the written value is spent. */

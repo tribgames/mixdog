@@ -76,6 +76,24 @@ export function transcriptRowShape(row: TranscriptRowModel): string {
   }
 }
 
+/** A row's kind: an unmeasured row of a shape not seen yet is estimated from the rows of its kind measured at that
+ *  width, not from one height for every row. A message's kind keeps its length: a one-line note is not as tall as the
+ *  long replies of its kind. */
+export function transcriptRowKind(row: TranscriptRowModel): string {
+  switch (row._tag) {
+    case 'UserMessage':
+      return `user:${lengthBucket(textOf(row.item))}`;
+    case 'AssistantPart':
+      return `reply:${row.item?.kind ?? ''}${row.item?.room?.kind ? `/${row.item.room.kind}` : ''}:${lengthBucket(textOf(row.item))}`;
+    case 'ToolActivity':
+      return `tool:${row.items.length > 8 ? 9 : row.items.length}`;
+    case 'Error':
+      return 'error';
+    default:
+      return row._tag;
+  }
+}
+
 /** Keys derived from an item id survive reloads; positional keys do not. */
 function persistentKey(row: TranscriptRowModel): boolean {
   if (row._tag === 'UserMessage' || row._tag === 'AssistantPart')
@@ -94,14 +112,14 @@ function median(samples: readonly number[]): number {
  *  it draws, transcript-list-estimates.ts). Rows learn and are remembered per
  *  variant, so a row whose variant changed is not estimated from its old height. */
 export interface TranscriptRowHeightStore {
-  /** Best known height for an unmeasured row at this width. */
+  /** Best known height for an unmeasured row at this width: its own, its shape's, then its kind's. */
   estimate(
     row: TranscriptRowModel | undefined,
     width: number,
     surface?: TranscriptRowSurface,
     variant?: string
   ): number;
-  /** Whether `estimate` would return a learned height, not the flat fallback. */
+  /** Whether `estimate` would return the row's or its shape's learned height, not a fallback. */
   knows(row: TranscriptRowModel | undefined, width: number, surface?: TranscriptRowSurface, variant?: string): boolean;
   /** A settled measured height of `row` at this width (0 for a row that paints
    *  nothing). True when it taught a shape something new (a first sample or a
@@ -154,19 +172,40 @@ export function createTranscriptRowHeightStore(
   const variantOf = (variant = '') => (variant ? `|${variant}` : '');
   const keyAt = (row: TranscriptRowModel, width: number, surface: TranscriptRowSurface = 'coding', variant?: string) =>
     `${surfaceOf(surface)}${Math.round(width)}|${row.key}${variantOf(variant)}`;
-  const shapeAt = (
-    row: TranscriptRowModel,
-    width: number,
-    surface: TranscriptRowSurface = 'coding',
-    variant?: string
-  ) =>
-    `${surfaceOf(surface)}${Math.round(width / SHAPE_WIDTH_STEP) * SHAPE_WIDTH_STEP}|${transcriptRowShape(row)}${variantOf(variant)}`;
+  const bucketAt = (width: number, surface: TranscriptRowSurface = 'coding') =>
+    `${surfaceOf(surface)}${Math.round(width / SHAPE_WIDTH_STEP) * SHAPE_WIDTH_STEP}`;
+  const shapeAt = (row: TranscriptRowModel, width: number, surface?: TranscriptRowSurface, variant?: string) =>
+    `${bucketAt(width, surface)}|${transcriptRowShape(row)}${variantOf(variant)}`;
+  // Kinds are learned beside the shapes, under a prefix no shape takes.
+  const kindAt = (row: TranscriptRowModel, width: number, surface?: TranscriptRowSurface, variant?: string) =>
+    `${bucketAt(width, surface)}|kind=${transcriptRowKind(row)}${variantOf(variant)}`;
+  /** Adds a sample to a shape or kind; true when its median moved. */
+  const sample = (shape: string, size: number) => {
+    const before = medians.get(shape);
+    const samples = shapes.get(shape) ?? [];
+    samples.push(size);
+    if (samples.length > SHAPE_SAMPLES) samples.splice(0, samples.length - SHAPE_SAMPLES);
+    shapes.delete(shape);
+    shapes.set(shape, samples);
+    medians.set(shape, median(samples));
+    while (shapes.size > SHAPE_LIMIT) {
+      const oldest = shapes.keys().next().value;
+      if (oldest === undefined) break;
+      shapes.delete(oldest);
+      medians.delete(oldest);
+    }
+    return medians.get(shape) !== before;
+  };
   return {
     estimate(row, width, surface, variant) {
       if (!row || !(width > 0)) return TRANSCRIPT_ROW_ESTIMATE;
       const known = keys.get(keyAt(row, width, surface, variant));
       if (known !== undefined) return known;
-      return medians.get(shapeAt(row, width, surface, variant)) ?? TRANSCRIPT_ROW_ESTIMATE;
+      return (
+        medians.get(shapeAt(row, width, surface, variant)) ??
+        medians.get(kindAt(row, width, surface, variant)) ??
+        TRANSCRIPT_ROW_ESTIMATE
+      );
     },
     knows(row, width, surface, variant) {
       if (!row || !(width > 0)) return false;
@@ -193,22 +232,10 @@ export function createTranscriptRowHeightStore(
       if (sampled.has(key)) return false;
       if (sampled.size >= KEY_LIMIT * 4) sampled.clear();
       sampled.add(key);
-      const shape = shapeAt(row, width, surface, variant);
-      const before = medians.get(shape);
-      const samples = shapes.get(shape) ?? [];
-      samples.push(rounded);
-      if (samples.length > SHAPE_SAMPLES) samples.splice(0, samples.length - SHAPE_SAMPLES);
-      shapes.delete(shape);
-      shapes.set(shape, samples);
-      medians.set(shape, median(samples));
-      while (shapes.size > SHAPE_LIMIT) {
-        const oldest = shapes.keys().next().value;
-        if (oldest === undefined) break;
-        shapes.delete(oldest);
-        medians.delete(oldest);
-      }
+      sample(kindAt(row, width, surface, variant), rounded);
+      const moved = sample(shapeAt(row, width, surface, variant), rounded);
       scheduleSave();
-      return medians.get(shape) !== before;
+      return moved;
     },
   };
 }
