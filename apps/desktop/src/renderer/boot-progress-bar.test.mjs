@@ -57,11 +57,11 @@ test('the boot report store follows the window bridge: counts only when they cou
   store.subscribe(() => {
     told += 1;
   });
-  assert.deepEqual(store.get(), { progress: null, failure: null }, 'nothing before a report');
+  assert.deepEqual(store.get(), { progress: null, failure: null, updating: false }, 'nothing before a report');
   report({ progress: { done: 3, total: 10 }, failure: null });
-  assert.deepEqual(store.get().progress, { done: 3, total: 10, boot: null });
+  assert.deepEqual(store.get().progress, { stage: 'rebuild', done: 3, total: 10, boot: null }, 'an older main names no stage');
   report({ progress: { done: 99, total: 10 }, failure: null });
-  assert.deepEqual(store.get().progress, { done: 10, total: 10, boot: null }, 'never past the total');
+  assert.deepEqual(store.get().progress, { stage: 'rebuild', done: 10, total: 10, boot: null }, 'never past the total');
   report({ progress: { done: 4, total: 10, boot: 1 }, failure: null });
   report({ progress: { done: 2, total: 10, boot: 1 }, failure: null });
   assert.equal(store.get().progress.done, 4, "one boot's counts never go back");
@@ -73,19 +73,19 @@ test('the boot report store follows the window bridge: counts only when they cou
   report({ progress: { done: 8, total: 10, boot: 1 }, failure: null });
   assert.deepEqual(
     store.get().progress,
-    { done: 0, total: 10, boot: 2 },
+    { stage: 'rebuild', done: 0, total: 10, boot: 2 },
     "a superseded boot's late report changes nothing"
   );
   report({ progress: { done: 0, total: 0 }, failure: null });
-  assert.equal(store.get().progress, null, 'a migration without counts is the mark alone');
+  assert.equal(store.get().progress, null, 'a rebuild without counts is the mark alone');
   report({ progress: null, failure: { message: 'the core ended', exitCode: 2, stderrPath: null } });
-  assert.deepEqual(store.get().failure, { message: 'the core ended', exitCode: 2, stderrPath: null });
+  assert.deepEqual(store.get().failure, { message: 'the core ended', exitCode: 2, stderrPath: null, blocked: null });
   report({ progress: null, failure: { message: '' } });
   assert.equal(store.get().failure, null);
   assert.equal(told, 11);
   assert.deepEqual(
     createBootReportStore(undefined).get(),
-    { progress: null, failure: null },
+    { progress: null, failure: null, updating: false },
     'a window without the bridge (a phone) has none'
   );
 });

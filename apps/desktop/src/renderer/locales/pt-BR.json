@@ -6699,5 +6699,17 @@
   "Account 1": "Conta 1",
   "Sign in with another account": "Entrar com outra conta",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "Entre com outra conta. Ela substitui esta: {{name}} mantém uma única conta.",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Todas as sessões do {{name}} em execução no Mixdog terminam agora. O comando {{command}} fora do Mixdog usa o mesmo login, então também será desconectado."
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Todas as sessões do {{name}} em execução no Mixdog terminam agora. O comando {{command}} fora do Mixdog usa o mesmo login, então também será desconectado.",
+  "An earlier Mixdog is still running": "Uma versão anterior do Mixdog ainda está em execução",
+  "Another program holds your Mixdog data": "Outro programa está usando seus dados do Mixdog",
+  "Converting earlier conversations… {{done}} of {{total}}": "Convertendo conversas anteriores… {{done}} de {{total}}",
+  "Installing the update…": "Instalando a atualização…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "Ela está usando seus dados do Mixdog, então esta versão não pode iniciar ao mesmo tempo. Pare-a para continuar; o que ela ainda executa será encerrado.",
+  "It is not Mixdog: continue": "Não é o Mixdog: continuar",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "O Mixdog não consegue saber se este programa é uma versão anterior do Mixdog. Se não for, deixe o Mixdog continuar; se for, feche-o primeiro.",
+  "process {{pid}}": "processo {{pid}}",
+  "Stop it and continue": "Parar e continuar",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "A atualização da versão anterior separou {{items}} itens que não pôde converter. Eles estão guardados em {{dir}}.",
+  "Updating your data from the earlier version of Mixdog…": "Atualizando seus dados da versão anterior do Mixdog…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "Aguardando a versão anterior do Mixdog terminar o trabalho em andamento e fechar…"
 }

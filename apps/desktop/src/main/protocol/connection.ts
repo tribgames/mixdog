@@ -466,6 +466,8 @@ export function createProtocolConnection({ open, log }: ProtocolConnectionOption
       if (client) return Promise.resolve();
       if (inflight) return inflight;
       const mine = ++epoch;
+      // A start after a failed one is a new handshake: its readers wait for it, not for the failure.
+      pendingSync();
       return track(
         (async (): Promise<void> => {
           try {

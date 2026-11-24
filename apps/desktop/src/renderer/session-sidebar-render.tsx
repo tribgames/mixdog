@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { groupSessionAttention, type SessionAttention } from '../shared/session-attention';
 import { CatalogIndexProgress } from './catalog-index-progress';
+import { MigrationProgress, MigrationSetAsideNotice } from './migration-progress';
 import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -291,7 +292,9 @@ export function sessionPanelHeader({
       <span {...panelTitleDragProps} className="session-panel-title">
         {panelActive ? t(panelTitle) : t('Sessions')}
       </span>
+      {!panelActive && <MigrationProgress />}
       {!panelActive && <CatalogIndexProgress />}
+      {!panelActive && <MigrationSetAsideNotice />}
       {/* Creation belongs to Sessions rather than the Activity Rail: this
             button creates an ordinary task tab and never owns a selected
             navigation state; the + at the row's end owns creation, and

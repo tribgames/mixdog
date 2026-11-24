@@ -9,6 +9,7 @@
 //!
 //! Step 6 (composition, then the RPC listener and `serving`) is `serve`'s.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -18,6 +19,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
+use mixdog_core_api::state::StatePublisher;
+use mixdog_core_base::state::change_of;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 use mixdog_exthost::ExtDocumentText;
@@ -30,10 +33,14 @@ use mixdog_migrate::index::ServingIndex;
 use mixdog_migrate::run::Back;
 use mixdog_migrate::run::Front;
 use mixdog_migrate::run::MigrateOptions;
+use mixdog_migrate::run::Settled;
+use mixdog_migrate::run::Waiting;
 use mixdog_migrate::run::cli::MigrateArgs;
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
+use mixdog_protocol::SectionName;
 use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
+use serde_json::json;
 
 use crate::ServeError;
 use crate::barrier::BarrierRecord;
@@ -243,6 +250,87 @@ pub async fn withdraw_pending(index: &mixdog_store::sqlite::SqliteStore, data: &
     Ok(left.len())
 }
 
+/// What the migration set aside (quarantined, expected or not) by `<data>/migration/complete.json`: how many items, where they are
+/// (`<data>/quarantine`), and the completed migration's identity (its manifest digest), which a client keys "told once" by. `None`
+/// while the migration has not completed, when it set nothing aside, or when the record cannot be read.
+pub fn set_aside_of(data: &Path) -> Option<serde_json::Value> {
+    use mixdog_store::schema::migration::COMPLETE_PATH;
+    use mixdog_store::schema::migration::Complete;
+    use mixdog_store::schema::migration::QUARANTINE_DIR;
+    let bytes = mixdog_statefile::read_content(&data.join(COMPLETE_PATH)).ok().flatten()?;
+    let complete: Complete = serde_json::from_slice(&bytes).ok()?;
+    let (kept, profile) = (complete.kinds.data, complete.kinds.desktop_profile);
+    let count = kept.quarantined_expected + kept.quarantined_unexpected + profile.quarantined_expected + profile.quarantined_unexpected;
+    (count > 0).then(|| {
+        json!({
+            "id": complete.manifest_sha256,
+            "count": count,
+            "unexpected": kept.quarantined_unexpected + profile.quarantined_unexpected,
+            "dir": data.join(QUARANTINE_DIR).display().to_string(),
+        })
+    })
+}
+
+/// The `migration` app section once nothing converts: what the completed migration set aside, for a client to tell the person once.
+/// Published at every start that finds the migration complete and at the end of the conversion behind the serving core.
+pub fn publish_migration_settled(publisher: &dyn StatePublisher, data: &Path) {
+    let value = json!({ "converting": false, "done": 0, "total": 0, "setAside": set_aside_of(data) });
+    publisher.publish(SectionName::Migration, None, change_of(&value));
+}
+
+/// The conversion of the earlier version's sessions behind the serving core, as the `migration` app section tells a client
+/// (`{converting: true, done, total}`: its conversation list is still filling), and the rows of the sessions it sets aside, withdrawn
+/// as each is set aside rather than when the whole conversion completes: such a row names a conversation there is none of, and
+/// opening it fails. The migration tells it of each session as it settles ([`Waiting::watch`]), on the converter's thread and before
+/// an open of that session goes on; a run that ends early tells it nothing of what it leaves to the next start.
+struct Settling {
+    publisher: Arc<dyn StatePublisher>,
+    /// Withdraws the pending row of a session set aside.
+    withdraw: Box<dyn Fn(&str) + Send + Sync>,
+    /// The sessions still to settle as the watch began.
+    initial: OnceLock<BTreeSet<String>>,
+    /// How many of them have settled: published under this lock, so a client is told it only growing.
+    done: Mutex<usize>,
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Settling {
+    /// Watches the conversion that begins now and tells the clients how much it has to settle.
+    fn watch(waiting: &Waiting, publisher: Arc<dyn StatePublisher>, withdraw: Box<dyn Fn(&str) + Send + Sync>) {
+        let settling = Arc::new(Settling { publisher, withdraw, initial: OnceLock::new(), done: Mutex::new(0) });
+        let told = settling.clone();
+        // Held until the sessions to settle are known: one that settles meanwhile is counted against them.
+        let done = locked(&settling.done);
+        let initial = waiting.watch(Arc::new(move |sessions: &[String], how| told.settled(sessions, how)));
+        let _ = settling.initial.set(initial.into_iter().collect());
+        settling.publish(*done);
+        drop(done);
+    }
+
+    fn settled(&self, sessions: &[String], how: Settled) {
+        if how == Settled::Quarantined {
+            sessions.iter().for_each(|session| (self.withdraw)(session));
+        }
+        let mut done = locked(&self.done);
+        let Some(initial) = self.initial.get() else { return };
+        let counted = sessions.iter().filter(|session| initial.contains(*session)).count();
+        if counted == 0 {
+            return;
+        }
+        *done = (*done + counted).min(initial.len());
+        self.publish(*done);
+    }
+
+    fn publish(&self, done: usize) {
+        let total = self.initial.get().map_or(0, BTreeSet::len);
+        let value = json!({ "converting": true, "done": done, "total": total, "setAside": null });
+        self.publisher.publish(SectionName::Migration, None, change_of(&value));
+    }
+}
+
 /// Node's first read of a config that does not parse keeps it aside and restores the newest backup (`readAll`): the migration then reads a
 /// config that parses, or none, and a damaged file never stops the start. `mixdogd migrate` runs it too, before its own run. Not from an async context.
 pub fn recover_malformed_config(data_dir: &Path, tokens: &LaneTokens, runtime: &tokio::runtime::Handle) -> Result<(), String> {
@@ -316,7 +404,8 @@ impl Behind {
     }
 
     /// Converts the rest on a thread of its own, taking each session into `index`; returns at once. `stop` is the core's run token.
-    /// `completed` runs on that thread once the conversion has run to its completion marker, never when it ends early.
+    /// `completed` runs on that thread once the conversion has run to its completion marker, never when it ends early. The clients
+    /// are told through `publisher` how far it has come (`migration` section), and once it completes what it set aside.
     #[allow(
         clippy::disallowed_methods,
         reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take"
@@ -325,6 +414,7 @@ impl Behind {
         self,
         index: Arc<mixdog_store::sqlite::SqliteStore>,
         directory: Arc<mixdog_core_session::session::SessionDirectory>,
+        publisher: Arc<dyn StatePublisher>,
         stop: mixdog_rt::CancellationToken,
         report: impl Fn(&str) + Send + 'static,
         completed: impl FnOnce() + Send + 'static,
@@ -332,6 +422,16 @@ impl Behind {
         let Behind { back, pool, runtime, projector, retention, stopped, data, .. } = self;
         let _ = projector.index.set(index.clone());
         let _ = retention.core.set((index.clone(), directory));
+        let withdraw = {
+            let (index, runtime) = (index.clone(), runtime.clone());
+            // On the converter's thread, as the retention's withdrawals run.
+            Box::new(move |session: &str| {
+                if let Err(error) = runtime.block_on(index.mark_deleted(session)) {
+                    tracing::warn!(%error, session, "the row of a session the migration set aside could not be withdrawn yet");
+                }
+            })
+        };
+        Settling::watch(&back.waiting(), publisher.clone(), withdraw);
         drop(mixdog_rt::spawn("migration-stop", mixdog_rt::TaskClass::Work, async move {
             stop.cancelled().await;
             stopped.store(true, Ordering::SeqCst);
@@ -355,8 +455,13 @@ impl Behind {
                     report(&format!(
                         "migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?}; post-upgrade steps: {after})"
                     ));
+                    publish_migration_settled(publisher.as_ref(), &data);
                 }
-                Err(blocked) => report(&format!("migration: ended early after {seconds}s, the next start resumes it: {blocked}")),
+                Err(blocked) => {
+                    report(&format!("migration: ended early after {seconds}s, the next start resumes it: {blocked}"));
+                    // Nothing converts until the next start: the clients are not told it still does.
+                    publish_migration_settled(publisher.as_ref(), &data);
+                }
             }
         })?;
         Ok(())
@@ -509,6 +614,77 @@ pub async fn abandon(tokens: &LaneTokens, discovery: Option<Arc<DiscoveryPublica
     };
     if let Err(error) = withdrawn {
         tracing::error!(%error, "the discovery of the abandoned start was not withdrawn");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "the test writes the migration record of its own temporary directory")]
+mod set_aside_tests {
+    use super::*;
+
+    fn complete(data: &Path, data_counts: (u64, u64), profile_counts: (u64, u64)) {
+        let counts = |(expected, unexpected): (u64, u64)| {
+            json!({ "verified": 5, "quarantined_expected": expected, "quarantined_unexpected": unexpected, "retired": 0, "retained": 0, "dangling": 0 })
+        };
+        let record = json!({
+            "format": 1,
+            "manifest_sha256": "abc",
+            "journal_end_ordinal": 9,
+            "kinds": { "data": counts(data_counts), "desktopProfile": counts(profile_counts) },
+        });
+        std::fs::create_dir_all(data.join("migration")).unwrap();
+        std::fs::write(data.join(mixdog_store::schema::migration::COMPLETE_PATH), record.to_string()).unwrap();
+    }
+
+    /// What the completed migration set aside is told by its record: every quarantined item, expected or not, where they are, and the
+    /// migration's identity; nothing while it has not completed or when it set nothing aside.
+    #[test]
+    fn the_set_aside_items_are_counted_from_the_completed_migration() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(set_aside_of(root.path()), None, "no record: the migration has not completed");
+        complete(root.path(), (0, 0), (0, 0));
+        assert_eq!(set_aside_of(root.path()), None, "nothing set aside: nothing to tell");
+        complete(root.path(), (1, 2), (0, 3));
+        let told = set_aside_of(root.path()).expect("items were set aside");
+        assert_eq!(told["count"], 6);
+        assert_eq!(told["unexpected"], 5);
+        assert_eq!(told["id"], "abc");
+        assert_eq!(told["dir"], root.path().join("quarantine").display().to_string());
+    }
+
+    struct Told(Mutex<Vec<serde_json::Value>>);
+
+    impl StatePublisher for Told {
+        fn publish(&self, _section: SectionName, _key: Option<String>, change: mixdog_core_api::state::SectionChange) {
+            let mixdog_core_api::state::SectionChange::Set(bytes) = change else { panic!("the migration section is inline") };
+            self.0.lock().unwrap().push(serde_json::from_slice(&bytes).unwrap());
+        }
+    }
+
+    /// Only a session the migration says it quarantined has its row withdrawn, as it settles (one converted or removed by the
+    /// retention keeps its own); what has settled is counted as each is told, and told to the clients only growing.
+    #[test]
+    fn a_quarantined_session_has_its_row_withdrawn_as_it_settles_and_the_count_only_grows() {
+        let told = Arc::new(Told(Mutex::default()));
+        let withdrawn = Arc::new(Mutex::new(Vec::<String>::new()));
+        let settling = Settling {
+            publisher: told.clone(),
+            withdraw: {
+                let withdrawn = withdrawn.clone();
+                Box::new(move |session: &str| withdrawn.lock().unwrap().push(session.to_owned()))
+            },
+            initial: OnceLock::from(["a", "b", "c", "d"].map(str::to_owned).into_iter().collect::<BTreeSet<String>>()),
+            done: Mutex::new(0),
+        };
+        settling.settled(&["a".to_owned()], Settled::Verified);
+        settling.settled(&["b".to_owned()], Settled::Quarantined);
+        settling.settled(&["c".to_owned()], Settled::Removed);
+        settling.settled(&["x".to_owned()], Settled::Verified);
+        assert_eq!(*withdrawn.lock().unwrap(), ["b"]);
+        let published = told.0.lock().unwrap();
+        let done: Vec<u64> = published.iter().map(|value| value["done"].as_u64().unwrap()).collect();
+        assert_eq!(done, [1, 2, 3], "one more as each is told; none for a session it was not waiting on");
+        assert!(published.iter().all(|value| value["converting"] == true && value["total"] == 4));
     }
 }
 

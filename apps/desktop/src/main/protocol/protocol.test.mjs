@@ -107,6 +107,25 @@ test('whenSynced settles with the connect handshake: after the app subscription,
   await assert.rejects(failedRead, /initialize refused/);
 });
 
+// After a first start that failed, a core that serves later starts main's link again (bootReports.onServing): what waited on
+// whenSynced (the deferred services) kept the first start's failure and never came up.
+test('a start after a failed one is a new handshake: whenSynced follows it, not the failure', async () => {
+  const good = fakeClient();
+  let opens = 0;
+  const connection = createProtocolConnection({
+    open: async () => {
+      opens += 1;
+      if (opens === 1) throw new Error('no core yet');
+      return good;
+    },
+  });
+  await assert.rejects(connection.start(), /no core yet/);
+  await assert.rejects(connection.whenSynced(), /no core yet/);
+  await connection.start();
+  await connection.whenSynced();
+  assert.equal(connection.status, 'ready');
+});
+
 test('a call that arrives before the first connection is open waits for it, and fails with its error when it fails', async () => {
   const client = fakeClient();
   let finishOpen;

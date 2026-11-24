@@ -1162,6 +1162,17 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
     transition: none;
   }
 }
+/* What a long stage of the start is (the earlier version's data converting, its daemon closing), under the bar's place. */
+.desktop-loading-caption {
+  position: absolute;
+  top: calc(50% + 56px);
+  left: 24px;
+  right: 24px;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--mx-text-soft);
+}
 /* A relay surface whose PC never answered at boot (RemoteConnectionBanner):
    the loading mark gives way to a plain state over the same band. */
 .remote-unreachable {

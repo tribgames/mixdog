@@ -18,7 +18,50 @@ type RendererFailureLocation = {
   /** Explicit classification for a caller that already knows what broke; the
    *  message-derived code stands in when it is absent. */
   failureCode?: string;
+  /** The conversation the window had selected. */
+  sessionId?: string | null;
 };
+
+const MAX_FRAMES = 40;
+
+/** A frame with a position: `at name (location:line:column)` or `at location:line:column`. */
+const POSITIONED_FRAME = /^\s*at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?\s*$/;
+/** React's frame of a component it knows no location of: `at Panel`. */
+const NAMED_FRAME = /^\s*at\s+([A-Za-z_$][\w$]{0,79})\s*$/;
+/** What a function's name in a frame may hold (`async fn`, `new Foo`, `Object.<anonymous>`, `fn [as alias]`). */
+const FRAME_NAME = /^[\w$.<>[\] ]{1,80}$/;
+
+function frames(lines: string, named: boolean): string[] {
+  const found: string[] = [];
+  for (const line of lines.split('\n')) {
+    const positioned = line.match(POSITIONED_FRAME);
+    if (positioned) {
+      const [, name = '', location, row, column] = positioned;
+      const file = sourceName(location) ?? '';
+      found.push(`${FRAME_NAME.test(name.trim()) ? name.trim() : '<anonymous>'}@${file}:${row}:${column}`);
+    } else if (named) {
+      const component = line.match(NAMED_FRAME)?.[1];
+      if (component) found.push(component);
+    }
+    if (found.length >= MAX_FRAMES) break;
+  }
+  return found;
+}
+
+/** An error's stack as frames `function@file:line:column`. Its header (`Name: message`, as many lines as the message runs to) is
+ *  cut by the error's own text and never read, and every directory is left out: the record holds where the failure was, never
+ *  what it said or whose files it was over. */
+export function errorFrames(error: unknown): string[] {
+  const stack = (error as { stack?: unknown } | null)?.stack;
+  if (typeof stack !== 'string') return [];
+  const header = error instanceof Error ? String(error) : '';
+  return frames(header && stack.startsWith(header) ? stack.slice(header.length) : stack, false);
+}
+
+/** React's component stack as frames: `Component@file:line:column`, or the component's name where React knows no location. */
+export function componentFrames(stack: unknown): string[] {
+  return typeof stack === 'string' ? frames(stack, true) : [];
+}
 
 let lastFingerprint = '';
 let lastReportedAt = 0;
@@ -117,6 +160,14 @@ export function reportRendererFailure(
     : componentNames(location.components);
   if (failureCode) diagnostic.failureCode = failureCode;
   if (components?.length) diagnostic.components = components;
+  // Where it failed, for a failure the user did not see as text: without the frames a fingerprint names nothing to look at.
+  if (phase !== 'notice' && phase !== 'console') {
+    const stack = errorFrames(reason);
+    if (stack.length) diagnostic.stack = stack;
+    const componentStack = componentFrames(location.components);
+    if (componentStack.length) diagnostic.componentStack = componentStack;
+  }
+  if (location.sessionId) diagnostic.sessionId = location.sessionId.slice(0, 120);
   const source = sourceName(location.source);
   if (source) diagnostic.source = source;
   if (Number.isFinite(Number(location.line))) diagnostic.line = Math.max(0, Math.floor(Number(location.line)));
@@ -243,6 +294,19 @@ function LoadingCancel({ onCancel }: { onCancel: () => void }) {
   );
 }
 
+/** What the cover says while the core works before it serves: the conversion of the earlier version's data and the wait for the
+ *  earlier version's daemon are long enough to need words; the index rebuild is its bar alone. */
+function stageCaption(stage: string | undefined): string | null {
+  if (stage === 'migration') return t('Updating your data from the earlier version of Mixdog…');
+  if (stage === 'legacy') return t('Waiting for the earlier version of Mixdog to finish its running work and close…');
+  return null;
+}
+
+function stageLabel(stage: string | undefined): string {
+  if (stage === 'migration') return t('Updating your data from the earlier version of Mixdog…');
+  return t('Organizing your conversation history');
+}
+
 export function DesktopLoadingSurface({
   label,
   overlay = false,
@@ -251,12 +315,16 @@ export function DesktopLoadingSurface({
   className = '',
   onCancel,
   progress,
+  caption,
 }: {
   label: string;
   overlay?: boolean;
   brand?: boolean;
-  /** The core's index rebuild, `done` of `total` sessions: a thin bar under the brand mark, drawn only while it is given. */
-  progress?: { done: number; total: number } | null;
+  /** What the core does before it serves, `done` of `total`: a thin bar under the brand mark, drawn only while it counts something,
+   *  and a line saying what it is for a long stage (`stage`, the rebuild when absent). */
+  progress?: { done: number; total: number; stage?: string } | null;
+  /** A line under the brand mark (the cover's own state). */
+  caption?: string;
   /** Hold the indicator invisible for the shared delay, so a warm/short load
    *  never flashes one. The cold-boot cover opts out: it owns the window from
    *  the first frame and has nothing to flash against. */
@@ -283,11 +351,11 @@ export function DesktopLoadingSurface({
       ) : (
         <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
       )}
-      {brand && progress && (
+      {brand && progress && progress.total > 0 && (
         <div
           className="desktop-loading-progress"
           role="progressbar"
-          aria-label={t('Organizing your conversation history')}
+          aria-label={stageLabel(progress.stage)}
           aria-valuemin={0}
           aria-valuemax={progress.total}
           aria-valuenow={progress.done}
@@ -298,13 +366,82 @@ export function DesktopLoadingSurface({
           />
         </div>
       )}
+      {brand && (caption ?? stageCaption(progress?.stage)) && (
+        <p className="desktop-loading-caption">{caption ?? stageCaption(progress?.stage)}</p>
+      )}
+    </div>
+  );
+}
+
+/** The process a start is blocked on, as the failure card names it (main/core-port/boot-progress.ts `BootBlock`). */
+interface BootBlockView {
+  pid: number | null;
+  image: string | null;
+  commandLine: string | null;
+  releasable: boolean;
+  legacy: boolean;
+  retireError: string | null;
+  resolving: boolean;
+  resolveError: string | null;
+}
+
+/** The card of a start blocked on another process: which process, why it matters, and the one action past it (the core's
+ *  `release` for a process it could not prove to be Mixdog's; the earlier version's stop otherwise). The window attaches by
+ *  itself once that process has gone: the action does not reload it. */
+function BlockedStartCard({ blocked, message }: { blocked: BootBlockView; message: string }) {
+  const process = [blocked.image, blocked.pid !== null ? t('process {{pid}}', { pid: blocked.pid }) : null]
+    .filter(Boolean)
+    .join(' · ');
+  const detail = [message, blocked.commandLine, blocked.retireError].filter(Boolean).join('\n');
+  const bridge = (window as { mixdogCorePort?: { retry?: () => Promise<void> } }).mixdogCorePort;
+  return (
+    <div className="desktop-loading-surface desktop-boot-failure" role="alert">
+      <div className="desktop-boot-failure-card">
+        <h2 className="desktop-boot-failure-title">
+          {blocked.releasable ? t('Another program holds your Mixdog data') : t('An earlier Mixdog is still running')}
+        </h2>
+        <p className="desktop-boot-failure-body">
+          {blocked.releasable
+            ? t(
+                'Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.'
+              )
+            : t(
+                'It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.'
+              )}
+        </p>
+        {process && <p className="desktop-boot-failure-body">{process}</p>}
+        {blocked.resolveError && <p className="desktop-boot-failure-body">{blocked.resolveError}</p>}
+        <details className="desktop-boot-failure-details">
+          <summary>{t('Error details')}</summary>
+          <pre>{detail}</pre>
+        </details>
+        <button
+          type="button"
+          className="desktop-boot-failure-retry"
+          disabled={blocked.resolving}
+          onClick={() => void bridge?.retry?.()}
+        >
+          {blocked.releasable
+            ? blocked.resolving
+              ? t('Releasing…')
+              : t('It is not Mixdog: continue')
+            : blocked.resolving
+              ? t('Stopping…')
+              : t('Stop it and continue')}
+        </button>
+      </div>
     </div>
   );
 }
 
 /** The first screen of a window whose core cannot be started, never served, or ends at boot the same way each time: what happened in plain words, the
  *  cause on request, and a way to try again (the window loads again, which asks main to start the core once more). */
-export function DesktopBootFailure({ failure }: { failure: { message: string; stderrPath: string | null } }) {
+export function DesktopBootFailure({
+  failure,
+}: {
+  failure: { message: string; stderrPath: string | null; blocked?: BootBlockView | null };
+}) {
+  if (failure.blocked) return <BlockedStartCard blocked={failure.blocked} message={failure.message} />;
   const detail = [failure.message, failure.stderrPath].filter(Boolean).join('\n');
   return (
     <div className="desktop-loading-surface desktop-boot-failure" role="alert">
@@ -346,15 +483,25 @@ function recoveryCopy(): { title: string; body: string } {
   };
 }
 
-export class DesktopErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; retryKey: number }> {
-  state = { failed: false, retryKey: 0 };
+/** The conversation the window has selected: its sidebar row. Read while the failed tree is still in the document. */
+function selectedSessionId(): string | null {
+  if (typeof document === 'undefined') return null;
+  return document.querySelector('.session-row.selected[data-session-id]')?.getAttribute('data-session-id') ?? null;
+}
+
+export class DesktopErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean; retryKey: number; sessionId: string | null }
+> {
+  state = { failed: false, retryKey: 0, sessionId: null as string | null };
 
   static getDerivedStateFromError() {
-    return { failed: true };
+    // By the time the failure is reported the recovery screen has replaced the tree, and the selected row with it.
+    return { failed: true, sessionId: selectedSessionId() };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    reportRendererFailure('boundary', error, { components: info.componentStack });
+    reportRendererFailure('boundary', error, { components: info.componentStack, sessionId: this.state.sessionId });
     console.error('Desktop renderer recovered from an uncaught render error.', error);
   }
 

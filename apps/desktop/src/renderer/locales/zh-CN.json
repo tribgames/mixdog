@@ -6565,5 +6565,17 @@
   "Account 1": "账号 1",
   "Sign in with another account": "使用其他账号登录",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "使用其他账号登录。它会替换当前账号：{{name}} 只保留一个账号。",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mixdog 中正在运行的所有 {{name}} 会话将立即结束。Mixdog 之外的 {{command}} 命令使用同一登录，因此也会被退出登录。"
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mixdog 中正在运行的所有 {{name}} 会话将立即结束。Mixdog 之外的 {{command}} 命令使用同一登录，因此也会被退出登录。",
+  "An earlier Mixdog is still running": "旧版 Mixdog 仍在运行",
+  "Another program holds your Mixdog data": "另一个程序占用了你的 Mixdog 数据",
+  "Converting earlier conversations… {{done}} of {{total}}": "正在转换旧对话… {{done}}/{{total}}",
+  "Installing the update…": "正在安装更新…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "它占用了你的 Mixdog 数据，因此此版本无法同时启动。停止它以继续；它仍在运行的工作将结束。",
+  "It is not Mixdog: continue": "不是 Mixdog：继续",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "Mixdog 无法判断此程序是否为旧版 Mixdog。如果不是，请让 Mixdog 继续；如果是，请先关闭它。",
+  "process {{pid}}": "进程 {{pid}}",
+  "Stop it and continue": "停止并继续",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "从旧版本更新时，有 {{items}} 个无法转换的项目被单独保存。它们保存在 {{dir}}。",
+  "Updating your data from the earlier version of Mixdog…": "正在从旧版 Mixdog 更新你的数据…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "正在等待旧版 Mixdog 完成正在运行的工作并关闭…"
 }

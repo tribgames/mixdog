@@ -20,7 +20,8 @@ export interface CoreEndpoint {
 export const CORE_PORT_CHANNEL = 'mixdog:core-port';
 /** The window's request for a port (preload/core-port.ts `mixdogCorePort.open`). */
 export const CORE_PORT_OPEN_CHANNEL = 'mixdog:core-port:open';
-/** What the window is told while its `open` waits for the core: a `BootReport` (the index rebuild's `{done, total}` sessions or null,\n *  and the failure of a start that ends the same way each time or null). */
+/** What the window is told while its `open` waits for the core: a `BootReport` (what the core does before it serves, with its counts,
+ *  or null; the failure of a start that ends the same way each time, or is blocked, or null; and whether an update is replacing the core). */
 export const CORE_BOOT_CHANNEL = 'mixdog:core-port:boot';
 /** The window's `Try again` after a confirmed failure (preload/core-port.ts `mixdogCorePort.retry`). */
 export const CORE_PORT_RETRY_CHANNEL = 'mixdog:core-port:retry';
@@ -313,7 +314,7 @@ export class CorePortRelay {
       webContents.send?.(CORE_BOOT_CHANNEL, report);
     };
     const now = source.current();
-    if (now.progress || now.failure) tell(now);
+    if (now.progress || now.failure || now.updating) tell(now);
     off = source.subscribe(tell);
     return stop;
   }

@@ -26,9 +26,29 @@ export interface EnsureCoreOptions {
   log?(line: string): void;
   /** The ask of a core that still says it is starting once the ready time has passed (`pingCore` outside a test). */
   ping?(discovery: CoreState): Promise<{ answered: boolean; stalledMs: number }>;
-  /** Told each time the core's rebuild progress changes (null when it ends or none runs), with the pid of the core boot the counts are of, while this waits for `serving`. */
-  onProgress?(progress: RebuildProgress | null, boot: number | null): void;
+  /** Told each time what the core does before it serves changes (null when it ends or it does nothing), with the pid of the core boot the counts are of, while this waits for `serving`. */
+  onProgress?(progress: (RebuildProgress & { stage: 'migration' | 'rebuild' | 'legacy' }) | null, boot: number | null): void;
+  /** Asks the earlier version's daemon the file names to step aside (when no `retirement` is shared). */
+  retireLegacy?(discovery: CoreState): Promise<LegacyAnswer | null>;
+  /** What every attempt of one launcher knows of the earlier daemons it asked ([`legacyRetirement`]). */
+  retirement?: LegacyRetirement;
 }
+export interface LegacyAnswer {
+  accepted: boolean;
+  status?: number | null;
+  error?: string | null;
+}
+export interface LegacyRetirementRecord {
+  pid: number;
+  accepted: boolean;
+  answer: LegacyAnswer | null;
+  endpoint: { sessionPort: number | null; token: string | null };
+}
+export interface LegacyRetirement {
+  ask(discovery: CoreState): Promise<LegacyRetirementRecord>;
+  of(pid: number): Promise<LegacyRetirementRecord | null>;
+}
+export function legacyRetirement(retireLegacy?: (discovery: CoreState) => Promise<LegacyAnswer | null>): LegacyRetirement;
 export function launchCore(options?: {
   bin?: string;
   env?: NodeJS.ProcessEnv;

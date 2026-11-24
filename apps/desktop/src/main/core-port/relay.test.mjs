@@ -404,17 +404,22 @@ test('boot reports: a window waiting for its core is told the rebuild as it adva
     },
   });
   const attempt = reports.attempt();
-  attempt.progress({ done: 10, total: 100 }, 7);
+  attempt.progress({ stage: 'rebuild', done: 10, total: 100 }, 7);
   const wc = window();
   const opening = relay.open(wc);
   await flush();
   assert.deepEqual(
     wc.told,
-    [{ channel: CORE_BOOT_CHANNEL, message: { progress: { done: 10, total: 100, boot: 7 }, failure: null } }],
+    [
+      {
+        channel: CORE_BOOT_CHANNEL,
+        message: { progress: { stage: 'rebuild', done: 10, total: 100, boot: 7 }, failure: null, updating: false },
+      },
+    ],
     'what is known when the open begins'
   );
-  attempt.progress({ done: 60, total: 100 }, 7);
-  assert.deepEqual(wc.told.at(-1).message.progress, { done: 60, total: 100, boot: 7 });
+  attempt.progress({ stage: 'rebuild', done: 60, total: 100 }, 7);
+  assert.deepEqual(wc.told.at(-1).message.progress, { stage: 'rebuild', done: 60, total: 100, boot: 7 });
   attempt.succeeded();
   assert.equal(wc.told.at(-1).message.progress, null, 'the end of the attempt clears it');
   release();

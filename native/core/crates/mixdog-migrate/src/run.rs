@@ -127,10 +127,25 @@ pub struct Waiting {
     asked_for: std::sync::Condvar,
 }
 
+/// How a session stopped being one still to settle, as [`Waiting::watch`] tells it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Settled {
+    /// Converted, verified and handed to [`MigrateOptions::verified`].
+    Verified,
+    /// Set aside under `quarantine/`: no conversation was made of it.
+    Quarantined,
+    /// Removed unconverted by the product's retention ([`Retention`]), or not one the plan holds.
+    Removed,
+}
+
+/// Told of the sessions that settle ([`Waiting::watch`]).
+pub type SettledWatch = Arc<dyn Fn(&[String], Settled) + Send + Sync>;
+
 #[derive(Default)]
 struct WaitingState {
     /// Session ids not yet verified or quarantined.
     open: BTreeSet<String>,
+    watch: Option<SettledWatch>,
     /// The ones a converter is on.
     claimed: BTreeSet<String>,
     /// Asked for first, oldest request first.
@@ -147,6 +162,15 @@ impl Waiting {
     /// The sessions still to settle.
     pub fn pending(&self) -> Vec<String> {
         self.state().open.iter().cloned().collect()
+    }
+
+    /// Tells `watch` of every session that settles from now on: once each, on the thread that settled it, once it is no longer
+    /// one still to settle and before anyone waiting on it is told. A run that ends early tells it nothing of the sessions it
+    /// leaves. Returns the sessions still to settle as the watch begins.
+    pub fn watch(&self, watch: SettledWatch) -> Vec<String> {
+        let mut state = self.state();
+        state.watch = Some(watch);
+        state.open.iter().cloned().collect()
     }
 
     /// Asks for `session` ahead of the rest; `then` runs once it is settled (verified and handed to
@@ -195,12 +219,16 @@ impl Waiting {
     /// seen by the verdict `still` stands for, or is told there is no such session. `false`, with nothing settled, when
     /// `still` does not hold: the verdict is to be given again. The opens are held for `still` alone, not for a verdict.
     fn expire(&self, expired: &BTreeSet<String>, still: impl FnOnce(&BTreeSet<String>) -> bool) -> bool {
-        let mut state = self.state();
-        if !still(&Self::awaited_in(&state)) {
-            return false;
-        }
-        for id in expired {
-            state.open.remove(id);
+        let (removed, watch) = {
+            let mut state = self.state();
+            if !still(&Self::awaited_in(&state)) {
+                return false;
+            }
+            let removed: Vec<String> = expired.iter().filter(|id| state.open.remove(*id)).cloned().collect();
+            (removed, state.watch.clone())
+        };
+        if let Some(watch) = watch.filter(|_| !removed.is_empty()) {
+            watch(&removed, Settled::Removed);
         }
         true
     }
@@ -245,13 +273,16 @@ impl Waiting {
         state.open.contains(session) && state.claimed.insert(session.to_owned())
     }
 
-    fn settled(&self, session: &str) {
-        let told = {
+    fn settled(&self, session: &str, how: Settled) {
+        let (told, watch) = {
             let mut state = self.state();
-            state.open.remove(session);
+            let was_open = state.open.remove(session);
             state.claimed.remove(session);
-            state.told.remove(session).unwrap_or_default()
+            (state.told.remove(session).unwrap_or_default(), state.watch.clone().filter(|_| was_open))
         };
+        if let Some(watch) = watch {
+            watch(&[session.to_owned()], how);
+        }
         told.into_iter().for_each(|then| then());
     }
 
@@ -813,12 +844,17 @@ impl Migrator {
         let Some(id) = item.key.as_str().strip_prefix("session/") else {
             return Ok(());
         };
-        let verified = shared.journal.lock().expect("journal").progress(item.key.as_str()).is_some_and(|p| p.state == ItemState::Verified);
-        if let Some(hook) = self.options.verified.as_ref().filter(|_| verified) {
+        let state = shared.journal.lock().expect("journal").progress(item.key.as_str()).map(|p| p.state);
+        if let Some(hook) = self.options.verified.as_ref().filter(|_| state == Some(ItemState::Verified)) {
             hook(id);
         }
         if let Some(waiting) = shared.waiting {
-            waiting.settled(id);
+            let how = match state {
+                Some(ItemState::Verified) => Settled::Verified,
+                Some(ItemState::Quarantined) => Settled::Quarantined,
+                _ => Settled::Removed,
+            };
+            waiting.settled(id, how);
         }
         Ok(())
     }
@@ -829,7 +865,7 @@ impl Migrator {
             let key = format!("session/{id}");
             match shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&key)) {
                 Ok(at) => return Some(&shared.manifest.items[at]),
-                Err(_) => waiting.settled(&id),
+                Err(_) => waiting.settled(&id, Settled::Removed),
             }
         }
         None
@@ -981,7 +1017,7 @@ impl Migrator {
                         let served = match shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&key)) {
                             Ok(at) => opened(&shared.manifest.items[at]),
                             Err(_) => {
-                                waiting.settled(&id);
+                                waiting.settled(&id, Settled::Removed);
                                 Ok(())
                             }
                         };
@@ -1422,6 +1458,52 @@ mod retention_tests;
 #[cfg(test)]
 #[path = "run/migration_tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod watch_tests {
+    use super::*;
+
+    fn ids(sessions: &[&str]) -> Vec<String> {
+        sessions.iter().map(|session| (*session).to_owned()).collect()
+    }
+
+    /// A serving core withdraws the row of a session set aside, and counts what has settled, by what the watch is told: of each
+    /// session once, after it has stopped being one still to settle (so the count read then includes it) and before the open
+    /// waiting on it goes on; of nothing a run that ends early leaves, which stays to convert at the next start.
+    #[test]
+    fn a_watch_is_told_each_session_once_as_it_settles_and_nothing_a_run_left() {
+        let waiting = Arc::new(Waiting::default());
+        waiting.state().open = ids(&["a", "b", "c", "d"]).into_iter().collect();
+        type Told = Vec<(Vec<String>, Settled, Vec<String>)>;
+        let told: Arc<Mutex<Told>> = Arc::default();
+        let pending = {
+            let (told, weak) = (told.clone(), Arc::downgrade(&waiting));
+            waiting.watch(Arc::new(move |sessions: &[String], how| {
+                let still = weak.upgrade().map(|waiting| waiting.pending()).unwrap_or_default();
+                told.lock().unwrap().push((sessions.to_vec(), how, still));
+            }))
+        };
+        assert_eq!(pending, ids(&["a", "b", "c", "d"]));
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let (seen, at_open) = (told.clone(), opened.clone());
+        assert!(waiting.first("b", Box::new(move || at_open.lock().unwrap().push(seen.lock().unwrap().len()))));
+        waiting.settled("a", Settled::Verified);
+        waiting.settled("b", Settled::Quarantined);
+        waiting.settled("b", Settled::Quarantined);
+        assert!(waiting.expire(&BTreeSet::from(["c".to_owned()]), |_| true));
+        waiting.ended();
+        assert_eq!(
+            *told.lock().unwrap(),
+            [
+                (ids(&["a"]), Settled::Verified, ids(&["b", "c", "d"])),
+                (ids(&["b"]), Settled::Quarantined, ids(&["c", "d"])),
+                (ids(&["c"]), Settled::Removed, ids(&["d"])),
+            ],
+            "each once, none of what the run left"
+        );
+        assert_eq!(*opened.lock().unwrap(), [2], "the open of b went on once the watch had been told of it");
+    }
+}
 
 /// Leave the reason, shared exports and generated source names in separate
 /// namespaces. Preserve the old names when they are already unambiguous.

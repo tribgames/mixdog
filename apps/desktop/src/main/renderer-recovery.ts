@@ -42,6 +42,18 @@ function boundedCoordinate(value: unknown): number | undefined {
   return Math.min(10_000_000, Math.max(0, Math.floor(numeric)));
 }
 
+/** A frame as the renderer sends it: `function@file:line:column` with the file's name alone, or a component's name alone. */
+const FRAME = /^(?:[\w$.<>[\] ]{1,80}@[^\s/\\:@]{1,120}:\d{1,9}:\d{1,9}|[A-Za-z_$][\w$]{0,79})$/;
+
+/** Stack frames as the renderer sends them: an entry that is not a frame of that shape is left out whole, so no free text rides along. */
+function frames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((frame) => String(frame ?? ''))
+    .filter((frame) => FRAME.test(frame))
+    .slice(0, 40);
+}
+
 function componentToken(value: unknown): string {
   const text = String(value || '').trim();
   return /^[A-Za-z][A-Za-z0-9_.$:-]{0,79}$/.test(text) ? text : '';
@@ -83,6 +95,12 @@ export function normalizeRendererDiagnostic(input: unknown): Record<string, unkn
   if (source) details.source = source;
   if (line !== undefined) details.line = line;
   if (column !== undefined) details.column = column;
+  const stack = frames(record.stack);
+  const componentStack = frames(record.componentStack);
+  const sessionId = token(record.sessionId, '', 120);
+  if (stack.length) details.stack = stack;
+  if (componentStack.length) details.componentStack = componentStack;
+  if (sessionId) details.sessionId = sessionId;
   // A crash report is identified by its fingerprint; a notice is only useful
   // if the sentence the user saw survives with it.
   if (phase === 'notice' || phase === 'console') {

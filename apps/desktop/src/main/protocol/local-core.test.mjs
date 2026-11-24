@@ -18,9 +18,11 @@ import {
   DESKTOP_CORE_READY_TIMEOUT_MS,
   packagedMixdogRoot,
   readCoreState,
+  resolveCoreBlock,
   resolveLocalCore,
 } from './local-core.ts';
 import { BootReports } from '../core-port/boot-progress.ts';
+import { createCoreLaunchLock } from '../updater-core.ts';
 
 test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
@@ -439,10 +441,22 @@ test('a core that ends abnormally before serving fails the start at once with it
     'core is not ready: the core ended before serving (killed by SIGKILL): Error: the store is locked'
   );
   assert.equal(stale.clock, 150);
-  // Another core holds the folder: a contender that ended cleanly, or one that ended while the file names the other core, is waited out.
-  const lostClaim = await run({
+  // A contender that yields the data directory's lock (exit 0) to a holder that names no core ends the start at once too, with its
+  // exit and where its stderr is: there is nothing published to attach to, however long the wait.
+  const yielded = await run({
     exit: { exitCode: 0, exitSignal: null },
     discovery: (at) => (at >= 20_000 ? serving(88) : null),
+  });
+  assert.equal(
+    yielded.error?.message,
+    'core is not ready: the core ended before serving (exited with code 0): Error: the store is locked'
+  );
+  assert.equal(yielded.error.coreExit.stderrPath, 'capture.err.log');
+  assert.equal(yielded.clock, 150);
+  // Another core holds the folder and names itself: a contender that yields to it, or ends for another reason, is waited out.
+  const lostClaim = await run({
+    exit: { exitCode: 0, exitSignal: null },
+    discovery: (at) => (at >= 20_000 ? serving(88) : at >= 50 ? booting(88) : null),
   });
   assert.deepEqual(lostClaim.value, serving(88));
   const otherCore = await run({
@@ -493,14 +507,22 @@ test("the launcher reports the core's index rebuild while it waits, each change 
       booting({ done: 2, total: 3 }),
       booting({ done: 3, total: 3 }),
     ]),
-    [{ done: 0, total: 3 }, { done: 2, total: 3 }, { done: 3, total: 3 }, null],
+    [
+      { stage: 'rebuild', done: 0, total: 3 },
+      { stage: 'rebuild', done: 2, total: 3 },
+      { stage: 'rebuild', done: 3, total: 3 },
+      null,
+    ],
     'counts as they advance, then withdrawn when the core serves'
   );
   assert.deepEqual(await run([booting(null), booting(null)]), [], 'a normal start reports nothing');
   assert.deepEqual(
-    await run([{ state: 'migrating', rpcPort: null, blocked: null, rebuild: null }]),
-    [],
-    'a conversion of older data (no counts) reports nothing'
+    await run([
+      { state: 'migrating', rpcPort: null, blocked: null, rebuild: null },
+      { state: 'migrating', rpcPort: null, blocked: null, rebuild: { done: 40, total: 600 } },
+    ]),
+    [{ stage: 'migration', done: 0, total: 0 }, { stage: 'migration', done: 40, total: 600 }, null],
+    'the conversion of older data is told as such, with its counts once it names them'
   );
 });
 
@@ -526,7 +548,7 @@ test('a report belongs to its call: it is withdrawn when the call throws on a re
     /EACCES/
   );
   await tick();
-  assert.deepEqual(told, [{ done: 1, total: 4 }, null], 'a failed read withdraws the report');
+  assert.deepEqual(told, [{ stage: 'rebuild', done: 1, total: 4 }, null], 'a failed read withdraws the report');
   told.length = 0;
   let clock = 0;
   await assert.rejects(
@@ -541,20 +563,20 @@ test('a report belongs to its call: it is withdrawn when the call throws on a re
     /core is not ready/
   );
   await tick();
-  assert.deepEqual(told, [{ done: 1, total: 4 }, null], 'the deadline withdraws it');
+  assert.deepEqual(told, [{ stage: 'rebuild', done: 1, total: 4 }, null], 'the deadline withdraws it');
 });
 
 test("a launch attempt owns its reports: nothing it said outlives it, whichever way it ends, and one attempt's end leaves another's alone", () => {
   const reports = new BootReports();
   const a = reports.attempt();
   const b = reports.attempt();
-  a.progress({ done: 1, total: 5 }, 7);
-  b.progress({ done: 2, total: 5 }, 7);
-  assert.deepEqual(reports.current().progress, { done: 2, total: 5, boot: 7 });
+  a.progress({ stage: 'rebuild', done: 1, total: 5 }, 7);
+  b.progress({ stage: 'rebuild', done: 2, total: 5 }, 7);
+  assert.deepEqual(reports.current().progress, { stage: 'rebuild', done: 2, total: 5, boot: 7 });
   b.failed(new Error('timed out'));
   assert.deepEqual(
     reports.current().progress,
-    { done: 2, total: 5, boot: 7 },
+    { stage: 'rebuild', done: 2, total: 5, boot: 7 },
     'the other attempt still stands, and what the boot reached is not taken back'
   );
   a.progress(null, null);
@@ -596,8 +618,12 @@ test("one core boot's counts never decrease on screen, whichever attempt read th
   later.succeeded();
   assert.equal(reports.current().progress, null);
   const next = reports.attempt();
-  next.progress({ done: 0, total: 10 }, 12);
-  assert.deepEqual(reports.current().progress, { done: 0, total: 10, boot: 12 }, 'a new boot starts at zero');
+  next.progress({ stage: 'rebuild', done: 0, total: 10 }, 12);
+  assert.deepEqual(
+    reports.current().progress,
+    { stage: 'rebuild', done: 0, total: 10, boot: 12 },
+    'a new boot starts at zero'
+  );
   assert.ok(
     seen.every(
       (value, index) =>
@@ -697,7 +723,7 @@ test('a core whose binary cannot be started is a confirmed failure at the first 
   assert.match(first.message, /cannot start .*mixdogd\.exe: spawn mixdogd ENOENT/);
   assert.ok(first.coreLaunchFailed, 'the window is answered launchFailed, not an error to redial on');
   assert.equal(first.coreLaunchFailed, reports.confirmed());
-  assert.deepEqual(heard, [{ message: first.message, exitCode: null, stderrPath: null }]);
+  assert.deepEqual(heard, [{ message: first.message, exitCode: null, stderrPath: null, blocked: null }]);
   const second = await resolve().catch((error) => error);
   assert.equal(second.coreLaunchFailed, reports.confirmed());
   assert.equal(spawns, 1, 'a redial does not start it again');
@@ -737,8 +763,30 @@ test("a wait for the core that ends with none serving (never published, stalled,
   const booting = await waitedOut({ ...held, state: 'booting', blocked: null });
   assert.match(booting.failure.message, /core is not ready: the core is booting/);
   assert.equal(booting.clock, LIMIT_MS, 'after the whole wait, once');
-  const blocked = await waitedOut({ ...held, state: 'blocked', blocked: { reason: 'dataVersion' } });
-  assert.match(blocked.failure.message, /the core is blocked \(\{"reason":"dataVersion"\}\)/);
+  // As the core writes it (mgmt.rs `Blocked::Undecidable`): no `releasable` field, the kind says it.
+  const blocked = await waitedOut({
+    ...held,
+    state: 'blocked',
+    blocked: {
+      kind: 'undecidable',
+      pid: 4321,
+      image: 'C:\\tools\\node.exe',
+      commandLine: 'node x.js',
+      startTime: '1795517611302',
+    },
+  });
+  assert.match(blocked.failure.message, /the data directory is held by an earlier process \(pid 4321\)/);
+  assert.deepEqual(blocked.failure.blocked, {
+    pid: 4321,
+    kind: 'undecidable',
+    image: 'C:\\tools\\node.exe',
+    commandLine: 'node x.js',
+    releasable: true,
+    legacy: false,
+    retireError: null,
+    resolving: false,
+    resolveError: null,
+  });
   assert.equal(blocked.clock, 0, 'a blocked core is not waited for');
 });
 
@@ -860,13 +908,13 @@ test("a superseded boot's late readings never become current again: A:9, B:1, th
   const reports = new BootReports();
   const a = reports.attempt();
   const b = reports.attempt();
-  a.progress({ done: 9, total: 10 }, 1);
-  b.progress({ done: 1, total: 10 }, 2);
-  assert.deepEqual(reports.current().progress, { done: 1, total: 10, boot: 2 });
-  a.progress({ done: 8, total: 10 }, 1);
+  a.progress({ stage: 'rebuild', done: 9, total: 10 }, 1);
+  b.progress({ stage: 'rebuild', done: 1, total: 10 }, 2);
+  assert.deepEqual(reports.current().progress, { stage: 'rebuild', done: 1, total: 10, boot: 2 });
+  a.progress({ stage: 'rebuild', done: 8, total: 10 }, 1);
   assert.deepEqual(
     reports.current().progress,
-    { done: 1, total: 10, boot: 2 },
+    { stage: 'rebuild', done: 1, total: 10, boot: 2 },
     "A's late reading does not replace B's"
   );
   b.progress({ done: 4, total: 10 }, 2);
@@ -915,4 +963,476 @@ test("the discovery file's rebuild counts are read only when they count somethin
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// A power loss can leave daemon.json empty, zero-filled or cut short. Such bytes name no core (every core replaces the file whole), so
+// the start launches one, which publishes over them, instead of failing on a parse error with no core and no card.
+test('a daemon.json that is empty, zero-filled or cut short names no core: the start launches one', async (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'local-core-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, 'daemon.json');
+  for (const bytes of ['', '\0'.repeat(512), '{"pid": 41, "core": {"state": "serv', 'null', '[]']) {
+    writeFileSync(file, bytes);
+    await assert.rejects(
+      readCoreState(root),
+      (error) => error.name === 'CoreDiscoveryError' && error.code === 'absent',
+      JSON.stringify(bytes.slice(0, 12))
+    );
+    let launches = 0;
+    const served = await ensureCore({
+      readDiscovery: () => readCoreState(root),
+      launch: async () => {
+        launches += 1;
+        writeFileSync(
+          file,
+          JSON.stringify({
+            pid: process.pid,
+            core: { state: 'serving', rpc: { port: 6060 } },
+            endpoints: { session: { token: 't' } },
+          })
+        );
+      },
+      sleep: async () => {},
+      now: () => 0,
+      runs: () => true,
+    });
+    assert.equal(served.rpcPort, 6060, JSON.stringify(bytes.slice(0, 12)));
+    assert.equal(launches, 1);
+  }
+});
+
+// 1.4.5 kept its daemon running after its window closed (bots, channels): the first 1.5 start found it alive, started a core that
+// blocked on it, and showed the block's raw JSON with a "Try again" that led back to it.
+test("the earlier version's daemon is asked once to step aside: one that agrees is waited for, one that does not fails naming it and how to act on it", async () => {
+  const legacy = {
+    state: 'legacy',
+    rpcPort: null,
+    blocked: null,
+    pid: 41,
+    controlPort: null,
+    token: 'legacy-token',
+    sessionPort: 4242,
+    rebuild: null,
+  };
+  const blockedOn41 = {
+    state: 'blocked',
+    rpcPort: null,
+    blocked: { kind: 'waitExit', pid: 41, image: 'C:\\old\\node.exe', commandLine: 'node daemon.mjs', releasable: false },
+    pid: 42,
+    controlPort: 7070,
+    token: 'core-token',
+    sessionPort: null,
+    rebuild: null,
+  };
+  const serving = { ...blockedOn41, state: 'serving', rpcPort: 6060, blocked: null };
+  const run = async ({ answer, discovery }) => {
+    let clock = 0;
+    const asked = [];
+    const told = [];
+    let launches = 0;
+    const outcome = await ensureCore({
+      readDiscovery: async () => discovery(clock),
+      launch: async () => {
+        launches += 1;
+      },
+      retireLegacy: async (endpoint) => {
+        asked.push(endpoint.pid);
+        return answer;
+      },
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+      runs: () => true,
+      ping: async () => ({ answered: true, stalledMs: 0 }),
+      readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
+      onProgress: (progress) => told.push(progress?.stage ?? null),
+    }).then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    );
+    await tick();
+    return { ...outcome, asked, launches, told };
+  };
+  const agreed = await run({
+    answer: { accepted: true, status: 200, error: null },
+    discovery: (at) => (at < 100 ? legacy : at < 30_000 ? blockedOn41 : serving),
+  });
+  assert.deepEqual(agreed.value, serving, 'the core blocked on it starts once it has closed');
+  assert.deepEqual(agreed.asked, [41], 'asked once');
+  assert.equal(agreed.launches, 1);
+  assert.deepEqual([...new Set(agreed.told)], ['legacy', null], 'the person is told what the start waits on');
+
+  const refused = await run({
+    answer: { accepted: false, status: 409, error: 'a turn is running' },
+    discovery: (at) => (at < 100 ? legacy : blockedOn41),
+  });
+  assert.match(refused.error.message, /the data directory is held by an earlier process \(pid 41\)/);
+  assert.doesNotMatch(refused.error.message, /\{/, 'no raw JSON');
+  assert.deepEqual(refused.error.coreBlocked, {
+    pid: 41,
+    kind: 'waitExit',
+    image: 'C:\\old\\node.exe',
+    commandLine: 'node daemon.mjs',
+    releasable: false,
+    legacy: true,
+    retire: { accepted: false, status: 409, error: 'a turn is running' },
+  });
+  assert.deepEqual(refused.error.coreBlockedAccess, {
+    core: { controlPort: 7070, token: 'core-token' },
+    legacy: { port: 4242, token: 'legacy-token' },
+  });
+});
+
+test('the action past a block releases an owner the core could not prove through the core, stops the earlier daemon through its own forced stop, and ends the process only when it cannot be asked', async () => {
+  const requests = [];
+  const answering =
+    (routes) =>
+    async (url, init = {}) => {
+      requests.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
+      const [status, body] = routes[new URL(url).pathname] ?? [404, {}];
+      return new Response(JSON.stringify(body), { status });
+    };
+  const ended = [];
+  const endProcess = (pid) => {
+    ended.push(pid);
+    return true;
+  };
+  const owner = { pid: 41, kind: 'undecidable', image: null, commandLine: null, releasable: true, legacy: false, retire: null };
+  await resolveCoreBlock(
+    owner,
+    { core: { controlPort: 7070, token: 'core-token' }, legacy: null },
+    {
+      fetchImpl: answering({
+        '/mgmt/status': [200, { blocked: { pid: 41, confirmToken: 'ct' } }],
+        '/mgmt/release': [200, {}],
+      }),
+      endProcess,
+    }
+  );
+  assert.deepEqual(
+    requests.map(({ url, method, body }) => [url, method, body]),
+    [
+      ['http://127.0.0.1:7070/mgmt/status', 'GET', null],
+      ['http://127.0.0.1:7070/mgmt/release', 'POST', { pid: 41, confirmToken: 'ct' }],
+    ]
+  );
+  assert.equal(requests[1].headers.authorization, 'Bearer core-token');
+  assert.deepEqual(ended, [], 'a released owner is left running');
+
+  requests.length = 0;
+  const daemon = { ...owner, kind: 'waitExit', releasable: false, legacy: true };
+  const reachable = { core: null, legacy: { port: 4242, token: 'legacy-token' } };
+  await resolveCoreBlock(daemon, reachable, { fetchImpl: answering({ '/stop': [200, { ok: true }] }), endProcess });
+  assert.deepEqual(
+    requests.map(({ url, method, body }) => [url, method, body]),
+    [['http://127.0.0.1:4242/stop', 'POST', { force: true }]]
+  );
+  assert.equal(requests[0].headers['X-Mixdog-Daemon-Token'], 'legacy-token');
+  assert.deepEqual(ended, [], 'it stops itself');
+  await resolveCoreBlock(daemon, reachable, { fetchImpl: answering({ '/stop': [401, { error: 'unauthorized' }] }), endProcess });
+  assert.deepEqual(ended, [41], 'one that refuses its own stop is ended with its process tree');
+  await assert.rejects(
+    resolveCoreBlock({ ...daemon, pid: 43 }, { core: null, legacy: null }, { fetchImpl: answering({}), endProcess: () => false }),
+    /Process 43 could not be ended/
+  );
+});
+
+test('a blocked start is a card naming the process, never a credential; its action runs once at a time, says why it failed, and the block stands until the process has gone', async () => {
+  let pending;
+  const asked = [];
+  const reports = new BootReports({
+    resolveBlock: (start) => {
+      asked.push(start);
+      return new Promise((resolve, reject) => {
+        pending = { resolve, reject };
+      });
+    },
+  });
+  const block = {
+    pid: 41,
+    kind: 'waitExit',
+    image: 'C:\\old\\node.exe',
+    commandLine: 'node daemon.mjs',
+    releasable: false,
+    legacy: true,
+    retire: { accepted: false, status: 409, error: 'a turn is running' },
+  };
+  const access = { core: null, legacy: { port: 4242, token: 'legacy-token' } };
+  const error = reports.attempt().failed(
+    Object.assign(new Error('core is not ready: the data directory is held by an earlier process (pid 41)'), {
+      coreDiscovery: null,
+      coreBlocked: block,
+      coreBlockedAccess: access,
+    })
+  );
+  assert.ok(error.coreLaunchFailed, 'confirmed at once');
+  assert.deepEqual(reports.current().failure.blocked, {
+    pid: 41,
+    kind: 'waitExit',
+    image: 'C:\\old\\node.exe',
+    commandLine: 'node daemon.mjs',
+    releasable: false,
+    legacy: true,
+    retireError: 'a turn is running',
+    resolving: false,
+    resolveError: null,
+  });
+  assert.doesNotMatch(JSON.stringify(reports.current()), /legacy-token/, 'what the windows are told holds no credential');
+  assert.equal(reports.blockedPid(), 41);
+  reports.retry();
+  reports.retry();
+  assert.deepEqual(asked, [{ block, access }], 'the action runs once at a time');
+  assert.equal(reports.current().failure.blocked.resolving, true);
+  pending.reject(new Error('Process 41 could not be ended.'));
+  await tick();
+  assert.equal(reports.current().failure.blocked.resolving, false);
+  assert.equal(reports.current().failure.blocked.resolveError, 'Process 41 could not be ended.');
+  reports.retry();
+  pending.resolve();
+  await tick();
+  assert.ok(reports.confirmed(), 'carried out, the block stands until the process has gone');
+});
+
+// Each window's attempt and main's own link raced to start a core at the same time: the second process found the first one's lock and
+// yielded, and the exits of such a crash loop never matched, so no failure was ever confirmed.
+test('attempts made while the core this app started still runs wait on it instead of starting another', async () => {
+  const reports = new BootReports();
+  const spawned = [];
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused',
+    bin: 'mixdogd',
+    environmentReady: async () => {},
+    reports,
+    beginCapture: () => ({ stderrStdio: 'ignore', track() {}, noteSpawnError() {} }),
+    spawnImpl: () => {
+      const child = Object.assign(new EventEmitter(), { pid: 900 + spawned.length, exitCode: null, signalCode: null });
+      child.unref = () => {};
+      spawned.push(child);
+      queueMicrotask(() => child.emit('spawn'));
+      return child;
+    },
+    ensure: (options) => options.launch(),
+  });
+  await Promise.all([resolve().catch(() => {}), resolve().catch(() => {}), resolve().catch(() => {})]);
+  assert.equal(spawned.length, 1, 'one core for every concurrent attempt');
+  spawned[0].exitCode = 3;
+  await resolve().catch(() => {});
+  assert.equal(spawned.length, 2, 'once it has ended, the next attempt starts one');
+});
+
+test('no core is started while an update holds launches shut: the refusal is no failure, the windows are told the app is updating, and a launch after it reopens ends that', async () => {
+  const reports = new BootReports();
+  const heard = [];
+  reports.subscribe((report) => heard.push(report.updating));
+  const launches = createCoreLaunchLock();
+  launches.shut();
+  let spawns = 0;
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused',
+    bin: 'mixdogd',
+    environmentReady: async () => {},
+    reports,
+    launches,
+    beginCapture: () => ({ stderrStdio: 'ignore', track() {}, noteSpawnError() {} }),
+    spawnImpl: () => {
+      spawns += 1;
+      const child = Object.assign(new EventEmitter(), { unref() {} });
+      queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn mixdogd ENOENT'), { code: 'ENOENT' })));
+      return child;
+    },
+    ensure: (options) => options.launch(),
+  });
+  for (let i = 0; i < 3; i += 1) {
+    const error = await resolve().catch((thrown) => thrown);
+    assert.equal(error.name, 'CoreLaunchRefused');
+    assert.equal(error.coreLaunchFailed, undefined);
+  }
+  assert.equal(spawns, 0, 'nothing was spawned');
+  assert.equal(reports.confirmed(), null, 'never a confirmed failure, however often it is refused');
+  assert.equal(reports.current().updating, true);
+  assert.deepEqual(heard, [true], 'told once');
+  launches.reopen();
+  await resolve().catch(() => {});
+  assert.equal(spawns, 1);
+  assert.equal(reports.current().updating, false, 'the install did not go ahead: the wait is the core’s again');
+});
+
+test("a core seen serving restarts what gave up on it before it served: every serving listener is told, by an attempt or the recovery watch", () => {
+  const reports = new BootReports();
+  let told = 0;
+  const stop = reports.onServing(() => {
+    told += 1;
+  });
+  reports.onServing(() => {
+    throw new Error('a listener of its own');
+  });
+  reports.attempt().succeeded();
+  assert.equal(told, 1);
+  reports.recovered();
+  assert.equal(told, 2, 'a listener that throws does not stop the others');
+  stop();
+  reports.recovered();
+  assert.equal(told, 2);
+});
+
+// The core writes an owner it could not prove as `{kind: 'undecidable', pid, image, commandLine, startTime}`, with no `releasable`
+// field: the card offered "Stop it and continue", and its action ended a process that may not be Mixdog's instead of releasing it.
+test('an owner the core could not prove, as the core writes it, is released through the core and never ended', async (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'local-core-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(
+    join(root, 'daemon.json'),
+    JSON.stringify({
+      pid: process.pid,
+      core: {
+        state: 'blocked',
+        blocked: {
+          kind: 'undecidable',
+          pid: 4321,
+          image: 'C:\\tools\\node.exe',
+          commandLine: 'node x.js',
+          startTime: '1795517611302',
+        },
+        control: { port: 7070 },
+      },
+      endpoints: { session: { token: 'core-token' } },
+    })
+  );
+  const requests = [];
+  const ended = [];
+  const reports = new BootReports({
+    resolveBlock: ({ block, access }) =>
+      resolveCoreBlock(block, access, {
+        fetchImpl: async (url, init = {}) => {
+          const path = new URL(url).pathname;
+          requests.push([path, init.method ?? 'GET', init.headers.authorization]);
+          const body = path === '/mgmt/status' ? { blocked: { pid: 4321, confirmToken: 'ct' } } : {};
+          return new Response(JSON.stringify(body), { status: 200 });
+        },
+        endProcess: (pid) => {
+          ended.push(pid);
+          return true;
+        },
+      }),
+  });
+  const error = await resolveLocalCore({
+    runtimeRoot: root,
+    bin: 'mixdogd',
+    environmentReady: async () => {},
+    reports,
+    ensure: (options) => ensureCore({ ...options, sleep: async () => {} }),
+  })().catch((thrown) => thrown);
+  assert.equal(error.coreBlocked?.releasable, true);
+  assert.equal(reports.current().failure.blocked.releasable, true, 'the card offers to continue past it');
+  reports.retry();
+  await tick();
+  await tick();
+  assert.deepEqual(requests, [
+    ['/mgmt/status', 'GET', 'Bearer core-token'],
+    ['/mgmt/release', 'POST', 'Bearer core-token'],
+  ]);
+  assert.deepEqual(ended, [], 'a process that may not be Mixdog is never ended');
+});
+
+// On the first start after 1.4.5 main's link asked the earlier daemon to step aside and started the core; a window's attempt that
+// then saw only the core blocked on that daemon knew nothing of the answer: a block card over the wait, whose action killed the
+// draining daemon. Two attempts that both read the daemon's file asked it twice.
+test("every attempt shares what the earlier daemon answered: it is asked once, and an attempt that sees only the core blocked on it waits with the others or acts through the daemon's endpoint", async () => {
+  const legacy = {
+    state: 'legacy',
+    rpcPort: null,
+    blocked: null,
+    pid: 41,
+    controlPort: null,
+    token: 'legacy-token',
+    sessionPort: 4242,
+    rebuild: null,
+  };
+  const blockedOn41 = {
+    state: 'blocked',
+    rpcPort: null,
+    blocked: { kind: 'waitExit', pid: 41 },
+    pid: 42,
+    controlPort: 7070,
+    token: 'core-token',
+    sessionPort: null,
+    rebuild: null,
+  };
+  const serving = { ...blockedOn41, state: 'serving', rpcPort: 6060, blocked: null };
+  const run = async (accepted) => {
+    const reports = new BootReports();
+    const asked = [];
+    let answer;
+    const answered = new Promise((resolve) => {
+      answer = resolve;
+    });
+    let clock = 0;
+    let launched = false;
+    const resolve = resolveLocalCore({
+      runtimeRoot: 'unused',
+      bin: 'mixdogd',
+      environmentReady: async () => {},
+      reports,
+      retireLegacy: (discovery) => {
+        asked.push(discovery.pid);
+        return answered;
+      },
+      ensure: (options) =>
+        ensureCore({
+          ...options,
+          readDiscovery: async () => (!launched ? legacy : clock < 5_000 ? blockedOn41 : serving),
+          launch: async () => {
+            launched = true;
+          },
+          sleep: async (ms) => {
+            clock += ms;
+            await new Promise((done) => setImmediate(done));
+          },
+          now: () => clock,
+          runs: () => true,
+          ping: async () => ({ answered: true, stalledMs: 0 }),
+        }),
+    });
+    const first = [resolve().catch((error) => error), resolve().catch((error) => error)];
+    await tick();
+    answer({ accepted, status: accepted ? 200 : 409, error: accepted ? null : 'a turn is running' });
+    while (!launched) await tick();
+    // A window opens now: its attempt reads only the core blocked on the daemon.
+    const late = resolve().catch((error) => error);
+    return { outcomes: await Promise.all([...first, late]), asked, reports };
+  };
+  const agreed = await run(true);
+  assert.deepEqual(agreed.asked, [41], 'asked once');
+  for (const outcome of agreed.outcomes)
+    assert.equal(outcome.coreBlocked, undefined, 'no attempt shows a block: each waits for the daemon to close');
+  assert.equal(agreed.reports.confirmed(), null);
+  const refused = await run(false);
+  assert.deepEqual(refused.asked, [41]);
+  for (const outcome of refused.outcomes)
+    assert.deepEqual(outcome.coreBlockedAccess?.legacy, { port: 4242, token: 'legacy-token' }, 'each stops it through its own endpoint');
+  assert.equal(refused.reports.current().failure.blocked.legacy, true);
+});
+
+test('the release asks the blocked core with the limit its other asks have, and releases nothing on a status it did not answer', async () => {
+  const asked = [];
+  const answering = (status) => async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    asked.push([path, init.signal instanceof AbortSignal]);
+    return new Response(JSON.stringify(path === '/mgmt/status' ? { blocked: { pid: 41, confirmToken: 'ct' } } : {}), { status });
+  };
+  const owner = { pid: 41, kind: 'undecidable', image: null, commandLine: null, releasable: true, legacy: false, retire: null };
+  const access = { core: { controlPort: 7070, token: 'core-token' }, legacy: null };
+  const never = () => assert.fail('an owner the core could not prove is never ended');
+  await assert.rejects(
+    resolveCoreBlock(owner, access, { fetchImpl: answering(401), endProcess: never }),
+    /did not say what it waits on \(HTTP 401\)/
+  );
+  assert.deepEqual(asked, [['/mgmt/status', true]]);
+  asked.length = 0;
+  await resolveCoreBlock(owner, access, { fetchImpl: answering(200), endProcess: never });
+  assert.deepEqual(asked, [
+    ['/mgmt/status', true],
+    ['/mgmt/release', true],
+  ]);
 });

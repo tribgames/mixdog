@@ -6766,5 +6766,17 @@
   "Account 1": "Аккаунт 1",
   "Sign in with another account": "Войти с другим аккаунтом",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "Войдите с другим аккаунтом. Он заменит текущий: {{name}} хранит только один аккаунт.",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Все запущенные в Mixdog сессии {{name}} сейчас завершатся. Команда {{command}} вне Mixdog использует тот же вход, поэтому из неё тоже будет выполнен выход."
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Все запущенные в Mixdog сессии {{name}} сейчас завершатся. Команда {{command}} вне Mixdog использует тот же вход, поэтому из неё тоже будет выполнен выход.",
+  "An earlier Mixdog is still running": "Предыдущая версия Mixdog всё ещё работает",
+  "Another program holds your Mixdog data": "Другая программа использует ваши данные Mixdog",
+  "Converting earlier conversations… {{done}} of {{total}}": "Преобразование прежних бесед… {{done}} из {{total}}",
+  "Installing the update…": "Установка обновления…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "Она использует ваши данные Mixdog, поэтому эта версия не может запуститься одновременно с ней. Остановите её, чтобы продолжить; то, что она ещё выполняет, будет завершено.",
+  "It is not Mixdog: continue": "Это не Mixdog: продолжить",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "Mixdog не может определить, является ли эта программа предыдущей версией Mixdog. Если нет, разрешите Mixdog продолжить; если да, сначала закройте её.",
+  "process {{pid}}": "процесс {{pid}}",
+  "Stop it and continue": "Остановить и продолжить",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "При обновлении с предыдущей версии отложено элементов, которые не удалось преобразовать: {{items}}. Они хранятся в {{dir}}.",
+  "Updating your data from the earlier version of Mixdog…": "Обновление ваших данных из предыдущей версии Mixdog…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "Ожидание, пока предыдущая версия Mixdog завершит текущую работу и закроется…"
 }

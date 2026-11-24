@@ -228,6 +228,36 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
+/* Told once after the update from the earlier version: what it set aside, over the top of the list. */
+.session-migration-notice {
+  position: absolute;
+  top: 100%;
+  left: 6px;
+  right: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--mx-border-structure);
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-window-band);
+  color: var(--mx-text-soft);
+  font-size: var(--mx-font-meta);
+}
+.session-migration-notice p {
+  flex: 1;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.session-migration-notice button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  cursor: pointer;
+}
 /* View actions: the active rail panel portals its primary
    action into the title row, so the panel never prints a second header. */
 .session-panel-header-actions {

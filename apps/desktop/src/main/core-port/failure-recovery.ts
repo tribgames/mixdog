@@ -57,10 +57,17 @@ export function watchRecovery({
     return state.state === 'serving' && Boolean(state.rpcPort);
   };
 
+  /** A block ends when the process it stood on has gone: the blocked core goes on by itself (it waits on the OS's word of that exit). */
+  const unblocked = (failure: BootFailure): boolean => {
+    const pid = failure.blocked?.pid;
+    return Number.isInteger(pid) && !runs(pid as number);
+  };
+
   const look = async (failure: BootFailure): Promise<void> => {
     const state = await readState().catch(() => null);
     // The read answers for the failure that asked: one that has gone or been replaced since is not the answer's to clear.
-    if (!live || standing !== failure || reports.current().failure !== failure || !state || !serving(state)) return;
+    if (!live || standing !== failure || reports.current().failure !== failure) return;
+    if (!unblocked(failure) && (!state || !serving(state))) return;
     standing = null;
     stopWatching();
     try {
