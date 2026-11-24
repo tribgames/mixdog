@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNod
 import { createRoot, type Root } from 'react-dom/client';
 
 import { disposeTerminalPane } from './lazy-widgets';
+import { reportRendererFailure } from './RendererRecovery';
 import { SessionTerminalTabs } from './SessionTerminalTabs';
 import { releaseSessionTerminalTabs, sessionTerminalId } from './session-terminal-tabs';
 import { useSlotRemeasure } from './surface-slot-remeasure';
@@ -56,9 +57,16 @@ export { sessionTerminalId };
 
 type SessionTerminalSurfaceDisposer = (terminalId: string) => void;
 
-const disposeDefaultTerminalSurface: SessionTerminalSurfaceDisposer = (terminalId) => {
-  void disposeTerminalPane(terminalId);
-};
+export function reportingTerminalDisposer(
+  dispose: (terminalId: string) => Promise<void>,
+  report: (phase: 'unhandled-rejection', error: unknown) => void
+): SessionTerminalSurfaceDisposer {
+  return (terminalId) => {
+    dispose(terminalId).catch((error: unknown) => report('unhandled-rejection', error));
+  };
+}
+
+const disposeDefaultTerminalSurface = reportingTerminalDisposer(disposeTerminalPane, reportRendererFailure);
 
 interface SessionTerminalSurfaceController {
   registerSlot(
@@ -236,12 +244,13 @@ export function useSessionTerminalSurfaces(
   const release = useCallback(
     (sessionId: string) => {
       const surface = surfaces.current.get(sessionId);
-      if (!surface) return;
-      expandedSurfaceRect(undefined, false, surface);
-      unmountSurfaceRoot(surface.root);
-      surface.container.remove();
-      syncExpandedSurfaceFlag();
-      surfaces.current.delete(sessionId);
+      if (surface) {
+        expandedSurfaceRect(undefined, false, surface);
+        unmountSurfaceRoot(surface.root);
+        surface.container.remove();
+        syncExpandedSurfaceFlag();
+        surfaces.current.delete(sessionId);
+      }
       for (const terminalId of releaseSessionTerminalTabs(sessionId)) disposeTerminalSurface(terminalId);
     },
     [disposeTerminalSurface]
