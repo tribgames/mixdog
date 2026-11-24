@@ -31,3 +31,5 @@ mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

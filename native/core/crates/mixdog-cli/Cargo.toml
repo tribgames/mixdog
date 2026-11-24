@@ -36,7 +36,7 @@ replay-bytes = ["mixdog-ai/replay-bytes", "mixdog-core/replay-bytes"]
 replay-settled = ["mixdog-core-session/replay-settled"]
 # Every replay control, and for every library `mixdogd` links the features a test build gives it, so a test run and
 # this build compile each library once (<build-tools>\unify-test-features.py writes it; cargo-gate adds it).
-dev-controls = ["crash-gates", "replay-bytes", "replay-controls", "replay-settled", "terminal-lease-clock", "virtual-clock", "fancy-regex/probe", "mixdog-acp/test-support", "mixdog-agent/test-support", "mixdog-ai/count-work", "mixdog-ai/replay-bytes", "mixdog-ai/test-support", "mixdog-ai/virtual-clock", "mixdog-app-server/replay-controls", "mixdog-app-server-daemon/replay-controls", "mixdog-app-server-daemon/test-hooks", "mixdog-browser-engine/test-support", "mixdog-core/count-work", "mixdog-core/replay-bytes", "mixdog-core/test-support", "mixdog-core-api/mock", "mixdog-core-base/test-support", "mixdog-core-config/count-work", "mixdog-core-domains/count-work", "mixdog-core-review/test-support", "mixdog-core-rooms/test-support", "mixdog-core-run/replay-controls", "mixdog-core-run/test-support", "mixdog-core-session/crash-gates", "mixdog-core-session/replay-settled", "mixdog-core-session/test-support", "mixdog-core-session/virtual-clock", "mixdog-exthost/test-support", "mixdog-exthost-worker/test-support", "mixdog-fsio/elide-syncs", "mixdog-js/prefilter-probe", "mixdog-mcp/test-support", "mixdog-migrate/crash-hook", "mixdog-office-com/test-support", "mixdog-rt/test-support", "mixdog-rt/virtual-clock", "mixdog-scm/write-queue-hook", "mixdog-secrets/count-work", "mixdog-secrets/test-support", "mixdog-services/assigned-pg-port", "mixdog-services/test-support", "mixdog-skill-scripts/test-support", "mixdog-spawn/core", "mixdog-spawn/core-test", "mixdog-spawn/lease-clock", "mixdog-spawn/scripted-shell", "mixdog-store/crash-hook", "mixdog-store/test-support", "mixdog-tools/policy-observer", "mixdog-trace/flush-probe", "mixdog-workspace/count-jobs", "mixdog-workspace/kill-points", "mixdog-workspace/replay-controls"]
+dev-controls = ["crash-gates", "replay-bytes", "replay-controls", "replay-settled", "terminal-lease-clock", "virtual-clock", "fancy-regex/probe", "mixdog-acp/test-support", "mixdog-agent/test-support", "mixdog-ai/count-work", "mixdog-ai/replay-bytes", "mixdog-ai/test-support", "mixdog-ai/virtual-clock", "mixdog-app-server/replay-controls", "mixdog-app-server-client/test-support", "mixdog-app-server-daemon/replay-controls", "mixdog-app-server-daemon/test-hooks", "mixdog-browser-engine/test-support", "mixdog-core/count-work", "mixdog-core/replay-bytes", "mixdog-core/test-support", "mixdog-core-api/mock", "mixdog-core-base/test-support", "mixdog-core-config/count-work", "mixdog-core-domains/count-work", "mixdog-core-review/test-support", "mixdog-core-rooms/test-support", "mixdog-core-run/replay-controls", "mixdog-core-run/test-support", "mixdog-core-session/crash-gates", "mixdog-core-session/replay-settled", "mixdog-core-session/test-support", "mixdog-core-session/virtual-clock", "mixdog-exthost/test-support", "mixdog-exthost-worker/test-support", "mixdog-fsio/elide-syncs", "mixdog-image-egress/test-support", "mixdog-imaging/test-support", "mixdog-js/prefilter-probe", "mixdog-mcp/test-support", "mixdog-migrate/crash-hook", "mixdog-office-com/test-support", "mixdog-rt/test-support", "mixdog-rt/virtual-clock", "mixdog-scm/write-queue-hook", "mixdog-secrets/count-work", "mixdog-secrets/test-support", "mixdog-services/assigned-pg-port", "mixdog-services/test-support", "mixdog-skill-scripts/test-support", "mixdog-spawn/core", "mixdog-spawn/core-test", "mixdog-spawn/lease-clock", "mixdog-spawn/scripted-shell", "mixdog-store/crash-hook", "mixdog-store/test-support", "mixdog-tools/policy-observer", "mixdog-tools/test-support", "mixdog-trace/flush-probe", "mixdog-workspace/count-jobs", "mixdog-workspace/kill-points", "mixdog-workspace/replay-controls"]
 
 [dependencies]
 # Reached through mixdog-app-server-daemon; named here only so the features above reach them.
@@ -91,6 +91,9 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 mixdog-office = { workspace = true }
 mixdog-office-com = { workspace = true }
+# Reached through another crate; named here only so `dev-controls` reaches its test features.
+mixdog-image-egress = { workspace = true, optional = true }
+mixdog-imaging = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The stand-in provider of the process-level exec tests: the request head and the gzip body the provider sends.
@@ -158,6 +161,9 @@ mixdog-trace = { workspace = true, features = ["flush-probe"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-exthost-worker = { workspace = true, features = ["test-support"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }
+mixdog-app-server-client = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
 mixdog-skill-scripts = { workspace = true, features = ["test-support"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }

@@ -54,6 +54,11 @@ mixdog-protocol = { workspace = true }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-scm = { path = ".", features = ["write-queue-hook"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

@@ -36,3 +36,5 @@ sha2 = { workspace = true }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

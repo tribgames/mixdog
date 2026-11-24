@@ -30,7 +30,8 @@
                   this script did not deploy last, fall back to win-unpacked.
 
   The core is built with cargo in the `release` profile, the published
-  build's (`cargo build --release -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass`, in the checkout
+  build's, except -FastDirect (`update:dev:fast`), which uses `release-local`
+  (release without LTO; see $coreProfile) (`cargo build --release -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass`, in the checkout
   that holds native\core, through this PC's build gate when it is there, so
   the build lands in the gate's folder and no second one is made beside it),
   and staged by `stage-core.mjs --binary`; a local deploy ships no
@@ -117,6 +118,11 @@ if ([string]::IsNullOrWhiteSpace($FastArtifactDir)) {
 if ($FastDirect -and -not $FastDirectWorker -and [string]::IsNullOrWhiteSpace($ReceiptPath)) {
     $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
 }
+# One start for the whole deploy: the snapshot sets it; a direct run sets it here. The detached worker gets no
+# environment and continues its front process's receipt.
+if ($FastDirect -and -not $FastDirectWorker -and -not $env:MIXDOG_FASTDIRECT_STARTED_AT) {
+    $env:MIXDOG_FASTDIRECT_STARTED_AT = [DateTime]::UtcNow.ToString('o')
+}
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 
@@ -155,11 +161,13 @@ function Write-FastDirectReceipt {
         try { $previous = Get-Content -LiteralPath $ReceiptPath -Raw | ConvertFrom-Json } catch {}
     }
     $now = [DateTime]::UtcNow
-    $startedAt = if ($previous -and $previous.startedAt) {
-        [DateTime]::Parse([string]$previous.startedAt).ToUniversalTime()
-    }
-    elseif ($env:MIXDOG_FASTDIRECT_STARTED_AT) {
+    # The deploy's own start (the snapshot's, in the environment) wins; only the detached worker, which gets no
+    # environment, continues the receipt its front process wrote. Any other run's receipt is an earlier deploy's.
+    $startedAt = if ($env:MIXDOG_FASTDIRECT_STARTED_AT) {
         [DateTime]::Parse([string]$env:MIXDOG_FASTDIRECT_STARTED_AT).ToUniversalTime()
+    }
+    elseif ($FastDirectWorker -and $previous -and $previous.startedAt) {
+        [DateTime]::Parse([string]$previous.startedAt).ToUniversalTime()
     }
     else {
         $now
@@ -552,7 +560,12 @@ $coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FAST
 
 # This PC's build gate (machine-wide build slots; it places each checkout's build folder). Where it is not there,
 # cargo runs as it is and builds in the checkout.
-$cargoGate = if ($env:MIXDOG_CARGO_GATE) { $env:MIXDOG_CARGO_GATE } else { (Join-Path $PSScriptRoot 'cargo-gate.ps1') }
+$cargoGate = if ($env:MIXDOG_CARGO_GATE) { $env:MIXDOG_CARGO_GATE } else { 'C:\mixdog-build\tools\cargo-gate.ps1' }
+
+# `release-local` (native\core\Cargo.toml) is release without LTO and with more codegen units: the fast deploy's
+# installed app is this PC's own, so it skips the thin-LTO link (4+ minutes). Every other mode, and every published
+# build, builds `release`. PROFILE in a build script is `release` for both, so dev_only.rs refuses dev-only features in each.
+$coreProfile = if ($FastDirect) { 'release-local' } else { 'release' }
 
 # Where the build of $coreBuildRoot lands: the gate's folder for that checkout (cargo-gate.ps1 names it by the
 # checkout's folder), else cargo's own. Worked out from the checkout alone, so the front process and the detached
@@ -568,7 +581,7 @@ function Get-CoreTargetDir {
 
 function Get-BuiltCorePath {
     if ($CoreBinary) { return $CoreBinary }
-    return Join-Path (Get-CoreTargetDir) 'release\mixdogd.exe'
+    return Join-Path (Get-CoreTargetDir) "$coreProfile\mixdogd.exe"
 }
 
 # The mixdogd that sends this deploy's control requests: the core it installs, built from this tree, so it knows the
@@ -592,17 +605,24 @@ function Assert-InstalledUpdaterNamesBuild {
 }
 
 function Build-LocalCore {
+    return Wait-LocalCoreBuild (Start-LocalCoreBuild)
+}
+
+# Starts the core's cargo build and returns at once (a cargo process, so the caller can run other work meanwhile);
+# Wait-LocalCoreBuild joins it. A prebuilt core has no process.
+function Start-LocalCoreBuild {
     if ($CoreBinary) {
         # Built ahead (any cargo target dir); only valid while the sources are the ones it was stamped with.
         Write-Step "using the prebuilt core $CoreBinary"
-        # Out-Host: this function's output is its return value (the binary's path).
+        # Out-Host: this function's output is its return value.
         & node $fastDirectHelper --action=assert-core-binary "--binary=$CoreBinary" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "The prebuilt core does not match the sources." }
-        return $CoreBinary
+        return [pscustomobject]@{ Process = $null; Binary = $CoreBinary }
     }
-    # The published build's profile: the app on this PC is the one its user works in, so it runs what a release
-    # runs. A change is checked before this, by its tests and in an isolated instance on a `dev` build.
-    Write-Step 'building mixdogd and mixdog-askpass (cargo build --release -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass)'
+    # `release` for every mode but the fast deploy (see $coreProfile); a change is checked before this, by its tests
+    # and in an isolated instance on a `dev` build.
+    $profileArguments = if ($coreProfile -eq 'release') { @('--release') } else { @('--profile', $coreProfile) }
+    Write-Step "building mixdogd and mixdog-askpass (cargo build $($profileArguments -join ' ') -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass)"
     # The core builds from the checkout as it is when cargo reads it. Edits made there while the deploy runs (other
     # sessions at work) used to fail the deploy here and after the build ("core sources changed after planning"); with
     # agents editing the checkout around the clock no deploy got through. They are reported and the build goes on: the
@@ -611,24 +631,42 @@ function Build-LocalCore {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { Write-Warning 'Core sources in the checkout changed after planning; building them as they are now.' }
     }
-    $cargoArguments = @('build', '--release', '--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd', '-p', 'mixdog-askpass', '--bin', 'mixdog-askpass')
-    Push-Location (Join-Path $coreBuildRoot 'native\core')
-    try {
-        if (Test-Path -LiteralPath $cargoGate -PathType Leaf) {
-            # The gate reads the checkout from the working directory; a target folder named by the caller's
-            # environment would move the build away from the one Get-CoreTargetDir names.
-            Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
-            $gateShell = (Get-Command pwsh.exe -ErrorAction Stop).Source
-            & $gateShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $cargoGate @cargoArguments | Out-Host
-        }
-        else {
-            & cargo @cargoArguments | Out-Host
-        }
-        if ($LASTEXITCODE -ne 0) { throw "cargo build exited with $LASTEXITCODE" }
+    $cargoArguments = @('build') + $profileArguments + @('--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd', '-p', 'mixdog-askpass', '--bin', 'mixdog-askpass')
+    $workingDirectory = Join-Path $coreBuildRoot 'native\core'
+    if (Test-Path -LiteralPath $cargoGate -PathType Leaf) {
+        # The gate reads the checkout from the working directory; a target folder named by the caller's
+        # environment would move the build away from the one Get-CoreTargetDir names.
+        Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+        $gateShell = (Get-Command pwsh.exe -ErrorAction Stop).Source
+        $process = Start-Process -FilePath $gateShell -WorkingDirectory $workingDirectory -NoNewWindow -PassThru `
+            -ArgumentList (@('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $cargoGate) + $cargoArguments)
     }
-    finally {
-        Pop-Location
+    else {
+        $process = Start-Process -FilePath (Get-Command cargo -ErrorAction Stop).Source -WorkingDirectory $workingDirectory `
+            -NoNewWindow -PassThru -ArgumentList $cargoArguments
     }
+    $null = $process.Handle
+    return [pscustomobject]@{ Process = $process; Binary = $null }
+}
+
+function Stop-LocalCoreBuild {
+    param([object]$Build)
+    if ($Build -and $Build.Process -and -not $Build.Process.HasExited) {
+        # Under 'Stop' a taskkill stderr line (a child exited meanwhile) would throw before the root is killed and
+        # replace the build's own error; cleanup never throws.
+        $ErrorActionPreference = 'Continue'
+        try { & taskkill.exe /T /F /PID $Build.Process.Id 2>&1 | Out-Null } catch {}
+        if (-not $Build.Process.HasExited) {
+            try { $Build.Process.Kill() } catch {}
+        }
+    }
+}
+
+function Wait-LocalCoreBuild {
+    param([object]$Build)
+    if (-not $Build.Process) { return $Build.Binary }
+    $Build.Process.WaitForExit()
+    if ($Build.Process.ExitCode -ne 0) { throw "cargo build exited with $($Build.Process.ExitCode)" }
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { Write-Warning 'Core sources in the checkout changed while building; installing the core cargo built.' }
@@ -793,6 +831,12 @@ function Test-FastRendererOutputFresh {
 
 function Complete-FastRendererWatchBuild {
     param([object]$Plan)
+    # A snapshot deploy builds in a throwaway worktree that is removed afterwards: a watcher started there would
+    # watch a folder about to vanish, so the renderer is built once, as the plan says.
+    if ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT -and
+        ([IO.Path]::GetFullPath($env:MIXDOG_FASTDIRECT_SOURCE_ROOT).TrimEnd('\') -ine $repoRoot.TrimEnd('\'))) {
+        return $Plan
+    }
     try {
         $state = Get-FastRendererWatchState
         $process = Get-FastRendererWatchProcess
@@ -892,42 +936,52 @@ function Invoke-FastDirectChangedOutputs {
     if ($reusedTargets.Count -gt 0) {
         Write-Step "reusing fresh Electron target(s): $($reusedTargets -join ', ')"
     }
-    if ($buildTargets.Count -gt 0) {
-        Write-Step "building changed Electron target(s): $($buildTargets -join ', ')"
-        Invoke-SelectedElectronBuild $buildTargets
+    # The core's cargo build shares nothing with the Electron build or the runtime preparation, so it runs beside
+    # them and is joined before the core is staged (prepare:runtime recreates .runtime, so the core goes in after it).
+    $coreBuild = $null
+    try {
+        if ($Plan.full -or [bool]$Plan.core) {
+            $coreBuild = Start-LocalCoreBuild
+        }
+        if ($buildTargets.Count -gt 0) {
+            Write-Step "building changed Electron target(s): $($buildTargets -join ', ')"
+            Invoke-SelectedElectronBuild $buildTargets
+        }
+        if ($Plan.full) {
+            Push-Location $desktopDir
+            try {
+                Write-Step 'preparing the production runtime for the complete fallback'
+                & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+                if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+            }
+            finally {
+                Pop-Location
+            }
+            Install-LocalCoreIntoRuntime (Wait-LocalCoreBuild $coreBuild)
+            $coreBuild = $null
+            return
+        }
+        if ([bool]$Plan.runtime) {
+            Push-Location $desktopDir
+            try {
+                Write-Step 'preparing the changed runtime package'
+                # Through npm like prepare:runtime: the script packs via npm_execpath.
+                & npm.cmd run prepare:fast-runtime-code -- `
+                    "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
+                    "--runtime-hash=$($Plan.groups.runtime.hash)"
+                if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
+            }
+            finally {
+                Pop-Location
+            }
+        }
+        if ($coreBuild) {
+            Wait-LocalCoreBuild $coreBuild | Out-Null
+            $coreBuild = $null
+        }
     }
-
-    # A complete deploy prepares the whole runtime and stages the core into it
-    # (prepare:runtime recreates .runtime, so the core goes in after it).
-    if ($Plan.full) {
-        Push-Location $desktopDir
-        try {
-            Write-Step 'preparing the production runtime for the complete fallback'
-            & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-            if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
-        }
-        finally {
-            Pop-Location
-        }
-        Install-LocalCoreIntoRuntime (Build-LocalCore)
-        return
-    }
-    if ([bool]$Plan.core) {
-        Build-LocalCore | Out-Null
-    }
-    if ([bool]$Plan.runtime) {
-        Push-Location $desktopDir
-        try {
-            Write-Step 'preparing the changed runtime package'
-            # Through npm like prepare:runtime: the script packs via npm_execpath.
-            & npm.cmd run prepare:fast-runtime-code -- `
-                "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
-                "--runtime-hash=$($Plan.groups.runtime.hash)"
-            if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
-        }
-        finally {
-            Pop-Location
-        }
+    finally {
+        Stop-LocalCoreBuild $coreBuild
     }
 }
 

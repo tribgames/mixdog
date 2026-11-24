@@ -72,3 +72,6 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-tools = { workspace = true, features = ["policy-observer", "test-support"] }
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-app-server-client = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

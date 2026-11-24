@@ -51,3 +51,5 @@ mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-tools = { workspace = true, features = ["policy-observer", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
