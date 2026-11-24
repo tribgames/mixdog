@@ -250,7 +250,12 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
     }
     const before = requests.length;
     await render(next);
-    assertCached(navigation === 'project' ? /cached-old\.ts/ : /current\.ts/);
+    if (navigation === 'remount') {
+      // The last viewer left, so its status snapshot went with it.
+      const pane = firstPaint.querySelector('.utility-dock-pane[data-tab="source-control"]');
+      assert.ok(pane.querySelector('[aria-busy="true"]'));
+      assert.doesNotMatch(pane.textContent, /current\.ts/);
+    } else assertCached(navigation === 'project' ? /cached-old\.ts/ : /current\.ts/);
     assert.equal(requests.length, before + 1);
     await view.settle(() => requests.at(-1).resolve(status('latest.ts')));
     assert.match(view.host.textContent, /latest\.ts/);

@@ -92,6 +92,7 @@ export function latestChildBrowserPage(
 export function forgetChildSurfacePages(childSessionId: string): void {
   revealOrder.delete(surfaceKey(childSessionId, 'browser'));
   revealOrder.delete(surfaceKey(childSessionId, 'terminal'));
+  if (peeksByOwner.delete(childSessionId)) for (const listener of [...listeners]) listener();
 }
 
 /** `ownerSessionId`'s child lines, in reveal order. */

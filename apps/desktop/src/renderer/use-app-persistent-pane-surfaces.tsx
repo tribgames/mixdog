@@ -188,6 +188,7 @@ export function useAppPersistentPaneSurfaces({
       });
   };
   const activatedUtilitySurfaceKeys = useRef(new Set<string>());
+  pruneActivationLatch(activatedUtilitySurfaceKeys.current, isUtilitySelection);
   const paneUtilityTabs = (leaf: PaneLeaf, focused: boolean, focusPane: () => void) => {
     const active = paneActiveSelection(leaf);
     return leaf.tabs

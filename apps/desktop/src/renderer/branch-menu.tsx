@@ -54,6 +54,11 @@ export { useBranchMenuData } from './branch-menu-data';
 /** The last unfiltered list height per island session (useStableMenuList). */
 const lastListHeights = new Map<string, number>();
 
+/** A deleted session's remembered list height. */
+export function releaseBranchMenuHeights(sessionId: string): void {
+  lastListHeights.delete(sessionId);
+}
+
 /** For tests: forgets every cached menu read. */
 export function clearBranchMenuCache(): void {
   lastListHeights.clear();

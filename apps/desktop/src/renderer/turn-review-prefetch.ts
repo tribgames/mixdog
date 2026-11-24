@@ -38,6 +38,14 @@ export function endTurnReviewRequest(scopeKey: string, generation: number): bool
   return latest;
 }
 
+/** A deleted session's requests and prefetches (scope keys start with its id). */
+export function releaseTurnReviewRequests(sessionId: string): void {
+  const prefix = `${sessionId}:`;
+  for (const map of [latestRequests, prefetchesInFlight]) {
+    for (const key of [...map.keys()]) if (key.startsWith(prefix)) map.delete(key);
+  }
+}
+
 export function turnReviewPrefetch(scopeKey: string) {
   return prefetchesInFlight.get(scopeKey);
 }

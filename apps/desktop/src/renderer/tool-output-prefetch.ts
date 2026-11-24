@@ -6,6 +6,7 @@ import {
   historyPagePending,
   noteHistoryPagePending,
   prefetchToolOutputs,
+  releaseToolOutputPrefetch,
   toolOutputCut,
 } from './tool-full-output';
 
@@ -132,6 +133,7 @@ export function useToolOutputPrefetch(
     return () => {
       registered.delete(element);
       cancelToolOutputPrefetch(element);
+      releaseToolOutputPrefetch(element);
       if (!registered.size) stopListening();
     };
   }, [ref, any, sessionId]);

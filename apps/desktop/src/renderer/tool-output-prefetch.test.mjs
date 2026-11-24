@@ -199,7 +199,29 @@ test('failed reads are bounded and prefetched again only after a while', async (
   }
 });
 
-test('a read dropped from the held ones is not prefetched again, and its button still loads it', async () => {
+test('an output over the size limit is not prefetched again while its group stays', async () => {
+  resetFullToolOutputs();
+  resetToolOutputPrefetch();
+  const asked = [];
+  const huge = 'x'.repeat(8 * 1024 * 1024 + 1);
+  window.mixdogDesktop = {
+    readTranscriptItem: async (_session, id) => {
+      asked.push(id);
+      return { id, result: huge };
+    },
+  };
+  const owner = {};
+  const row = cutRow('big');
+  for (let pass = 0; pass < 3; pass += 1) {
+    await act(async () => {
+      prefetchToolOutputs('session-1', [row], owner);
+      for (let n = 0; n < 20; n += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  assert.deepEqual(asked, ['big']);
+});
+
+test('a read evicted from the held ones leaves nothing that blocks reading it again', async () => {
   resetFullToolOutputs();
   resetToolOutputPrefetch();
   const asked = [];
@@ -217,25 +239,14 @@ test('a read dropped from the held ones is not prefetched again, and its button 
       await new Promise((resolve) => setTimeout(resolve, 0));
   });
   assert.equal(asked.length, rows.length);
-  await act(async () => prefetchToolOutputs('session-1', [rows[0]], owner));
-  assert.equal(asked.length, rows.length, 'a done read dropped from the held reads is not prefetched again');
-  let output;
-  function Row() {
-    output = useFullToolOutput('session-1', rows[0], false);
-    return null;
-  }
-  const host = document.createElement('div');
-  const root = createRoot(host);
-  await act(async () => root.render(React.createElement(Row)));
-  assert.equal(output.item.result, rows[0].result, 'dropped: the cut copy shows');
-  await act(async () => output.load());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  assert.equal(asked.length, rows.length + 1, 'the press reads it again');
-  assert.equal(output.item.result, 'full d0');
-  await act(async () => root.unmount());
+  await act(async () => {
+    prefetchToolOutputs('session-1', [rows[0]], owner);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(asked.length, rows.length + 1, 'a read evicted by the budget is read again');
 });
 
-test('past 1,024 settlements a done read is not prefetched again and a failure keeps its wait; the press still loads', async () => {
+test('a failure keeps its wait; a released session forgets its reads', async () => {
   resetFullToolOutputs();
   resetToolOutputPrefetch();
   const asked = [];
@@ -248,42 +259,27 @@ test('past 1,024 settlements a done read is not prefetched again and a failure k
     },
   };
   const owner = {};
-  const rows = Array.from({ length: 1030 }, (_, n) => cutRow(`x${n}`));
+  const rows = Array.from({ length: 70 }, (_, n) => cutRow(`x${n}`));
   await act(async () => {
     prefetchToolOutputs('session-1', rows, owner);
     for (let n = 0; n < 5000 && asked.length < rows.length; n += 1)
       await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  assert.equal(asked.length, rows.length);
-  // rows[0] failed; rows[1] was the first success: both settled > 1,024 reads ago.
   const realNow = Date.now;
   try {
-    await act(async () => prefetchToolOutputs('session-1', [rows[1], rows[0]], owner));
-    assert.equal(asked.length, rows.length, 'neither the first success nor the first failure is read again');
+    await act(async () => prefetchToolOutputs('session-1', [rows[0]], owner));
+    assert.equal(asked.length, rows.length, 'a fresh failure keeps its wait');
     Date.now = () => realNow() + TOOL_OUTPUT_PREFETCH_RETRY_MS;
     failing.clear();
-    await act(async () => prefetchToolOutputs('session-1', [rows[1], rows[0]], owner));
-    assert.equal(asked.length, rows.length + 1, 'only the failure is read again once its wait is over');
-    assert.equal(asked.at(-1), 'x0');
+    await act(async () => prefetchToolOutputs('session-1', [rows[0]], owner));
+    assert.equal(asked.at(-1), 'x0', 'an old failure is read again');
   } finally {
     Date.now = realNow;
   }
-  let output;
-  function Row() {
-    output = useFullToolOutput('session-1', rows[1], false);
-    return null;
-  }
-  const host = document.createElement('div');
-  const root = createRoot(host);
-  await act(async () => root.render(React.createElement(Row)));
-  await act(async () => output.load());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  assert.equal(asked.at(-1), 'x1', 'the explicit press reads a tombstoned output again');
-  assert.equal(output.item.result, 'full x1');
-  await act(async () => root.unmount());
   releaseFullToolOutputs('session-1');
-  await act(async () => prefetchToolOutputs('session-1', [rows[2]], owner));
-  assert.equal(asked.at(-1), 'x2', 'a released session forgets its tombstones');
+  const before = asked.length;
+  await act(async () => prefetchToolOutputs('session-1', [rows[69]], owner));
+  assert.equal(asked.length, before + 1, 'a released session forgets what it held');
 });
 
 test('reads of a released session that settle late free their slots for other sessions', async () => {

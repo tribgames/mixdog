@@ -207,6 +207,7 @@ export function releaseSessionDiff(sessionId: string): void {
   pendingDiffs.delete(id);
   latestBindings.delete(id);
   answeredSignals.delete(id);
+  revisions.delete(id);
 }
 
 async function parsedDelivery(value: SessionDiffResult): Promise<SessionDiffResult> {

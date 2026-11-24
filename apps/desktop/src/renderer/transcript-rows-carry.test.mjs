@@ -159,7 +159,9 @@ test('the rows, turn keys, failed turns and turn index carried on through a sess
       const input = { items, turnKeys: failures.turnKeys, failedTurns };
       const carried = projector.project({ sessionKey: 'carried', ...input });
       const fresh = projectSettledTranscriptRows({ sessionKey: 'fresh', ...input });
-      assert.deepEqual(carried.rows, underKey(fresh.rows, 'fresh', 'carried'), `rows, ${where}`);
+      // A carried group keeps the key it had as items arrived and left; from nothing it takes its own.
+      const groupsUnkeyed = (rows) => rows.map((row) => (row._tag === 'ToolActivity' ? { ...row, key: 'group' } : row));
+      assert.deepEqual(groupsUnkeyed(carried.rows), groupsUnkeyed(underKey(fresh.rows, 'fresh', 'carried')), `rows, ${where}`);
       assert.deepEqual(
         [carried.currentTurnKey, carried.previousRowWasUser, carried.itemCount, carried.endsWithFoldedCompletion],
         [fresh.currentTurnKey, fresh.previousRowWasUser, fresh.itemCount, fresh.endsWithFoldedCompletion],
@@ -564,4 +566,22 @@ test('a sum, a last match and the first places read from a list carried on are t
   assert.notEqual(fileChangeKey(finished), key);
   assert.equal(fileChangeKey(finished), fileChangeKey(finished.slice()));
   assert.equal(fileChangeKey(running.slice()), key);
+});
+
+test('a tool group does not keep the key of an item the transcript no longer holds', () => {
+  const tool = (id) => ({ id, kind: 'tool', name: 'shell', result: 'ok' });
+  const user = { id: 'u', kind: 'user', text: 'go' };
+  const project = (projector, items) => {
+    const output = projector.project({
+      sessionKey: 'prune',
+      items,
+      turnKeys: items.map(() => 't1'),
+      failedTurns: new Set(),
+    });
+    return output.rows.filter((row) => row._tag === 'ToolActivity').map((row) => row.key);
+  };
+  const projector = createSettledProjector();
+  assert.deepEqual(project(projector, [user, tool('a'), tool('b')]), ['prune:a:tool-activity']);
+  project(projector, [user, tool('c')]);
+  assert.deepEqual(project(projector, [user, tool('d'), tool('b')]), ['prune:d:tool-activity']);
 });

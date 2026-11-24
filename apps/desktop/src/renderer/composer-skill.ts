@@ -99,12 +99,14 @@ function readSelection(scope: string) {
     } catch {
       /* memory-only host */
     }
-    selections.set(scope, value);
+    if (value) selections.set(scope, value);
+    return value;
   }
   return selections.get(scope) || '';
 }
 function writeSelection(scope: string, name: string) {
-  selections.set(scope, name);
+  if (name) selections.set(scope, name);
+  else selections.delete(scope);
   try {
     if (name) sessionStorage.setItem(`mixdog:composer-skill:${scope}`, name);
     else sessionStorage.removeItem(`mixdog:composer-skill:${scope}`);
@@ -112,6 +114,15 @@ function writeSelection(scope: string, name: string) {
     /* memory-only host */
   }
   for (const notify of listeners) notify();
+}
+/** A deleted session's (or discarded draft's) selected skill. */
+export function releaseComposerSkill(scope: string): void {
+  selections.delete(scope);
+  try {
+    sessionStorage.removeItem(`mixdog:composer-skill:${scope}`);
+  } catch {
+    /* memory-only host */
+  }
 }
 const subscribe = (notify: () => void) => {
   listeners.add(notify);

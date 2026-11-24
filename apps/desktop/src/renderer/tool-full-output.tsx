@@ -39,6 +39,7 @@ const requests = new Map<string, object>();
 /** Rows waiting on a read, by its key: a read wakes only its own row. */
 const listeners = new Map<string, Set<() => void>>();
 /** Prefetches waiting for a slot, oldest first, by the element that asked. */
+const holders = new Map<string, Set<object>>();
 const queued: { key: string; sessionId: string; id: string; owner: object; replayToken: string | undefined }[] = [];
 const PREFETCH_SLOTS = 2;
 let prefetching = 0;
@@ -58,27 +59,37 @@ function dropRead(key: string): void {
   reads.delete(key);
 }
 
+/** A loaded read leaves with nothing left behind that blocks reading it again
+ *  (a row the person already opened keeps its receipt: it loads on expansion). */
+function evictRead(key: string): void {
+  const done = reads.get(key)?.status === 'done';
+  dropRead(key);
+  if (done && !readKeys.get(key)?.viewed) readKeys.delete(key);
+}
+
 function trimSettledReads(target: number): void {
   while (retainedReads.size > FULL_TOOL_OUTPUT_LIMIT || retainedChars > target) {
     const oldest = retainedReads.keys().next();
     if (oldest.done) break;
-    dropRead(oldest.value);
+    evictRead(oldest.value);
   }
 }
 
 registerBudgetedCache({ name: 'full-tool-output', chars: () => retainedChars, trim: trimSettledReads });
 registerIdleReclaim(() => {
-  for (const key of retainedReads.keys()) dropRead(key);
+  for (const key of [...retainedReads.keys()]) evictRead(key);
 });
 
 function retainUnobservedRead(key: string, state: SettledReadState): void {
-  // The current row-id-only readers can return a different revision or lose
-  // the row entirely. Without an explicit replay guarantee, keep the original.
-  if (state.status === 'done' && !readKeys.get(key)?.replayToken) return;
+  // A loaded output nobody observes is released unless the group that prefetched
+  // it is still mounted (then it counts against the budget).
+  if (state.status === 'done' && !holders.has(key)) {
+    evictRead(key);
+    return;
+  }
   const chars = state.status === 'done' ? estimateRetainedChars(state.output, FULL_TOOL_OUTPUT_MAX_CHARS) : 0;
-  // Oversized replies are still delivered in full to observers. Once cold,
-  // drop only their cached copy instead of displacing smaller, reusable reads.
   if (chars > FULL_TOOL_OUTPUT_MAX_CHARS) {
+    // Its receipt stays: an output known to be over the limit is not prefetched again.
     dropRead(key);
     return;
   }
@@ -110,6 +121,7 @@ export function resetFullToolOutputs(): void {
   readKeys.clear();
   failedReads.clear();
   requests.clear();
+  holders.clear();
   queued.length = 0;
   prefetching = 0;
   historyPagesPending = 0;
@@ -134,6 +146,7 @@ export function releaseFullToolOutputs(sessionId: string): void {
     }
   }
   for (const key of requests.keys()) if (key.startsWith(prefix)) requests.delete(key);
+  for (const key of holders.keys()) if (key.startsWith(prefix)) holders.delete(key);
   for (let index = queued.length - 1; index >= 0; index -= 1) {
     if (queued[index]?.sessionId === sessionId) queued.splice(index, 1);
   }
@@ -258,10 +271,22 @@ export function prefetchToolOutputs(sessionId: string, items: readonly Transcrip
     // A row the core sent cut is read when the person asks, not ahead of that: each read is a request over the link.
     if (!toolOutputCut(item) || item.remoteOutputOnRequest === true || item.id == null || !sessionId) continue;
     const key = fullToolOutputKey(sessionId, item);
+    const asked = holders.get(key) ?? new Set<object>();
+    asked.add(owner);
+    holders.set(key, asked);
     if (!prefetchDue(key) || queued.some((entry) => entry.key === key)) continue;
     queued.push({ key, sessionId, id: fullReadId(item), owner, replayToken: projectedReplayToken(item) });
   }
   pumpPrefetches();
+}
+
+/** The group that prefetched leaves: the reads it held go unless a row shows them. */
+export function releaseToolOutputPrefetch(owner: object): void {
+  for (const [key, asked] of [...holders]) {
+    if (!asked.delete(owner) || asked.size) continue;
+    holders.delete(key);
+    if (!listeners.has(key) && reads.get(key)?.status === 'done') evictRead(key);
+  }
 }
 
 /** Drops the queued (not yet started) reads `owner` asked for, or every queued

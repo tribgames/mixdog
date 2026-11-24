@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
-import { readCachedDockGitState, requestDockGitState, type DockGitState } from './utility-dock-git-state';
+import {
+  readCachedDockGitState,
+  requestDockGitState,
+  retainDockGitState,
+  type DockGitState,
+} from './utility-dock-git-state';
 import type { UtilityDockTab } from './UtilityDock';
 
 /** Shared Git status for the dock's Search / Source Control / Pull Requests
@@ -18,6 +23,7 @@ export function useUtilityDockGit({
   tab: UtilityDockTab;
 }) {
   const gitRequestEpoch = useRef(0);
+  useEffect(() => retainDockGitState(dockProjectPath), [dockProjectPath]);
   const [dockGitState, setDockGitState] = useState<DockGitState>(() => readCachedDockGitState(dockProjectPath));
   const refreshDockGitStatus = useCallback(async () => {
     const currentProject = dockProjectPath;

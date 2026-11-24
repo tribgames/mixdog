@@ -145,7 +145,8 @@ const foldListeners = new Set<() => void>();
 const EMPTY_FOLDS: SessionFolds = { closed: [], opened: [], groups: {} };
 
 function foldsOf(sessionId: string): SessionFolds {
-  if (!sessionId) return unstored.get(sessionId) ?? EMPTY_FOLDS;
+  const memory = unstored.get(sessionId);
+  if (memory || !sessionId) return memory ?? EMPTY_FOLDS;
   const raw = storedFolds();
   if (raw !== parsedRaw) {
     parsedRaw = raw;
@@ -155,6 +156,7 @@ function foldsOf(sessionId: string): SessionFolds {
   let folds = snapshots.get(sessionId);
   if (!folds) {
     const stored = parsed[sessionId];
+    if (!stored) return EMPTY_FOLDS;
     folds = {
       closed: Array.isArray(stored?.closed) ? stored.closed : [],
       opened: Array.isArray(stored?.opened) ? stored.opened : [],
@@ -177,6 +179,7 @@ function changeFolds(sessionId: string, change: (current: SessionFolds) => Sessi
     for (const id of ids.slice(0, Math.max(0, ids.length - REMEMBERED_SESSIONS))) delete all[id];
     try {
       window.localStorage.setItem(SESSION_RAIL_FOLDS_KEY, JSON.stringify(all));
+      unstored.delete(sessionId);
     } catch {
       // Unstorable: the folds hold in memory for this renderer.
       unstored.set(sessionId, next);
@@ -245,8 +248,17 @@ export function useSessionRailFolds(sessionId: string) {
     [update]
   );
   const setGroups = useCallback(
-    (groups: Record<string, boolean>) =>
-      update((current) => ({ ...current, groups: { ...current.groups, ...groups } })),
+    (groups: Record<string, boolean>, existing?: { prefix: string; keys: readonly string[] }) =>
+      update((current) => {
+        const kept = existing
+          ? Object.fromEntries(
+              Object.entries(current.groups).filter(
+                ([key]) => !key.startsWith(existing.prefix) || existing.keys.includes(key)
+              )
+            )
+          : current.groups;
+        return { ...current, groups: { ...kept, ...groups } };
+      }),
     [update]
   );
   return {

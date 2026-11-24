@@ -159,6 +159,11 @@ export function bumpTurnChangesEpoch(sessionId: string): number {
   return next;
 }
 
+/** A deleted session's epoch goes with it. */
+export function releaseTurnChangesEpoch(sessionId: string): void {
+  epochs.delete(sessionId);
+}
+
 function subscribeEpochs(listener: () => void) {
   epochListeners.add(listener);
   return () => {

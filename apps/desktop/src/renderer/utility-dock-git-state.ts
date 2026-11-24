@@ -13,6 +13,28 @@ export type DockGitState = {
 const dockGitCache = new Map<string, DockGitState>();
 const dockGitRequests = new Map<string, Promise<DockGitState>>();
 
+const dockGitViewers = new Map<string, number>();
+
+/** A view of `projectPath`'s Git status is mounted; the snapshot goes with the
+ *  last one. */
+export function retainDockGitState(projectPath: string): () => void {
+  if (!projectPath) return () => {};
+  dockGitViewers.set(projectPath, (dockGitViewers.get(projectPath) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const count = (dockGitViewers.get(projectPath) ?? 1) - 1;
+    if (count > 0) {
+      dockGitViewers.set(projectPath, count);
+      return;
+    }
+    dockGitViewers.delete(projectPath);
+    dockGitCache.delete(projectPath);
+    dockGitRequests.delete(projectPath);
+  };
+}
+
 export function readCachedDockGitState(projectPath: string): DockGitState {
   if (!projectPath) {
     return { projectPath: '', status: null, ready: true, error: '' };
@@ -50,7 +72,8 @@ export function requestDockGitState(projectPath: string): Promise<DockGitState> 
   const pending = dockGitRequests.get(projectPath);
   if (pending) return pending;
   const request = loadDockGitState(projectPath).then((state) => {
-    dockGitCache.set(projectPath, state);
+    // A read whose last viewer left meanwhile has no owner to hold it.
+    if (dockGitRequests.get(projectPath) === request) dockGitCache.set(projectPath, state);
     return state;
   });
   dockGitRequests.set(projectPath, request);

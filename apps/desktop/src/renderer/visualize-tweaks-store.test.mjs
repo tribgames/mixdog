@@ -108,3 +108,26 @@ test('"Use these values" queues one chip per pane that rides with the next messa
   setVisualizeTweakSet('s1', { ...set, pane: 1, changes: [] });
   assert.equal(visualizeFeedbackPending(visualizeFeedbackFor('s1')), false);
 });
+
+test('a closed tab or pane and a deleted session release their tweak defs and values', async () => {
+  const { releaseVisualizeTweaks } = await import('./visualize-tweaks-store.ts');
+  resetVisualizeTweakStore();
+  const tweak = { id: 'size', type: 'range', var: '--size', min: 10, max: 20, step: 2, unit: 'px', default: 14 };
+  for (const [session, tabId, pane] of [['s1', 'a', 0], ['s1', 'a', 1], ['s1', 'b', 0], ['s2', 'a', 0]]) {
+    setVisualizeTweakDefs(session, tabId, pane, block);
+    setVisualizeTweakValue(session, tabId, pane, 1, tweak, '18');
+  }
+  const held = (session, tabId, pane) => [
+    visualizePaneTweaks(session, tabId, pane).length,
+    Object.keys(visualizeTweakValues(session, tabId, pane, 1)).length,
+  ];
+  releaseVisualizeTweaks('s1', 'a', 1);
+  assert.deepEqual(held('s1', 'a', 1), [0, 0]);
+  assert.deepEqual(held('s1', 'a', 0), [2, 1]);
+  releaseVisualizeTweaks('s1', 'a');
+  assert.deepEqual(held('s1', 'a', 0), [0, 0]);
+  assert.deepEqual(held('s1', 'b', 0), [2, 1]);
+  releaseVisualizeTweaks('s1');
+  assert.deepEqual(held('s1', 'b', 0), [0, 0]);
+  assert.deepEqual(held('s2', 'a', 0), [2, 1], 'another session keeps its own');
+});

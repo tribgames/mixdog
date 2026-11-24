@@ -29,6 +29,14 @@ interface UiOpenRequestProps {
   subscribeSessionLanes?: SetupLaneSource;
 }
 
+/** The newest request seq routed per session. */
+const uiOpenSeen = new Map<string, number>();
+
+/** A deleted session's seq goes with it. */
+export function releaseUiOpenSeen(sessionId: string): void {
+  uiOpenSeen.delete(sessionId);
+}
+
 export function useAppUiOpenRequest({
   uiOpenRequest,
   sessionId,
@@ -36,12 +44,11 @@ export function useAppUiOpenRequest({
   openSettings,
   subscribeSessionLanes,
 }: UiOpenRequestProps) {
-  const uiOpenSeen = useRef(new Map<string, number>());
   const route = useRef<(requestSessionId: string, request: Snapshot['uiOpenRequest']) => void>(() => {});
   route.current = (requestSessionId, request) => {
     const seq = Number(request?.seq) || 0;
-    if (!request?.command || seq <= (uiOpenSeen.current.get(requestSessionId) || 0)) return;
-    uiOpenSeen.current.set(requestSessionId, seq);
+    if (!request?.command || seq <= (uiOpenSeen.get(requestSessionId) || 0)) return;
+    uiOpenSeen.set(requestSessionId, seq);
     // A re-attached renderer replays the retained snapshot; a request older
     // than a few seconds is history, not an instruction.
     if (Number(request.at) > 0 && Date.now() - Number(request.at) > UI_OPEN_REQUEST_TTL_MS) return;

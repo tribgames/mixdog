@@ -28,7 +28,9 @@ const {
   disabledMentionedSkills,
   filterSkillMentions,
   invalidateSkillCatalogForMutation,
+  cachedSkillCatalog,
   refreshSkillCatalog,
+  releaseSessionSkillCatalog,
   resetSkillCatalogReadsForTests,
   skillMentionSegments,
   useSkillCatalog,
@@ -457,6 +459,7 @@ test('composer: a recognised leading /command takes the accent ink and the mirro
 
 test('composer: with no custom skill on, the palette shows one status line linking to Settings › Skills', async (t) => {
   const view = await mountSkillComposer(t, 'skill-mention-empty', {
+    projectScope: 'C:/project-empty',
     status: { skills: STATUS.skills.filter((skill) => skill.source === 'builtin') },
   });
   await view.type('$');
@@ -513,7 +516,10 @@ test('composer: a skill toggled elsewhere updates palette, highlight and off not
 });
 
 test('composer: a skill the session project does not see is neither listed, highlighted nor reported as off', async (t) => {
-  const view = await mountSkillComposer(t, 'skill-mention-scoped', { status: SCOPED_STATUS });
+  const view = await mountSkillComposer(t, 'skill-mention-scoped', {
+    projectScope: 'C:/project-scoped',
+    status: SCOPED_STATUS,
+  });
   await view.type('$elsewhere $plugin-here $');
   assert.deepEqual(view.rows(), ['$release-notes', '$plugin-here']);
   assert.deepEqual(view.tokens(), ['$plugin-here']);
@@ -566,6 +572,15 @@ test('composer: a draft with no Project offers the skill its task workspace will
     (node) => node.textContent
   );
   assert.deepEqual(descriptions, ['Here']);
+});
+
+test('a deleted session releases its own catalog entries', async () => {
+  resetSkillCatalogReadsForTests();
+  window.mixdogDesktop = { invokeCapability: async () => ({ value: STATUS }) };
+  await refreshSkillCatalog('lonely');
+  assert.ok(cachedSkillCatalog('lonely'));
+  releaseSessionSkillCatalog('lonely');
+  assert.equal(cachedSkillCatalog('lonely'), undefined);
 });
 
 test('skill catalog reads are single-flight with a minimum age; focus never re-reads, signals force', async () => {

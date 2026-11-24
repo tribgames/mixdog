@@ -8,7 +8,7 @@ import { t } from './i18n';
 import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
 import { IslandPanelHead } from './IslandPanelFoot';
 import { useMobileBack } from './mobile-back';
-import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
+import { readCachedDockGitState, requestDockGitState, retainDockGitState } from './utility-dock-git-state';
 
 /** The checkout's status (branch, commits ahead of upstream), re-read on Git
  *  evidence; null without a folder or before the first read. */
@@ -23,9 +23,11 @@ export function useIslandGitStatus(cwd: string): DesktopGitStatus | null {
       if (active) setStatus(state.status);
     });
     const stop = watchGitRefreshEvidence(cwd, scheduler);
+    const release = retainDockGitState(cwd);
     return () => {
       active = false;
       stop();
+      release();
     };
   }, [cwd]);
   return cwd ? status : null;

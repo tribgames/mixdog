@@ -52,6 +52,12 @@ export function composerSkillCatalog(value: unknown): ComposerSkillCatalog {
 const catalogKey = (sessionId?: string | null, projectPath?: string | null) =>
   sessionId || `draft:${projectPath || ''}`;
 
+/** A deleted session's own catalog entries. */
+export function releaseSessionSkillCatalog(sessionId: string): void {
+  const key = catalogKey(sessionId);
+  for (const map of [catalogs, startedReads, appliedReads, inflightReads, readFinishedAt]) map.delete(key);
+}
+
 async function readSkillsStatus(sessionId?: string | null, projectPath?: string | null): Promise<unknown> {
   if (sessionId) {
     // Scoped to the session's own folder: only what this session can run.
@@ -118,6 +124,7 @@ export function refreshSkillCatalog(
   startedReads.set(key, read);
   const promise = (async () => {
     const next = composerSkillCatalog(await readSkillsStatus(sessionId, projectPath));
+    if (!startedReads.has(key)) return next;
     readFinishedAt.set(key, Date.now());
     if (read > (appliedReads.get(key) ?? 0)) {
       appliedReads.set(key, read);

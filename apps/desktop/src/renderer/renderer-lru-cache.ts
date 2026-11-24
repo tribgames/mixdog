@@ -66,6 +66,10 @@ export class RendererLruCache<K, V> {
     this.entries.delete(key);
   }
 
+  deletePrefix(prefix: string): void {
+    for (const key of [...this.entries.keys()]) if (typeof key === 'string' && key.startsWith(prefix)) this.delete(key);
+  }
+
   trim(target: number): void {
     while (this.entries.size > this.options.maxEntries || this.retained > target) {
       const oldest = this.entries.keys().next();

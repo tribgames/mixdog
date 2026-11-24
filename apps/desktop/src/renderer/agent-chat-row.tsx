@@ -66,8 +66,11 @@ const STATUS_LABEL: Record<RoutineStatus, () => string> = {
 
 const liveRunAt = new Map<string, number>();
 function routineAt(item: TranscriptItem): number {
-  if (typeof item.at === 'number' && item.at > 0) return item.at;
   const runId = String((item.routine as { runId?: unknown } | undefined)?.runId ?? '');
+  if (typeof item.at === 'number' && item.at > 0) {
+    if (runId) liveRunAt.delete(runId);
+    return item.at;
+  }
   if (!runId) return 0;
   if (!liveRunAt.has(runId)) liveRunAt.set(runId, Date.now());
   return liveRunAt.get(runId) ?? 0;
