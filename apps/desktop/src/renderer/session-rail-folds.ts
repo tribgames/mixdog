@@ -1,6 +1,6 @@
 // The session panel's folds, remembered per session (which categories and
-// to-do groups the user folded; all are open until then), and the order of
-// its categories.
+// to-do groups the user folded or opened against their default), and the
+// order of its categories.
 import { type MouseEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OPEN_MODEL_PICKER_EVENT, requestOpenModelPicker } from './model-picker-event';
 
@@ -17,6 +17,9 @@ export const SESSION_RAIL_CATEGORIES = [
   'git',
 ] as const;
 export type SessionRailCategory = (typeof SESSION_RAIL_CATEGORIES)[number];
+
+/** The categories a session's panel shows folded until the user opens them; the others start open. */
+const FOLDED_BY_DEFAULT: readonly SessionRailCategory[] = ['agents', 'shells', 'changes', 'git'];
 
 export const SESSION_RAIL_ORDER_KEY = 'mixdog.desktop.session-rail-order.v1';
 
@@ -107,8 +110,9 @@ export const SESSION_RAIL_DRAFT_FOLDS = '\u0000new-task';
 /** Sessions remembered, the most recently changed kept. */
 const REMEMBERED_SESSIONS = 200;
 
-/** A category is open until the user folds it (`closed`); a to-do fold is held once it was set (`groups`). */
-type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean> };
+/** A category keeps its default until the user folds it (`closed`) or opens one folded by default (`opened`); a
+ *  to-do fold is held once it was set (`groups`). */
+type SessionFolds = { closed: SessionRailCategory[]; opened: SessionRailCategory[]; groups: Record<string, boolean> };
 
 function storedFolds(): string {
   try {
@@ -138,7 +142,7 @@ const snapshots = new Map<string, SessionFolds>();
 /** A session that is not stored (none yet): its folds hold in memory. */
 const unstored = new Map<string, SessionFolds>();
 const foldListeners = new Set<() => void>();
-const EMPTY_FOLDS: SessionFolds = { closed: [], groups: {} };
+const EMPTY_FOLDS: SessionFolds = { closed: [], opened: [], groups: {} };
 
 function foldsOf(sessionId: string): SessionFolds {
   if (!sessionId) return unstored.get(sessionId) ?? EMPTY_FOLDS;
@@ -153,6 +157,7 @@ function foldsOf(sessionId: string): SessionFolds {
     const stored = parsed[sessionId];
     folds = {
       closed: Array.isArray(stored?.closed) ? stored.closed : [],
+      opened: Array.isArray(stored?.opened) ? stored.opened : [],
       groups: stored?.groups && typeof stored.groups === 'object' ? stored.groups : {},
     };
     snapshots.set(sessionId, folds);
@@ -229,12 +234,14 @@ export function useSessionRailFolds(sessionId: string) {
   );
   const toggle = useCallback(
     (category: SessionRailCategory) =>
-      update((current) => ({
-        ...current,
-        closed: current.closed.includes(category)
-          ? current.closed.filter((id) => id !== category)
-          : [...current.closed, category],
-      })),
+      update((current) => {
+        const field = FOLDED_BY_DEFAULT.includes(category) ? 'opened' : 'closed';
+        const list = current[field];
+        return {
+          ...current,
+          [field]: list.includes(category) ? list.filter((id) => id !== category) : [...list, category],
+        };
+      }),
     [update]
   );
   const setGroups = useCallback(
@@ -243,7 +250,8 @@ export function useSessionRailFolds(sessionId: string) {
     [update]
   );
   return {
-    isOpen: (category: SessionRailCategory) => !folds.closed.includes(category),
+    isOpen: (category: SessionRailCategory) =>
+      FOLDED_BY_DEFAULT.includes(category) ? folds.opened.includes(category) : !folds.closed.includes(category),
     toggle,
     /** A to-do fold as the user left it, `byDefault` until they set it. */
     groupOpen: (key: string, byDefault: boolean) => folds.groups[key] ?? byDefault,
