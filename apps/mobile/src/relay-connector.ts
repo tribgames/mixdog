@@ -64,6 +64,9 @@ export interface RelayConnectorDeps {
   /** Present only where `RTCPeerConnection` exists: its absence is the transport opt-out. */
   webrtc?: {
     createPeer(configuration: RTCConfiguration): RTCPeerConnection;
+    /** The first peer of a page load: settles when the page can afford the direct path's first `RTCPeerConnection`, and the PC's
+     *  offer waits for it. Undefined for every later peer (a reconnect), which is never held. */
+    holdSignals?(): Promise<unknown> | undefined;
     visible(): boolean;
     log(line: string): void;
   };

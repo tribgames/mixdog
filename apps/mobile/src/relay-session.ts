@@ -440,6 +440,7 @@ export class RelaySession {
 
   private startPeer(channel: RelayE2EEChannel, sessionId: string): void {
     const webrtc = this.deps.webrtc!;
+    const hold = webrtc.holdSignals?.();
     const created = createRemoteTransportPeer({
       channel,
       sessionId,
@@ -454,6 +455,7 @@ export class RelaySession {
         if (this.peer === created) this.fail(CLOSE_PROTOCOL_ERROR, `transport failed: ${error.message}`);
       },
       createPeer: webrtc.createPeer,
+      ...(hold ? { holdSignals: hold } : {}),
       visible: webrtc.visible,
       timers,
       log: webrtc.log,
