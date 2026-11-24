@@ -601,7 +601,7 @@ impl SessionHandle {
     /// The row `iid`'s body becomes `message`, and its user lines are shown again with it.
     async fn amend_shown(&self, item: &mixdog_core_api::ids::ItemId, message: Value, ctx: mixdog_core_api::call::CallContext) -> Result<(), CoreError> {
         let iid = item.as_str().to_owned();
-        self.deps.store.unheld().await;
+        self.deps.store.unheld(&self.id).await;
         let (store, thread) = (self.deps.store.clone(), self.id.clone());
         // The reaction is a bot's data: a full lane is waited out, never refused.
         let found = on_lane_wait(self.deps.lanes.io, &ctx.cancel, {

@@ -11,10 +11,14 @@ use super::store::LogShape;
 
 #[derive(Default)]
 struct Thread {
+    /// Which entry of the thread this is ([`ContextLens::forget`] removes one, and the next starts anew).
+    entry: u64,
     /// The batches of the thread's writer that have ended.
     batches: u64,
     /// The thread's writer is inside a batch.
     writing: bool,
+    /// Forgotten while its writer was inside a batch: the entry goes when that batch ends.
+    forgotten: bool,
     kept: Option<(Arc<LogShape>, usize)>,
 }
 
@@ -35,12 +39,17 @@ impl Thread {
     }
 }
 
-/// By thread. An entry is never removed: a count in progress compares the thread's batches with those it began at.
+/// By thread, while the thread is loaded or read; [`forget`](ContextLens::forget) removes an entry once nothing writes it.
+/// A count in progress compares the entry and its batches with those it began at, so a count over a removed entry is not kept.
 #[derive(Default)]
-pub(super) struct ContextLens(Mutex<HashMap<String, Thread>>);
+pub(super) struct ContextLens {
+    threads: Mutex<HashMap<String, Thread>>,
+    entries: std::sync::atomic::AtomicU64,
+}
 
 /// A count of a thread's context being taken: where the thread's batches stood when it began.
 pub(super) struct Counting {
+    entry: u64,
     batches: u64,
     kept: Option<usize>,
 }
@@ -71,6 +80,9 @@ impl Batch {
             if let Some((_, len)) = &mut state.kept {
                 *len = growth.restart.unwrap_or(*len) + growth.added;
             }
+            if state.forgotten {
+                threads.remove(&self.thread);
+            }
         }
         drop(threads);
         self.stored = true;
@@ -82,9 +94,13 @@ impl Drop for Batch {
         if self.stored {
             return;
         }
-        if let Some(state) = self.lens.threads().get_mut(&self.thread) {
+        let mut threads = self.lens.threads();
+        if let Some(state) = threads.get_mut(&self.thread) {
             state.ended();
             state.kept = None;
+            if state.forgotten {
+                threads.remove(&self.thread);
+            }
         }
     }
 }
@@ -115,7 +131,14 @@ impl Growth {
 
 impl ContextLens {
     fn threads(&self) -> MutexGuard<'_, HashMap<String, Thread>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.threads.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `thread`'s entry, made anew when it has none.
+    fn entry<'a>(&self, threads: &'a mut HashMap<String, Thread>, thread: &str) -> &'a mut Thread {
+        threads
+            .entry(thread.to_owned())
+            .or_insert_with(|| Thread { entry: self.entries.fetch_add(1, std::sync::atomic::Ordering::Relaxed), ..Thread::default() })
     }
 
     /// The length of `thread`'s context as it is kept now.
@@ -127,25 +150,43 @@ impl ContextLens {
     /// the index after that wait.
     pub(super) fn counting(&self, thread: &str) -> Counting {
         let mut threads = self.threads();
-        let state = threads.entry(thread.to_owned()).or_default();
-        Counting { batches: state.batches, kept: state.standing() }
+        let state = self.entry(&mut threads, thread);
+        Counting { entry: state.entry, batches: state.batches, kept: state.standing() }
     }
 
     /// Keeps `len`, counted from the index over `shape` since `counting`. Not when the thread's writer is inside a batch
-    /// or ended one meanwhile: the log the shape was read from and the index the rows were counted in may then lie on
-    /// either side of that batch.
+    /// or ended one meanwhile, or the entry the count began on was forgotten: the log the shape was read from and the
+    /// index the rows were counted in may then lie on either side of a batch.
     pub(super) fn keep(&self, thread: &str, counting: Counting, shape: &Arc<LogShape>, len: usize) {
         let mut threads = self.threads();
         let Some(state) = threads.get_mut(thread) else { return };
-        if !state.writing && state.batches == counting.batches && shape.stands() {
+        if state.entry == counting.entry && !state.writing && state.batches == counting.batches && shape.stands() {
             state.kept = Some((shape.clone(), len));
         }
     }
 
     /// `thread`'s writer begins a batch, before it touches the thread's log.
     pub(super) fn batch(self: &Arc<Self>, thread: &str) -> Batch {
-        self.threads().entry(thread.to_owned()).or_default().writing = true;
+        let mut threads = self.threads();
+        let state = self.entry(&mut threads, thread);
+        state.writing = true;
+        state.forgotten = false;
         Batch { lens: self.clone(), thread: thread.to_owned(), stored: false }
+    }
+
+    /// `thread` was unloaded or deleted: its entry goes now, or when the batch its writer is inside ends.
+    pub(super) fn forget(&self, thread: &str) {
+        let mut threads = self.threads();
+        match threads.get_mut(thread) {
+            Some(state) if state.writing => state.forgotten = true,
+            Some(_) => drop(threads.remove(thread)),
+            None => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn holds(&self, thread: &str) -> bool {
+        self.threads().contains_key(thread)
     }
 }
 
@@ -183,5 +224,37 @@ mod tests {
 
         drop(lens.batch("t"));
         assert_eq!(lens.kept("t"), None, "a failed batch");
+    }
+
+    /// A forgotten thread holds nothing: its entry goes at once, or when the batch its writer is inside ends, and a count
+    /// begun before it was forgotten is not kept on the entry made after.
+    #[test]
+    fn a_forgotten_thread_holds_no_entry() {
+        let lens = Arc::new(ContextLens::default());
+        let shape = LogShape::of_no_log();
+        let adds = |added| Growth { restart: None, added };
+
+        let counting = lens.counting("t");
+        lens.keep("t", counting, &shape, 1);
+        lens.forget("t");
+        assert!(!lens.holds("t"), "an idle thread's entry goes at once");
+
+        let batch = lens.batch("t");
+        lens.forget("t");
+        assert!(lens.holds("t"), "the writer is inside a batch");
+        batch.stored(adds(1), || {});
+        assert!(!lens.holds("t"), "the entry goes as the batch ends");
+
+        drop(lens.batch("u"));
+        lens.forget("u");
+        assert!(!lens.holds("u"));
+
+        let before = lens.counting("t");
+        lens.forget("t");
+        let after = lens.counting("t");
+        lens.keep("t", before, &shape, 5);
+        assert_eq!(lens.kept("t"), None, "a count begun on the forgotten entry");
+        lens.keep("t", after, &shape, 2);
+        assert_eq!(lens.kept("t"), Some(2));
     }
 }

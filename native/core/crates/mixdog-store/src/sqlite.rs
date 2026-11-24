@@ -2913,6 +2913,11 @@ fn serde_name<T: serde::Serialize>(v: &T) -> String {
     }
 }
 
+/// The history row an amend of `iid` changes, found through its id: by the session's order alone the lookup walks the
+/// session's history back to it.
+pub(crate) const AMEND_TARGET_SQL: &str = "SELECT ordinal FROM history INDEXED BY history_iid
+     WHERE session = ?1 AND iid = ?2 AND superseded_rev IS NULL ORDER BY ordinal DESC LIMIT 1";
+
 /// Applies one frame within `budget` rows: `(rows written, frame complete)`. Only a
 /// rewind can be incomplete; it resumes where it stopped (its updates are idempotent).
 fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budget: usize, cap: usize) -> rusqlite::Result<(usize, bool)> {
@@ -2964,10 +2969,7 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
                 crate::message_index::amend(tx, session, iid, ordinal, (file_no, offset, len), msg)?;
             }
             let target: Option<i64> = tx
-                .prepare_cached(
-                    "SELECT ordinal FROM history WHERE session = ?1 AND iid = ?2 AND superseded_rev IS NULL
-                     ORDER BY ordinal DESC LIMIT 1",
-                )?
+                .prepare_cached(AMEND_TARGET_SQL)?
                 .query_row(params![session, iid], |r| r.get(0))
                 .optional()?;
             if let Some(target) = target {

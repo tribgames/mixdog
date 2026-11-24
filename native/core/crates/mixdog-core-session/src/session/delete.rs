@@ -408,6 +408,7 @@ pub(crate) async fn delete_session_if_idle(
         return refuse("delete-failed");
     }
     deps.deletion.release_session_work(id, AUTO_DELETE_REASON).await;
+    directory.forget_deleted(&thread);
     after_delete(&deps, id);
     Ok(serde_json::json!({ "deleted": true }))
 }
@@ -466,7 +467,7 @@ pub(crate) async fn delete_unconverted(directory: &super::directory::DirInner, i
     let closed = Closed { reason: DELETE_REASON, header: Arc::new(header.clone()), at_ms: deps.clock.now_ms() };
     deps.deletion.release_session_work(id, DELETE_REASON).await;
     removed(&deps, &thread, &cwds, closed, false).await;
-    directory.forget_stop_latches(&thread);
+    directory.forget_deleted(&thread);
     after_delete(&deps, id);
 }
 
@@ -599,7 +600,7 @@ pub(crate) async fn delete_session(
         return Ok(false);
     }
     // The session is gone: nothing of it can run again, so its Stop latches go with it.
-    directory.forget_stop_latches(&thread);
+    directory.forget_deleted(&thread);
     after_delete(&deps, id);
     Ok(true)
 }

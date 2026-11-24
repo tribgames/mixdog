@@ -67,7 +67,7 @@ pub(crate) struct RetentionFacts {
 }
 
 /// The parent/owner adjacency of the agent-only sessions (`agentDescendantIds`'s map), read once and asked for any root.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Adjacency {
     children: HashMap<String, Vec<String>>,
 }
@@ -76,6 +76,12 @@ impl Adjacency {
     /// Over the agent-only rows (id and header or list row), following every owner and parent link a row names.
     pub fn of(rows: &[(String, Header)]) -> Self {
         let mut adjacency = Self::default();
+        adjacency.rows(rows);
+        adjacency
+    }
+
+    /// Follows every owner and parent link the agent-only rows name.
+    pub fn rows(&mut self, rows: &[(String, Header)]) {
         for (id, header) in rows {
             let id = mixdog_js::js_trim(id);
             let mut doc = header.clone();
@@ -84,10 +90,9 @@ impl Adjacency {
                 continue;
             }
             for parent in parent_ids(&doc, id) {
-                adjacency.link(parent, id.to_owned());
+                self.link(parent, id.to_owned());
             }
         }
-        adjacency
     }
 
     fn link(&mut self, parent: String, child: String) {
@@ -98,10 +103,10 @@ impl Adjacency {
     }
 
     /// Joins links the rows may not hold yet (the sessions this process created).
-    pub fn join(&mut self, links: HashMap<String, Vec<String>>) {
+    pub fn join(&mut self, links: &HashMap<String, Vec<String>>) {
         for (parent, children) in links {
             for child in children {
-                self.link(parent.clone(), child);
+                self.link(parent.clone(), child.clone());
             }
         }
     }
@@ -339,8 +344,9 @@ impl ArchiveTrees {
 
     /// The adjacency of the agent-only sessions now: the catalog's rows joined with the sessions this process created.
     pub async fn adjacency(&self) -> Result<Adjacency, CoreError> {
-        let mut adjacency = Adjacency::of(&self.index.agent_only_rows().await?);
-        adjacency.join(self.directory.created_links());
+        let mut adjacency = Adjacency::default();
+        self.directory.join_created(&mut adjacency);
+        adjacency.rows(&self.index.agent_only_rows().await?);
         Ok(adjacency)
     }
 

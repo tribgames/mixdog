@@ -789,18 +789,19 @@ async fn a_debt_with_no_copy_kept_is_discharged_without_indexing_again() {
     assert!(absent.2.lock().expect("reindexed").is_empty(), "no copy was deleted, so none is derived again");
 }
 
-/// (c) Twenty model-context reads issued while the index is behind (its projections held, as a carried mark's rewrite of
-/// another thread holds them) wait for it off the lane: a row's commit job is still taken, and each read answers once the
-/// index catches up.
+/// (c) Twenty model-context reads of a thread whose acknowledged write the index has not taken (its projections held, as a
+/// carried mark's rewrite of another thread holds them) wait for it off the lane: a row's commit job is still taken, and
+/// each read answers once the index catches up.
 #[tokio::test]
 async fn reads_issued_while_the_index_is_behind_wait_off_the_lane() {
     let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
     let data = tempfile::tempdir().expect("data dir");
     let marks = Arc::new(SensitiveStore::default());
     let threads = store_over(data.path(), index_over(data.path(), tokens).await, tokens, &marks).await;
-    create(&threads, tokens, "t", vec![row("a", "the first row")]).await;
+    let log = create(&threads, tokens, "t", vec![row("a", "the first row")]).await;
     let (reached, release) = threads.hold_index();
     reached.await.expect("the index is held");
+    append(&log, tokens, vec![row("b", "the second row")]).await;
     let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
     let store: Arc<dyn ThreadStore> = threads.clone();
     let reads: Vec<_> = (0..20)
@@ -812,6 +813,7 @@ async fn reads_issued_while_the_index_is_behind_wait_off_the_lane() {
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
+    assert!(reads.iter().all(|read| !read.is_finished()), "a read answered before the index took its thread's write");
     let commit_job = LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), |_| ());
     assert!(commit_job.is_ok(), "a row's commit job is refused while the reads wait for the index");
     drop(release);

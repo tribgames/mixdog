@@ -24,6 +24,7 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::archive_trees::AdmissionGate;
+use super::archive_trees::Adjacency;
 use super::archive_trees::Admit;
 use super::archive_trees::ArchiveTrees;
 use super::archive_trees::PolicyIdentity;
@@ -528,17 +529,21 @@ impl DirectoryAutoRetention {
         }
     }
 
-    /// The agent-only rows as the index holds them now.
+    /// The agent-only rows as the index holds them now, with the sessions this process created joined before the rows are read.
     async fn read_agent_rows(&self) -> Result<AgentRows, String> {
+        let mut adjacency = Adjacency::default();
+        self.directory.join_created(&mut adjacency);
         let rows = self.store.agent_only_sessions().await.map_err(|error| error.to_string())?;
-        Ok(rows
+        let rows: Vec<(String, Map<String, Value>)> = rows
             .iter()
             .filter_map(|row| match serde_json::from_str::<Value>(row).ok()? {
                 Value::Object(map) => Some((text(map.get("id")), map)),
                 _ => None,
             })
             .filter(|(id, _)| !id.is_empty())
-            .collect())
+            .collect();
+        adjacency.rows(&rows);
+        Ok(AgentRows { rows, adjacency })
     }
 
     /// `working`: the session's own turn, or an agent's working for it (`inFlightSessionActivity`).
@@ -700,20 +705,17 @@ impl AutoRetentionHost for DirectoryAutoRetention {
 
     async fn sub_sessions(&self, id: &str, now: f64, window_ms: f64, listed: Option<&AgentRows>) -> Result<Option<Vec<(String, f64)>>, String> {
         let fresh;
-        let rows = match listed {
-            Some(rows) => rows,
+        let listed = match listed {
+            Some(listed) => listed,
             None => {
                 fresh = self.read_agent_rows().await?;
                 &fresh
             }
         };
-        // The parent/owner adjacency, with the sessions this process created that the index may not list yet.
-        let mut adjacency = super::archive_trees::Adjacency::of(rows);
-        adjacency.join(self.directory.created_links());
-        let by_id: std::collections::HashMap<&str, &Map<String, Value>> = rows.iter().map(|(row_id, row)| (row_id.as_str(), row)).collect();
+        let by_id: std::collections::HashMap<&str, &Map<String, Value>> = listed.rows.iter().map(|(row_id, row)| (row_id.as_str(), row)).collect();
         let flight = self.directory.in_flight();
         let mut members = Vec::new();
-        for child in adjacency.descendants(id) {
+        for child in listed.adjacency.descendants(id) {
             let Some(row) = by_id.get(child.as_str()) else { continue };
             if Self::working(&flight, &child) || self.awaiting_approval(&child) {
                 return Ok(None);
@@ -773,5 +775,10 @@ mod tests;
 /// Sessions with the time each was last active.
 type AgedSessions = Vec<(String, f64)>;
 
-/// The agent-only rows of a listing, by session id.
-pub type AgentRows = Vec<(String, Map<String, Value>)>;
+/// The agent-only rows of a listing, by session id, and their parent/owner adjacency with the sessions this process created
+/// that the rows may not hold yet, whose links were taken before the rows were read ([`SessionDirectory::join_created`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AgentRows {
+    pub rows: Vec<(String, Map<String, Value>)>,
+    pub adjacency: Adjacency,
+}

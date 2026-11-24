@@ -245,6 +245,16 @@ async fn a_favorite_or_activity_voids_the_preparation() {
     }
 }
 
+/// A created sub-agent session is joined to its tree only until its first record, which carries its catalog row, is
+/// durable: once the creates answered nothing is held for them, and the tree read finds every member in the rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_created_child_is_held_only_until_its_row_is_durable() {
+    let world = world().await;
+    assert_eq!(world.directory.created_linked(), 0, "the children's rows hold their links");
+    let found = world.trees.adjacency().await.expect("the tree").descendants(ROOT);
+    assert_eq!(sorted(found), sorted(vec![C1.into(), C2.into()]));
+}
+
 /// A sub-agent session joining the tree after it was read voids the preparation: nobody judged it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_member_voids_the_preparation() {

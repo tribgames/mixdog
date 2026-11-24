@@ -698,11 +698,12 @@ impl DirInner {
         &self.shards[(hasher.finish() as usize) % SHARDS]
     }
 
-    /// The slot of `id` goes, and with it what the process remembered of the thread's surface. Under the shard lock, so
-    /// no later load of the id has begun: what that load remembers is its own.
+    /// The slot of `id` goes, and with it what the process remembered of the thread's surface and what the store kept for
+    /// its reads. Under the shard lock, so no later load of the id has begun: what that load remembers is its own.
     fn vacate(&self, shard: &mut HashMap<ThreadId, Slot_>, id: &ThreadId) -> Option<Slot_> {
         let slot = shard.remove(id);
         self.deps.new_tools.unloaded(id);
+        self.deps.store.forget(id);
         slot
     }
 
@@ -843,6 +844,11 @@ impl DirInner {
                 drop(settled);
             };
             futures::join!(teardown, retired);
+            // Nothing writes the thread any more, and no later runtime of it opens before `pending` goes: what its last
+            // batches kept after the slot went goes too.
+            if let Some(directory) = directory.upgrade() {
+                directory.deps.store.forget(&thread);
+            }
             drop(pending);
         });
         #[cfg(any(test, feature = "test-support"))]
@@ -863,11 +869,6 @@ impl DirInner {
         &self.deps
     }
 
-    /// Thread `id` was deleted: its Stop latches go ([`super::control::StopLatches::forget`]).
-    pub(crate) fn forget_stop_latches(&self, id: &ThreadId) {
-        self.stop_latches.forget(id);
-    }
-
     pub(crate) fn gate(&self) -> &Arc<super::turn_gate::TurnGate> {
         &self.gate
     }
@@ -885,7 +886,7 @@ impl DirInner {
         if let Some(handle) = self.loaded(id) {
             return Some(keep_fields(handle.cell.header.load_full().as_ref(), Some(fields)));
         }
-        self.deps.store.unheld().await;
+        self.deps.store.unheld(id).await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
         let read = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| {
             store.read_header(lane, &thread).map(|header| header.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
@@ -900,7 +901,7 @@ impl DirInner {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
-        self.deps.store.unheld().await;
+        self.deps.store.unheld(id).await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
         let read = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
         Ok(read.ok())
@@ -946,17 +947,18 @@ impl DirInner {
         if stored.is_empty() {
             return out.into_iter().flatten().map(Ok).collect();
         }
-        self.deps.store.unheld().await;
+        let asked: Vec<ThreadId> = stored.iter().map(|&at| ids[at].clone()).collect();
+        self.deps.store.unheld_all(&asked).await;
         // The members the catalog row holds are read from it: no log is opened to list a session.
         if let Some(fields) = fields.filter(|fields| fields.iter().all(|field| mixdog_store::worker::LISTED_FIELDS.contains(field))) {
-            let asked: Vec<ThreadId> = stored.iter().map(|&at| ids[at].clone()).collect();
             let store = self.deps.store.clone();
             let rows =
-                mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.listed_rows(lane, &asked)).await;
+                mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.listed_rows(lane, &asked, fields))
+                    .await;
             match rows {
                 Ok(Ok(rows)) => {
                     for (&at, row) in stored.iter().zip(rows) {
-                        out[at] = row.map(|listed| listed.map(|header| keep_fields(&header, Some(fields))));
+                        out[at] = row;
                     }
                 }
                 // The index did not answer: the records still do.
@@ -1009,7 +1011,7 @@ impl DirInner {
                             }
                             let header = store.read_header(lane, &thread)?;
                             let row_only = header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true);
-                            Ok::<_, CoreError>((!row_only).then(|| keep_fields(&header, fields)))
+                            Ok::<_, CoreError>((!row_only).then_some(header))
                         })
                         .await;
                         match read {
@@ -1214,11 +1216,11 @@ impl DirInner {
         let token = CancellationToken::new();
         let began = std::time::Instant::now();
         // An open (for a turn, a carried mark, a worker's report) waits out full lanes rather than failing on them.
-        deps.store.unheld().await;
+        deps.store.unheld(id).await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let head = on_lane_wait(deps.lanes.io, &token, move |lane| store.read_head(lane, &thread)).await??;
         let headed = std::time::Instant::now();
-        deps.store.unheld().await;
+        deps.store.unheld(id).await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let (head, window) = on_lane_wait(deps.lanes.io, &token, move |lane| {
             let window = store.read_window(lane, &thread, &head);
@@ -1234,7 +1236,7 @@ impl DirInner {
         // opened log carries only for the runs still open, so the rest is read as a page of the same rows states it.
         let marked = log.window.iter().any(|(_, row)| row.form == mixdog_store::schema::record::Form::Message && row.turn.is_some());
         let ends: HashMap<String, TurnEndForm> = if marked {
-            deps.store.unheld().await;
+            deps.store.unheld(id).await;
             let (store, thread, rows) = (deps.store.clone(), id.clone(), log.window.len());
             let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
             records.iter().zip(&decor).filter_map(|(record, decor)| Some((record.iid.as_str().to_owned(), decor.end?))).collect()
@@ -1244,7 +1246,7 @@ impl DirInner {
         let fold_deps = deps.clone();
         let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| fold_opened(lane, &fold_deps, log, &ends)).await?;
         let folded = std::time::Instant::now();
-        deps.store.unheld().await;
+        deps.store.unheld(id).await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
         let fenced_at = std::time::Instant::now();
@@ -1501,15 +1503,37 @@ impl DirInner {
         })
     }
 
-    /// Joined to its tree before the count moves: a preparation that reads the count after this finds the link.
-    fn register_created(&self, header: &Header, id: &ThreadId) {
-        if mixdog_store::summary::session_visibility(header) == "agent-only" {
+    /// Joined to its tree before the count moves: a preparation that reads the count after this finds the link, until the
+    /// session's catalog row holds it ([`Self::unlink_created`]). Whether the session was linked.
+    fn register_created(&self, header: &Header, id: &ThreadId) -> bool {
+        let linked = mixdog_store::summary::session_visibility(header) == "agent-only";
+        if linked {
             let mut links = lock(&self.created_links);
             for parent in super::sub_agent_retention::parent_ids(header, id.as_str()) {
                 links.entry(parent).or_default().push(id.as_str().to_owned());
             }
         }
         self.created.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        linked
+    }
+
+    /// `child` is no longer joined to its tree from here: its catalog row holds its links (its first record, which carries
+    /// the row, is durable), or it was never made, or it was deleted. A tree read takes the links before the rows
+    /// ([`SessionDirectory::join_created`]), so it finds the child in one or the other.
+    fn unlink_created(&self, child: &ThreadId) {
+        lock(&self.created_links).retain(|_, children| {
+            children.retain(|linked| linked != child.as_str());
+            !children.is_empty()
+        });
+    }
+
+    /// Thread `id` was deleted: its Stop latches ([`super::control::StopLatches::forget`]), what the store kept for its
+    /// reads, and its links as a created child or as the parent of one go.
+    pub(crate) fn forget_deleted(&self, id: &ThreadId) {
+        self.stop_latches.forget(id);
+        self.deps.store.forget(id);
+        self.unlink_created(id);
+        lock(&self.created_links).remove(id.as_str());
     }
 
     /// A new thread: its `session` record is its first durable write; the reply follows it.
@@ -1525,7 +1549,6 @@ impl DirInner {
         // header was copied with (a fork's), else 0. A session without the key is one an earlier build or a migration
         // wrote, whose earlier calls are not known (`SessionActor::new`).
         header.entry(mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY).or_insert(json!(0));
-        self.register_created(&header, &id);
         // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
         // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
         // rows names what they name: it holds none, and its transcript is scanned.
@@ -1577,10 +1600,22 @@ impl DirInner {
             shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
             (handle, launch)
         };
+        let linked = self.register_created(&header, &id);
         launch();
         // The slot is the actor's from here: a failed first record, an unwind or any other end of the actor releases it
-        // (`release`), whether or not this caller is still waiting, so no way out of this wait removes anything.
-        rx.await.map_err(|_| CoreError::ThreadClosing { thread_id: id.clone() })??;
+        // (`release`), whether or not this caller is still waiting, so no way out of this wait removes anything. The first
+        // record's answer (the catalog row with it) is awaited apart from this caller, which may stop waiting: the links
+        // joined above go once it came, or once the actor ended without one.
+        let (answer, answered) = oneshot::channel();
+        let (directory, child) = (self.me.clone(), id.clone());
+        tokio::spawn(async move {
+            let first = rx.await;
+            if linked && let Some(directory) = directory.upgrade() {
+                directory.unlink_created(&child);
+            }
+            let _ = answer.send(first);
+        });
+        answered.await.ok().ok_or_else(|| CoreError::ThreadClosing { thread_id: id.clone() })?.map_err(|_| CoreError::ThreadClosing { thread_id: id.clone() })??;
         match self.loaded(&id) {
             Some(loaded) if Arc::ptr_eq(&loaded, &handle) => Ok(loaded),
             _ => Err(CoreError::ThreadClosing { thread_id: id }),
@@ -2303,7 +2338,7 @@ impl SessionDirectory {
     /// The live history row `iid` with its ordinal, as the transcript reads it.
     pub(crate) async fn history_row(&self, id: &ThreadId, iid: &str) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         let deps = &self.inner.deps;
-        deps.store.unheld().await;
+        deps.store.unheld(id).await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.history_row(lane, &thread, &iid)).await?
     }
@@ -2335,7 +2370,7 @@ impl SessionDirectory {
     /// The live compaction (ordinal and `cid`) whose replacement holds the entry `iid`.
     pub(crate) async fn compaction_entry(&self, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
-        deps.store.unheld().await;
+        deps.store.unheld(id).await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.compaction_entry(lane, &thread, &iid)).await?
     }
@@ -2538,9 +2573,23 @@ impl SessionDirectory {
         self.inner.created.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// The agent-only sessions this process created, under each owner or parent they name.
-    pub(crate) fn created_links(&self) -> HashMap<String, Vec<String>> {
-        lock(&self.inner.created_links).clone()
+    /// Joins to `adjacency` the agent-only sessions this process created whose catalog row may not hold them yet, under
+    /// each owner or parent they name. Taken before the rows a tree read joins them to: a link that goes meanwhile goes
+    /// once its row is in the catalog.
+    pub(crate) fn join_created(&self, adjacency: &mut super::archive_trees::Adjacency) {
+        adjacency.join(&lock(&self.inner.created_links));
+    }
+
+    /// How many sessions are joined to a tree as created ([`Self::join_created`]).
+    #[cfg(test)]
+    pub(crate) fn created_linked(&self) -> usize {
+        lock(&self.inner.created_links).values().map(Vec::len).sum()
+    }
+
+    /// Whether the work submitted under `submission` is latched as stopped in thread `id` ([`Self::latch_work`]).
+    #[cfg(test)]
+    pub(crate) fn work_latched(&self, id: &ThreadId, submission: &str) -> bool {
+        self.inner.stop_latches.latched(id, &mixdog_store::work_stops::submission(submission))
     }
 
     /// The ids of every loaded thread (the threads this process hosts).

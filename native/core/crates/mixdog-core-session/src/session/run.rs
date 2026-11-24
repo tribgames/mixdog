@@ -91,7 +91,7 @@ impl ModelContext {
     /// write acknowledged before the ask is counted, and the index holds what is counted.
     pub async fn len(&self) -> Result<usize, CoreError> {
         let token = CancellationToken::new();
-        self.store.unheld().await;
+        self.store.unheld(&self.thread).await;
         let (store, thread) = (self.store.clone(), self.thread.clone());
         self.lanes.io.submit_wait(&token, move |lane| store.context_len(lane, &thread)).await.map_err(context_refused)?.await.map_err(|_| context_dropped())?
     }
@@ -179,7 +179,7 @@ pub(super) async fn fold_context_until<T: Default + Send + 'static>(
     let mut read = None;
     let (mut acc, mut visit) = (T::default(), visit);
     loop {
-        store.unheld().await;
+        store.unheld(thread).await;
         let (store_io, thread) = (store.clone(), thread.clone());
         let page = lanes
             .io

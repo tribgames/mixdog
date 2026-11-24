@@ -40,7 +40,7 @@ impl DirectoryHomeThreads {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
         let deps = self.directory.deps();
-        deps.store.unheld().await;
+        deps.store.unheld(thread).await;
         let (store, id) = (deps.store.clone(), thread.clone());
         let read = mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &id))
             .await

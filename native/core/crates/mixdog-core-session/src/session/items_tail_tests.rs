@@ -527,11 +527,17 @@ async fn cancelling_a_read_at_the_read_barrier_reports_caller_cancellation() {
             .await
             .expect("the thread store"),
     );
-    let _log = create(&threads, tokens, "cancel-turns", plain(1)).await;
+    let log = create(&threads, tokens, "cancel-turns", plain(1)).await;
     let rig = super::testing::Rig::new();
     let directory = super::SessionDirectory::new(rig.deps_on(threads.clone()));
     let (held, release) = threads.hold_index();
     held.await.expect("index held");
+    // The thread's own write, acknowledged and behind the held index: what its reads wait for at the barrier.
+    mixdog_core_base::support::on_lane_wait(tokens.durability_io, &CancellationToken::new(), move |lane| {
+        log.lock().expect("log").commit(lane, &[assistant(1, "t0", true)]).expect("the thread's write");
+    })
+    .await
+    .expect("job");
     let reads = [
         ("thread/turns/list", json!({"threadId": "cancel-turns", "itemsView": false})),
         ("thread/turns/list", json!({"threadId": "cancel-turns", "itemsView": true})),

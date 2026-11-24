@@ -218,16 +218,18 @@ fn epoch_of(tx: &Transaction<'_>, session: &str, ordinal: i64, rev: i64) -> rusq
     .optional()
 }
 
+/// The newest live version of message `iid`, found through its id: the session's order, which the planner takes for the
+/// `ORDER BY` without the index named, walks every version of the session when `iid` has none (a display item's amend).
+pub(crate) const AMEND_ROW_SQL: &str = "SELECT ordinal, idx, ver, counted, real, place FROM message_rows INDEXED BY message_rows_iid
+     WHERE session = ?1 AND iid = ?2 AND live = 1 ORDER BY ordinal DESC, idx DESC LIMIT 1";
+
 /// An amend of message `iid` (an item or a replacement entry alike: 1.4.5 edits the message
 /// in `session.messages` in place and its summary re-reads that array,
 /// `_sessionMessageProjection`): a new version of the row, whose place and role-derived
 /// `counted` stay the row's; the epoch's `real` moves by the difference.
 pub(crate) fn amend(tx: &Transaction<'_>, session: &str, iid: &str, at: i64, loc: FrameLoc, new: &MessageRow) -> rusqlite::Result<()> {
     let old: Option<(i64, i64, i64, bool, bool, i64)> = tx
-        .prepare_cached(
-            "SELECT ordinal, idx, ver, counted, real, place FROM message_rows
-             WHERE session = ?1 AND iid = ?2 AND live = 1 ORDER BY ordinal DESC, idx DESC LIMIT 1",
-        )?
+        .prepare_cached(AMEND_ROW_SQL)?
         .query_row(params![session, iid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
         .optional()?;
     let Some((ordinal, idx, ver, counted, real, place)) = old else { return Ok(()) };
