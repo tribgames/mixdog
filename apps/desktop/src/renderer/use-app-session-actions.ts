@@ -3,6 +3,7 @@ import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract'
 import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
+import { forgetHomeSessionAvatarImages } from './agent-avatar-image-cache';
 import { forgetComposerScope } from './composer-draft';
 import { errorMessage } from './editor-pane-session-errors';
 import { deleteSessionImagePreviews } from './image-preview-store';
@@ -178,6 +179,7 @@ export function useAppSessionActions({
       onSessionDeleted(sessionId);
       forgetComposerScope(sessionId);
       deleteSessionImagePreviews(sessionId);
+      forgetHomeSessionAvatarImages(sessionId);
       pendingRenames.current.delete(sessionId);
       closeTabsAndFollow(sessionId, true);
     },

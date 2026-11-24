@@ -47,7 +47,13 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingCli
   };
 };
 
-const { SessionTerminalParkingHost, SessionTerminalSlot, sessionTerminalId, useSessionTerminalSurfaces } = await import(
+const {
+  SessionTerminalParkingHost,
+  SessionTerminalSlot,
+  reportingTerminalDisposer,
+  sessionTerminalId,
+  useSessionTerminalSurfaces,
+} = await import(
   './session-terminal-surfaces.tsx'
 );
 const { applyTerminalActivity, StableTerminalFitScheduler } = await import('./terminal-fit.ts');
@@ -375,6 +381,47 @@ test('releasing a session removes its surface and disposes its terminal identity
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+test('releasing a session with no surface still disposes its terminal identity', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const disposed = [];
+  let controller = null;
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(Harness, {
+          sessionId: 'beta',
+          active: false,
+          cwd: 'C:/beta',
+          disposeTerminal: (terminalId) => disposed.push(terminalId),
+          onController: (value) => {
+            controller = value;
+          },
+        })
+      )
+    );
+    assert.equal(document.querySelector('.session-terminal-surface-container'), null);
+    await act(async () => controller.release('beta'));
+    assert.deepEqual(disposed, [sessionTerminalId('beta')]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('a rejected terminal dispose is reported, not left unhandled', async () => {
+  const failure = new Error('dispose failed');
+  const reports = [];
+  const dispose = reportingTerminalDisposer(
+    () => Promise.reject(failure),
+    (phase, error) => reports.push([phase, error])
+  );
+  dispose('term-x');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(reports, [['unhandled-rejection', failure]]);
 });
 
 test('parked terminal activity releases its renderer and pauses fitting', () => {

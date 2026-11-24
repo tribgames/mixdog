@@ -7,6 +7,7 @@ import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../s
 import type { RecordValue } from './desktop-types';
 import { modelRouteWrite } from '../shared/model-route-write';
 import { leadRouteFrom } from './draft-pane-prefs-store';
+import { forgetAgentAvatarImages } from './agent-avatar-image-cache';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import { record } from './record-utils';
@@ -121,6 +122,7 @@ export function useWorkflowEditors({
   const deleteAgent = async (id: string) => {
     const result = await run('deleteAgentDefinition', [id]);
     if (result !== undefined) {
+      forgetAgentAvatarImages(id);
       setAgentEditor(null);
       showDesktopToast(t('Deleted agent "{{id}}".', { id }), 'success');
     }

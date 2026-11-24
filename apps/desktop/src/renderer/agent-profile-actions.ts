@@ -9,6 +9,7 @@ import type { DesktopApi } from '../shared/contract';
 import { confirmAction, promptAction } from './app-confirm';
 import { publishMixyStatus } from './mixy-identity';
 import type { AgentContact } from './agent-contacts-model';
+import { forgetAgentAvatarImages } from './agent-avatar-image-cache';
 import { forgetArchivedBotIdentity } from './archived-bot-identity';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
@@ -94,6 +95,7 @@ export async function deleteAgent(deps: AgentActionDeps, agentId: string, name: 
     await api.invokeCapability({ capability: 'deleteAgentDefinition', args: [agentId] });
     invalidateSidebarReferenceForMutation('deleteAgentDefinition');
     setBotHiddenInSidebar(agentId, false); // a deleted bot leaves no stale hidden flag
+    forgetAgentAvatarImages(agentId);
     window.dispatchEvent(new CustomEvent(BOT_DELETED_EVENT, { detail: { sessionId: agentHomeSessionId(agentId) } }));
     showDesktopToast(t('Deleted bot "{{id}}".', { id: name }), 'success');
     return true;
