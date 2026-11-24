@@ -351,6 +351,10 @@ test('a blocked core names its own reason and no owner is blamed beside it', asy
       readyTimeoutMs: 1_000,
       runs: () => true,
     }),
-    (error: Error) => error.message === 'core is not ready: the core is blocked ({"kind":"undecidable"})'
+    (error: Error & { coreBlocked?: { pid: number | null; kind: string; releasable: boolean } }) =>
+      error.message === 'core is not ready: the core is blocked by an earlier owner of the data directory' &&
+      error.coreBlocked?.pid === null &&
+      error.coreBlocked.kind === 'undecidable' &&
+      error.coreBlocked.releasable === true
   );
 });
