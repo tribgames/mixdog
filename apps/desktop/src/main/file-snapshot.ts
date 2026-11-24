@@ -217,9 +217,12 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     const file = snapshotFileUrl(root, url.pathname);
     return file && snapshotRequestAllowed(root, file, onlyFile) ? net.fetch(file) : new Response(null, { status: 404 });
   });
-  const aborted = new Promise<never>((_resolve, reject) =>
-    signal.addEventListener('abort', () => reject(new Error('The snapshot was cancelled.')), { once: true })
-  );
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new Error('The snapshot was cancelled.'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  const { webRequest } = snapshotRendering.session;
   try {
     contents.session.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) =>
       // Only this window's own requests (its dedicated workers' included): a
@@ -247,6 +250,8 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     rendering.catch(() => undefined);
     return await Promise.race([rendering, aborted]);
   } finally {
+    signal.removeEventListener('abort', onAbort);
+    webRequest.onBeforeRequest(null);
     window.destroy();
     await own.release();
   }

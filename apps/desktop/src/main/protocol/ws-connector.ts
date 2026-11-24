@@ -39,9 +39,10 @@ export function createWsConnector(
         await new Promise<void>((resolveOpen, rejectOpen) => {
           socket.once('open', () => resolveOpen());
           socket.once('error', rejectOpen);
-          socket.once('unexpected-response', (_request, response) =>
-            rejectOpen(new Error(`The core refused the connection (HTTP ${response.statusCode}).`))
-          );
+          socket.once('unexpected-response', (_request, response) => {
+            socket.terminate();
+            rejectOpen(new Error(`The core refused the connection (HTTP ${response.statusCode}).`));
+          });
         });
       } catch (error) {
         log('core-socket-open-failed', {

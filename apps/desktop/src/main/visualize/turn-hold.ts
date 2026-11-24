@@ -440,6 +440,11 @@ export function createTurnHolds(
 
   return {
     setTurnActive,
+    /** The session is deleted: its held turn goes without publishing anything. */
+    discard(sessionId: string): void {
+      holds.delete(sessionId);
+      ends.delete(sessionId);
+    },
     /** Resolves once no turn end of the session is being applied. What an agent asks for meanwhile is the next turn's:
      *  it runs after the end, so that end's result holds nothing of it. */
     async ended(sessionId: string): Promise<void> {

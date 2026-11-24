@@ -55,7 +55,8 @@ function build(overrides = {}) {
   const fire = (toast, event, ...args) => {
     for (const [t, e, fn] of listeners) if (t === toast && e === event) fn(...args);
   };
-  return { show, calls, sent, fire, closeAll };
+  const closeConnection = (connectionId) => handlers.get('host/notification/close')({ connectionId });
+  return { show, calls, sent, fire, closeAll, closeConnection };
 }
 
 test('a click on a local toast brings the window forward on the session it names and reports the click to the core', () => {
@@ -186,4 +187,19 @@ test('the sound plays when the OS shows the toast, once, not when show() returns
   fire(calls.toasts[0], 'show');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.sounds, [40]);
+});
+
+test("a server's toast that failed or could not be shown is no longer held by its connection", () => {
+  const failed = build();
+  failed.show({ title: 'T', body: 'B', connectionId: 'srv' });
+  failed.show({ title: 'T', body: 'B', connectionId: 'srv' });
+  failed.fire(failed.calls.toasts[0], 'failed', {}, 'no service');
+  failed.closeConnection('srv');
+  assert.equal(failed.calls.toasts[0].closed, undefined, 'the failed toast is already forgotten');
+  assert.equal(failed.calls.toasts[1].closed, 1);
+
+  const broken = build({ showThrows: true });
+  broken.show({ title: 'T', body: 'B', connectionId: 'srv' });
+  broken.closeConnection('srv');
+  assert.equal(broken.calls.toasts[0].closed, undefined, 'a toast that never showed is not held');
 });

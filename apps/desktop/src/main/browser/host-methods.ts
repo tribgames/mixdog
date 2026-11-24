@@ -162,6 +162,7 @@ export function createBrowserSessionRelease(options: {
     const ownerSessionId = browserSessionId(sessionId);
     options.display.release(ownerSessionId);
     options.remote.releaseViewer(ownerSessionId);
+    if (releaseOptions.restore !== true) options.remote.forgetGeometry(ownerSessionId);
     options.presentationReads.release(ownerSessionId);
     options.nativeViews?.present(ownerSessionId, null);
     options.releaseLocal({ action: 'remote_control', session_id: ownerSessionId });

@@ -69,6 +69,9 @@ export interface TabState {
   targets: FileTarget[];
   panes: VisualizePaneView[];
   unwatch: Array<() => void>;
+  /** Aborted once the tab is closed or its session deleted (tabs.ts `end`):
+   *  work run for the tab (`whileOpen`) never resumes after that. */
+  lifetime: AbortController;
   reloadTimer: NodeJS.Timeout | null;
   /** The live files are gone (deleted, or their folder removed): the tab shows
    *  a "file was removed" notice and retries until they are back. */

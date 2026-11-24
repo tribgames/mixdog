@@ -1,3 +1,5 @@
+import type { WebContents } from 'electron';
+
 import {
   DESKTOP_IPC,
   MAIN_BROWSER_PAGE_PREFIX,
@@ -136,6 +138,25 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
   // or control request (still queued in the renderer, or already awaiting page
   // creation) must not recreate the page, so the id stays closed.
   const releasedPages = new Set<string>();
+  // Only the renderer that released an id can still send requests for it: they end with that renderer's page.
+  const releasedBy = new WeakMap<object, Set<string>>();
+  const rememberReleased = (sender: WebContents, pageId: string): void => {
+    releasedPages.add(pageId);
+    let ids = releasedBy.get(sender);
+    if (!ids) {
+      const owned = new Set<string>();
+      ids = owned;
+      releasedBy.set(sender, owned);
+      const forget = () => {
+        for (const id of owned) releasedPages.delete(id);
+        owned.clear();
+      };
+      sender.on('did-navigate', forget);
+      sender.on('render-process-gone', forget);
+      sender.once('destroyed', forget);
+    }
+    ids.add(pageId);
+  };
   const live = (pageId: string) => {
     if (releasedPages.has(pageId)) throw new Error('Browser page was closed.');
   };
@@ -225,11 +246,11 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
   });
   // The renderer may only release pages it owns: main-workspace browser tabs.
   // A conversation's own page belongs to the agent's session lifecycle.
-  handle(DESKTOP_IPC.browserReleasePage, (_event, sessionId) => {
+  handle(DESKTOP_IPC.browserReleasePage, (event, sessionId) => {
     if (!browserHost) return;
     const pageId = requiredSessionId(sessionId);
     if (!pageId.startsWith(MAIN_BROWSER_PAGE_PREFIX)) throw new TypeError('Browser page is not a main tab page.');
-    releasedPages.add(pageId);
+    rememberReleased(event.sender, pageId);
     browserHost.releaseSession(pageId);
   });
   handle(DESKTOP_IPC.browserConfigureGuestViewport, (_event, sessionId, webContentsId, value) => {

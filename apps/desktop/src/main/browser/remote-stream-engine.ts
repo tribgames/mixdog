@@ -98,7 +98,7 @@ function createGeometryLock(host: StreamEngineHost) {
     }
   }
 
-  return { lock, relock };
+  return { lock, relock, forget: (sessionId: string) => generations.delete(sessionId) };
 }
 
 /** Turns a stream's screencast images and its page's facts into queued frames. */
@@ -313,5 +313,11 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
     return stream.work;
   }
 
-  return { publishFacts, check, reconcile, stopRun: (stream: RemoteStream) => stopRun(cdp, stream) };
+  return {
+    publishFacts,
+    check,
+    reconcile,
+    stopRun: (stream: RemoteStream) => stopRun(cdp, stream),
+    forgetGeometry: geometry.forget,
+  };
 }

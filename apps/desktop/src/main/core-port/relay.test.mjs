@@ -504,3 +504,36 @@ test('boot reports: an error whose text happens to say what a terminal answer sa
   });
   await assert.rejects(relay.open(webContents()), /mixdog-core-launch-failed/);
 });
+
+test('an open superseded while its channel is being made closes both ends of that channel', async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const made = [];
+  const relay = new CorePortRelay({
+    coreWindowScope: async () => 1,
+    endpointFor: async () => [{ slot: 'primary', url: 'ws://x', token: 't', role: 'main', target: { id: 'core' } }],
+    createSocket: () => {
+      const socket = new FakeSocket();
+      queueMicrotask(() => socket.emit('open'));
+      return socket;
+    },
+    createChannel: async () => {
+      await gate;
+      const channel = { port1: new FakePort(), port2: new FakePort() };
+      made.push(channel);
+      return channel;
+    },
+    log: () => {},
+  });
+  const wc = webContents();
+  const stale = relay.open(wc);
+  await flush();
+  const fresh = relay.open(wc);
+  await flush();
+  release();
+  await assert.rejects(stale, /superseded/);
+  await fresh;
+  assert.equal(made[0].port1.isClosed, true);
+  assert.equal(made[0].port2.isClosed, true, 'the end that was never delivered is closed too');
+  assert.equal(made[1].port2.isClosed, false);
+});

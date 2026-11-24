@@ -1,5 +1,6 @@
 import type { VisualizeServiceContext } from './context';
 import type { FileTarget, TabState } from './tab-state';
+import { step, type TabWork, whileOpen } from './tabs';
 import { isFileMissing, OutsideRecordedRootError, resolveTargetWithin } from './targets';
 import { heldTurn } from './turn-hold';
 
@@ -15,13 +16,13 @@ export const loadIsCurrent = (tab: TabState, stamp: number): boolean => stamp > 
 
 /** What a restore of the version on screen would overwrite may have changed
  *  with the files: re-read it and publish when it did. */
-async function refreshRestoreAssets(
+function* refreshRestoreAssets(
   ctx: Pick<VisualizeServiceContext, 'tabVersions' | 'publish'>,
   sessionId: string,
   tab: TabState,
   shown: NonNullable<TabState['shown']>
-): Promise<void> {
-  const restoreAssets = await ctx.tabVersions.restoreAssetsOf(sessionId, tab, shown.n);
+): TabWork {
+  const restoreAssets = yield* step(ctx.tabVersions.restoreAssetsOf(sessionId, tab, shown.n));
   if (tab.shown === shown && restoreAssets.join('\0') !== shown.restoreAssets.join('\0')) {
     shown.restoreAssets = restoreAssets;
     ctx.publish(sessionId);
@@ -56,13 +57,12 @@ export function createReloads(
     reloadSettlers.delete(tab);
   };
 
-  const reload = async (sessionId: string, tab: TabState, versionLabel?: string): Promise<void> => {
-    const state = sessions.get(sessionId);
-    if (!state?.tabs.includes(tab)) return;
+  /** One reload of `tab`, run while the tab is open (`reload`). */
+  function* reloadSteps(sessionId: string, tab: TabState, versionLabel?: string): TabWork {
     // A kept version is on screen: live reloads wait for "Back to live".
     if (tab.shown) {
       tab.pendingReload = true;
-      await refreshRestoreAssets(ctx, sessionId, tab, tab.shown);
+      yield* refreshRestoreAssets(ctx, sessionId, tab, tab.shown);
       return;
     }
     // Everything below is resolved against this cwd; a reopen in another cwd,
@@ -74,11 +74,11 @@ export function createReloads(
       // Re-resolve from the original request every time, inside the root
       // recorded at open: a parent folder swapped for a link must not carry
       // the tab (its page assets, versions or remote reads) anywhere else.
-      const targets: FileTarget[] = await Promise.all(
-        tab.targets.map((target) => resolveTargetWithin(cwd, target.target, [target.root]))
+      const targets: FileTarget[] = yield* step(
+        Promise.all(tab.targets.map((target) => resolveTargetWithin(cwd, target.target, [target.root])))
       );
-      const panes = await ctx.panes.preparePanes(targets);
-      if (!state.tabs.includes(tab) || superseded()) return;
+      const panes = yield* step(ctx.panes.preparePanes(targets));
+      if (superseded()) return;
       const moved = targets.some((target, index) => target.path !== tab.targets[index]?.path);
       // The files are back: a watch that died with their folder is armed again.
       const rearm = moved || tab.missing === true;
@@ -93,7 +93,7 @@ export function createReloads(
         for (const stop of tab.unwatch) stop();
         watchTab(sessionId, tab);
       }
-      await ctx.tabVersions.recordVersion(sessionId, tab, versionLabel);
+      yield* step(ctx.tabVersions.recordVersion(sessionId, tab, versionLabel));
       // A content update happens in place: no reveal, no activation.
       ctx.publish(sessionId, undefined, tab.id);
       ctx.thumbnails.refresh(sessionId, tab);
@@ -119,18 +119,25 @@ export function createReloads(
         if (tab.retryTimer) clearTimeout(tab.retryTimer);
         tab.retryTimer = setTimeout(() => {
           tab.retryTimer = null;
-          if (state.tabs.includes(tab)) scheduleReload(sessionId, tab);
+          scheduleReload(sessionId, tab);
         }, deps.reloadDebounceMs ?? MISSING_RETRY_MS);
         tab.retryTimer.unref?.();
       }
     }
+  }
+
+  /** Work for a tab closed meanwhile, or whose session was deleted, stops
+   *  where it waits (`whileOpen`). */
+  const reload = async (sessionId: string, tab: TabState, versionLabel?: string): Promise<void> => {
+    await whileOpen(tab, reloadSteps(sessionId, tab, versionLabel));
   };
 
   const scheduleReload = (sessionId: string, tab: TabState): void => {
     cancelScheduledReload(tab);
     // A verify-only tab is read off screen from the files as they are; it
     // keeps no live state to refresh (open it again to keep a version).
-    if (tab.verify) return;
+    // A closed one arms nothing: a change event or retry that outlived it ends here.
+    if (tab.verify || tab.lifetime.signal.aborted) return;
     // An agent turn is editing: the tab is marked now and reloads once
     // when the turn ends (turn-hold.ts), not after every write.
     const hold = heldTurn(ctx, sessionId);

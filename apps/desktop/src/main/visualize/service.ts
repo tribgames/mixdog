@@ -449,8 +449,30 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       refusePast(ctx, command.sessionId, command.tabId);
       return exportTabForDevice(sessions, exports, command);
     },
+    /** A deleted session: its tabs, watchers, kept versions, pictures and
+     *  remembered folder go with it. */
+    async releaseSession(sessionId: string): Promise<void> {
+      const closing = sessions.get(sessionId)?.tabs.splice(0) ?? [];
+      sessions.delete(sessionId);
+      ctx.sessionCwds.delete(sessionId);
+      turns.discard(sessionId);
+      const failures: unknown[] = [];
+      for (const tab of closing) {
+        try {
+          tabs.end(tab);
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        await versions?.dropSession(sessionId);
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length) throw failures[0];
+    },
     dispose(): void {
-      for (const state of sessions.values()) for (const tab of state.tabs) tabs.dispose(tab);
+      for (const state of sessions.values()) for (const tab of state.tabs) tabs.end(tab);
       sessions.clear();
     },
   };

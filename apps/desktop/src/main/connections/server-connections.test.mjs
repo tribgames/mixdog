@@ -4,11 +4,12 @@ import test from 'node:test';
 import { ConnectionPool } from './pool.ts';
 import { createServerConnections } from './server-connections.ts';
 
-function fixture({ failStart = false } = {}) {
+function fixture({ failStart = false, detached } = {}) {
   const pool = new ConnectionPool();
   const made = [];
   const connections = createServerConnections({
     pool,
+    detached,
     create: (record) => {
       const connection = {
         id: record.id,
@@ -67,4 +68,28 @@ test('quitting closes every server connection and leaves this PC out of it', asy
     [true, true]
   );
   assert.deepEqual(pool.list(), [local]);
+});
+
+test('a detached server connection is reported gone, also when it cannot close', async () => {
+  const gone = [];
+  const { made, connections } = fixture({ detached: (id) => gone.push(id) });
+  await connections.attach({ id: 'srv' });
+  made[0].dispose = async () => {
+    throw new Error('stuck');
+  };
+  await assert.rejects(connections.detach('srv'), /stuck/);
+  assert.deepEqual(gone, ['srv']);
+});
+
+test('a detach that finishes after a re-attach of the same id does not report the new connection gone', async () => {
+  const gone = [];
+  const { made, connections } = fixture({ detached: (id) => gone.push(id) });
+  await connections.attach({ id: 'srv' });
+  let finish;
+  made[0].dispose = () => new Promise((resolve) => (finish = resolve));
+  const detaching = connections.detach('srv');
+  await connections.attach({ id: 'srv' });
+  finish();
+  await detaching;
+  assert.deepEqual(gone, []);
 });

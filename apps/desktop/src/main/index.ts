@@ -23,7 +23,6 @@ import {
   webContents,
 } from 'electron';
 
-import { isSessionId } from './desktop-state';
 import { TAKEOVER_EXPIRED_REASON, takeoverGate } from './takeover-gate';
 import {
   allowsTaskbarFlash,
@@ -36,7 +35,6 @@ import { captureTakeoverOrDecline } from './takeover-capture';
 import { createTakeoverFeed } from './takeover-feed';
 import { observeCoreForMain } from './core-observers';
 import { createTakeoverStateHandler } from './takeover-state';
-import { secretInputs } from './secret-input';
 import {
   ConnectionPool,
   LOCAL_CONNECTION_ID,
@@ -79,7 +77,9 @@ import {
 } from './notification-window';
 import { createDesktopPet, type DesktopPet, type PetWindow } from './desktop-pet-window';
 import { hostDeviceName } from './session-device';
-import { endBrowserApprovalSession, setBrowserApprovalHooks } from './browser/approval-dialog';
+import { setBrowserApprovalHooks } from './browser/approval-dialog';
+import { endSessionRuntime } from './session-runtime-end';
+import { releaseDeletedSession } from './session-release';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
 import { createTranscriptTap } from './host/browser-engine/transcript';
 import { createBrowserApprovalGrants } from './browser/approval-grants';
@@ -867,7 +867,12 @@ setBrowserApprovalHooks({
     notification.on('click', () => {
       if (!target || !openDesktopNotificationSession(window, target)) activateDesktopWindow(window);
     });
-    notification.show();
+    try {
+      notification.show();
+    } catch (error) {
+      liveNotifications.delete(notification);
+      throw error;
+    }
     if (process.platform === 'win32') void playNotificationSound().catch(() => undefined);
   },
 });
@@ -951,17 +956,6 @@ const onTakeoverState = createTakeoverStateHandler({
 });
 unsubscribeTakeovers = localService.subscribeSessionStates(onTakeoverState);
 unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {
-  if (name === 'session-runtime-released') {
-    const event = value as { sessionId?: unknown; restore?: unknown } | null;
-    if (isSessionId(event?.sessionId)) {
-      browserHost?.releaseSession(event.sessionId, { restore: event.restore === true });
-      // A session's secrets are redacted for its lifetime, then forgotten.
-      if (event.restore !== true) secretInputs.forget(event.sessionId);
-      // What it was allowed "for this session" ends with it (a restorable release keeps the session).
-      if (event.restore !== true) endBrowserApprovalSession(event.sessionId);
-    }
-    return;
-  }
   // The window-process requests Node's service sent as the browser-remote-request event (updater, display preferences,
   // visualize, file snapshot, local page, notification status, browser methods) are the core's host/* requests now,
   // served by the host role (host/); trashItem is the core's projectFs/trash, provideSecretInput its approval/provideSecret.
@@ -1193,9 +1187,12 @@ localProtocol.onEvent((event) => {
   if (method !== 'thread/deleted') return;
   const threadId = (params as { threadId?: unknown } | undefined)?.threadId;
   if (typeof threadId !== 'string' || !threadId) return;
-  browserHost?.releaseSession(threadId);
-  // No row edge follows a deleted session: a turn of it that visualize still holds ends here.
-  void visualize.setTurnActive(threadId, false);
+  // No row edge follows a deleted session: its tabs, watchers and versions go here, its held turn unpublished.
+  void releaseDeletedSession([
+    () => browserHost?.releaseSession(threadId),
+    () => visualize.releaseSession(threadId),
+    () => endSessionRuntime(threadId),
+  ]);
 });
 // Visualize holds the panel for each Lead turn: a row's own edge says when a turn starts and ends (the roster below
 // coalesces turns that follow one another).
@@ -2442,6 +2439,7 @@ const serverConnections = createServerConnections<DesktopConnection>({
   pool: connectionPool,
   create: (record) =>
     createDesktopConnection({ id: record.id, kind: record.kind, name: record.name }, connectionDependencies),
+  detached: (id) => coreInitialized.delete(id),
 });
 const serverWindows = createServerWindows({
   core: localProtocol,

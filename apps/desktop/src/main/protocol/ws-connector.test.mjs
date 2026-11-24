@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import test from 'node:test';
 
 import { WebSocketServer } from 'ws';
@@ -179,4 +180,26 @@ test('socket-progress: the real ws library still exposes the raw socket this rel
   assert.ok(reports >= 1, 'the bytes of the message were reported by the raw socket');
   client.close();
   core.close();
+});
+
+test('a refused upgrade ends its socket at once instead of leaving it to the keep-alive close', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const server = createServer((_request, response) => {
+    response.writeHead(403);
+    response.end();
+  });
+  const closed = new Promise((resolve) => server.on('connection', (socket) => socket.on('close', () => resolve(true))));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const connector = createWsConnector(async () => ({
+      url: `ws://127.0.0.1:${server.address().port}/rpc`,
+      token: 't',
+    }));
+    await assert.rejects(connector.open({ id: 'core' }, { frame() {}, closed() {} }), /HTTP 403/);
+    const timer = new Promise((resolve) => setTimeout(resolve, 1500, false));
+    assert.equal(await Promise.race([closed, timer]), true);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
 });
