@@ -67,7 +67,12 @@ pub(super) struct Tab {
     pub(super) id: String,
     /// Creation order, kept by a respawn of the same id (Node's `terminals` map keeps the key's place).
     pub(super) seq: u64,
+    /// Spawn order in this run, a respawn's own ([`TerminalId`]).
+    pub(super) incarnation: u64,
     pub(super) handle: ProcessHandle,
+    /// The output of this terminal's own process, set by its spawn before the tab is listed: reading it never reaches a later process
+    /// of the same handle.
+    pub(super) output: std::sync::OnceLock<Arc<Feed>>,
     pub(super) shell: String,
     pub(super) cwd: Option<String>,
     /// Lock order, outermost first: `TerminalTabs::tabs`, `TerminalTabs::cursor_floors`,
@@ -249,6 +254,15 @@ impl Tab {
             went = true;
         }
         if went { self.events.published() } else { None }
+    }
+
+    /// Orders the tab's activity changes after its output on the relay feed (see [`RelayOrder`]): returns what the feed's pump calls with
+    /// the bytes of output it has taken so far (`u64::MAX` when it ends). Called by whoever starts that pump, once; a tab gone by then
+    /// (disposed and dropped) has nothing to order, and the pump holds the tab no longer than the tab is kept.
+    pub(super) fn relay_order(tab: &std::sync::Weak<Self>) -> Option<PumpTell> {
+        tab.upgrade()?.lock().order = Some(RelayOrder::default());
+        let tab = tab.clone();
+        Some(Arc::new(move |at| tab.upgrade().and_then(|tab| tab.pumped(at))))
     }
 
     /// The pump has taken `taken` bytes of output (tests name it so).

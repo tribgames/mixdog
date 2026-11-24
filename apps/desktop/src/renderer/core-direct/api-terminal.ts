@@ -69,9 +69,10 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
         throw new Error('The service terminal did not return a session.');
       }
       const ensured = sessionOf(terminalReply(value));
-      // A tab this connection does not read yet is attached: its output streams from the attach's position, and the attach's
-      // replay is the screen up to there; an attach in flight answers for it. A tab already read streams as it is.
-      const pending = feed.joinOrAttach(ensured.id);
+      // A tab this connection does not read yet, or reads for an earlier terminal of the id, is attached: its output streams from the
+      // attach's position, and the attach's replay is the screen up to there; an attach in flight answers for it. A tab already read
+      // for this terminal streams as it is.
+      const pending = feed.joinOrAttach(ensured.id, ensured.terminal);
       if (!pending) return ensured;
       // The shell runs whatever the attach answers, so the ensure answers it: a shell already gone has nothing to stream, and an
       // attach lost with the link leaves the tab to the next link's (a retried ensure without an id would spawn a second shell).

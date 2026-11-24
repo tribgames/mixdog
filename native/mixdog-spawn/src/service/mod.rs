@@ -8,10 +8,11 @@
 //!   a `kind` of `tool{threadId,toolCallId}`, `terminalTab{tabId}`, `lsp{root,lang}`,
 //!   `internal`; the same kinds as a single-key object work too.
 //! - `terminal/ensure` options `{profile?, cwd?, cols?, rows?}`; result `{id, replay,
-//!   sizeOwner}` and `terminal/attach` result `{id, replay, sizeOwner}` (a tab that is not running answers `null`), where `sizeOwner` is
-//!   `{cols, rows, own}` for the calling connection, or `null`.
+//!   sizeOwner, client, terminal}` and `terminal/attach` result the same (a tab that is not running answers `null`), where
+//!   `sizeOwner` is `{cols, rows, own}` for the calling connection, or `null`, and `terminal` is `{core, incarnation}`
+//!   (`terminal_json`): which terminal of the id, as the tab list and the terminal lane's `process/exited` name it too.
 //! - Section `terminalActivity`: `{<tabId>: "idle"|"running"|"finished"}` (an unknown state is
-//!   absent). Section `terminalTabs`: `[{id, shell, running, cwd, sizeOwner:{cols,rows,owner}}]`.
+//!   absent). Section `terminalTabs`: `[{id, shell, running, cwd, terminal, sizeOwner:{cols,rows,owner}}]`.
 //! - Section `ports` on the scoped feed `ports`: the full list `[{port, addresses, process,
 //!   pid}]`, published only when a sample differs from the previous one.
 

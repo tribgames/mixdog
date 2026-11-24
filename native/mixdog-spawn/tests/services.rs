@@ -631,6 +631,69 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
     service.tabs().dispose_all();
 }
 
+/// A phone tells the terminals of one tab id apart by the `terminal` the core names them with: the ensure and attach answers, the tab's
+/// row of the tab list and its exit on the terminal lane name the same one. A later terminal of the id (here after a dispose) has a later
+/// incarnation of the same core, and another run of the tab layer (a restarted core) names its terminals with another core.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_terminal_is_named_alike_by_its_answers_its_row_and_its_exit_and_apart_from_the_ids_next_one_and_another_cores() {
+    use mixdog_core_api::ids::FeedId;
+    use mixdog_core_api::mock::FeedTap;
+
+    let manager = manager();
+    let made = scoped();
+    let feeds = ProcessFeeds::new(manager.clone(), made.clone());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager.clone(), feeds, publisher.clone(), TerminalServiceConfig::default());
+    let phone = FeedTap::attach_as(&made.find(&FeedId::from("process:relay")).expect("the terminal lane exists"), 2);
+    let tab = "term_named";
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let ensure = || request("terminal/ensure", json!({ "tabId": tab, "options": { "cwd": cwd } }), 1);
+    let listed = || -> Option<Value> {
+        let (_, _, change) = publisher.published().into_iter().rev().find(|(s, _, _)| *s == SectionName::TerminalTabs)?;
+        let SectionChange::Set(bytes) = change else { return None };
+        let tabs: Value = serde_json::from_slice(&bytes).ok()?;
+        Some(tabs.as_array()?.iter().find(|row| row["id"] == tab)?["terminal"].clone())
+    };
+
+    let Reply::Value(ensured) = service.call(ensure()).await.unwrap() else {
+        panic!("terminal/ensure answers with a value");
+    };
+    let first = ensured["terminal"].clone();
+    assert!(first["core"].as_str().is_some_and(|core| !core.is_empty()) && first["incarnation"].is_u64(), "an ensure names its terminal: {first}");
+    publisher.wait_for("the tab listed with the terminal its ensure named", |_| listed().as_ref() == Some(&first)).await;
+    let Reply::Subscribe(sub) = service.call(request("terminal/attach", json!({ "tabId": tab }), 2)).await.unwrap() else {
+        panic!("terminal/attach answers with a subscription");
+    };
+    assert_eq!(sub.result["terminal"], first, "an attach names the terminal it attached");
+
+    service.call(request("terminal/dispose", json!({ "tabId": tab }), 1)).await.unwrap();
+    let frames = tokio::time::timeout(
+        EVENT_DEADLINE,
+        phone.notifications_until(|frames| frames.iter().any(|frame| frame["method"] == "process/exited" && frame["params"]["processHandle"] == tab)),
+    )
+    .await
+    .expect("the terminal lane never carried the disposed terminal's exit");
+    let exit = frames.iter().find(|frame| frame["method"] == "process/exited").expect("the exit");
+    assert_eq!(exit["params"]["terminal"], first, "the exit names the terminal that ended");
+
+    let Reply::Value(ensured) = service.call(ensure()).await.unwrap() else {
+        panic!("terminal/ensure answers with a value");
+    };
+    let second = ensured["terminal"].clone();
+    assert_eq!(second["core"], first["core"], "one run names its terminals with one core");
+    assert!(second["incarnation"].as_u64() > first["incarnation"].as_u64(), "the id's next terminal is a later one: {first}, then {second}");
+    publisher.wait_for("the id's next terminal listed", |_| listed().as_ref() == Some(&second)).await;
+    service.tabs().dispose_all();
+
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let restarted = TerminalService::new(manager, feeds, Arc::new(SectionLog::default()), TerminalServiceConfig::default());
+    let Reply::Value(ensured) = restarted.call(ensure()).await.unwrap() else {
+        panic!("terminal/ensure answers with a value");
+    };
+    assert_ne!(ensured["terminal"]["core"], first["core"], "another run names its terminals with another core");
+    restarted.tabs().dispose_all();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn ports_are_sampled_only_while_a_connection_views_them() {
     let reads = Arc::new(AtomicUsize::new(0));

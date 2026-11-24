@@ -114,6 +114,23 @@ export function terminalSizeOwnerChanges(
   return events;
 }
 
+/** Which terminal of a tab id: the run of the core it came from, and its place among that run's terminals. The answers, the tab list
+ *  and every frame of a terminal's output and exit name it; the terminals of two runs have no order. */
+export type TerminalId = { core: string; incarnation: number };
+
+/** The terminal a reply, a tab row or a frame names; none from a core that predates terminal names. */
+export function terminalOf(value: unknown): TerminalId | undefined {
+  const named = value as { core?: unknown; incarnation?: unknown } | null | undefined;
+  return typeof named?.core === 'string' && typeof named.incarnation === 'number'
+    ? { core: named.core, incarnation: named.incarnation }
+    : undefined;
+}
+
+/** `a` against `b` within one run: negative is an earlier terminal, zero the same one, positive a later one. Another run's: no order. */
+export function compareTerminals(a: TerminalId, b: TerminalId): number | undefined {
+  return a.core === b.core ? a.incarnation - b.incarnation : undefined;
+}
+
 export type TerminalReplayCut = { stream: string; offset: number };
 
 export function terminalReplayCut(reply: unknown): TerminalReplayCut | undefined {
