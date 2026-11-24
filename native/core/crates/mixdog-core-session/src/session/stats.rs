@@ -147,6 +147,13 @@ impl SessionStats {
         self.readout = Some(readout);
     }
 
+    /// A reading of the context taken between model calls (an agent's report): the context's reading only, every usage figure
+    /// stays as it was.
+    pub(crate) fn measured(&mut self, tokens: f64, at: i64) {
+        self.measurement = Measurement::Known(tokens, at);
+        self.folded = true;
+    }
+
     /// The reading the context status's `measurement` states (`sessionContextMeasurement`: known, unavailable or pending), which is
     /// the session's reading until it folds a model call of its own; after that the live reading stands. Returns whether the
     /// stats changed.
@@ -286,6 +293,25 @@ mod tests {
             json!({ "input": 1300, "cacheRead": 98900, "cacheWrite": 800, "output": 4010, "requestOutputTokens": 4010, "requestMs": 50100 })
         );
         assert_eq!(SessionStats::opened(None).json(0)["usageReadout"], Value::Null);
+    }
+
+    /// An agent's report of its context between model calls moves the context's reading and nothing else: the totals and
+    /// the latest call's figures stay as the last call left them.
+    #[test]
+    fn a_context_reading_between_calls_leaves_every_usage_figure_as_it_was() {
+        let mut stats = SessionStats::default();
+        stats.fold(&json!({ "deltaInput": 1200, "deltaOutput": 24, "deltaPrompt": 1200, "contextPromptTokens": 1200, "requestMs": 27, "ts": 5000, "costUsd": 0.5 }));
+        let before = stats.json(1);
+        stats.measured(9000.0, 6000);
+        let after = stats.json(1);
+        assert_eq!((after["currentContextTokens"].clone(), after["currentContextUpdatedAt"].clone()), (json!(9000), json!(6000)));
+        let (mut a, mut b) = (after.as_object().unwrap().clone(), before.as_object().unwrap().clone());
+        for key in ["currentContextTokens", "currentContextUpdatedAt"] {
+            a.remove(key);
+            b.remove(key);
+        }
+        assert_eq!(a, b);
+        assert_eq!(after["latestInputTokens"], json!(1200));
     }
 
     /// `num()` is `Number(v)` with a finite check: a numeric string, a fraction and a negative delta are

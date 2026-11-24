@@ -1864,6 +1864,72 @@ test("Context's kinds divide the head's reading in their estimated proportions, 
   assert.ok(Math.abs(filled() - 24) < 0.01, `the bar is filled to the reading: ${filled()}`);
 });
 
+test("An external agent's context shows Mixdog's own parts as they are, and the rest of the reading as what the agent holds", async () => {
+  const { contextMix, ContextBody } = await import('./ContextBody.tsx');
+  const status = {
+    messages: { semantic: { system: { tokens: 100 }, chat: { tokens: 50 } } },
+    request: { toolSchemaBreakdown: { code: { tokens: 30 }, skills: { tokens: 20 }, mcp: { tokens: 10 } }, requestOverheadTokens: 7 },
+  };
+  const rows = (mix) => Object.fromEntries(mix.categories.map((category) => [category.key, category.tokens]));
+  assert.deepEqual(rows(contextMix(status, 1000, 900, true)), {
+    system: 100,
+    mcp: 60,
+    memory: 0,
+    messages: 50,
+    reasoning: 0,
+    host: 690,
+  });
+  const mix = contextMix(status, 1000, 900, true);
+  assert.equal(mix.held, 900);
+  assert.equal(mix.free, 100);
+  assert.equal(rows(contextMix(status, 1000, null, true)).host, 0, 'no reading, nothing to say the agent holds');
+  // An estimate (210) above the agent's own count (100): the count is the measurement, the parts divide within it, and
+  // parts plus free space never pass the window.
+  const over = contextMix(status, 1000, 100, true);
+  const sum = (mix) => mix.categories.reduce((total, category) => total + category.tokens, 0);
+  assert.equal(rows(over).host, 0);
+  assert.equal(sum(over), 100);
+  assert.equal(sum(over) + over.free, 1000);
+  const tight = contextMix(status, 120, 120, true);
+  assert.ok(sum(tight) + tight.free <= 120, 'a window the reading fills has no free space and no overflow');
+  // A reading with no local estimate yet is all the agent's, and its rows show.
+  const bare = contextMix({}, 1000, 300, true);
+  assert.deepEqual([rows(bare).host, bare.categorized, bare.free], [300, 300, 700]);
+  assert.equal(rows(contextMix(status, 1000, 900, false)).host, undefined, 'a provider session has no row for the agent');
+
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const label = (provider) =>
+    renderToStaticMarkup(
+      React.createElement(ContextBody, {
+        status: { sessionId: 'label', contextWindow: 1000, measurement: { source: 'last_api_request', tokens: 900 } },
+        snapshot: { provider },
+      })
+    );
+  // The dialog reads `contextStatus` with an inspection attached: an agent's session still shows the rail's composition.
+  const inspected = renderToStaticMarkup(
+    React.createElement(ContextBody, {
+      status: {
+        sessionId: 'inspected',
+        contextWindow: 1000,
+        measurement: { source: 'last_api_request', tokens: 900 },
+        messages: { semantic: { system: { tokens: 100 } } },
+        inspection: {
+          revision: 'r',
+          entries: [],
+          categories: [{ key: 'system', label: 'System prompt', tokens: 100, count: 1 }],
+          estimatedTokens: 100,
+        },
+      },
+      snapshot: { provider: 'acp-antigravity' },
+    })
+  );
+  assert.match(inspected, /context-mix-row[^>]*data-context-key="host"/);
+  assert.doesNotMatch(inspected, /<button[^>]*data-context-key/);
+  assert.match(label('acp-antigravity'), /Last call, prompt and output/);
+  assert.doesNotMatch(label('acp-antigravity'), /Last measured input/);
+  assert.match(label('openai'), /Last measured input/);
+});
+
 test('Context divides a reading into whole tokens that add up to it, and shows no rows for one it cannot divide', async (t) => {
   const { contextMix } = await import('./ContextBody.tsx');
   const thirds = {

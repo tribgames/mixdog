@@ -2895,6 +2895,8 @@
   "Last imported {{time}} · {{total}} cookies": "前回のインポート {{time}} · Cookie {{total}} 件",
   "Last input": "最後の入力",
   "Last measured input": "最後に測定された入力",
+  "Last call, prompt and output": "直近の呼び出しのプロンプトと出力",
+  "Held by the agent": "エージェントが保持",
   "Last output": "最後の出力",
   "Last turn": "直前のターン",
   "Last working position": "前回の作業位置",

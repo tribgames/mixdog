@@ -31,6 +31,7 @@ use mixdog_core::run_host::factory::OutsideReport;
 use mixdog_core::run_host::factory::OutsideTurn;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_core_api::domain::provider::UsdTicks;
 use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_session::session::ItemCommit;
 use mixdog_core_session::session::RunOutcome;
@@ -166,7 +167,8 @@ impl LedgerRoute {
             request_service_tier: None,
             response_id: String::new(),
             account: String::new(),
-            duration_ms: usage.request_ms as f64,
+            // The turn's whole run: the quota table spreads the record's meter rises over [ts - duration, ts].
+            duration_ms: usage.run_ms as f64,
             origin: None,
             id: None,
         };
@@ -215,8 +217,15 @@ impl TurnSurface for Accounted {
         self.inner.notice(text, warn).await
     }
 
+    async fn context_update(&self, usage: TurnUsage) -> Result<(), RunError> {
+        self.inner.context_update(usage).await
+    }
+
     async fn usage(&self, usage: TurnUsage) -> Result<(), RunError> {
         let row = self.route.row(&usage, (self.now_ms)(), self.pricing.as_ref());
+        // The ledger's cost is the turn's wherever the turn's usage goes: the session's stats and the gateway's record of the ask.
+        let cost = row.as_ref().and_then(|row| row.as_ref().ok()).and_then(|row| row.cost_usd).and_then(UsdTicks::from_usd);
+        let usage = TurnUsage { cost, ..usage };
         let settled = (mixdog_acp::surface::provider_usage(&usage), mixdog_acp::surface::input_excludes_cache(&usage));
         *self.report.usage.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(settled);
         let shown = self.inner.usage(usage).await;
@@ -390,16 +399,18 @@ impl OutsideAgents for AgentTurns {
     }
 }
 
-/// The agents' refusals of the signed-in account, kept in a file of the data folder.
+/// What the agents keep across a restart of the app, in files of the data folder: their refusals of the signed-in account,
+/// and the context window each last reported.
 pub struct KeptRefusals {
     pub file: std::path::PathBuf,
+    pub windows: std::path::PathBuf,
     pub lane: mixdog_rt::DurabilityIo,
 }
 
 impl KeptRefusals {
-    /// The file under the data folder `data_dir`.
+    /// The files under the data folder `data_dir`.
     pub fn in_data_dir(data_dir: &std::path::Path, lane: mixdog_rt::DurabilityIo) -> Self {
-        Self { file: data_dir.join("acp-agent-refusals.json"), lane }
+        Self { file: data_dir.join("acp-agent-refusals.json"), windows: data_dir.join("acp-agent-windows.json"), lane }
     }
 }
 
@@ -421,6 +432,52 @@ impl mixdog_acp::agents::Refusals for KeptRefusals {
                 tracing::warn!("[acp] the agents' kept account refusals could not be read: {error}");
                 HashMap::new()
             }
+        }
+    }
+
+    async fn read_windows(&self) -> mixdog_acp::agents::Windows {
+        let file = self.windows.clone();
+        let read =
+            on_lane_wait(self.lane, &CancellationToken::new(), move |lane| mixdog_statefile::read_json(lane, &file, None, &mixdog_statefile::Opts::default()))
+                .await;
+        match read {
+            // An agent's entry that is no map of models (the form that kept one size for the agent) is dropped.
+            Ok(Ok(Some(Value::Object(kept)))) => kept
+                .into_iter()
+                .filter_map(|(agent, models)| {
+                    let models: HashMap<String, u64> =
+                        models.as_object()?.iter().filter_map(|(model, size)| Some((model.clone(), size.as_u64().filter(|size| *size > 0)?))).collect();
+                    Some((agent, models))
+                })
+                .collect(),
+            Ok(Ok(_)) => Default::default(),
+            Ok(Err(error)) => {
+                tracing::warn!("[acp] the agents' kept context windows could not be read: {error}");
+                Default::default()
+            }
+            Err(error) => {
+                tracing::warn!("[acp] the agents' kept context windows could not be read: {error}");
+                Default::default()
+            }
+        }
+    }
+
+    async fn keep_windows(&self, windows: mixdog_acp::agents::Windows) {
+        let file = self.windows.clone();
+        let value = Value::Object(
+            windows
+                .into_iter()
+                .map(|(agent, models)| (agent, Value::Object(models.into_iter().map(|(model, size)| (model, Value::from(size))).collect())))
+                .collect(),
+        );
+        let kept = on_lane_wait(self.lane, &CancellationToken::new(), move |lane| {
+            mixdog_statefile::write_json(lane, &file, &value, &mixdog_statefile::Opts::default()).map(drop)
+        })
+        .await;
+        match kept {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!("[acp] an agent's context window could not be kept: {error}"),
+            Err(error) => tracing::warn!("[acp] an agent's context window could not be kept: {error}"),
         }
     }
 
@@ -687,6 +744,7 @@ mod tests {
             total_tokens: Some(19_068),
             model: model(),
             request_ms: 2_000,
+            run_ms: 9_000,
             ..TurnUsage::default()
         };
         surface.usage(usage).await.expect("the port takes it");
@@ -705,8 +763,11 @@ mod tests {
             .expect("the rows")
             .collect::<Result<_, _>>()
             .expect("the rows");
-        let expected = ("acp-antigravity".to_owned(), model(), "sess_worker".to_owned(), "agent".to_owned(), 4_437.0, 144.0, 14_487.0, None, 2_000.0);
+        // The record spans the turn's whole run (9 s), not the 2 s its model streamed: the quota table spreads the turn's meter
+        // rises over [ts - duration, ts]. The port, which feeds the session's readout, still gets the streaming time.
+        let expected = ("acp-antigravity".to_owned(), model(), "sess_worker".to_owned(), "agent".to_owned(), 4_437.0, 144.0, 14_487.0, None, 9_000.0);
         assert_eq!(rows, [expected], "one row, and none for a report of the context alone");
+        assert_eq!(port.0.lock().unwrap()[0].request_ms, 2_000);
 
         let Refresh::Repaired(report) = refresher.refresh(&writer, &reader, at + 1_000).await.expect("the refresh") else {
             panic!("the unpriced row is examined");
@@ -751,8 +812,9 @@ mod tests {
         sink.record_queued(earlier).await.expect("the earlier row is stored");
 
         catalog.bind_shared_quotas(shared_quotas(std::slice::from_ref(&preset)));
+        let port = Port::default();
         let surface = Accounted {
-            inner: Arc::new(Port::default()),
+            inner: Arc::new(port.clone()),
             ledger: Arc::new(move || Some(sink.clone())),
             pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(catalog.clone())),
             route: route.clone(),
@@ -760,11 +822,17 @@ mod tests {
             report: Arc::default(),
         };
         surface.usage(usage("gemini-4-neon")).await.expect("the port takes it");
+        // What the turn's end settles the ask with carries the cost the ledger priced, as the session's stats do.
+        let settled_cost = surface.report.usage.lock().unwrap().as_ref().and_then(|(usage, _)| usage.cost);
+        assert_eq!(settled_cost, port.0.lock().unwrap()[0].cost);
+        assert!(settled_cost.is_some(), "the priced turn's settled usage carries its cost");
         surface.usage(usage("gpt-oss-120b")).await.expect("the port takes it");
         writer.settle_writes().await.expect("the rows are stored");
 
         let own = LedgerRoute { provider: quota, ..route.clone() }.row(&usage("gemini-4-neon"), at + 1, &pricing).expect("tokens").expect("a row");
         assert!(own.cost_usd.is_some(), "the provider whose quota the agent shares prices the model: {own:?}");
+        let shown: Vec<Option<UsdTicks>> = port.0.lock().unwrap().iter().map(|usage| usage.cost).collect();
+        assert_eq!(shown, [own.cost_usd.and_then(UsdTicks::from_usd), None], "the session's stats carry the cost the ledger records, and none for an unpriced turn");
         type Stored = (String, String, String, Option<f64>, Option<String>, i64);
         #[allow(clippy::disallowed_types, reason = "Test-only read of the ledger file the test itself wrote.")]
         let stored = || -> Vec<Stored> {
@@ -821,5 +889,17 @@ mod tests {
         assert_eq!(KeptRefusals::in_data_dir(dir.path(), lane).read().await, HashMap::from([("antigravity".to_owned(), said.to_owned())]));
         KeptRefusals::in_data_dir(dir.path(), lane).keep(HashMap::new()).await;
         assert!(KeptRefusals::in_data_dir(dir.path(), lane).read().await.is_empty());
+        assert!(KeptRefusals::in_data_dir(dir.path(), lane).read_windows().await.is_empty());
+        let windows = HashMap::from([("antigravity".to_owned(), HashMap::from([("gem/1".to_owned(), 1_048_576), ("default".to_owned(), 200_000)]))]);
+        KeptRefusals::in_data_dir(dir.path(), lane).keep_windows(windows.clone()).await;
+        assert_eq!(KeptRefusals::in_data_dir(dir.path(), lane).read_windows().await, windows, "a model id with a slash collides with nothing");
+        // The earlier form, one size for the agent, is dropped.
+        #[allow(clippy::disallowed_methods, reason = "the test seeds the file an earlier version wrote")]
+        std::fs::write(dir.path().join("acp-agent-windows.json"), br#"{"antigravity":1048576,"agy":{"m":5}}"#).expect("the earlier file");
+        assert_eq!(
+            KeptRefusals::in_data_dir(dir.path(), lane).read_windows().await,
+            HashMap::from([("agy".to_owned(), HashMap::from([("m".to_owned(), 5)]))])
+        );
+        assert!(KeptRefusals::in_data_dir(dir.path(), lane).read().await.is_empty(), "the refusals are a file of their own");
     }
 }

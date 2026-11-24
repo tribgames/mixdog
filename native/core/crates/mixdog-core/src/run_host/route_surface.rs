@@ -369,6 +369,10 @@ pub trait ResumedSurface: Send + Sync {
 /// policy and the tool surface a route change rebuilds.
 pub struct AiRouteFacts {
     pub catalog: Arc<CatalogService>,
+    /// The context window the agent of a route's provider last reported on the route's model, when the provider is an
+    /// agent's and it reported one: the catalog knows no agent, so the route's window starts from it rather than from a
+    /// guess, and another model of the agent has its own.
+    pub agent_window: Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>,
     /// The config's `autoClear` section, read at each call: Node loads it per `buildSessionProviderCacheOpts`, so a settings change reaches the next route change.
     pub auto_clear: Arc<dyn Fn() -> Value + Send + Sync>,
     pub surface_host: Arc<dyn SurfaceHost>,
@@ -431,7 +435,14 @@ impl AiRouteFacts {
 #[async_trait::async_trait]
 impl RouteFacts for AiRouteFacts {
     fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<ContextMeta> {
-        session_context_meta(&self.catalog, provider, model, seed)
+        match (self.agent_window)(provider, model) {
+            Some(window) => {
+                let mut seeded = seed.as_object().cloned().unwrap_or_default();
+                seeded.insert("rawContextWindow".to_owned(), Value::from(window));
+                session_context_meta(&self.catalog, provider, model, &Value::Object(seeded))
+            }
+            None => session_context_meta(&self.catalog, provider, model, seed),
+        }
     }
 
     fn cache_opts(&self, _provider: &str, _session_id: &str, agent: Option<&str>, header: &Header) -> Option<Value> {

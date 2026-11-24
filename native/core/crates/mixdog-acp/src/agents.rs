@@ -216,6 +216,9 @@ impl Agents {
     }
 }
 
+/// The context window each agent reported on each of its models: preset id, then model, then size.
+pub type Windows = HashMap<String, HashMap<String, u64>>;
+
 /// Where an agent's refusal of the signed-in account is kept, so it stands across a restart of the app.
 #[async_trait::async_trait]
 pub trait Refusals: Send + Sync {
@@ -223,6 +226,10 @@ pub trait Refusals: Send + Sync {
     async fn read(&self) -> HashMap<String, String>;
     /// Keeps `refusals` as the whole of what is refused now.
     async fn keep(&self, refusals: HashMap<String, String>);
+    /// The window each agent last reported for its context, by preset id.
+    async fn read_windows(&self) -> Windows;
+    /// Keeps `windows` as the whole of what the agents last reported.
+    async fn keep_windows(&self, windows: Windows);
 }
 
 /// What the agents are built on.
@@ -257,6 +264,8 @@ pub struct Agents {
     /// Each preset's CLI: its readiness, its running check and its upkeep.
     pub(crate) slots: Mutex<HashMap<String, Slot>>,
     pub(crate) next_check: AtomicU64,
+    /// The window each agent last reported for its context, by preset id: what a route on the agent can be sized within.
+    windows: Mutex<Windows>,
     pub(crate) sessions: Mutex<HashMap<ThreadId, Arc<AgentSession>>>,
     /// The threads whose agent is being started, each with its start's number.
     opening: Mutex<HashMap<ThreadId, u64>>,
@@ -307,6 +316,7 @@ impl Agents {
             parts,
             slots: Mutex::default(),
             next_check: AtomicU64::new(0),
+            windows: Mutex::default(),
             sessions: Mutex::default(),
             opening: Mutex::default(),
             grants: Mutex::default(),
@@ -395,6 +405,58 @@ impl Agents {
         (self.parts.changed)();
     }
 
+    /// Reads the windows the agents reported before the app started; what was reported since stands over what was kept.
+    pub async fn restore_windows(&self) {
+        let kept = self.parts.refusals.read_windows().await;
+        let mut windows = lock(&self.windows);
+        for (agent, models) in kept {
+            let held = windows.entry(agent).or_default();
+            for (model, size) in models {
+                held.entry(model).or_insert(size);
+            }
+        }
+        drop(windows);
+        (self.parts.changed)();
+    }
+
+    /// The agent reported its context's window on `model`: a route on that model can be sized within that window from
+    /// here on, across a restart of the app.
+    pub(crate) async fn window_reported(&self, preset: &AgentPreset, model: &str, size: u64) {
+        let model = self.grouped_model(preset, model);
+        let kept = {
+            let mut windows = lock(&self.windows);
+            if windows.entry(preset.id.clone()).or_default().insert(model, size) == Some(size) {
+                return;
+            }
+            windows.clone()
+        };
+        self.parts.refusals.keep_windows(kept).await;
+        (self.parts.changed)();
+    }
+
+    /// The window `preset`'s agent last reported on `model`; `None` until it has reported one on that model.
+    pub fn reported_window(&self, preset: &AgentPreset, model: &str) -> Option<u64> {
+        let model = self.grouped_model(preset, model);
+        lock(&self.windows).get(&preset.id)?.get(&model).copied()
+    }
+
+    /// The model a window is kept under: the listed model a route's `model` names (a route saved under the agent's own id
+    /// of one of a model's effort tiers names the grouped model), else `model` as it is.
+    fn grouped_model(&self, preset: &AgentPreset, model: &str) -> String {
+        let found = lock(&self.slots).get(&preset.id).and_then(|slot| slot.readiness.clone());
+        match &found {
+            Some(Readiness::Ready { models, .. }) => crate::tiers::find(models, &preset.quirks, model).map_or_else(|| model.to_owned(), |listed| listed.id),
+            _ => model.to_owned(),
+        }
+    }
+
+    /// The window `preset`'s agent last reported on `model`, stated as a model row states a window (`contextWindow`, and
+    /// the `maxContextWindow` a route can be sized up to); `None` until it has reported one.
+    pub fn window_meta(&self, preset: &AgentPreset, model: &str) -> Option<Value> {
+        let size = self.reported_window(preset, model)?;
+        Some(json!({ "contextWindow": size, "maxContextWindow": size }))
+    }
+
     /// `preset`'s agent serves the account again (it answered a turn, or a sign-in succeeded): a standing refusal ends.
     pub(crate) async fn answered(&self, preset: &AgentPreset) {
         self.read_refusals().await;
@@ -449,6 +511,9 @@ impl Agents {
                     "version": readiness.and_then(Readiness::version),
                     "message": readiness.and_then(Readiness::message),
                     "models": models,
+                    // The window the agent reported on each model: a new one changes this value, which is how the desktop
+                    // learns its model rows state a window now (the slider's maximum).
+                    "contextWindows": lock(&self.windows).get(&preset.id).cloned().unwrap_or_default(),
                     // What the agent tells of the signed-in account: its plan, and whether it can be signed out here.
                     "plan": slot.filter(|_| matches!(readiness, Some(Readiness::Ready { .. }))).and_then(|slot| slot.account.plan.clone()),
                     "canSignOut": slot.is_some_and(|slot| slot.account.sign_out) && matches!(readiness, Some(Readiness::Ready { .. })),
@@ -470,8 +535,8 @@ impl Agents {
         let mut rows = Vec::new();
         for preset in &self.parts.presets {
             let Some(Readiness::Ready { models, .. }) = self.known(preset) else { continue };
-            rows.push(Self::plain_row(preset, DEFAULT_MODEL, &preset.label));
-            rows.extend(crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| Self::listed_row(preset, listed)));
+            rows.push(self.with_window(preset, DEFAULT_MODEL, Self::plain_row(preset, DEFAULT_MODEL, &preset.label)));
+            rows.extend(crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| self.with_window(preset, &listed.id, Self::listed_row(preset, listed))));
         }
         rows
     }
@@ -506,6 +571,14 @@ impl Agents {
         })
     }
 
+    /// `row` of `model` with the window its agent reported on it, where it has reported one.
+    fn with_window(&self, preset: &AgentPreset, model: &str, mut row: Value) -> Value {
+        if let (Some(window), Some(row)) = (self.window_meta(preset, model), row.as_object_mut()) {
+            row.extend(window.as_object().cloned().unwrap_or_default());
+        }
+        row
+    }
+
     /// The model row a route on `preset`'s agent resolves to: the picker's row of `model` where the agent lists it,
     /// else a row under the agent's name alone (its default model, or one it no longer lists).
     pub fn model_row(&self, preset: &AgentPreset, model: &str) -> Value {
@@ -515,7 +588,7 @@ impl Agents {
             Some(Readiness::Ready { models, .. }) => crate::tiers::find(models, &preset.quirks, model),
             _ => None,
         };
-        listed.map_or_else(|| Self::plain_row(preset, model, &preset.label), |listed| Self::listed_row(preset, &listed))
+        self.with_window(preset, model, listed.map_or_else(|| Self::plain_row(preset, model, &preset.label), |listed| Self::listed_row(preset, &listed)))
     }
 
     /// Whether a route on `preset` can be chosen now.
@@ -689,10 +762,11 @@ impl mixdog_core_session::session::purge::SessionAgentProcesses for Agents {
     }
 }
 
-/// The Mixdog controls an agent's session has no use for: the agent owns its reasoning effort, its context window
-/// and its model's service options. A compaction applies: it replaces the stored conversation with its summary, and
-/// the agent's next turn starts a session of its own on that summary.
-pub const NOT_APPLICABLE: [&str; 5] = ["effort", "autoEffort", "fast", "contextWindow", "fallbacks"];
+/// The Mixdog controls an agent's session has no use for: the agent owns its reasoning effort and its model's service
+/// options. The context window applies: the agent's reported size is the raw window, and the user's selection sets the
+/// effective window and the compaction boundary below it. A compaction replaces the stored conversation with its
+/// summary, and the agent's next turn starts a session of its own on that summary.
+pub const NOT_APPLICABLE: [&str; 4] = ["effort", "autoEffort", "fast", "fallbacks"];
 
 #[cfg(test)]
 mod tests {

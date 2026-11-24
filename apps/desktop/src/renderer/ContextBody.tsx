@@ -20,6 +20,7 @@ import {
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, contextMeasurementLabel } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
 import { emptyStateHost } from './empty-state-host';
+import { agentRouteProvider } from './provider-display';
 
 type Row = Record<string, unknown>;
 
@@ -62,12 +63,22 @@ function contextDisplayUsage(status: unknown, snapshot: unknown) {
   });
 }
 
+/** The session runs on an external agent's route, which keeps its own context. */
+export function isAgentSession(snapshot: unknown): boolean {
+  return agentRouteProvider(String(record(snapshot).provider || ''));
+}
+
+/** What a reading is: an agent's report is the prompt and output of its last model call, not an input. */
+function readingLabel(source: string, agent: boolean): string {
+  return t(agent && source === 'last_api_request' ? 'Last call, prompt and output' : contextMeasurementLabel(source));
+}
+
 /** The reading on one line: what it is, then used / window and the share. */
 export function ContextReading({ status, snapshot }: { status: unknown; snapshot: unknown }) {
   const usage = contextDisplayUsage(status, snapshot);
   return (
     <span className="context-reading">
-      <b>{t(contextMeasurementLabel(usage.source))}</b>
+      <b>{readingLabel(usage.source, isAgentSession(snapshot))}</b>
       <span>
         {usage.used == null ? '—' : compactTokens(usage.used)} / {compactTokens(usage.limit)}
         {usage.percent != null ? ` · ${usage.percent}%` : ''}
@@ -154,6 +165,39 @@ function estimatedCategories(semantic: Row, schema: Row, request: Row): Estimate
   ];
 }
 
+/** What Mixdog itself puts in an external agent's context: the system prompt it appends, its tools (which reach the
+ *  agent as the `mixdog` MCP server), its memory and the conversation it keeps. */
+function agentSessionCategories(semantic: Row, schema: Row): EstimatedCategory[] {
+  return [
+    {
+      key: 'system',
+      label: t('System prompt'),
+      tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']),
+    },
+    {
+      key: 'mcp',
+      label: t('MCP tools'),
+      tokens: tokenBuckets(schema, [
+        'code',
+        'web',
+        'mutation',
+        'channels',
+        'setup',
+        'other',
+        'control',
+        'session',
+        'mcp',
+        'agents',
+        'memory',
+        'skills',
+      ]),
+    },
+    { key: 'memory', label: t('Memory files'), tokens: tokenBuckets(semantic, ['memory']) },
+    { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
+    { key: 'reasoning', label: t('Reasoning tokens'), tokens: tokenBuckets(semantic, ['reasoning']) },
+  ];
+}
+
 /** `total` divided among the categories in their estimated proportions, in whole tokens that add up to it. */
 function dividedAmong(estimated: EstimatedCategory[], total: number, categorized: number): EstimatedCategory[] {
   const exact = estimated.map((category) => (category.tokens / categorized) * total);
@@ -174,10 +218,28 @@ function dividedAmong(estimated: EstimatedCategory[], total: number, categorized
  *  window's measured total (`used`) the estimates say only how the
  *  measurement divides: each category takes its estimated share of it, so
  *  the parts add up to the reading beside them, and the free space is what
- *  the measurement leaves. */
-export function contextMix(status: unknown, windowTokens: number, used: number | null = null) {
+ *  the measurement leaves. An external agent's session (`agent`) shows Mixdog's own parts as they are, never rescaled,
+ *  and what the agent reports beyond them as one row for what it holds that Mixdog cannot see. Where Mixdog's own
+ *  estimate is above the agent's own count, the agent's count is the measurement and the estimate only says how it
+ *  divides: the parts are divided within it, so parts and free space never pass the window. */
+export function contextMix(status: unknown, windowTokens: number, used: number | null = null, agent = false) {
   const context = record(status);
   const request = record(context.request);
+  if (agent) {
+    const estimated = agentSessionCategories(record(record(context.messages).semantic), record(request.toolSchemaBreakdown));
+    const estimate = estimated.reduce((sum, category) => sum + category.tokens, 0);
+    const parts = used !== null && estimate > used ? dividedAmong(estimated, used, estimate) : estimated;
+    const shown = parts.reduce((sum, category) => sum + category.tokens, 0);
+    const host = used === null ? 0 : Math.max(0, used - shown);
+    const held = shown + host;
+    return {
+      categories: [...parts, { key: 'host', label: t('Held by the agent'), tokens: host }],
+      categorized: held,
+      held,
+      free: Math.max(0, windowTokens - held),
+      windowTokens: Math.max(windowTokens, held),
+    };
+  }
   const estimated = estimatedCategories(
     record(record(context.messages).semantic),
     record(request.toolSchemaBreakdown),
@@ -244,19 +306,23 @@ export function ContextBody({
   readingInHeader?: boolean;
 }) {
   const context = record(status);
-  const inspection = context.inspection as ContextInspection | undefined;
+  const agent = isAgentSession(snapshot);
+  // An agent's session shows the composition the session panel shows: what the request inspection lists is a provider's
+  // request, which an agent's context is not.
+  const inspection = agent ? undefined : (context.inspection as ContextInspection | undefined);
   const usage = contextDisplayUsage(status, snapshot);
   const used = usage.used;
   const windowTokens = usage.limit;
   const usedPercent = contextPercent(used, windowTokens) || 0;
-  const mix = contextMix(status, windowTokens);
+  const label = readingLabel(usage.source, agent);
+  const mix = contextMix(status, windowTokens, agent ? used : null, agent);
   const { categories, categorized: categorizedTokens } = mix;
   const measuredCategories = (inspection?.categories ?? categories).filter((category) => category.tokens > 0);
   const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
   const measuredBarDescription =
     used != null && measuredCategoryTotal > 0
       ? t('Measured total; category colors show estimated proportions.')
-      : t(contextMeasurementLabel(usage.source));
+      : label;
   const categoryWindowTokens = mix.windowTokens;
   categories.push({ key: 'free', label: t('Free space'), tokens: mix.free });
   // Without a reading, every category is 0 and the window reads as free space.
@@ -289,7 +355,7 @@ export function ContextBody({
         >
           {!readingInHeader && (
             <div className="context-usage-heading">
-              <strong>{t(contextMeasurementLabel(usage.source))}</strong>
+              <strong>{label}</strong>
               <span>
                 {used == null ? '—' : compactTokens(used)} / {compactTokens(windowTokens)}
                 {usage.percent != null ? ` · ${usage.percent}%` : ''}

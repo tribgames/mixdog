@@ -2895,6 +2895,8 @@
   "Last imported {{time}} · {{total}} cookies": "上次导入 {{time}} · {{total}} 个 Cookie",
   "Last input": "最后输入",
   "Last measured input": "上次测量的输入",
+  "Last call, prompt and output": "上次调用的提示词与输出",
+  "Held by the agent": "由代理持有",
   "Last output": "最后输出",
   "Last turn": "上一轮",
   "Last working position": "上次的工作位置",

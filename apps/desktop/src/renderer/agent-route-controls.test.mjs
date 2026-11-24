@@ -136,7 +136,7 @@ test("the composer's trigger and the session panel's Info row name an agent's mo
       runner: 'acp',
       agent: 'antigravity',
       // The agent runs each at tiers of its own: they are the model's efforts.
-      notApplicable: ['autoEffort', 'fast', 'contextWindow', 'fallbacks'],
+      notApplicable: ['autoEffort', 'fast', 'fallbacks'],
       effortOptions: [{ value: 'medium', label: 'Medium' }],
     }));
   invalidateSharedModelCatalogRequest();
@@ -277,8 +277,8 @@ test('on an agent session a command follows the model row: one whose control the
   const listed = (notApplicable) =>
     desktopComposerSlashCommands('/', false, notApplicable).map((command) => command.name);
   // A model the agent runs at one level takes neither; one it runs at several takes an effort.
-  const single = new Set(['effort', 'autoEffort', 'fast', 'contextWindow', 'fallbacks']);
-  const tiered = new Set(['autoEffort', 'fast', 'contextWindow', 'fallbacks']);
+  const single = new Set(['effort', 'autoEffort', 'fast', 'fallbacks']);
+  const tiered = new Set(['autoEffort', 'fast', 'fallbacks']);
   for (const name of ['effort', 'fast']) assert.equal(listed(single).includes(name), false, name);
   assert.ok(listed(single).includes('compact'));
   // Typed, a command is judged by the same rows: the effort of a model run at several levels is no refusal.

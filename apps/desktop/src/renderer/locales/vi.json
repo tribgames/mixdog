@@ -2895,6 +2895,8 @@
   "Last imported {{time}} · {{total}} cookies": "Lần nhập gần nhất {{time}} · {{total}} cookie",
   "Last input": "Đầu vào cuối cùng",
   "Last measured input": "Đầu vào đo lần cuối",
+  "Last call, prompt and output": "Lần gọi cuối: prompt và đầu ra",
+  "Held by the agent": "Do tác nhân giữ",
   "Last output": "Đầu ra cuối cùng",
   "Last turn": "Lượt cuối",
   "Last working position": "Vị trí làm việc gần nhất",

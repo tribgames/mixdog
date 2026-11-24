@@ -634,6 +634,30 @@ mod tests {
         assert_eq!(due(Some(&limited), Some(200_000)), Some((200_000, 200_000)));
     }
 
+    /// A window the user selected below the agent's reported size is the boundary an agent's session compacts at: the
+    /// header the agent's report leaves states the selection as the window and the boundary, the agent's size as the raw
+    /// window, and the reading that is under the agent's size but at the selection is due. With no selection the whole
+    /// reported window is the boundary, as before.
+    #[test]
+    fn a_selected_window_below_the_agents_size_is_where_its_context_is_due() {
+        use mixdog_agent::boundary::CompactPolicy;
+        use mixdog_agent::boundary::CompactSettings;
+        let policy = |window: u64| {
+            CompactPolicy::resolve(&CompactSettings {
+                auto: true,
+                context_window: Some(window),
+                explicit_boundary: Some(window),
+                token_calibration: 1.0,
+                ..CompactSettings::default()
+            })
+            .expect("a policy over the window")
+        };
+        let (selected, reported) = (policy(400_000), policy(1_048_576));
+        assert_eq!(due(Some(&selected), Some(450_000)), Some((450_000, 400_000)));
+        assert_eq!(due(Some(&reported), Some(450_000)), None, "with no selection the agent's whole window is the boundary");
+        assert_eq!(due(Some(&reported), Some(reported.trigger_tokens)), Some((reported.trigger_tokens, reported.trigger_tokens)));
+    }
+
     struct At(i64);
 
     impl Clock for At {

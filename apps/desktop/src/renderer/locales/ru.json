@@ -3066,6 +3066,8 @@
   "Last imported {{time}} · {{total}} cookies": "Последний импорт {{time}} · cookie: {{total}}",
   "Last input": "Последний ввод",
   "Last measured input": "Последний измеренный ввод",
+  "Last call, prompt and output": "Последний вызов: промпт и вывод",
+  "Held by the agent": "Удерживается агентом",
   "Last output": "Последний вывод",
   "Last turn": "Последний ход",
   "Last working position": "Последнее рабочее место",

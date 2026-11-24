@@ -14,7 +14,7 @@ import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/s
 import { ServerAccountBadge, useAgentChatRouteApplied } from './ComposerFooter';
 import { ComposerRouteChoices } from './composer-route-choices';
 import { ComposerRoutineReadout } from './composer-routine-readout';
-import { compactTokens, contextMix } from './ContextBody';
+import { compactTokens, contextMix, isAgentSession } from './ContextBody';
 import { projectContextChoice } from './composer-support';
 import { FittedReadout, usageWithCostVariants } from './composer-usage-readout';
 import type { Snapshot } from './desktop-types';
@@ -498,7 +498,7 @@ export function ContextSection({
   const shown = usage.limit > 0;
   const status = useContextStatus(sessionId, (open || usage.used === null) && shown, usage.used);
   if (!shown) return null;
-  const mix = status ? contextMix(status, usage.limit, usage.used) : null;
+  const mix = status ? contextMix(status, usage.limit, usage.used, isAgentSession(snapshot)) : null;
   // A window with no reading (an agent that reports none; after a compaction, until the next request): the head
   // shows what its kinds are estimated to hold, marked as an estimate, so it and the rows under it agree.
   const estimate = usage.used === null && mix ? mix.held : null;

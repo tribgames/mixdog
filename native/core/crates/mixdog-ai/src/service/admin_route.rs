@@ -97,7 +97,8 @@ pub fn context_window_range(provider: &str, context_window: Option<&Value>, max_
         return (served, max_window);
     }
     let lower = provider.to_lowercase();
-    if lower == "mixdog-local" || lower == "local" {
+    // An agent's window is its own: its whole reported window is the default, and a selection goes below it.
+    if lower == "mixdog-local" || lower == "local" || lower.starts_with("acp-") {
         return (served, max_window);
     }
     if js_round(DEFAULT_CONTEXT_WINDOW_CEILING / max_window * 10.0) >= 10.0 {
