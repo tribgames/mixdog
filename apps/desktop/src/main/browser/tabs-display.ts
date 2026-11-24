@@ -35,6 +35,7 @@ export function createDisplayTabs(host: DisplayTabsHost) {
     const selected = currentGuest(sessionId);
     return displayEntries(sessionId).map(({ guest, kind }) => ({
       id: stablePageId(guest),
+      webContentsId: guest.id,
       title: guest.getTitle(),
       url: guest.getURL(),
       loading: guest.isLoadingMainFrame(),

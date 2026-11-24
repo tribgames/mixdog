@@ -31,7 +31,7 @@ import { DockHeaderRow, DockOverflowMenu, requestPaneDockClose, type DockAction 
 import { BrowserPageOverlays } from './browser-page-overlays';
 import { useBlankTabClaim, useBrowserNavigation } from './browser-pane-navigation';
 import { useBrowserZoom, useBrowserZoomSync } from './browser-pane-zoom';
-import { useBrowserPageEvents, useBrowserPageState } from './browser-pane-page-state';
+import { newBrowserGuestBook, useBrowserPageEvents, useBrowserPageState } from './browser-pane-page-state';
 import {
   useBrowserAgentFollow,
   useBrowserFullscreen,
@@ -334,7 +334,8 @@ function DesktopBrowserPane({
   const remoteDriving = useBrowserRemoteDriving(sessionId);
   useEscapeRestore(active && expanded && !importOpen, onToggleExpanded);
   const pageFullscreen = useBrowserFullscreen(sessionId);
-  const { agentViewport, agentViewports, setAgentViewport } = useAgentViewport(sessionId, webviewRef);
+  const [guestBook] = useState(newBrowserGuestBook);
+  const { agentViewport, agentViewports, setAgentViewport } = useAgentViewport(sessionId, webviewRef, guestBook);
   const frameWidth = agentViewport?.width ?? viewportPreset.width;
   const frameHeight = agentViewport?.height ?? viewportPreset.height;
   const fixedViewport = frameWidth !== null && frameHeight !== null;
@@ -345,6 +346,7 @@ function DesktopBrowserPane({
 
   useBrowserPageEvents(webviewRef, page, {
     agentViewports,
+    guestBook,
     setAgentViewport,
     refreshCredentialSuggestions,
     setCredentialMenuOpen,
@@ -352,7 +354,7 @@ function DesktopBrowserPane({
     setHistorySuggestions,
   });
 
-  const configureViewportPreset = useViewportPresetConfigurator(webviewRef, desktopApi, sessionId);
+  const configureViewportPreset = useViewportPresetConfigurator(webviewRef, desktopApi, sessionId, guestBook);
   useBrowserZoomSync({ webviewRef, active, fixedViewport, viewportPreset, zoomLevel, configureViewportPreset });
 
   // A fresh, blank browser tab is for typing an address first.

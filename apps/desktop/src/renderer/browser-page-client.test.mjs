@@ -154,6 +154,7 @@ test('a same-address reload that clears the fault between two samples clears the
   const stop = watchBrowserPageEvents(node, {
     addressFocused: { current: false },
     agentViewports: { current: new Map() },
+    guestBook: { agentViewports: new Map(), appliedViewportPreset: new Map() },
     refreshCredentialSuggestions() {},
     setAddress() {},
     setAddressHasFocus() {},

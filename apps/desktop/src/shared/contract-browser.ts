@@ -229,6 +229,8 @@ export interface DesktopRemoteBrowserTab {
  * page, so queued human input cannot land in a replacement document. */
 export interface DesktopBrowserTab {
   id: string;
+  /** The tab's guest, which keys the pane's per-guest viewport records. */
+  webContentsId?: number;
   title: string;
   url: string;
   active: boolean;

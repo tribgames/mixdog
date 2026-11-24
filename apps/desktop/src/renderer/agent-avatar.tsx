@@ -16,6 +16,7 @@ import {
   mascotParts,
 } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { type AvatarMotionState, useAvatarMotion, useReducedMotion } from './avatar-motion';
+import { cachedAgentAvatarImages, forgetAgentAvatarImages } from './agent-avatar-image-cache';
 import { t } from './i18n';
 import './agent-avatar.css';
 
@@ -109,17 +110,12 @@ export interface AvatarImage {
 /** Images by file name. */
 export type AvatarImages = Readonly<Record<string, AvatarImage>>;
 
-// A custom avatar's images by `<agent id>/<file names>`: every name is a
-// content hash, so a cached answer never goes stale. Fetched once per renderer.
-const imageCache = new Map<string, Promise<AvatarImages>>();
 const NO_IMAGES: AvatarImages = {};
 
 function agentAvatarImages(agentId: string, avatar: CustomAvatar): Promise<AvatarImages> {
   const files = Object.values(avatar.states);
-  const key = `${agentId}/${files.join('/')}`;
-  let images = imageCache.get(key);
-  if (!images) {
-    images = Promise.resolve(
+  return cachedAgentAvatarImages(agentId, files.join('/'), () =>
+    Promise.resolve(
       window.mixdogDesktop?.invokeCapability?.<{
         states?: Record<string, { file?: string; url?: string; poster?: string }>;
       } | null>({ capability: 'getAgentAvatarImage', args: [agentId] })
@@ -133,10 +129,8 @@ function agentAvatarImages(agentId: string, avatar: CustomAvatar): Promise<Avata
         }
         return found;
       })
-      .catch(() => NO_IMAGES);
-    imageCache.set(key, images);
-  }
-  return images;
+      .catch(() => NO_IMAGES)
+  );
 }
 
 /** The saved images of `avatar` (none for a mascot), once read. */
@@ -147,6 +141,8 @@ export function useAgentAvatarImages(agentId: string, avatar: AgentAvatarValue |
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for the avatar's file names
   useEffect(() => {
     setImages(NO_IMAGES);
+    // A face that is a mascot holds no custom images.
+    if (avatar?.kind === 'mascot') forgetAgentAvatarImages(agentId);
     if (!custom) return undefined;
     let live = true;
     void agentAvatarImages(agentId, custom).then((found) => {
@@ -155,7 +151,7 @@ export function useAgentAvatarImages(agentId: string, avatar: AgentAvatarValue |
     return () => {
       live = false;
     };
-  }, [agentId, key]);
+  }, [agentId, key, avatar?.kind]);
   return images;
 }
 

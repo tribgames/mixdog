@@ -22,7 +22,7 @@ URL.createObjectURL = () => {
 };
 URL.revokeObjectURL = (url) => revoked.push(url);
 
-const { useGeneratedMediaFallback } = await import('./generated-media-fallback.ts');
+const { ClipLoadCancelled, useGeneratedMediaFallback } =await import('./generated-media-fallback.ts');
 
 async function mountFallback(api, wrap = (node) => node) {
   const result = {};
@@ -62,6 +62,7 @@ test('a clip read that finishes after unmount revokes its object URL at once', a
   await act(async () => root.unmount());
   release.resolve();
   assert.equal(await outcome, 'rejected');
+  await assert.rejects(pending, ClipLoadCancelled);
   assert.equal(created.length, 1);
   assert.deepEqual(revoked, created);
 });
@@ -79,6 +80,56 @@ test('a clip loaded while mounted is kept until unmount, also under StrictMode',
   assert.deepEqual(revoked, []);
   await act(async () => root.unmount());
   assert.deepEqual(revoked, [url]);
+});
+
+test('a reloaded clip revokes the one it replaces, and an asset change revokes the last', async () => {
+  created.length = 0;
+  revoked.length = 0;
+  const release = deferred();
+  release.resolve();
+  const result = {};
+  const Probe = ({ id }) => {
+    result.current = useGeneratedMediaFallback(clipApi(release), id, 'video', true);
+    return null;
+  };
+  const root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Probe, { id: 'a1' })));
+  const first = await result.current.loadClip();
+  const second = await result.current.loadClip();
+  assert.deepEqual(revoked, [first]);
+  await act(async () => root.render(React.createElement(Probe, { id: 'a2' })));
+  assert.deepEqual(revoked, [first, second]);
+  assert.equal(result.current.clip, '', 'a revoked clip is never handed out');
+  await act(async () => root.unmount());
+  assert.deepEqual(revoked, [first, second]);
+});
+
+test('the clip the hook shows is cleared with its revoke and loads again on the next click', async () => {
+  created.length = 0;
+  revoked.length = 0;
+  const release = deferred();
+  release.resolve();
+  const result = {};
+  const Probe = ({ enabled }) => {
+    result.current = useGeneratedMediaFallback(clipApi(release), 'a1', 'video', enabled);
+    return null;
+  };
+  const root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Probe, { enabled: true })));
+  await act(async () => {
+    await result.current.loadClip();
+  });
+  assert.equal(result.current.clip, created[0]);
+  await act(async () => root.render(React.createElement(Probe, { enabled: false })));
+  assert.equal(result.current.clip, '');
+  await act(async () => root.render(React.createElement(Probe, { enabled: true })));
+  assert.equal(result.current.clip, '');
+  await act(async () => {
+    await result.current.loadClip();
+  });
+  assert.equal(result.current.clip, created[1]);
+  assert.deepEqual(revoked, [created[0]]);
+  await act(async () => root.unmount());
 });
 
 async function mountStill(api, assetId = 'a1') {

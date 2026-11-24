@@ -4,6 +4,7 @@ import { type RefObject, useCallback, useEffect, useId, useLayoutEffect, useRef,
 import type { DesktopBrowserCredentialSuggestion, DesktopBrowserHistoryEntry } from '../shared/contract';
 import { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
 import type { BrowserPageElement } from './browser-page-client';
+import type { BrowserGuestBook } from './browser-pane-page-state';
 import { bindRequestedAddress } from './browser-page-request';
 import {
   browserViewportEmulation,
@@ -20,9 +21,9 @@ type AgentViewport = { width: number; height: number };
  *  The pane frames the page at that size, centered, exactly like a picker
  *  preset. The pane's own configure echoes back through the same event and
  *  reads as "no override". */
-export function useAgentViewport(sessionId: string, webviewRef: GuestRef) {
+export function useAgentViewport(sessionId: string, webviewRef: GuestRef, guestBook: BrowserGuestBook) {
   const [agentViewport, setAgentViewport] = useState<AgentViewport | null>(null);
-  const agentViewports = useRef(new Map<number, AgentViewport | null>());
+  const agentViewports = useRef(guestBook.agentViewports);
   useEffect(
     () =>
       window.mixdogDesktop?.onBrowserGuestViewportChanged?.((change) => {
@@ -247,8 +248,13 @@ export function useHistorySuggestions(desktopApi: DesktopApi, address: string, a
 /** Applies a viewport preset's device metrics to the current guest. Metrics
  *  and touch apply live; only a user-agent change needs the page to load
  *  again, because reloading on every size step blanked the page for a beat. */
-export function useViewportPresetConfigurator(webviewRef: GuestRef, desktopApi: DesktopApi, sessionId: string) {
-  const appliedViewportPreset = useRef(new Map<number, string>());
+export function useViewportPresetConfigurator(
+  webviewRef: GuestRef,
+  desktopApi: DesktopApi,
+  sessionId: string,
+  guestBook: BrowserGuestBook
+) {
+  const appliedViewportPreset = useRef(guestBook.appliedViewportPreset);
   const viewportConfigurationRequest = useRef(0);
   return useCallback(
     async (preset: BrowserViewportPreset, reload: boolean): Promise<boolean> => {
