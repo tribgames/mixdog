@@ -132,7 +132,7 @@ pub(super) struct History {
 
 pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History, CoreError> {
     let token = CancellationToken::new();
-    deps.store.unheld().await;
+    deps.store.unheld(id).await;
     let (store, thread) = (deps.store.clone(), id.clone());
     // The whole history is its newest rows without a bound, marked as every page of it is.
     let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX)).await??;
@@ -245,7 +245,7 @@ pub(super) async fn transcript_units(
         .collect();
     // A page that reaches the newest record holds every record after its calls already.
     if !read.reaches_end && !open.is_empty() {
-        store.unheld().await;
+        store.unheld(id).await;
         let (reading, thread) = (store.clone(), id.clone());
         let (rev, records) = on_lane_wait(lanes.io, &ctl.cancel, move |lane| reading.call_results(lane, &thread, &open)).await??;
         // Records of another history revision answer nothing of this one's rows.
@@ -438,7 +438,7 @@ pub(super) async fn history_tail(
     rows: usize,
 ) -> Result<(History, bool), CoreError> {
     let token = CancellationToken::new();
-    store.unheld().await;
+    store.unheld(id).await;
     let (store, thread) = (store.clone(), id.clone());
     let (_, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
     let transcript = transcript.clone();
@@ -1446,7 +1446,7 @@ impl DirInner {
     }
 
     async fn read_turns(&self, id: &ThreadId, p: ThreadTurnsListParams, cancel: &CancellationToken) -> Result<Reply, CoreError> {
-        self.deps.store.unheld().await;
+        self.deps.store.unheld(id).await;
         if p.items_view != Some(true)
             && let Some(scan) = read_turn_metadata(&self.deps, id, cancel).await?
         {

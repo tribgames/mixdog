@@ -470,11 +470,17 @@ pub struct StoredOp {
 }
 
 /// The members of `header` named in `fields`, in the header's order; `None` for a session kept only to host a worker row.
-pub fn header_fields(header: &Header, fields: &[&str]) -> Option<Header> {
-    if header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(serde_json::Value::as_bool) == Some(true) {
-        return None;
+pub fn header_fields<'a>(header: impl IntoIterator<Item = (&'a String, &'a serde_json::Value)>, fields: &[&str]) -> Option<Header> {
+    let mut picked = Header::new();
+    for (key, value) in header {
+        if key == mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY && value.as_bool() == Some(true) {
+            return None;
+        }
+        if fields.contains(&key.as_str()) {
+            picked.insert(key.clone(), value.clone());
+        }
     }
-    Some(header.iter().filter(|(key, _)| fields.contains(&key.as_str())).map(|(key, value)| (key.clone(), value.clone())).collect())
+    Some(picked)
 }
 
 /// The thread store's open and create paths (FORMAT.md §6.3, SPEC R28).
@@ -494,12 +500,12 @@ pub trait ThreadStore: Send + Sync + 'static {
         Ok(header_fields(&self.read_header(lane, id)?, fields))
     }
 
-    /// The header members a listing reads of a stored session (`mixdog_store::worker::LISTED_FIELDS`), from the index
-    /// and without opening its log. The outer `None`: the index cannot answer for the session and
-    /// [`read_header`](Self::read_header) is the source; the inner `None`: a session kept only to host a worker row.
-    /// One answer per session, in order and in one index read, run as the caller's lane job (a full lane is waited out
-    /// where the job is queued).
-    fn listed_rows(&self, _lane: &InLane<InteractiveIo>, ids: &[ThreadId]) -> Result<Vec<Option<Option<Header>>>, CoreError> {
+    /// The header members named in `fields` (each one of `mixdog_store::worker::LISTED_FIELDS`) that a listing reads of a
+    /// stored session, from the index and without opening its log; the members it does not name are not built. The outer
+    /// `None`: the index cannot answer for the session and [`read_header`](Self::read_header) is the source; the inner
+    /// `None`: a session kept only to host a worker row. One answer per session, in order and in one index read, run as
+    /// the caller's lane job (a full lane is waited out where the job is queued).
+    fn listed_rows(&self, _lane: &InLane<InteractiveIo>, ids: &[ThreadId], _fields: &[&str]) -> Result<Vec<Option<Option<Header>>>, CoreError> {
         Ok(vec![None; ids.len()])
     }
 
@@ -612,10 +618,10 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// `None` when no live prompt is named. The one resolver of a rewind's target.
     fn rewind_target(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<StoredRewind>, CoreError>;
 
-    /// Resolves once a page read's job of thread `id` has nothing to wait for: no rewrite holds the logs, everything
-    /// sent to the index before this was asked has been through its writer, a hold on it released (with no bound: each
-    /// answer is the wait's progress, and its end is the last of them or the projector's), and the index is not
-    /// repairing the thread's rows.
+    /// Resolves once a page read's job of thread `id` has nothing to wait for: no rewrite holds the logs, every write of
+    /// the thread sent to the index before this was asked has been through its writer, a hold of its log released (with
+    /// no bound: each answer is the wait's progress, and its end is the last of them or the projector's), and the index is
+    /// not repairing the thread's rows. Other threads' writes queued at the index writer are not waited for.
     fn page_ready(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
         Box::pin(std::future::ready(Ok(())))
     }
@@ -709,9 +715,19 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// rows). The ids it removed.
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
 
-    /// Resolves once no sensitive rewrite holds the reads: a read awaits it before it takes an io-interactive thread, so
-    /// reads issued during a rewrite wait off the lane instead of filling it. Stores that never rewrite resolve at once.
-    fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
+    /// Resolves once no sensitive rewrite holds the reads and the index holds the writes of thread `id` acknowledged so far
+    /// (within the exact class's bound): a read of the thread awaits it before it takes an io-interactive thread, so a read
+    /// issued during a rewrite, or behind its thread's own writes, waits off the lane instead of filling it. Other threads'
+    /// writes are not waited for. Stores that never rewrite resolve at once.
+    fn unheld(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, ()> {
+        self.unheld_all(std::slice::from_ref(id))
+    }
+
+    /// Thread `id` was unloaded or deleted: what the store kept of it for its reads goes (a read after this keeps its own).
+    fn forget(&self, _id: &ThreadId) {}
+
+    /// [`unheld`](Self::unheld) of every thread of `ids` in one wait, within one bound for all of them.
+    fn unheld_all(&self, _ids: &[ThreadId]) -> futures::future::BoxFuture<'static, ()> {
         Box::pin(std::future::ready(()))
     }
 

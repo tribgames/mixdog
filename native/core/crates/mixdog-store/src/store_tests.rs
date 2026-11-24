@@ -1790,6 +1790,27 @@ fn an_early_amend_in_a_long_session_writes_a_bounded_number_of_rows() {
     assert!(used <= 104 && !complete, "{used} {complete}");
 }
 
+/// An amend finds what it changes by the item's id: one of an item with no message row (a display item, amended in a long
+/// session at every step of a turn) seeks the id indexes, and never walks the session's rows in their order.
+#[test]
+fn an_amend_finds_its_rows_by_the_items_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = crate::sqlite::open_schema(
+        &dir.path().join("i.sqlite"),
+        crate::schema::sql::INDEX_DDL,
+        crate::schema::sql::INDEX_APPLICATION_ID,
+        crate::schema::sql::INDEX_USER_VERSION,
+    )
+    .unwrap();
+    for (sql, index) in [(crate::message_index::AMEND_ROW_SQL, "message_rows_iid"), (crate::sqlite::AMEND_TARGET_SQL, "history_iid")] {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let args: Vec<rusqlite::types::Value> = (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
+        let plan: Vec<String> = stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(plan.iter().any(|s| s.contains(index) && s.contains("iid=?")), "{index}: {plan:?}");
+        assert!(plan.iter().all(|s| !s.starts_with("SCAN") && !s.contains("TEMP B-TREE")), "{plan:?}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn coalesced_projections_write_the_newest_header() {
     let env = Env::new();

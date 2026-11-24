@@ -103,7 +103,7 @@ impl AutoRetentionHost for Fake {
     }
     async fn sub_sessions(&self, id: &str, _now: f64, _window: f64, listed: Option<&AgentRows>) -> Result<Option<Vec<(String, f64)>>, String> {
         let mut state = self.state();
-        state.sub_reads.push((id.to_owned(), listed.map(|rows| rows.iter().map(|(row, _)| row.clone()).collect())));
+        state.sub_reads.push((id.to_owned(), listed.map(|listed| listed.rows.iter().map(|(row, _)| row.clone()).collect())));
         if state.live_sub.contains(id) || (listed.is_none() && state.live_sub_fresh.contains(id)) {
             return Ok(None);
         }
@@ -171,7 +171,13 @@ async fn verdict(s: &Session) -> Option<Action> {
 }
 
 async fn verdict_with(host: &Fake, s: &Session, record: &RetentionRecord, policy: Policy) -> Option<Action> {
-    judge(host, s, NOW, policy, record, Some(&AgentRows::new())).await.unwrap().map(|verdict| verdict.action)
+    judge(host, s, NOW, policy, record, Some(&AgentRows::default())).await.unwrap().map(|verdict| verdict.action)
+}
+
+/// Agent-only rows of `ids`, linked to nothing.
+fn agent_rows(ids: &[&str]) -> AgentRows {
+    let rows: Vec<(String, Map<String, Value>)> = ids.iter().map(|id| ((*id).to_owned(), Map::new())).collect();
+    AgentRows { adjacency: Adjacency::of(&rows), rows }
 }
 
 async fn pass(host: &Fake) -> Option<Report> {
@@ -617,10 +623,10 @@ async fn a_child_that_completed_a_turn_just_before_the_final_judgment_keeps_pare
 #[tokio::test]
 async fn each_plan_reads_sub_sessions_from_its_own_listing_and_each_action_afresh() {
     let host = Fake::with(vec![session("parent", 40.0)]);
-    host.state().agent_rows = vec![("child".into(), Map::new())];
+    host.state().agent_rows = agent_rows(&["child"]);
     pass(&host).await.unwrap();
     host.state().sessions.push(session("late", 40.0));
-    host.state().agent_rows = vec![("child2".into(), Map::new())];
+    host.state().agent_rows = agent_rows(&["child2"]);
     pass(&host).await.unwrap();
     let listed = |ids: &[&str]| Some(ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>());
     assert_eq!(

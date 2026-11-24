@@ -417,7 +417,7 @@ impl SessionHandle {
         cancel: &mixdog_rt::CancellationToken,
     ) -> Result<Option<(super::seams::StoredRewind, Option<String>)>, CoreError> {
         let deps = &self.deps;
-        deps.store.unheld().await;
+        deps.store.unheld(&self.id).await;
         let (store, thread, shown) = (deps.store.clone(), self.id.clone(), shown.to_owned());
         let found = mixdog_core_base::support::on_lane_wait(deps.lanes.io, cancel, move |lane| store.rewind_target(lane, &thread, &shown)).await??;
         let Some(stored) = found else { return Ok(None) };
@@ -461,7 +461,7 @@ impl SessionHandle {
             }
         };
         let deps = &self.deps;
-        deps.store.unheld().await;
+        deps.store.unheld(&self.id).await;
         let (store, thread) = (deps.store.clone(), self.id.clone());
         // One more than asked says whether more are left.
         let read = mixdog_core_base::support::on_lane_wait(deps.lanes.io, &req.ctx.cancel, move |lane| store.rewind_targets(lane, &thread, before, limit + 1));
