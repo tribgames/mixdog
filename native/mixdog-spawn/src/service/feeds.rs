@@ -660,12 +660,7 @@ impl ProcessFeeds {
 impl ProcessFeeds {
     /// Opens `terminal` on the process running under `handle` (spawned outside the tab layer), as a tab's spawn does, and holds its feed
     /// as an ensure does.
-    pub(crate) fn open_spawned(
-        self: &Arc<Self>,
-        handle: &str,
-        terminal: &TerminalId,
-        order: impl FnOnce() -> Option<PumpTell> + Send + 'static,
-    ) -> FeedHold {
+    pub(crate) fn open_spawned(self: &Arc<Self>, handle: &str, terminal: &TerminalId, order: impl FnOnce() -> Option<PumpTell> + Send + 'static) -> FeedHold {
         let output = self.manager.feed_of(&ProcessHandle::from(handle)).expect("a process runs under the handle");
         self.terminal_opened(handle, terminal.clone(), output, Box::new(order));
         self.open_terminal(handle, terminal).expect("the terminal just opened is the handle's")
@@ -890,7 +885,10 @@ mod tests {
         };
         let text = |frames: &[Value]| {
             let output: Vec<&Value> = frames.iter().filter(|frame| frame["method"] == "process/outputDelta").collect();
-            let text = output.iter().map(|frame| String::from_utf8(STANDARD.decode(frame["params"]["bytesB64"].as_str().unwrap()).unwrap()).unwrap()).collect::<String>();
+            let text = output
+                .iter()
+                .map(|frame| String::from_utf8(STANDARD.decode(frame["params"]["bytesB64"].as_str().unwrap()).unwrap()).unwrap())
+                .collect::<String>();
             (text, output.iter().map(|frame| frame["params"]["terminal"].clone()).collect::<Vec<_>>())
         };
         let current = || feeds.entries.lock().unwrap().get(name).cloned().unwrap();

@@ -28,7 +28,8 @@ async fn index_in(data: &Path) -> SqliteStore {
 
 async fn put(index: &SqliteStore, id: &str, title: &str, updated: u64) {
     let header = json!({ "id": id, "title": title, "updatedAt": updated, "desktopSession": { "classification": "task", "projectPath": "/p" } });
-    let head = CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
+    let head =
+        CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Clear).await.unwrap();
 }
 
@@ -87,7 +88,8 @@ async fn a_release_moves_the_worker_revision_of_the_row() {
     let dir = tempfile::tempdir().unwrap();
     let index = index_in(dir.path()).await;
     let header = json!({ "id": "w", "title": format!("code {CODE}"), "updatedAt": 1, "worker": { "tag": "rev", "agent": "worker", "parentSessionId": "p" } });
-    let head = CatalogHead { session: "w".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
+    let head =
+        CatalogHead { session: "w".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Clear).await.unwrap();
     index.withhold(vec!["w".to_owned()]).await.unwrap();
     let held = index.worker_index_since(None, Vec::new()).await.unwrap();
@@ -104,7 +106,8 @@ async fn a_worker_load_spanning_a_release_answers_the_row_its_revision_holds() {
     let dir = tempfile::tempdir().unwrap();
     let index = index_in(dir.path()).await;
     let header = json!({ "id": "w", "updatedAt": 1, "worker": { "tag": "rev", "agent": "worker", "parentSessionId": "p", "result": format!("code {CODE}") } });
-    let head = CatalogHead { session: "w".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
+    let head =
+        CatalogHead { session: "w".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Clear).await.unwrap();
     index.withhold(vec!["w".to_owned()]).await.unwrap();
     let worker_of = |read: &crate::worker::WorkerIndexRead| {

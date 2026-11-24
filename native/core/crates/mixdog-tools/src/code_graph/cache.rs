@@ -1538,10 +1538,7 @@ impl GraphCache {
         all.retain(|h| !idle(h));
         let held = !all.is_empty();
         let still: HashSet<&str> = all.iter().map(|h| h.key.as_str()).collect();
-        self.resident
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .retain(|r| !released.contains(&r.root) || still.contains(r.root.as_str()));
+        self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|r| !released.contains(&r.root) || still.contains(r.root.as_str()));
         held
     }
 

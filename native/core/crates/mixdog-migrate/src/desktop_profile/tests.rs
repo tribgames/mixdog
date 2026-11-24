@@ -349,7 +349,12 @@ fn a_late_profile_merges_with_the_rows_the_core_wrote_first() {
         &BTreeSet::new(),
     );
     let connection = state_tables::open_state(&run.roots.data).unwrap();
-    connection.execute("INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES ('C:/shared', 'Mine', 0, NULL, 7), ('C:/new', 'New', 0, NULL, 9)", []).unwrap();
+    connection
+        .execute(
+            "INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES ('C:/shared', 'Mine', 0, NULL, 7), ('C:/new', 'New', 0, NULL, 9)",
+            [],
+        )
+        .unwrap();
     connection.execute(r#"INSERT INTO rooms (room_id, doc) VALUES ('shared', '{"id":"shared","lastPreview":"mine"}'), ('new', '{"id":"new"}')"#, []).unwrap();
     drop(connection);
 

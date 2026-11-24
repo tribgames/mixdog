@@ -224,10 +224,8 @@ fn kept_key(item: &ManifestItem) -> String {
 
 /// The keys of the source rows that were already in the table when they were published.
 fn kept_keys(connection: &Connection, item: &ManifestItem) -> Result<std::collections::BTreeSet<String>, rusqlite::Error> {
-    let text: Option<String> = connection
-        .query_row("SELECT value FROM meta WHERE key = ?1", [kept_key(item)], |row| row.get(0))
-        .map(Some)
-        .or_else(|error| match error {
+    let text: Option<String> =
+        connection.query_row("SELECT value FROM meta WHERE key = ?1", [kept_key(item)], |row| row.get(0)).map(Some).or_else(|error| match error {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             other => Err(other),
         })?;
@@ -246,9 +244,7 @@ impl Rows {
     /// The rows whose key `other` also holds.
     fn among(self, other: &Rows) -> Rows {
         match (self, other) {
-            (Rows::Projects(rows), Rows::Projects(other)) => {
-                Rows::Projects(rows.into_iter().filter(|row| other.iter().any(|o| o.path == row.path)).collect())
-            }
+            (Rows::Projects(rows), Rows::Projects(other)) => Rows::Projects(rows.into_iter().filter(|row| other.iter().any(|o| o.path == row.path)).collect()),
             (Rows::Rooms(rows), Rows::Rooms(other)) => Rows::Rooms(rows.into_iter().filter(|row| other.iter().any(|o| o.room_id == row.room_id)).collect()),
             (rows, _) => rows,
         }

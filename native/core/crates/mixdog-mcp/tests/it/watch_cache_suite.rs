@@ -78,7 +78,13 @@ async fn reads_that_miss_together_run_one_collection_and_share_its_skills() {
         })
     };
     let watch = Arc::new(SkillsWatch::new());
-    let catalog = mixdog_mcp::skill_catalog::SkillCatalog::new(dir.path().to_path_buf(), mixdog_rt::testing::tokens().maintenance_io, roots, Arc::new(NoSettings), &watch);
+    let catalog = mixdog_mcp::skill_catalog::SkillCatalog::new(
+        dir.path().to_path_buf(),
+        mixdog_rt::testing::tokens().maintenance_io,
+        roots,
+        Arc::new(NoSettings),
+        &watch,
+    );
     let deep = root.clone();
     catalog.watch_roots(watch.clone(), Arc::new(move |_| mixdog_mcp::skills_watch::WatchTargets { deep: vec![deep.clone()], ..Default::default() }));
     watch.attach(Arc::new(FolderWatcher::new(watch.sink()).unwrap()));

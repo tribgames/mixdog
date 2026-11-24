@@ -316,7 +316,8 @@ mod tests {
     async fn run(service: Arc<ComputerBridgeRun>, command: Value) -> Value {
         let mut ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
         ctx.host_claimant = true;
-        let request = CoreRequest { method: Method(BRIDGE_RUN), params: json!({ "command": command, "sessionKey": SESSION, "signalId": "sig" }), op: None, ctx };
+        let request =
+            CoreRequest { method: Method(BRIDGE_RUN), params: json!({ "command": command, "sessionKey": SESSION, "signalId": "sig" }), op: None, ctx };
         match service.call(request).await {
             Ok(Reply::Value(answer)) => answer,
             _ => panic!("the bridge answers"),

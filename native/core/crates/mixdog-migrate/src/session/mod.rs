@@ -628,10 +628,7 @@ impl ItemDriver for SessionDriver {
         let path = cx.stage_dir(item.key.as_str()).join(DANGLING_FILE);
         // A session an earlier build verified has no count of its own.
         let Some(bytes) = durable::read_optional(&path)? else { return Ok(0) };
-        std::str::from_utf8(&bytes)
-            .ok()
-            .and_then(|count| count.parse().ok())
-            .ok_or_else(|| Blocked::journal(format!("{}: not a count", path.display())))
+        std::str::from_utf8(&bytes).ok().and_then(|count| count.parse().ok()).ok_or_else(|| Blocked::journal(format!("{}: not a count", path.display())))
     }
 
     fn withdraw(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {

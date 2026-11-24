@@ -536,7 +536,9 @@ impl Agents {
         for preset in &self.parts.presets {
             let Some(Readiness::Ready { models, .. }) = self.known(preset) else { continue };
             rows.push(self.with_window(preset, DEFAULT_MODEL, Self::plain_row(preset, DEFAULT_MODEL, &preset.label)));
-            rows.extend(crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| self.with_window(preset, &listed.id, Self::listed_row(preset, listed))));
+            rows.extend(
+                crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| self.with_window(preset, &listed.id, Self::listed_row(preset, listed))),
+            );
         }
         rows
     }

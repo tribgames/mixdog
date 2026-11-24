@@ -347,12 +347,7 @@ impl Reply<'_> {
         }
         if self.occupancy != Some(context.used) && context.used > 0 {
             self.occupancy = Some(context.used);
-            let usage = TurnUsage {
-                context: Some(context),
-                model: self.context.model.clone(),
-                started_at_ms: (self.context.now_ms)(),
-                ..TurnUsage::default()
-            };
+            let usage = TurnUsage { context: Some(context), model: self.context.model.clone(), started_at_ms: (self.context.now_ms)(), ..TurnUsage::default() };
             self.surface.context_update(usage).await?;
         }
         Ok(())

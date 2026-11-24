@@ -1628,7 +1628,6 @@ impl LocalProcessManager {
         Ok(self.inner.lookup(handle)?.feed.pushed())
     }
 
-
     /// A subscription from the oldest event the ring still holds, with the output offset where its first event starts (more than zero
     /// when the ring has dropped the start of the output), taken in one step (see `Feed::subscribe_oldest`).
     pub(crate) fn subscribe_oldest(&self, handle: &ProcessHandle) -> Result<(crate::feed::Subscription, u64), ProcessError> {

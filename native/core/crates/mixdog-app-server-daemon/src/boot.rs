@@ -623,9 +623,7 @@ mod set_aside_tests {
     use super::*;
 
     fn complete(data: &Path, data_counts: (u64, u64), profile_counts: (u64, u64)) {
-        let counts = |(expected, unexpected): (u64, u64)| {
-            json!({ "verified": 5, "quarantined_expected": expected, "quarantined_unexpected": unexpected, "retired": 0, "retained": 0, "dangling": 0 })
-        };
+        let counts = |(expected, unexpected): (u64, u64)| json!({ "verified": 5, "quarantined_expected": expected, "quarantined_unexpected": unexpected, "retired": 0, "retained": 0, "dangling": 0 });
         let record = json!({
             "format": 1,
             "manifest_sha256": "abc",
