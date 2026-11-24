@@ -41,7 +41,7 @@ import type { TurnReviewFile } from './turn-review-cache';
 import { useTurnChangesEpoch } from './turn-changes-model';
 import { rowListIndex } from './session-diff-row-index';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
-import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
+import { readCachedDockGitState, requestDockGitState, retainDockGitState } from './utility-dock-git-state';
 
 // ── Source preference ────────────────────────────────────────────────────
 // One global choice shared by the composer chip and every Changes pane.
@@ -531,7 +531,49 @@ function reloadChanges(target: ChangesTarget): Promise<boolean> {
 }
 
 const watches = new Map<string, { count: number; stop(): void }>();
+const views = new Map<string, { count: number; target: ChangesTarget; releaseDock: () => void }>();
 
+/** A mounted view of a source's changes, whether or not it is watching:
+ *  the last one leaving takes the entry, the cwd's resolved root, its patches
+ *  and the dock's Git snapshot with it. */
+function retainChangesView(target: ChangesTarget): () => void {
+  const id = `${target.cwd}\0${target.source}`;
+  let view = views.get(id);
+  if (!view) {
+    view = { count: 0, target, releaseDock: retainDockGitState(target.cwd) };
+    views.set(id, view);
+  }
+  const held = view;
+  held.count += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    held.count -= 1;
+    if (held.count > 0) return;
+    views.delete(id);
+    held.releaseDock();
+    if (!sessionScopedSource(target.source)) releaseGitEntry(target);
+  };
+}
+
+function releaseGitEntry(target: ChangesTarget): void {
+  const key = changesKey(target);
+  let keyShared = false;
+  let cwdShared = false;
+  for (const { target: other } of views.values()) {
+    if (other.cwd === target.cwd) cwdShared = true;
+    if (changesKey(other) === key) keyShared = true;
+  }
+  if (!keyShared) {
+    entries.delete(key);
+    requests.delete(key);
+    staleKeys.delete(key);
+    patches.deletePrefix(`${key}\0`);
+    for (const listener of [...entryListeners]) listener();
+  }
+  if (!cwdShared) cwdRoots.delete(target.cwd);
+}
 /** Ref-counted Git evidence watch per (cwd, source): the chip and the pane
  *  share one scheduler, which also performs the first read. */
 function retainChangesWatch(target: ChangesTarget): () => void {
@@ -1263,6 +1305,10 @@ export function useSessionChanges({
     lastScopedTarget.current = target;
     return retainScopedEntry(target, previous?.sessionId === session && previous.cwd !== project);
   }, [active, project, session, source, target]);
+  useEffect(() => {
+    if (!active || !project) return;
+    return retainChangesView(target);
+  }, [active, project, source, target]);
   useEffect(() => {
     if (!active || !watchable) return;
     return retainChangesWatch(target);

@@ -10,10 +10,13 @@ import {
   visualizeThumbnail,
 } from '../shared/visualize';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
+import { uiFormatLocale } from './i18n';
 import { linkOpenTarget } from './link-open-target';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { timeFormatOptions } from './time-format-preference';
-import { livePanes, sameTarget } from './visualize-card-model';
+import { livePanes, releaseVisualizeSessionCards, sameTarget } from './visualize-card-model';
+import { releaseVisualizeProposals } from './visualize-feedback-gate';
+import { releaseVisualizeTweaks } from './visualize-tweaks-store';
 import { emitVisualizeZoomInput, emitVisualizeZoomModifier } from './visualize-zoom';
 
 type Listener = () => void;
@@ -109,6 +112,30 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
+/** A session was deleted: everything the visualize panel holds for it goes. */
+export function releaseVisualizeSession(sessionId: string): void {
+  setVisualizePanelOnScreen(sessionId, false);
+  userPicks.delete(sessionId);
+  userOpens.delete(sessionId);
+  previewOpens.delete(sessionId);
+  heldSince.delete(sessionId);
+  pendingReveals.delete(sessionId);
+  if (updatedTabs.has(sessionId)) {
+    updatedTabs = new Map(updatedTabs);
+    updatedTabs.delete(sessionId);
+  }
+  const memory = panelMemory();
+  if (memory.open.delete(sessionId) || memory.closed.delete(sessionId)) savePanelMemory();
+  if (states.has(sessionId)) {
+    const next = new Map(states);
+    next.delete(sessionId);
+    replaceStates(next);
+  }
+  releaseVisualizeTweaks(sessionId);
+  releaseVisualizeProposals(sessionId);
+  releaseVisualizeSessionCards(sessionId);
+}
+
 function requestReveal(sessionId: string): void {
   if (!revealListeners.size) {
     pendingReveals.add(sessionId);
@@ -177,6 +204,15 @@ function setState(state: VisualizeSessionState): void {
 function replaceStates(next: Map<string, VisualizeSessionState>): void {
   const before = states;
   states = next;
+  for (const [sessionId, state] of before) {
+    const now = next.get(sessionId);
+    for (const tab of state.tabs) {
+      const kept = now?.tabs.find((candidate) => candidate.id === tab.id);
+      if (kept && kept.panes.length >= tab.panes.length) continue;
+      releaseVisualizeTweaks(sessionId, tab.id, kept?.panes.length ?? 0);
+      releaseVisualizeProposals(sessionId, tab.id, kept?.panes.length ?? 0);
+    }
+  }
   emit();
   for (const [sessionId, state] of before) {
     if (state.tabs.length && !next.get(sessionId)?.tabs.length) {
@@ -822,10 +858,10 @@ export function visualizeExportPane(tab: Pick<VisualizeSessionState['tabs'][numb
 /** When a list entry was opened: the time today, else the date and time. */
 export function visualizeHistoryTime(at: number, now: number = Date.now()): string {
   const date = new Date(at);
-  const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', ...timeFormatOptions() });
+  const time = date.toLocaleTimeString(uiFormatLocale(), { hour: '2-digit', minute: '2-digit', ...timeFormatOptions() });
   return date.toDateString() === new Date(now).toDateString()
     ? time
-    : `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${time}`;
+    : `${date.toLocaleDateString(uiFormatLocale(), { month: 'short', day: 'numeric' })} ${time}`;
 }
 
 export function closeVisualizeTab(sessionId: string, tabId: string): void {

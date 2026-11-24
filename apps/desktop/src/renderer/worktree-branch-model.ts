@@ -604,6 +604,16 @@ export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown
   }
 }
 
+/** A discarded draft's worktree choice and default read. */
+export function releaseWorktreeDraft(key: string): void {
+  intents.delete(key);
+  branchIntents.delete(key);
+  defaultIntents.delete(key);
+  chosenIntents.delete(key);
+  defaultReads.delete(key);
+  emitIntent();
+}
+
 export function useWorktreeIntent(key: string): boolean {
   return useSyncExternalStore(
     (listener) => {

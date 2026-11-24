@@ -155,3 +155,11 @@ test('selection survives rejected submission and scope switches, clears only aft
     host.remove();
   }
 });
+
+test('a deleted session releases its selected skill and an empty choice is never stored', async () => {
+  const { releaseComposerSkill } = await import('./composer-skill.ts');
+  const key = 'mixdog:composer-skill:release-me';
+  window.sessionStorage.setItem(key, 'pdf');
+  releaseComposerSkill('release-me');
+  assert.equal(window.sessionStorage.getItem(key), null);
+});

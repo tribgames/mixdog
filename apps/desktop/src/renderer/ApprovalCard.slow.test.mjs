@@ -2519,3 +2519,44 @@ test('agent mode marks the question card and the approval card the same way', as
     await ui.done();
   }
 });
+
+test("a decided takeover's card forgets the agent stopped, and a login window ending after unmount writes nothing", async () => {
+  const previous = dom.window.mixdogDesktop;
+  let asks = 0;
+  dom.window.mixdogDesktop = {
+    takeoverReady: () => {
+      asks += 1;
+      return asks === 1 ? Promise.resolve(true) : new Promise(() => {});
+    },
+  };
+  const takeover = {
+    id: 't-end',
+    name: 'ask_user',
+    kind: 'takeover',
+    sessionId: 'sess-end',
+    takeover: { surface: 'browser', instructions: 'Sign in' },
+  };
+  try {
+    const first = await mount(card(takeover).element);
+    await settle();
+    assert.equal(first.row(first.rows().indexOf('Done')).disabled, false);
+    await first.click(first.button('Done'));
+    await first.done();
+    const again = await mount(card(takeover).element);
+    assert.equal(again.row(again.rows().indexOf('Done')).disabled, true, 'a decided request keeps no readiness');
+    await again.done();
+
+    const desktop = loginDesktop();
+    dom.window.mixdogDesktop = desktop.api;
+    const login = await mount(card(loginTakeover('l-end')).element);
+    await login.click(login.button('Sign in…'));
+    await login.done();
+    await desktop.end({ state: 'closed' });
+    desktop.api.browserLoginStatus = async () => ({ state: 'unavailable' });
+    const back = await mount(card(loginTakeover('l-end')).element);
+    assert.deepEqual(back.rows(), ['Cancel', 'Sign in…'], 'nothing was written after the card unmounted');
+    await back.done();
+  } finally {
+    dom.window.mixdogDesktop = previous;
+  }
+});

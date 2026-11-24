@@ -442,7 +442,7 @@ export function visualizeCardVersion(tab: VisualizeTabView | null): number {
   return tab?.version ?? tab?.versions?.at(-1)?.n ?? 0;
 }
 
-// The version each card's turn ended on (by call id): a card drawn at its
+// The version each card's turn ended on (by session and call id): a card drawn at its
 // turn's end records it, so once a later turn opens the tab again the earlier
 // card keeps naming its own version.
 const cardVersions = new Map<string, number>();
@@ -463,6 +463,15 @@ export function resetVisualizeCardMemory(): void {
   newestCards.clear();
 }
 
+/** A deleted session's card records. */
+export function releaseVisualizeSessionCards(sessionId: string): void {
+  newestCards.delete(sessionId);
+  tabTitles.delete(sessionId);
+  const prefix = `${sessionId}\0`;
+  for (const key of [...cardVersions.keys()]) if (key.startsWith(prefix)) cardVersions.delete(key);
+  for (const key of [...turnCards.keys()]) if (key.startsWith(prefix)) turnCards.delete(key);
+}
+
 /** `live` while `call` is its tab's newest card (recorded as its own); an
  *  earlier card: the version the host recorded for its turn (the tab's
  *  `versions[].turns`, so a card never drawn live, a reloaded renderer and a
@@ -477,11 +486,12 @@ export function visualizeCardOwnVersion(
 ): number {
   if (newest) {
     const recordedNewest = newestCards.get(sessionId)?.get(call.tabId)?.id === call.id;
-    if (recordedNewest && live && !cardVersions.has(call.id)) cardVersions.set(call.id, live);
+    const versionKey = `${sessionId}\0${call.id}`;
+    if (recordedNewest && live && !cardVersions.has(versionKey)) cardVersions.set(versionKey, live);
     // A closed tab has no live version: the card keeps the one it showed.
-    return live || (cardVersions.get(call.id) ?? call.version ?? 0);
+    return live || (cardVersions.get(versionKey) ?? call.version ?? 0);
   }
-  return versionProducedAt(tab?.versions, call.at) || (cardVersions.get(call.id) ?? call.version ?? 0);
+  return versionProducedAt(tab?.versions, call.at) || (cardVersions.get(`${sessionId}\0${call.id}`) ?? call.version ?? 0);
 }
 // Tab titles as the agent gave them at open ("v1" → "요금제 배치 시안"), per
 // session, so later rows (check, capture, close…) name the page, not the id.

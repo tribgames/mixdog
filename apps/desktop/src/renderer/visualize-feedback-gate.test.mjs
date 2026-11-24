@@ -183,3 +183,27 @@ test('window captures run one at a time', () => {
   assert.equal(beginVisualizeCapture(), true);
   endVisualizeCapture();
 });
+
+test('a closed tab or deleted session releases its confirm bars and their reset closures', async () => {
+  const { releaseVisualizeProposals } = await import('./visualize-feedback-gate.ts');
+  resetVisualizeChoiceProposals();
+  const bar = (session, tab, pane) => {
+    const key = visualizeProposalKey(session, tab, pane);
+    proposeVisualizeChoice(key, { sessionId: session, choice: {}, reset() {} }, 0);
+    return key;
+  };
+  const a0 = bar('s1', 'a', 0);
+  const a1 = bar('s1', 'a', 1);
+  const b0 = bar('s1', 'b', 0);
+  const other = bar('s2', 'a', 0);
+  releaseVisualizeProposals('s1', 'a', 1);
+  assert.equal(visualizeChoiceProposal(a1), null);
+  assert.ok(visualizeChoiceProposal(a0));
+  releaseVisualizeProposals('s1', 'a');
+  assert.equal(visualizeChoiceProposal(a0), null);
+  assert.ok(visualizeChoiceProposal(b0));
+  releaseVisualizeProposals('s1');
+  assert.equal(visualizeChoiceProposal(b0), null);
+  assert.ok(visualizeChoiceProposal(other));
+  assert.ok(proposeVisualizeChoice(a0, { sessionId: 's1', choice: {}, reset() {} }, 1), 'no rate-limit record outlives the bar');
+});

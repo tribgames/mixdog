@@ -99,6 +99,7 @@ let active: ActiveEditorDocument | null = null;
 let activeLine = 1;
 let activeColumn = 1;
 const lspProblems = new Map<string, EditorProblem[]>();
+const lspServers = new Map<string, { projectPath: string; relPath: string; server: string }>();
 const nativeProblems = new Map<string, EditorProblem[]>();
 const outlines = new Map<string, EditorOutlineItem[]>();
 const statuses = new Map<string, DesktopLspStatusEvent>();
@@ -178,9 +179,24 @@ function acceptLspDiagnostics(event: DesktopLspDiagnosticEvent): void {
       endColumn: Math.max(1, Number(diagnostic.range.end.character) + 1),
     })
   );
-  if (rows.length) lspProblems.set(event.uri, rows);
-  else lspProblems.delete(event.uri);
+  if (rows.length) {
+    lspProblems.set(event.uri, rows);
+    lspServers.set(event.uri, { projectPath: event.projectPath, relPath: event.relPath, server: event.server });
+  } else {
+    lspProblems.delete(event.uri);
+    lspServers.delete(event.uri);
+  }
   publish();
+}
+
+/** A stopped server publishes nothing more: what it last reported goes with it. */
+function dropStoppedServerDiagnostics(event: DesktopLspStatusEvent): void {
+  if (event.status !== 'stopped') return;
+  for (const [uri, owner] of lspServers) {
+    if (owner.projectPath !== event.projectPath || owner.server !== event.server) continue;
+    lspServers.delete(uri);
+    lspProblems.delete(uri);
+  }
 }
 
 export function ensureEditorLanguageStore(): void {
@@ -192,6 +208,7 @@ export function ensureEditorLanguageStore(): void {
   unsubscribeDiagnostics = api?.subscribeLspDiagnostics?.(acceptLspDiagnostics) ?? null;
   unsubscribeStatus =
     api?.subscribeLspStatus?.((event) => {
+      dropStoppedServerDiagnostics(event);
       statuses.set(statusKey(event.projectPath, event.languageId, event.relPath), event);
       publish();
     }) ?? null;
@@ -290,6 +307,12 @@ export function releaseEditorDocument(uri: string): void {
     }
   }
   nativeProblems.delete(uri);
+  for (const [lspUri, from] of lspServers) {
+    if (from.projectPath === owner.projectPath && comparableRelPath(from.relPath) === rel) {
+      lspServers.delete(lspUri);
+      lspProblems.delete(lspUri);
+    }
+  }
   outlines.delete(uri);
   publish();
 }

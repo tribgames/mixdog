@@ -95,6 +95,8 @@ interface TranscriptRowBuilder {
   previousRowWasUser: boolean;
   /** Tool group keys already used in this projection. */
   toolGroupKeys: Set<string>;
+  /** Each tool group's key by the ids it held, so a group keeps its key as items arrive; one pane's projection owns it. */
+  groupKeyMemory: Map<string, string>;
   /** Message row keys this builder placed. */
   rowKeys: Set<string>;
   /** Message row keys placed before this builder started (the settled rows
@@ -200,22 +202,6 @@ interface PendingToolActivityItem {
   turnKey: string;
 }
 
-const TOOL_GROUP_KEY_SESSIONS = 16;
-const toolGroupKeys = new Map<string, Map<string, string>>();
-
-function toolGroupKeyMemory(sessionKey: string): Map<string, string> {
-  let memory = toolGroupKeys.get(sessionKey);
-  if (memory) toolGroupKeys.delete(sessionKey);
-  else memory = new Map();
-  toolGroupKeys.set(sessionKey, memory);
-  while (toolGroupKeys.size > TOOL_GROUP_KEY_SESSIONS) {
-    const oldest = toolGroupKeys.keys().next().value;
-    if (oldest === undefined) break;
-    toolGroupKeys.delete(oldest);
-  }
-  return memory;
-}
-
 function toolActivityRowKey(
   builder: TranscriptRowBuilder,
   sessionKey: string,
@@ -228,7 +214,7 @@ function toolActivityRowKey(
     .map(String);
   const own = `${transcriptRowKey(sessionKey, first.item, first.index)}:tool-activity`;
   if (ids.length === 0) return own;
-  const memory = toolGroupKeyMemory(sessionKey);
+  const memory = builder.groupKeyMemory;
   let key: string | undefined;
   for (const id of ids) {
     const remembered = memory.get(id);
@@ -398,6 +384,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
   let version = 0;
   let rowKeys = new Set<string>();
   let toolGroupKeys = new Set<string>();
+  let groupKeyMemory = new Map<string, string>();
   /** How many settled items carry each id. */
   let itemIds = new Map<unknown, number>();
   /** The marks, oldest first: the item each stands before, the rows placed by then, and the builder's state there. */
@@ -421,6 +408,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     held = null;
     rowKeys = new Set();
     toolGroupKeys = new Set();
+    groupKeyMemory = new Map();
     itemIds = new Map();
     markItems = [];
     markRows = [];
@@ -544,6 +532,9 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
         }
       }
     }
+    for (const item of oldItems.slice(kept)) {
+      if (item?.id != null && !itemIds.has(item.id)) groupKeyMemory.delete(String(item.id));
+    }
     // A turn's end folds into its last reply, and moves there when the reply or the ends change.
     for (const [turnKey, before] of turnsBefore) {
       const after = turns.get(turnKey);
@@ -621,6 +612,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       currentTurnKey: mark >= 0 ? (markTurns[mark] as string) : '',
       previousRowWasUser: mark >= 0 ? (markAfterUser[mark] as boolean) : false,
       toolGroupKeys,
+      groupKeyMemory,
       rowKeys,
     };
 
@@ -830,6 +822,7 @@ export function appendLiveTranscriptRows({
     currentTurnKey: settled.currentTurnKey,
     previousRowWasUser: settled.previousRowWasUser,
     toolGroupKeys: new Set(),
+    groupKeyMemory: new Map(),
     rowKeys: new Set(),
     priorRowKey: (key) => settled.hasRowKey(key),
   };

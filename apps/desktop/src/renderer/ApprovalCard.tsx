@@ -165,6 +165,22 @@ function useOwnerChip(
 // virtualized row scrolled away and back) for as long as the request is pending.
 const laterIds = new Set<string>();
 const controlReadyIds = new Set<string>();
+// How each login takeover's window last ended, across remounts of its card.
+const loginStatuses = new Map<string, DesktopBrowserLoginStatus>();
+
+/** The request was decided: what its card remembered for a remount goes. */
+function releaseApprovalCardState(id: string): void {
+  laterIds.delete(id);
+  controlReadyIds.delete(id);
+  loginStatuses.delete(id);
+}
+
+/** Once the request ended (decided here or answered elsewhere) its card's remount memory goes. */
+function useApprovalCardEnd(id: string, ended: boolean): void {
+  useEffect(() => {
+    if (ended) releaseApprovalCardState(id);
+  }, [ended, id]);
+}
 
 function ApprovalPendingChip({ label, agentMode, onOpen }: { label: string; agentMode: boolean; onOpen: () => void }) {
   return (
@@ -234,9 +250,6 @@ export function ApprovalCard(props: ApprovalCardProps) {
   const login = approvalCardModel(props.approval).login;
   return login ? <BrowserLoginCard {...props} site={login.site} /> : <ToolApprovalCard {...props} />;
 }
-
-// How each login takeover's window last ended, across remounts of its card.
-const loginStatuses = new Map<string, DesktopBrowserLoginStatus>();
 
 type LoginRow = { label: string; action: 'open' | 'fill' | 'reimport' | 'cancel'; disabled?: boolean };
 
@@ -309,12 +322,17 @@ function BrowserLoginCard({
   const [picked, setPicked] = useState(() => accounts[0]?.id ?? '');
   const api = desktopApi();
   const local = Boolean(sessionId && api?.browserLoginOpen);
-  const controlReady = useControlReady(id, sessionId, local && !settled);
+  const [decided, setDecided] = useState(false);
+  const ended = Boolean(settled) || decided;
+  const controlReady = useControlReady(id, sessionId, local && !ended);
   const [status, setStatus] = useState<DesktopBrowserLoginStatus>(() => loginStatuses.get(id) ?? { state: 'idle' });
   const [later, setLater] = useState(() => laterIds.has(id));
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState('');
   const mounted = useRef(true);
+  useApprovalCardEnd(id, ended);
+  const endedRef = useRef(ended);
+  endedRef.current = ended;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -326,8 +344,8 @@ function BrowserLoginCard({
     setStatus({ state: 'open' });
     void Promise.resolve(pending).then(
       (next) => {
-        if (next?.state && next.state !== 'unavailable') loginStatuses.set(id, next);
         if (!mounted.current) return;
+        if (next?.state && next.state !== 'unavailable' && !endedRef.current) loginStatuses.set(id, next);
         if (!next || next.state === 'unavailable') {
           setStatus({ state: 'idle' });
           setError(t('The sign-in window could not open.'));
@@ -362,7 +380,12 @@ function BrowserLoginCard({
   const settle = (decision: ToolApprovalDecision) =>
     resolve(decision).then(
       (accepted) => {
-        if (typeof accepted === 'boolean' || !mounted.current) return;
+        if (typeof accepted === 'boolean') {
+          releaseApprovalCardState(id);
+          if (mounted.current) setDecided(true);
+          return;
+        }
+        if (!mounted.current) return;
         setResolving(false);
         setError(t('This decision could not be saved. Please try again.'));
       },
@@ -874,8 +897,14 @@ function cardButtons(
 
 /** The card's one decision path: a decision in flight blocks the next, an
  *  unconfirmed refusal is retryable, and a failure is worded for the card. */
-function useApprovalDecision(resolve: ApprovalCardProps['resolve'], settled: ApprovalCardProps['settled']) {
+function useApprovalDecision(
+  id: string,
+  resolve: ApprovalCardProps['resolve'],
+  settled: ApprovalCardProps['settled']
+) {
   const [resolving, setResolving] = useState(false);
+  const [decided, setDecided] = useState(false);
+  useApprovalCardEnd(id, Boolean(settled) || decided);
   const [error, setError] = useState('');
   const resolvingRef = useRef(false);
   const decide = async (decision: ToolApprovalDecision) => {
@@ -893,7 +922,11 @@ function useApprovalDecision(resolve: ApprovalCardProps['resolve'], settled: App
         setResolving(false);
         return;
       }
-      if (typeof accepted === 'boolean') return;
+      if (typeof accepted === 'boolean') {
+        releaseApprovalCardState(id);
+        setDecided(true);
+        return;
+      }
       setError(t('This decision could not be saved. Please try again.'));
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : String(reason || '');
@@ -906,7 +939,7 @@ function useApprovalDecision(resolve: ApprovalCardProps['resolve'], settled: App
     resolvingRef.current = false;
     setResolving(false);
   };
-  return { decide, resolving, resolvingRef, error, setError };
+  return { decide, decided, resolving, resolvingRef, error, setError };
 }
 
 async function provideSecret(secretId: string, value: string, username: string, save: boolean): Promise<boolean> {
@@ -944,7 +977,8 @@ function ToolApprovalCard({
   if (action === 'commit') officeLabel = t('Commit changes');
   else if (action === 'rollback') officeLabel = t('Roll back');
   const takeoverSessionId = String(approval.sessionId || browserSessionId || '');
-  const controlReady = useControlReady(id, takeoverSessionId, model.kind === 'takeover' && !settled);
+  const { decide, decided, resolving, resolvingRef, error, setError } = useApprovalDecision(id, resolve, settled);
+  const controlReady = useControlReady(id, takeoverSessionId, model.kind === 'takeover' && !settled && !decided);
   // The page's owner and the conversation whose panel shows it (they differ
   // when this chat shows a sub-session's takeover).
   const pageViewer = hostSessionId || browserSessionId || takeoverSessionId;
@@ -968,7 +1002,6 @@ function ToolApprovalCard({
   const [codeFilled, setCodeFilled] = useState(0);
   const saveDefault = useSaveChatLogins(model.secretForm === 'login');
   const [saveLogin, setSaveLogin] = useState<boolean | null>(null);
-  const { decide, resolving, resolvingRef, error, setError } = useApprovalDecision(resolve, settled);
   const edited = model.editable.length > 0 && text !== model.payload;
   // Changed text or a partly filled sign-in form not sent yet keeps the
   // conversation; a field's value is only tested for emptiness, never kept.

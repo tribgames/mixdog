@@ -180,6 +180,22 @@ export function useVisualizeChoiceProposal(key: string): VisualizeChoiceProposal
   );
 }
 
+/** A tab closed (every pane), a compare pane went away (`fromPane`), or the
+ *  session was deleted (no tab): their confirm bars, with the page-reset
+ *  closures they hold, go. */
+export function releaseVisualizeProposals(sessionId: string, tabId?: string, fromPane = 0): void {
+  const owned = (key: string): boolean => {
+    const [session, tab, pane] = key.split('\0');
+    if (session !== sessionId) return false;
+    return tabId === undefined || (tab === tabId && Number(pane) >= fromPane);
+  };
+  for (const key of [...proposedAt.keys()]) if (owned(key)) proposedAt.delete(key);
+  const kept = new Map([...proposals].filter(([key]) => !owned(key)));
+  if (kept.size === proposals.size) return;
+  proposals = kept;
+  emitProposals();
+}
+
 /** Test seam. */
 export function resetVisualizeChoiceProposals(): void {
   proposals = new Map();

@@ -1620,3 +1620,39 @@ test('the completion digest tells two calls that traded places apart, next to ea
   // A list carried on from another gives the digest of the list read whole.
   assert.equal(completionDigest(base.slice()), completionDigest(base));
 });
+
+test('the last view of a repository releases its Changes entry; a later view reads it afresh', async (t) => {
+  const { view, states, calls } = await readSource(t, 'uncommitted');
+  assert.equal(states.a.ready, true);
+  await act(async () => view.root.render(null));
+  await view.settle();
+  const firstRender = [];
+  function Remount() {
+    const state = useSessionChanges({ cwd: 'C:/switch-uncommitted', sessionId: 's1', active: true });
+    firstRender.push(state.ready);
+    states.a = state;
+    return null;
+  }
+  await act(async () => view.root.render(h(Remount)));
+  assert.equal(firstRender[0], false, 'nothing of the unmounted view was kept');
+  await view.settle();
+  assert.equal(states.a.ready, true);
+  assert.equal(calls.length, 2, 'the entry was read again');
+  await act(async () => view.root.render(null));
+});
+
+test('the dock Git snapshot goes with its last viewer', async (t) => {
+  const view = mount(t, { gitStatus: async () => switchStatus });
+  const { readCachedDockGitState, requestDockGitState, retainDockGitState } = await import(
+    './utility-dock-git-state.ts'
+  );
+  const first = retainDockGitState('C:/dock-release');
+  const second = retainDockGitState('C:/dock-release');
+  await requestDockGitState('C:/dock-release');
+  assert.equal(readCachedDockGitState('C:/dock-release').ready, true);
+  first();
+  assert.equal(readCachedDockGitState('C:/dock-release').ready, true, 'another view still shows it');
+  second();
+  assert.equal(readCachedDockGitState('C:/dock-release').ready, false);
+  assert.ok(view);
+});

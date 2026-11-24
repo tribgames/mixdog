@@ -38,7 +38,10 @@ import {
   visualizeHeldSince,
   visualizeStateFor,
   visualizeTabTooltip,
+  releaseVisualizeSession,
 } from './visualize-store.ts';
+import { setVisualizeTweakDefs, visualizePaneTweaks, resetVisualizeTweakStore } from './visualize-tweaks-store.ts';
+import { proposeVisualizeChoice, visualizeChoiceProposal, visualizeProposalKey, resetVisualizeChoiceProposals } from './visualize-feedback-gate.ts';
 
 const tab = { id: 'v1', label: 'index.html', revision: 0, panes: [] };
 
@@ -1132,3 +1135,38 @@ test("a version the host cannot show is the caller's to report", () =>
       return {};
     }
   ));
+
+test('a closed pane or tab and a deleted session release their tweaks and confirm bars', () => {
+  resetVisualizePanelMemory();
+  resetVisualizeTweakStore();
+  resetVisualizeChoiceProposals();
+  const block = JSON.stringify([{ id: 'size', type: 'range', var: '--size', min: 10, max: 20, step: 2, unit: 'px', default: 14 }]);
+  const withPanes = (count) => ({
+    sessionId: 'rel-1',
+    active: 'a',
+    tabs: [{ id: 'a', label: 'a', revision: 0, panes: Array.from({ length: count }, () => ({ kind: 'html' })) }],
+  });
+  const seed = () => {
+    for (const pane of [0, 1]) {
+      setVisualizeTweakDefs('rel-1', 'a', pane, block);
+      proposeVisualizeChoice(visualizeProposalKey('rel-1', 'a', pane), { sessionId: 'rel-1', choice: {}, reset() {} }, pane * 1000);
+    }
+  };
+  applyVisualizeEvent({ sessionId: 'rel-1', state: withPanes(2) });
+  seed();
+  applyVisualizeEvent({ sessionId: 'rel-1', state: withPanes(1) });
+  assert.equal(visualizePaneTweaks('rel-1', 'a', 1).length, 0, 'the closed pane released its tweaks');
+  assert.equal(visualizeChoiceProposal(visualizeProposalKey('rel-1', 'a', 1)), null);
+  assert.equal(visualizePaneTweaks('rel-1', 'a', 0).length, 1, 'the open pane keeps them');
+  applyVisualizeEvent({ sessionId: 'rel-1', state: { sessionId: 'rel-1', active: null, tabs: [] } });
+  assert.equal(visualizePaneTweaks('rel-1', 'a', 0).length, 0, 'the closed tab released its tweaks');
+  assert.equal(visualizeChoiceProposal(visualizeProposalKey('rel-1', 'a', 0)), null);
+
+  applyVisualizeEvent({ sessionId: 'rel-2', state: { ...withPanes(1), sessionId: 'rel-2' } });
+  setVisualizeTweakDefs('rel-2', 'a', 0, block);
+  setVisualizePanelOnScreen('rel-2', true);
+  releaseVisualizeSession('rel-2');
+  assert.equal(visualizeStateFor('rel-2').tabs.length, 0, 'the deleted session shows nothing');
+  assert.equal(visualizePaneTweaks('rel-2', 'a', 0).length, 0);
+  assert.equal(visualizePanelOnScreen('rel-2'), false);
+});

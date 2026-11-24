@@ -11,10 +11,16 @@ installTestDom(null, {
   expose: ['Element', 'HTMLElement', 'MouseEvent', 'Event'],
 });
 
-const { FullToolOutputButton, prefetchToolOutputs, resetFullToolOutputs, useFullToolOutput } = await import(
+const {
+  FullToolOutputButton,
+  heldToolOutputReads,
+  prefetchToolOutputs,
+  releaseToolOutputPrefetch,
+  resetFullToolOutputs,
+  useFullToolOutput,
+} = await import(
   './tool-full-output.tsx'
 );
-const { IDLE_RECLAIM_EVENT } = await import('./idle-reclaim.ts');
 
 const FULL = 'full output '.repeat(2_000);
 const CUT = {
@@ -102,11 +108,11 @@ test('Show full output: loading, retry after a failure, then the full text repla
   assert.equal(view.button(), null);
   await view.unmount();
 
-  // A remounted row (the virtual list) keeps what it fetched.
+  // A remounted row (the virtual list) holds nothing of it: it can read it again.
   const again = await mount(CUT);
-  assert.equal(again.result(), FULL);
-  assert.equal(again.button(), null);
-  assert.equal(reads.length, 2, 'no second read');
+  assert.match(again.result(), /omitted/u);
+  assert.equal(again.button().textContent, 'Show full output');
+  assert.equal(reads.length, 2, 'no read until asked');
   await again.unmount();
 });
 
@@ -119,84 +125,36 @@ test('a host that no longer has the row reads as a failure to retry', async () =
   await view.unmount();
 });
 
-test('an opened prefetched result is restored by exact revision under cache pressure', async (t) => {
+test('a prefetch holds its read while its group stays mounted; the read goes with the group and can be read again', async (t) => {
   resetFullToolOutputs();
   const originalApi = window.mixdogDesktop;
-  const pending = deferred();
-  const asked = [];
-  let returnNewer = true;
-  const full = `${'x'.repeat(1024 * 1024)}\nlast line`;
-  const payload = {
-    result: full,
-    rawResult: { text: 'r'.repeat(2 * 1024 * 1024) },
-    uiDiff: { patch: 'd'.repeat(2 * 1024 * 1024) },
-  };
-  const oldest = { ...CUT, id: 'oldest' };
-  const visible = { ...CUT, id: 'visible' };
-  const newer = { ...CUT, id: 'newer' };
-  const views = new Set();
-  t.after(async () => {
-    for (const view of views) await view.unmount();
+  t.after(() => {
     resetFullToolOutputs();
     window.mixdogDesktop = originalApi;
   });
+  const asked = [];
   window.mixdogDesktop = {
-    readTranscriptItem: (sessionId, id, replayToken) => {
-      asked.push([sessionId, id, replayToken]);
-      if (id === 'visible') return pending.promise;
-      if (replayToken && returnNewer) return Promise.resolve({ id, result: 'newer revision', replayToken: 'v2' });
-      return Promise.resolve({ id, ...payload, replayToken: `${id}-v1` });
+    readTranscriptItem: async (sessionId, id) => {
+      asked.push([sessionId, id]);
+      return { id, result: FULL };
     },
   };
-  await act(async () => prefetchToolOutputs('session-1', [oldest], {}));
-  const first = await mount(oldest);
-  views.add(first);
-  await first.render({ item: oldest, wanted: true });
-  assert.ok(first.result() === full, 'opening the prefetched result shows the full payload');
-  await first.unmount();
-  views.delete(first);
-
-  const open = await mount(visible);
-  views.add(open);
-  await open.click();
-  await act(async () => prefetchToolOutputs('session-1', [newer], {}));
-  assert.equal(open.button()?.disabled, true, 'cache pressure leaves the pending read alone');
-  await act(async () => pending.resolve({ id: 'visible', ...payload, replayToken: 'visible-v1' }));
-  assert.ok(open.result() === full, 'the visible result is complete despite cache pressure');
-
-  await act(async () => prefetchToolOutputs('session-1', [oldest], {}));
-  assert.deepEqual(
-    asked,
-    [
-      ['session-1', 'oldest', undefined],
-      ['session-1', 'visible', undefined],
-      ['session-1', 'newer', undefined],
-    ],
-    'eviction kept the prefetch receipt'
-  );
-  const reopened = await mount(oldest);
-  views.add(reopened);
-  assert.equal(reopened.result(), oldest.result, 'the older unobserved payload was evicted');
-  await reopened.render({ item: oldest, wanted: true });
-  assert.deepEqual(asked.at(-1), ['session-1', 'oldest', 'oldest-v1']);
-  assert.equal(asked.length, 4, 're-expanding issues one exact read without another button press');
-  assert.equal(reopened.result(), oldest.result, 'a different revision is not adopted');
-  assert.equal(reopened.button().textContent, 'Retry');
+  const group = {};
+  await act(async () => prefetchToolOutputs('session-1', [CUT], group));
+  assert.equal(heldToolOutputReads(), 1, 'held for the group that asked');
+  const row = await mount(CUT, { wanted: true });
+  assert.equal(row.result(), FULL, 'the expanded row shows it at once');
+  assert.equal(asked.length, 1);
+  await row.unmount();
+  assert.equal(heldToolOutputReads(), 1, 'the group still holds it');
+  releaseToolOutputPrefetch(group);
+  assert.equal(heldToolOutputReads(), 0, 'nothing observes it any more');
+  const reopened = await mount(CUT, { wanted: true });
+  assert.equal(reopened.result(), FULL);
+  assert.equal(asked.length, 2, 'a dropped read is read again on expansion');
   await reopened.unmount();
-  views.delete(reopened);
-  window.dispatchEvent(new window.Event(IDLE_RECLAIM_EVENT));
-  const failed = await mount(oldest, { wanted: true });
-  views.add(failed);
-  assert.equal(failed.button().textContent, 'Retry', 'an unmounted failure still offers Retry after reclaim');
-  assert.equal(asked.length, 4, 'reopening a failed read does not retry it implicitly');
-  returnNewer = false;
-  await failed.click();
-  assert.deepEqual(asked.at(-1), ['session-1', 'oldest', 'oldest-v1'], 'Retry still asks for the exact revision');
-  assert.ok(failed.result() === full, 'the restored result still includes the entire payload');
-  assert.ok(open.result() === full, 'restoring another row never evicts the visible one');
 });
-
-test('row-id-only output survives idle reclaim and reopening after the host row changes', async (t) => {
+test('a loaded output is released once its row unmounts and read again on reopening', async (t) => {
   resetFullToolOutputs();
   const originalApi = window.mixdogDesktop;
   t.after(() => {
@@ -214,11 +172,10 @@ test('row-id-only output survives idle reclaim and reopening after the host row 
   } finally {
     await first.unmount();
   }
-  window.dispatchEvent(new window.Event(IDLE_RECLAIM_EVENT));
+  assert.equal(heldToolOutputReads(), 0, 'nothing observes the output, so it is not held');
   const reopened = await mount(CUT, { wanted: true });
   try {
-    assert.equal(reopened.result(), FULL);
-    assert.equal(reads, 1, 'there was no unsafe row-id-only replay');
+    assert.equal(reads, 2, 'the released output is read again');
   } finally {
     await reopened.unmount();
   }
@@ -276,9 +233,9 @@ test('a row that changed is never shown a text fetched for its earlier revision'
   assert.equal(view.button().textContent, 'Show full output');
   await view.click();
   assert.equal(view.result(), grown);
-  // Back to v1 (a remount of an old snapshot): its own entry, not v2's.
+  // Back to v1: v2's entry left with its row, and v1's text is never v2's.
   await view.render({ item: v1 });
-  assert.equal(view.result(), FULL);
+  assert.match(view.result(), /omitted/u);
   await view.unmount();
 });
 

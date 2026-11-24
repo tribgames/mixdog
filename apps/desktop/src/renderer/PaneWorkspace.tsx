@@ -207,8 +207,10 @@ function useComposerPresenter(
 }
 
 /** The conversation a pane's surfaces download as, remembered per pane. */
-function usePaneDownloadSession(): (leaf: PaneLeaf) => string {
+function usePaneDownloadSession(leaves: readonly PaneLeaf[]): (leaf: PaneLeaf) => string {
   const downloadOwners = useRef(new Map<string, string>());
+  const open = new Set(leaves.map((leaf) => leaf.id));
+  for (const id of [...downloadOwners.current.keys()]) if (!open.has(id)) downloadOwners.current.delete(id);
   const downloadSessionOf = (leaf: PaneLeaf): string => {
     const active = paneActiveSelection(leaf);
     if (active?.kind === 'session') downloadOwners.current.set(leaf.id, active.id);
@@ -450,7 +452,7 @@ export function PaneWorkspace({
       </div>
     );
   };
-  const downloadSessionOf = usePaneDownloadSession();
+  const downloadSessionOf = usePaneDownloadSession(workspace.leaves);
   const paneCellBody = (leaf: PaneLeaf, focused: boolean) => (
     <DownloadSessionContext.Provider value={downloadSessionOf(leaf)}>
       {renderStrip?.(leaf)}

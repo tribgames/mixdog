@@ -116,6 +116,22 @@ export function resetVisualizeTweaks(
   changed();
 }
 
+/** A tab closed (every pane), a compare pane went away (`fromPane`), or the
+ *  session was deleted (no tab): what those panes declared and set goes. */
+export function releaseVisualizeTweaks(sessionId: string, tabId?: string, fromPane = 0): void {
+  const owned = (key: string): boolean => {
+    const [session, tab, pane] = key.split('\0');
+    if (session !== sessionId) return false;
+    return tabId === undefined || (tab === tabId && Number(pane) >= fromPane);
+  };
+  const nextDefs = new Map([...defs].filter(([key]) => !owned(key)));
+  const nextValues = new Map([...values].filter(([key]) => !owned(key)));
+  if (nextDefs.size === defs.size && nextValues.size === values.size) return;
+  defs = nextDefs;
+  values = nextValues;
+  changed();
+}
+
 /** Test seam. */
 export function resetVisualizeTweakStore(): void {
   defs = new Map();

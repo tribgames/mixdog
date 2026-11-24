@@ -14,6 +14,7 @@ import {
   writeStoredDraftPanePrefs,
 } from './draft-pane-prefs-store';
 import { useFocusedDraftRoute } from './use-focused-draft-route';
+import { releaseWorktreeDraft } from './worktree-branch-model';
 import {
   focusedDraftKey,
   useHostMainRoute,
@@ -225,6 +226,7 @@ export function useDraftPanePreferences({
       // The retired draft key may be reused (the "default" draft): a stale
       // engine-derived seed would otherwise resurface in the next task.
       draftSnapshotModelSeeds.current.delete(draftKey);
+      releaseWorktreeDraft(draftKey);
       persistDraftPanePrefs();
       repaintDrafts();
     },

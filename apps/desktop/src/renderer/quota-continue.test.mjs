@@ -686,3 +686,11 @@ test('a waiting resume shows the warning pill and expands into its panel', async
   await act(async () => root.render(React.createElement(ComposerDock, { ...dockProps(), quotaResume: null })));
   assert.equal(document.querySelector('.composer-island-seg-warning'), null, 'cancelled: pill gone');
 });
+
+test('a deleted session releases its quota bookkeeping, so its next stop reads as history again', () => {
+  const failure = { turnKey: 'turn:q', kind: 'quota_exhausted', quota };
+  assert.equal(quotaContinue.quotaStopIsNew('quota-gone', failure, true), false);
+  assert.equal(quotaContinue.quotaStopIsNew('quota-gone', { ...failure, turnKey: 'turn:q2' }, true), true);
+  quotaContinue.releaseQuotaSession('quota-gone');
+  assert.equal(quotaContinue.quotaStopIsNew('quota-gone', { ...failure, turnKey: 'turn:q2' }, true), false);
+});

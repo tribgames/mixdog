@@ -85,3 +85,11 @@ test('the owner conversation shows the child page under its name, and a failed o
     host.remove();
   }
 });
+
+test('a deleted session releases the lines it held as an owner', async () => {
+  const { forgetChildSurfacePages } = await import('./child-surface-peeks.tsx');
+  recordChildSurfacePeek('owner-gone', peek({ childSessionId: 'sub-owned' }));
+  forgetChildSurfacePages('owner-gone');
+  const { childSurfacePeeksOf } = await import('./child-surface-peeks.tsx');
+  assert.equal(childSurfacePeeksOf('owner-gone').length, 0);
+});

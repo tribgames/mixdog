@@ -351,7 +351,12 @@ export function AgentGroupList({
               model={models.get(group.key) ?? ''}
               foldKey={key}
               open={open}
-              onToggle={() => folds.setGroups({ [key]: !open })}
+              onToggle={() =>
+                folds.setGroups(
+                  { [key]: !open },
+                  { prefix: 'agents:', keys: groups.map((shown) => `agents:${shown.key}`) }
+                )
+              }
             />
             {open &&
               rows.map(({ node, state, finished }, index) => (

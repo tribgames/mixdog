@@ -69,6 +69,13 @@ export function quotaStopIsNew(sessionId: string, failure: QuotaFailure | null, 
   return true;
 }
 
+/** A deleted session's seen mark and announced stops. */
+export function releaseQuotaSession(sessionId: string): void {
+  quotaSessionsSeen.delete(sessionId);
+  const prefix = `${sessionId}:`;
+  for (const key of [...quotaStopsAnnounced]) if (key.startsWith(prefix)) quotaStopsAnnounced.delete(key);
+}
+
 export const quotaDismissKey = (sessionId: string, turnKey: string) => `${sessionId}:${turnKey}`;
 
 /** The panel shows for a quota failure of an idle session that the user has

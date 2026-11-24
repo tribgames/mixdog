@@ -94,3 +94,40 @@ test("a document's own LSP answer enables palette commands without a status broa
   assert.equal(getEditorCommandCapabilities().definition, false);
   unsubscribe();
 });
+
+test('a released document and a stopped server leave no LSP diagnostics', () => {
+  let diagnostics;
+  let status;
+  globalThis.window.mixdogDesktop = {
+    subscribeLspDiagnostics: (listener) => {
+      diagnostics = listener;
+      return () => {};
+    },
+    subscribeLspStatus: (listener) => {
+      status = listener;
+      return () => {};
+    },
+  };
+  const project = 'C:\\lsp';
+  const report = (uri, server, relPath = uri) =>
+    diagnostics({
+      projectPath: project,
+      relPath,
+      uri,
+      server,
+      diagnostics: [{ message: 'm', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+    });
+  const held = (uri) => getEditorLanguageSnapshot().problems.filter((problem) => problem.uri === uri).length;
+  getEditorLanguageSnapshot();
+  acquireEditorDocument(project, 'src\\a.ts', 'C:%5C%5Clsp%5Csrc%5Ca.ts');
+  report('file:///lsp/a.ts', 'ts', 'src/a.ts');
+  assert.equal(held('file:///lsp/a.ts'), 1);
+  releaseEditorDocument('C:%5C%5Clsp%5Csrc%5Ca.ts');
+  assert.equal(held('file:///lsp/a.ts'), 0);
+
+  report('file:///lsp/b.ts', 'ts');
+  report('file:///lsp/c.ts', 'other');
+  status({ projectPath: project, languageId: 'typescript', available: false, status: 'stopped', server: 'ts' });
+  assert.equal(held('file:///lsp/b.ts'), 0);
+  assert.equal(held('file:///lsp/c.ts'), 1);
+});

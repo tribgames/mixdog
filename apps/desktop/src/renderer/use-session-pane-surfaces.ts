@@ -3,6 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { noteBrowserRemoteViewer } from './browser-remote-drive';
 import { releaseSessionDiff } from './session-diff-cache';
 import { releaseFullToolOutputs } from './tool-full-output';
+import { releaseSessionSkillCatalog } from './composer-skill-mentions';
+import { releaseVisualizeSession } from './visualize-store';
+import { releaseComposerSkill } from './composer-skill';
+import { releaseQuotaSession } from './quota-continue';
+import { releaseUiOpenSeen } from './app-shell-ui-open-request';
+import { releaseTurnChangesEpoch } from './turn-changes-model';
+import { releaseTurnReviewRequests } from './turn-review-prefetch';
+import { releaseBranchMenuHeights } from './branch-menu';
 import { useSessionBrowserSurfaces } from './session-browser-surfaces';
 import type { useSessionLane } from './session-lane-store';
 import {
@@ -327,6 +335,14 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
       setPanelViewFront(sessionId, false);
       releaseSessionDiff(sessionId);
       releaseFullToolOutputs(sessionId);
+      releaseSessionSkillCatalog(sessionId);
+      releaseVisualizeSession(sessionId);
+      releaseComposerSkill(sessionId);
+      releaseQuotaSession(sessionId);
+      releaseUiOpenSeen(sessionId);
+      releaseTurnChangesEpoch(sessionId);
+      releaseTurnReviewRequests(sessionId);
+      releaseBranchMenuHeights(sessionId);
       browserSurfaces.release(sessionId);
       terminalSurfaces.release(sessionId);
     },

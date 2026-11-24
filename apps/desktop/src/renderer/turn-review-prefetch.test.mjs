@@ -83,3 +83,14 @@ test('a prefetch that failed leaves the island to ask for its own entry read', a
   await act(async () => settle[0].reject(new Error('offline')));
   assert.equal(entryReads().length, 2, 'the island asked after the prefetch failed');
 });
+
+test('a deleted session releases its request marks', async () => {
+  const { beginTurnReviewRequest, isLatestTurnReviewRequest, releaseTurnReviewRequests } = await import(
+    './turn-review-prefetch.ts'
+  );
+  const mine = beginTurnReviewRequest('gone-session:scope');
+  const other = beginTurnReviewRequest('kept-session:scope');
+  releaseTurnReviewRequests('gone-session');
+  assert.equal(isLatestTurnReviewRequest('gone-session:scope', mine), false);
+  assert.equal(isLatestTurnReviewRequest('kept-session:scope', other), true);
+});
