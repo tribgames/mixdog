@@ -11,7 +11,7 @@ import { t } from './i18n';
 import { fileSnapshot, usePersistedThumbnail } from './persisted-thumbnail';
 import { verifyLocalLink } from './local-link-resolver';
 import { MarkdownLink, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
-import { useGeneratedMediaFallback } from './generated-media-fallback';
+import { ClipLoadCancelled, useGeneratedMediaFallback } from './generated-media-fallback';
 import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
 import { fileDownloadReasonMessage } from './file-download-transfer';
 import { isRemoteHostRenderer } from './remote-ui-projection';
@@ -77,10 +77,13 @@ function MediaFigure({
   target,
   openDefault,
   loadClip,
+  clip = '',
 }: {
   artifact: TranscriptArtifact;
   /** Video without a media lane: reads the clip when the dialog opens. */
   loadClip?: () => Promise<string>;
+  /** The clip `loadClip` produced; its owner revokes it and clears it here. */
+  clip?: string;
   original: string;
   preview: string;
   actions: ReactNode;
@@ -117,7 +120,6 @@ function MediaFigure({
   let source = '';
   if (!failed) source = video ? preview : preview || original;
   const thumbnail = source || kept || '';
-  const [clip, setClip] = useState('');
   const playable = original || clip;
   const openable = (Boolean(original) || (video && Boolean(loadClip))) && (video || !failed);
   const frame = mediaFrame(artifact.kind, size, artifact.aspect, square);
@@ -137,7 +139,9 @@ function MediaFigure({
         disabled={!openable}
         onClick={(event) => {
           if (!video) setLightbox({ items: lightboxItemsFor(event.currentTarget), startId: id });
-          if (video && !original && !clip && loadClip) loadClip().then(setClip, () => setFailed(true));
+          if (video && !original && !clip && loadClip) loadClip().catch((reason) => {
+              if (!(reason instanceof ClipLoadCancelled)) setFailed(true);
+            });
           setExpanded(true);
         }}
       >
@@ -260,6 +264,7 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
       original={laneOriginal || (artifact.kind === 'video' ? '' : fallback.still)}
       preview={lanePreview || fallback.still}
       loadClip={laneOriginal ? undefined : fallback.loadClip}
+      clip={laneOriginal ? '' : fallback.clip}
       square={square}
       openDefault={remote ? undefined : () => void open()}
       actions={

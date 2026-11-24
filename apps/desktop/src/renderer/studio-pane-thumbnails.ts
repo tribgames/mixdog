@@ -9,6 +9,12 @@ import type { MediaAsset, posterFromVideo, StudioApi } from './studio-support';
 
 type StudioMediaUrls = ReturnType<typeof useStudioMediaUrls>;
 
+/** The record without keys `keep` rejects; the same object when nothing is dropped. */
+export function retainRecordKeys<T>(record: Record<string, T>, keep: (key: string) => boolean): Record<string, T> {
+  const kept = Object.entries(record).filter(([key]) => keep(key));
+  return kept.length === Object.keys(record).length ? record : Object.fromEntries(kept);
+}
+
 export function useStudioThumbnailState() {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [failedThumbs, setFailedThumbs] = useState<Record<string, boolean>>({});
@@ -28,12 +34,24 @@ export function useStudioThumbnailState() {
     setFailedThumbs({});
     setThumbFallbacks({});
   }, []);
+  /** Thumbnails, durations and failures belong to the assets still on the board. */
+  const retain = useCallback((ids: ReadonlySet<string>) => {
+    const keep = (key: string) => ids.has(key);
+    thumbsRef.current = retainRecordKeys(thumbsRef.current, keep);
+    failedThumbsRef.current = retainRecordKeys(failedThumbsRef.current, keep);
+    loadedThumbsRef.current = retainRecordKeys(loadedThumbsRef.current, keep);
+    setThumbs((current) => retainRecordKeys(current, keep));
+    setFailedThumbs((current) => retainRecordKeys(current, keep));
+    setThumbFallbacks((current) => retainRecordKeys(current, keep));
+    setDurations((current) => retainRecordKeys(current, keep));
+  }, []);
   return {
     thumbs,
     failedThumbs,
     durations,
     ratios,
     reset,
+    retain,
     /** A tile's thumbnail decoded: its frame ratio is now known. */
     onLoad(asset: MediaAsset) {
       loadedThumbsRef.current[asset.id] = true;

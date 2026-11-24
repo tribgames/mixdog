@@ -70,6 +70,27 @@ test('a hold reported through its signal covers without rendering the cover owne
   assert.equal(ownerRenders, rendered, 'the owner never re-renders for the hold');
 });
 
+test('saved scroll offsets restore live elements and never keep a dropped one alive', async (t) => {
+  const { document } = installTestDom(t, { rootId: 'root', globals: {} });
+  const { PersistentScrollOffsets } = await import('./PaneSurfaceGate.tsx');
+  const offsets = new PersistentScrollOffsets();
+  const staying = document.createElement('div');
+  offsets.set(staying, { top: 5, left: 0 });
+  offsets.set(staying, { top: 7, left: 0 });
+  assert.equal(offsets.size, 1);
+  assert.deepEqual(offsets.entries(), [[staying, { top: 7, left: 0 }]]);
+  if (typeof globalThis.gc === 'function') {
+    offsets.set(document.createElement('div'), { top: 9, left: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    globalThis.gc();
+    assert.deepEqual(
+      offsets.entries().map(([element]) => element),
+      [staying]
+    );
+    assert.equal(offsets.size, 1);
+  }
+});
+
 test('a warm revisit that reveals inside the grace never flashes the cover', async (t) => {
   const view = await mount(t);
   await view.render({ ready: true });

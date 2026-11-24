@@ -10,6 +10,7 @@ import { beginBootSurface, reportBootSurfaceStage } from './boot-metrics';
 import { reportRendererFailure } from './RendererRecovery';
 import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
+import { discardUnopenedView } from './terminal-view-discard';
 import { TerminalImeGuard } from './terminal-ime-guard';
 import { attachTerminalClipboardKeys } from './terminal-clipboard-keys';
 import { copyTextToClipboard } from './text-format';
@@ -332,15 +333,22 @@ export function terminalPaintsAtOnce(terminalId: string): boolean {
 
 /** Attaches a running PTY before its pane mounts so the pane paints its screen in its first frame. Resolves false for a shell that never started or has exited; never starts or changes a process. */
 export function prewarmTerminal(terminalId: string): Promise<boolean> {
-  const view = terminalView(terminalId);
-  if (view.id) return Promise.resolve(true);
-  if (connectionLinkView()?.terminalsAvailable === false) return Promise.resolve(false);
+  const existing = terminalViews.get(terminalId);
+  if (existing?.id) return Promise.resolve(true);
+  if (connectionLinkView()?.terminalsAvailable === false) {
+    if (existing) discardUnopenedView(terminalViews, terminalId, existing);
+    return Promise.resolve(false);
+  }
+  const view = existing ?? terminalView(terminalId);
   view.warming ??= (async () => {
     const attached = await window.mixdogDesktop.termAttach?.(terminalId);
     // Released meanwhile, or attached by a pane that mounted first.
     if (terminalViews.get(terminalId) !== view) return false;
     if (view.id) return true;
-    if (!attached) return false;
+    if (!attached) {
+      discardUnopenedView(terminalViews, terminalId, view);
+      return false;
+    }
     view.id = attached.id;
     applyEnsuredSizeOwner(view, attached.sizeOwner);
     let replayWrite: Promise<void> | null = null;
@@ -357,7 +365,10 @@ export function prewarmTerminal(terminalId: string): Promise<boolean> {
     await replayWrite;
     return true;
   })()
-    .catch(() => false)
+    .catch(() => {
+      if (!view.id) discardUnopenedView(terminalViews, terminalId, view);
+      return false;
+    })
     .finally(() => {
       view.warming = null;
     });

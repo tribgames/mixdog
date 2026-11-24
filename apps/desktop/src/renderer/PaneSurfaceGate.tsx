@@ -451,6 +451,43 @@ export function PaneSurfaceCover({
 
 type PersistentSurfaceScroll = { top: number; left: number };
 
+/** Saved scroll offsets that never keep their element alive: offsets are keyed weakly and the elements to restore are `WeakRef`s, dropped where the set is already walked. */
+export class PersistentScrollOffsets {
+  private offsets = new WeakMap<Element, PersistentSurfaceScroll>();
+  private refOf = new WeakMap<Element, WeakRef<Element>>();
+  private live = new Set<WeakRef<Element>>();
+
+  set(element: Element, offset: PersistentSurfaceScroll): void {
+    this.sweep();
+    if (!this.refOf.has(element)) {
+      const ref = new WeakRef(element);
+      this.refOf.set(element, ref);
+      this.live.add(ref);
+    }
+    this.offsets.set(element, offset);
+  }
+
+  /** The elements still alive with their offsets; dead refs are dropped on the way. */
+  entries(): Array<[Element, PersistentSurfaceScroll]> {
+    const found: Array<[Element, PersistentSurfaceScroll]> = [];
+    for (const ref of this.live) {
+      const element = ref.deref();
+      const offset = element && this.offsets.get(element);
+      if (offset && element) found.push([element, offset]);
+      else this.live.delete(ref);
+    }
+    return found;
+  }
+
+  get size(): number {
+    return this.live.size;
+  }
+
+  private sweep(): void {
+    for (const ref of this.live) if (!ref.deref()) this.live.delete(ref);
+  }
+}
+
 /**
  * Relocate the portal host without losing the scroll/focus state its surfaces
  * depend on. `appendChild` detaches the subtree first, which resets every
@@ -463,7 +500,7 @@ type PersistentSurfaceScroll = { top: number; left: number };
 function movePersistentPaneHost(
   host: HTMLElement,
   target: HTMLElement,
-  scrollOffsets: Map<Element, PersistentSurfaceScroll>
+  scrollOffsets: PersistentScrollOffsets
 ): void {
   const focused = document.activeElement;
   const refocus = focused instanceof HTMLElement && host.contains(focused) ? focused : null;
@@ -480,11 +517,8 @@ function movePersistentPaneHost(
     }
   }
   if (!moved) target.appendChild(host);
-  for (const [element, offset] of scrollOffsets) {
-    if (!host.contains(element)) {
-      scrollOffsets.delete(element);
-      continue;
-    }
+  for (const [element, offset] of scrollOffsets.entries()) {
+    if (!host.contains(element)) continue;
     // The saved offset trails by up to a frame: a transcript that pinned its end since must not read it as its reader's.
     if (element.scrollTop !== offset.top) ownScrollWrites(element, () => (element.scrollTop = offset.top));
     if (element.scrollLeft !== offset.left) element.scrollLeft = offset.left;
@@ -532,7 +566,7 @@ export function PersistentPanePortal({
     else host.removeAttribute('aria-hidden');
   }, [host, retained]);
   const [attached, setAttached] = useState(false);
-  const [scrollOffsets] = useState(() => new Map<Element, PersistentSurfaceScroll>());
+  const [scrollOffsets] = useState(() => new PersistentScrollOffsets());
   const settleScrollOffsets = useRef<() => void>(() => {});
   useLayoutEffect(() => {
     const scrolled = new Set<Element>();
@@ -565,6 +599,7 @@ export function PersistentPanePortal({
     host.addEventListener('scroll', note, { capture: true, passive: true });
     host.addEventListener('scrollend', end, { capture: true, passive: true });
     return () => {
+      scrolled.clear();
       settleScrollOffsets.current = () => {};
       if (frame) window.cancelAnimationFrame(frame);
       host.removeEventListener('scroll', note, { capture: true });

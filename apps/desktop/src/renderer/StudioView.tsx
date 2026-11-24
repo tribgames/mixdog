@@ -38,7 +38,7 @@ import { EAGER_THUMB_COUNT, TILE_SIZES, studioRouteRows } from './studio-pane-su
 import { useStudioLaneCatalog, useStudioLaneChoice, useStudioLoad } from './studio-pane-catalog';
 import { useStudioDetailPaging } from './studio-pane-detail';
 import { useStudioJobClock, useStudioReadyReport } from './studio-pane-status';
-import { useStudioThumbnailHydration, useStudioThumbnailState } from './studio-pane-thumbnails';
+import { retainRecordKeys, useStudioThumbnailHydration, useStudioThumbnailState } from './studio-pane-thumbnails';
 import { StudioCatalogNotices, StudioHeader, studioDropHandlers } from './studio-pane-chrome';
 import { studioModelEntries } from './studio-pane-models';
 import { useStudioTileSize } from './studio-pane-persisted';
@@ -157,6 +157,18 @@ export function StudioPane({
   useEffect(() => {
     if (!mediaForeground) setHoverId('');
   }, [mediaForeground]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a board switch is the trigger; the hover belongs to the old board's tile.
+  useEffect(() => {
+    setHoverId('');
+  }, [boardId]);
+  const retainThumbnails = thumbnails.retain;
+  useEffect(() => {
+    retainThumbnails(new Set(assets.map((asset) => asset.id)));
+  }, [assets, retainThumbnails]);
+  // A hover preview's data URL lives only while its tile is hovered.
+  useEffect(() => {
+    setFullUrls((current) => retainRecordKeys(current, (id) => id === hoverId));
+  }, [hoverId, fullUrls]);
   const { available, kindsOffered, lane, spec, activeModel } = useStudioLaneChoice({
     lanes,
     kind,

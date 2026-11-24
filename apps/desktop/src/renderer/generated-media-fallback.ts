@@ -43,7 +43,19 @@ export async function readMediaClip(read: ReadMediaAsset, assetId: string): Prom
   return URL.createObjectURL(new Blob([base64Bytes(result.base64)], { type: result.mime || 'video/mp4' }));
 }
 
+/** A clip load the card's own change (asset, lane, unmount) superseded: not a failure. */
+export class ClipLoadCancelled extends Error {
+  constructor() {
+    super('The media card changed before the clip loaded.');
+  }
+}
+
+const NO_CLIP ={ url: '', owner: '' };
+
 export interface GeneratedMediaFallback {
+  /** The loaded clip's object URL ('' before a load and after its revoke): the
+   *  one owner of the URL a `<video>` shows. */
+  clip: string;
   /** Object URL of the still ('' until read, or when unavailable); revoked
    *  when the asset changes or the card unmounts. */
   still: string;
@@ -60,8 +72,9 @@ export function useGeneratedMediaFallback(
   enabled: boolean
 ): GeneratedMediaFallback {
   const [still, setStill] = useState('');
-  const clips = useRef<string[]>([]);
-  const mounted = useRef(true);
+  const [clip, setClip] = useState(NO_CLIP);
+  const clips = useRef('');
+  const generation = useRef(0);
   const read: ReadMediaAsset = (id, options) =>
     callCapability(api, 'readMediaAsset', [id, options]) as Promise<MediaAssetRead | null>;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the read closes over api, which only changes with the connection; the still is per asset.
@@ -90,26 +103,34 @@ export function useGeneratedMediaFallback(
       URL.revokeObjectURL(revoked);
     };
   }, [enabled, assetId, kind]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a clip belongs to one asset/enabled run; the deps restart it
   useEffect(() => {
-    mounted.current = true;
+    generation.current += 1;
     return () => {
-      mounted.current = false;
-      for (const url of clips.current) URL.revokeObjectURL(url);
-      clips.current = [];
+      generation.current += 1;
+      const revoked = clips.current;
+      clips.current = '';
+      if (!revoked) return;
+      setClip((current) => (current.url === revoked ? NO_CLIP : current));
+      URL.revokeObjectURL(revoked);
     };
-  }, []);
-  if (!enabled) return { still: '' };
+  }, [enabled, assetId, kind]);
+  if (!enabled) return { still: '', clip: '' };
   return {
     still,
+    clip: clip.owner === `${assetId}|${kind}` ? clip.url : '',
     loadClip:
       kind === 'video'
         ? async () => {
+            const started = generation.current;
             const url = await readMediaClip(read, assetId);
-            if (!mounted.current) {
+            if (generation.current !== started) {
               URL.revokeObjectURL(url);
-              throw new Error('The media card closed before the clip loaded.');
+              throw new ClipLoadCancelled();
             }
-            clips.current.push(url);
+            if (clips.current) URL.revokeObjectURL(clips.current);
+            clips.current = url;
+            setClip({ url, owner: `${assetId}|${kind}` });
             return url;
           }
         : undefined,

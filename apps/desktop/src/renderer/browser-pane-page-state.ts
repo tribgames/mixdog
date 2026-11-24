@@ -21,6 +21,23 @@ export type BrowserPageFailure = {
   detail: string;
 };
 
+/** Per-guest records the pane keeps, keyed by the guest's webContents id. */
+export type BrowserGuestBook = {
+  agentViewports: Map<number, { width: number; height: number } | null>;
+  appliedViewportPreset: Map<number, string>;
+};
+
+export function newBrowserGuestBook(): BrowserGuestBook {
+  return { agentViewports: new Map(), appliedViewportPreset: new Map() };
+}
+
+/** A guest whose tab left the tab list takes its records with it. */
+export function forgetClosedTabGuests(book: BrowserGuestBook, tabs: readonly DesktopBrowserTab[]) {
+  const live = new Set(tabs.map((tab) => tab.webContentsId));
+  for (const records of [book.agentViewports, book.appliedViewportPreset] as Map<number, unknown>[]) {
+    for (const guestId of records.keys()) if (!live.has(guestId)) records.delete(guestId);
+  }
+}
 /** Bridges one guest's page events onto the pane's state: navigation, load
  *  progress, the tab list, and the failure surface. Returns its own teardown
  *  so the caller effect stays a single wiring statement. */
@@ -29,6 +46,7 @@ export function watchBrowserPageEvents(
   {
     addressFocused,
     agentViewports,
+    guestBook,
     refreshCredentialSuggestions,
     setAddress,
     setAddressHasFocus,
@@ -45,6 +63,7 @@ export function watchBrowserPageEvents(
   }: {
     addressFocused: { current: boolean };
     agentViewports: { current: Map<number, { width: number; height: number } | null> };
+    guestBook: BrowserGuestBook;
     refreshCredentialSuggestions(): void;
     setAddress(value: string): void;
     setAddressHasFocus(value: boolean): void;
@@ -127,7 +146,11 @@ export function watchBrowserPageEvents(
   const onResponsive = () => setPageFailure((failure) => (failure?.kind === 'unresponsive' ? null : failure));
   // The host cleared the page's fault (crash mark, unresponsive, load failure).
   const onFaultCleared = () => setPageFailure(null);
-  const syncTabs = () => setTabs(view.getTabs());
+  const syncTabs = () => {
+    const tabs = view.getTabs();
+    setTabs(tabs);
+    forgetClosedTabGuests(guestBook, tabs);
+  };
   const onAttach = () => {
     addressFocused.current = false;
     setAddressHasFocus(false);
@@ -203,6 +226,7 @@ export function useBrowserPageEvents(
   page: ReturnType<typeof useBrowserPageState>,
   {
     agentViewports,
+    guestBook,
     setAgentViewport,
     refreshCredentialSuggestions,
     setCredentialMenuOpen,
@@ -210,6 +234,7 @@ export function useBrowserPageEvents(
     setHistorySuggestions,
   }: {
     agentViewports: { current: Map<number, { width: number; height: number } | null> };
+    guestBook: BrowserGuestBook;
     setAgentViewport(value: { width: number; height: number } | null): void;
     refreshCredentialSuggestions(): void;
     setCredentialMenuOpen(value: boolean): void;
@@ -234,6 +259,7 @@ export function useBrowserPageEvents(
     return watchBrowserPageEvents(view, {
       addressFocused,
       agentViewports,
+      guestBook,
       refreshCredentialSuggestions,
       setAddress,
       setAddressHasFocus,
@@ -252,6 +278,7 @@ export function useBrowserPageEvents(
     webviewRef,
     addressFocused,
     agentViewports,
+    guestBook,
     refreshCredentialSuggestions,
     setAddress,
     setAddressHasFocus,
