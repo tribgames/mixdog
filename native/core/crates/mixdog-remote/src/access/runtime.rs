@@ -271,6 +271,8 @@ struct Live {
     device: DeviceIdentity,
     controls: Arc<ControlRequests>,
     cancel: CancellationToken,
+    /// The relay connection now open, a child of `cancel`: cancelled when that connection is lost, replaced at the next open.
+    connection: Mutex<CancellationToken>,
 }
 
 struct State {
@@ -1031,6 +1033,7 @@ impl RemoteRuntime {
             device: device.clone(),
             controls: Arc::new(ControlRequests::default()),
             cancel: cancel.clone(),
+            connection: Mutex::new(cancel.child_token()),
         });
         {
             let mut state = self.inner.state();
@@ -1806,11 +1809,14 @@ impl RemoteRuntime {
                 } => {}
             }
         });
-        let (runtime, cancel, leg) = (self.clone(), live.cancel.clone(), live.clone());
+        // An exchange the relay leaves unanswered holds the drain no longer than this connection; what is still queued is the
+        // next open's.
+        let (runtime, connection, leg) = (self.clone(), live.cancel.child_token(), live.clone());
+        *lock(&live.connection) = connection.clone();
         tokio::spawn(async move {
             tokio::select! {
                 biased;
-                () = cancel.cancelled() => {}
+                () = connection.cancelled() => {}
                 () = runtime.drain_device_revocations(&leg) => {}
             }
         });
@@ -1834,6 +1840,7 @@ impl RemoteRuntime {
     }
 
     fn on_lost(&self, live: &Arc<Live>) {
+        lock(&live.connection).cancel();
         let peers = {
             let mut state = self.inner.state();
             state.connected = false;

@@ -1772,8 +1772,9 @@ pub(crate) struct SessionActor {
     /// `createSubmissionMemory`: the receipts of the thread's submissions by `clientSubmissionId`, so a retried send joins
     /// the original instead of posting the prompt twice; the store's submission index holds every receipt.
     submissions: Submissions,
-    /// A send's receipt is being read from the store: the inbox waits, so what came after it is taken after it.
-    submission_lookup: bool,
+    /// The parameters of the request whose receipt is being read from the store (a send's, a stored patch's): the inbox
+    /// waits, so what came after it is taken after it, and a prune holds what they name ([`Self::prune_held`]).
+    submission_lookup: Option<Value>,
     /// The submission the store holds no receipt of, while its send is admitted ([`Self::mutation`] does not ask again).
     submission_looked: Option<String>,
     /// The mutation in hand is a stored patch's ([`Self::stored_patch`]): it is answered at its own record's barrier,
@@ -2239,7 +2240,7 @@ impl SessionActor {
             starting_wake: false,
             submitter: None,
             submissions: Submissions::default(),
-            submission_lookup: false,
+            submission_lookup: None,
             submission_looked: None,
             storing: false,
             goal_checking: false,
@@ -2357,7 +2358,7 @@ impl SessionActor {
                     self.publish_frame(flushed);
                 }
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => { self.stepping(); self.on_producer(msg) }
-                Some(msg) = self.ch.inbox_rx.recv(), if !self.recovering && !self.submission_lookup && !self.prune_holds() => { self.stepping(); self.take_inbox(msg).await }
+                Some(msg) = self.ch.inbox_rx.recv(), if !self.recovering && self.submission_lookup.is_none() && !self.prune_holds() => { self.stepping(); self.take_inbox(msg).await }
                 else => break,
             }
             self.apply_ready_producers();
@@ -2369,7 +2370,7 @@ impl SessionActor {
             // Under the inbox's own hold: a lookup, the recovery or a prune's granted deletes hold every write behind them.
             while self.route_move.is_none()
                 && !self.recovering
-                && !self.submission_lookup
+                && self.submission_lookup.is_none()
                 && !self.prune_holds()
                 && let Some(msg) = self.route_queue.pop_front()
             {
@@ -3062,7 +3063,7 @@ impl SessionActor {
     }
 
     fn lookup_answered(&mut self, id: String, req: CoreRequest, tx: Waiter, found: Result<Option<Value>, CoreError>) {
-        self.submission_lookup = false;
+        self.submission_lookup = None;
         match found {
             Ok(Some(answer)) => {
                 self.submissions.remember(&id, answer.clone());

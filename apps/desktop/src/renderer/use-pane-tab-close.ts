@@ -5,7 +5,7 @@ import { disposeTerminalPane } from './lazy-widgets';
 import { nextWorkspaceTabAfterClose } from './nav-types';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { paneActiveSelection } from './pane-layout';
-import { dirtySideFilesClosedWith, paneDockOwnerOf, type PaneSideDockEntry } from './pane-side-dock-model';
+import { dirtySideFilesClosedWith, paneDockHandoverTarget, paneDockOwnerOf, type PaneSideDockEntry } from './pane-side-dock-model';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { sideFileDirtyKey, sideFileTabDirtyKey, type PaneSideDockFile } from './side-file-tabs';
 import { navigationKey } from './text-format';
@@ -169,14 +169,17 @@ export function usePaneTabClose({
     const { leaves } = paneWorkspace.now();
     const leaf = leaves.find((entry) => entry.id === leafId);
     if (!leaf) return [];
+    const paneCloses = leaves.length > 1 && leaf.tabs.length === 1;
+    if (!paneCloses && tabOpenInOtherLeaf(leaves, leafId, tab.key)) return [];
+    const paneSessions = Object.fromEntries(
+      leaves.map((entry) => [entry.id, entry.tabs.map((selection) => paneDockOwnerOf(selection))])
+    );
     const tabbedElsewhere = (owner: string) =>
-      leaves.some(
-        (entry) => entry.id !== leafId && entry.tabs.some((selection) => paneDockOwnerOf(selection) === owner)
-      );
+      paneDockHandoverTarget(paneSideDocks.docks, paneSessions, owner, leafId) !== '';
     return dirtySideFilesClosedWith(
       paneSideDocks.docks[leafId],
       paneDockOwnerOf(tab.selection),
-      leaves.length > 1 && leaf.tabs.length === 1,
+      paneCloses,
       tabbedElsewhere,
       (fileKey) => dirtyFileKeys.has(sideFileTabDirtyKey(fileKey))
     );
@@ -197,11 +200,8 @@ export function usePaneTabClose({
   };
 
   const closeTab = (leafId: string, tab: WorkspaceTab) => {
-    if (tabOpenInOtherLeaf(paneWorkspace.now().leaves, leafId, tab.key)) {
-      closeTabNow(leafId, tab);
-      return;
-    }
-    if (tab.selection.kind === 'file' && dirtyFileKeys.has(tab.key)) {
+    const shared = tabOpenInOtherLeaf(paneWorkspace.now().leaves, leafId, tab.key);
+    if (!shared && tab.selection.kind === 'file' && dirtyFileKeys.has(tab.key)) {
       setUnsavedCloseError('');
       setPendingUnsavedCloses((queue) =>
         queue.some((entry) => entry.tab.key === tab.key) ? queue : [...queue, { leafId, tab }]
@@ -229,7 +229,7 @@ export function usePaneTabClose({
     }
     setPendingUnsavedCloses((queue) => queue.slice(1));
     if (pending.proceed) pending.proceed();
-    else closeTabNow(pending.leafId, pending.tab);
+    else closeTabAfterSideFiles(pending.leafId, pending.tab, dirtySideFilesOf(pending.leafId, pending.tab));
   };
 
   /** The same Save / Discard / Cancel dialog for a side-dock file; `proceed`
@@ -253,7 +253,7 @@ export function usePaneTabClose({
     setPendingUnsavedCloses((queue) => queue.slice(1));
     setUnsavedCloseError('');
     if (pending.proceed) pending.proceed();
-    else closeTabNow(pending.leafId, pending.tab);
+    else closeTabAfterSideFiles(pending.leafId, pending.tab, dirtySideFilesOf(pending.leafId, pending.tab));
   };
 
   const cancelPendingTabClose = () => {

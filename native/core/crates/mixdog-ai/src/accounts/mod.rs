@@ -442,6 +442,11 @@ impl AccountStore {
     /// when it is missing or the rule rejects it, unreadable when it exists and cannot be parsed.
     pub async fn credential_state(&self, provider: &str, slot: &str) -> Result<CredentialState, AccountError> {
         let now = self.now_ms() as f64;
+        if let Some(document) = self.credential_override(provider, slot).and_then(override_document)
+            && validity::credential_valid(provider, &document, now)
+        {
+            return Ok(CredentialState::Present);
+        }
         Ok(match self.credential_file(provider, slot)?.load_document().await {
             Probe::Present(document) if validity::credential_valid(provider, &document, now) => CredentialState::Present,
             Probe::Present(_) | Probe::Absent => CredentialState::Absent,

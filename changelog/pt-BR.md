@@ -4,15 +4,11 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-O Mixdog 1.5.0 passa a usar um motor mais rápido e mais leve, reconstruído em Rust. Foi um trabalho de grande porte, e avaliamos que fazer essa mudança agora era necessário para o Mixdog no longo prazo.
+O Mixdog 1.5.0 reconstrói o motor em Rust. Foi um trabalho de grande porte feito pensando no longo prazo do Mixdog, permitindo que o aplicativo use muito menos memória, lide melhor com várias sessões e agentes ao mesmo tempo e funcione de forma mais rápida e estável.
 
-Com o novo motor, o uso geral de memória foi bastante reduzido e trabalhar com várias sessões e agentes em paralelo funciona muito melhor. Como resultado, o aplicativo está visivelmente mais rápido e muito mais estável no dia a dia.
+Esta atualização levou muito mais tempo do que o planejado. Pedimos desculpas pela espera e agradecemos pela sua paciência. Alguns erros ainda podem restar logo após a mudança, mas a partir de agora voltaremos a responder e corrigir problemas rapidamente, como antes. Com essa nova base pronta, poderemos melhorar e estabilizar o Mixdog mais rápido daqui para frente.
 
-Por causa da dimensão dessa transição, a atualização levou muito mais tempo do que planejamos, e pedimos sinceras desculpas pela espera. Alguns erros ainda podem aparecer logo após a mudança, mas responderemos rápido para corrigir qualquer problema que você encontrar. Muito obrigado por aguardar com paciência esta versão atrasada.
-
-Depois de atualizar para a versão 1.5.0, voltar para a 1.4.5 mantém os arquivos anexados, mas a lista de conversas não volta. Se você puder querer voltar à versão anterior, copie sua pasta de dados antes de atualizar.
-
-Daqui para frente, trabalharemos para melhorar e estabilizar os recursos do Mixdog mais rápido. Se encontrar algum problema, avise em [GitHub Issues](https://github.com/tribgames/mixdog/issues) ou no aplicativo em Configurações › Sobre › Enviar feedback.
+Se encontrar algum problema, relate-o em [GitHub Issues](https://github.com/tribgames/mixdog/issues) ou no aplicativo em Configurações › Sobre › Enviar feedback. Observe que voltar para a versão 1.4.5 depois de atualizar para a 1.5.0 mantém os arquivos anexados, mas não a lista de conversas; por isso, copie sua pasta de dados antes de atualizar caso possa querer voltar.
 
 ## v1.4.5 - 2026-11-03
 

@@ -82,6 +82,7 @@ fn env_on(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewAp
             turn_review,
             releases: mixdog_workspace::release::FolderReleases::new(),
             upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
+            secret_folders: vec![base.join("userData")],
         },
         backup_clock,
     )
@@ -546,6 +547,29 @@ async fn host_only_file_calls_answer_the_missing_desktop_capability_without_a_wi
         assert!(matches!(&answered, Err(CoreError::CapabilityUnavailable { capability, .. }) if &**capability == "desktopHost"), "{method}: {answered:?}");
     }
     assert!(env.root.join("a.txt").exists(), "nothing was trashed");
+}
+
+/// A paired device's trash through the window is judged as the core's own is: a secret file and the project root are refused before
+/// any window is asked, an ordinary file goes on to the window.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_devices_trash_through_the_window_refuses_a_secret_file_and_the_project_root() {
+    let env = env();
+    std::fs::write(env.root.join(".env"), "KEY=1\n").unwrap();
+    for rel in [".env", "", "."] {
+        let answered = call(&env, "projectFs/trash", json!({ "root": env.root.to_string_lossy(), "rel": rel, "viaHost": true })).await;
+        assert!(answered.is_err() && !matches!(&answered, Err(CoreError::CapabilityUnavailable { .. })), "{rel:?}: {answered:?}");
+    }
+    assert!(env.root.join(".env").exists());
+}
+
+/// Only Mixdog's own folders hold secrets: a `secrets/` folder in a project is an ordinary folder to a paired device.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_secrets_folder_in_a_project_outside_mixdogs_folders_is_readable_by_a_paired_device() {
+    let env = env();
+    std::fs::create_dir_all(env.root.join("secrets")).unwrap();
+    std::fs::write(env.root.join("secrets/a.txt"), "plain\n").unwrap();
+    let read = call(&env, "projectFs/readText", json!({ "root": env.root.to_string_lossy(), "rel": "secrets/a.txt" })).await.unwrap();
+    assert_eq!(read["content"], "plain\n");
 }
 
 /// The page server is the core's: without the desktop's files enabled the call is refused as unsupported, never sent to a window.

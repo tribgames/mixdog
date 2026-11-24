@@ -602,6 +602,19 @@ function withoutPaneLocal(entry: PaneSideDockEntry): PaneSideDockEntry {
   return { ...rest, diff: null, open: front.open, surface: front.surface };
 }
 
+/** The pane now holding `owner`'s tab ('' for none), unless it already has
+ *  `owner`'s own dock: the only pane `owner`'s dock parts can move to. */
+export function paneDockHandoverTarget(
+  docks: Readonly<Record<string, PaneSideDockEntry>>,
+  paneSessions: Readonly<Record<string, readonly string[]>>,
+  owner: string,
+  from: string
+): string {
+  const holder = Object.keys(paneSessions).find((id) => id !== from && (paneSessions[id]?.includes(owner) ?? false));
+  const dest = holder ? (docks[holder] ?? CLOSED_ENTRY) : null;
+  return holder && dest && (dest.owner ?? '') !== owner && !dest.held?.[owner] ? holder : '';
+}
+
 /**
  * Session ownership follows the tabs (`paneSessions`: the session ids of each
  * pane's tabs). Owned file tabs, Files tree and diff move with their session's
@@ -632,12 +645,7 @@ export function reconcilePaneDockOwners(
   const tabbed = (leafId: string, owner: string) => paneSessions[leafId]?.includes(owner) ?? false;
   const dirty = (part: Pick<PaneSideDockEntry, 'files'>) =>
     part.files?.some((file) => isDirty(sideFileKey(file))) ?? false;
-  /** The pane now holding `owner`'s tab, unless it already has `owner`'s own. */
-  const destinationOf = (owner: string, from: string) => {
-    const holder = Object.keys(paneSessions).find((id) => id !== from && tabbed(id, owner));
-    const dest = holder ? (next[holder] ?? CLOSED_ENTRY) : null;
-    return holder && dest && (dest.owner ?? '') !== owner && !dest.held?.[owner] ? holder : '';
-  };
+  const destinationOf = (owner: string, from: string) => paneDockHandoverTarget(next, paneSessions, owner, from);
   /** `part` of `owner` joins `holder`: in front when that pane has nothing of
    *  its own there, else held behind what it has. */
   const moveTo = (owner: string, part: PaneDockHeld, holder: string) => {
@@ -682,7 +690,8 @@ export function reconcilePaneDockOwners(
  *  key `owner` leaves with no editor: every part when the pane closes with
  *  the tab (its entry drops out), else what `owner` holds there (nothing else
  *  can show it; reconcilePaneDockOwners keeps it in place). A part whose
- *  owner keeps a tab in another pane follows that tab instead. */
+ *  owner keeps a tab in another pane follows that tab instead, when
+ *  `tabbedElsewhere` (paneDockHandoverTarget) names a pane to take it. */
 export function dirtySideFilesClosedWith(
   entry: PaneSideDockEntry | undefined,
   owner: string,

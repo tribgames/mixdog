@@ -4,15 +4,11 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-Mixdog 1.5.0 wechselt auf eine schnellere, schlankere Engine, die in Rust neu aufgebaut wurde. Das war ein großes Vorhaben, das wir langfristig für die Zukunft von Mixdog als notwendig erachtet haben.
+Mixdog 1.5.0 baut die Engine in Rust neu auf. Das war ein großes Vorhaben für die langfristige Zukunft von Mixdog, dank dem die App deutlich weniger Speicher verbraucht, viele Sitzungen und Agenten gleichzeitig besser bewältigt sowie schneller und stabiler läuft.
 
-Mit der neuen Engine sinkt der gesamte Speicherverbrauch deutlich, und das parallele Arbeiten mit vielen Sitzungen und Agenten läuft wesentlich besser. Dadurch fühlt sich die App spürbar schneller an und bleibt im Alltag deutlich stabiler.
+Dieses Update hat viel länger gedauert als geplant. Es tut uns leid für die Wartezeit, und wir danken Ihnen für Ihre Geduld. Direkt nach dem Wechsel können vereinzelt noch Fehler bestehen, doch ab jetzt reagieren und beheben wir Probleme wieder so schnell wie zuvor. Mit dieser neuen Grundlage können wir Mixdog künftig schneller verbessern und stabilisieren.
 
-Aufgrund des Umfangs dieser Umstellung hat das Update viel länger gedauert als geplant, und es tut uns aufrichtig leid, dass Sie so lange warten mussten. Direkt nach dem Wechsel können vereinzelt noch Fehler auftreten, auf die wir jedoch schnell reagieren werden, um sie zu beheben. Vielen Dank für Ihre Geduld beim Warten auf dieses verspätete Release.
-
-Wenn Sie nach dem Update auf 1.5.0 wieder zu 1.4.5 zurückkehren, bleiben angehängte Dateien erhalten, die Unterhaltungsliste kehrt jedoch nicht zurück. Falls Sie eventuell zurückkehren möchten, kopieren Sie vor dem Update Ihren Datenordner.
-
-In Zukunft werden wir daran arbeiten, die Funktionen von Mixdog schneller zu verbessern und zu stabilisieren. Wenn Ihnen Probleme auffallen, melden Sie diese bitte unter [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben.
+Wenn Sie auf Probleme stoßen, melden Sie diese bitte unter [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben. Beachten Sie, dass bei einer Rückkehr zu 1.4.5 nach dem Update auf 1.5.0 angehängte Dateien erhalten bleiben, die Unterhaltungsliste jedoch nicht zurückkehrt. Kopieren Sie daher vor dem Update Ihren Datenordner, falls Sie eventuell zurückkehren möchten.
 
 ## v1.4.5 - 2026-11-03
 

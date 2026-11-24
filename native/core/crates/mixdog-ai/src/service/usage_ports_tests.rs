@@ -249,6 +249,70 @@ async fn overlapping_readings_across_a_login_change_each_answer_for_their_own_lo
     }
 }
 
+/// The stamp a reading sent with `auth` carries, and the stamp the slot's stored login has now.
+async fn sent_and_stored_stamps(store: &AccountStore, provider: &str, auth: &UsageAuth) -> (Option<String>, Option<String>) {
+    let sent = crate::service::oauth_usage::credential_stamp(provider, auth.doc.as_object().unwrap());
+    (sent, store.quota_credential(provider, "default").await)
+}
+
+#[tokio::test]
+async fn a_grok_login_with_an_email_and_no_user_id_keeps_its_readings() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    store
+        .credential_file("grok-oauth", "default")
+        .unwrap()
+        .save(&json!({ "access_token": "fixture-grok-first", "refresh_token": "fixture-grok-refresh", "email": "a@x.test" }))
+        .await
+        .unwrap();
+    let source = ProviderUsageSource::new(store.clone(), Net::from(&json!([])));
+    let auth = source.ensure_auth("grok-oauth", "default", None).await.unwrap().unwrap();
+    let (sent, stored) = sent_and_stored_stamps(&store, "grok-oauth", &auth).await;
+    assert!(sent.is_some());
+    assert_eq!(sent, stored);
+}
+
+#[tokio::test]
+async fn a_replacement_grok_login_during_a_usage_request_does_not_take_the_old_accounts_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let file = store.credential_file("grok-oauth", "default").unwrap();
+    let login = |access: &str, user: &str| json!({ "access_token": access, "refresh_token": format!("{access}-refresh"), "user_id": user });
+    file.save(&login("fixture-grok-a", "user-a")).await.unwrap();
+    let source = ProviderUsageSource::new(store.clone(), Net::from(&json!([])));
+    let first = source.ensure_auth("grok-oauth", "default", None).await.unwrap().unwrap();
+    let (first_stamp, stored_a) = sent_and_stored_stamps(&store, "grok-oauth", &first).await;
+    assert_eq!(first_stamp, stored_a);
+
+    file.save(&login("fixture-grok-b", "user-b")).await.unwrap();
+    let second = source.ensure_auth("grok-oauth", "default", None).await.unwrap().unwrap();
+    let (second_stamp, stored_b) = sent_and_stored_stamps(&store, "grok-oauth", &second).await;
+    assert_eq!(second_stamp, stored_b);
+    assert_ne!(first_stamp, stored_b, "the old account's reading is not the replacement's");
+    assert_eq!(first.doc["user_id"], "user-a", "the first request keeps its own login's id after the replacement was loaded");
+    assert_eq!(first.doc["access_token"], "fixture-grok-a");
+}
+
+#[tokio::test]
+async fn an_openai_login_with_an_identity_and_no_account_id_keeps_its_readings() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    store
+        .credential_file("openai-oauth", "default")
+        .unwrap()
+        .save(&json!({ "access_token": "fixture-openai", "refresh_token": "fixture-openai-refresh", "identity": { "email": "a@x.test" } }))
+        .await
+        .unwrap();
+    let source = ProviderUsageSource::new(store.clone(), Net::from(&json!([])));
+    let auth = source.ensure_auth("openai-oauth", "default", None).await.unwrap().unwrap();
+    let (sent, stored) = sent_and_stored_stamps(&store, "openai-oauth", &auth).await;
+    assert!(sent.is_some());
+    assert_eq!(sent, stored);
+}
+
 /// The Grok proxy refuses the token a usage reading was sent with. The refusal is the reading's answer, so the retry
 /// behind a refused credential runs: the sign-in that reading carried is refreshed, once, and the reading is taken on
 /// the new token.

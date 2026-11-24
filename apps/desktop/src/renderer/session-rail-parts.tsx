@@ -48,7 +48,7 @@ export function RailSection({
   summary?: ReactNode;
   /** The head's end in both states; replaces the summary. */
   meta?: ReactNode;
-  /** The category's one action, a button at the head's end while it is open. */
+  /** The category's one action, a button at the head's end, folded or open. */
   action?: ReactNode;
   open: boolean;
   onToggle(): void;
@@ -130,7 +130,7 @@ export function RailSection({
           <span className="session-rail-sm">{end}</span>
           {count != null && <span className="session-rail-ct">{count}</span>}
         </button>
-        {open && action}
+        {action}
       </div>
       {open && (
         <div ref={scroll ? list : undefined} className="session-rail-bd" data-scroll={scroll || undefined}>

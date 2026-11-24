@@ -4,15 +4,11 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-Mixdog 1.5.0 chuyển sang bộ máy mới nhanh hơn và nhẹ hơn được xây dựng lại bằng Rust. Đây là một bước chuyển lớn, và chúng tôi nhận thấy việc thực hiện thay đổi này là cần thiết cho Mixdog về lâu dài.
+Mixdog 1.5.0 xây dựng lại bộ máy bằng Rust. Đây là một dự án lớn được thực hiện cho tương lai lâu dài của Mixdog, giúp ứng dụng dùng ít bộ nhớ hơn nhiều, xử lý đồng thời nhiều phiên và agent tốt hơn, đồng thời chạy nhanh và ổn định hơn.
 
-Với bộ máy mới, mức sử dụng bộ nhớ tổng thể giảm đi đáng kể và việc chạy song song nhiều phiên cùng nhiều agent hoạt động tốt hơn nhiều. Nhờ đó, ứng dụng phản hồi nhanh hơn rõ rệt và ổn định hơn hẳn trong công việc hằng ngày.
+Bản cập nhật này mất nhiều thời gian hơn dự kiến rất nhiều. Chúng tôi xin lỗi vì để bạn phải chờ đợi và cảm ơn bạn đã kiên nhẫn đồng hành cùng chúng tôi. Ngay sau khi chuyển đổi có thể vẫn còn sót một vài lỗi, nhưng từ giờ chúng tôi sẽ quay lại phản hồi và khắc phục sự cố nhanh chóng như trước. Với nền tảng mới này, chúng tôi có thể cải thiện và ổn định Mixdog nhanh hơn trong thời gian tới.
 
-Do quy mô của quá trình chuyển đổi này, bản cập nhật mất nhiều thời gian hơn dự kiến rất nhiều, và chúng tôi chân thành xin lỗi vì đã để bạn phải chờ đợi. Một số lỗi vẫn có thể xuất hiện ngay sau khi chuyển đổi, nhưng chúng tôi sẽ phản hồi nhanh chóng để khắc phục mọi vấn đề bạn gặp phải. Xin cảm ơn bạn rất nhiều vì đã kiên nhẫn chờ đợi bản phát hành muộn này.
-
-Sau khi cập nhật lên 1.5.0, nếu quay lại 1.4.5 thì các tệp đính kèm vẫn còn nhưng danh sách cuộc trò chuyện sẽ không khôi phục lại. Nếu có thể muốn quay lại phiên bản cũ, bạn hãy sao chép thư mục dữ liệu trước khi cập nhật.
-
-Thời gian tới, chúng tôi sẽ nỗ lực cải thiện và ổn định các tính năng của Mixdog nhanh hơn nữa. Nếu gặp bất kỳ sự cố nào, vui lòng báo cho chúng tôi qua [GitHub Issues](https://github.com/tribgames/mixdog/issues) hoặc trong ứng dụng tại Cài đặt › Giới thiệu › Gửi phản hồi.
+Nếu gặp bất kỳ sự cố nào, vui lòng báo lại trên [GitHub Issues](https://github.com/tribgames/mixdog/issues) hoặc trong ứng dụng tại Cài đặt › Giới thiệu › Gửi phản hồi. Lưu ý rằng việc quay lại 1.4.5 sau khi cập nhật lên 1.5.0 vẫn giữ các tệp đính kèm nhưng không giữ lại danh sách cuộc trò chuyện, vì vậy hãy sao chép thư mục dữ liệu trước khi cập nhật nếu bạn có thể muốn quay lại.
 
 ## v1.4.5 - 2026-11-03
 

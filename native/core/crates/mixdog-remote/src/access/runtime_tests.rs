@@ -2,6 +2,7 @@
 //! legs of the registrations it revokes) and names each by the device it authenticated as.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
@@ -82,7 +83,7 @@ fn answer(frame: &Value, revoke_ok: bool, clients: &Value) -> Option<Value> {
 }
 
 /// One leg: the capabilities, without the `binaryFrames` a relay may withhold, then the relay's answers and the test's frames.
-async fn serve(stream: tokio::net::TcpStream, revoke_ok: bool, clients: Value, seen: mpsc::UnboundedSender<Seen>, legs: Legs) {
+async fn serve(stream: tokio::net::TcpStream, revoke_ok: bool, clients: Value, seen: mpsc::UnboundedSender<Seen>, legs: Legs, stalls: Arc<AtomicUsize>) {
     let named = Arc::new(Mutex::new(String::new()));
     let name = named.clone();
     let callback = move |request: &Request, response: Response| {
@@ -111,7 +112,9 @@ async fn serve(stream: tokio::net::TcpStream, revoke_ok: bool, clients: Value, s
                 let Some(Ok(message)) = message else { return };
                 let Message::Text(text) = message else { continue };
                 let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) else { continue };
-                if let Some(reply) = answer(&frame, revoke_ok, &clients)
+                let stalled = frame["type"] == "revoke-device" && stalls.try_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_ok();
+                if !stalled
+                    && let Some(reply) = answer(&frame, revoke_ok, &clients)
                     && ws.send(Message::Text(reply.to_string().into())).await.is_err()
                 {
                     return;
@@ -128,6 +131,8 @@ struct Relay {
     backlog: Vec<Seen>,
     /// The writer of each device's latest leg.
     legs: Legs,
+    /// Device revocations still to read and leave unanswered, their legs held open and silent.
+    stalls: Arc<AtomicUsize>,
 }
 
 impl Relay {
@@ -142,13 +147,25 @@ impl Relay {
         let (seen_tx, seen) = mpsc::unbounded_channel();
         let legs = Legs::default();
         let held = legs.clone();
+        let stalls = Arc::new(AtomicUsize::new(0));
+        let left = stalls.clone();
         let clients: Value = clients.iter().map(|id| json!({ "id": id })).collect();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
-                tokio::spawn(serve(stream, revoke_ok, clients.clone(), seen_tx.clone(), held.clone()));
+                tokio::spawn(serve(stream, revoke_ok, clients.clone(), seen_tx.clone(), held.clone(), left.clone()));
             }
         });
-        Self { port, seen, backlog: Vec::new(), legs }
+        Self { port, seen, backlog: Vec::new(), legs, stalls }
+    }
+
+    /// The next `count` device revocations are read and never answered: each exchange stalls past its upgrade.
+    fn stall_revocations(&self, count: usize) {
+        self.stalls.store(count, Ordering::SeqCst);
+    }
+
+    /// Ends the latest leg of `device` with no close frame, as a lost network path does.
+    fn lose(&self, device: &str) {
+        lock(&self.legs).remove(device);
     }
 
     /// The first frame, kept or still to come, that `wanted` accepts; the others stay for later asks.
@@ -241,6 +258,34 @@ async fn a_rotation_revokes_the_replaced_registration_at_the_relay() {
     let path = dir.path().to_path_buf();
     let queued = runtime.inner.durable(move |lane| DeviceFiles::new(path).load_queue(lane)).await.unwrap().unwrap();
     assert!(queued.is_empty(), "the confirmed revocation left the queue");
+    runtime.close().await;
+}
+
+/// A revocation the relay leaves unanswered after the upgrade holds the drain no longer than the connection it started on: once
+/// that leg is lost and opened again, the replaced registration is revoked on the new connection and leaves the queue.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revocation_stalled_on_a_lost_connection_is_made_on_the_next() {
+    let bound = Duration::from_secs(30);
+    let revocation = |_: &str, frame: &Value| frame["type"] == "revoke-device";
+    let dir = tempfile::tempdir().unwrap();
+    let mut relay = Relay::start(true).await;
+    relay.stall_revocations(1);
+    let runtime = runtime(dir.path(), relay.port).await;
+    let replaced = relay.leg().await;
+    runtime.rotate().await.unwrap();
+    let live = relay.leg().await;
+    let (device, _) = mixdog_rt::time::timeout(bound, relay.frame(revocation)).await.expect("the replaced registration was never asked");
+    assert_eq!(device, replaced, "the stalled exchange is the replaced registration's");
+    relay.lose(&live);
+    let reopened = mixdog_rt::time::timeout(bound, relay.leg()).await.expect("the leg was never opened again");
+    assert_eq!(reopened, live);
+    let (device, _) = mixdog_rt::time::timeout(bound, relay.frame(revocation)).await.expect("the pending revocation waited on the lost connection");
+    assert_eq!(device, replaced);
+    // The relay confirmed this one; the drain holds its permit until the identity has left the queue.
+    drop(runtime.inner.device_drain.acquire().await.unwrap());
+    let path = dir.path().to_path_buf();
+    let queued = runtime.inner.durable(move |lane| DeviceFiles::new(path).load_queue(lane)).await.unwrap().unwrap();
+    assert!(queued.is_empty(), "the revocation acknowledged on the new connection left the queue");
     runtime.close().await;
 }
 

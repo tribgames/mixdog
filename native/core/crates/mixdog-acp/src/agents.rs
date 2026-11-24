@@ -237,6 +237,9 @@ pub struct AgentsParts {
     pub changed: Arc<dyn Fn() + Send + Sync>,
     /// The folder a CLI's version, install, update, check and sign-in runs start in: none of Mixdog's own.
     pub probe_cwd: std::path::PathBuf,
+    /// Where the agent definitions a session's CLI starts with are kept: a folder of this user's own, as a definition
+    /// found in a folder others can write would start the CLI with their tools and instructions.
+    pub definitions: std::path::PathBuf,
     /// The process environment, for the folders a preset's installer puts its CLI in.
     pub env: Arc<EnvRead>,
     /// The program an agent that takes no HTTP MCP server runs as the stdio end of its session's tool server
@@ -584,7 +587,7 @@ impl Agents {
         };
         let handed = self.tools.get().map(|tools| crate::mcp::Handover { thread: thread.clone(), tools: tools.clone(), bridge: self.parts.mcp_bridge.clone() });
         let (stored, held) = stored.map(|stored| (stored.session_id, stored.prompt)).unzip();
-        let open = Open { preset, program: &program, cwd, stored, rules, held: held.flatten(), grants, handed };
+        let open = Open { preset, program: &program, cwd, definitions: &self.parts.definitions, stored, rules, held: held.flatten(), grants, handed };
         let session = match AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, on_exit).await {
             Ok(session) => session,
             Err(fault) => {

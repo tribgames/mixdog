@@ -621,6 +621,7 @@ impl Harness {
             turn_review: None,
             releases: mixdog_workspace::release::FolderReleases::new(),
             upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
+            secret_folders: Vec::new(),
         })
         .unwrap();
         let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(

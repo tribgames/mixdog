@@ -3,6 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { dirtySideFilesClosedWith, paneDockHandoverTarget } from './pane-side-dock-model.ts';
 import {
   PaneSideDock,
   normalizePaneSideDocks,
@@ -362,6 +363,19 @@ test("owned dock state follows its session's tab between panes and is released w
   // Unowned entries are left alone.
   const free = { L1: file };
   assert.strictEqual(reconcilePaneDockOwners(free, { L1: [] }), free);
+});
+
+test('a dock moves only to a pane tabbing its owner that has no dock for it, in both reconcile and the close prompt', () => {
+  const owned = { ...withPaneDockFileOpened(closed(), fileLink, 1, { now: 1 }), owner: 's1' };
+  const theirs = { ...withPaneDockFileOpened(closed(), { project: 'C:/p', rel: 'b.ts' }, 2, { now: 2 }), owner: 's1' };
+  const sessions = { L1: [], L2: ['s1'] };
+  assert.equal(paneDockHandoverTarget({ L1: owned, L2: closed() }, sessions, 's1', 'L1'), 'L2');
+  assert.equal(paneDockHandoverTarget({ L1: owned, L2: theirs }, sessions, 's1', 'L1'), '');
+  const dirty = () => true;
+  const prompted = (docks) =>
+    dirtySideFilesClosedWith(docks.L1, 's1', true, (o) => paneDockHandoverTarget(docks, sessions, o, 'L1') !== '', dirty);
+  assert.equal(prompted({ L1: owned, L2: closed() }).length, 0);
+  assert.equal(prompted({ L1: owned, L2: theirs }).length, 1);
 });
 
 test("a parked owner front follows the owned entry's lifecycle and survives a restart", () => {

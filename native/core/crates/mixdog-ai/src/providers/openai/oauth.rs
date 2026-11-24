@@ -65,6 +65,8 @@ struct Stored {
     /// Milliseconds since the epoch; 0 when unknown.
     expires_at: u64,
     account_id: Option<String>,
+    /// The account the login names when its token claims no account id (`identity` of the stored document).
+    identity: Option<Value>,
 }
 
 /// The stored document as it reads: `_normalizeExpiresAt(own.expires_at ?? own.expiresAt)`; both spellings may be
@@ -78,6 +80,8 @@ struct StoredDocument {
     #[serde(default, rename = "expiresAt")]
     expires_at_camel: Option<Value>,
     account_id: Option<String>,
+    #[serde(default)]
+    identity: Option<Value>,
 }
 
 impl From<StoredDocument> for Stored {
@@ -88,6 +92,7 @@ impl From<StoredDocument> for Stored {
             refresh_token: document.refresh_token.filter(|token| !token.is_empty()),
             expires_at: crate::accounts::validity::stated_expiry(document.expires_at, document.expires_at_camel),
             account_id: document.account_id.filter(|account| !account.is_empty()),
+            identity: document.identity.filter(|identity| !identity.is_null()),
         }
     }
 }
@@ -102,7 +107,7 @@ impl Stored {
     }
 
     fn attempt(&self) -> Served {
-        Served { credential: self.credential(), grant: self.refresh_token.clone() }
+        Served { credential: self.credential(), grant: self.refresh_token.clone(), identity: self.identity.clone() }
     }
 
     /// Whether `other` is this login: the same account under the same refresh grant, whatever its bearer.
@@ -124,22 +129,28 @@ impl Stored {
 struct Served {
     credential: Credential,
     grant: Option<String>,
+    identity: Option<Value>,
 }
 
-/// What an [`Attempt`] of this source carries as its login.
-struct Grant(Option<String>);
+/// What an [`Attempt`] of this source carries as its login: its refresh grant and the identity its document names.
+struct Grant(Option<String>, Option<Value>);
 
 impl Served {
     fn carried(self) -> Attempt {
-        let grant = Grant(self.grant);
+        let grant = Grant(self.grant, self.identity);
         Attempt::served_under(self.credential, grant)
     }
 
     /// The login `attempt` carries; none when this source did not serve it.
     fn of(attempt: &Attempt) -> Option<Self> {
-        let Grant(grant) = attempt.login::<Grant>()?;
-        Some(Self { credential: attempt.credential.clone(), grant: grant.clone() })
+        let Grant(grant, identity) = attempt.login::<Grant>()?;
+        Some(Self { credential: attempt.credential.clone(), grant: grant.clone(), identity: identity.clone() })
     }
+}
+
+/// The `identity` the login `attempt` was served under names, as its stored document does.
+pub fn identity_of_attempt(attempt: &Attempt) -> Option<Value> {
+    attempt.login::<Grant>()?.1.clone()
 }
 
 /// `adoptableDiskTokens` (openai-oauth-tokens.mjs:289): the stored token supersedes the one the caller holds when it
@@ -877,7 +888,7 @@ mod tests {
     /// The attempt a request carries that was sent with `bearer`, for no account, under the refresh grant `near_expiry`
     /// stores.
     fn sent(bearer: &str) -> Attempt {
-        Served { credential: Credential { bearer: bearer.into(), account_id: None }, grant: Some("r1".into()) }.carried()
+        Served { credential: Credential { bearer: bearer.into(), account_id: None }, grant: Some("r1".into()), identity: None }.carried()
     }
 
     /// A token endpoint that answers one request per permit the test hands it, in script order.
@@ -1224,7 +1235,8 @@ mod tests {
     async fn an_ordinary_send_does_not_inherit_an_expired_login_from_a_stale_401() {
         let replies = [(503, "{}"), (200, r#"{"access_token":"b2","refresh_token":"rc","expires_in":3600}"#)];
         let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 60_000), &replies).await;
-        let stale = Served { credential: Credential { bearer: "a".into(), account_id: Some("acct-a".into()) }, grant: Some("ra".into()) }.carried();
+        let stale =
+            Served { credential: Credential { bearer: "a".into(), account_id: Some("acct-a".into()) }, grant: Some("ra".into()), identity: None }.carried();
         // A refresh of the first login is at the endpoint, so what follows queues behind it and overlaps.
         let mut preemptive = Box::pin(oauth.current());
         assert!(futures::poll!(preemptive.as_mut()).is_pending());

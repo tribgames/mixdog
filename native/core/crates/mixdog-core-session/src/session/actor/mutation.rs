@@ -158,7 +158,7 @@ impl SessionActor {
     /// or never had it): read before the inbox is taken again, so nothing is applied between the question and its
     /// answer ([`super::super::seams::ThreadStore::committed_op`]).
     fn look_up_stored(&mut self, req: CoreRequest, tx: Waiter, attempt: mixdog_core_ports::ports::threads::Attempt) {
-        self.submission_lookup = true;
+        self.submission_lookup = Some(req.params.clone());
         let (store, thread, jobs) = (self.deps.store.clone(), self.id.clone(), self.jobs_tx.clone());
         let op = req.op.as_ref().map(|op| op.as_str().to_owned()).unwrap_or_default();
         mixdog_core_base::support::lane_job(
@@ -183,7 +183,7 @@ impl SessionActor {
     ) {
         use mixdog_core_ports::ports::threads::Attempt;
         use mixdog_store::schema::record::OpState;
-        self.submission_lookup = false;
+        self.submission_lookup = None;
         let op = req.op.clone().expect("a stored patch has an op");
         let admitted = attempt == Attempt::Replay;
         let answer = match found {
