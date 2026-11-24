@@ -187,7 +187,8 @@ test('a whenHeldSettled that gives up while the link is down leaves no ready wai
   const { conn, client } = await rig();
   conn.serverClose(1006);
   for (let i = 0; i < 5; i++) await tick();
-  await assert.rejects(client.whenHeldSettled('lead', { timeoutMs: 30 }));
+  const held = client as unknown as { whenHeldSettled(id: string, options?: { timeoutMs?: number }): Promise<void> };
+  await assert.rejects(held.whenHeldSettled('lead', { timeoutMs: 30 }));
   assert.equal((client as unknown as { readyWaiters: unknown[] }).readyWaiters.length, 0);
   await client.close();
 });
