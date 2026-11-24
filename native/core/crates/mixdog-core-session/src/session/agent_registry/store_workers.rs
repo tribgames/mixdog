@@ -1224,6 +1224,10 @@ impl WorkerStore for StoreWorkers {
         self.leads.load().await
     }
 
+    fn forget_session(&self, session: &str) {
+        self.logs.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+    }
+
     fn write_lead(&self, session: &str, row: Option<Row>) {
         self.submit(session, row, Target::Lead, None, false);
         if let Some(signals) = self.signals.get() {

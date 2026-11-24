@@ -366,6 +366,44 @@ pub struct SessionDeletion {
     /// The external agents of the sessions an ACP agent runs: a session's agent process ends where its MCP scope is
     /// released (close, delete, unload). `None` where the process has none.
     pub agent_processes: Option<Arc<dyn SessionAgentProcesses>>,
+    /// What other owners keep per session, let go of where the session's runtime unloads or the session ends.
+    pub releases: SessionReleases,
+}
+
+/// A holder's release of one session's state.
+pub type SessionRelease = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The per-session state the core's registries keep, by the moment it is let go of. A release runs again for a session that
+/// loads again, so each is safe to run any number of times.
+#[derive(Default)]
+pub struct SessionReleases {
+    /// The session's runtime unloaded: what only that runtime used.
+    pub unloaded: Vec<SessionRelease>,
+    /// The session ended (closed for good or deleted): what the session itself owned. An end is an unload too.
+    pub ended: Vec<SessionRelease>,
+    /// The session was deleted: what must outlive a close (a closed session can still be asked of) goes. A delete is an end too.
+    pub deleted: Vec<SessionRelease>,
+}
+
+impl SessionReleases {
+    fn unloaded(&self, session_id: &str) {
+        for release in &self.unloaded {
+            release(session_id);
+        }
+    }
+
+    fn ended(&self, session_id: &str) {
+        self.unloaded(session_id);
+        for release in &self.ended {
+            release(session_id);
+        }
+    }
+
+    fn deleted(&self, session_id: &str) {
+        for release in &self.deleted {
+            release(session_id);
+        }
+    }
 }
 
 /// The process an external agent runs in for one session.
@@ -410,6 +448,15 @@ impl DeleteSeams for SessionDeletion {
         }
         self.mcp_scopes.release_unloaded(session_id);
         self.read_state.release_session(session_id);
+        self.releases.unloaded(session_id);
+    }
+
+    fn session_ended(&self, session_id: &str) {
+        self.releases.ended(session_id);
+    }
+
+    fn session_deleted(&self, session_id: &str) {
+        self.releases.deleted(session_id);
     }
 
     async fn release_session_work(&self, session_id: &str, reason: &str) {

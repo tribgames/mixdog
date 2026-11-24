@@ -10,15 +10,13 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
 
 use super::overlay::Overlay;
-use super::record::Capability;
 use super::record::MetadataSource;
 use super::record::ModelRecord;
-use super::record::Rates;
-use crate::providers::compat::models::ModelTable;
 
 #[derive(Clone, Default, Debug)]
 pub struct ModelsDev {
-    providers: BTreeMap<ProviderId, BTreeMap<String, MetadataRecord>>,
+    /// Each provider's own package, the one fact its model rows do not carry; the models are read from `projected`.
+    provider_npm: BTreeMap<ProviderId, Option<String>>,
     /// The overlay as the metadata lookup reads it (`model-catalog-projection.mjs`):
     /// the narrowed models.dev document, or the narrowed LiteLLM one for the
     /// layer [`ModelsDev::parse_litellm`] builds, one compact row each ([`Overlay`]).
@@ -28,74 +26,9 @@ pub struct ModelsDev {
     digest: u64,
 }
 
-/// Overlay rows do not carry the provider picker's defaults, controls or routing state.
-#[derive(Clone, Debug)]
-struct MetadataRecord {
-    display_name: Option<String>,
-    family: Option<String>,
-    npm: Option<String>,
-    output_modalities: Vec<String>,
-    vision: Capability,
-    function_calling: Capability,
-    reasoning: Capability,
-    context_window: Option<u64>,
-    output_tokens: Option<u64>,
-    rates: Rates,
-}
-
-impl MetadataRecord {
-    fn materialize(&self, provider: &ProviderId, id: &str) -> ModelRecord {
-        let mut row = ModelRecord::new(provider.clone(), id);
-        row.source = MetadataSource::ModelsDev;
-        row.display_name = self.display_name.clone();
-        row.family = self.family.clone();
-        row.npm = self.npm.clone();
-        row.output_modalities = self.output_modalities.clone();
-        row.vision = self.vision;
-        row.function_calling = self.function_calling;
-        row.reasoning = self.reasoning;
-        row.context_window = self.context_window;
-        row.output_tokens = self.output_tokens;
-        row.rates = self.rates;
-        row
-    }
-}
-
-fn capability(value: Option<&JsonValue>) -> Capability {
-    match value.and_then(JsonValue::as_bool) {
-        Some(true) => Capability::Yes,
-        Some(false) => Capability::No,
-        None => Capability::Unknown,
-    }
-}
-
 fn strings(value: Option<&JsonValue>) -> Vec<String> {
     value.and_then(JsonValue::as_array).map(|list| list.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
-
-fn record(provider_npm: Option<&str>, row: &JsonValue) -> MetadataRecord {
-    // A model's own package wins over its provider's.
-    let npm = row.pointer("/provider/npm").and_then(JsonValue::as_str).or(provider_npm).map(str::to_owned);
-    let vision = if row.pointer("/modalities/input").is_some() {
-        if strings(row.pointer("/modalities/input")).iter().any(|m| m == "image") { Capability::Yes } else { Capability::No }
-    } else {
-        Capability::Unknown
-    };
-    let rate = |key: &str| row.pointer(&format!("/cost/{key}")).and_then(JsonValue::as_f64);
-    MetadataRecord {
-        display_name: row.get("name").and_then(JsonValue::as_str).map(str::to_owned),
-        family: row.get("family").and_then(JsonValue::as_str).map(str::to_owned),
-        npm,
-        output_modalities: strings(row.pointer("/modalities/output")),
-        vision,
-        function_calling: capability(row.get("tool_call")),
-        reasoning: capability(row.get("reasoning")),
-        context_window: row.pointer("/limit/context").and_then(JsonValue::as_u64),
-        output_tokens: row.pointer("/limit/output").and_then(JsonValue::as_u64),
-        rates: Rates { input: rate("input"), output: rate("output"), cache_read: rate("cache_read"), cache_write: rate("cache_write") },
-    }
-}
-
 /// A digest of a fetched document's bytes, stable within the process.
 fn digest_of(bytes: &[u8]) -> u64 {
     use std::hash::Hasher;
@@ -116,7 +49,6 @@ mod stream {
     use serde::de::Visitor;
 
     use super::JsonValue;
-    use super::MetadataRecord;
 
     /// The members of a JSON object handed to `each` one at a time; any other JSON value is read and is `None`.
     struct Object<F>(F);
@@ -250,7 +182,7 @@ mod stream {
 
     /// One provider's `models` map: every row that is an object, as its record and its overlay text.
     #[derive(Default)]
-    struct Models(Placed<(MetadataRecord, Box<str>)>);
+    struct Models(Placed<Box<str>>);
 
     /// One provider entry: its package and its models, whichever order the document states them in.
     #[derive(Default)]
@@ -272,28 +204,19 @@ mod stream {
         }
     }
 
-    /// One model of the models.dev document: its record and overlay text.
-    type ModelEntry = (MetadataRecord, Box<str>);
+    /// One provider of the models.dev document: its package and its models' overlay text.
+    pub(super) type ProviderEntry = (Option<String>, Vec<(String, Box<str>)>);
 
-    /// The models.dev document: provider → model id → record and overlay text, in document order. A provider without a
+    /// The models.dev document: provider → package and model id → overlay text, in document order. A provider without a
     /// models map is absent.
     #[derive(Default)]
-    pub(super) struct ModelsDevDocument(pub(super) Placed<Vec<(String, ModelEntry)>>);
+    pub(super) struct ModelsDevDocument(pub(super) Placed<ProviderEntry>);
 
     impl Member for ModelsDevDocument {
         fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error> {
             let provider = map.next_value_seed(Object(Provider::default()))?;
-            let models = provider.and_then(|provider| provider.models.map(|models| (provider.npm, models.0))).map(|(npm, models)| {
-                let mut models: Vec<_> = kept(models).collect();
-                // A model's own package wins over its provider's.
-                for (_, (record, _)) in &mut models {
-                    if record.npm.is_none() {
-                        record.npm.clone_from(&npm);
-                    }
-                }
-                models
-            });
-            self.0.insert(key, models);
+            let entry = provider.and_then(|provider| provider.models.map(|models| (provider.npm, kept(models.0).collect())));
+            self.0.insert(key, entry);
             Ok(())
         }
     }
@@ -305,7 +228,7 @@ mod stream {
     impl Member for Models {
         fn read<'de, A: MapAccess<'de>>(&mut self, id: String, map: &mut A) -> Result<(), A::Error> {
             let row: JsonValue = map.next_value()?;
-            let kept = crate::catalog::lookup::models_dev_row(&row).map(|projected| (super::record(None, &row), crate::catalog::overlay::text(&projected)));
+            let kept = crate::catalog::lookup::models_dev_row(&row).map(|projected| crate::catalog::overlay::text(&projected));
             self.0.insert(id, kept);
             Ok(())
         }
@@ -324,7 +247,6 @@ mod stream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::compat::profile::CompatProfile;
     use serde_json::json;
 
     fn fixture() -> Vec<u8> {
@@ -348,77 +270,51 @@ mod tests {
     }
 
     #[test]
-    fn parses_packages_modalities_limits_and_rates() {
+    fn serves_packages_families_and_modalities_from_the_projection() {
         let layer = ModelsDev::parse(&fixture()).unwrap();
         let gpt = layer.find(&"openai".into(), "gpt-x").unwrap();
-        assert_eq!(gpt.npm.as_deref(), Some("@ai-sdk/openai"));
+        assert_eq!(gpt.npm.as_deref(), Some("@ai-sdk/openai"), "the provider's package is the only fact kept beside the rows");
+        assert_eq!(gpt.family.as_deref(), Some("gpt"));
         assert_eq!(gpt.output_modalities, ["text"]);
-        assert_eq!(gpt.vision, Capability::Yes);
-        assert_eq!(gpt.reasoning, Capability::No);
-        assert_eq!(gpt.context_window, Some(400000));
-        assert_eq!(gpt.rates.cache_read, Some(0.125));
         assert_eq!(gpt.source, MetadataSource::ModelsDev);
         assert_eq!(layer.find(&"anthropic".into(), "odd").unwrap().npm.as_deref(), Some("@ai-sdk/google"), "the model's own package wins");
-        assert!(layer.models_of(&"broken".into()).is_empty());
+        assert!(layer.find(&"broken".into(), "gpt-x").is_some(), "a provider without the model falls to the first that lists it");
+        assert!(layer.find(&"openai".into(), "nope").is_none());
         assert!(ModelsDev::parse(b"[]").is_none());
     }
 
     #[test]
-    fn metadata_lookup_keeps_provider_precedence_and_explicit_empty_strings() {
+    fn a_gateway_model_is_found_under_the_first_provider_in_id_order() {
         let layer = ModelsDev::from_models_dev(json!({
-            "z": { "npm": "provider-z", "models": {
-                "same": { "name": "", "provider": { "npm": "" } },
-                "first": {}
-            }},
+            "z": { "npm": "provider-z", "models": { "same": {}, "first": {} }},
             "a": { "npm": "provider-a", "models": { "same": { "name": "A" } } }
         }))
         .unwrap();
         let own = layer.find(&"z".into(), "same").unwrap();
-        assert_eq!((own.provider.as_str(), own.display_name.as_deref(), own.npm.as_deref()), ("z", Some(""), Some("")));
+        assert_eq!((own.provider.as_str(), own.npm.as_deref()), ("z", Some("provider-z")));
         let other = layer.find(&"missing".into(), "same").unwrap();
-        assert_eq!((other.provider.as_str(), other.display_name.as_deref(), other.npm.as_deref()), ("a", Some("A"), Some("provider-a")));
-        assert_eq!(layer.models_of(&"z".into()).into_iter().map(|row| row.id).collect::<Vec<_>>(), ["first", "same"]);
-    }
-
-    #[test]
-    fn compat_model_table_receives_the_modalities() {
-        use serde_json::json as j;
-        let layer = ModelsDev::parse(&fixture()).unwrap();
-        let table = CompatProfile::mimo_oauth().model_table();
-        table.replace(crate::providers::compat::models::parse_models(&j!([
-            {"id": "gpt-x"}, {"id": "tts-x"}
-        ])));
-        layer.fill_table(&"mimo".into(), &table);
-        let ids: Vec<String> = table.chat_models().iter().map(|m| m.id.clone()).collect();
-        assert_eq!(ids, ["gpt-x"]);
+        assert_eq!((other.provider.as_str(), other.npm.as_deref()), ("a", Some("provider-a")));
     }
 }
-
 impl ModelsDev {
     /// `None` when `bytes` is not the models.dev document (an object of
     /// providers); a malformed provider or model row is skipped.
     pub fn parse(bytes: &[u8]) -> Option<Self> {
         let document = stream::object(bytes, stream::ModelsDevDocument::default())?.0;
-        let mut providers = BTreeMap::new();
+        let mut provider_npm = BTreeMap::new();
         let mut projected = indexmap::IndexMap::with_capacity(document.len());
-        for (key, models) in stream::kept(document) {
-            let mut records = BTreeMap::new();
-            let mut rows = indexmap::IndexMap::with_capacity(models.len());
-            for (id, (record, row)) in models {
-                records.insert(id.clone(), record);
-                rows.insert(id, row);
-            }
-            providers.insert(ProviderId::from(key.as_str()), records);
-            projected.insert(key, rows);
+        for (key, (npm, models)) in stream::kept(document) {
+            provider_npm.insert(ProviderId::from(key.as_str()), npm);
+            projected.insert(key, models.into_iter().collect());
         }
-        Some(Self { providers, projected: Overlay::of_rows(indexmap::IndexMap::new(), projected), digest: digest_of(bytes) })
+        Some(Self { provider_npm, projected: Overlay::of_rows(indexmap::IndexMap::new(), projected), digest: digest_of(bytes) })
     }
 
     /// The LiteLLM price table (`model_prices_and_context_window.json`) as a
     /// metadata overlay; it carries no per-provider records.
     pub fn parse_litellm(bytes: &[u8]) -> Option<Self> {
         let rows = stream::kept(stream::object(bytes, stream::LitellmDocument::default())?.0).collect();
-        Some(Self { providers: BTreeMap::new(), projected: Overlay::of_rows(rows, indexmap::IndexMap::new()), digest: digest_of(bytes) })
+        Some(Self { provider_npm: BTreeMap::new(), projected: Overlay::of_rows(rows, indexmap::IndexMap::new()), digest: digest_of(bytes) })
     }
 
     /// The layer of a document held as a value (a test's fixture): the layer [`ModelsDev::parse`] reads from its text,
@@ -440,20 +336,20 @@ impl ModelsDev {
         &self.projected
     }
 
-    pub fn models_of(&self, provider: &ProviderId) -> Vec<ModelRecord> {
-        self.providers.get(provider).into_iter().flatten().map(|(id, row)| row.materialize(provider, id)).collect()
-    }
-
-    /// The row for `id` as `provider` lists it, else the first provider (in
-    /// id order) that lists the model: a gateway serves other providers'
-    /// models under their own ids.
+    /// The package, family and output modalities of `id` as `provider` lists it, else as the first provider (in
+    /// id order) that lists the model: a gateway serves other providers' models under their own ids. Read from the
+    /// projected row; a model's own package wins over its provider's.
     pub fn find(&self, provider: &ProviderId, id: &str) -> Option<ModelRecord> {
-        let own = self.providers.get(provider).and_then(|rows| rows.get(id)).map(|row| row.materialize(provider, id));
-        own.or_else(|| self.providers.iter().find_map(|(provider, rows)| rows.get(id).map(|row| row.materialize(provider, id))))
+        self.row_of(provider, id).or_else(|| self.provider_npm.keys().find_map(|other| self.row_of(other, id)))
     }
 
-    /// Feeds a compat model table the output modalities this layer states.
-    pub fn fill_table(&self, provider: &ProviderId, table: &ModelTable) {
-        table.fill_output_modalities(|id| self.find(provider, id).map(|r| r.output_modalities).filter(|m| !m.is_empty()));
+    fn row_of(&self, provider: &ProviderId, id: &str) -> Option<ModelRecord> {
+        let row = self.projected.model(provider.as_str(), id)?;
+        let mut record = ModelRecord::new(provider.clone(), id);
+        record.source = MetadataSource::ModelsDev;
+        record.family = row.get("family").and_then(JsonValue::as_str).map(str::to_owned);
+        record.npm = row.get("npm").and_then(JsonValue::as_str).or_else(|| self.provider_npm.get(provider)?.as_deref()).map(str::to_owned);
+        record.output_modalities = strings(row.pointer("/modalities/output"));
+        Some(record)
     }
 }

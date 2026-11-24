@@ -65,8 +65,6 @@ struct Shared {
     ingest: std::sync::OnceLock<Arc<dyn super::purge::IngestOffsets>>,
     /// Deleted sessions (`purgedSessions`): their writers write nothing more, ids are never reused.
     purged: Mutex<Vec<String>>,
-    /// The transcript paths this process's writers used per session (`knownPaths`).
-    known: Mutex<Vec<(String, PathBuf)>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -78,44 +76,9 @@ impl Shared {
         lock(&self.purged).iter().any(|id| id == session)
     }
 
-    /// Every transcript of `session`: the paths its writers used, and `<id>.jsonl` in any project
-    /// folder (a file written before this process, under an earlier cwd), each with its `.1`.
-    async fn session_files(&self, session: &str) -> Vec<PathBuf> {
-        let mut paths: Vec<PathBuf> = lock(&self.known).iter().filter(|(id, _)| id == session).map(|(_, path)| path.clone()).collect();
-        let (projects, name) = (self.projects.clone(), format!("{session}.jsonl"));
-        let listed = match self
-            .lane
-            .submit_wait(&mixdog_rt::CancellationToken::new(), move |lane| {
-                let folders = mixdog_statefile::list_dir(lane, &projects).unwrap_or_default();
-                folders
-                    .into_iter()
-                    .map(|folder| projects.join(folder).join(&name))
-                    .filter(|path| mixdog_statefile::metadata(lane, path).is_ok())
-                    .collect::<Vec<_>>()
-            })
-            .await
-        {
-            Ok(job) => job.await.unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
-        for path in listed {
-            if !paths.contains(&path) {
-                paths.push(path);
-            }
-        }
-        let mut all = Vec::new();
-        for path in paths {
-            let mut rotated = path.clone().into_os_string();
-            rotated.push(".1");
-            all.push(path);
-            all.push(PathBuf::from(rotated));
-        }
-        all
-    }
-
     /// Every transcript of `session` rewritten with its sensitive values replaced, line for line.
-    async fn redact_files(&self, session: &str) {
-        for path in self.session_files(session).await {
+    async fn redact_files(&self, session: &str, files: &[PathBuf]) {
+        for path in rotations(files) {
             let (sensitive, id) = (self.sensitive.clone(), session.to_owned());
             let rewrite: mixdog_services::memory::transcript::LineRewrite = Box::new(move |text| redact_lines(&sensitive, &id, &text));
             let rewritten = match self.ingest.get() {
@@ -127,6 +90,25 @@ impl Shared {
             }
         }
     }
+}
+
+/// Each transcript with its rotated `.1`.
+fn rotations(files: &[PathBuf]) -> Vec<PathBuf> {
+    let mut all = Vec::new();
+    for path in files {
+        let mut rotated = path.clone().into_os_string();
+        rotated.push(".1");
+        all.push(path.clone());
+        all.push(PathBuf::from(rotated));
+    }
+    all
+}
+
+/// The header field naming every folder (cwd) a session's transcripts were written under: the delete and a redaction find the files from it.
+pub const TRANSCRIPT_CWDS: &str = "transcriptCwds";
+
+fn recorded_cwds(header: &Header) -> Vec<String> {
+    header.get(TRANSCRIPT_CWDS).and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
 }
 
 /// The lines of a transcript with the session's sensitive values replaced in each line's
@@ -167,6 +149,8 @@ enum Op {
 /// The writer of one session and cwd (`createTranscriptWriter`).
 struct Writer {
     path: PathBuf,
+    /// Every transcript of the session the record names, this writer's own included.
+    files: Vec<PathBuf>,
     session: String,
     cwd: String,
     memory_eligible: bool,
@@ -213,7 +197,7 @@ impl TurnTranscript {
 impl Writer {
     fn spawn(self, lane: DurabilityIo) -> mpsc::UnboundedSender<Op> {
         let (tx, mut rx) = mpsc::unbounded_channel::<Op>();
-        let (session, shared) = (self.session.clone(), self.shared.clone());
+        let (session, shared, files) = (self.session.clone(), self.shared.clone(), self.files.clone());
         drop(mixdog_rt::spawn("session-transcript", mixdog_rt::TaskClass::Work, async move {
             let mut writer = Some(self);
             while let Some(op) = rx.recv().await {
@@ -224,7 +208,7 @@ impl Writer {
                     }
                     Op::Redact(done) => {
                         if !shared.is_purged(&session) {
-                            shared.redact_files(&session).await;
+                            shared.redact_files(&session, &files).await;
                         }
                         if let Some(done) = done {
                             let _ = done.send(());
@@ -537,7 +521,7 @@ mod tests {
             turn.flushed().await;
         }
         mark(&r.sensitive, "4711");
-        r.files.redact_session(SESSION).await;
+        r.files.redact_session(SESSION, &[]).await;
         assert_eq!(texts(&r.path), ["my pin is [redacted]", "noted [redacted]", "what now", "wait", "fill it", "filling"]);
     }
     /// A mark while lines are queued behind a held write: the queued line is redacted when it is
@@ -586,8 +570,38 @@ mod tests {
         assert!(r.files.turn(SESSION, &r.header, &[]).is_none(), "no writer is made for a deleted session");
         assert!(!r.path.exists(), "nothing recreated the transcript");
     }
+    /// The delete finds the transcript of every folder the session wrote in from the folders its record names: no list of the
+    /// paths its writers used is kept per session, and no folder is searched.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_delete_finds_the_transcripts_of_every_folder_the_record_names() {
+        let r = rig();
+        let other = r._home.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let other = other.to_string_lossy().into_owned();
+        let second = r._home.path().join("projects").join(super::super::purge::project_slug(&other)).join(format!("{SESSION}.jsonl"));
+        let stray = r._home.path().join("projects").join("stray").join(format!("{SESSION}.jsonl"));
+        std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+        std::fs::write(&stray, "").unwrap();
+        let mut header = r.header.clone();
+        let first_cwd = header["cwd"].clone();
+        for cwd in [first_cwd, json!(other)] {
+            header.insert("cwd".into(), cwd);
+            if let Some(recorded) = r.files.cwds_to_record(&header) {
+                header.insert(TRANSCRIPT_CWDS.into(), json!(recorded));
+            }
+            let turn = r.files.turn(SESSION, &header, &[]).unwrap();
+            turn.user(&json!("a line"));
+            turn.flushed().await;
+        }
+        assert_eq!(header[TRANSCRIPT_CWDS].as_array().map(Vec::len), Some(2), "each folder is recorded once");
+        assert!(r.files.cwds_to_record(&header).is_none());
+        let mut paths = r.files.purge(SESSION).await;
+        paths.sort();
+        let mut written = vec![r.path.clone(), second];
+        written.sort();
+        assert_eq!(paths, written, "the recorded folders, and nothing found by looking");
+    }
 }
-
 /// The transcripts of the process's sessions.
 pub struct TranscriptFiles {
     lane: DurabilityIo,
@@ -599,7 +613,7 @@ pub struct TranscriptFiles {
 struct WriterEntry {
     session: String,
     made_for: String,
-    path: PathBuf,
+    files: Vec<PathBuf>,
     tx: mpsc::UnboundedSender<Op>,
     _marks: mixdog_services::memory::sensitive::Subscription,
 }
@@ -612,7 +626,6 @@ impl TranscriptFiles {
             sensitive,
             ingest: std::sync::OnceLock::new(),
             purged: Mutex::default(),
-            known: Mutex::default(),
         });
         Arc::new(Self { lane, clock, shared, writers: Mutex::default() })
     }
@@ -629,7 +642,7 @@ impl TranscriptFiles {
     /// ingest gate and moves the watcher's read position to the same line of the new file.
     /// Resolves once the files are rewritten. A marked value calls this by itself; a caller that
     /// must not acknowledge the mark before the files are clean awaits it.
-    pub async fn redact_session(&self, thread: &str) {
+    pub async fn redact_session(&self, thread: &str, cwds: &[String]) {
         let live = lock(&self.writers).iter().find(|entry| entry.session == thread && !entry.tx.is_closed()).map(|entry| entry.tx.clone());
         if let Some(tx) = live {
             let (done, rx) = oneshot::channel();
@@ -637,7 +650,27 @@ impl TranscriptFiles {
                 return;
             }
         }
-        self.shared.redact_files(thread).await;
+        let files: Vec<PathBuf> = cwds.iter().filter(|cwd| !cwd.is_empty()).map(|cwd| self.transcript_path(thread, &super::user_cwd::node_resolve(cwd))).collect();
+        self.shared.redact_files(thread, &files).await;
+    }
+
+    fn transcript_path(&self, thread: &str, cwd: &str) -> PathBuf {
+        self.shared.projects.join(super::purge::project_slug(cwd)).join(format!("{thread}.jsonl"))
+    }
+
+    /// The `transcriptCwds` the session's record must hold before its writer opens: `None` when it names the cwd
+    /// already, or the session writes no transcript.
+    pub fn cwds_to_record(&self, header: &Header) -> Option<Vec<String>> {
+        if super::session_options::memory_off(header) {
+            return None;
+        }
+        let cwd = super::user_cwd::node_resolve(header.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty())?);
+        let mut held = recorded_cwds(header);
+        if held.contains(&cwd) {
+            return None;
+        }
+        held.push(cwd);
+        Some(held)
     }
 
     /// `purgeSessionTranscripts`' writer half: `thread` is deleted, so its writers write nothing
@@ -666,15 +699,11 @@ impl TranscriptFiles {
             }
         }
         let mut paths: Vec<PathBuf> = Vec::new();
-        lock(&self.shared.known).retain(|(id, path)| {
-            if id == thread && !paths.contains(path) {
-                paths.push(path.clone());
-            }
-            id != thread
-        });
         for entry in stopped {
-            if !paths.contains(&entry.path) {
-                paths.push(entry.path);
+            for path in entry.files {
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
             }
         }
         paths
@@ -697,15 +726,14 @@ impl TranscriptFiles {
             Some(at) => writers[at].tx.clone(),
             None => {
                 writers.retain(|entry| entry.session != thread);
-                let path = self.shared.projects.join(super::purge::project_slug(&cwd)).join(format!("{thread}.jsonl"));
-                {
-                    let mut known = lock(&self.shared.known);
-                    if !known.iter().any(|(id, known)| id == thread && *known == path) {
-                        known.push((thread.to_owned(), path.clone()));
-                    }
+                let path = self.transcript_path(thread, &cwd);
+                let mut files: Vec<PathBuf> = recorded_cwds(header).iter().map(|recorded| self.transcript_path(thread, recorded)).collect();
+                if !files.contains(&path) {
+                    files.push(path.clone());
                 }
                 let writer = Writer {
                     path: path.clone(),
+                    files: files.clone(),
                     session: thread.to_owned(),
                     cwd,
                     memory_eligible: !super::thread_switches::agent_owner(header),
@@ -722,7 +750,7 @@ impl TranscriptFiles {
                 let marks = self.shared.sensitive.on_marked(thread, move |_| {
                     let _ = marked.send(Op::Redact(None));
                 });
-                writers.push(WriterEntry { session: thread.to_owned(), made_for: key, path, tx: tx.clone(), _marks: marks });
+                writers.push(WriterEntry { session: thread.to_owned(), made_for: key, files, tx: tx.clone(), _marks: marks });
                 if writers.len() > MAX_WRITERS {
                     writers.remove(0);
                 }

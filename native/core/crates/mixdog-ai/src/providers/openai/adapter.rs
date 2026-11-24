@@ -878,6 +878,11 @@ impl ProviderAdapter for OpenAiAdapter {
         self.pool.release_session(session_id);
     }
 
+    /// The runtime unloaded: its parked sockets and their chains go; a session pinned to HTTP stays pinned.
+    fn release_unloaded_session(&self, session_id: &str) {
+        self.pool.release_unloaded(session_id);
+    }
+
     /// `disposeTransportScope`: the scope's sockets are closed with `transport_scope_disposed`.
     fn release_transport_scope(&self, scope: &str) {
         self.pool.release_scope(scope, "transport_scope_disposed");

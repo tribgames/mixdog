@@ -153,6 +153,19 @@ impl State {
         self.owed.push((self.position, edit));
     }
 
+    /// Removes every reading, negative and slot epoch of provider; its epoch moves on, which detaches the tickets of its slots.
+    fn forget_provider(&mut self, provider: &str) {
+        self.entries.retain(|key, _| !of_provider(key, provider));
+        self.negatives.retain(|key, _| !of_provider(key, provider));
+        self.slot_epochs.retain(|slot, _| provider_of(slot) != provider);
+        *self.provider_epochs.entry(provider.to_owned()).or_default() += 1;
+    }
+
+    /// Removes what no lookup can serve any more: `key`'s reading and those of `slot` that are past the longest window.
+    fn forget_expired(&mut self, key: &str, slot: &str, now: i64) {
+        self.entries.retain(|route, entry| !(route == key || of_slot(route, slot)) || fresh(Some(&entry.reading), STALE_DISK_CACHE_TTL_MS, now).is_some());
+    }
+
     fn live(&self, key: &str) -> Option<&Value> {
         self.entries.get(key).filter(|entry| entry.live).map(|entry| &entry.reading)
     }
@@ -234,6 +247,8 @@ impl UsageCache {
                     .await;
                 let mut routes = read.ok().flatten().and_then(|file| file.get("routes").and_then(Value::as_object).cloned()).unwrap_or_default();
                 let mut state = self.state();
+                let now = now_ms();
+                routes.retain(|_, reading| fresh(Some(reading), STALE_DISK_CACHE_TTL_MS, now).is_some());
                 for edit in std::mem::take(&mut state.early) {
                     edit.apply(&mut routes);
                 }
@@ -250,21 +265,25 @@ impl UsageCache {
     /// The reading a measurement of this route made within the live window, if one is cached.
     pub(super) async fn measured(&self, key: &str, slot: &str) -> Option<Value> {
         self.ready().await;
-        self.state().measured(key, slot, now_ms())
+        let (mut state, now) = (self.state(), now_ms());
+        state.forget_expired(key, slot, now);
+        state.measured(key, slot, now)
     }
 
     /// Whether the route or its slot measured nothing a short while ago.
     pub(super) async fn measured_nothing(&self, key: &str, slot: &str) -> bool {
         self.ready().await;
-        let (state, now) = (self.state(), now_ms());
-        [key, slot].iter().any(|key| state.negatives.get(*key).is_some_and(|at| now - at < NEGATIVE_CACHE_TTL_MS))
+        let (mut state, now) = (self.state(), now_ms());
+        state.negatives.retain(|negative, at| !([key, slot].contains(&negative.as_str()) && now - *at >= NEGATIVE_CACHE_TTL_MS));
+        [key, slot].iter().any(|key| state.negatives.contains_key(*key))
     }
 
     /// The reading to display for a route (`readCachedOAuthUsageSnapshot`): a live one of the route, its slot or the
     /// slot's newest model, else any cached one of those within the display window (the longer one with `allow_stale`).
     pub(super) async fn displayed(&self, key: &str, slot: &str, allow_stale: bool) -> Option<Value> {
         self.ready().await;
-        let (state, now) = (self.state(), now_ms());
+        let (mut state, now) = (self.state(), now_ms());
+        state.forget_expired(key, slot, now);
         let live = state.entries.iter().filter(|(_, entry)| entry.live).map(|(key, entry)| (key, &entry.reading));
         let any = |key: &str| state.entries.get(key).map(|entry| &entry.reading);
         let ttl = if allow_stale { STALE_DISK_CACHE_TTL_MS } else { DISK_CACHE_TTL_MS };
@@ -403,9 +422,7 @@ impl UsageCache {
     pub(super) fn invalidate_provider(self: &Arc<Self>, provider: &str) -> tokio::task::JoinHandle<()> {
         {
             let mut state = self.state();
-            state.entries.retain(|key, _| !of_provider(key, provider));
-            state.negatives.retain(|key, _| !of_provider(key, provider));
-            *state.provider_epochs.entry(provider.to_owned()).or_default() += 1;
+            state.forget_provider(provider);
             state.flights.retain(|_, flight| flight.ticket.provider != provider);
             state.owe(FileEdit::EraseProvider(provider.to_owned()));
         }
@@ -492,5 +509,49 @@ impl UsageCache {
     pub(super) fn positions(&self) -> (u64, u64) {
         let state = self.state();
         (state.acknowledged, state.position)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn reading(cached_at: i64) -> Value {
+        json!({ "quotaWindows": [{ "label": "5h" }], "cachedAt": cached_at })
+    }
+
+    fn entry(cached_at: i64) -> Entry {
+        Entry { reading: reading(cached_at), live: true }
+    }
+
+    #[test]
+    fn a_reading_found_past_every_window_leaves_the_cache_and_a_servable_one_stays() {
+        let now = 10 * STALE_DISK_CACHE_TTL_MS;
+        let mut state = State::default();
+        state.entries.insert("slot".into(), entry(now - STALE_DISK_CACHE_TTL_MS - 1));
+        state.entries.insert("slot\u{1}old".into(), entry(now - STALE_DISK_CACHE_TTL_MS - 1));
+        state.entries.insert("slot\u{1}new".into(), entry(now - 1));
+        state.entries.insert("other".into(), entry(now - STALE_DISK_CACHE_TTL_MS - 1));
+        state.forget_expired("slot\u{1}old", "slot", now);
+        let mut kept: Vec<_> = state.entries.keys().cloned().collect();
+        kept.sort();
+        assert_eq!(kept, ["other", "slot\u{1}new"], "only the looked-up slot's expired readings go");
+    }
+
+    #[test]
+    fn a_provider_invalidation_drops_its_slots_epochs_and_detaches_their_tickets() {
+        let mut state = State::default();
+        state.slot_epochs.insert("p".into(), 3);
+        state.slot_epochs.insert("p\u{2}acct".into(), 1);
+        state.slot_epochs.insert("q".into(), 2);
+        let ticket = Ticket { id: 1, provider: "p".into(), slot: "p".into(), epoch: state.epoch("p", "p") };
+        assert!(state.current(&ticket));
+        state.entries.insert("p".into(), entry(1));
+        state.forget_provider("p");
+        assert!(state.entries.is_empty());
+        assert!(!state.current(&ticket));
+        assert_eq!(state.slot_epochs.keys().collect::<Vec<_>>(), ["q"]);
     }
 }

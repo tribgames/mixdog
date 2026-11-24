@@ -75,6 +75,16 @@ impl SessionToolExclusions {
         f(self.sessions.lock().unwrap_or_else(PoisonError::into_inner).entry(thread.clone()).or_default())
     }
 
+    /// The session ended (closed for good or deleted): what it left out and was told of goes.
+    pub fn forget(&self, thread: &ThreadId) {
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner).remove(thread);
+    }
+
+    #[cfg(test)]
+    fn held(&self) -> usize {
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+
     /// `beginProviderToolExclusions`: a new provider request; exclusions describe the latest one.
     pub fn begin_request(&self, thread: &ThreadId) {
         if let Some(session) = self.sessions.lock().unwrap_or_else(PoisonError::into_inner).get_mut(thread) {
@@ -204,6 +214,19 @@ mod tests {
         // An empty pointer reads as the root.
         let root = ExcludedTool { pointer: String::new(), ..broken() };
         assert!(store.record(&ThreadId::from("s3"), root).unwrap().contains("invalid at / ("));
+    }
+
+    #[test]
+    fn an_ended_session_keeps_no_exclusions_and_is_told_again_if_it_returns() {
+        let store = SessionToolExclusions::new();
+        let (s1, s2) = (ThreadId::from("s1"), ThreadId::from("s2"));
+        let route = header(json!({ "provider": "openai-oauth", "model": "gpt-5" }));
+        store.drop_tool(&s1, &route, broken());
+        store.record(&s2, broken());
+        store.forget(&s1);
+        assert_eq!(store.held(), 1);
+        assert!(store.excluded(&s1, &route).is_empty());
+        assert_eq!(store.excluded(&s2, &route).len(), 1);
     }
 
     /// `dropSessionTool` / `droppedOnRoute`: a tool the provider rejected stays out on the wire

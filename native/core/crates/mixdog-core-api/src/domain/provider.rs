@@ -2299,6 +2299,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
     fn release_session(&self, _session_id: &str) {}
+    /// The session's runtime unloaded but the session lives on: its parked connections and the continuation state they hold
+    /// go; what the session itself needs later (a throttled conversation id, a pinned transport) stays until it ends.
+    /// Wrappers forward it.
+    fn release_unloaded_session(&self, _session_id: &str) {}
     /// An agent loop is entered (`resetAccountProbePacing`): the user asks for a current answer, so a quota the
     /// account pool recorded as exhausted is re-measured rather than refused from the old reading. Called once per
     /// loop entry, never per provider round. Nothing to do for a provider with no account roster.

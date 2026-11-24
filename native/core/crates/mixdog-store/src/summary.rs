@@ -255,6 +255,10 @@ pub fn catalog_row_of<H: HeaderFields + ?Sized>(session: &str, log_id: &str, bas
     if let Some(Value::Array(ids)) = get(h, "roomMembers") {
         s.insert("roomMembers".into(), Value::Array(ids.iter().filter(|id| id.is_string()).cloned().collect()));
     }
+    // Every folder the session's transcripts were written under: a delete finds the files from it.
+    if let Some(Value::Array(cwds)) = get(h, "transcriptCwds") {
+        s.insert("transcriptCwds".into(), Value::Array(cwds.iter().filter(|cwd| cwd.is_string()).cloned().collect()));
+    }
     for k in ["provider", "model"] {
         s.insert(k.into(), or_null(get(h, k)));
     }

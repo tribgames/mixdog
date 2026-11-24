@@ -3622,7 +3622,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         // The resume timer takes this same closure, so the sessions and the timer read one switch.
         deps: Box::new({
             // `deps` is a `move` closure: it takes its own clones, so the composition below still holds every one of these.
-            let (config, gateway_routes, exclusions, _registry, worktree_maintenance, surface_host, worktrees, owned_shells, job_board, blobs) = (
+            let (config, gateway_routes, exclusions, registry, worktree_maintenance, surface_host, worktrees, owned_shells, job_board, blobs) = (
                 config.clone(),
                 gateway_routes.clone(),
                 exclusions.clone(),
@@ -3651,6 +3651,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             // The sessions' lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd`, `CwdChanged`) over the one bus; a moved folder reconciles the session's MCP scope.
             let lifecycle: Arc<dyn mixdog_core_session::session::lifecycle_hooks::LifecycleHooks> =
                 Arc::new(mixdog_core::run_host::lifecycle_hooks::BusLifecycleHooks::new(hook_bus.clone(), startup_cwd.clone(), mcp_glue.clone()));
+            let (session_routes, session_worker_turns, session_agents, session_saved_logins, session_delegated) =
+                (routes.clone(), worker_turns.clone(), agent_registry.clone(), saved_login_turns.clone(), delegated.clone());
             let (early_todos, early_work) = (early.todos.clone(), early.work.clone());
             let (early_goals, mcp_catalog, memory_module, memory_search) = (early.goals.clone(), mcp.catalog.clone(), memory.module(), memory.search());
             // `SessionQuota::over_config(goals, config)` is exactly `{ goals, auto_resume: over_config }`; the closure is the one hoisted above.
@@ -3752,6 +3754,28 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     read_state: read_state.clone(),
                     agents: Some(Arc::new(RetiredAgentPurge(agents.clone()))),
                     agent_processes: Some(acp_processes), // a closed, deleted or unloaded session's ACP agent ends with it
+                    releases: {
+                        let (providers, worker_turns, agents, unloaded_routes) = (registry.clone(), session_worker_turns.clone(), session_agents.clone(), session_routes.clone());
+                        let (routes, exclusions, logins, delegated) = (session_routes.clone(), exclusions.clone(), session_saved_logins.clone(), session_delegated.clone());
+                        let ended_providers = registry.clone();
+                        mixdog_core_session::session::purge::SessionReleases {
+                            // The runtime is gone: its parked provider sockets and chains (the session's HTTP pin and throttled conversation stay until it ends), the listener on its turns and its Lead's view of its agents.
+                            unloaded: vec![
+                                Arc::new(move |id: &str| providers.release_unloaded_session(id)),
+                                Arc::new(move |id: &str| worker_turns.forget(id)),
+                                Arc::new(move |id: &str| agents.forget_scope(id)),
+                                Arc::new(move |id: &str| unloaded_routes.release_unloaded(&mixdog_core_api::ids::ThreadId::from(id))),
+                            ],
+                            // The session is over: what only the session itself owned, its HTTP pin and throttled conversation included.
+                            ended: vec![
+                                Arc::new(move |id: &str| ended_providers.release_session(id)),
+                                Arc::new(move |id: &str| routes.forget(&mixdog_core_api::ids::ThreadId::from(id))),
+                                Arc::new(move |id: &str| exclusions.forget(&mixdog_core_api::ids::ThreadId::from(id))),
+                                Arc::new(move |id: &str| delegated.session_ended(id)),
+                            ],
+                            deleted: vec![Arc::new(move |id: &str| logins.session_deleted(&mixdog_core_api::ids::ThreadId::from(id)))],
+                        }
+                    },
                 }),
                 purge,
                 // A Goal record written before the todo list still carries its tasks: the session's list adopts them (`goal-facade-api.mjs` `adoptLegacyTasks`).

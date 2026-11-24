@@ -58,6 +58,10 @@ impl XaiSocket {
         self.0.pool.release_session(session_id);
     }
 
+    pub fn release_unloaded_session(&self, session_id: &str) {
+        self.0.pool.release_unloaded(session_id);
+    }
+
     /// `None` selects HTTP, `Some` opts into a socket and says whether it may fall back to HTTP.
     pub fn selection(&self, explicit: Option<&str>) -> Option<bool> {
         let raw = explicit

@@ -264,12 +264,18 @@ async fn the_finishing_net_settles_a_stranded_job_from_its_recorded_terminal_val
 struct Probe {
     listener: Mutex<Option<Arc<dyn TurnListener>>>,
     rows: Mutex<Vec<RowUpdate>>,
+    observed: std::sync::atomic::AtomicUsize,
+    unobserved: Arc<std::sync::atomic::AtomicUsize>,
 }
 struct Source(Arc<Probe>);
 impl TurnSource for Source {
     fn observe_session_turns(&self, _: &str, listener: Arc<dyn TurnListener>) -> Option<Unobserve> {
         *lock(&self.0.listener) = Some(listener);
-        Some(Box::new(|| {}))
+        self.0.observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let unobserved = self.0.unobserved.clone();
+        Some(Box::new(move || {
+            unobserved.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }))
     }
 }
 struct Rows(Arc<Probe>);
@@ -312,6 +318,23 @@ impl Turns {
         claim.release(FinalStatus::Idle);
         std::mem::take(&mut *lock(&self.probe.rows))
     }
+}
+
+/// A worker whose runtime ended is not held: its listener is let go of with its owner, and the session is observed afresh
+/// (a new listener) when it runs again.
+#[tokio::test(start_paused = true)]
+async fn a_worker_that_ends_leaves_no_owner_and_is_observed_again_when_it_returns() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    backend();
+    let t = turns();
+    assert!(t.turns.observe("sess_w1"));
+    assert!(t.turns.observe("sess_w1"));
+    assert_eq!((t.probe.observed.load(SeqCst), t.probe.unobserved.load(SeqCst)), (1, 0), "one owner serves the session while it is held");
+    t.turns.forget("sess_w1");
+    assert_eq!(t.probe.unobserved.load(SeqCst), 1, "the ended session's listener is let go of");
+    assert!(t.turns.observe("sess_w1"));
+    assert_eq!(t.probe.observed.load(SeqCst), 2, "the session that returns is observed by a new owner");
 }
 
 fn ended(done: bool, stalled: bool, result: Option<TurnResult>) -> TurnOutcome {
