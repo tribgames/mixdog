@@ -142,7 +142,8 @@ struct Routing {
 impl Routing {
     fn issue(&mut self, agent_id: &str, turn: &str, epoch: u64) -> String {
         let base = format!("{turn}.{agent_id}");
-        let id = (1..).map(|n| mixdog_protocol::tool_call_ids::distinct_id(&base, epoch, n)).find(|id| !self.issued.contains(id)).expect("an id not yet issued");
+        let id =
+            (1..).map(|n| mixdog_protocol::tool_call_ids::distinct_id(&base, epoch, n)).find(|id| !self.issued.contains(id)).expect("an id not yet issued");
         self.issued.insert(id.clone());
         id
     }

@@ -1615,7 +1615,11 @@ impl DirInner {
             }
             let _ = answer.send(first);
         });
-        answered.await.ok().ok_or_else(|| CoreError::ThreadClosing { thread_id: id.clone() })?.map_err(|_| CoreError::ThreadClosing { thread_id: id.clone() })??;
+        answered
+            .await
+            .ok()
+            .ok_or_else(|| CoreError::ThreadClosing { thread_id: id.clone() })?
+            .map_err(|_| CoreError::ThreadClosing { thread_id: id.clone() })??;
         match self.loaded(&id) {
             Some(loaded) if Arc::ptr_eq(&loaded, &handle) => Ok(loaded),
             _ => Err(CoreError::ThreadClosing { thread_id: id }),

@@ -90,7 +90,9 @@ fn drop_associations(table: &mut Table, device_id: &str, client_id: Option<&str>
         let Some(entry) = table.tokens.get_mut(&token) else { continue };
         let associations = associations_of(entry);
         associations.retain(|_, held| {
-            !(held.device_id == device_id && client_id.is_none_or(|client| held.client_id == client) && up_to_generation.is_none_or(|generation| held.generation <= generation))
+            !(held.device_id == device_id
+                && client_id.is_none_or(|client| held.client_id == client)
+                && up_to_generation.is_none_or(|generation| held.generation <= generation))
         });
         let device_holds = associations.values().any(|held| held.device_id == device_id);
         if associations.is_empty() {

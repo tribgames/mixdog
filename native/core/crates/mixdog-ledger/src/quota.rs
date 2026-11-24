@@ -213,8 +213,7 @@ pub const NEXT_SERIES_SQL: &str = "SELECT provider,account,label FROM quota_samp
 /// When a window's meter last moved.
 pub const SERIES_CHANGED_SQL: &str = "SELECT MAX(ts) FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3";
 /// Every reading of one window, oldest first.
-pub const WINDOW_ROWS_SQL: &str =
-    "SELECT ts,seen_until,used_pct,reset_at,rolling FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3 ORDER BY ts";
+pub const WINDOW_ROWS_SQL: &str = "SELECT ts,seen_until,used_pct,reset_at,rolling FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3 ORDER BY ts";
 
 #[derive(Clone, Debug)]
 struct Series {
@@ -382,9 +381,7 @@ fn group_instances(rows: &[Row]) -> Vec<Instance> {
     for row in rows {
         let new_group = match groups.last().and_then(|g| g.last()) {
             None => true,
-            Some(previous) => {
-                !(row.rolling && previous.rolling) && (row.reset_at != previous.reset_at || row.used_pct < previous.used_pct - RESET_DROP_POINTS)
-            }
+            Some(previous) => !(row.rolling && previous.rolling) && (row.reset_at != previous.reset_at || row.used_pct < previous.used_pct - RESET_DROP_POINTS),
         };
         if new_group {
             groups.push(Vec::new());
@@ -715,9 +712,8 @@ fn day_text(day: i64) -> String {
 fn best_origin_ranks(conn: &Connection, provider: &str, first_day: &str, last_day: &str) -> Result<HashMap<String, Option<f64>>> {
     let mut best: HashMap<String, Option<f64>> = HashMap::new();
     let mut ranks = conn.prepare_cached("SELECT day,model,MIN(rank) AS rank FROM daily WHERE provider=?1 AND day BETWEEN ?2 AND ?3 GROUP BY day,model")?;
-    let rows = ranks.query_map(params![provider, first_day, last_day], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?))
-    })?;
+    let rows =
+        ranks.query_map(params![provider, first_day, last_day], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?)))?;
     for row in rows {
         let (day, model, rank) = row?;
         best.insert(format!("{day}\u{0}{model}"), rank);
@@ -928,7 +924,9 @@ fn uncovered_interval(from_ms: f64, to_ms: f64, points: f64, external: f64) -> I
 ///   the band unattributed, booked where its readings rose ([`stretch_rises`]).
 fn window_intervals(instance: &Instance, events: &[Event], finer: &[Interval]) -> Vec<Interval> {
     let longest_run = events.iter().fold(0.0, |m, e| max(m, e.span_ms));
-    let ran_in = |from_ms: f64, to_ms: f64| events[first_after(events, from_ms)..first_after(events, to_ms + longest_run)].iter().any(|e| e.fraction_in(from_ms, to_ms) > 0.0);
+    let ran_in = |from_ms: f64, to_ms: f64| {
+        events[first_after(events, from_ms)..first_after(events, to_ms + longest_run)].iter().any(|e| e.fraction_in(from_ms, to_ms) > 0.0)
+    };
     let rows = &instance.rows;
     let mut intervals: Vec<Interval> = Vec::new();
     let (mut base_ms, mut base_pct) = (instance.start_ms, 0.0);
@@ -1930,7 +1928,8 @@ mod tests {
     fn ledger(records: &[(f64, f64)]) -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
         crate::schema::create(&mut conn).unwrap();
-        conn.execute("INSERT INTO usage_routes(id,signature) VALUES (1,'[\"prov\",\"m\",\"oauth\",\"cli\",\"subscription\",null,\"live\",0,\"acc\"]')", []).unwrap();
+        conn.execute("INSERT INTO usage_routes(id,signature) VALUES (1,'[\"prov\",\"m\",\"oauth\",\"cli\",\"subscription\",null,\"live\",0,\"acc\"]')", [])
+            .unwrap();
         conn.execute("INSERT INTO usage_sessions(id,value) VALUES (1,'s')", []).unwrap();
         for (index, &(ts, duration)) in records.iter().enumerate() {
             let day = day_key(ts as i64);
@@ -2177,7 +2176,11 @@ mod tests {
         let (five, week) = (t0 + 3.0 * HOUR_MS, t0 + 7.0 * 24.0 * HOUR_MS);
         record_quota_samples(
             &mut conn,
-            &[reading("5H", false, t0 + 30.0 * MIN_MS, 4.0, five), reading("5H", false, t0 + HOUR_MS, 6.0, five), reading("7D", false, t0 + HOUR_MS, 1.0, week)],
+            &[
+                reading("5H", false, t0 + 30.0 * MIN_MS, 4.0, five),
+                reading("5H", false, t0 + HOUR_MS, 6.0, five),
+                reading("7D", false, t0 + HOUR_MS, 1.0, week),
+            ],
         )
         .unwrap();
         let query = QuotaWindowsQuery { provider: "prov".into(), account: "acc".into(), label: "7D".into(), in_use: BTreeMap::new(), page: 0.0 };

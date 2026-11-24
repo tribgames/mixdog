@@ -76,12 +76,10 @@ fn cut_item(item: &mut Map<String, Value>, display: &Display) -> bool {
         return entries_cut;
     }
     let lines = display.lines + usize::from(command);
-    let stats = item
-        .get("output")
-        .filter(|output| output.is_string())
-        .or_else(|| item.get("run").and_then(|run| run.get("result")))
-        .and_then(Value::as_str)
-        .map(|text| json!({ "lines": text.trim_end().split('\n').count(), "nonBlankLines": text.split('\n').filter(|line| !line.trim().is_empty()).count() }));
+    let stats =
+        item.get("output").filter(|output| output.is_string()).or_else(|| item.get("run").and_then(|run| run.get("result"))).and_then(Value::as_str).map(
+            |text| json!({ "lines": text.trim_end().split('\n').count(), "nonBlankLines": text.split('\n').filter(|line| !line.trim().is_empty()).count() }),
+        );
     let mut longest = 0;
     let mut notes = Map::new();
     let mut note = |field: &str, text: &mut Value, longest: &mut usize| {
@@ -105,7 +103,9 @@ fn cut_item(item: &mut Map<String, Value>, display: &Display) -> bool {
     if notes.is_empty() {
         return entries_cut;
     }
-    if let Some(ext) = item.get_mut("meta").and_then(Value::as_object_mut).map(|meta| meta.entry("ext").or_insert_with(|| json!({}))) && let Some(ext) = ext.as_object_mut() {
+    if let Some(ext) = item.get_mut("meta").and_then(Value::as_object_mut).map(|meta| meta.entry("ext").or_insert_with(|| json!({})))
+        && let Some(ext) = ext.as_object_mut()
+    {
         ext.insert(TRUNCATED.to_owned(), json!(longest));
         if notes.contains_key("result")
             && let Some(stats) = stats
@@ -138,11 +138,7 @@ fn shown_whole_row(item: &Map<String, Value>) -> bool {
 }
 
 fn cut_entries(item: &mut Map<String, Value>, display: &Display) -> bool {
-    let entries = item
-        .get_mut("meta")
-        .and_then(|meta| meta.get_mut("ext"))
-        .and_then(|ext| ext.get_mut("agentResponseEntries"))
-        .and_then(Value::as_array_mut);
+    let entries = item.get_mut("meta").and_then(|meta| meta.get_mut("ext")).and_then(|ext| ext.get_mut("agentResponseEntries")).and_then(Value::as_array_mut);
     let mut cut = false;
     for entry in entries.into_iter().flatten().filter_map(Value::as_object_mut) {
         for field in ["raw", "result"] {
@@ -204,7 +200,9 @@ fn shown_whole(text: &str) -> bool {
     }
     let Some(array) = start.strip_prefix('[') else { return false };
     let array = array.trim_start();
-    array.starts_with(['[', '{', '"', ']', '-']) || array.starts_with(|c: char| c.is_ascii_digit()) || ["true", "false", "null"].iter().any(|word| array.starts_with(word))
+    array.starts_with(['[', '{', '"', ']', '-'])
+        || array.starts_with(|c: char| c.is_ascii_digit())
+        || ["true", "false", "null"].iter().any(|word| array.starts_with(word))
 }
 
 #[cfg(test)]
@@ -314,7 +312,13 @@ mod tests {
     #[test]
     fn the_exit_lines_the_phone_reads_are_found_after_spaces_and_a_failed_run_s_prefixes() {
         let text = "line of output\n".repeat(400);
-        for marker in ["  [exit code: 0]", "Error: [shell-run-failed] [exit code: 2]", "[shell-run-failed] [exit code: 2]", "[session: s1]\n[exit code: 1]", "[status: running]"] {
+        for marker in [
+            "  [exit code: 0]",
+            "Error: [shell-run-failed] [exit code: 2]",
+            "[shell-run-failed] [exit code: 2]",
+            "[session: s1]\n[exit code: 1]",
+            "[status: running]",
+        ] {
             let mut item = tool(&format!("{marker}\n{text}"));
             item["name"] = json!("shell");
             let cut = first_item(&cut_frame(frame(Some("thread/snapshot"), item.clone()), &SHOWN));
@@ -337,4 +341,5 @@ mod tests {
             let cut = first_item(&cut_frame(frame(Some("thread/snapshot"), item.clone()), &SHOWN));
             assert_eq!(cut, item, "{path} marks a failure");
         }
-    }}
+    }
+}

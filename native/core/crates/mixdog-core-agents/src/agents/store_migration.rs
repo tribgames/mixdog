@@ -111,7 +111,9 @@ fn write_plain_json(lane: &InLane<DurabilityIo>, file: &Path, value: &Map<String
 
 /// The text goes to a synced sibling that is renamed over `file`: a crash or a full disk leaves the old file or the new one.
 fn write_text_atomic(lane: &InLane<DurabilityIo>, file: &Path, text: &str) -> io::Result<()> {
-    state::write_file(lane, file, text.as_bytes(), &state::Opts { mode: 0o644, ..Default::default() }).map(|_| ()).map_err(|error| io::Error::other(error.to_string()))
+    state::write_file(lane, file, text.as_bytes(), &state::Opts { mode: 0o644, ..Default::default() })
+        .map(|_| ())
+        .map_err(|error| io::Error::other(error.to_string()))
 }
 
 fn complete_route(route: Option<&Value>) -> Option<Value> {

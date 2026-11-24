@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::SecretChanges;
+use mixdog_core_session::session::turn_ops::ShownSender;
 use mixdog_protocol::config::desktop_files;
 use mixdog_protocol::config::keys;
-use mixdog_core_session::session::turn_ops::ShownSender;
 use mixdog_rt::TaskClass;
 use serde_json::json;
 use tokio::sync::watch;

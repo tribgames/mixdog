@@ -3491,7 +3491,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     side_store.on_end({
         let compaction = host_compaction.clone();
         move |thread, end| {
-            if matches!(end, mixdog_core_session::session::turn_ops::SideEnd::Detach | mixdog_core_session::session::turn_ops::SideEnd::Tombstone | mixdog_core_session::session::turn_ops::SideEnd::Unload) {
+            if matches!(
+                end,
+                mixdog_core_session::session::turn_ops::SideEnd::Detach
+                    | mixdog_core_session::session::turn_ops::SideEnd::Tombstone
+                    | mixdog_core_session::session::turn_ops::SideEnd::Unload
+            ) {
                 compaction.release_thread(thread);
             }
         }
@@ -3765,8 +3770,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     agents: Some(Arc::new(RetiredAgentPurge(agents.clone()))),
                     agent_processes: Some(acp_processes), // a closed, deleted or unloaded session's ACP agent ends with it
                     releases: {
-                        let (providers, worker_turns, agents, unloaded_routes) = (registry.clone(), session_worker_turns.clone(), session_agents.clone(), session_routes.clone());
-                        let (routes, exclusions, logins, delegated) = (session_routes.clone(), exclusions.clone(), session_saved_logins.clone(), session_delegated.clone());
+                        let (providers, worker_turns, agents, unloaded_routes) =
+                            (registry.clone(), session_worker_turns.clone(), session_agents.clone(), session_routes.clone());
+                        let (routes, exclusions, logins, delegated) =
+                            (session_routes.clone(), exclusions.clone(), session_saved_logins.clone(), session_delegated.clone());
                         let ended_providers = registry.clone();
                         mixdog_core_session::session::purge::SessionReleases {
                             // The runtime is gone: its parked provider sockets and chains (the session's HTTP pin and throttled conversation stay until it ends), the listener on its turns and its Lead's view of its agents.

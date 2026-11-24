@@ -61,7 +61,10 @@ struct Stripes {
 
 fn stripes() -> &'static Stripes {
     static ALL: OnceLock<Stripes> = OnceLock::new();
-    ALL.get_or_init(|| Stripes { stripes: (0..STRIPES).map(|_| Mutex::default()).collect(), reshaped: (0..STRIPES).map(|_| tokio::sync::Notify::new()).collect() })
+    ALL.get_or_init(|| Stripes {
+        stripes: (0..STRIPES).map(|_| Mutex::default()).collect(),
+        reshaped: (0..STRIPES).map(|_| tokio::sync::Notify::new()).collect(),
+    })
 }
 
 fn stripe_of(session: &str) -> usize {

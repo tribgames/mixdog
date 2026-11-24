@@ -620,13 +620,7 @@ struct WriterEntry {
 impl TranscriptFiles {
     /// The transcripts under `mixdog_home`'s `projects`.
     pub fn new(mixdog_home: &Path, lane: DurabilityIo, clock: Arc<dyn Clock>, sensitive: Arc<SensitiveStore>) -> Arc<Self> {
-        let shared = Arc::new(Shared {
-            projects: mixdog_home.join("projects"),
-            lane,
-            sensitive,
-            ingest: std::sync::OnceLock::new(),
-            purged: Mutex::default(),
-        });
+        let shared = Arc::new(Shared { projects: mixdog_home.join("projects"), lane, sensitive, ingest: std::sync::OnceLock::new(), purged: Mutex::default() });
         Arc::new(Self { lane, clock, shared, writers: Mutex::default() })
     }
 
@@ -650,7 +644,8 @@ impl TranscriptFiles {
                 return;
             }
         }
-        let files: Vec<PathBuf> = cwds.iter().filter(|cwd| !cwd.is_empty()).map(|cwd| self.transcript_path(thread, &super::user_cwd::node_resolve(cwd))).collect();
+        let files: Vec<PathBuf> =
+            cwds.iter().filter(|cwd| !cwd.is_empty()).map(|cwd| self.transcript_path(thread, &super::user_cwd::node_resolve(cwd))).collect();
         self.shared.redact_files(thread, &files).await;
     }
 

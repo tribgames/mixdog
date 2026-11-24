@@ -396,17 +396,7 @@ mod turn_tests {
         both.dispose();
         assert_eq!(
             *log.0.lock().unwrap(),
-            [
-                "ended s1 true",
-                "settled s1",
-                "ended s1 false",
-                "settled s1",
-                "ended s1 false",
-                "stopped s1",
-                "ended s1 true",
-                "stopped s1",
-                "dispose"
-            ]
+            ["ended s1 true", "settled s1", "ended s1 false", "settled s1", "ended s1 false", "stopped s1", "ended s1 true", "stopped s1", "dispose"]
         );
     }
 

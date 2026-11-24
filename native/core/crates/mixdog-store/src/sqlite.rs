@@ -2968,10 +2968,7 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
             if let Some(msg) = msg {
                 crate::message_index::amend(tx, session, iid, ordinal, (file_no, offset, len), msg)?;
             }
-            let target: Option<i64> = tx
-                .prepare_cached(AMEND_TARGET_SQL)?
-                .query_row(params![session, iid], |r| r.get(0))
-                .optional()?;
+            let target: Option<i64> = tx.prepare_cached(AMEND_TARGET_SQL)?.query_row(params![session, iid], |r| r.get(0)).optional()?;
             if let Some(target) = target {
                 tx.prepare_cached(
                     "INSERT OR REPLACE INTO amends (session, ordinal, target_ordinal, file_no, frame_offset,
@@ -4835,8 +4832,12 @@ mod held_head_tests {
     #[test]
     fn a_held_head_decodes_to_the_head_it_holds() {
         let header = serde_json::json!({"z": 1, "a": [0.1, 1e300, -0.0, 18446744073709551615u64, -9007199254740993i64], "\"q\"": "é\u{1F600}\n", "o": {"b": null, "a": true}});
-        let head =
-            CatalogHead { session: "sess_a".into(), log_id: "l".into(), base_session: Some("sess_b".into()), header: header.as_object().unwrap().clone().into() };
+        let head = CatalogHead {
+            session: "sess_a".into(),
+            log_id: "l".into(),
+            base_session: Some("sess_b".into()),
+            header: header.as_object().unwrap().clone().into(),
+        };
         let back = HeldHead::of(&head).head().unwrap();
         assert_eq!(back, head);
         assert_eq!(back.header.keys().collect::<Vec<_>>(), head.header.keys().collect::<Vec<_>>());

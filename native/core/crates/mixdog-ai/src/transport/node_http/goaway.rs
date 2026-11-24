@@ -367,7 +367,10 @@ mod tests {
         let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines[0].contains("connection=7 protocol=h2 goaway by=local code=11 last_stream_id=0 reason=too_many_internal_resets "), "{lines:?}");
-        assert!(lines[1].contains("goaway by=peer code=0 last_stream_id=5 ") && !lines[1].contains("peer-secret") && !lines[1].contains("reason="), "{lines:?}");
+        assert!(
+            lines[1].contains("goaway by=peer code=0 last_stream_id=5 ") && !lines[1].contains("peer-secret") && !lines[1].contains("reason="),
+            "{lines:?}"
+        );
         assert!(lines[2].contains("goaway by=local code=0 last_stream_id=0 ") && !lines[2].contains("reason="), "no debug data, no reason: {lines:?}");
     }
 

@@ -343,7 +343,14 @@ impl DesktopHandle {
                 // Media proxy frames (head, body chunks, then end) and every other area's frames: the relay only forwards what it is
                 // handed; the owning area decides.
                 if let Some(handler) = self.hub.dispatch().handler_for(other) {
-                    handler(LegCall { later: Arc::clone(&self.later), hub: Arc::clone(&self.hub), generation: self.generation, device_id: self.device_id.clone(), message }).await;
+                    handler(LegCall {
+                        later: Arc::clone(&self.later),
+                        hub: Arc::clone(&self.hub),
+                        generation: self.generation,
+                        device_id: self.device_id.clone(),
+                        message,
+                    })
+                    .await;
                 }
             }
         }

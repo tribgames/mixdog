@@ -179,7 +179,8 @@ async fn an_agent_session_compacts_at_the_window_the_user_selected_below_the_age
             "rawContextWindow": 1_048_576, "acpContextWindow": 1_048_576, "selectedContextWindow": 400_000,
         })
     };
-    let trigger = |session: Value| async move { CompactPolicy::resolve(&compact_of(session, &[]).await).map(|policy| (policy.boundary_tokens, policy.trigger_tokens)) };
+    let trigger =
+        |session: Value| async move { CompactPolicy::resolve(&compact_of(session, &[]).await).map(|policy| (policy.boundary_tokens, policy.trigger_tokens)) };
     assert_eq!(trigger(agent(400_000)).await, Some((400_000, 400_000)));
     assert_eq!(trigger(agent(1_048_576)).await, Some((1_048_576, 1_048_576)));
 }

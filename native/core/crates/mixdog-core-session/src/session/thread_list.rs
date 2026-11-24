@@ -1057,7 +1057,11 @@ mod tests {
         let mut header = entry["record"].as_object().expect("record").clone();
         header.shift_remove("messages");
         header.insert("title".into(), json!("after-the-write"));
-        service.store.upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header: header.into() }, DirtyMark::Clear).await.expect("upsert");
+        service
+            .store
+            .upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header: header.into() }, DirtyMark::Clear)
+            .await
+            .expect("upsert");
         open.send(()).expect("the list is waiting at the gate");
         let listed = listing.await.expect("list task");
         let row = listed["data"].as_array().expect("data").iter().find(|row| row["id"] == id.as_str()).expect("the row is listed");
@@ -1316,7 +1320,8 @@ mod tests {
         let golden = golden();
         let store = service(data, &golden).await.store;
         let header = json!({ "id": "sess_room_room01", "title": "log", "cwd": "C:\\Tasks", "createdAt": 1000, "updatedAt": 1000 });
-        let head = CatalogHead { session: "sess_room_room01".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
+        let head =
+            CatalogHead { session: "sess_room_room01".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
         store.upsert(head, DirtyMark::Clear).await.expect("upsert");
         Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))))
     }
@@ -1459,8 +1464,12 @@ mod tests {
         let id = "sess_control_probe";
         // What `thread/start` writes: the creation times, no title, no preview, no message.
         let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
-        let head =
-            |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone().into() };
+        let head = |header: &Value| CatalogHead {
+            session: id.into(),
+            log_id: "L".into(),
+            base_session: None,
+            header: header.as_object().expect("object").clone().into(),
+        };
         let listed = |answer: &Value| answer["data"].as_array().expect("data").iter().any(|row| row["id"] == id);
         service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
         let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
@@ -1482,8 +1491,12 @@ mod tests {
         let service = service(&data, &golden).await;
         let id = "sess_marked_probe";
         let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64, "favoriteAt": 9_000_000_000_001_i64, "archivedAt": 9_000_000_000_002_i64 });
-        let head =
-            |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone().into() };
+        let head = |header: &Value| CatalogHead {
+            session: id.into(),
+            log_id: "L".into(),
+            base_session: None,
+            header: header.as_object().expect("object").clone().into(),
+        };
         let row = |answer: &Value| answer["data"].as_array().expect("data").iter().find(|row| row["id"] == id).cloned();
         service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
         for params in [json!({ "limit": 1000 }), json!({ "limit": 1000, "archived": true })] {
@@ -1555,7 +1568,8 @@ mod tests {
         ];
         for (id, desktop, cwd) in &rows {
             let header = json!({ "id": id, "title": "Classified", "cwd": cwd, "desktopSession": desktop, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
-            let head = CatalogHead { session: (*id).into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone().into() };
+            let head =
+                CatalogHead { session: (*id).into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone().into() };
             service.store.upsert(head, DirtyMark::Clear).await.expect("upsert");
         }
         let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");

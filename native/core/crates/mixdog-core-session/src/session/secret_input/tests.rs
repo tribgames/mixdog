@@ -605,7 +605,13 @@ mod saved_login_backend {
         }
         #[async_trait]
         impl HostCommands for Held {
-            async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+            async fn browser(
+                &self,
+                thread: &ThreadId,
+                action: &str,
+                input: JsonValue,
+                cancel: &mixdog_rt::CancellationToken,
+            ) -> Result<JsonValue, HostCommandError> {
                 if action == "saved_login_admit" {
                     self.reached.add_permits(1);
                     let _through = self.gate.acquire().await.unwrap();

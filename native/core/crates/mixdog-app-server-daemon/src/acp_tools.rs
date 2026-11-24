@@ -832,7 +832,11 @@ mod tests {
         let own = LedgerRoute { provider: quota, ..route.clone() }.row(&usage("gemini-4-neon"), at + 1, &pricing).expect("tokens").expect("a row");
         assert!(own.cost_usd.is_some(), "the provider whose quota the agent shares prices the model: {own:?}");
         let shown: Vec<Option<UsdTicks>> = port.0.lock().unwrap().iter().map(|usage| usage.cost).collect();
-        assert_eq!(shown, [own.cost_usd.and_then(UsdTicks::from_usd), None], "the session's stats carry the cost the ledger records, and none for an unpriced turn");
+        assert_eq!(
+            shown,
+            [own.cost_usd.and_then(UsdTicks::from_usd), None],
+            "the session's stats carry the cost the ledger records, and none for an unpriced turn"
+        );
         type Stored = (String, String, String, Option<f64>, Option<String>, i64);
         #[allow(clippy::disallowed_types, reason = "Test-only read of the ledger file the test itself wrote.")]
         let stored = || -> Vec<Stored> {
@@ -896,10 +900,7 @@ mod tests {
         // The earlier form, one size for the agent, is dropped.
         #[allow(clippy::disallowed_methods, reason = "the test seeds the file an earlier version wrote")]
         std::fs::write(dir.path().join("acp-agent-windows.json"), br#"{"antigravity":1048576,"agy":{"m":5}}"#).expect("the earlier file");
-        assert_eq!(
-            KeptRefusals::in_data_dir(dir.path(), lane).read_windows().await,
-            HashMap::from([("agy".to_owned(), HashMap::from([("m".to_owned(), 5)]))])
-        );
+        assert_eq!(KeptRefusals::in_data_dir(dir.path(), lane).read_windows().await, HashMap::from([("agy".to_owned(), HashMap::from([("m".to_owned(), 5)]))]));
         assert!(KeptRefusals::in_data_dir(dir.path(), lane).read().await.is_empty(), "the refusals are a file of their own");
     }
 }

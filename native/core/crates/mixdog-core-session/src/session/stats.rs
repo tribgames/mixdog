@@ -300,7 +300,9 @@ mod tests {
     #[test]
     fn a_context_reading_between_calls_leaves_every_usage_figure_as_it_was() {
         let mut stats = SessionStats::default();
-        stats.fold(&json!({ "deltaInput": 1200, "deltaOutput": 24, "deltaPrompt": 1200, "contextPromptTokens": 1200, "requestMs": 27, "ts": 5000, "costUsd": 0.5 }));
+        stats.fold(
+            &json!({ "deltaInput": 1200, "deltaOutput": 24, "deltaPrompt": 1200, "contextPromptTokens": 1200, "requestMs": 27, "ts": 5000, "costUsd": 0.5 }),
+        );
         let before = stats.json(1);
         stats.measured(9000.0, 6000);
         let after = stats.json(1);

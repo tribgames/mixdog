@@ -541,11 +541,8 @@ fn a_session_the_serving_core_writes_to_is_counted_as_it_was_verified() {
     let verified: VerifiedHook = Arc::new(move |id: &str| {
         let session = data.join("sessions").join(id);
         let next = log_records(&session).last().map_or(0, |(ordinal, _)| ordinal + 1);
-        let newest = (0..)
-            .map(|no| session.join(format!("{}{no:06}", mixdog_store::schema::frame::LOG_FILE_PREFIX)))
-            .take_while(|path| path.exists())
-            .last()
-            .unwrap();
+        let newest =
+            (0..).map(|no| session.join(format!("{}{no:06}", mixdog_store::schema::frame::LOG_FILE_PREFIX))).take_while(|path| path.exists()).last().unwrap();
         let draft = Record::Draft(DraftRecord { rid: Id::try_from("r1").unwrap(), body: Slot::Inline(json!({"text": "half typed"})) });
         let mut log = std::fs::OpenOptions::new().append(true).open(newest).unwrap();
         log.write_all(&crate::frame::encode(next, &serde_json::to_vec(&draft).unwrap())).unwrap();

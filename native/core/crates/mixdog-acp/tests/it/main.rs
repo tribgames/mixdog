@@ -3150,7 +3150,9 @@ async fn a_selected_window_below_the_agents_is_kept_when_the_agent_reports_its_o
     let input = || json!({ "role": "user", "content": "stream" });
     let before = world.agents.status();
     assert_eq!(before["agents"][0]["contextWindows"], json!({}));
-    assert!(world.agents.window_meta(&world.preset, "default").is_none() && !world.agents.picker_rows().iter().any(|row| row.get("maxContextWindow").is_some()));
+    assert!(
+        world.agents.window_meta(&world.preset, "default").is_none() && !world.agents.picker_rows().iter().any(|row| row.get("maxContextWindow").is_some())
+    );
     for (selected, effective) in [(Some(400), 400), (Some(5_000), 1000), (None, 1000)] {
         let surface = Surface::default();
         let turns = Turns { selected_window: selected, ..Turns::default() };
@@ -3158,9 +3160,12 @@ async fn a_selected_window_below_the_agents_is_kept_when_the_agent_reports_its_o
         within("the turn", world.serve_with(&surface, input(), thread_stored, Some("RULES"), "default", CancellationToken::new(), turns)).await;
         let changes = windows(&surface);
         assert_eq!(changes.len(), 1, "{selected:?}: {:?}", surface.events());
-        for (key, want) in
-            [("contextWindow", effective), ("compactBoundaryTokens", effective), ("rawContextWindow", 1000), (mixdog_core_session::session::turn_ops::AGENT_WINDOW, 1000)]
-        {
+        for (key, want) in [
+            ("contextWindow", effective),
+            ("compactBoundaryTokens", effective),
+            ("rawContextWindow", 1000),
+            (mixdog_core_session::session::turn_ops::AGENT_WINDOW, 1000),
+        ] {
             assert_eq!(changes[0].set.get(key), Some(&json!(want)), "{selected:?} {key}");
         }
         world.agents.end_process(&thread());
