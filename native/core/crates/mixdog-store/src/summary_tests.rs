@@ -17,7 +17,7 @@ fn header(value: Value) -> Map<String, Value> {
 
 fn row(header: Map<String, Value>) -> (crate::sqlite::CatalogRow, Value) {
     let id = header.get("id").and_then(Value::as_str).expect("an id").to_owned();
-    let head = CatalogHead { session: id, log_id: String::new(), base_session: None, header };
+    let head = CatalogHead { session: id, log_id: String::new(), base_session: None, header: header.into() };
     let row = catalog_row(&head, &MessageStats::default(), 0.0);
     let summary = serde_json::from_str(&row.summary).expect("the summary is JSON");
     (row, summary)

@@ -117,7 +117,7 @@ mod tests {
         ] {
             let mut header = header.as_object().unwrap().clone();
             header.insert("id".into(), json!(id));
-            store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+            store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.into() }, DirtyMark::Clear).await.unwrap();
         }
         let catalog = StoredSessionCatalog::new(store, Arc::new(Live));
         let first = catalog.page(2, None).await.unwrap();

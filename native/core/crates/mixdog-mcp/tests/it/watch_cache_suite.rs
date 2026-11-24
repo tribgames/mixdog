@@ -60,6 +60,36 @@ impl mixdog_mcp::skill_catalog::SkillSettingsSource for NoSettings {
     }
 }
 
+/// Reads that miss together run one collection and are handed the same skills, not copies of them; reads after it
+/// collect nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn reads_that_miss_together_run_one_collection_and_share_its_skills() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap().join("skills");
+    let file = root.join("demo").join("SKILL.md");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "---\nname: demo\ndescription: d\n---\nbody\n").unwrap();
+    let collections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let roots = {
+        let (root, collections) = (root.clone(), Arc::clone(&collections));
+        Arc::new(move |_: &mixdog_rt::InLane<mixdog_rt::MaintenanceIo>| {
+            collections.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            vec![mixdog_mcp::skills::SkillRoot { dir: root.clone(), source: mixdog_mcp::skills::SkillSource::Global, plugin: None }]
+        })
+    };
+    let watch = Arc::new(SkillsWatch::new());
+    let catalog = mixdog_mcp::skill_catalog::SkillCatalog::new(dir.path().to_path_buf(), mixdog_rt::testing::tokens().maintenance_io, roots, Arc::new(NoSettings), &watch);
+    let deep = root.clone();
+    catalog.watch_roots(watch.clone(), Arc::new(move |_| mixdog_mcp::skills_watch::WatchTargets { deep: vec![deep.clone()], ..Default::default() }));
+    watch.attach(Arc::new(FolderWatcher::new(watch.sink()).unwrap()));
+    let reads = futures::future::join_all((0..8).map(|_| catalog.skills())).await;
+    let first = reads[0].as_ref().unwrap()[0].clone();
+    assert!(reads.iter().all(|read| Arc::ptr_eq(&read.as_ref().unwrap()[0], &first)), "every read holds the one collected skill");
+    assert!(Arc::ptr_eq(&catalog.skills().await.unwrap()[0], &first));
+    assert!(Arc::ptr_eq(&catalog.cached().expect("the list is kept")[0], &first));
+    assert_eq!(collections.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
 /// The skill list follows outside edits: a skills root that does not exist when the list is first read, then a skill
 /// created, edited and deleted by hand, with nothing but the watcher telling the catalog.
 #[tokio::test(flavor = "multi_thread")]
@@ -277,12 +307,37 @@ fn a_root_added_ahead_of_another_keeps_the_other_watch() {
     let skills = SkillsWatch::new();
     let watcher = Arc::new(FolderWatcher::new(skills.sink()).unwrap());
     skills.attach(Arc::clone(&watcher));
-    let targets = |deep: Vec<std::path::PathBuf>| mixdog_mcp::skills_watch::WatchTargets { deep, shallow: Vec::new() };
+    let targets = |deep: Vec<std::path::PathBuf>| mixdog_mcp::skills_watch::WatchTargets { deep, ..Default::default() };
     assert!(skills.set_targets(&targets(vec![a.clone(), b.clone()])));
     let before = watcher.recursive_revision(&b).expect("b is watched");
     assert!(skills.set_targets(&targets(vec![a.clone(), added.clone(), b.clone()])));
     assert!(watcher.recursive_revision(&added).is_some());
     assert!(Arc::ptr_eq(&before, &watcher.recursive_revision(&b).expect("b is watched")), "b's watch was reopened");
+}
+
+/// Every folder the skill list watches is also an entry its parent's watch hears: the data folder, watched for `skills`,
+/// still hears `plugins` beside it removed or renamed, which `plugins`' own watch may not report.
+#[test]
+fn every_watched_folder_is_an_entry_of_its_parents_watch() {
+    let base = tempfile::tempdir().unwrap();
+    let data = base.path().canonicalize().unwrap().join("data");
+    for folder in ["skills", "plugins"] {
+        std::fs::create_dir_all(data.join(folder)).unwrap();
+    }
+    let admin = Arc::new(mixdog_mcp::plugin_admin::PluginAdmin::new(data.clone(), Arc::new(NoGit), Arc::new(|| {})));
+    let targets = mixdog_mcp::mcp_glue::McpGlue::skill_watch_targets(admin, data.join("defaults"));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _job = mixdog_rt::testing::tokens()
+        .maintenance_io
+        .submit(&CancellationToken::new(), move |lane| {
+            let _ = tx.send(targets(lane));
+        })
+        .expect("lane");
+    let targets = rx.recv().expect("job ran");
+    assert!(targets.deep.contains(&data.join("skills")) && targets.shallow.contains(&data.join("plugins")), "{targets:?}");
+    for folder in targets.deep.iter().chain(&targets.shallow) {
+        assert!(targets.entries.contains(folder), "{} is no entry of its parent's watch: {targets:?}", folder.display());
+    }
 }
 
 /// A `git clone` that writes a plugin with one skill, named after the repository, into the target folder.
@@ -362,7 +417,7 @@ async fn a_plugin_watched_by_the_catalog_and_a_session_is_updated_and_watched_ag
         roots.push((plugin["id"].clone(), std::path::PathBuf::from(plugin["root"].as_str().unwrap())));
     }
     let [(id, root), (_, other)] = &roots[..] else { unreachable!() };
-    let has = |list: &[mixdog_mcp::skills::Skill], name: &str, description: &str| list.iter().any(|s| s.name == name && s.description == description);
+    let has = |list: &[Arc<mixdog_mcp::skills::Skill>], name: &str, description: &str| list.iter().any(|s| s.name == name && s.description == description);
     let listed = catalog.skills().await.unwrap();
     assert!(has(listed.as_slice(), "demo", "cloned") && has(listed.as_slice(), "other", "cloned"));
     assert!(catalog.cached().is_some(), "the catalog registered every skills folder");

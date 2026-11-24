@@ -23,7 +23,7 @@ async fn index_owing_a_session(data: &Path, tokens: &LaneTokens) {
     .expect("index");
     let header = serde_json::Map::from_iter([("id".to_owned(), serde_json::Value::from(SESSION))]);
     index
-        .upsert(CatalogHead { session: SESSION.to_owned(), log_id: "owed-rows-start".to_owned(), base_session: None, header }, DirtyMark::Set)
+        .upsert(CatalogHead { session: SESSION.to_owned(), log_id: "owed-rows-start".to_owned(), base_session: None, header: header.into() }, DirtyMark::Set)
         .await
         .expect("the session's row");
     index.close();

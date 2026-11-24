@@ -11,6 +11,8 @@ use serde_json::json;
 
 use crate::fold::Fold;
 // `Fold` is only the source of a `CatalogHead`.
+use crate::schema::shared_header::HeaderFields;
+use crate::schema::shared_header::SharedHeader;
 use crate::sqlite::CatalogRow;
 
 /// The message-derived part of the row.
@@ -24,8 +26,8 @@ pub struct MessageStats {
     pub last_routine: Value,
 }
 
-pub(crate) fn get<'a>(h: &'a Map<String, Value>, k: &str) -> Option<&'a Value> {
-    h.get(k)
+pub(crate) fn get<'a, H: HeaderFields + ?Sized>(h: &'a H, k: &str) -> Option<&'a Value> {
+    h.field(k)
 }
 
 /// JS truthiness of a JSON value.
@@ -75,13 +77,13 @@ pub(crate) fn is_stored_session_id(s: &str) -> bool {
 }
 
 /// `isRootLeadSession`: a Lead whose owner/parent link is none or itself.
-pub fn is_root_lead_session(h: &Map<String, Value>) -> bool {
+pub fn is_root_lead_session<H: HeaderFields + ?Sized>(h: &H) -> bool {
     let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")].into_iter().map(clean).find(|id| is_stored_session_id(id)).unwrap_or_default();
     clean(get(h, "agent")).to_lowercase() == "lead" && (parent.is_empty() || parent == clean(get(h, "id")))
 }
 
 /// `store-summary-visibility.mjs` `sessionVisibility`.
-pub fn session_visibility(h: &Map<String, Value>) -> &'static str {
+pub fn session_visibility<H: HeaderFields + ?Sized>(h: &H) -> &'static str {
     if is_root_lead_session(h) {
         return "ordinary";
     }
@@ -160,7 +162,7 @@ fn desktop_session(v: Option<&Value>, cwd: Option<&Value>) -> Value {
     }
 }
 
-fn import_key(h: &Map<String, Value>) -> Value {
+fn import_key<H: HeaderFields + ?Sized>(h: &H) -> Value {
     let key = match get(h, "importKey") {
         Some(Value::String(s)) => Some(s.as_str()),
         _ => get(h, "importOrigin").and_then(|o| o.get("key")).and_then(Value::as_str),
@@ -171,7 +173,7 @@ fn import_key(h: &Map<String, Value>) -> Value {
     }
 }
 
-fn compact_count(h: &Map<String, Value>) -> Value {
+fn compact_count<H: HeaderFields + ?Sized>(h: &H) -> Value {
     let c = get(h, "compaction").and_then(|c| c.get("compactCount")).and_then(Value::as_f64);
     match c {
         Some(c) if c.fract() == 0.0 && (0.0..=9_007_199_254_740_991.0).contains(&c) => num(c),
@@ -179,13 +181,14 @@ fn compact_count(h: &Map<String, Value>) -> Value {
     }
 }
 
-/// The header-side input of a catalog row: what the fold knows besides the messages.
+/// The header-side input of a catalog row: what the fold knows besides the messages. The header shares the fold's values,
+/// the session's tool catalogs and prompt texts among them: a head made for every appended batch copies none of them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatalogHead {
     pub session: String,
     pub log_id: String,
     pub base_session: Option<String>,
-    pub header: Map<String, Value>,
+    pub header: SharedHeader,
 }
 
 impl CatalogHead {
@@ -194,7 +197,7 @@ impl CatalogHead {
             session: fold.session.clone(),
             log_id: fold.log_id.clone(),
             base_session: fold.base.as_ref().map(|b| b.session.as_str().to_owned()),
-            header: fold.header.to_map(),
+            header: fold.header.clone(),
         }
     }
 }
@@ -207,7 +210,7 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
 
 /// [`catalog_row`] of a header that is read where it is: a caller that holds the header (a session's view, rebuilt on
 /// every published note) does not copy it to ask for its row.
-pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h: &Map<String, Value>, stats: &MessageStats, now: f64) -> CatalogRow {
+pub fn catalog_row_of<H: HeaderFields + ?Sized>(session: &str, log_id: &str, base_session: Option<&str>, h: &H, stats: &MessageStats, now: f64) -> CatalogRow {
     let str_field = |k: &str| get(h, k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     let updated_at = positive(get(h, "updatedAt"), now);
     let last_used = positive(get(h, "lastUsedAt"), 0.0);
@@ -369,6 +372,6 @@ pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h
 pub const DELETED: &str = "deleted";
 
 /// Whether the header carries the delete mark.
-pub fn is_deleted(header: &Map<String, Value>) -> bool {
-    header.get(DELETED) == Some(&Value::Bool(true))
+pub fn is_deleted<H: HeaderFields + ?Sized>(header: &H) -> bool {
+    header.field(DELETED) == Some(&Value::Bool(true))
 }

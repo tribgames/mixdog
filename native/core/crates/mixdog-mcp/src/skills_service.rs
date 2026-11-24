@@ -152,7 +152,7 @@ fn own_key(name: &str) -> String {
 
 /// A bare entry for `name` gives way to the keys of the name's skills other than `except`, which it kept off (a built-in
 /// that follows its feature has no key the gate reads).
-fn expand_bare(list: Vec<String>, skills: &[Skill], name: &str, except: &str) -> Vec<String> {
+fn expand_bare(list: Vec<String>, skills: &[Arc<Skill>], name: &str, except: &str) -> Vec<String> {
     if !listed(&list, name) {
         return list;
     }
@@ -217,7 +217,7 @@ impl SkillsService {
         handle.await.map_err(|e| e.to_string())
     }
 
-    async fn every_skill(&self) -> Result<Arc<Vec<Skill>>, Failure> {
+    async fn every_skill(&self) -> Result<Arc<Vec<Arc<Skill>>>, Failure> {
         self.catalog.every_skill().await.map_err(|e| e.to_string())
     }
 

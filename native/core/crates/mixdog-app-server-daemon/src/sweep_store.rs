@@ -442,7 +442,7 @@ mod tests {
             .unwrap();
         let index = Arc::new(rx.recv().unwrap().unwrap());
         let header = serde_json::json!({"id": "sess_converting", "createdAt": 1, "updatedAt": 1, "status": "idle"});
-        let head = CatalogHead { session: "sess_converting".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone() };
+        let head = CatalogHead { session: "sess_converting".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
         index.upsert(head, mixdog_store::sqlite::DirtyMark::Clear).await.unwrap();
         let rows = CatalogSweepRows::new(index, data.join("sessions"));
         assert!(rows.rows().await.unwrap().is_empty(), "no log yet: not judged");

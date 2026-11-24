@@ -16,7 +16,7 @@ fn head(model: &str) -> CatalogHead {
     header.insert("model".into(), json!(model));
     header.insert("updatedAt".into(), json!(1000.0));
     header.insert("createdAt".into(), json!(500.0));
-    CatalogHead { session: SESSION.into(), log_id: LOG_ID.into(), base_session: None, header }
+    CatalogHead { session: SESSION.into(), log_id: LOG_ID.into(), base_session: None, header: header.into() }
 }
 
 fn frame(ordinal: u64, kind: FrameKind) -> ProjectedFrame {

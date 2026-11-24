@@ -113,13 +113,13 @@ pub fn transcript_sources(mut named: std::collections::BTreeSet<String>, id: &st
 
 /// Whether `header` holds a set (an empty one included) computed under the present [`RULES`]: a session holding none,
 /// or one computed under other rules, is unknown.
-pub fn holds_set(header: &Map<String, Value>) -> bool {
-    header.get(SOURCES).is_some_and(Value::is_array) && header.get(SOURCES_RULES).and_then(Value::as_i64) == Some(RULES)
+pub fn holds_set<H: crate::schema::shared_header::HeaderFields + ?Sized>(header: &H) -> bool {
+    header.field(SOURCES).is_some_and(Value::is_array) && header.field(SOURCES_RULES).and_then(Value::as_i64) == Some(RULES)
 }
 
 /// The set `header` holds.
-pub fn sources(header: &Map<String, Value>) -> Vec<String> {
-    header.get(SOURCES).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned).collect()
+pub fn sources<H: crate::schema::shared_header::HeaderFields + ?Sized>(header: &H) -> Vec<String> {
+    header.field(SOURCES).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned).collect()
 }
 
 #[cfg(test)]
@@ -209,8 +209,8 @@ pub fn boot() -> &'static str {
     })
 }
 /// The copy mark `header` holds: the session copied and the boot of the process copying it.
-pub fn mark(header: &Map<String, Value>) -> Option<(String, String)> {
-    let source = header.get(INHERITING).and_then(Value::as_str).filter(|source| !source.is_empty())?;
-    let boot = header.get(INHERITING_BOOT).and_then(Value::as_str).unwrap_or_default();
+pub fn mark<H: crate::schema::shared_header::HeaderFields + ?Sized>(header: &H) -> Option<(String, String)> {
+    let source = header.field(INHERITING).and_then(Value::as_str).filter(|source| !source.is_empty())?;
+    let boot = header.field(INHERITING_BOOT).and_then(Value::as_str).unwrap_or_default();
     Some((source.to_owned(), boot.to_owned()))
 }

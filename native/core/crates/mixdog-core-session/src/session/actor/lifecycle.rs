@@ -281,6 +281,7 @@ impl SessionActor {
     pub(super) fn on_idle_evict(&mut self) {
         self.idle_evict_at = None;
         if !self.evictable() {
+            tracing::debug!(thread = %self.id, held_by = ?self.held_by(), "an idle thread stays loaded");
             // A release decides whether the thread is reclaimable now and never waits for work under way (a pending Goal
             // decision included): it stays, and its idle clock decides again later.
             self.arm_idle_evict();
@@ -304,11 +305,36 @@ impl SessionActor {
             return;
         }
         if working || !self.evictable() {
+            tracing::debug!(thread = %self.id, working, held_by = ?self.held_by(), "an idle thread stays loaded");
             self.arm_idle_evict();
             self.answer_idle();
         } else {
             self.unload();
         }
+    }
+
+    /// What keeps loaded a thread its idle deadline found not evictable ([`Self::evictable`]).
+    fn held_by(&self) -> Vec<&'static str> {
+        [
+            (self.deleting, "deleting"),
+            (self.carrying(), "carrying"),
+            (self.settling, "settling"),
+            (self.starting, "starting"),
+            (self.goal_checking, "goal-checking"),
+            (self.cell.attached() != 0, "attached"),
+            (self.run.is_some(), "run"),
+            (!self.projected.queue.is_empty(), "queued"),
+            (!self.projected.approvals.is_empty(), "approvals"),
+            (self.turn_busy(), "turn-busy"),
+            (self.goal_scheduled, "goal-scheduled"),
+            (self.compactions > 0, "compacting"),
+            (self.compaction_held(), "compaction-held"),
+            (self.cell.deferring.load(SeqCst) != 0, "deferring"),
+            (self.cell.retention.held(), "archive-retention"),
+        ]
+        .into_iter()
+        .filter_map(|(on, why)| on.then_some(why))
+        .collect()
     }
 
     /// The idle decision the waiting releases asked for is made: the thread stays, or it left the directory.
@@ -325,6 +351,7 @@ impl SessionActor {
     /// to write behind a reopen.
     pub(super) fn unload(&mut self) {
         if self.end_prunes() {
+            tracing::debug!(thread = %self.id, "the unload waits for the prunes it ends");
             self.unload_due = true;
             return;
         }
@@ -336,6 +363,7 @@ impl SessionActor {
             self.accept_header(Some(HeaderChange { set, ..Default::default() }));
         }
         if !self.outbox.is_empty() {
+            tracing::debug!(thread = %self.id, "the unload waits for the outbox");
             self.unload_due = true;
             self.retry_due |= self.outbox.awaits_retry();
             return;
@@ -343,8 +371,12 @@ impl SessionActor {
         // A refused room post can leave nothing to append, but its attempted write still needs reconciliation.
         if self.save_risk.outstanding() {
             if !self.save_risk.unknown.is_empty() && self.ch.dur_tx.try_send(ToDurability::Retry).is_ok() {
+                tracing::debug!(thread = %self.id, "the unload waits for a write's outcome");
                 self.unload_due = true;
             } else {
+                tracing::debug!(thread = %self.id, "an idle thread stays loaded: a write's outcome is owed");
+                // Nothing re-arms the idle clock now: it starts over once the outcome settles.
+                self.unload_owed = true;
                 self.answer_closes();
                 self.answer_idle();
             }
@@ -356,7 +388,9 @@ impl SessionActor {
             return;
         };
         // Left, or a subscriber came back and it stays: either way a close has its answer.
-        if let Some(stopped) = directory.unload(&self.id, &self.cell, self.close_work("other")) {
+        let stopped = directory.unload(&self.id, &self.cell, self.close_work("other"));
+        tracing::debug!(thread = %self.id, unloaded = stopped.is_some(), "an idle thread's unload");
+        if let Some(stopped) = stopped {
             self.unload_stopped = Some(stopped);
             // The session's warm chain outlives it: from here each warm reads the request it repeats from what is stored.
             self.deps.warm.unloaded(&self.id);

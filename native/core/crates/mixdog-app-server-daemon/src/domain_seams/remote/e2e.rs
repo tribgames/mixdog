@@ -349,7 +349,7 @@ impl mixdog_workspace::grants::SessionCatalog for AllSessions {
 impl Client {
     /// Sends the request and returns the frame the server wrote for its id, as written.
     async fn call(&mut self, request: &Value) -> Value {
-        self.to_server.send(Incoming::Text(request.to_string())).unwrap();
+        self.to_server.send(Incoming::Text(request.to_string().into())).unwrap();
         loop {
             let next = mixdog_rt::time::timeout(FRAME_WAIT, self.from_server.recv()).await.expect("the server wrote no frame for the request");
             let frame: Value = serde_json::from_str(&next.expect("the server ended")).unwrap();

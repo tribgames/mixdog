@@ -235,6 +235,64 @@ impl<T: HeaderMap + Clone> HeaderMap for Arc<T> {
     }
 }
 
+/// What a reader of a header's members needs, whichever type holds the header and however it is borrowed: a catalog row is
+/// read from the shared header itself, not from a copy of it.
+pub trait HeaderFields {
+    fn field(&self, key: &str) -> Option<&Value>;
+    /// Every member, in the header's own order.
+    fn each_field(&self, visit: &mut dyn FnMut(&String, &Value));
+}
+
+impl HeaderFields for Map<String, Value> {
+    fn field(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+
+    fn each_field(&self, visit: &mut dyn FnMut(&String, &Value)) {
+        self.iter().for_each(|(key, value)| visit(key, value));
+    }
+}
+
+impl HeaderFields for SharedHeader {
+    fn field(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+
+    fn each_field(&self, visit: &mut dyn FnMut(&String, &Value)) {
+        self.iter().for_each(|(key, value)| visit(key, value));
+    }
+}
+
+impl<T: HeaderFields + ?Sized> HeaderFields for &T {
+    fn field(&self, key: &str) -> Option<&Value> {
+        (**self).field(key)
+    }
+
+    fn each_field(&self, visit: &mut dyn FnMut(&String, &Value)) {
+        (**self).each_field(visit);
+    }
+}
+
+impl<T: HeaderFields + ?Sized> HeaderFields for &mut T {
+    fn field(&self, key: &str) -> Option<&Value> {
+        (**self).field(key)
+    }
+
+    fn each_field(&self, visit: &mut dyn FnMut(&String, &Value)) {
+        (**self).each_field(visit);
+    }
+}
+
+impl<T: HeaderFields + ?Sized> HeaderFields for Arc<T> {
+    fn field(&self, key: &str) -> Option<&Value> {
+        (**self).field(key)
+    }
+
+    fn each_field(&self, visit: &mut dyn FnMut(&String, &Value)) {
+        (**self).each_field(visit);
+    }
+}
+
 /// As the map's index: the value at a key the header holds.
 impl std::ops::Index<&str> for SharedHeader {
     type Output = Value;

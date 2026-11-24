@@ -11,10 +11,13 @@ use mixdog_app_protocol::limits::CloseCode;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SocketClosed;
 
+/// A text frame's payload, UTF-8 checked: the bytes the socket read it into, not a copy of them.
+pub use tokio_tungstenite::tungstenite::Utf8Bytes;
+
 /// One inbound event, already stripped of protocol framing.
 #[derive(Debug)]
 pub enum Incoming {
-    Text(String),
+    Text(Utf8Bytes),
     /// A binary frame; only a host-role connection may send one (X17).
     Binary(Bytes),
     /// A Ping, Pong or any other liveness-only frame.

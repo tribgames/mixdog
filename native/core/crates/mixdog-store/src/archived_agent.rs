@@ -19,8 +19,8 @@ pub fn entry<'a>(header: &'a Map<String, Value>, child: &str) -> Option<&'a Valu
 }
 
 /// The children a parent header carries a result of.
-pub fn children(header: &Map<String, Value>) -> Vec<String> {
-    header.get(HEADER_KEY).and_then(Value::as_object).map(|m| m.keys().cloned().collect()).unwrap_or_default()
+pub fn children<H: crate::schema::shared_header::HeaderFields + ?Sized>(header: &H) -> Vec<String> {
+    header.field(HEADER_KEY).and_then(Value::as_object).map(|m| m.keys().cloned().collect()).unwrap_or_default()
 }
 
 /// `readArchivedAgentResult`: over the child's parents in their order, the newest entry wins and a later parent wins

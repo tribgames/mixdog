@@ -9,7 +9,11 @@
 
 use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context as TaskContext;
+use std::task::Poll;
+use std::task::ready;
 
 use bytes::Bytes;
 use futures::SinkExt;
@@ -18,6 +22,9 @@ use futures::stream::SplitSink;
 use futures::stream::SplitStream;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_rt::TaskClass;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::io::ReadBuf;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -33,7 +40,10 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::http::header;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::protocol::frame::Frame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode as WsCloseCode;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::Data as OpData;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::OpCode;
 use tokio_util::sync::CancellationToken;
 
 use crate::connection::AcceptedConnection;
@@ -86,6 +96,10 @@ const ACCEPT_QUEUE: usize = 16;
 
 /// A media frame's header precedes its payload.
 const MEDIA_HEADER_ROOM: usize = mixdog_app_protocol::media::MEDIA_HEADER_LEN;
+
+/// The longest frame a text message leaves in; a longer message goes in fragments of this size. The socket's write buffer grows
+/// to the longest frame it is handed and keeps that capacity for the life of the connection.
+pub const TEXT_FRAGMENT_BYTES: usize = 64 * 1024;
 
 /// The discovery token a client presents as `Authorization: Bearer <token>`.
 #[derive(Clone)]
@@ -233,15 +247,16 @@ async fn upgrade(stream: TcpStream, pending: Pending, context: &Context) -> Opti
             return None;
         }
         result = tokio_tungstenite::accept_hdr_async_with_config(
-            stream,
+            HeaderAligned::new(stream, context.websocket.read_buffer_size),
             screen,
             Some(context.websocket),
         ) => result,
     };
     match upgraded {
-        Ok(socket) => {
+        Ok(mut socket) => {
+            socket.get_mut().upgraded();
             let (write, read) = socket.split();
-            Some(pending.start(WsRead(read), WsWrite(write)))
+            Some(pending.start(WsRead { stream: read, last: None }, WsWrite(write)))
         }
         // A refusal recorded its reason where it was decided.
         Err(WsError::Http(_)) => None,
@@ -353,13 +368,160 @@ fn refusal(status: StatusCode, reason: &'static str) -> Refusal {
     Refusal { status, reason }
 }
 
-struct WsRead(SplitStream<WebSocketStream<TcpStream>>);
+/// The longest frame header: two bytes, an eight-byte length and a mask key.
+const LONGEST_HEADER: usize = 14;
+
+/// A connection's stream as tungstenite reads it: what arrives is handed on in the reads the codec asks for, except that a
+/// frame whose payload is longer than the codec's read size has its header handed on alone. tungstenite sizes a frame's
+/// read buffer as the bytes it holds past the header plus the frame's length: a long frame read together with the start of
+/// its payload leaves that much room after it, the small frames that follow fit there, and the buffer grown for the long
+/// frame stays the connection's read buffer. Handed its header alone, the codec holds the frame in a buffer of its size and
+/// the next frame needs a new one.
+struct HeaderAligned<S> {
+    stream: S,
+    /// Where the bytes handed on stand within their frames; `None` while the stream carries the HTTP upgrade.
+    at: Option<FramePosition>,
+    /// The codec's read size: a longer payload is a long frame's.
+    long: u64,
+    /// What a read brought past a long frame's header, handed on by the next reads: at most one read of the codec's.
+    ahead: Bytes,
+}
+
+enum FramePosition {
+    Header { bytes: [u8; LONGEST_HEADER], got: usize },
+    Payload { left: u64 },
+}
+
+impl FramePosition {
+    const START: Self = Self::Header { bytes: [0; LONGEST_HEADER], got: 0 };
+
+    /// Takes as much of `read` as the codec may be handed now: all of it, or up to the end of a header whose payload is
+    /// longer than `long`. How many bytes.
+    fn take(&mut self, read: &[u8], long: u64) -> usize {
+        let mut taken = 0;
+        while taken < read.len() {
+            match self {
+                Self::Header { bytes, got } => {
+                    let need = if *got < 2 { 2 } else { header_len(bytes) };
+                    let more = (need - *got).min(read.len() - taken);
+                    bytes[*got..*got + more].copy_from_slice(&read[taken..taken + more]);
+                    *got += more;
+                    taken += more;
+                    if *got >= 2 && *got == header_len(bytes) {
+                        let len = payload_len(bytes);
+                        *self = Self::Payload { left: len };
+                        if len > long {
+                            break;
+                        }
+                    }
+                }
+                Self::Payload { left } => {
+                    let more = usize::try_from(*left).unwrap_or(usize::MAX).min(read.len() - taken);
+                    *left -= more as u64;
+                    taken += more;
+                    if *left == 0 {
+                        *self = Self::START;
+                    }
+                }
+            }
+        }
+        taken
+    }
+}
+
+fn header_len(bytes: &[u8]) -> usize {
+    let length = match bytes[1] & 0x7f {
+        126 => 2,
+        127 => 8,
+        _ => 0,
+    };
+    let mask = if bytes[1] & 0x80 == 0 { 0 } else { 4 };
+    2 + length + mask
+}
+
+fn payload_len(bytes: &[u8]) -> u64 {
+    match bytes[1] & 0x7f {
+        126 => u64::from(u16::from_be_bytes([bytes[2], bytes[3]])),
+        127 => u64::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9]]),
+        len => u64::from(len),
+    }
+}
+
+impl<S> HeaderAligned<S> {
+    fn new(stream: S, read_size: usize) -> Self {
+        Self { stream, at: None, long: read_size as u64, ahead: Bytes::new() }
+    }
+
+    /// A client sends nothing after its upgrade request until the response (RFC 6455 §4.1), so the first byte read after
+    /// the upgrade starts a header.
+    fn upgraded(&mut self) {
+        self.at = Some(FramePosition::START);
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for HeaderAligned<S> {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut TaskContext<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let Some(at) = &mut this.at else {
+            return Pin::new(&mut this.stream).poll_read(cx, buf);
+        };
+        if !this.ahead.is_empty() {
+            let offered = this.ahead.len().min(buf.remaining());
+            let taken = at.take(&this.ahead[..offered], this.long);
+            buf.put_slice(&this.ahead[..taken]);
+            this.ahead = if taken == this.ahead.len() { Bytes::new() } else { this.ahead.slice(taken..) };
+            return Poll::Ready(Ok(()));
+        }
+        let before = buf.filled().len();
+        ready!(Pin::new(&mut this.stream).poll_read(cx, buf))?;
+        let read = &buf.filled()[before..];
+        let taken = at.take(read, this.long);
+        if taken < read.len() {
+            this.ahead = Bytes::copy_from_slice(&read[taken..]);
+            buf.set_filled(before + taken);
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for HeaderAligned<S> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut TaskContext<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().stream).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_shutdown(cx)
+    }
+}
+
+struct WsRead {
+    stream: SplitStream<WebSocketStream<HeaderAligned<TcpStream>>>,
+    /// The payload of the last text or binary frame, a slice of the codec's read buffer. That buffer grows to the longest
+    /// frame read, and a buffer nothing else holds is reused for the connection's life; held here while the next frame is
+    /// read, the buffer is never the codec's alone, so the codec reads on into a buffer of its usual size and the grown one
+    /// goes with the last payload in it.
+    last: Option<Bytes>,
+}
 
 impl SocketRead for WsRead {
     async fn next(&mut self) -> Option<Incoming> {
-        Some(match self.0.next().await? {
-            Ok(Message::Text(text)) => Incoming::Text(text.as_str().to_owned()),
-            Ok(Message::Binary(frame)) => Incoming::Binary(frame),
+        let read = self.stream.next().await?;
+        if self.last.as_ref().is_some_and(Bytes::is_unique) {
+            self.last = None;
+        }
+        Some(match read {
+            Ok(Message::Text(text)) => {
+                self.last = Some(Bytes::from(text.clone()));
+                Incoming::Text(text)
+            }
+            Ok(Message::Binary(frame)) => {
+                self.last = Some(frame.clone());
+                Incoming::Binary(frame)
+            }
             // The protocol layer answers pings itself, coalescing to one pending pong.
             Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_)) => Incoming::Activity,
             Ok(Message::Close(_)) => Incoming::Close,
@@ -370,16 +532,32 @@ impl SocketRead for WsRead {
     }
 }
 
-struct WsWrite(SplitSink<WebSocketStream<TcpStream>, Message>);
+struct WsWrite(SplitSink<WebSocketStream<HeaderAligned<TcpStream>>, Message>);
 
 impl SocketWrite for WsWrite {
     async fn text(&mut self, frame: Bytes) -> Result<(), SocketClosed> {
-        let Ok(text) = Utf8Bytes::try_from(frame) else {
+        let Ok(text) = std::str::from_utf8(&frame) else {
             // Frames are serialized JSON; anything else is a server bug and ends the connection.
             tracing::error!("outbound text frame is not UTF-8");
             return Err(SocketClosed);
         };
-        self.0.send(Message::Text(text)).await.map_err(|_| SocketClosed)
+        if text.len() <= TEXT_FRAGMENT_BYTES {
+            let text = Utf8Bytes::try_from(frame).map_err(|_| SocketClosed)?;
+            return self.0.send(Message::Text(text)).await.map_err(|_| SocketClosed);
+        }
+        // Each fragment ends on a character boundary, so every one is text on its own too.
+        let mut start = 0;
+        while start < text.len() {
+            let mut end = (start + TEXT_FRAGMENT_BYTES).min(text.len());
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            let opcode = if start == 0 { OpData::Text } else { OpData::Continue };
+            let fragment = Frame::message(frame.slice(start..end), OpCode::Data(opcode), end == text.len());
+            self.0.send(Message::Frame(fragment)).await.map_err(|_| SocketClosed)?;
+            start = end;
+        }
+        Ok(())
     }
 
     async fn ping(&mut self) -> Result<(), SocketClosed> {
@@ -389,5 +567,100 @@ impl SocketWrite for WsWrite {
     async fn close(&mut self, code: CloseCode) -> Result<(), SocketClosed> {
         let frame = CloseFrame { code: WsCloseCode::from(code.code()), reason: Utf8Bytes::from_static(code.reason()) };
         self.0.send(Message::Close(Some(frame))).await.map_err(|_| SocketClosed)
+    }
+}
+
+#[cfg(test)]
+mod header_aligned_tests {
+    use tokio::io::AsyncWriteExt;
+    use tokio::io::DuplexStream;
+    use tokio_tungstenite::tungstenite::protocol::Role;
+
+    use super::*;
+
+    /// The inner stream, counting its reads that brought bytes.
+    struct Counted {
+        inner: DuplexStream,
+        reads: usize,
+    }
+
+    impl AsyncRead for Counted {
+        fn poll_read(self: Pin<&mut Self>, cx: &mut TaskContext<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+            let this = self.get_mut();
+            let before = buf.filled().len();
+            let polled = Pin::new(&mut this.inner).poll_read(cx, buf);
+            if buf.filled().len() > before {
+                this.reads += 1;
+            }
+            polled
+        }
+    }
+
+    impl AsyncWrite for Counted {
+        fn poll_write(self: Pin<&mut Self>, cx: &mut TaskContext<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+        }
+    }
+
+    /// A client's text frame as the wire carries it; a zero mask key leaves the payload as it is.
+    fn masked_text(text: &str) -> Vec<u8> {
+        let mut frame = vec![0x81];
+        match u16::try_from(text.len()) {
+            Ok(len @ 0..=125) => frame.push(0x80 | u8::try_from(len).expect("under 126")),
+            Ok(len) => {
+                frame.push(0x80 | 126);
+                frame.extend_from_slice(&len.to_be_bytes());
+            }
+            Err(_) => {
+                frame.push(0x80 | 127);
+                frame.extend_from_slice(&(text.len() as u64).to_be_bytes());
+            }
+        }
+        frame.extend_from_slice(&[0; 4]);
+        frame.extend_from_slice(text.as_bytes());
+        frame
+    }
+
+    async fn text(socket: &mut WebSocketStream<HeaderAligned<Counted>>) -> String {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => text.as_str().to_owned(),
+            other => panic!("a text message, not {other:?}"),
+        }
+    }
+
+    /// Small frames reach the codec in the reads it asks for, as many as have arrived in one read; a frame longer than its
+    /// read size, whose header is handed on alone, still arrives whole, and so does the frame read behind it.
+    #[tokio::test]
+    async fn small_frames_are_read_as_they_arrive_and_a_long_frame_arrives_whole() {
+        let (mut client, server) = tokio::io::duplex(1024 * 1024);
+        let mut stream = HeaderAligned::new(Counted { inner: server, reads: 0 }, WebSocketConfig::default().read_buffer_size);
+        stream.upgraded();
+        let mut socket = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+
+        client.write_all(&masked_text(&"a".repeat(100))).await.unwrap();
+        assert_eq!(text(&mut socket).await, "a".repeat(100));
+        assert_eq!(socket.get_ref().stream.reads, 1, "an isolated small frame is one read");
+
+        let burst: Vec<u8> = (0..8).flat_map(|n| masked_text(&format!("frame {n}"))).collect();
+        client.write_all(&burst).await.unwrap();
+        for n in 0..8 {
+            assert_eq!(text(&mut socket).await, format!("frame {n}"));
+        }
+        assert_eq!(socket.get_ref().stream.reads, 2, "a burst of small frames is one read");
+
+        let long = "b".repeat(200 * 1024);
+        let mut both = masked_text(&long);
+        both.extend(masked_text("after"));
+        client.write_all(&both).await.unwrap();
+        assert_eq!(text(&mut socket).await, long);
+        assert_eq!(text(&mut socket).await, "after");
     }
 }

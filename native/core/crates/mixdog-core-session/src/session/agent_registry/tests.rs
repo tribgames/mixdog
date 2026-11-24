@@ -1253,7 +1253,7 @@ const LOADED: usize = 30;
 /// A stored session's catalog row, as the index writes it from the session's header.
 fn stored_head(id: &str, mut header: Row) -> mixdog_store::summary::CatalogHead {
     header.insert("id".into(), json!(id));
-    mixdog_store::summary::CatalogHead { session: id.to_owned(), log_id: "log".into(), base_session: None, header }
+    mixdog_store::summary::CatalogHead { session: id.to_owned(), log_id: "log".into(), base_session: None, header: header.into() }
 }
 
 /// The index loads a signal may make: one per thread at most (threads that ask while a load is under way share the next

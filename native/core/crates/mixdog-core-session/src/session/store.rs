@@ -689,7 +689,7 @@ mod projector_tests {
     }
 
     fn empty_projection(session: &str) -> Projection {
-        let head = CatalogHead { session: session.into(), log_id: "L".into(), base_session: None, header: serde_json::Map::new() };
+        let head = CatalogHead { session: session.into(), log_id: "L".into(), base_session: None, header: Default::default() };
         Projection { session: session.into(), frames: Vec::new(), head: Arc::new(head) }
     }
 

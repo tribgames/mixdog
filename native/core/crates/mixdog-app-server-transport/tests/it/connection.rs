@@ -85,7 +85,7 @@ async fn bad_json_closes_with_1007_and_oversized_text_with_1009() {
 
     let mut big = connect(&hub, ConnectionOrigin::Loopback, true);
     let oversized = format!(r#"{{"id":1,"method":"x","params":"{}"}}"#, "a".repeat(hub.limits().max_inbound_frame_bytes as usize));
-    big.send.send(Incoming::Text(oversized)).unwrap();
+    big.send.send(Incoming::Text(oversized.into())).unwrap();
     assert_eq!(big.until_closed().await, [Wire::Close(CloseCode::FrameTooBig)]);
     // The closed connections ended their inbound stream.
     assert!(bad.connection.inbound.recv().await.is_none());

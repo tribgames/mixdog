@@ -182,7 +182,7 @@ fn head(id: &str, classification: &str, title: &str) -> CatalogHead {
         "updatedAt": 1,
         "desktopSession": {"classification": classification, "projectPath": "/p"},
     });
-    CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.as_object().unwrap().clone() }
+    CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.as_object().unwrap().clone().into() }
 }
 
 fn lineage(levels: &[(&str, Option<u64>)]) -> Vec<LineageLevel> {
@@ -221,6 +221,27 @@ async fn a_row_a_client_names_is_found_without_walking_the_history() {
     assert_eq!(find(&["bid"], "bid").await.expect("own id").cursor.before, 6);
     assert_eq!(find(&["cs"], "cs").await.expect("submission").cursor.before, 6);
     assert_eq!(find(&["nope", "nope:1"], "nope").await, None);
+}
+
+/// Every batch's catalog head shares the values of the session's header instead of copying them, whether or not the batch
+/// before is still held; a batch that changes the header carries the change and still shares the rest.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batchs_catalog_head_shares_the_headers_values() {
+    let env = Env::new();
+    let mut w = env.create("s1", None).await;
+    let renamed = rec(json!({"k":"meta","change":{"inline":{"set":{"title":"renamed"},"unset":[]}}}));
+    let mut heads = Vec::new();
+    for batch in [vec![item("a")], vec![item("b")], vec![renamed]] {
+        let (next, ack) = env.append(w, batch).await;
+        let ack = ack.unwrap();
+        heads.push(ack.projection.head.clone());
+        env.store.project(ack.projection).await.unwrap();
+        w = next;
+    }
+    let shared = |a: usize, b: usize, key: &str| Arc::ptr_eq(heads[a].header.get_shared(key).unwrap(), heads[b].header.get_shared(key).unwrap());
+    assert!(heads[0].header.keys().all(|key| shared(0, 1, key)), "an unchanged header is not copied: {:?}", heads[0].header);
+    assert_eq!((heads[1].header.get("title"), heads[2].header.get("title")), (Some(&json!("t")), Some(&json!("renamed"))));
+    assert!(heads[1].header.iter().filter(|(key, value)| heads[2].header.get(key) == Some(*value)).all(|(key, _)| shared(1, 2, key)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2593,7 +2614,9 @@ async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
     let rules = crate::offload_sources::RULES;
     let with = |id: &str, fields: serde_json::Value| {
         let mut head = head(id, "task", "t");
-        head.header.extend(fields.as_object().unwrap().clone());
+        for (key, value) in fields.as_object().unwrap().clone() {
+            head.header.insert(key, value);
+        }
         head
     };
     let known = |sources: serde_json::Value| json!({"offloadSources": sources, "offloadSourcesRules": rules});
@@ -2909,7 +2932,7 @@ async fn lead_pages_filter_before_they_are_cut() {
 fn listed_head(id: &str, fields: serde_json::Value) -> CatalogHead {
     let mut header = fields.as_object().unwrap().clone();
     header.insert("id".into(), json!(id));
-    CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header }
+    CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.into() }
 }
 /// The sweep's conversation count is Node's `conversationCountOf`: user and assistant messages only
 /// (`message_rows.counted`, the rule `messageCount` is kept by), never tool or system ones.
@@ -4579,13 +4602,13 @@ async fn lead_pages_walk_by_activity_then_id_and_name_the_cursor_of_the_last_row
     for (id, updated, used) in [("a", 10, 0), ("b", 30, 0), ("c", 30, 0), ("d", 20, 0), ("e", 1, 40)] {
         let header = serde_json::json!({"id": id, "title": format!("title {id}"), "updatedAt": updated, "lastUsedAt": used});
         let header = header.as_object().unwrap().clone();
-        env.store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+        env.store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.into() }, DirtyMark::Clear).await.unwrap();
     }
     // The complements are never listed: an exec run, and a titleless session with no messages (scratch), however recent.
     for (id, extra) in [("x1", serde_json::json!({"sourceType": "exec", "title": "run"})), ("x2", serde_json::json!({}))] {
         let mut header = serde_json::json!({"id": id, "updatedAt": 99, "lastUsedAt": 99}).as_object().unwrap().clone();
         header.extend(extra.as_object().unwrap().clone());
-        env.store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+        env.store.upsert(CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.into() }, DirtyMark::Clear).await.unwrap();
     }
     let mut after = None;
     let mut pages = Vec::new();

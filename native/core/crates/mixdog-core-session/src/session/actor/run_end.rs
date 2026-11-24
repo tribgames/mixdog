@@ -128,7 +128,9 @@ impl SessionActor {
         // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
         self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();
-        self.abort_ended.clear();
+        self.abort_ended = Default::default();
+        // Every row the turn took a queued copy into is committed by now: an id still held is of a row that never showed.
+        self.suppressed.clear();
         // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
         // the removal of the snapshots it made, without waiting for it.
         if !matches!(outcome, RunOutcome::Completed(_)) {

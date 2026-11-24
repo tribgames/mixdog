@@ -74,7 +74,7 @@ struct RelayRead(mpsc::Receiver<RelayIn>);
 impl SocketRead for RelayRead {
     async fn next(&mut self) -> Option<Incoming> {
         Some(match self.0.recv().await? {
-            RelayIn::Text(text) => Incoming::Text(text),
+            RelayIn::Text(text) => Incoming::Text(text.into()),
             RelayIn::Activity => Incoming::Activity,
         })
     }

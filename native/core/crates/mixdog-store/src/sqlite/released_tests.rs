@@ -27,7 +27,7 @@ async fn an_index_of_the_first_released_version_keeps_its_rows_at_open() {
     let index = index_in(dir.path()).await;
     let header = json!({ "id": "kept", "title": "Kept", "updatedAt": 1, "desktopSession": { "classification": "task", "projectPath": "/p" } });
     let head =
-        CatalogHead { session: "kept".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+        CatalogHead { session: "kept".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone().into() };
     index.upsert(head, DirtyMark::Clear).await.unwrap();
     index.close();
     drop(index);

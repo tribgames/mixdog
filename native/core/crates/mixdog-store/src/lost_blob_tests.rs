@@ -166,7 +166,7 @@ impl Env {
     async fn create(&self, id: &str, record: Encoded) -> LogWriter {
         let mut header = serde_json::Map::new();
         header.insert("id".into(), id.into());
-        let head = CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header };
+        let head = CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.into() };
         self.store.upsert(head, DirtyMark::Set).await.unwrap();
         let (dir, deps) = (self.dir(id), self.deps());
         let (w, ack) = on_lane(move |l| LogWriter::create(l, &dir, record, deps).unwrap()).await;
@@ -556,7 +556,7 @@ async fn writes_made_during_a_rebuild_are_in_the_finished_index() {
     tokio::task::spawn_blocking(move || arrived.recv().unwrap()).await.unwrap();
     let head = |id: &str, title: &str| {
         let header = json!({ "id": id, "title": title, "updatedAt": 9, "desktopSession": { "classification": "task", "projectPath": "/p" } });
-        CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.as_object().unwrap().clone() }
+        CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.as_object().unwrap().clone().into() }
     };
     index.upsert(head("s4", "made meanwhile"), DirtyMark::Clear).await.unwrap();
     assert!(index.summary("s4").await.unwrap().unwrap().contains("made meanwhile"), "a new session is not held back");
