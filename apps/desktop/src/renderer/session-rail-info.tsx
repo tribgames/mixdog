@@ -567,10 +567,16 @@ export function ContextSection({
           aria-valuenow={percent ?? undefined}
         >
           {segments.length > 0 ? (
-            // What the window holds, a colour for each kind; the track left over is free space.
-            segments.map((category) => (
-              <b key={category.key} data-context-key={category.key} style={{ width: `${share(category.tokens)}%` }} />
-            ))
+            // What the window holds, a colour for each kind, inside the held share so the slivers' least width comes out
+            // of it; the track left over at the end is free space.
+            <span
+              className="session-rail-meter-held"
+              style={{ width: `${share(segments.reduce((sum, category) => sum + category.tokens, 0))}%` }}
+            >
+              {segments.map((category) => (
+                <b key={category.key} data-context-key={category.key} style={{ flexGrow: category.tokens }} />
+              ))}
+            </span>
           ) : (
             <i style={{ width: `${Math.min(100, percent ?? 0)}%` }} />
           )}

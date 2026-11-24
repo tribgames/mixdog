@@ -788,8 +788,13 @@ button.session-rail-row:focus-visible {
 }
 /* What the window holds: a colour for each kind (24-context-dock.css's
    palette), in the bar and before each kind's row. */
-.session-rail-meter > b {
-  flex: none;
+.session-rail-meter-held {
+  display: flex;
+  gap: 1px;
+  height: 100%;
+}
+.session-rail-meter-held > b {
+  flex: 0 1 0;
   min-width: 2px;
   height: 100%;
   background: var(--ctx-color);

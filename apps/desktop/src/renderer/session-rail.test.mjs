@@ -1771,7 +1771,7 @@ test("Context is a category of its own: the share, a bar and the two actions; ab
   // What the window holds, by kind and largest first: a segment each in the bar, a row each, then the free space.
   assert.deepEqual(asked, [{ capability: 'contextStatus', sessionId: LEAD }]);
   assert.deepEqual(
-    [...section.querySelectorAll('[role="meter"] > b')].map((part) => part.dataset.contextKey),
+    [...section.querySelectorAll('[role="meter"] b')].map((part) => part.dataset.contextKey),
     ['messages', 'system', 'tools']
   );
   assert.deepEqual(
@@ -1832,11 +1832,7 @@ test("Context's kinds divide the head's reading in their estimated proportions, 
       row.querySelector('.session-rail-num').textContent,
       row.querySelector('.session-rail-share').textContent,
     ]);
-  const filled = () =>
-    [...section().querySelectorAll('[role="meter"] > b')].reduce(
-      (sum, part) => sum + Number.parseFloat(part.style.width),
-      0
-    );
+  const filled = () => Number.parseFloat(section().querySelector('.session-rail-meter-held').style.width);
   assert.equal(section().querySelector('.session-rail-sm').textContent, '480k / 500k · 96.0%');
   // A reading twice the estimates: every kind's figure and segment doubles, the rows add up to the reading, and the
   // free space is what the reading leaves.
@@ -1848,7 +1844,7 @@ test("Context's kinds divide the head's reading in their estimated proportions, 
     ['free', '20k', '4.0%'],
   ]);
   assert.deepEqual(
-    [...section().querySelectorAll('[role="meter"] > b')].map((part) => part.dataset.contextKey),
+    [...section().querySelectorAll('[role="meter"] b')].map((part) => part.dataset.contextKey),
     ['messages', 'system', 'tools']
   );
   assert.ok(Math.abs(filled() - 96) < 0.01, `the bar is filled to the reading: ${filled()}`);
