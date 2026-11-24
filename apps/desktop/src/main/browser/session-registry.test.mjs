@@ -25,26 +25,6 @@ test('browser session ids default only when omitted and reject unsafe owners', (
   assert.throws(() => browserSessionId('session:other'), /session_id is invalid/);
 });
 
-test('releasing a session drops its activity entry and no later activity repeats a value a probe saw', () => {
-  const registry = new BrowserSessionRegistry();
-  for (let index = 0; index < 100; index += 1) {
-    registry.beginTurn(`s${index}`, 1);
-    registry.forgetTurn(`s${index}`);
-  }
-  assert.equal(registry.activityBySession.size, 0, 'forgotten sessions leave nothing behind');
-  assert.equal(registry.turnFinishedAt('s0'), undefined);
-
-  registry.beginTurn('s', 1);
-  const probed = registry.activityGeneration('s');
-  assert.ok(probed > 0);
-  registry.forgetTurn('s');
-  assert.notEqual(registry.activityGeneration('s'), probed, 'an outstanding probe reads as stale');
-  registry.beginTurn('s', 1);
-  registry.finishTurn('s', 1);
-  assert.notEqual(registry.activityGeneration('s'), probed, 'a reused session never reaches the probed value');
-  assert.equal(registry.activityBySession.size, 1);
-});
-
 test('listeners hear which turn finished and which session was released', () => {
   const registry = new BrowserSessionRegistry();
   const heard = [];

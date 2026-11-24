@@ -121,7 +121,7 @@ export async function reloadPageAfterSignIn(
 
 /** Whether any form field of the page differs from what it loaded with; an
  *  unreadable page counts as edited. */
-export function pageHasEditedFields(guest: WebContents): Promise<boolean> {
+function pageHasEditedFields(guest: WebContents): Promise<boolean> {
   return guest.executeJavaScriptInIsolatedWorld(EDITED_FIELDS_WORLD, [{ code: EDITED_FIELDS_SCRIPT }]).then(
     (edited) => edited !== false,
     () => true

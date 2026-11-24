@@ -3,7 +3,6 @@ import type { BaseWindow, WebContents } from 'electron';
 import { createBackgroundReclaimer } from './background-reclaim';
 import type { GuestAttach } from './guest-initialize';
 import { type BrowserGuestStateStore, pushBounded } from './host-state';
-import { pageHasEditedFields } from './login-takeover';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
@@ -83,15 +82,7 @@ export function createBrowserBackgroundPages(
   const reclaimer = createBackgroundReclaimer({
     sessions,
     isBackgroundBusy: host.isBackgroundBusy,
-    holdsUnfinishedWork: (guest) => {
-      const record = state.peek(guest);
-      return Boolean(
-        record &&
-          (record.userInput || record.pendingDialog || record.pendingFileChooser || record.sensitiveValues?.size)
-      );
-    },
-    documentGeneration: (guest) => state.peek(guest)?.documentGeneration ?? 0,
-    hasEditedFields: pageHasEditedFields,
+    holdsUnfinishedWork: (sessionId, guest) => state.holdsUnfinishedWork(guest, sessions.turnLive(sessionId)),
     close: (sessionId, name, entry) => closeBackgroundPage(sessions, state, sessionId, name, entry),
   });
 

@@ -58,6 +58,9 @@ export interface SignInDeps {
   finishTurn(sessionId: string, turn: number, aborted: boolean): number;
   /** `taskLifecycle.forget`. */
   forget(sessionId: string): void;
+  /** The core link that told the session's turns closed: a live turn ends, and the next link's turns are numbered
+   *  afresh (`endLinkTurns`, `taskLifecycle.renumber`). */
+  endTurns(sessionId: string): void;
   onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
 }
 
@@ -91,22 +94,45 @@ export function registerSignIn(
   deps: SignInDeps,
   snapshot: Pick<SnapshotHost, 'captureSnapshotPayload'>
 ): void {
-  registerSignInMethod(connection, ctx, deps, snapshot);
+  const turns = linkTurns(connection, deps);
+  registerSignInMethod(connection, ctx, deps, turns, snapshot);
   registerCredentialsFill(connection, ctx, deps);
-  registerTurn(connection, ctx, deps);
+  registerTurn(connection, ctx, deps, turns);
+}
+
+type LinkTurns = ReturnType<typeof linkTurns>;
+
+/** The turns this link told the host of belong to it: when it closes they end with it, however the core went
+ *  away (an update, a crash), and the next link's turns are never compared with its numbers. */
+function linkTurns(connection: HostConnection, deps: SignInDeps) {
+  const told = new Set<string>();
+  connection.onClose(() => {
+    for (const sessionId of told) deps.endTurns(sessionId);
+  });
+  return {
+    begin(sessionId: string, turn: number): void {
+      told.add(sessionId);
+      deps.beginTurn(sessionId, turn);
+    },
+    forget(sessionId: string): void {
+      told.delete(sessionId);
+      deps.forget(sessionId);
+    },
+  };
 }
 
 function registerSignInMethod(
   connection: HostConnection,
   ctx: EngineContext,
   deps: SignInDeps,
+  turns: LinkTurns,
   snapshot: Pick<SnapshotHost, 'captureSnapshotPayload'>
 ): void {
   registerEngineMethod(connection, ctx, 'host/browser/signIn', async (params, signal, page) => {
     const sessionId = sessionOf(params);
     const turnId = turnOf(params.turn);
     const { guest } = page;
-    deps.beginTurn(sessionId, turnId);
+    turns.begin(sessionId, turnId);
     if (params.op === 'beforeAction') {
       const action = typeof params.action === 'string' ? params.action : '';
       await deps.beforeAction(guest, action, isObject(params.command) ? params.command : {}, signal);
@@ -161,15 +187,15 @@ function registerCredentialsFill(connection: HostConnection, ctx: EngineContext,
   });
 }
 
-function registerTurn(connection: HostConnection, ctx: EngineContext, deps: SignInDeps): void {
+function registerTurn(connection: HostConnection, ctx: EngineContext, deps: SignInDeps, turns: LinkTurns): void {
   registerEngineSessionMethod(connection, ctx, 'host/browser/turn', async (params) => {
     const sessionId = sessionOf(params);
     if (params.op === 'forget') {
-      deps.forget(sessionId);
+      turns.forget(sessionId);
       return { closed: 0 };
     }
     if (params.op === 'begin') {
-      deps.beginTurn(sessionId, turnOf(params.turn));
+      turns.begin(sessionId, turnOf(params.turn));
       return { closed: 0 };
     }
     if (params.op !== 'end') throw new HostRpcError(HOST_INVALID_PARAMS, 'turn op must be begin, end or forget.');

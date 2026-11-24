@@ -151,7 +151,8 @@ pub trait TurnEvents: Send + Sync {
     /// A turn of the session started, before it reasons or runs any tool: a session that has used the browser tells the host, which
     /// keeps its pages out of reclaim while the turn is live, even one that never issues a browser command.
     fn turn_begun(&self, _thread: &ThreadId) {}
-    /// The session's running turn settled. `aborted`: it ended badly, so the pages it opened for itself are released.
+    /// The session's running turn settled, or its runtime stopped; a turn already ended has nothing more to end. `aborted`: it ended
+    /// badly, so the pages it opened for itself are released.
     fn turn_ended(&self, thread: &ThreadId, aborted: bool);
     /// The session's runtime ended: its turn is over and the pages it owned are released.
     fn session_ended(&self, thread: &ThreadId);

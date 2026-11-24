@@ -50,6 +50,11 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     }
     return closed;
   }
+  /** The core link that numbered the session's turns closed: the next link's
+   *  turns count from 1 again. */
+  function renumber(sessionId: string): void {
+    finished.delete(sessionId);
+  }
   /** `keepTurn`: the session's pages are only unloaded, and come back with
    *  their turn state, so a restored session is judged by the turn it had. */
   function forget(sessionId: string, options: { keepTurn?: boolean } = {}): void {
@@ -59,5 +64,5 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     }
     for (const [page, owner] of owned) if (owner.sessionId === sessionId) owned.delete(page);
   }
-  return { begin, use, retain, inherit, finish, forget };
+  return { begin, use, retain, inherit, finish, renumber, forget };
 }

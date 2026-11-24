@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 import type { DesktopBrowserPageControl, DesktopBrowserPageFrame } from '../../shared/contract';
-import type { BrowserGuestStateStore } from './host-state';
+import { type BrowserGuestStateStore, beginEdit } from './host-state';
 import type { createBrowserDialogReport } from './dialog-report';
 import type { createBrowserRefActions } from './ref-actions';
 import type { BrowserLeaveConfirmation } from './leave-confirmation';
@@ -144,7 +144,11 @@ export function createBrowserLocalPrompts(host: {
           : await host.chooseFiles(chooser!.mode === 'selectMultiple');
         guard();
         if (result.canceled) record.pendingFileChooser = null;
-        else await host.uploads.uploadRef(guest, undefined, result.filePaths, signal, guard);
+        else {
+          const attached = beginEdit(record, 'userEdits');
+          await host.uploads.uploadRef(guest, undefined, result.filePaths, signal, guard);
+          attached();
+        }
       } finally {
         picking.delete(chooser!);
       }

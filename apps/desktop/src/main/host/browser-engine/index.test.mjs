@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 
-import { BrowserGuestStateStore } from '../../browser/host-state.ts';
+import { beginEdit, BrowserGuestStateStore } from '../../browser/host-state.ts';
+import { BrowserSessionRegistry } from '../../browser/session-registry.ts';
+import { createBrowserTaskLifecycle } from '../../browser/task-lifecycle.ts';
 import { createBrowserCommandHost } from '../browser-command.ts';
 import {
   createBrowserEngine,
@@ -131,6 +133,51 @@ test('the lane ends with the link and a new link starts a new one', async () => 
   await call();
   assert.notEqual(h.bound(), first);
   assert.equal(served.engineMode(), true);
+});
+
+test("a core link's live turn ends when the link closes, and the next link's turn 1 is live again", async () => {
+  const sessions = new BrowserSessionRegistry();
+  const tasks = createBrowserTaskLifecycle({
+    close() {},
+    canClose: () => true,
+    turnFinished: (sessionId, turn) => sessions.finishTurn(sessionId, turn),
+    turnForgotten: (sessionId) => sessions.forgetTurn(sessionId),
+  });
+  const store = new BrowserGuestStateStore();
+  const filled = {};
+  beginEdit(store.for(filled), 'agentEdits')();
+  const held = () => store.holdsUnfinishedWork(filled, sessions.turnLive('s1'));
+  const signIn = {
+    beginTurn: (sessionId, turn) => sessions.beginTurn(sessionId, turn),
+    finishTurn: (sessionId, turn, aborted) => tasks.finish(sessionId, turn, { aborted }),
+    forget: (sessionId) => tasks.forget(sessionId),
+    endTurns: (sessionId) => {
+      sessions.endLinkTurns(sessionId);
+      tasks.renumber(sessionId);
+    },
+  };
+  const link = () => {
+    const h = harness();
+    serveBrowserEngine(h.connection, () => ({ ...h.ports, signIn }));
+    const turn = (params) =>
+      h.requests.get('host/browser/turn')({ sessionId: 's1', ...params }, new AbortController().signal);
+    return { turn, close: () => h.closers.forEach((close) => close()) };
+  };
+
+  const first = link();
+  await first.turn({ op: 'begin', turn: 7 });
+  assert.equal(held(), true, 'the agent waits on the user with its form filled');
+  // The core goes away (an update, a crash) in the middle of the turn.
+  first.close();
+  assert.equal(held(), false, 'the turn ended with the link that told it');
+  assert.equal(typeof sessions.turnFinishedAt('s1'), 'number', 'it is a finished turn for the idle reclaim');
+
+  const next = link();
+  await next.turn({ op: 'begin', turn: 1 });
+  assert.equal(held(), true, 'the new core counts from 1, and its turn is live');
+  assert.doesNotThrow(() => tasks.begin('s1', 1), 'no old turn number is compared with it');
+  await next.turn({ op: 'end', turn: 1 });
+  assert.equal(held(), false);
 });
 
 test('the lane volunteers nothing before the core uses it', async () => {

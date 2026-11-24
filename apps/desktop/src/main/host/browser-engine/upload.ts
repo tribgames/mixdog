@@ -15,6 +15,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserUploadReceiver, Precondition } from '../../../../../../packages/protocol/src/index.ts';
+import { beginEdit } from '../../browser/host-state';
 import type { PendingFileChooser } from '../../browser/host-types';
 import { createRefUpload } from '../../browser/ref-upload';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
@@ -255,6 +256,7 @@ export function registerUpload(connection: HostConnection, ctx: EngineContext, d
         throw preconditionFailed('receiver', page.facts());
     }
     check();
+    const attached = beginEdit(page.state, 'agentEdits');
     await createRefUpload(guarded).uploadRef(
       page.guest,
       ref,
@@ -263,6 +265,7 @@ export function registerUpload(connection: HostConnection, ctx: EngineContext, d
       undefined,
       route !== 'chooser' && receiverKey ? receiverKey : undefined
     );
+    attached();
     deps.invalidateInteractionState(page.guest);
     const { receiver, verified } = await readReceiver(host, page.guest, target, files.length, signal);
     return { dispatched: true, verified, ...(receiver ? { receiver } : {}) };

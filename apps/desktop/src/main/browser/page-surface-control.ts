@@ -6,8 +6,8 @@ import type { DesktopBrowserPageControl, DesktopBrowserTabControlResult } from '
 import { createBrowserInputDriver } from './input';
 import { controlSessionTab, isSessionTabControl } from './tabs-close-result';
 import { normalizePageUrl } from './url-policy';
-import { BROWSER_DIALOG_BLOCKING, browserTypingInput } from '../../shared/browser-input-policy';
-import { browserDocumentId } from './host-state';
+import { BROWSER_DIALOG_BLOCKING, browserEditingInput, browserTypingInput } from '../../shared/browser-input-policy';
+import { beginEdit, browserDocumentId } from './host-state';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
 import { setBrowserPageZoom } from './page-zoom';
@@ -99,9 +99,9 @@ export function createPageInputDispatcher(
     await host.cdp.waitForIdle(guest, signal);
     assertDispatch();
     host.state.invalidateInteraction(guest);
+    const edited = browserEditingInput(input) ? beginEdit(host.state.for(guest), 'userEdits') : undefined;
     if (browserTypingInput(input) || (input.type === 'pointer' && input.phase === 'mousePressed')) {
       host.state.for(guest).userInput = true;
-      if (browserTypingInput(input)) host.state.for(guest).typedInput = true;
       host.state.for(guest).actor = 'person';
       // This gesture, not an earlier dialog answer, is what a window it opens
       // comes from (Chromium reports it per window).
@@ -254,6 +254,7 @@ export function createPageInputDispatcher(
         );
         break;
     }
+    edited?.();
   };
 }
 

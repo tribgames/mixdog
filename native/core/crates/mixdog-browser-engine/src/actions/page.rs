@@ -255,6 +255,7 @@ async fn evaluate_on_ref(
         return_by_value: Some(true),
         timeout_ms: Some(timeout_ms),
         expect: request.precondition.clone(),
+        edits: None,
     };
     let answer = call.host.ref_call(params, call.cancel).await.map_err(failed)?;
     match answer.exception {

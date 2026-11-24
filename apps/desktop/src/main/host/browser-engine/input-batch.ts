@@ -29,9 +29,11 @@ import { createBrowserHitTarget } from '../../browser/hit-target';
 import { createBrowserInputDriver, normalizeModifierMask, normalizeMouseButton } from '../../browser/input';
 import { createBrowserInputDispatch } from '../../browser/input-dispatch';
 import { cssPoint, type SendBrowserInput } from '../../browser/input-primitives';
+import { beginEdit } from '../../browser/host-state';
 import { browserRefElementSource } from '../../browser/ref-access';
 import { pause } from '../../browser/settle';
 import { createFrameOffsetResolver } from '../../browser/snapshot-frame-offset';
+import { browserEditingCdpInput } from '../../../shared/browser-input-policy';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext, EnginePage, GuestState } from './context';
 import { ENGINE_ERROR, preconditionFailed } from './errors';
@@ -135,10 +137,14 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
     const run: Run = { dialog: false, keyEvents: 0, mouseEvents: 0 };
     const page: EnginePage = { guest, state };
 
+    // The batch is the agent's: a key or text the page took is the agent's edit of the document, and so is a whole
+    // batch the core marks `edits` (a checkbox its click sets) once it completed.
+    const batchEdit = params.edits === true ? beginEdit(state, 'agentEdits') : undefined;
     const send: SendBrowserInput = async (target, method, input, sendSignal, beforeDispatch) => {
       const pressing =
         (method === 'Input.dispatchMouseEvent' && input.type === 'mousePressed') ||
         (method === 'Input.dispatchTouchEvent' && input.type === 'touchStart');
+      const edited = browserEditingCdpInput(method, input) ? beginEdit(state, 'agentEdits') : undefined;
       const outcome = await dispatch(target, method, input, sendSignal, () => {
         // The page may have moved on while the steps before this press ran.
         if (pressing && expect) checkPrecondition(expect, page, call.facts);
@@ -147,6 +153,7 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
       if (method === 'Input.dispatchKeyEvent' || method === 'Input.insertText') run.keyEvents += 1;
       else if (method === 'Input.dispatchMouseEvent' || method === 'Input.dispatchTouchEvent') run.mouseEvents += 1;
       if (outcome === 'dialog') run.dialog = true;
+      else edited?.();
       return outcome;
     };
     const driver = createBrowserInputDriver(send, {
@@ -335,6 +342,7 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
         completed += 1;
       }
       if (run.dialog && stopOnDialog) outcome = 'dialog';
+      else batchEdit?.();
     } catch (error) {
       if (signal.aborted) {
         const reason = signal.reason;

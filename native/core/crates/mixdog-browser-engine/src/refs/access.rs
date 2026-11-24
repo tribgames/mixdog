@@ -142,6 +142,30 @@ pub async fn call_ref_within(
     timeout_ms: Option<u32>,
     cancel: &CancellationToken,
 ) -> Result<(Value, Point), RefError> {
+    send_ref_call(host, target, declaration, args, timeout_ms, false, cancel).await
+}
+
+/// [`call_ref`] for a function that writes to the element (`edits`): the host counts it as the agent's edit of the document unless the
+/// function refuses (`error`) or answers `unchanged: true`.
+pub async fn edit_ref(
+    host: &dyn BrowserHost,
+    target: &RefTarget<'_>,
+    declaration: &str,
+    args: Vec<Value>,
+    cancel: &CancellationToken,
+) -> Result<Value, RefError> {
+    send_ref_call(host, target, declaration, args, None, true, cancel).await.map(|(value, _)| value)
+}
+
+async fn send_ref_call(
+    host: &dyn BrowserHost,
+    target: &RefTarget<'_>,
+    declaration: &str,
+    args: Vec<Value>,
+    timeout_ms: Option<u32>,
+    edits: bool,
+    cancel: &CancellationToken,
+) -> Result<(Value, Point), RefError> {
     let params = HostBrowserRefCallParams {
         page_id: target.page_id.to_string(),
         snapshot_id: target.snapshot_id.to_string(),
@@ -151,6 +175,7 @@ pub async fn call_ref_within(
         return_by_value: Some(true),
         timeout_ms,
         expect: target.expect.cloned(),
+        edits: edits.then_some(true),
     };
     let result = host.ref_call(params, cancel).await?;
     if let Some(exception) = result.exception {

@@ -131,6 +131,7 @@ async fn send_input(cx: &ActionContext<'_>, steps: Vec<InputStep>, ref_id: Optio
         stop_on_dialog: true,
         timeout_ms: u32::try_from(COMMAND_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
         expect: expect.clone(),
+        edits: None,
     };
     let result = cx.host.input_batch(params, cx.token()).await?;
     match result.outcome {

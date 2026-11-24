@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { BrowserGuestStateStore } from './host-state.ts';
 import { createBrowserLocalPrompts } from './local-prompts.ts';
+import { createRefUpload } from './ref-upload.ts';
 
 /** A state view over one record, as the record's own page sees it. */
 const recordState = (record) => ({
@@ -9,6 +11,37 @@ const recordState = (record) => ({
   blockingDialog: (guest) => (record.pendingDialog ? { owner: guest, dialog: record.pendingDialog } : null),
   invalidateInteraction() {},
 });
+
+/** A page whose file chooser is open, answered through the prompt with what
+ *  the native picker returns, and attached by the real upload path. */
+function chooserPage({ files = [fileURLToPath(import.meta.url)], chooser = {}, onAttach = () => {} } = {}) {
+  const state = new BrowserGuestStateStore();
+  const page = { isDestroyed: () => false };
+  state.for(page).pendingFileChooser = { mode: 'selectMultiple', openedAt: 0, backendNodeId: 7, ...chooser };
+  const attached = [];
+  const uploads = createRefUpload({
+    pendingFileChooser: (guest) => state.for(guest).pendingFileChooser,
+    clearFileChooser: (guest) => (state.for(guest).pendingFileChooser = null),
+    cdp: {
+      call: async (_guest, method, params, _signal, options = {}) => {
+        options.beforeDispatch?.();
+        if (method !== 'DOM.setFileInputFiles') return;
+        attached.push(params.files);
+        onAttach(state, page);
+      },
+    },
+  });
+  const prompts = createBrowserLocalPrompts({
+    state,
+    controller: () => 's1',
+    dialogs: {},
+    uploads,
+    chooseFiles: async () => ({ canceled: false, filePaths: files }),
+  });
+  const choose = (extra = {}) =>
+    prompts.answer(page, { type: 'choose-files', requestId: prompts.describe(page).fileChooser.id, ...extra }, () => {});
+  return { state, page, attached, choose };
+}
 
 test("a site's permission request is a prompt only the pane answers, after the page's own dialog", async () => {
   const record = { pendingDialog: null, dismissedDialog: null };
@@ -86,6 +119,47 @@ test('file selection cannot cross document, prompt, cancellation, or ownership c
     assert.equal(sent.length, reason === 'valid' ? 1 : 0);
     if (reason === 'cancel') assert.equal(record.pendingFileChooser, null);
   }
+});
+
+test('files a person chose hold the page once the page took them; a cancelled choice holds nothing', async () => {
+  const chosen = chooserPage();
+  await chosen.choose();
+  assert.equal(chosen.attached.length, 1);
+  assert.equal(chosen.state.for(chosen.page).pendingFileChooser, null);
+  assert.equal(chosen.state.holdsUnfinishedWork(chosen.page, false), true, 'the attached files are the person’s work');
+  assert.equal(chosen.state.for(chosen.page).agentEdits, false);
+
+  const cancelled = chooserPage();
+  await cancelled.choose({ cancel: true });
+  assert.equal(cancelled.state.holdsUnfinishedWork(cancelled.page, false), false);
+});
+
+test('a failed upload holds nothing: once its chooser is answered or gone the page is free to unload', async () => {
+  // More files than an upload takes: the page's chooser is still open and still waits for an answer.
+  const many = chooserPage({ files: Array.from({ length: 11 }, () => fileURLToPath(import.meta.url)) });
+  await assert.rejects(many.choose(), /1–10 file paths/);
+  assert.equal(many.state.for(many.page).userEdits, false);
+  assert.equal(many.state.holdsUnfinishedWork(many.page, false), true, 'held by the chooser still open, not by files');
+  await many.choose({ cancel: true });
+  assert.equal(many.state.holdsUnfinishedWork(many.page, false), false);
+
+  // A chooser the upload cannot answer is dropped with nothing attached.
+  const orphan = chooserPage({ chooser: { backendNodeId: undefined } });
+  await assert.rejects(orphan.choose(), /no target element/);
+  assert.deepEqual(orphan.attached, []);
+  assert.equal(orphan.state.holdsUnfinishedWork(orphan.page, false), false);
+});
+
+test('files that went with a document replaced during the hand-over hold nothing in the new one', async () => {
+  const f = chooserPage({
+    onAttach: (state, page) => {
+      state.beginDocument(page);
+      state.commitDocument(page);
+    },
+  });
+  await f.choose();
+  assert.equal(f.attached.length, 1);
+  assert.equal(f.state.holdsUnfinishedWork(f.page, false), false);
 });
 
 test('a second file choice cannot open another native picker for the same prompt', async () => {

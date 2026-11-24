@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { browserDocumentId, BrowserGuestStateStore } from './host-state.ts';
+import { beginEdit, browserDocumentId, BrowserGuestStateStore } from './host-state.ts';
 import { unreportedDownloads } from './reply.ts';
 
 const guest = () => ({ id: Math.random() });
@@ -257,12 +257,92 @@ test('document, load and snapshot numbers come from one counter and are never is
     issue(store.nextSnapshotId(first));
   }
 });
-test('typing is recorded apart from other input and ends with the document', () => {
+test("a person's edit holds its document once taken, and only that document, turn or no turn", () => {
   const store = new BrowserGuestStateStore();
   const page = guest();
+  const held = () => store.holdsUnfinishedWork(page, false);
   store.for(page).userInput = true;
-  assert.equal(store.for(page).typedInput, false, 'a click or scroll is not typing');
-  store.for(page).typedInput = true;
+  assert.equal(held(), false, 'a click or scroll is not work');
+
+  const sent = beginEdit(store.for(page), 'userEdits');
+  assert.equal(held(), false, 'not before the page took it');
+  sent();
+  assert.equal(held(), true);
+  store.beginDocument(page, true);
+  assert.equal(held(), true, 'an in-document move keeps it');
+  store.beginDocument(page);
+  assert.equal(held(), true, 'a navigation that only started keeps it');
   store.commitDocument(page);
-  assert.equal(store.for(page).typedInput, false);
+  assert.equal(held(), false, 'a full navigation ends it');
+  assert.equal(store.for(page).userInput, false);
+
+  const late = beginEdit(store.for(page), 'userEdits');
+  store.commitDocument(page);
+  late();
+  assert.equal(held(), false, 'an edit that left with the old document holds nothing');
+});
+
+test("the agent's own edits hold its page only while its session's turn is live, and are never the person's", () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  beginEdit(store.for(page), 'agentEdits')();
+  assert.equal(store.holdsUnfinishedWork(page, true), true, 'running or waiting on the user');
+  assert.equal(store.holdsUnfinishedWork(page, false), false, 'the turn ended');
+  assert.equal(store.for(page).userEdits, false);
+  store.commitDocument(page);
+  assert.equal(store.holdsUnfinishedWork(page, true), false, 'a full navigation ends it');
+});
+
+test("a renderer crash ends the dead document's edits as a navigation does, an edit in flight included", () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  beginEdit(store.for(page), 'userEdits')();
+  beginEdit(store.for(page), 'agentEdits')();
+  const inFlight = beginEdit(store.for(page), 'agentEdits');
+  store.markCrashed(page, 'renderer crashed');
+  assert.equal(store.holdsUnfinishedWork(page, true), false);
+  inFlight();
+  assert.equal(store.holdsUnfinishedWork(page, true), false, 'the edit went with the dead renderer');
+  assert.equal(store.takeCrashed(page), true, 'the crash is still reported');
+});
+
+test('a dialog, a file chooser or a sign-in secret holds the page; a person pressing in it does not', () => {
+  const store = new BrowserGuestStateStore();
+  const holds = (apply) => {
+    const page = guest();
+    apply(store.for(page), page);
+    return store.holdsUnfinishedWork(page, false);
+  };
+  assert.equal(
+    holds((record) => (record.userInput = true)),
+    false
+  );
+  assert.equal(
+    holds((record) => (record.pendingDialog = { type: 'alert', message: '', openedAt: 0 })),
+    true
+  );
+  assert.equal(
+    holds((record) => (record.pendingFileChooser = { mode: 'selectSingle', openedAt: 0 })),
+    true
+  );
+  assert.equal(
+    holds((_record, page) => store.rememberSecret(page, 'hunter2')),
+    true
+  );
+  assert.equal(store.holdsUnfinishedWork(guest(), true), false, 'a page with no record holds nothing');
+});
+
+test('a detached target session forgets its console replay marks', () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  const { consoleReplay } = store.for(page);
+  for (const key of ['f1|runtime', 'f1|log', 'f2|runtime', '|runtime']) {
+    consoleReplay.seen.set(key, 3);
+    consoleReplay.floor.set(key, 2);
+  }
+  store.endTargetSession(page, 'f1');
+  assert.deepEqual([...consoleReplay.seen.keys()].sort(), ['f2|runtime', '|runtime'].sort());
+  assert.deepEqual([...consoleReplay.floor.keys()].sort(), ['f2|runtime', '|runtime'].sort());
+  store.endTargetSession(page);
+  assert.equal(consoleReplay.seen.size + consoleReplay.floor.size, 0);
 });

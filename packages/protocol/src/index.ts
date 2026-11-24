@@ -2253,7 +2253,11 @@ export type HostBrowserInitScriptsResult = { id?: string, scripts?: Array<Browse
 /**
  * `host/browser/input/batch`: the steps run in order; the batch stops at a dialog.
  */
-export type HostBrowserInputBatchParams = { pageId: string, steps: Array<InputStep>, stopOnDialog: boolean, timeoutMs: number, expect: Precondition, };
+export type HostBrowserInputBatchParams = { pageId: string, steps: Array<InputStep>, stopOnDialog: boolean, timeoutMs: number, expect: Precondition,
+/**
+ * The steps change what an element holds (a checkbox they click): a batch that completes counts as the agent's edit of the document.
+ */
+edits?: boolean, };
 
 export type HostBrowserInputBatchResult = { outcome: BrowserInputOutcome, completedSteps: number, timing: BrowserInputTiming, facts: PageFacts, };
 
@@ -2421,7 +2425,12 @@ export type HostBrowserPerformanceResult = { metrics?: JsonValue, summary?: Json
 /**
  * `host/browser/ref/call`: a function called on the element a snapshot ref names.
  */
-export type HostBrowserRefCallParams = { pageId: string, snapshotId: string, ref: string, functionDeclaration: string, args?: Array<JsonValue>, returnByValue?: boolean, timeoutMs?: number, expect?: Precondition, };
+export type HostBrowserRefCallParams = { pageId: string, snapshotId: string, ref: string, functionDeclaration: string, args?: Array<JsonValue>, returnByValue?: boolean, timeoutMs?: number, expect?: Precondition,
+/**
+ * The function writes to the element: unless it throws, refuses (`error`) or answers `unchanged: true`, the host counts the call
+ * as the agent's edit of the document.
+ */
+edits?: boolean, };
 
 export type HostBrowserRefCallResult = { value?: JsonValue, exception?: BrowserExceptionDetails,
 /**
@@ -3362,11 +3371,6 @@ feedRanges?: boolean,
  * the output was (`meta.ext.remoteOutputTruncated`); `thread/items/read` answers the item whole. Absent: every row whole.
  */
 toolOutput?: ToolOutputDisplay, };
-
-/**
- * The size a client shows a tool's output at: its first `lines` lines, at most `chars` characters.
- */
-export type ToolOutputDisplay = { chars: number, lines: number, };
 
 export type InitializeParams = { clientInfo: ClientInfo, capabilities?: InitializeCapabilities, };
 
@@ -7309,6 +7313,11 @@ export type ToolMeta = { code: string, missing: Array<string>, ownerSessionId?: 
  * Value of the `toolModules` section.
  */
 export type ToolModuleSettings = { instructionFiles: InstructionFilesMode, autoEffortBase: AutoEffortBase, webSearch: EnabledModule, memory: MemoryModule, git: InstallableModule, office: InstallableModule, tidy: InstallableModule, visualize: InstallableModule, media: InstallableModule, localProvider: LocalProviderModule, autoEffort: AutoEffortModule, };
+
+/**
+ * The size a client shows a tool's output at: its first lines lines, at most chars characters.
+ */
+export type ToolOutputDisplay = { chars: number, lines: number, };
 
 /**
  * `normalizeToolProfile`'s value set.

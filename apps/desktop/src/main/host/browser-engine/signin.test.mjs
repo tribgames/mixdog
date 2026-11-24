@@ -7,7 +7,11 @@ import { registerSignIn, savedSignInNote } from './signin.ts';
 function harness({ afterCommand, replyLine, fillStored, capture } = {}) {
   const handlers = new Map();
   const log = [];
-  const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };
+  const connection = {
+    request: async () => ({}),
+    handleRequest: (method, handler) => handlers.set(method, handler),
+    onClose: () => {},
+  };
   const guest = { id: 7, isDestroyed: () => false, getURL: () => 'https://a.example/' };
   const state = { pageId: 'p1', documentGeneration: 1, cdpSessions: new Map() };
   const ctx = {

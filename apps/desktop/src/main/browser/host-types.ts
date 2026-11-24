@@ -373,12 +373,20 @@ export interface BrowserGuestState extends BrowserDiagnostics {
   /** Renderer death leaves a live WebContents whose document is gone: CDP
    *  calls and every ref bound to that document fail until the page reloads. */
   crashed: boolean;
-  /** A person clicked or typed into this document. What they entered lives
-   *  only in the document, so it must not be unloaded to save memory. */
+  /** A person clicked or typed into this document. */
   userInput: boolean;
-  /** A person typed (keys, text, composition) into this document since it
-   *  loaded; a click or scroll does not set it. */
-  typedInput: boolean;
+  /** This document holds edits a person made that live nowhere else: text
+   *  they typed (see `browserEditingInput`) or files they chose, once the page
+   *  took them. Never set by an agent; a new document starts without. */
+  userEdits: boolean;
+  /** This document holds edits the agent made: text it typed or filled,
+   *  options or checks it set, files it attached, once the page took them.
+   *  A person's input never sets it; a new document starts without. */
+  agentEdits: boolean;
+  /** Rises with every document the page commits (a cross-document navigation
+   *  that finished) and when its renderer dies, unlike `loadGeneration`, which
+   *  moves when a navigation starts: an edit in flight across it is lost. */
+  documentCommits: number;
   /** Who acted on this document last: a person's press, key or dialog
    *  answer, or an agent command. A window it opens is that actor's. */
   actor?: PageActor;

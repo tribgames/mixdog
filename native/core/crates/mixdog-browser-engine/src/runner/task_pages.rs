@@ -13,7 +13,7 @@ struct Owner {
 pub struct TaskPages {
     owned: HashMap<String, Owner>,
     finished: HashMap<String, u64>,
-    /// The sessions with a command in their running turn.
+    /// The sessions whose running turn ran a command or was told to the host as begun: its end is to be told too.
     touched: HashSet<String>,
 }
 
@@ -40,10 +40,15 @@ impl TaskPages {
         Ok(true)
     }
 
-    /// Whether a command ran in the session's turn since the last call; the answer is taken (a turn nobody ran a command in has
-    /// nothing to finish).
+    /// Whether a command ran in the session's turn, or the host was told it began, since the last call; the answer is taken (a turn
+    /// nobody ran a command in and the host never heard of has nothing to finish).
     pub fn take_touched(&mut self, session: &str) -> bool {
         self.touched.remove(session)
+    }
+
+    /// The host is told the session's running turn began: whatever the turn does, it has an end to tell.
+    pub fn touch(&mut self, session: &str) {
+        self.touched.insert(session.to_owned());
     }
 
     /// The command of `turn` works on `page`; `disposable` marks a page it created (or a hidden helper it owns).
@@ -136,6 +141,8 @@ mod tests {
         tasks.begin("s1", 2).unwrap();
         tasks.forget("s1");
         assert_eq!((tasks.current("s1"), tasks.take_touched("s1")), (1, false));
+        tasks.touch("s1");
+        assert!(tasks.take_touched("s1"), "a turn the host was told began has an end to tell");
     }
 
     #[test]

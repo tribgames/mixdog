@@ -36,36 +36,32 @@ export class BrowserSessionRegistry {
   private readonly turnForgottenListeners = new Set<(sessionId: string) => void>();
   private readonly lastPageGoneListeners = new Set<(sessionId: string) => void>();
 
-  private readonly activityBySession = new Map<string, number>();
-  private activityClock = 0;
-
-  private noteActivity(sessionId: string): void {
-    this.activityBySession.set(sessionId, ++this.activityClock);
-  }
-
-  activityGeneration(sessionId: string): number {
-    return this.activityBySession.get(sessionId) ?? 0;
-  }
-
   /** A turn started, or (`turn` 0) a command with no turn id ran: the session
    *  is live. A turn older than the newest known one changes nothing. */
   beginTurn(sessionId: string, turn: number): void {
-    this.noteActivity(sessionId);
     const current = this.turnBySession.get(sessionId);
     if (turn > 0 && (!current || turn > current.turn)) this.turnBySession.set(sessionId, { turn });
     else if (turn <= 0 && current?.finishedAt !== undefined) this.turnBySession.set(sessionId, { turn: current.turn });
   }
 
   finishTurn(sessionId: string, turn: number, now = Date.now()): void {
-    this.noteActivity(sessionId);
     const current = this.turnBySession.get(sessionId);
     if (current && current.turn > turn) return;
     this.turnBySession.set(sessionId, { turn, finishedAt: now });
     for (const listener of this.turnFinishedListeners) listener(sessionId, turn);
   }
 
+  /** The core link that numbered the session's turns closed: a live turn ends
+   *  now, and every turn of the next link, which counts from 1 again, is newer. */
+  endLinkTurns(sessionId: string, now = Date.now()): void {
+    const current = this.turnBySession.get(sessionId);
+    if (!current) return;
+    this.turnBySession.set(sessionId, { turn: 0, finishedAt: current.finishedAt ?? now });
+    if (current.finishedAt !== undefined) return;
+    for (const listener of this.turnFinishedListeners) listener(sessionId, current.turn);
+  }
+
   forgetTurn(sessionId: string): void {
-    this.activityBySession.delete(sessionId);
     this.turnBySession.delete(sessionId);
     for (const listener of this.turnForgottenListeners) listener(sessionId);
   }

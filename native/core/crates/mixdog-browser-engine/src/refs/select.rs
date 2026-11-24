@@ -97,6 +97,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_calls_that_choose_are_marked_as_edits_and_the_open_probe_is_not() {
+        let host = Arc::new(FakeHost::scripted(vec![
+            call(json!({"custom": true, "unchanged": true})),
+            call(json!({})),
+            call(json!({"pending": true, "unchanged": true})),
+            call(json!({"values": ["Blue"]})),
+            call(json!({"values": ["us"]})),
+        ]));
+        let actions = actions(host.clone());
+        actions.select_ref(REF, &values(&["Blue"])).await.expect("custom");
+        actions.select_ref(REF, &values(&["US"])).await.expect("native");
+        host.finish().expect("select, open, two picks, a native select");
+        let edits: Vec<bool> = host.calls().iter().map(|call| call.params.get("edits") == Some(&json!(true))).collect();
+        assert_eq!(edits, [true, false, true, true, true]);
+        let unmarked = host.calls()[1].params.as_object().expect("params").contains_key("edits");
+        assert!(!unmarked, "a probe sends no flag at all, as a host that predates it expects");
+    }
+
+    #[tokio::test]
     async fn a_list_that_never_renders_ends_the_wait_with_the_fresh_snapshot_advice() {
         let mut script = vec![call(json!({}))];
         script.extend((0..200).map(|_| call(json!({"pending": true}))));
@@ -146,7 +165,7 @@ impl RefActions {
         let pick = custom_function(PICK_CUSTOM);
         loop {
             throw_if_cancelled(&self.cancel).map_err(|_| cancelled())?;
-            let result = selection(self.call(ref_id, &pick, vec![json!(wanted)]).await?, ref_id)?;
+            let result = selection(self.edit(ref_id, &pick, vec![json!(wanted)]).await?, ref_id)?;
             if let Some(values) = result.values {
                 return Ok(values);
             }
@@ -164,7 +183,7 @@ impl RefActions {
             return Err(RefError::Failed("select requires at least one value".into()));
         }
         let declaration = SELECT_NATIVE.replace(EDITABILITY_PLACEHOLDER, EDITABILITY_CHECK);
-        let result = selection(self.call(ref_id, &declaration, vec![json!(values)]).await?, ref_id)?;
+        let result = selection(self.edit(ref_id, &declaration, vec![json!(values)]).await?, ref_id)?;
         if result.custom {
             return self.select_custom_ref(ref_id, values).await;
         }
