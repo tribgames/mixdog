@@ -773,12 +773,13 @@ impl SessionActor {
         }
     }
     /// The rest of a manual compaction once it ran. Only a history it changed re-marks the Goal reminder: one that moved
-    /// (`TRANSCRIPT_MOVED_ERROR`) or found nothing left the conversation the reminder was marked for.
+    /// (`TRANSCRIPT_MOVED_ERROR`) or found nothing left the conversation the reminder was marked for. One that failed or
+    /// was stopped carries its `error`, and had something to compact.
     pub(super) fn compacted(&mut self, id: u64, op: Option<OpId>, tx: Waiter, result: Value, recover: bool, requested: bool) {
         if result.get("changed") == Some(&Value::Bool(true)) {
             self.context_compacted();
             self.mark_goal_reminder("compaction");
-        } else if requested {
+        } else if requested && result.get("error").is_none() {
             self.notice(None, NOTHING_TO_COMPACT, "info");
         }
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());

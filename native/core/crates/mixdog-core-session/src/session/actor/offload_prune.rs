@@ -51,7 +51,8 @@ impl Drop for Prune {
 }
 
 /// What the session holds besides its stored transcript, as a prune judges by it: its header (the transcript's system
-/// blocks), its queue with a start waiting at the gate, and the records it has not released.
+/// blocks), its queue with a start waiting at the gate and a request whose receipt is being read, and the records it has
+/// not released.
 pub(crate) struct Held {
     header: Arc<Header>,
     queued: Vec<Value>,
@@ -264,7 +265,7 @@ impl SessionActor {
         let queued = self.projected.queue.iter().map(|queued| queued.entry.clone());
         Held {
             header: self.projected.header.clone(),
-            queued: queued.chain(self.deferred_start.as_ref().map(|start| start.body.clone())).collect(),
+            queued: queued.chain(self.deferred_start.as_ref().map(|start| start.body.clone())).chain(self.submission_lookup.clone()).collect(),
             unreleased: self.outbox.records().filter_map(|record| serde_json::to_value(record).ok()).collect(),
         }
     }

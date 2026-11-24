@@ -102,6 +102,8 @@ pub struct Open<'a> {
     /// The preset's CLI as it was found on this machine.
     pub program: &'a str,
     pub cwd: AbsPath,
+    /// The user's own folder the agent definitions are kept in ([`crate::agents::AgentsParts::definitions`]).
+    pub definitions: &'a std::path::Path,
     /// The agent's session id a stored Mixdog session holds.
     pub stored: Option<String>,
     /// Mixdog's prompt for the session: the agent's system prompt takes it where the agent advertises a place for it,
@@ -245,10 +247,16 @@ fn launch_without_own_tools(preset: &AgentPreset, program: &str, cwd: AbsPath, h
 /// CLI's own tools and with `tools`, the session's, declared to the model. Sessions handed other tools run side by
 /// side, so each definition has a folder of its own. A definition that cannot be written fails the open: the agent is
 /// not started with its own tools instead.
-async fn own_tools_off_home(files: &dyn TextFiles, preset_id: &str, off: &OwnToolsOff, tools: &[String]) -> Result<AbsPath, Fault> {
-    let place = |path: std::path::PathBuf| AbsPath::new(path).ok_or_else(|| Fault::Start("the temporary folder has no absolute place".into()));
+async fn own_tools_off_home(
+    files: &dyn TextFiles,
+    definitions: &std::path::Path,
+    preset_id: &str,
+    off: &OwnToolsOff,
+    tools: &[String],
+) -> Result<AbsPath, Fault> {
+    let place = |path: std::path::PathBuf| AbsPath::new(path).ok_or_else(|| Fault::Start("the definitions folder has no absolute place".into()));
     let text = off.definition(SERVER_NAME, tools);
-    let home = place(std::env::temp_dir().join("mixdog-acp").join(preset_id).join(digest(&text)))?;
+    let home = place(definitions.join(preset_id).join(digest(&text)))?;
     let file = place(home.as_path().join(&off.file))?;
     files.create(file, text).await.map_err(|error| Fault::Start(format!("the agent definition without its own tools was not written: {error}")))?;
     Ok(home)
@@ -301,7 +309,7 @@ impl AgentSession {
         let bare = match (&started, &open.preset.own_tools_off, &open.handed) {
             (Some(_), Some(off), Some(handed)) => {
                 let tools = handed.listed().await.map_err(|error| Fault::Start(format!("the session's tools were not listed: {error}")))?;
-                Some((own_tools_off_home(files.as_ref(), open.preset.id.as_str(), off, &tools).await?, off))
+                Some((own_tools_off_home(files.as_ref(), open.definitions, open.preset.id.as_str(), off, &tools).await?, off))
             }
             _ => None,
         };
@@ -731,13 +739,17 @@ mod tests {
         AbsPath::new(std::env::temp_dir().join("work")).expect("absolute")
     }
 
+    fn definitions() -> std::path::PathBuf {
+        std::env::temp_dir().join("data").join("acp-agents")
+    }
+
     #[tokio::test]
     async fn a_handed_session_starts_the_cli_with_the_agent_that_has_none_of_its_own_tools() {
         let preset = antigravity();
         let files = Writes(Mutex::default(), true);
         let off = preset.own_tools_off.as_ref().expect("the definition");
         let tools = ["read".to_owned(), "batch".to_owned()];
-        let home = own_tools_off_home(&files, &preset.id, off, &tools).await.expect("the home");
+        let home = own_tools_off_home(&files, &definitions(), &preset.id, off, &tools).await.expect("the home");
         let started = launch_without_own_tools(&preset, "agy", here(), Some((home.clone(), off)));
         assert_eq!(started.args, ["acp", "--disable-telemetry", "--agent", "mixdog"]);
         assert_eq!(started.cwd, home);
@@ -747,15 +759,16 @@ mod tests {
         let declared = "\ntools: []\nmcpServers:\n  - name: mixdog\n    tools:\n      \"read\":\n        eager: true\n      \"batch\":\n        eager: true\n";
         assert!(written[0].1.contains("name: mixdog\n") && written[0].1.contains(declared), "{}", written[0].1);
         // A session handed other tools starts from a folder of its own; one handed the same shares it.
-        assert_ne!(own_tools_off_home(&files, &preset.id, off, &tools[..1]).await.expect("the home"), home);
-        assert_eq!(own_tools_off_home(&files, &preset.id, off, &tools).await.expect("the home"), home);
+        assert!(home.as_path().starts_with(definitions()), "{home:?}");
+        assert_ne!(own_tools_off_home(&files, &definitions(), &preset.id, off, &tools[..1]).await.expect("the home"), home);
+        assert_eq!(own_tools_off_home(&files, &definitions(), &preset.id, off, &tools).await.expect("the home"), home);
     }
 
     #[tokio::test]
     async fn a_definition_that_cannot_be_written_fails_the_open_and_a_session_without_one_keeps_the_clis_own_tools() {
         let preset = antigravity();
         let off = preset.own_tools_off.as_ref().expect("the definition");
-        let failed = own_tools_off_home(&Writes(Mutex::default(), false), &preset.id, off, &["read".to_owned()]).await;
+        let failed = own_tools_off_home(&Writes(Mutex::default(), false), &definitions(), &preset.id, off, &["read".to_owned()]).await;
         assert!(matches!(failed, Err(Fault::Start(ref why)) if why.contains("read-only")), "{failed:?}");
         let started = launch_without_own_tools(&preset, "agy", here(), None);
         assert_eq!(started.args, ["acp", "--disable-telemetry"]);

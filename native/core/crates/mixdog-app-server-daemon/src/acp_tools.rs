@@ -524,6 +524,7 @@ mod tests {
             },
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),
+            definitions: dir.path().join("acp-agents"),
             env: Arc::new(|_: &str| None),
             mcp_bridge: None,
         });

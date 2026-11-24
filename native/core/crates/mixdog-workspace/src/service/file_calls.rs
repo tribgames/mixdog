@@ -1,9 +1,9 @@
 use super::*;
 
 impl WorkspaceService {
-    /// The folders only whose secret subset [`crate::sensitive`] keeps from a paired device: this PC's home folder and the data folder.
+    /// The folders only whose secret subset [`crate::sensitive`] keeps from a paired device: Mixdog's own home and data folders.
     pub(super) fn secret_folders(&self) -> Vec<PathBuf> {
-        vec![std::env::home_dir().unwrap_or_default(), self.user_data.clone()]
+        self.secret_folders.clone()
     }
 
     /// `stat`'s answer for a path that is not there.

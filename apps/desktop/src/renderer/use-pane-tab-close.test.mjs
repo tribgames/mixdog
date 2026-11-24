@@ -251,6 +251,73 @@ test('closing a session first confirms the unsaved side-dock files that would go
   }
 });
 
+const sideDock = (owner, sideFile) => ({
+  open: true,
+  view: null,
+  surface: 'file',
+  diff: null,
+  owner,
+  files: [sideFile],
+  activeFile: sideFileKey(sideFile),
+});
+
+test('the last tab of a split pane that another pane shows still confirms its dirty side file', async () => {
+  const s1 = session('s1');
+  const sideFile = { project: '/p', rel: 'notes.md' };
+  const dirtyKey = sideFileDirtyKey(sideFile);
+  const docks = { a: sideDock('s1', sideFile), b: sideDock('s1', { project: '/p', rel: 'other.md' }) };
+  await mounted(
+    { leaves: [leaf('a', [s1]), leaf('b', [s1])], docks, dirtyFileKeys: new Set([dirtyKey]) },
+    async ({ control, calls }) => {
+      await act(async () => control.hook.closeTab('a', tabOf(s1)));
+      assert.deepEqual(calls, []);
+      assert.equal(control.hook.pendingUnsavedClose.tab.key, dirtyKey);
+    }
+  );
+});
+
+test('a dock that moves to the other pane closes the last shared tab without asking', async () => {
+  const s1 = session('s1');
+  const sideFile = { project: '/p', rel: 'notes.md' };
+  await mounted(
+    {
+      leaves: [leaf('a', [s1]), leaf('b', [s1])],
+      docks: { a: sideDock('s1', sideFile) },
+      dirtyFileKeys: new Set([sideFileDirtyKey(sideFile)]),
+    },
+    async ({ control, calls }) => {
+      await act(async () => control.hook.closeTab('a', tabOf(s1)));
+      assert.ok(calls.some(([kind]) => kind === 'closeTab'));
+      assert.equal(control.hook.pendingUnsavedClose, null);
+    }
+  );
+});
+
+test('answering the dirty main tab prompt still confirms the pane dirty side file', async () => {
+  const a = file('a.ts');
+  const b = file('b.ts');
+  const sideFile = { project: '/p', rel: 'notes.md' };
+  const dirtyKey = sideFileDirtyKey(sideFile);
+  const mainKey = 'file:/p:a.ts';
+  await mounted(
+    {
+      leaves: [leaf('a', [a]), leaf('c', [b])],
+      docks: { a: sideDock('', sideFile) },
+      dirtyFileKeys: new Set([mainKey, dirtyKey]),
+    },
+    async ({ control, calls, refs }) => {
+      refs.saveHandles.current.set(mainKey, { discard: async () => {} });
+      await act(async () => control.hook.closeTab('a', tabOf(a)));
+      assert.equal(control.hook.pendingUnsavedClose.tab.key, mainKey);
+      await act(async () => control.hook.discardAndClosePendingTab());
+      assert.equal(calls.some(([kind]) => kind === 'closeTab'), false);
+      assert.equal(control.hook.pendingUnsavedClose.tab.key, dirtyKey);
+      await act(async () => control.hook.discardAndClosePendingTab());
+      assert.ok(calls.some(([kind, leafId]) => kind === 'closeTab' && leafId === 'a'));
+    }
+  );
+});
+
 test('closing an active non-conversation tab onto a conversation focuses the composer', async () => {
   const s1 = session('s1');
   const a = file('a.ts');

@@ -409,6 +409,10 @@ export function createBrowserLoginPopup(deps: BrowserLoginPopupDeps) {
       createWindow(entry, url);
       return promise;
     },
+    /** Closes every open popup; the pending offers stay and can be opened again. */
+    closeWindows(): void {
+      for (const entry of entries.values()) finish(entry, { state: 'idle' });
+    },
     dispose(): void {
       for (const [sessionId, entry] of entries) {
         entries.delete(sessionId);

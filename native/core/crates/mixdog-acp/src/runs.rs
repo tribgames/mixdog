@@ -655,8 +655,17 @@ pub async fn ask_once(
     let cwd = AbsPath::new(agents.parts.probe_cwd.clone()).ok_or_else(|| "the agents have no folder to start a question's session in".to_owned())?;
     // Held to the answer: the CLI is not replaced under a process no session holds.
     let (program, _starting) = agents.ready_program(preset).await.map_err(|refusal| refusal.message(preset))?;
-    let open =
-        crate::session::Open { preset, program: &program, cwd, stored: None, rules: Some(system.to_owned()), held: None, grants: Arc::default(), handed: None };
+    let open = crate::session::Open {
+        preset,
+        program: &program,
+        cwd,
+        definitions: &agents.parts.definitions,
+        stored: None,
+        rules: Some(system.to_owned()),
+        held: None,
+        grants: Arc::default(),
+        handed: None,
+    };
     let session = crate::session::AgentSession::open(agents.parts.processes.clone(), agents.parts.files.clone(), open, Arc::new(|| {}), Box::new(|| {}))
         .await
         .map_err(|fault| {

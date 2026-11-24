@@ -191,6 +191,8 @@ pub struct Deps {
     /// The raw upload chunk the serving core advertises at `initialize` (`limits.maxBlobPutChunkBytes`), stated in the begin
     /// answer as a fact of the transfer. A sender takes the size from its connection's limits; this is for a UI that reads it here.
     pub upload_chunk_bytes: u64,
+    /// Mixdog's own home and data folders (`MIXDOG_HOME`, `MIXDOG_DATA_DIR`): the only folders whose secret subset a paired device is kept from.
+    pub secret_folders: Vec<PathBuf>,
 }
 
 /// The language servers rooted in a folder that goes away.
@@ -298,6 +300,7 @@ pub struct WorkspaceService {
     /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
     managed: OnceLock<Arc<dyn ManagedProjects>>,
     releases: Arc<crate::release::FolderReleases>,
+    secret_folders: Vec<PathBuf>,
     upload_chunk_bytes: u64,
     /// "Download to this PC" of a server window's files (`transfer/serverDownload/*`); the bytes come through [`Self::set_remote_files`].
     server_downloads: Arc<ServerDownloads>,
@@ -419,6 +422,10 @@ impl DomainService for WorkspaceService {
             let confined = async {
                 let root = this.root(req.ctx.origin, &req.params).await?;
                 let target = project_entry_path(&root, s(&req.params, "rel")?)?;
+                if target == crate::pathguard::lexical(&root) {
+                    return Err(WsError::invalid("Cannot trash the project root."));
+                }
+                this.hide_from_device(&req, vec![target.clone()]).await?;
                 Ok::<_, WsError>(json!({ "path": target.to_string_lossy() }))
             };
             let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
@@ -599,6 +606,7 @@ mod serverdownload_calls {
             turn_review: None,
             releases: crate::release::FolderReleases::new(),
             upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
+            secret_folders: Vec::new(),
         })
         .unwrap()
     }
@@ -742,6 +750,7 @@ impl WorkspaceService {
             task_folder: OnceLock::new(),
             managed: OnceLock::new(),
             releases: deps.releases,
+            secret_folders: deps.secret_folders,
             upload_chunk_bytes: deps.upload_chunk_bytes,
             server_downloads: ServerDownloads::new(SERVER_DOWNLOAD_MAX_BYTES, deps.lanes),
             remote_files: OnceLock::new(),

@@ -557,8 +557,9 @@ const HARNESS = `
       contentRight: rect.right - inset,
       bodyLeft,
       marks: before.length,
-      // Anything in the head besides its fold control.
+      // Anything in the head besides its fold control, and where the category's action stands.
       extra: [...hd.children].filter((node) => node !== tg).map((node) => node.className),
+      action: hd.querySelector(':scope > .composer-island-button') ? box(hd.querySelector(':scope > .composer-island-button')) : null,
       chevron: chevron ? { size: chevron.getBoundingClientRect().width, down: chevron.classList.contains('lucide-chevron-down') } : null,
       parts,
     };
@@ -1504,10 +1505,10 @@ test("each section's head at the panel's minimum: its name at the rows' left edg
       const label = `${head.category} (${head.open ? 'open' : 'folded'})`;
       assert.equal(head.open, !folded.includes(head.category), label);
       assert.equal(head.marks, 0, `${label}: no icon before the name`);
-      // A head holds its fold control alone, but for a category's one action while it is open: Git's Run.
+      // A head holds its fold control alone, but for a category's one action, folded or open: Git's Run.
       assert.deepEqual(
         head.extra,
-        head.category === 'git' && head.open ? ['composer-island-button composer-island-git-run'] : [],
+        head.category === 'git' ? ['composer-island-button composer-island-git-run'] : [],
         `${label}: no other action or menu in the head`
       );
       assert.deepEqual(head.chevron, { size: 12, down: head.open }, `${label}: the fold's chevron`);
@@ -1521,9 +1522,12 @@ test("each section's head at the panel's minimum: its name at the rows' left edg
         const [after, b] = head.parts[index];
         assert.ok(a.right <= b.left + 0.5, `${label}: ${before} (${a.right}) clear of ${after} (${b.left})`);
       }
-      // The figures (and a count after them) end on the rows' right edge, the panel's inset.
+      // The figures (and a count after them) end on the rows' right edge, the panel's inset; in a head with an
+      // action (Git's Run) they end before it.
       const after = head.parts.slice(head.parts.findIndex(([kind]) => kind === 'chevron') + 1);
-      if (after.length) near(after.at(-1)[1].right, head.contentRight, `${label}: its figures' end`);
+      if (after.length && head.action)
+        assert.ok(after.at(-1)[1].right <= head.action.left, `${label}: its figures (${after.at(-1)[1].right}) clear of its action (${head.action.left})`);
+      else if (after.length) near(after.at(-1)[1].right, head.contentRight, `${label}: its figures' end`);
     }
     // Every section with figures shows them, open or folded; Git's stand in its folded head (open, its Run stands
     // at the head's end).

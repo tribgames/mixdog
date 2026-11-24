@@ -2213,7 +2213,9 @@ test('a clean branch with commits not pushed keeps Git and its actions', async (
   const head = section.querySelector('.session-rail-tg');
   assert.equal(head.querySelector('.session-rail-sm').textContent, `${t('Files {{count}}', { count: 0 })} · ↑2`);
   assert.doesNotMatch(head.textContent, /main/);
-  assert.equal(section.querySelector('.composer-island-git-run'), null, 'closed: no Run');
+  const run = () => section.querySelector('.session-rail-hd > .composer-island-git-run');
+  // Folded: the Run of the picked action stands at the head's end, after the count.
+  assert.equal(run().getAttribute('aria-label'), `${t('Run')}: ${t('Commit')}`, 'closed: the Run is shown');
   // Open: the actions as one choice (Commit until another is picked), and the one Run at the head's end.
   await act(async () => head.click());
   const picks = () =>
@@ -2228,7 +2230,6 @@ test('a clean branch with commits not pushed keeps Git and its actions', async (
     ['commit-push', 'radio', 'false', false],
     ['commit', 'radio', 'true', true],
   ]);
-  const run = () => section.querySelector('.session-rail-hd > .composer-island-git-run');
   assert.equal(run().getAttribute('aria-label'), `${t('Run')}: ${t('Commit')}`);
   assert.equal(head.querySelector('.session-rail-sm').textContent, '', 'open: Run stands where the count stood');
   await act(async () => section.querySelector('.composer-island-git-row[data-action="pr"]').click());

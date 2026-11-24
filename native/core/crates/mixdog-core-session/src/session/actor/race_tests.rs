@@ -14,11 +14,14 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_rt::LaneKind;
+use mixdog_rt::testing::hold_full;
 use mixdog_store::schema::record::OpState;
 use mixdog_store::schema::record::Record;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Notify;
+use tokio::sync::oneshot;
 
 use crate::eventually_on;
 use crate::eventually_on_until;
@@ -255,4 +258,45 @@ async fn a_prune_under_way_deletes_nothing_a_turn_started_meanwhile_names() {
     eventually_on!(&[&handle.cell.stepped], || (!lock(&rig.compaction.pruned).is_empty()).then_some(())).await;
     assert!(exists(&sidecar), "the sidecar the running turn names is kept");
     hold.notify_one();
+}
+
+/// A send whose receipt is still being read when a prune's deletes are granted is taken in: the deletes are judged by its
+/// prompt, which neither the queue nor the stored transcript holds yet, so an old sidecar it names is kept. The lanes are
+/// held on this thread (a current-thread runtime), so the grant comes after the lookup starts and before it is answered.
+#[tokio::test]
+async fn a_prune_granted_while_a_send_is_looked_up_keeps_what_its_prompt_names() {
+    let data = tempfile::tempdir().expect("data dir");
+    let rig = Rig::new();
+    let id = ThreadId::from("sess_looked_up");
+    let mut listings = rig.compaction.listings.subscribe();
+    let creator = SessionDirectory::new(rig.deps());
+    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
+    within("the session is created", creator.create_with_id(id.clone(), header, json!({}))).await.expect("create");
+    within("the creator's open lists", listings.wait_for(|count| *count >= 1)).await.expect("listed");
+    let sidecar = within("the sidecar is written", offload_store(data.path(), &id).persist("an offloaded result")).await.expect("persisted").path;
+    // Every sidecar is old at the prune's clock.
+    *lock(&rig.compaction.offloads) = Some((data.path().to_path_buf(), u64::MAX));
+    let (arrived, release) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    *lock(&rig.compaction.prune_gate) = Some((arrived.clone(), release.clone()));
+
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = within("the session opens", directory.open_handle(&id, &CallContext::internal("test"))).await.expect("open");
+    within("the open's prune reaches the engine", arrived.notified()).await;
+    // The receipt is read on the interactive lane, held full: the lookup waits there with the send.
+    let lookup = hold_full(LaneKind::InteractiveIo);
+    let input = json!({ "prompt": format!("read {sidecar}"), "options": { "clientSubmissionId": "sub-looked-up" } });
+    let send = request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": input }), "op-1");
+    let (tx, mut answered) = oneshot::channel();
+    handle.inbox.send(super::Inbox::Request { req: send, tx }).await.expect("the inbox takes the send");
+    eventually_on!(&[&handle.cell.stepped], || (handle.inbox.capacity() == handle.inbox.max_capacity()).then_some(())).await;
+    assert!(matches!(answered.try_recv(), Err(oneshot::error::TryRecvError::Empty)), "the send waits on its receipt");
+    // The prune goes on: its deletes are granted, and their read of the transcript is the next job to meet the held lane.
+    let judged = hold_full(LaneKind::InteractiveIo);
+    release.notify_one();
+    within("the granted deletes read the transcript", judged.met_by_a_submit()).await;
+    drop((judged, lookup));
+    eventually_on!(&[&handle.cell.stepped], || (!lock(&rig.compaction.pruned).is_empty()).then_some(())).await;
+    assert!(exists(&sidecar), "the sidecar the looked-up send names is kept");
+    let reply = within("the send is answered", answered).await.expect("answered");
+    assert!(reply.is_ok(), "the send is admitted: {reply:?}");
 }

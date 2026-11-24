@@ -1604,6 +1604,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
         // A CLI's version, check, install, update and sign-in runs start in the system's temp folder, none of Mixdog's own.
         probe_cwd: std::env::temp_dir(),
+        definitions: b.data_dir.join("acp-agents"),
         env: b.env.clone(),
         // An agent that takes no HTTP MCP server starts this program, in its bridge mode, as its session's tool server.
         mcp_bridge: std::env::current_exe().ok().map(|program| mixdog_acp::preset::Command {
@@ -4317,6 +4318,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         turn_review: Some(turn_review.clone() as Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>),
         releases: folder_releases.clone(),
         upload_chunk_bytes: b.limits.max_blob_put_chunk_bytes,
+        secret_folders: vec![mixdog_home.clone(), b.data_dir.clone()],
     })
     .map_err(ComposeError::Workspace)?;
     reuses.bind_watcher(workspace.watcher());

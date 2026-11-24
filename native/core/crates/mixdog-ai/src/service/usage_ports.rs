@@ -623,6 +623,9 @@ impl UsageSource for ProviderUsageSource {
                 if let Some(id) = &attempt.account_id {
                     doc["account_id"] = Value::String(id.clone());
                 }
+                if let Some(identity) = crate::providers::openai::oauth::identity_of_attempt(&attempt) {
+                    doc["identity"] = identity;
+                }
                 Ok(Some(UsageAuth::sent_on(doc, attempt)))
             }
             Held::Anthropic(session) => {
@@ -653,11 +656,11 @@ impl UsageSource for ProviderUsageSource {
                 .map_err(failure)?;
                 let token = attempt.header.as_ref().and_then(|(_, value)| value.strip_prefix("Bearer ").map(str::to_owned));
                 let Some(token) = token else { return Ok(None) };
-                let mut doc = json!({ "access_token": token });
-                if let Some(user) = credential.user_id() {
-                    doc["user_id"] = Value::String(user);
-                }
-                Ok(Some(UsageAuth::sent_on(doc, attempt)))
+                // The document the attempt's own login is stored as, never the credential's latest login.
+                let Some(login) = attempt.login::<crate::providers::grok::auth::StoredTokens>() else { return Ok(None) };
+                let mut doc = crate::providers::grok::auth::saved_document(login);
+                doc.insert("access_token".into(), Value::String(token));
+                Ok(Some(UsageAuth::sent_on(Value::Object(doc), attempt)))
             }
         }
     }

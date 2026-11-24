@@ -237,7 +237,7 @@ pub(super) fn identity_of(token: &str) -> Identity {
 /// `saveTokens` (`grok-oauth-tokens.mjs:213`): the document the whole file becomes, with Node's fallbacks: no expiry is
 /// 0, no endpoint `null`, and an identity field or email that is empty (and absent from the access token's claims) is
 /// left out.
-pub(super) fn saved_document(tokens: &StoredTokens) -> serde_json::Map<String, Value> {
+pub(crate) fn saved_document(tokens: &StoredTokens) -> serde_json::Map<String, Value> {
     let identity = identity_of(&tokens.access_token);
     let mut doc = serde_json::Map::new();
     doc.insert("access_token".into(), Value::String(tokens.access_token.clone()));

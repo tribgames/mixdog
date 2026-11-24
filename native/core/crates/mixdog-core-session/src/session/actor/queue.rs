@@ -286,7 +286,7 @@ impl SessionActor {
     /// The send `req` of submission `id`, which the actor has no receipt of: the store's submission index is read (once it
     /// holds every barrier acked so far) before the inbox is taken again, and the send answered from it or admitted.
     pub(super) fn look_up_submission(&mut self, id: String, req: CoreRequest, tx: Waiter) {
-        self.submission_lookup = true;
+        self.submission_lookup = Some(req.params.clone());
         let (store, thread, jobs) = (self.deps.store.clone(), self.id.clone(), self.jobs_tx.clone());
         let lookup = id.clone();
         mixdog_core_base::support::lane_job(

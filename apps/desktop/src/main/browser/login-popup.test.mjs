@@ -372,3 +372,18 @@ test('a crash of the site or of the shell ends the window as closed, never done'
     assert.equal(log.includes('settle s1 t1'), false);
   }
 });
+
+test('closeWindows destroys open popups but keeps the pending offer openable; dispose forgets it', async () => {
+  const f = fixture();
+  const { window } = await f.ready();
+  f.popup.closeWindows();
+  assert.equal(window.isDestroyed(), true);
+  assert.deepEqual(await f.opened, { state: 'idle' });
+  const reopened = f.popup.open('s1', 't1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(windows.length, 2);
+  assert.equal(windows[1].isDestroyed(), false);
+  f.popup.dispose();
+  assert.deepEqual(await reopened, { state: 'unavailable' });
+  assert.deepEqual(await f.popup.open('s1', 't1'), { state: 'unavailable' });
+});

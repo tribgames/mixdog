@@ -2385,7 +2385,7 @@ function attachLocalWindowLifecycle(
     // dispose is idempotent, so a later quit-time dispose is a no-op.
     if (browserHost === windowBrowserHost) browserHost = null;
     // The partition's guards go with the host: a sign-in popup on that partition must not outlive them.
-    browserLogin.dispose();
+    browserLogin.closeWindows();
     browserHostDisposal = Promise.all([browserHostDisposal, windowBrowserHost.dispose()]).then(() => undefined);
     mainWindow = null;
     turnAttention = null;

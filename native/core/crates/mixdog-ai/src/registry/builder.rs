@@ -1940,16 +1940,27 @@ mod credential_probe_tests {
     }
 
     fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
+        builder_in(dir, Arc::new(ProcessEnv))
+    }
+
+    struct FixedEnv(&'static str, &'static str);
+
+    impl crate::registry::keys::Environment for FixedEnv {
+        fn var(&self, name: &str) -> Option<String> {
+            (name == self.0).then(|| self.1.to_owned())
+        }
+    }
+
+    fn builder_in(dir: &tempfile::TempDir, env: Arc<dyn crate::registry::keys::Environment>) -> DefaultProviderBuilder {
         let tokens = mixdog_rt::testing::tokens();
         let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-        let env: Arc<dyn crate::registry::keys::Environment> = Arc::new(ProcessEnv);
         let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
         DefaultProviderBuilder::new(BuilderEnv {
             http: link.clone(),
             bidi: link,
             dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
             keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
-            accounts: AccountStore::new(dir.path().to_path_buf(), io),
+            accounts: AccountStore::new(dir.path().to_path_buf(), io).with_env(env.clone()),
             anthropic_caps: Arc::new(|_| None),
             google_traits: Arc::new(Traits),
             route_traits: Arc::new(|_| None),
@@ -1989,5 +2000,16 @@ mod credential_probe_tests {
         }
         assert!(b.oauth_credentials_usable("grok-oauth").await.unwrap(), "an unreadable file is never a logout");
         assert!(b.oauth_credentials_usable("devin-oauth").await.unwrap(), "a sign-in by its provider's rule");
+    }
+
+    /// `CURSOR_ACCESS_TOKEN` stands in for a stale `cursor-oauth.json`, as a send and the quota reading treat it.
+    #[tokio::test]
+    async fn a_cursor_env_token_makes_a_stale_file_usable() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("cursor-oauth.json"), r#"{"access_token":"a","refresh_token":"r","reauth_required":true}"#).unwrap();
+        let with_token = builder_in(&dir, Arc::new(FixedEnv("CURSOR_ACCESS_TOKEN", "env-token")));
+        assert!(with_token.oauth_credentials_usable("cursor-oauth").await.unwrap());
+        let without = builder_in(&dir, Arc::new(FixedEnv("OTHER", "x")));
+        assert!(!without.oauth_credentials_usable("cursor-oauth").await.unwrap());
     }
 }

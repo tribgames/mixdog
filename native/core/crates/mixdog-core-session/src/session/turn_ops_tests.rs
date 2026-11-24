@@ -609,8 +609,12 @@ async fn a_requested_compaction_that_changed_nothing_tells_the_user() {
     *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": false, "reason": "nothing to compact" }));
     call(&handle, "thread/compact/start", json!({ "options": { "requireReduction": true } }), "k-1").await.expect("answered");
     assert_eq!(told(), 0, "an auto-clear is silent");
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": false, "error": "the summary failed" }));
+    call(&handle, "thread/compact/start", json!({}), "k-f").await.expect("answered");
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": false, "reason": "nothing to compact" }));
     call(&handle, "thread/compact/start", json!({}), "k-2").await.expect("answered");
-    eventually_on!(&[&rig.feeds.published], || (told() == 1).then_some(())).await;
+    eventually_on!(&[&rig.feeds.published], || (told() >= 1).then_some(())).await;
+    assert_eq!(told(), 1, "a compaction that failed is not told it had nothing to compact");
 }
 /// A user's `/compact` while a turn runs (`scheduleCompactForTurnEnd`): announced and answered `{changed: false, scheduled: true}`,
 /// a repeat is told it already is; it runs once, as a manual compaction, after the turn and the follow-up queued behind it, not

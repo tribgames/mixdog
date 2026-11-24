@@ -356,7 +356,7 @@ impl TextFiles for Files {
         AbsPath::new(resolved).ok_or_else(|| "not absolute".to_owned())
     }
 
-    // The test processes that run side by side make the same definition: they make it as the core does.
+    // The agent definitions are made as the core makes them.
     async fn create(&self, path: AbsPath, text: String) -> Result<(), String> {
         let files = mixdog_acp::files::ServiceFiles {
             files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
@@ -401,6 +401,7 @@ fn agents_of(
         },
         changed: Arc::new(|| {}),
         probe_cwd: dir.to_path_buf(),
+        definitions: dir.join("acp-agents"),
         env: Arc::new(move |name: &str| (name == "FAKE_HOME").then(|| home.clone())),
         mcp_bridge: Some(Command { program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"), args: vec!["mcp-bridge".into()] }),
     })
