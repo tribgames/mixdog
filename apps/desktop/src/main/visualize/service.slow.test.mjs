@@ -1118,6 +1118,8 @@ async function pageWithTwoVersions(cssRel, options = {}) {
     service,
     page,
     css,
+    events,
+    watched,
     latest: () => events.filter((event) => event.state).at(-1).state.tabs[0],
     command: (rest) => service.command({ sessionId: 's1', tabId: 'v1', ...rest }),
   };
@@ -2298,6 +2300,160 @@ test('inspect lays the pane frames out at the requested viewport, reads only the
     remoteViewer = true;
     await assert.rejects(inspect({}), /shown only on a paired remote device/);
   } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a deleted session releases its tabs, watchers, kept versions and remembered folder', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const { deps, watched } = fakeDeps({ versions: { directory: join(root, 'app-data', 'visualize-versions') } });
+  const service = createVisualizeService(deps);
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    await service.execute({ sessionId: 's2', cwd, action: 'open', input: { targets: ['chart.png'] } });
+    await service.settled();
+    assert.ok(watched.size >= 2);
+    assert.equal(service.snapshot().length, 2);
+    await service.releaseSession('s1');
+    await service.settled();
+    assert.deepEqual(
+      service.snapshot().map((state) => state.sessionId),
+      ['s2'],
+      'only the deleted session is gone, with its closed-tab history'
+    );
+    assert.equal(service.tabView('s1', 'v1'), null);
+    assert.equal(watched.size, 1, 'the deleted session no longer watches its files');
+    assert.deepEqual(
+      readdirSync(join(root, 'app-data', 'visualize-versions'), { recursive: true }).filter((name) => /v1/.test(name) && /s1/.test(name)),
+      [],
+      'its kept versions are removed'
+    );
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('releasing a session mid-reload and mid-turn re-arms no watcher and publishes nothing', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const { deps, events, watched } = fakeDeps({ versions: { directory: join(root, 'app-data', 'visualize-versions') } });
+  const service = createVisualizeService(deps);
+  try {
+    await service.setTurnActive('s1', true);
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    writeFileSync(join(cwd, 'site', 'index.html'), '<h1>changed</h1>');
+    [...watched.values()][0]();
+    const published = events.length;
+    await service.releaseSession('s1');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await service.settled();
+    assert.equal(watched.size, 0, 'nothing re-armed after the release');
+    assert.equal(events.length, published, 'the deleted session got no publish, its held turn included');
+    assert.deepEqual(service.snapshot(), []);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a reload that outlives its session publishes nothing after its version was kept', async () => {
+  const { root, cwd, cleanup } = workspace();
+  let service;
+  let releaseDuring = false;
+  const { deps, events, watched } = fakeDeps({
+    versions: { directory: join(root, 'app-data', 'visualize-versions') },
+    async preparePane(target) {
+      if (releaseDuring) setImmediate(() => void service.releaseSession('s1'));
+      return `fake://${target.kind}/${target.label}`;
+    },
+  });
+  service = createVisualizeService(deps);
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    await service.settled();
+    const published = events.length;
+    releaseDuring = true;
+    writeFileSync(join(cwd, 'site', 'index.html'), '<h1>two</h1>');
+    [...watched.values()][0]();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await service.settled();
+    assert.equal(events.length, published, 'the deleted session got no update of its reload');
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a reload that finds its file gone after its session was deleted publishes nothing and arms no retry', async () => {
+  const { cwd, cleanup } = workspace();
+  const RETRY_MS = 7;
+  let service;
+  let armed = false;
+  let retries = 0;
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    if (ms !== RETRY_MS) return realSetTimeout(fn, ms, ...rest);
+    if (!armed) {
+      if (retries === -1) retries = 0;
+      else retries += 1;
+      return realSetTimeout(fn, ms, ...rest);
+    }
+    // The debounce of the pending reload: the reload starts, then its session is deleted.
+    return realSetTimeout(() => {
+      fn(...rest);
+      armed = false;
+      retries = -1;
+      void service.releaseSession('s1');
+    }, ms);
+  };
+  const { deps, events, watched } = fakeDeps({ reloadDebounceMs: RETRY_MS });
+  service = createVisualizeService(deps);
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    await service.settled();
+    const published = events.length;
+    rmSync(join(cwd, 'site', 'index.html'));
+    armed = true;
+    [...watched.values()][0]();
+    await new Promise((resolve) => realSetTimeout(resolve, 150));
+    assert.equal(events.length, published, 'no missing-file publish for the deleted session');
+    assert.equal(retries, -1, 'no retry timer armed after the release');
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a kept version re-reading its changed page assets publishes nothing once its session was deleted', async () => {
+  const DEBOUNCE_MS = 9;
+  const { service, css, events, watched, latest, command, cleanup } = await pageWithTwoVersions('style.css', {
+    reloadDebounceMs: DEBOUNCE_MS,
+  });
+  const realSetTimeout = globalThis.setTimeout;
+  try {
+    await command({ action: 'version', version: 1 });
+    assert.deepEqual(latest().restoreAssets, ['site/style.css']);
+    // The stylesheet back as v1 kept it: a restore would no longer overwrite it.
+    writeFileSync(css, 'h1{color:red}');
+    const published = events.length;
+    globalThis.setTimeout = (fn, ms, ...rest) => {
+      if (ms !== DEBOUNCE_MS) return realSetTimeout(fn, ms, ...rest);
+      globalThis.setTimeout = realSetTimeout;
+      // The reload starts re-reading the assets, then its session is deleted.
+      return realSetTimeout(() => {
+        fn(...rest);
+        void service.releaseSession('s1');
+      }, ms);
+    };
+    [...watched.values()][0]();
+    await new Promise((resolve) => realSetTimeout(resolve, 150));
+    await service.settled();
+    assert.equal(events.length, published, 'the deleted session got no publish of its kept version');
+    assert.deepEqual(service.snapshot(), []);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
     service.dispose();
     cleanup();
   }

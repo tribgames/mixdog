@@ -638,6 +638,26 @@ test('a page re-laid out on the PC locks a new geometry generation; generations 
   assert.equal(f.geometries.at(-1)[1].generation, 3);
 });
 
+test('an idle-released session keeps counting geometry generations; a deleted one forgets them', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 1);
+  await f.advance(100);
+  f.remote.releaseViewer('s');
+  await settle();
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 2);
+  await f.advance(100);
+  assert.equal(f.geometries.at(-1)[1].generation, 2, 'a viewer holding generation 1 still sees a newer one');
+  f.remote.releaseViewer('s');
+  f.remote.forgetGeometry('s');
+  await settle();
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 3);
+  await f.advance(100);
+  assert.equal(f.geometries.at(-1)[1].generation, 1);
+});
+
 test('a page with more device pixels than CSS pixels is captured at its device pixels', async (t) => {
   // A 2.625× page whose device pixels fit the client's bound: screenshots, not
   // the CSS-sized screencast picture, carry the frames.

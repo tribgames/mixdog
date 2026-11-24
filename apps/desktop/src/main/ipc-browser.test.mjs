@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { DESKTOP_IPC } from '../shared/contract.ts';
@@ -20,7 +21,8 @@ function setup(overrides = {}) {
     ...overrides,
   };
   registerBrowserIpc({ handle: (channel, fn) => handlers.set(channel, fn), browserHost });
-  return { call: (channel, ...args) => handlers.get(channel)({}, ...args), calls };
+  const sender = new EventEmitter();
+  return { call: (channel, ...args) => handlers.get(channel)({ sender }, ...args), calls, sender };
 }
 
 test('a released main page is never recreated by a late frame, control or metadata request', async () => {
@@ -62,4 +64,13 @@ test('a request that was creating the page when it was released drops the page i
     ['frame', id],
     ['release', id],
   ]);
+});
+
+test('a released page id is forgotten once the renderer that released it is gone', async () => {
+  const { call, sender } = setup();
+  const id = 'main-browser-d';
+  await call(DESKTOP_IPC.browserReleasePage, id);
+  await assert.rejects(async () => call(DESKTOP_IPC.browserPageFrame, id), /closed/);
+  sender.emit('destroyed');
+  await call(DESKTOP_IPC.browserPageFrame, id);
 });

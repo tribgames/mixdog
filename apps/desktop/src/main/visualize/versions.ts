@@ -423,6 +423,11 @@ export function createVisualizeVersionStore(
         ...[...drops].map((pending) => pending.catch(() => {})),
       ]);
     },
+    /** Forget every tab of a deleted session and delete their files. */
+    async dropSession(sessionId: string): Promise<void> {
+      const tabIds = [...(sessions.get(sessionId)?.keys() ?? [])];
+      await Promise.all(tabIds.map((tabId) => this.drop(sessionId, tabId)));
+    },
     /** Forget a closed tab and delete its files. */
     drop(sessionId: string, tabId: string): Promise<void> {
       const run = (async () => {

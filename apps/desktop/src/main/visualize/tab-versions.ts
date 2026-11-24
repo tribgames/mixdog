@@ -1,5 +1,6 @@
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
+import { step, type TabWork, whileOpen } from './tabs';
 import { VersionHistoryFullError, versionChanges } from './versions';
 
 /** The "no such version" error, listing what the tab keeps. */
@@ -25,11 +26,10 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
     }
   };
 
-  /** Keep the tab's current files as a version when they changed. */
-  const recordVersion = async (sessionId: string, tab: TabState, label?: string): Promise<void> => {
+  function* recordSteps(sessionId: string, tab: TabState, label?: string): TabWork {
     if (!versions || tab.inline) return;
     try {
-      await versions.snapshot(sessionId, tab.id, tab.targets, label);
+      yield* step(versions.snapshot(sessionId, tab.id, tab.targets, label));
       tab.historyFull = false;
     } catch (error) {
       // The tab keeps working live; its version list stays as it was.
@@ -37,6 +37,12 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
       else console.warn('visualize version snapshot failed:', (error as Error).message);
     }
     syncVersions(sessionId);
+  }
+
+  /** Keep the tab's current files as a version when they changed, while the
+   *  tab is open: a closed tab's dropped history is never started again. */
+  const recordVersion = async (sessionId: string, tab: TabState, label?: string): Promise<void> => {
+    await whileOpen(tab, recordSteps(sessionId, tab, label));
   };
 
   /** Kept version `n`'s page assets a restore would overwrite now. */

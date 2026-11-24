@@ -4,10 +4,42 @@ import type { VisualizeRequest } from './targets';
 
 const MAX_TABS_PER_SESSION = 8;
 
+/** Work owned by a tab, run by `whileOpen`. It can only wait through
+ *  `yield* step(promise)` (a generator cannot `await`), so every point where
+ *  it waits is one where it stops once the tab is gone. */
+export type TabWork<T = void> = Generator<Promise<unknown>, T, unknown>;
+
+/** Wait for `promise` inside a tab's work: resumes with its result, or with
+ *  its rejection thrown, only while the tab is open. */
+export function* step<T>(promise: Promise<T>): TabWork<T> {
+  return (yield promise) as T;
+}
+
+/** Run `work` for `tab`: it starts, and resumes after each step, only while
+ *  the tab is open. Once the tab is closed or its session deleted the work is
+ *  dropped where it waits (its `catch` and `finally` never run), so nothing
+ *  of it touches the tab, its versions, the panel or a retry again. */
+export async function whileOpen<T>(tab: TabState, work: TabWork<T>): Promise<T | undefined> {
+  const { signal } = tab.lifetime;
+  if (signal.aborted) return undefined;
+  let next = work.next();
+  while (!next.done) {
+    let outcome: { value: unknown } | { error: unknown };
+    try {
+      outcome = { value: await next.value };
+    } catch (error) {
+      outcome = { error };
+    }
+    if (signal.aborted) return undefined;
+    next = 'error' in outcome ? work.throw(outcome.error) : work.next(outcome.value);
+  }
+  return next.value;
+}
+
 export function createTabs(
   ctx: Pick<
     VisualizeServiceContext,
-    'sessions' | 'sessionOf' | 'delay' | 'views' | 'thumbnails' | 'reloads' | 'tabVersions' | 'publish'
+    'sessions' | 'sessionOf' | 'sessionCwds' | 'delay' | 'views' | 'thumbnails' | 'reloads' | 'tabVersions' | 'publish'
   >
 ) {
   const { sessions, sessionOf } = ctx;
@@ -19,11 +51,18 @@ export function createTabs(
     ctx.thumbnails.cancel(tab);
   };
 
+  /** The tab is gone (closed, evicted, its session deleted): its work stops
+   *  where it waits, its watchers, timers and jobs with it. */
+  const end = (tab: TabState): void => {
+    tab.lifetime.abort();
+    dispose(tab);
+  };
+
   /** Forget `tab`: kept in the session's history, its watchers, jobs and
    *  versions released. */
   const retire = (sessionId: string, tab: TabState): void => {
     ctx.views.rememberTab(sessionId, tab, false);
-    dispose(tab);
+    end(tab);
     ctx.tabVersions.dropVersions(sessionId, tab.id);
   };
 
@@ -48,6 +87,15 @@ export function createTabs(
     }
   };
 
+  /** A session left with no tab and nothing to reopen holds nothing. */
+  const forgetIfEmpty = (sessionId: string): void => {
+    const state = sessions.get(sessionId);
+    if (state && !state.tabs.length && !state.history.length) {
+      sessions.delete(sessionId);
+      ctx.sessionCwds.delete(sessionId);
+    }
+  };
+
   const closeTab = (sessionId: string, tabId: string): void => {
     const state = sessions.get(sessionId);
     const tab = state?.tabs.find((candidate) => candidate.id === tabId);
@@ -60,10 +108,12 @@ export function createTabs(
     ctx.publish(sessionId);
     const shown = state.tabs.find((candidate) => candidate.id === state.active);
     if (shown) ctx.thumbnails.whenMissing(sessionId, shown);
+    forgetIfEmpty(sessionId);
   };
 
   return {
     dispose,
+    end,
     findTab,
     closeTab,
     enforceLimit,
@@ -75,6 +125,7 @@ export function createTabs(
       const closing = (tab: TabState): boolean => tab.verify === true && (!only || only.has(tab.id));
       for (const tab of state.tabs.filter(closing)) retire(sessionId, tab);
       state.tabs = state.tabs.filter((tab) => !closing(tab));
+      forgetIfEmpty(sessionId);
     },
     addTab(sessionId: string, tab: TabState): void {
       sessionOf(sessionId).tabs.push(tab);

@@ -84,17 +84,19 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
       return report('failed', { error: error instanceof Error ? error.message : String(error) });
     }
     retainNotification(live, notification);
+    let forget = () => {};
     // A server's toasts are kept by its connection, so the core can close them when the server's notifier ends.
     if (server) {
       const set = byConnection.get(server) ?? new Set();
       set.add(notification);
       byConnection.set(server, set);
-      const forget = () => {
+      forget = () => {
         set.delete(notification);
         if (set.size === 0 && byConnection.get(server) === set) byConnection.delete(server);
       };
       notification.on('close', forget);
       notification.on('click', forget);
+      notification.on('failed', forget);
     }
     // The sound belongs to the toast the OS showed: played when `show` fires, once, not when `show()` merely returned.
     let soundStarted = false;
@@ -128,6 +130,7 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
       notification.show();
     } catch (error) {
       live.delete(notification);
+      forget();
       return report('failed', { error: error instanceof Error ? error.message : String(error) });
     }
   });

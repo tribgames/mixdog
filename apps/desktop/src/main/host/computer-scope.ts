@@ -186,6 +186,8 @@ export function registerComputerScopes(connection: HostConnection, computerSwitc
     closed = true;
     stopFollowing();
     revokeAll();
+    // Revoked ids stay recorded for the connection's life (a late request of a revoked scope must still be refused).
+    scopes.clear();
   });
   connection.handleRequest(
     HOST_COMPUTER_REVOKE_SCOPES,

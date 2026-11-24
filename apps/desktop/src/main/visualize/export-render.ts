@@ -326,6 +326,7 @@ async function withOffscreenPage<T>(
   );
   const { origin } = own;
   let timer: NodeJS.Timeout | undefined;
+  let onAbort = () => {};
   try {
     const render: OffscreenRender = {
       origin,
@@ -359,7 +360,8 @@ async function withOffscreenPage<T>(
     // that) must fail the export visibly instead of hanging it.
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => reject(new Error('the page took too long to render for the export')), RENDER_TIMEOUT_MS);
-      options.signal?.addEventListener('abort', () => reject(new Error('the export was cancelled')), { once: true });
+      onAbort = () => reject(new Error('the export was cancelled'));
+      options.signal?.addEventListener('abort', onAbort, { once: true });
     });
     const draw = async (): Promise<T> => {
       await window.loadURL(`${origin}${page.pathname}${page.search}${page.hash}`);
@@ -381,6 +383,7 @@ async function withOffscreenPage<T>(
     return { data: await Promise.race([rendering, deadline]), problems };
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener('abort', onAbort);
     offscreenRenders.delete(contentsId);
     window.destroy();
     await own.release();

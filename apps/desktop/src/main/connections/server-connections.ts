@@ -10,6 +10,8 @@ export interface ServerConnectionsDeps<T extends ServerConnection> {
   pool: ConnectionPool<T>;
   /** Makes the service connection of a server window (not started). */
   create(record: ServerWindowRecord): T;
+  /** The server's connection is gone: whatever the app kept about it ends here. */
+  detached?(id: string): void;
 }
 
 export interface ServerConnections<T extends ServerConnection> {
@@ -28,7 +30,12 @@ export function createServerConnections<T extends ServerConnection>(
   const servers = new Set<string>();
   const detach = async (id: string): Promise<void> => {
     servers.delete(id);
-    await deps.pool.remove(id)?.dispose();
+    try {
+      await deps.pool.remove(id)?.dispose();
+    } finally {
+      // A newer connection of the same id (attached while this one closed) keeps what the app holds for it.
+      if (!deps.pool.has(id)) deps.detached?.(id);
+    }
   };
   return {
     attach: async (record) => {

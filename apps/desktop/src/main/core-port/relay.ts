@@ -52,7 +52,7 @@ export interface RelayPort {
 
 export interface RelayChannel {
   readonly port1: RelayPort;
-  readonly port2: unknown;
+  readonly port2: Pick<RelayPort, 'close'>;
 }
 
 export interface RelayWebContents {
@@ -223,6 +223,7 @@ export class CorePortRelay {
       if (!current()) {
         socket.close(1000, 'superseded');
         channel.port1.close();
+        channel.port2.close();
         throw superseded();
       }
       entry.port = channel.port1;

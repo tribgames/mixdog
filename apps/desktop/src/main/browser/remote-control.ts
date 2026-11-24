@@ -53,7 +53,7 @@ export function createBrowserRemoteControl(
    *  until it settles: the session's next stream waits for it, so a stale
    *  restore can never undo the viewport a newer stream applied. */
   const teardowns = new Map<string, Promise<void>>();
-  const { publishFacts, check, reconcile, stopRun } = createRemoteStreamEngine(engineHost, streams);
+  const { publishFacts, check, reconcile, stopRun, forgetGeometry } = createRemoteStreamEngine(engineHost, streams);
 
   /** Nobody streams this session any more: stop composing frames for it. */
   function stopStream(sessionId: string): void {
@@ -232,6 +232,8 @@ export function createBrowserRemoteControl(
     remoteBrowserStream,
     remoteBrowserControl,
     releaseViewer: stopStream,
+    /** The session is deleted: a restarted session of the same id never reuses a generation a viewer saw. */
+    forgetGeometry,
     resize,
     streamedPage,
     widenVideo,

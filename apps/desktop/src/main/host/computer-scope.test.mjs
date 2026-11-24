@@ -201,3 +201,23 @@ test('a revoked scope pushes each change of its report, in revision order, and n
     'a closed connection reports nothing more: the core reads its end as unconfirmed'
   );
 });
+
+test('a revoked scope stays refused after its work settled, and every record ends with the connection', async () => {
+  const wire = connection();
+  const scopes = registerComputerScopes(wire, createComputerSwitch(true));
+  scopes.admit({ automationScope: 30 });
+  await wire.serve('host/computer/revokeScopes', { scopes: [30] });
+  assert.throws(() => scopes.admit({ automationScope: 30 }), refused, 'a late request of a revoked scope never runs');
+  const [again] = (await wire.serve('host/computer/revokeScopes', { scopes: [30] })).reports;
+  assert.equal(again.cleanup, 'complete', 'a repeated revocation repeats the report');
+});
+
+test('a scope revoked while Computer Use was off stays refused when it is switched on again', () => {
+  const wire = connection();
+  const computerSwitch = createComputerSwitch(true);
+  const scopes = registerComputerScopes(wire, computerSwitch);
+  scopes.admit({ automationScope: 31 });
+  computerSwitch.set(false);
+  computerSwitch.set(true);
+  assert.throws(() => scopes.admit({ automationScope: 31 }), refused);
+});

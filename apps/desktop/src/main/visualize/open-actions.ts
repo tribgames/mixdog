@@ -98,6 +98,7 @@ function addNewTab(
     targets: [],
     panes: [],
     unwatch: [],
+    lifetime: new AbortController(),
     reloadTimer: null,
     problems: [],
     problemSeq: 0,

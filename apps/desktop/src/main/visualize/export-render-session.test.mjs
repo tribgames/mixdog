@@ -266,3 +266,15 @@ test('no off-screen request carries or sets a cookie, and frames of other origin
     assert.deepEqual(received(`${origin(a)}/a/inner.html`, 'subFrame', {}), {});
   });
 });
+
+test('a finished render removes its abort listener', async () => {
+  const listeners = new Set();
+  const signal = {
+    aborted: false,
+    throwIfAborted() {},
+    addEventListener: (_type, listener) => listeners.add(listener),
+    removeEventListener: (_type, listener) => listeners.delete(listener),
+  };
+  await renderPageThumbnail('http://127.0.0.1:4100/signal/', false, { signal });
+  assert.equal(listeners.size, 0);
+});

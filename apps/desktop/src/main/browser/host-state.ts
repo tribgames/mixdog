@@ -175,8 +175,14 @@ export class BrowserGuestStateStore {
     if (sessionId === undefined) {
       state.cdpSessions.clear();
       state.browserComponentContexts.clear();
+      state.consoleReplay.seen.clear();
+      state.consoleReplay.floor.clear();
     } else {
       state.cdpSessions.delete(sessionId);
+      for (const channel of ['runtime', 'log']) {
+        state.consoleReplay.seen.delete(`${sessionId}|${channel}`);
+        state.consoleReplay.floor.delete(`${sessionId}|${channel}`);
+      }
       for (const key of state.browserComponentContexts) {
         if (key.startsWith(`${sessionId}:`)) state.browserComponentContexts.delete(key);
       }
