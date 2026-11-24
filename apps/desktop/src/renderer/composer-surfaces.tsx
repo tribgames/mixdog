@@ -410,12 +410,12 @@ function DictationProgress() {
   );
 }
 
-function DictationCancel({ onCancel }: { onCancel: () => void }) {
+function DictationCancel({ onCancel, label = t('Discard recording') }: { onCancel: () => void; label?: string }) {
   return (
     <button
       type="button"
       className="composer-dictation-cancel"
-      aria-label={t('Discard recording')}
+      aria-label={label}
       data-tooltip={t('Discard · Esc')}
       data-tooltip-side="top"
       onClick={onCancel}
@@ -469,6 +469,7 @@ export function DictationOverlay({
             <span className="composer-dictation-elapsed" role="status">
               {t('Transcribing…')}
             </span>
+            <DictationCancel onCancel={onCancel} label={t('Cancel')} />
           </>
         )}
       </div>

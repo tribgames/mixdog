@@ -145,6 +145,7 @@ async function withDictation({ muted = false } = {}, run) {
       assert.equal(capability, 'transcribeAudio');
       ctx.uploaded = args[0];
       await ctx.transcriptGate;
+      if (ctx.failTranscript) throw new Error('transcription failed');
       return { value: 'first words' };
     },
   };
@@ -162,11 +163,21 @@ async function withDictation({ muted = false } = {}, run) {
         ctx.draft = update(ctx.draft);
         resolveTranscript();
       },
-      invokeResult: (action) => action(),
+      invokeResult: async (action) => {
+        try {
+          return await action();
+        } catch (reason) {
+          ctx.invokeError?.(String(reason));
+          return undefined;
+        }
+      },
       showNotice: (message) => ctx.notices.push(message),
       requestVoiceInstall: () => assert.fail('Already installed'),
-      onTranscriptSubmit: () => {
+      onTranscriptSubmit: (text, take) => {
         ctx.submissions += 1;
+        ctx.submitted = text;
+        take.settle(true);
+        resolveTranscript();
       },
     });
     return null;
@@ -197,7 +208,9 @@ async function withDictation({ muted = false } = {}, run) {
     assert.equal(ctx.hook.dictationAvailable, true);
     await run(ctx);
   } finally {
+    // A closed composer's take finishes out of sight; one left running here would outlive this test's DOM.
     await act(async () => {
+      ctx.hook.cancelDictation();
       root.unmount();
     });
     dom.window.close();
@@ -241,7 +254,9 @@ for (const submitOnStop of [false, true]) {
         await new Promise((resolve) => ctx.dom.window.setTimeout(resolve, 0));
       });
       assert.equal(Buffer.from(ctx.uploaded.data, 'base64').toString(), 'first words');
-      assert.equal(ctx.draft, 'first words');
+      // A sent take's words go to the send, never through the draft.
+      assert.equal(ctx.draft, submitOnStop ? '' : 'first words');
+      assert.equal(ctx.submitted, submitOnStop ? 'first words' : undefined);
       assert.equal(ctx.hook.dictationState, 'idle');
       assert.equal(ctx.track.stopped, 1);
       assert.equal(ctx.submissions, submitOnStop ? 1 : 0);
@@ -470,5 +485,51 @@ test('words of a take whose conversation the composer left wait in that draft an
     });
     assert.equal(ctx.draft, 'first words');
     assert.equal(stashedComposerDraft('session-b'), '');
+  });
+});
+
+// A transcription the daemon never answers left the state at transcribing for good: Send stayed disabled and
+// nothing local could end it.
+test('cancelling a transcription the daemon never answers frees the composer and drops the late words', async () => {
+  await withDictation({}, async (ctx) => {
+    await ctx.openMic();
+    await ctx.fireStart();
+    ctx.holdTranscript();
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await tick();
+    });
+    assert.equal(ctx.hook.dictationState, 'transcribing');
+    assert.equal(await ctx.pressKey('Escape'), true, 'Esc is taken by the pending transcription');
+    assert.equal(ctx.hook.dictationState, 'idle');
+    await act(async () => {
+      ctx.releaseTranscript();
+      await tick();
+    });
+    assert.equal(ctx.hook.dictationState, 'idle');
+    assert.equal(ctx.draft, '', 'the cancelled take does not write its words');
+    assert.equal(ctx.submissions, 0);
+  });
+});
+
+test('a cancelled take whose transcription later fails raises no error', async () => {
+  await withDictation({}, async (ctx) => {
+    const errors = [];
+    ctx.invokeError = (message) => errors.push(message);
+    await ctx.openMic();
+    await ctx.fireStart();
+    ctx.holdTranscript();
+    ctx.failTranscript = true;
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await tick();
+    });
+    await act(async () => ctx.hook.cancelDictation());
+    await act(async () => {
+      ctx.releaseTranscript();
+      await tick();
+    });
+    assert.deepEqual(errors, []);
+    assert.equal(ctx.hook.dictationState, 'idle');
   });
 });

@@ -169,6 +169,7 @@ export function ComposerFooter({
   onAskMember,
   goalDisabled,
   executeSlash,
+  startGoal,
   transitioning,
   paneActive,
   hasConversation,
@@ -208,6 +209,8 @@ export function ComposerFooter({
   onAskMember?: (agentId: string) => void;
   goalDisabled: boolean;
   executeSlash: (command: string) => Promise<boolean>;
+  /** The goal dialog's Start: the `/goal` command, run once the session's lane has landed. */
+  startGoal: (command: string) => Promise<boolean>;
   transitioning: boolean;
   paneActive: boolean;
   hasConversation: boolean;
@@ -253,7 +256,7 @@ export function ComposerFooter({
         <ComposerGoalDialog
           anchor={textarea}
           disabled={goalDisabled}
-          onStart={executeSlash}
+          onStart={startGoal}
           onClose={() => setGoalDialogOpen(false)}
           returnFocus={() => textarea.current?.focus()}
         />

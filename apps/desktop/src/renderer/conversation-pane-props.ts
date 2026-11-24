@@ -17,6 +17,11 @@ export type ConversationProps = {
   routeSnapshot: Snapshot;
   /** Pane ownership resolves to this canonical session address. */
   sessionAddress?: string;
+  /** The session this pane was pointed at. `sessionAddress` keeps showing the outgoing one until the incoming lane
+   *  is read; the composer belongs to this one from the click on, with nothing of it loaded until its lane lands. */
+  selectedSessionId?: string;
+  /** The selected session's lane cannot be read (it ended, or its read failed): what waits for it is dropped. */
+  selectedUnavailable?: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   errors: string[];
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;

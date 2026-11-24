@@ -34,6 +34,7 @@ import {
   resolveComposerSubmissionRecovery,
   retainComposerSubmissionRecovery,
   submissionRetryKey,
+  textRetryKey,
   wasSubmittedHere,
 } from './composer-draft';
 
@@ -53,6 +54,11 @@ export function restoreAlreadyApplied(
   if (!id || !ids.some(wasSubmittedHere)) return false;
   return replyRestoreApplied(id, sessionId, applied);
 }
+
+/** A voice take's words joined to the editor's draft, sent without passing through the editor. `settle(true)` runs in
+ *  the run that clears the editor for the send; where the send does not go out, the caller lands the words.
+ *  `cancelled()`: the user cancelled the take while its send waited, so nothing goes out. */
+export type SubmittedDraft = { draft: string; settle(sent: boolean): void; cancelled(): boolean };
 
 let parkedSequence = 0;
 
@@ -284,14 +290,21 @@ export function useComposerSubmission({
   const routeRef = useRef('');
   routeRef.current = `${identityScope}\u0000${recoveryScope}\u0000${sessionId ?? ''}`;
   const sendSlash = useCallback(
-    async (text: string, submittedDraft: string, submittedAttachments: ComposerAttachment[]) => {
+    async (
+      text: string,
+      submittedDraft: string,
+      editorDraft: string,
+      submittedAttachments: ComposerAttachment[],
+      cleared?: () => void
+    ) => {
       if (commandBusy) {
         setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
         return;
       }
       const origin = routeRef.current;
-      setDraft((current) => (current === submittedDraft ? '' : current));
+      setDraft((current) => (current === editorDraft ? '' : current));
       removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
+      cleared?.();
       historyNavigation.current = { index: -1, seed: '' };
       const accepted = await executeSlash(text);
       if (accepted) {
@@ -322,10 +335,17 @@ export function useComposerSubmission({
       setSubmissionRecoveryVersion,
     ]
   );
+  /** `submitted`: what is sent when the editor does not hold it (a voice take's words joined to its draft); the editor's
+   *  own draft is what the send clears. */
   const send = useCallback(
-    async (slashOverride = '', source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit') => {
+    async (
+      slashOverride = '',
+      source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit',
+      submitted?: SubmittedDraft
+    ) => {
       const origin = routeRef.current;
-      const submittedDraft = textarea.current?.value ?? draftRef.current;
+      const editorDraft = textarea.current?.value ?? draftRef.current;
+      const submittedDraft = submitted?.draft ?? editorDraft;
       const submittedAttachments = [...attachmentsRef.current];
       const text = (slashOverride || submittedDraft).trim();
       const slashCommand = plainText ? recognisedAgentRoomSlash(text) : recognisedSlashSpan(text) !== null;
@@ -371,7 +391,7 @@ export function useComposerSubmission({
       try {
         clearNotice();
         if (slashCommand) {
-          await sendSlash(text, submittedDraft, submittedAttachments);
+          await sendSlash(text, submittedDraft, editorDraft, submittedAttachments, () => submitted?.settle(true));
           return;
         }
         setAttachmentError('');
@@ -390,22 +410,25 @@ export function useComposerSubmission({
           return;
         }
         // The key waits for any chip digest still being worked out; a second
-        // send of the same draft meanwhile is dropped.
+        // send of the same draft meanwhile is dropped. Without chips there is
+        // nothing to wait for: the draft clears in the commit the message is sent in.
         if (keyingRef.current) return;
-        keyingRef.current = true;
+        const keyTexts = feedbackText ? [selectedSkill, expandedText, feedbackText] : [selectedSkill, expandedText];
         let retryKey: string;
-        try {
-          retryKey = await submissionRetryKey(
-            feedbackText ? [selectedSkill, expandedText, feedbackText] : [selectedSkill, expandedText],
-            committedAttachments
-          );
-        } finally {
-          keyingRef.current = false;
+        if (committedAttachments.length === 0) {
+          retryKey = textRetryKey(keyTexts);
+        } else {
+          keyingRef.current = true;
+          try {
+            retryKey = await submissionRetryKey(keyTexts, committedAttachments);
+          } finally {
+            keyingRef.current = false;
+          }
         }
         // The composer moved to another conversation (or went away) while the
         // key was worked out: this message belongs to the one it was typed in.
         // Nothing is sent and nothing is cleared — it stays that draft.
-        if (!mountedRef.current || routeRef.current !== origin) return;
+        if (!mountedRef.current || routeRef.current !== origin || submitted?.cancelled()) return;
         const submittedDisplayText = [
           [selectedSkill ? `[${skillTitle(selectedSkill)}]` : '', expandedText.trim()].filter(Boolean).join(' '),
           visualizePrompt?.display ?? '',
@@ -429,7 +452,7 @@ export function useComposerSubmission({
           text: submittedDraft,
           attachments: committedAttachments,
         });
-        setDraft((current) => (current === submittedDraft ? '' : current));
+        setDraft((current) => (current === editorDraft ? '' : current));
         // Only the chips that went out: same id and the same content as was
         // sent (one edited meanwhile stays in the editor).
         const sentContent = new Map(committedAttachments.map((sent) => [sent.id, sent.data]));
@@ -440,6 +463,7 @@ export function useComposerSubmission({
               .map((live) => live.id)
           )
         );
+        submitted?.settle(true);
         historyNavigation.current = { index: -1, seed: '' };
         const restoreSubmitted = () => {
           rejectComposerSubmissionRecovery(submissionId);
@@ -478,10 +502,13 @@ export function useComposerSubmission({
           // so, rather than leave an emptied composer and no message.
           submissionRetryRef.current = { key: retryKey, id: submissionId };
           restoreSubmitted();
-          setAttachmentError(t('The message was not sent. It has been kept for retry.'));
+          if (routeRef.current === origin) {
+            setAttachmentError(t('The message was not sent. It has been kept for retry.'));
+          }
         }
       } catch (error) {
-        setAttachmentError(composerSubmitErrorText(error));
+        // A send that failed after the composer moved on is not reported here: it waits with the conversation it left.
+        if (routeRef.current === origin) setAttachmentError(composerSubmitErrorText(error));
       } finally {
         if (showsSubmitProgress) {
           submittingRef.current = false;
@@ -552,7 +579,7 @@ export function useComposerSubmission({
         );
       } catch (error) {
         report({ stopOutcome: 'failed', stopReason: error instanceof Error ? error.message : String(error) });
-        showNotice(t('The turn could not be stopped.'), 'error');
+        if (routeRef.current === origin) showNotice(t('The turn could not be stopped.'), 'error');
         return;
       }
       const restoredSubmissions =
@@ -567,7 +594,7 @@ export function useComposerSubmission({
       });
       // Node's `aborted: false` carries no reason: nothing was running. A `reason` (`could-not-stop`) is the core saying
       // something was under way that it could not stop.
-      if (stopOutcome === 'nothing') {
+      if (stopOutcome === 'nothing' && routeRef.current === origin) {
         showNotice(reason ? t('The turn could not be stopped.') : t('Nothing was running to stop.'));
       }
       if (submissionId && (result?.aborted === true || result?.restoreText)) {

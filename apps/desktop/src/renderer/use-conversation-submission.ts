@@ -14,6 +14,7 @@ type SubmissionPaneProps = Pick<
   | 'snapshot'
   | 'routeSnapshot'
   | 'sessionAddress'
+  | 'selectedSessionId'
   | 'submit'
   | 'invokeResult'
   | 'applySnapshot'
@@ -53,9 +54,15 @@ export function useConversationSubmission(
   const [optimisticPrompts, setOptimisticPrompts] = useState<PendingPromptItem[]>([]);
   const draftModeRef = useRef(draftMode);
   draftModeRef.current = draftMode;
+  // The pane's submit addresses the session the pane was pointed at. While another session's transcript still shows
+  // (the picked one's lane has not landed), what that transcript sends (Retry, Send again) goes to its own session.
+  const shownSessionId = draftMode ? '' : String(pane.routeSnapshot.sessionId || '');
+  const shownElsewhere = Boolean(shownSessionId && pane.selectedSessionId && pane.selectedSessionId !== shownSessionId);
   const composerActions = useConversationPaneComposerActions({
     actions: {
-      submit: pane.submit,
+      submit: shownElsewhere
+        ? (content, options) => window.mixdogDesktop.submitToSession(shownSessionId, content, options)
+        : pane.submit,
       invokeResult: pane.invokeResult,
       applySnapshot: pane.applySnapshot,
       onNewTask: pane.onNewTask,

@@ -2586,9 +2586,6 @@ html:not([data-mixdog-mobile-tabs]) form.composer.composer[data-card] .composer-
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   animation: composer-dictation-status-enter var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
-.composer-dictation-status[data-state="transcribing"] {
-  padding-right: 12px;
-}
 .composer-dictation-status[data-state="recording"] .composer-dictation-cancel {
   margin-left: 2px;
 }

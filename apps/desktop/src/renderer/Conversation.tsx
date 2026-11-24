@@ -101,6 +101,7 @@ export function Conversation(props: ConversationProps) {
     steerItems: submission.steerItems,
     turnId: typeof snapshot.turnId === 'string' ? snapshot.turnId : '',
     sessionId: draftMode ? '' : routeSessionId,
+    recoveryScope: source.transcriptIdentity.current,
     invokeResult: actions.composerInvokeResult,
     applySnapshot: actions.composerApplySnapshot,
     submit: actions.composerSubmit,

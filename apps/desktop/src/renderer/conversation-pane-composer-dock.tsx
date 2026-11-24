@@ -14,6 +14,9 @@ import type { ConversationSubmission } from './use-conversation-submission';
 import { PaneHandOverContext, sessionRailPlace, useSessionRailSlot } from './session-rail-layout';
 import { useSurfaceActive } from './surface-activity';
 import { deferredModule, useDeferredModule } from './deferred-module';
+import { useAgentChatSession } from './agent-chat-mode';
+import { transcriptRowNamespace } from './transcript-virtual-cache';
+import { useHeldPromptRestore } from './use-composer-prompt-restore';
 
 // The panel's categories load with the first panel offered; until they have,
 // the composer keeps the island and the controls the panel would take.
@@ -24,6 +27,8 @@ export type ConversationComposerDockProps = Pick<
   | 'snapshot'
   | 'routeSnapshot'
   | 'sessionAddress'
+  | 'selectedSessionId'
+  | 'selectedUnavailable'
   | 'transitioning'
   | 'composerFocusRequest'
   | 'projects'
@@ -68,6 +73,20 @@ export type ConversationComposerDockProps = Pick<
   recoveryScope: string;
   hasConversation: boolean;
 };
+
+/** The composer's route while the session it belongs to is not loaded. */
+const UNLOADED_ROUTE = {
+  provider: '',
+  model: '',
+  effort: '',
+  fast: false,
+  fastCapable: false,
+  autoEffort: undefined,
+  modelParameters: undefined,
+  contextPercent: undefined,
+  contextTokens: undefined,
+};
+const NOTHING_LOADED: never[] = [];
 
 /** A route's own context size, when it reports one. */
 function routeContextTokens(routeSnapshot: Snapshot): number | undefined {
@@ -152,6 +171,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     snapshot,
     routeSnapshot,
     sessionAddress,
+    selectedSessionId,
     draftMode,
     draftId,
     agentMode = false,
@@ -208,6 +228,18 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     contextTokens: draftModelSelection ? draftModelSelection.contextTokens : routeContextTokens(routeSnapshot),
   };
   const routeSessionId = draftMode ? '' : String(routeSnapshot.sessionId || '');
+  // From the click on, the composer belongs to the session the pane was pointed at. Until that session's lane lands the
+  // pane still shows the outgoing one (or none), and nothing of the picked one is loaded: no route, turn, queue,
+  // question, prompt handed back or message to rewind.
+  const heldSessionId =
+    !draftMode && selectedSessionId && selectedSessionId !== routeSessionId ? selectedSessionId : '';
+  const held = Boolean(heldSessionId);
+  const heldAgentMode = useAgentChatSession(heldSessionId);
+  useHeldPromptRestore(
+    held ? (routeSnapshot.promptRestore ?? null) : null,
+    routeSessionId,
+    actions.composerQueuedRestored
+  );
   const reviewSessionId = draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '');
   const pendingInput = !draftMode && submission.steerItems.length > 0;
   const reviewBusy = Boolean(snapshot.busy || routeSnapshot.commandBusy);
@@ -307,42 +339,42 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       >
         <Composer
           onOpenFile={props.openFile}
-          turnBusy={Boolean(snapshot.busy)}
-          commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
+          turnBusy={!held && Boolean(snapshot.busy)}
+          commandBusy={!draftMode && !held && Boolean(routeSnapshot.commandBusy)}
           transitioning={transitioning}
+          held={held}
+          laneUnavailable={held && props.selectedUnavailable === true}
           focusRequest={composerFocusRequest}
-          historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}` : routeScope}
-          // The pane's session from its first frame: until its lane is read the route
-          // falls back to a scope every such pane shares.
-          identityScope={draftMode ? `draft:${draftId || 'default'}` : sessionAddress || routeScope}
-          recoveryScope={props.recoveryScope}
-          projectScope={draftMode ? activeProjectPath : routeProject}
-          sessionId={routeSessionId}
-          hasConversation={props.hasConversation}
-          promptHistoryList={routeSnapshot.promptHistoryList}
-          {...route}
+          historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}` : heldSessionId || routeScope}
+          identityScope={draftMode ? `draft:${draftId || 'default'}` : selectedSessionId || sessionAddress || routeScope}
+          recoveryScope={held ? transcriptRowNamespace(heldSessionId) : props.recoveryScope}
+          projectScope={draftMode ? activeProjectPath : held ? '' : routeProject}
+          sessionId={heldSessionId || routeSessionId}
+          hasConversation={held || props.hasConversation}
+          promptHistoryList={held ? undefined : routeSnapshot.promptHistoryList}
+          {...(held ? UNLOADED_ROUTE : route)}
           bare={railShown}
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied}
-          modelAside={modelAside}
-          sessionChoices={sessionChoices}
+          modelAside={held ? undefined : modelAside}
+          sessionChoices={held ? undefined : sessionChoices}
           // Before the first message the pickers stand in for the readout; the panel's Info rows, while it shows.
           contextBar={
-            contextControls && !railShown ? (
+            contextControls && !railShown && !held ? (
               <div className="composer-model-line-context">{conversationContextBar(props)}</div>
             ) : undefined
           }
-          usageReadout={draftMode ? undefined : usageReadout}
-          agentMode={agentMode}
-          steerItems={submission.steerItems}
-          pendingSubmissionIds={submission.pendingPromptIds}
+          usageReadout={draftMode || held ? undefined : usageReadout}
+          agentMode={held ? heldAgentMode : agentMode}
+          steerItems={held ? NOTHING_LOADED : submission.steerItems}
+          pendingSubmissionIds={held ? NOTHING_LOADED : submission.pendingPromptIds}
           onQueuedRestored={actions.composerQueuedRestored}
           onSlashHeld={submission.holdSlashCommand}
-          promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
-          userMessages={userMessages}
-          submit={submit}
-          placeholderOverride={island.answerHint}
+          promptRestore={draftMode || held ? null : (routeSnapshot.promptRestore ?? null)}
+          userMessages={held ? NOTHING_LOADED : userMessages}
+          submit={held ? actions.composerSubmit : submit}
+          placeholderOverride={held ? undefined : island.answerHint}
           abort={actions.composerAbort}
           invokeResult={actions.composerInvokeResult}
           applySnapshot={actions.composerApplySnapshot}
