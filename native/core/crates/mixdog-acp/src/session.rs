@@ -149,7 +149,8 @@ impl Routing {
     }
 
     fn turn_ended(&mut self) {
-        self.issued.clear();
+        let Self { issued, background, .. } = self;
+        issued.retain(|id| background.values().any(|call| &call.id == id));
     }
 }
 
@@ -512,7 +513,8 @@ impl AgentSession {
         for routed in unread {
             self.act(routed).await;
         }
-        // Ids carry their turn, so none of this turn's is issued again by a later one.
+        // Ids carry their turn, so none of this turn's is issued again by a later one; a call left running keeps its
+        // id, which the later turn that shows its result must not issue again.
         lock(&self.routing).turn_ended();
     }
 
