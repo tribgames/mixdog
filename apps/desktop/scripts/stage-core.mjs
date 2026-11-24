@@ -151,10 +151,15 @@ export async function stageCore({
 
   if (hostOnly) return null;
   if (prebuiltServerCores) return adoptServerCores({ source: prebuiltServerCores, serversDir, targetDir, version });
+  // Every binary is checked, in manifest order, before any payload is built: a missing one is reported the same
+  // way on every run, and no platform's build is left running after the staging has failed.
+  const sources = [];
+  for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
+    sources.push([key, await builtBinary(targetDir, target, key.split('-')[0])]);
+  }
   // The four platforms share nothing but the read-only pinned downloads, so they build side by side.
   const built = await Promise.all(
-    Object.entries(SERVER_PLATFORM_TARGETS).map(async ([key, target]) => {
-      const source = await builtBinary(targetDir, target, key.split('-')[0]);
+    sources.map(async ([key, source]) => {
       const payloadDir = join(runtimeDir, 'server-js', key);
       await buildPayload({ key, payloadDir, cacheDir: join(runtimeDir, 'node-cache') });
       await verifyPayload({ key, payloadDir });
