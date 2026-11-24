@@ -106,6 +106,7 @@ async fn world_over(data: tempfile::TempDir, running: &[&str], reads: impl FnOnc
     let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
     let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &root.join("core.sqlite")).expect("core state");
     let workers = Arc::new(StoreWorkers::new(index.clone(), threads.clone(), tokens.interactive_io, Arc::new(KeptRows::new(state))));
+    directory.set_row_writes(workers.clone()).expect("bind the row writes");
     let registry = Arc::new(AgentRegistry::new(workers, directory.clone(), Arc::new(NoReap), Arc::new(Held)));
     let live = Live(running.iter().map(|id| (*id).to_owned()).collect());
     let pool = Arc::new(AgentPool::new(Arc::new(RegistryPoolStore::new(registry.clone(), directory.clone())), Arc::new(live)));
