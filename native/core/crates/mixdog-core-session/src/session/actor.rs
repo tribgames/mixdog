@@ -4773,7 +4773,30 @@ impl SessionActor {
         }
     }
 
+    /// An agent's report of its context between model calls: the context's reading follows it, and no usage figure moves.
+    fn shown_context(&mut self, used: u64) {
+        let now = self.deps.clock.now_ms();
+        self.stats.measured(used as f64, now);
+        let set = [
+            ("lastContextTokens", json!(used)),
+            ("lastContextTokensUpdatedAt", json!(now)),
+            ("lastContextTokensStaleAfterCompact", json!(false)),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect();
+        self.defer_header(Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() }));
+        if let Some(run) = self.run.as_mut() {
+            run.journal.context(Some(used));
+        }
+        self.publish_stats();
+    }
+
     fn shown_usage(&mut self, report: super::run::UsageReport) {
+        let context_only = report.usage.raw.as_ref().filter(|raw| raw.get("context_only") == Some(&Value::Bool(true)));
+        if let Some(used) = context_only.and_then(|raw| raw.get("context_tokens")).and_then(Value::as_u64) {
+            return self.shown_context(used);
+        }
         if let Some(run) = self.run.as_mut() {
             run.live.usage(report.usage.output_tokens);
         }

@@ -93,8 +93,9 @@ export function agentProvider(provider: string): boolean {
 }
 
 /** Every control an agent's route has no use for when no model row names them: the agent runs its own reasoning and
- *  model options. Compact applies: the summary becomes the session's context and the agent starts a session on it. */
-const AGENT_NOT_APPLICABLE = ['effort', 'autoEffort', 'fast', 'contextWindow', 'fallbacks'];
+ *  model options. The context window applies, below the size the agent reports, and so does Compact: the summary
+ *  becomes the session's context and the agent starts a session on it. */
+const AGENT_NOT_APPLICABLE = ['effort', 'autoEffort', 'fast', 'fallbacks'];
 
 export interface AgentRoute {
   label: string;

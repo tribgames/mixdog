@@ -169,6 +169,21 @@ async fn the_boundary_is_the_explicit_one_capped_by_the_window_or_else_the_windo
     assert_eq!(boundary(json!({})).await, None, "no window, no boundary, no limit: nothing to compact against");
 }
 
+/// The header an agent's report leaves (`mixdog-acp`'s `window`): the agent's size is the raw window, and a window the user
+/// selected below it is the window and the boundary the session compacts at; with no selection the agent's whole window is.
+#[tokio::test]
+async fn an_agent_session_compacts_at_the_window_the_user_selected_below_the_agents_own() {
+    let agent = |effective: u64| {
+        json!({
+            "provider": "acp-antigravity", "contextWindow": effective, "compactBoundaryTokens": effective,
+            "rawContextWindow": 1_048_576, "acpContextWindow": 1_048_576, "selectedContextWindow": 400_000,
+        })
+    };
+    let trigger = |session: Value| async move { CompactPolicy::resolve(&compact_of(session, &[]).await).map(|policy| (policy.boundary_tokens, policy.trigger_tokens)) };
+    assert_eq!(trigger(agent(400_000)).await, Some((400_000, 400_000)));
+    assert_eq!(trigger(agent(1_048_576)).await, Some((1_048_576, 1_048_576)));
+}
+
 #[tokio::test]
 async fn a_main_session_reads_its_main_buffer_and_an_agent_owner_reads_its_own() {
     let compaction = json!({ "mainBuffer": 4_000, "bufferTokens": 9_000 });

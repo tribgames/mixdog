@@ -300,7 +300,12 @@ pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequ
             return end;
         }
     };
+    let (model, reports) = (context.model.clone(), session.context_reports());
     let end = crate::turn::run(&session, surface.clone(), Ask::Prompt(prompt), context).await;
+    // Only a window the agent reported in this turn is the turn's model's.
+    if let Some(reported) = session.context_use().filter(|_| session.context_reports() > reports) {
+        agents.window_reported(preset, &model, reported.size).await;
+    }
     // The agent connects to the session's tool server while it opens the session, or after it when that attempt took
     // too long: one that has not by the end of a turn it answered works with its own tools only.
     if matches!(end, TurnEnd::Completed { .. }) && session.take_unconnected() {
@@ -542,7 +547,8 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
     let model = header.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_MODEL).to_owned();
     let effort = header.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
     let clock = now_ms.clone();
-    let context = TurnContext { turn, model: model.clone(), effort, now_ms, cancel, progress, calls, on_tool_result, record: None };
+    let selected_window = header.get("selectedContextWindow").and_then(Value::as_u64).filter(|window| *window > 0);
+    let context = TurnContext { turn, model: model.clone(), effort, now_ms, cancel, progress, calls, on_tool_result, record: None, selected_window };
     let stop = context.cancel.clone();
     match serve(agents, preset, request, surface, context).await {
         TurnEnd::Failed { message, code, reported } => {
@@ -690,6 +696,7 @@ pub async fn ask_once(
             calls: None,
             on_tool_result: None,
             record: None,
+            selected_window: None,
         };
         let end = crate::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(blocks), context).await;
         account_learned(agents, preset, &end).await;

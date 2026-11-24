@@ -8,6 +8,7 @@ pub use mixdog_agent::env::CompactEvent;
 use mixdog_agent::env::Tone;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
+use mixdog_core_api::domain::provider::UsdTicks;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_session::session::ItemCommit;
 use mixdog_core_session::session::RunPort;
@@ -39,6 +40,11 @@ pub struct TurnUsage {
     /// The time the agent's model worked in the turn: the turn's time less the time its calls ran and waited on the
     /// user, which a provider's request time leaves out too.
     pub request_ms: u64,
+    /// The turn's whole run, from its start to its end, tool calls and waits included: the span the usage ledger records
+    /// the turn over, which the quota table spreads the turn's meter rises across.
+    pub run_ms: u64,
+    /// What the usage ledger priced the turn at, set by the one that records it: the cost the session's stats carry.
+    pub cost: Option<UsdTicks>,
 }
 
 /// What a turn's usage says of the context, as the session's reading takes it: the counts are the whole turn's, summed
@@ -66,7 +72,31 @@ pub fn provider_usage(usage: &TurnUsage) -> Usage {
         cache_read_tokens: usage.cached_read_tokens,
         reasoning_tokens: usage.thought_tokens,
         raw: Some(context_evidence(usage.context)),
+        cost: usage.cost,
         ..Usage::default()
+    }
+}
+
+/// The report of a turn's usage as the run takes it. The readout counts the prompt without its cache reads, so an answer
+/// whose input holds them states the prompt (the readout subtracts the reads), and one whose input leaves them out
+/// states none (the readout adds the reads back): the rule the usage ledger records its input by.
+fn usage_report(usage: TurnUsage) -> UsageReport {
+    let input_excludes_cache = input_excludes_cache(&usage);
+    UsageReport {
+        iteration: 1,
+        usage: provider_usage(&usage),
+        model: usage.model.clone(),
+        requested_model: usage.model,
+        delta_tool_calls: usage.tool_calls,
+        request_ms: usage.request_ms,
+        delta_prompt: if input_excludes_cache { 0 } else { usage.input_tokens },
+        send_tools: Arc::from(Vec::new()),
+        reasoning_tokens: usage.thought_tokens,
+        reasoning_tokens_complete: true,
+        outgoing: Arc::from(Vec::new()),
+        sent_at_ms: usage.started_at_ms,
+        input_excludes_cache,
+        tail_book: None,
     }
 }
 
@@ -80,17 +110,29 @@ pub trait TurnSurface: Send + Sync {
     async fn commit(&self, item: ItemCommit) -> Result<(), RunError>;
     async fn notice(&self, text: String, warn: bool) -> Result<(), RunError>;
     async fn usage(&self, usage: TurnUsage) -> Result<(), RunError>;
+    /// The agent reported its context mid-turn (`usage.context`, no tokens of the turn): the session's reading follows it
+    /// at once, and nothing is counted or recorded.
+    async fn context_update(&self, _usage: TurnUsage) -> Result<(), RunError> {
+        Ok(())
+    }
     /// What the turn streamed since its last progress record that no row holds yet (`text`, `reasoning`): the record the
     /// loop's run writes, which a restart restores as the turn's partial reply. Handed on in order with the rows.
     async fn draft(&self, body: serde_json::Value) -> Result<(), RunError>;
     async fn save_header(&self, change: HeaderChange) -> Result<(), RunError>;
-    /// The window the agent says it holds its context in: the session's window from here on, in every field the
-    /// session keeps a window in (the compaction boundary is the whole of it, as it is for a model's own window).
-    async fn window(&self, size: u64) -> Result<(), RunError> {
-        let set = ["contextWindow", "rawContextWindow", "compactBoundaryTokens", mixdog_core_session::session::turn_ops::AGENT_WINDOW]
-            .into_iter()
-            .map(|key| (key.to_owned(), serde_json::json!(size)))
-            .collect();
+    /// The window the agent says it holds its context in (`size`): the raw window. The effective window and the
+    /// compaction boundary are all of it, as for a model's own window, unless the user selected a window below it
+    /// (`selected`): that one is kept, and the report moves only the raw window.
+    async fn window(&self, size: u64, selected: Option<u64>) -> Result<(), RunError> {
+        let effective = selected.map_or(size, |selected| selected.min(size));
+        let set = [
+            ("contextWindow", effective),
+            ("rawContextWindow", size),
+            ("compactBoundaryTokens", effective),
+            (mixdog_core_session::session::turn_ops::AGENT_WINDOW, size),
+        ]
+        .into_iter()
+        .map(|(key, window)| (key.to_owned(), serde_json::json!(window)))
+        .collect();
         self.save_header(HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await
     }
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution;
@@ -138,23 +180,14 @@ impl TurnSurface for RunPort {
     }
 
     async fn usage(&self, usage: TurnUsage) -> Result<(), RunError> {
-        let input_excludes_cache = input_excludes_cache(&usage);
-        let report = UsageReport {
-            iteration: 1,
-            usage: provider_usage(&usage),
-            model: usage.model.clone(),
-            requested_model: usage.model,
-            delta_tool_calls: usage.tool_calls,
-            request_ms: usage.request_ms,
-            delta_prompt: 0,
-            send_tools: Arc::from(Vec::new()),
-            reasoning_tokens: usage.thought_tokens,
-            reasoning_tokens_complete: true,
-            outgoing: Arc::from(Vec::new()),
-            sent_at_ms: usage.started_at_ms,
-            input_excludes_cache,
-            tail_book: None,
-        };
+        RunPort::usage(self, usage_report(usage)).await
+    }
+
+    async fn context_update(&self, usage: TurnUsage) -> Result<(), RunError> {
+        let mut report = usage_report(usage);
+        if let Some(raw) = report.usage.raw.as_mut() {
+            raw["context_only"] = serde_json::json!(true);
+        }
         RunPort::usage(self, report).await
     }
 
@@ -205,6 +238,28 @@ mod tests {
     use mixdog_agent::compact::pressure::context_size;
 
     use super::*;
+
+    /// The session's readout counts a turn's input as the ledger does: the prompt less its cache reads. An answer whose
+    /// input holds the reads (gemini-cli) is not counted twice, and one whose input leaves them out (Antigravity) is
+    /// counted whole, so the same turn reads the same either way.
+    #[test]
+    fn the_readout_counts_an_input_by_the_rule_the_ledger_records_it_by() {
+        let readout = |usage: TurnUsage| {
+            let report = usage_report(usage);
+            let delta = serde_json::json!({
+                "promptKnown": true,
+                "deltaInput": report.usage.input_tokens,
+                "deltaCachedRead": report.usage.cache_read_tokens,
+                "deltaPrompt": report.delta_prompt,
+            });
+            let folded = mixdog_agent::compact::pressure::fold_usage_readout(None, &delta, None);
+            (folded["input"].clone(), folded["cacheRead"].clone())
+        };
+        let inclusive = TurnUsage { input_tokens: 1_000, output_tokens: 10, cached_read_tokens: 900, total_tokens: Some(1_010), ..TurnUsage::default() };
+        assert_eq!(readout(inclusive), (serde_json::json!(100), serde_json::json!(900)));
+        let exclusive = TurnUsage { input_tokens: 100, output_tokens: 10, cached_read_tokens: 900, total_tokens: Some(1_010), ..TurnUsage::default() };
+        assert_eq!(readout(exclusive), (serde_json::json!(100), serde_json::json!(900)));
+    }
 
     /// The session's reading of an agent's turn is what the agent says its context holds, never the turn's tokens: the
     /// answer's usage sums every model call the agent made in the turn (the figures are the real CLI's, a turn of two

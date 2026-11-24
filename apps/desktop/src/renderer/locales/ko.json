@@ -2895,6 +2895,8 @@
   "Last imported {{time}} · {{total}} cookies": "마지막 가져오기 {{time}} · 쿠키 {{total}}개",
   "Last input": "마지막 입력",
   "Last measured input": "컨텍스트 사용량",
+  "Last call, prompt and output": "마지막 호출의 프롬프트와 출력",
+  "Held by the agent": "에이전트가 보유",
   "Last output": "마지막 출력",
   "Last turn": "마지막 턴",
   "Last working position": "마지막 작업 위치",

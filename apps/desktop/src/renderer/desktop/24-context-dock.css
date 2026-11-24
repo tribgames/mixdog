@@ -169,6 +169,9 @@
 :is(.context-surface-view, .session-rail-context) [data-context-key="system"] {
   --ctx-color: var(--mx-chart-grey);
 }
+:is(.context-surface-view, .session-rail-context) [data-context-key="host"] {
+  --ctx-color: var(--mx-chart-gold);
+}
 :is(.context-surface-view, .session-rail-context) [data-context-key="free"] {
   --ctx-color: var(--mx-chart-grey);
 }

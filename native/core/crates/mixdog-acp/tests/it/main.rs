@@ -101,6 +101,8 @@ enum Event {
     Commit(ItemCommit),
     Notice(String),
     Usage(TurnUsage),
+    /// The agent's report of its context, made while the turn ran.
+    Context(TurnUsage),
     Header(HeaderChange),
     /// A step of the turn the spinner was told of.
     Mark(CallMark),
@@ -114,7 +116,7 @@ enum Event {
 
 /// Where the agents' refusals are kept: what a restart of the app finds again.
 #[derive(Default)]
-struct Kept(Mutex<HashMap<String, String>>);
+struct Kept(Mutex<HashMap<String, String>>, Mutex<mixdog_acp::agents::Windows>);
 
 #[async_trait]
 impl Refusals for Kept {
@@ -124,6 +126,14 @@ impl Refusals for Kept {
 
     async fn keep(&self, refusals: HashMap<String, String>) {
         *self.0.lock().unwrap() = refusals;
+    }
+
+    async fn read_windows(&self) -> mixdog_acp::agents::Windows {
+        self.1.lock().unwrap().clone()
+    }
+
+    async fn keep_windows(&self, windows: mixdog_acp::agents::Windows) {
+        *self.1.lock().unwrap() = windows;
     }
 }
 
@@ -137,6 +147,8 @@ struct Turns {
     calls: Option<Arc<HandedCalls>>,
     /// The agent's context reached the session's compaction trigger.
     due: Option<mixdog_acp::runs::Due>,
+    /// The window the user selected for the session, below the agent's own.
+    selected_window: Option<u64>,
     /// The turn is stopped with this token while the summary is being made, which then never comes.
     stops_summary: Option<CancellationToken>,
     /// The turn is stopped with this token as the attachment `stop` is read for the prompt, before the prompt is sent.
@@ -304,6 +316,10 @@ impl TurnSurface for Surface {
 
     async fn usage(&self, usage: TurnUsage) -> Result<(), RunError> {
         self.record(Event::Usage(usage))
+    }
+
+    async fn context_update(&self, usage: TurnUsage) -> Result<(), RunError> {
+        self.record(Event::Context(usage))
     }
 
     async fn draft(&self, body: Value) -> Result<(), RunError> {
@@ -513,6 +529,7 @@ impl World {
             calls: None,
             on_tool_result: None,
             record: None,
+            selected_window: None,
         }
     }
 
@@ -543,7 +560,7 @@ impl World {
             conversation: turns.clone(),
             attachments: turns.clone(),
         };
-        let context = TurnContext { model: model.to_owned(), calls: turns.calls.clone(), ..self.context(cancel) };
+        let context = TurnContext { model: model.to_owned(), calls: turns.calls.clone(), selected_window: turns.selected_window, ..self.context(cancel) };
         mixdog_acp::runs::serve(&self.agents, &self.preset, request, Arc::new(surface.clone()), context).await
     }
 
@@ -3093,10 +3110,139 @@ async fn the_agents_report_of_its_context_is_the_turns_reading_and_the_sessions_
     };
     assert_eq!(usage(&surface).expect("the turn's usage").context, reported);
 
+    // The reading follows the report while the turn runs: it was told before the prompt's answer closed the turn, and
+    // carries no tokens of the turn.
+    let kinds: Vec<&str> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Context(usage) => {
+                assert_eq!((usage.context, usage.input_tokens, usage.output_tokens), (reported, 0, 0));
+                Some("context")
+            }
+            Event::Usage(_) => Some("usage"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds, ["context", "usage"], "{events:?}");
+
     let next = Surface::default();
     within("the next turn", world.prompt(&thread(), &next, "whoami", None, CancellationToken::new())).await;
     assert_eq!(usage(&next).expect("the next turn's usage").context, reported);
     assert!(!next.events().iter().any(|event| matches!(event, Event::Header(_))), "{:?}", next.events());
+}
+
+/// The agent's size is the raw window. A window the user selected below it stays the session's effective window and
+/// compaction boundary through every report the agent makes, and one above it is the agent's whole; once the agent has
+/// reported, its routes' rows state the window, so the window control applies to them.
+#[tokio::test]
+async fn a_selected_window_below_the_agents_is_kept_when_the_agent_reports_its_own() {
+    let world = World::new(&[]);
+    let windows = |surface: &Surface| -> Vec<HeaderChange> {
+        surface
+            .events()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Header(change) if change.set.contains_key("rawContextWindow") => Some(change),
+                _ => None,
+            })
+            .collect()
+    };
+    let input = || json!({ "role": "user", "content": "stream" });
+    let before = world.agents.status();
+    assert_eq!(before["agents"][0]["contextWindows"], json!({}));
+    assert!(world.agents.window_meta(&world.preset, "default").is_none() && !world.agents.picker_rows().iter().any(|row| row.get("maxContextWindow").is_some()));
+    for (selected, effective) in [(Some(400), 400), (Some(5_000), 1000), (None, 1000)] {
+        let surface = Surface::default();
+        let turns = Turns { selected_window: selected, ..Turns::default() };
+        let thread_stored = None;
+        within("the turn", world.serve_with(&surface, input(), thread_stored, Some("RULES"), "default", CancellationToken::new(), turns)).await;
+        let changes = windows(&surface);
+        assert_eq!(changes.len(), 1, "{selected:?}: {:?}", surface.events());
+        for (key, want) in
+            [("contextWindow", effective), ("compactBoundaryTokens", effective), ("rawContextWindow", 1000), (mixdog_core_session::session::turn_ops::AGENT_WINDOW, 1000)]
+        {
+            assert_eq!(changes[0].set.get(key), Some(&json!(want)), "{selected:?} {key}");
+        }
+        world.agents.end_process(&thread());
+    }
+    assert_eq!(world.agents.window_meta(&world.preset, "default"), Some(json!({ "contextWindow": 1000, "maxContextWindow": 1000 })));
+    let row = world.agents.model_row(&world.preset, "default");
+    assert_eq!((&row["contextWindow"], &row["maxContextWindow"]), (&json!(1000), &json!(1000)));
+    assert!(!row["notApplicable"].as_array().unwrap().contains(&json!("contextWindow")), "{row}");
+    // A newly reported window changes the settings value's `acpAgents`, which is what has the desktop read its catalog again.
+    let after = world.agents.status();
+    assert_ne!(after["agents"], before["agents"]);
+    assert_eq!(after["agents"][0]["contextWindows"], json!({ "default": 1000 }));
+    // The window is the reported model's: its row carries it, and no other model's row of the agent does.
+    let rows = world.agents.picker_rows();
+    assert!(rows.iter().any(|row| row["id"] == "default"), "{rows:?}");
+    for row in &rows {
+        let carries = row.get("maxContextWindow") == Some(&json!(1000));
+        assert_eq!(carries, row["id"] == "default", "{row}");
+    }
+}
+
+/// What an agent last reported of its window is kept with the agents' other state: an app that starts over it sizes the
+/// agent's routes by that window before the agent reports again, and an agent that never reported has none.
+#[tokio::test]
+async fn the_window_an_agent_reported_is_kept_across_a_restart_of_the_app() {
+    let mut world = World::new(&[]);
+    let input = json!({ "role": "user", "content": "stream" });
+    within("the turn", world.serve_with(&Surface::default(), input, None, Some("RULES"), "default", CancellationToken::new(), Turns::default())).await;
+    let reported = Some(json!({ "contextWindow": 1000, "maxContextWindow": 1000 }));
+    assert_eq!(world.agents.window_meta(&world.preset, "default"), reported);
+
+    world.restart();
+    assert!(world.agents.window_meta(&world.preset, "default").is_none(), "nothing is read before the app restores it");
+    world.agents.restore_windows().await;
+    assert_eq!(world.agents.window_meta(&world.preset, "default"), reported);
+    assert_eq!(world.agents.model_row(&world.preset, "default")["maxContextWindow"], json!(1000));
+
+    let fresh = World::new(&[]);
+    fresh.agents.restore_windows().await;
+    assert!(fresh.agents.window_meta(&fresh.preset, "default").is_none(), "an agent that never reported has none");
+}
+
+/// A route saved under the agent's own id of one effort tier of a grouped model reports its window for the grouped model:
+/// the picker's row of it, and a route that names the grouped model, find it.
+#[tokio::test]
+async fn a_window_reported_on_an_effort_tier_is_the_grouped_models() {
+    let models = r#"[{"modelId":"gem-low","name":"Gem (Low)"},{"modelId":"gem-high","name":"Gem (High)"},{"modelId":"solo","name":"Solo"}]"#;
+    let world = World::new(&[("FAKE_AGENT_MODELS", models)]);
+    world.checked().await;
+    let input = json!({ "role": "user", "content": "stream" });
+    within("the turn", world.serve_with(&Surface::default(), input, None, Some("RULES"), "gem-high", CancellationToken::new(), Turns::default())).await;
+    assert_eq!(world.agents.reported_window(&world.preset, "gem"), Some(1000));
+    assert_eq!(world.agents.reported_window(&world.preset, "gem-low"), Some(1000), "the tier's own id names the same model");
+    assert_eq!(world.agents.reported_window(&world.preset, "solo"), None);
+    let rows = world.agents.picker_rows();
+    let gem = rows.iter().find(|row| row["id"] == "gem").expect("the grouped model's row");
+    assert_eq!(gem["maxContextWindow"], json!(1000));
+    assert_eq!(world.agents.status()["agents"][0]["contextWindows"], json!({ "gem": 1000 }));
+}
+
+/// One agent serves models of different sizes: the window it reported on one model is that model's alone, in the rows, in
+/// what sizes a route, and across a restart. A model it never reported a window on has none.
+#[tokio::test]
+async fn the_window_an_agent_reported_is_its_models_and_no_other_model_of_the_agent() {
+    let models = r#"[{"modelId":"gem","name":"Gem"},{"modelId":"solo","name":"Solo"}]"#;
+    let mut world = World::new(&[("FAKE_AGENT_MODELS", models)]);
+    world.checked().await;
+    let input = json!({ "role": "user", "content": "stream" });
+    within("the turn", world.serve_with(&Surface::default(), input, None, Some("RULES"), "gem", CancellationToken::new(), Turns::default())).await;
+    let sized = |world: &World| -> Vec<(String, bool)> {
+        world.agents.picker_rows().iter().map(|row| (row["id"].as_str().unwrap().to_owned(), row.get("maxContextWindow") == Some(&json!(1000)))).collect()
+    };
+    let want = vec![("default".to_owned(), false), ("gem".to_owned(), true), ("solo".to_owned(), false)];
+    assert_eq!(sized(&world), want);
+    assert!(world.agents.window_meta(&world.preset, "solo").is_none() && world.agents.model_row(&world.preset, "solo").get("maxContextWindow").is_none());
+    assert_eq!(world.agents.reported_window(&world.preset, "gem"), Some(1000));
+
+    world.restart();
+    world.agents.restore_windows().await;
+    world.checked().await;
+    assert_eq!(sized(&world), want, "kept per model across a restart");
+    assert_eq!(world.agents.reported_window(&world.preset, "solo"), None);
 }
 
 /// A context that reached the session's trigger is compacted where a provider's is, before the prompt is sent: the

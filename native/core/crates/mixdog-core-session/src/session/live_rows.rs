@@ -234,6 +234,17 @@ mod tests {
         assert_eq!(row["contextMeasuredTokens"], json!(240));
     }
 
+    /// A call whose report states its cost (an agent's turn, as the usage ledger priced it) carries it into the session's
+    /// stats; a call that states none carries none.
+    #[test]
+    fn a_usage_that_states_its_cost_carries_it_into_the_sessions_stats() {
+        let priced = Usage { input_tokens: 10, cost: Some(mixdog_core_api::domain::provider::UsdTicks(473_430_000)), ..Usage::default() };
+        let mut stats = super::super::stats::SessionStats::default();
+        stats.fold(&usage_delta("s", &report(priced), 5));
+        assert_eq!(stats.json(1)["costUsd"], json!(0.047343));
+        assert!(usage_delta("s", &report(Usage::default()), 5).get("costUsd").is_none());
+    }
+
     #[test]
     fn a_single_hop_usage_measures_the_context_on_what_was_billed() {
         let usage = Usage { input_tokens: 1000, cache_read_tokens: 900, raw: Some(json!({ "initialPromptTokenCount": 1000 })), ..Usage::default() };
@@ -343,7 +354,7 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
         })
         .collect();
     let (context, context_prompt) = first_hop_context(usage, report.delta_prompt);
-    json!({
+    let mut delta = json!({
         "sessionId": session_id,
         "iterationIndex": report.iteration,
         "source": "provider_send",
@@ -367,5 +378,10 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
         "contextMeasuredTokens": mixdog_agent::compact::pressure::measured_context_tokens(&context),
         "sendTools": tools,
         "ts": ts,
-    })
+    });
+    // What the call cost, where the report states it: the session's spend is what the usage ledger records.
+    if let Some(cost) = usage.cost {
+        delta["costUsd"] = json!(cost.0 as f64 / mixdog_core_api::domain::provider::UsdTicks::PER_USD as f64);
+    }
+    delta
 }

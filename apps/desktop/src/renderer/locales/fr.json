@@ -3009,6 +3009,8 @@
   "Last imported {{time}} · {{total}} cookies": "Dernier import {{time}} · {{total}} cookies",
   "Last input": "Dernière saisie",
   "Last measured input": "Dernière entrée mesurée",
+  "Last call, prompt and output": "Dernier appel, prompt et sortie",
+  "Held by the agent": "Conservé par l'agent",
   "Last output": "Dernière sortie",
   "Last turn": "Dernier tour",
   "Last working position": "Dernière position de travail",

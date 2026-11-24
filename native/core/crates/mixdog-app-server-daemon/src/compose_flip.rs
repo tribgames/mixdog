@@ -1612,6 +1612,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             args: vec![crate::acp_tools::BRIDGE_SUBCOMMAND.to_owned()],
         }),
     });
+    // The window each agent reported before this start is the one its routes are sized by until it reports again.
+    acp_agents.restore_windows().await;
     // The turn path's own request source, for the tools an agent is handed (bound to the agents once the dispatcher is).
     let acp_next = side_wiring.next();
     // A reply an agent begins with no prompt open gets a turn of its own, queued as a notification of the thread.
@@ -3377,6 +3379,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // the tool surface a new route rebuilds through the surface host. `prepare_tools` is Node's `_prepareResumeTools`.
     let route_facts_ai = Arc::new(mixdog_core::run_host::route_surface::AiRouteFacts {
         catalog: b.catalog.clone(),
+        agent_window: {
+            let agents = acp_agents.clone();
+            Arc::new(move |provider: &str, model: &str| agents.preset_of_route(provider).and_then(|preset| agents.reported_window(preset, model)))
+        },
         auto_clear: Arc::new({
             let config = config.clone();
             move || config.agent().get("autoClear").cloned().unwrap_or(serde_json::Value::Null)

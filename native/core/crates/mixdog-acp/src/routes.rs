@@ -67,7 +67,7 @@ impl RouteFacts for AgentRouteFacts {
 
     fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
         match self.agents.preset_of_route(provider) {
-            Some(_) => None,
+            Some(preset) => self.agents.window_meta(preset, model),
             None => self.inner.window_meta(provider, model, meta),
         }
     }

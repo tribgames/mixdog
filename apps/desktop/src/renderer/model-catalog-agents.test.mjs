@@ -13,7 +13,7 @@ const { createRoot } = await import('react-dom/client');
 const { ModelCatalog, filterConfiguredModels } = await import('./model-catalog.tsx');
 const { normalizedProviderModels } = await import('../shared/desktop-transcript-limits.ts');
 
-const NOT_APPLICABLE = ['effort', 'autoEffort', 'fast', 'contextWindow', 'fallbacks'];
+const NOT_APPLICABLE = ['effort', 'autoEffort', 'fast', 'fallbacks'];
 const provider = (id, model, display) => ({ provider: id, id: model, name: display, display });
 // `model/list` as the core answers it with Antigravity ACP ready: providers' models, then the agent's rows.
 // A model the agent runs at several tiers is one row whose tiers are its efforts; the others take no effort.

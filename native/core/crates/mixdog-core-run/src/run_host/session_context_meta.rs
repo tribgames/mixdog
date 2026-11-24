@@ -195,6 +195,18 @@ mod tests {
 
     use super::*;
 
+    /// An agent's route, which no catalog row sizes, starts from the window the agent last reported (the seed's raw window)
+    /// and takes all of it by default, rather than from the family guess.
+    #[test]
+    fn an_agents_route_starts_from_the_window_it_reported_and_not_from_a_guess() {
+        let meta = |seed: Value| resolve_context_meta(None, None, "acp-antigravity", "default", &seed, false);
+        let reported = meta(json!({ "rawContextWindow": 1_048_576 }));
+        assert_eq!((reported.context_window, reported.raw_context_window), (json!(1_048_576), json!(1_048_576)));
+        assert_eq!(meta(json!({})).raw_context_window, json!(128_000), "an agent that never reported stays on the guess");
+        let selected = meta(json!({ "rawContextWindow": 1_048_576, "selectedContextWindow": 400_000 }));
+        assert_eq!((selected.context_window, selected.raw_context_window), (json!(400_000), json!(400_000)));
+    }
+
     #[test]
     fn the_catalog_outranks_a_stale_cached_window_and_a_live_field_outranks_both() {
         let row = |value: Value| value.as_object().cloned();

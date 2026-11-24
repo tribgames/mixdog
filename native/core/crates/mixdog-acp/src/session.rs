@@ -185,6 +185,8 @@ pub struct AgentSession {
     closes: bool,
     /// The agent's last report of its own context.
     context: Mutex<Option<ContextUse>>,
+    /// How many reports of its context the agent has made.
+    reports: std::sync::atomic::AtomicU64,
     /// Mixdog's prompt, where the agent's system prompt took none of it: the next prompt's text carries it.
     unsent: Mutex<Option<String>>,
     /// Set once the agent connected to the session's tool server; `None` for a session that was handed none. The agent
@@ -396,6 +398,7 @@ impl AgentSession {
             embedded: capabilities.pointer("/agentCapabilities/promptCapabilities/embeddedContext") == Some(&Value::Bool(true)),
             closes: capabilities.pointer("/agentCapabilities/sessionCapabilities/close").is_some(),
             context: Mutex::default(),
+            reports: std::sync::atomic::AtomicU64::new(0),
             unsent: Mutex::new(unsent),
             connected,
             told_unconnected: AtomicBool::new(false),
@@ -582,6 +585,11 @@ impl AgentSession {
         }
     }
 
+    /// How many reports of its own context the agent has made in this session.
+    pub fn context_reports(&self) -> u64 {
+        self.reports.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// The agent's last report of its own context; `None` until it made one.
     pub fn context_use(&self) -> Option<ContextUse> {
         *lock(&self.context)
@@ -593,6 +601,7 @@ impl AgentSession {
             && let Some(reported) = ContextUse::of(&params["update"])
         {
             *lock(&self.context) = Some(reported);
+            self.reports.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         let mut routing = lock(&self.routing);
         if routing.unanswered.is_some() {

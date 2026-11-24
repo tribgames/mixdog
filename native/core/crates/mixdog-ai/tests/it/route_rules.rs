@@ -222,6 +222,19 @@ fn the_default_window_is_chosen_unless_a_percent_or_a_token_count_says_otherwise
     assert_eq!((same.context_percent, same.selected_context_window, same.context_tokens), (Some(20.0), Some(200_000.0), None));
 }
 
+/// An agent's whole reported window is its default, as a local model's is (a provider's window above the ceiling
+/// defaults below it): a selection goes below it, and choosing nothing selects all of it.
+#[test]
+fn an_agents_default_window_is_all_of_what_it_reported() {
+    let meta = json!({"contextWindow": 1_048_576, "maxContextWindow": 1_048_576});
+    let default = state(json!({"provider": "acp-antigravity"}), meta.clone());
+    assert_eq!((default.context_percent, default.selected_context_window), (Some(100.0), Some(1_048_576.0)));
+    let half = state(json!({"provider": "acp-antigravity", "contextPercent": 50}), meta.clone());
+    assert_eq!((half.context_percent, half.selected_context_window), (Some(50.0), Some(524_288.0)));
+    let provider = state(json!({"provider": "openai"}), meta);
+    assert_eq!(provider.selected_context_window, Some(500_000.0), "a provider's window above the ceiling defaults to the ceiling");
+}
+
 #[test]
 fn a_token_count_never_selects_less_than_a_tenth_of_the_largest_window() {
     let meta = json!({"contextWindow": 200_000, "maxContextWindow": 1_000_000});

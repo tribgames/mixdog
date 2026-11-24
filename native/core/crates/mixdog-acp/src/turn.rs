@@ -96,6 +96,9 @@ pub struct TurnContext {
     /// The header change that records the agent's session with the conversation. It is saved once the prompt is
     /// written to the agent and never before: a session is recorded only as holding what the prompt carried to it.
     pub record: Option<HeaderChange>,
+    /// The window the user selected for the session, below the agent's own: it sets the effective window and the
+    /// compaction boundary, and the agent's reports move only the raw window.
+    pub selected_window: Option<u64>,
 }
 
 /// What a turn's owner hears of each tool result: its card diff, where it has one.
@@ -110,31 +113,38 @@ impl TurnContext {
     }
 }
 
-/// The time the agent's model worked in a turn, told apart by the steps the spinner shows: the turn's time less the
-/// time it showed a call running or waiting on the user.
+/// The time the agent's model spent producing output in a turn: the sum of its streaming windows. A window runs from
+/// the first output or thought chunk after the turn's start or after a tool result to the last chunk before the next
+/// tool call or the turn's end. The prompt's dispatch, the agent's start, the wait for a first chunk, a tool's
+/// execution and an approval wait are in no window, so the output over this time is a decode speed. A turn that streamed
+/// no chunk has no time.
 #[derive(Debug, Default)]
 struct ModelTime {
-    /// When the turn's step became a call's, while it is one.
-    calls_since: Option<i64>,
-    calls_ms: i64,
+    /// The first and the last chunk of the window that is open.
+    window: Option<(i64, i64)>,
+    closed_ms: i64,
 }
 
 impl ModelTime {
-    fn mark(&mut self, mark: CallMark, now: i64) {
-        let calls = matches!(mark, CallMark::ToolCall | CallMark::ToolApproval);
-        match (calls, self.calls_since) {
-            (true, None) => self.calls_since = Some(now),
-            (false, Some(since)) => {
-                self.calls_ms += (now - since).max(0);
-                self.calls_since = None;
-            }
-            _ => {}
+    /// A chunk of the agent's output or thought arrived.
+    fn chunk(&mut self, now: i64) {
+        match &mut self.window {
+            Some((_, last)) => *last = now,
+            None => self.window = Some((now, now)),
         }
     }
 
-    fn worked_ms(&self, started_at_ms: i64, now: i64) -> u64 {
-        let calls = self.calls_ms + self.calls_since.map_or(0, |since| (now - since).max(0));
-        (now - started_at_ms - calls).max(0) as u64
+    /// The window ends at its last chunk when the agent turns to a call or waits on the user.
+    fn mark(&mut self, mark: CallMark) {
+        if matches!(mark, CallMark::ToolCall | CallMark::ToolApproval)
+            && let Some((first, last)) = self.window.take()
+        {
+            self.closed_ms += (last - first).max(0);
+        }
+    }
+
+    fn worked_ms(&self) -> u64 {
+        (self.closed_ms + self.window.map_or(0, |(first, last)| (last - first).max(0))) as u64
     }
 }
 
@@ -231,6 +241,8 @@ struct Reply<'a> {
     reported: bool,
     /// The window the session was last told the agent holds its context in.
     window: Option<u64>,
+    /// The occupancy the session was last told the agent's context holds.
+    occupancy: Option<u64>,
     /// The last text chunk, held back while it has the form of the agent's notice of a failure of its own: the prompt's
     /// end tells whether it is one, and anything the agent sends after it shows it as the reply's.
     held: Option<String>,
@@ -288,7 +300,7 @@ impl Reply<'_> {
     async fn mark(&mut self, mark: CallMark) {
         if self.marked != Some(mark) {
             self.marked = Some(mark);
-            self.model_time.mark(mark, (self.context.now_ms)());
+            self.model_time.mark(mark);
             let _ = self.surface.call_mark(mark).await;
         }
     }
@@ -331,7 +343,17 @@ impl Reply<'_> {
         self.reported = true;
         if self.window != Some(context.size) {
             self.window = Some(context.size);
-            self.surface.window(context.size).await?;
+            self.surface.window(context.size, self.context.selected_window).await?;
+        }
+        if self.occupancy != Some(context.used) && context.used > 0 {
+            self.occupancy = Some(context.used);
+            let usage = TurnUsage {
+                context: Some(context),
+                model: self.context.model.clone(),
+                started_at_ms: (self.context.now_ms)(),
+                ..TurnUsage::default()
+            };
+            self.surface.context_update(usage).await?;
         }
         Ok(())
     }
@@ -390,6 +412,7 @@ impl Reply<'_> {
     async fn text(&mut self, chunk: &str) -> Result<(), RunError> {
         self.context.mark(|progress, now| progress.stream_delta(StreamKind::Text, now));
         self.mark(CallMark::Streaming).await;
+        self.model_time.chunk((self.context.now_ms)());
         self.said.push_str(chunk);
         let shown = match &mut self.text {
             Some((_, text)) => {
@@ -425,6 +448,7 @@ impl Reply<'_> {
     async fn thought(&mut self, chunk: &str) -> Result<(), RunError> {
         self.context.mark(|progress, now| progress.stream_delta(StreamKind::Reasoning, now));
         self.mark(CallMark::Streaming).await;
+        self.model_time.chunk((self.context.now_ms)());
         let surface = self.surface.clone();
         self.end_text(surface.as_ref()).await?;
         if self.reasoning.is_none() {
@@ -878,13 +902,14 @@ enum Ended {
 }
 
 /// What the turn reports of its tokens: the prompt answer's usage, and the agent's own report of its context
-/// (`reported`). `None` for a turn that has neither. `(started_at_ms, request_ms)`: when the turn started, and how long
-/// the agent's model worked in it.
+/// (`reported`). `None` for a turn that has neither. `(started_at_ms, request_ms, run_ms)`: when the turn started, how
+/// long the agent's model streamed in it (what its speed is read over), and how long the whole turn ran (what the ledger
+/// records it over).
 fn usage_of(
     answer: &Value,
     reported: Option<ContextUse>,
     context: &TurnContext,
-    (started_at_ms, request_ms): (i64, u64),
+    (started_at_ms, request_ms, run_ms): (i64, u64, u64),
     tool_calls: u64,
 ) -> Option<TurnUsage> {
     let usage = answer.get("usage").filter(|usage| usage.is_object());
@@ -903,7 +928,14 @@ fn usage_of(
         tool_calls,
         started_at_ms,
         request_ms,
+        run_ms,
+        cost: None,
     })
+}
+
+/// A turn's timing at its end `now_ms`: `(started_at_ms, request_ms, run_ms)` of [`usage_of`].
+fn timing_of(started_at_ms: i64, time: &ModelTime, now_ms: i64) -> (i64, u64, u64) {
+    (started_at_ms, time.worked_ms(), (now_ms - started_at_ms).max(0) as u64)
 }
 
 /// The protocol's answer to a request about a resource the agent does not hold (`RESOURCE_NOT_FOUND`): the code a
@@ -955,6 +987,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         differ: LineDiffer::new(),
         reported: false,
         window: None,
+        occupancy: None,
         held: None,
         draft: Draft::default(),
     };
@@ -1068,7 +1101,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let _ = reply.show_held().await;
             reply.close(surface.as_ref(), ("The agent's turn failed before this call ended.", true)).await;
             session.detach(stream, Vec::new()).await;
-            let timing = (started_at_ms, reply.model_time.worked_ms(started_at_ms, (context.now_ms)()));
+            let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&Value::Null, reported, &context, timing, tool_calls) {
                 let _ = surface.usage(usage).await;
             }
@@ -1091,7 +1124,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let background = reply.close(surface.as_ref(), ("Still running in the agent's background.", false)).await;
             session.detach(stream, background).await;
             let answer = answer.unwrap_or(Value::Null);
-            let timing = (started_at_ms, reply.model_time.worked_ms(started_at_ms, (context.now_ms)()));
+            let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&answer, session.context_use(), &context, timing, tool_calls) {
                 let _ = surface.usage(usage).await;
             }
@@ -1128,7 +1161,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let closing = surface.closing();
             reply.close(closing.as_ref(), ("Cancelled", true)).await;
             session.detach(stream, Vec::new()).await;
-            let timing = (started_at_ms, reply.model_time.worked_ms(started_at_ms, (context.now_ms)()));
+            let timing = timing_of(started_at_ms, &reply.model_time, (context.now_ms)());
             if let Some(usage) = usage_of(&Value::Null, reported, &context, timing, tool_calls) {
                 let _ = closing.usage(usage).await;
             }
@@ -1144,24 +1177,76 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
 mod tests {
     use super::*;
 
-    /// The request time an agent's turn reports, which the output speed is read over, is the time its model worked: the
-    /// turn's time less the time a call ran or waited on the user's approval, as a provider's request time leaves out
-    /// the calls between its requests. A call still running when the turn ends is left out up to the end.
+    /// The turn's output speed as the session's readout shows it: its output tokens over the model time the turn reports,
+    /// `None` where the readout folds no speed.
+    fn speed(time: &ModelTime, output_tokens: u64) -> Option<f64> {
+        let delta = serde_json::json!({ "deltaOutput": output_tokens, "requestMs": time.worked_ms() });
+        let readout = mixdog_agent::compact::pressure::fold_usage_readout(None, &delta, delta.get("requestMs"));
+        let (tokens, ms) = (readout["requestOutputTokens"].as_f64()?, readout["requestMs"].as_f64()?);
+        (ms > 0.0).then(|| tokens / (ms / 1000.0))
+    }
+
+    /// Turn 1 of the recorded session: 172 output tokens, a thinking stream of 524 ms that began 5187 ms into a turn of
+    /// 5711 ms. The wall time (prompt dispatch, agent start, the wait for the first chunk) is in no window, so the speed
+    /// is the decode speed and not the 30 tok/s the wall time gives.
     #[test]
-    fn a_turns_request_time_leaves_out_its_calls_and_their_approval_waits() {
+    fn a_turns_model_time_is_its_streaming_window_and_not_its_wall_time() {
         let mut time = ModelTime::default();
-        for (mark, at) in [
-            (CallMark::Streaming, 10),
-            (CallMark::ToolCall, 100),
-            (CallMark::ToolApproval, 150),
-            (CallMark::ToolCall, 300),
-            (CallMark::ToolPhaseCompleted, 400),
-            (CallMark::Streaming, 450),
-        ] {
-            time.mark(mark, at);
+        for at in [5_187, 5_300, 5_450, 5_711] {
+            time.chunk(at);
         }
-        assert_eq!(time.worked_ms(0, 600), 300, "600 ms of turn, 300 of them in a call and its approval");
-        time.mark(CallMark::ToolCall, 650);
-        assert_eq!(time.worked_ms(0, 700), 350, "a call still running at the end is no model time");
+        assert_eq!(time.worked_ms(), 524);
+        let speed = speed(&time, 172).expect("a speed");
+        assert!((speed - 328.2).abs() < 0.1, "{speed}");
+        assert!(172.0 / 5.711 < 31.0, "the wall time would have given about 30 tok/s");
+    }
+
+    /// Streamed segments with a call between them: the model time is the segments' sum; the call's execution and its
+    /// approval wait are outside every window, as is the wait for the first chunk after the call's result.
+    #[test]
+    fn a_turns_model_time_leaves_out_its_calls_their_approval_waits_and_the_waits_for_a_chunk() {
+        let mut time = ModelTime::default();
+        time.mark(CallMark::Streaming);
+        time.chunk(1_000);
+        time.chunk(1_500);
+        time.mark(CallMark::ToolCall);
+        time.mark(CallMark::ToolApproval);
+        time.mark(CallMark::ToolCall);
+        time.mark(CallMark::ToolPhaseCompleted);
+        time.mark(CallMark::Streaming);
+        assert_eq!(time.worked_ms(), 500, "the first segment, closed by the call");
+        time.chunk(4_200);
+        time.chunk(4_700);
+        assert_eq!(time.worked_ms(), 1_000, "the second segment opens at its first chunk, 2.7 s after the call began");
+        time.mark(CallMark::ToolCall);
+        assert_eq!(time.worked_ms(), 1_000, "a call still running at the end adds nothing");
+        assert_eq!(speed(&time, 300), Some(300.0));
+    }
+
+    /// A turn with a call between streamed segments reports two spans: the streaming windows' sum, which its speed in the
+    /// session's readout is read over, and the whole run, which the ledger records it over so the quota table's spread of
+    /// the turn's meter rises covers all of it.
+    #[test]
+    fn a_turn_with_calls_between_its_segments_reports_its_windows_to_the_readout_and_its_whole_run_to_the_ledger() {
+        let mut time = ModelTime::default();
+        time.chunk(1_000);
+        time.chunk(1_500);
+        time.mark(CallMark::ToolCall);
+        time.mark(CallMark::ToolPhaseCompleted);
+        time.chunk(4_200);
+        time.chunk(4_700);
+        assert_eq!(timing_of(200, &time, 5_000), (200, 1_000, 4_800));
+        assert_eq!(timing_of(200, &ModelTime::default(), 5_000), (200, 0, 4_800), "no chunk: no model time, the same run");
+    }
+
+    /// A turn that streamed no chunk, or whose chunks all came at once, has no model time, and the readout shows no
+    /// speed for it, never one over the wall time.
+    #[test]
+    fn a_turn_without_a_streaming_window_has_no_speed() {
+        let none = ModelTime::default();
+        assert_eq!((none.worked_ms(), speed(&none, 172)), (0, None));
+        let mut once = ModelTime::default();
+        once.chunk(5_000);
+        assert_eq!((once.worked_ms(), speed(&once, 172)), (0, None));
     }
 }
