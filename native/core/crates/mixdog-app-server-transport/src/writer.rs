@@ -410,6 +410,16 @@ enum Pick {
     Lane(u64),
 }
 
+/// The entries a drained queue keeps room for, so a steady trickle does not allocate per frame.
+const RETAINED: usize = 16;
+
+/// Frees a drained queue's capacity; a queue still holding entries is in use and keeps it.
+fn drained<T>(queue: &mut VecDeque<T>) {
+    if queue.is_empty() && queue.capacity() > RETAINED {
+        queue.shrink_to_fit();
+    }
+}
+
 #[derive(Default)]
 struct State {
     closing: Option<Closing>,
@@ -467,6 +477,16 @@ impl State {
             self.recovering = None;
         }
         Some(lane)
+    }
+
+    /// Gives back what the connection's queues held at their peak once they have drained.
+    fn give_back(&mut self) {
+        drained(&mut self.control);
+        drained(&mut self.lagged);
+        drained(&mut self.ready);
+        if self.by_sub.capacity() > RETAINED && self.by_sub.capacity() > self.by_sub.len().saturating_mul(4) {
+            self.by_sub.shrink_to(self.by_sub.len() * 2);
+        }
     }
 
     fn number(&mut self) -> u64 {
@@ -1341,6 +1361,12 @@ impl Shared {
     /// holds a snapshot, then the next text frame in queue order ([`State::next_in_order`]).
     fn next_work(&self) -> Work {
         let mut state = self.lock();
+        let work = self.next_work_in(&mut state);
+        state.give_back();
+        work
+    }
+
+    fn next_work_in(&self, state: &mut State) -> Work {
         if state.pings > 0 {
             state.pings -= 1;
             return Work::Ping;
@@ -1362,11 +1388,11 @@ impl Shared {
         }
         if state.recovering.is_none()
             && let Some(&serial) = state.lagged.front()
-            && let Some(reservation) = self.take_for(&mut state, serial, self.limits.max_snapshot)
+            && let Some(reservation) = self.take_for(state, serial, self.limits.max_snapshot)
         {
             state.lagged.pop_front();
             state.recovering = Some(serial);
-            self.sync_lag_flag(&state);
+            self.sync_lag_flag(state);
             if let Some(lane) = state.lanes.get(&serial) {
                 return Work::Recover { recovery: lane.recovery.clone(), sub: lane.sub.clone(), serial, reservation };
             }
@@ -1381,7 +1407,7 @@ impl Shared {
                     lane.released = true;
                 }
                 // The reserve stays charged until the socket has taken the frame.
-                return self.through(&mut state, None, queued.frame, queued.hold);
+                return self.through(state, None, queued.frame, queued.hold);
             }
             Some(Pick::Lane(serial)) => serial,
         };
@@ -1393,13 +1419,14 @@ impl Shared {
             Some(Entry::Slot { frame: Some(frame), reservation, .. }) => (frame, reservation, true),
             _ => unreachable!("next_in_order checked the head"),
         };
+        drained(&mut lane.queue);
         if was_slot && state.recovering == Some(serial) {
             state.recovering = None;
-            self.sync_lag_flag(&state);
+            self.sync_lag_flag(state);
         }
         if ordered && !was_slot {
             // An ordered frame holds the ordered reserve, which no lag can void.
-            return self.through(&mut state, Some(serial), frame, reservation);
+            return self.through(state, Some(serial), frame, reservation);
         }
         // From here the frame belongs to the writer, not to the lane: a lag cannot take it
         // back, and it stays charged until the socket has taken it.
@@ -1409,7 +1436,7 @@ impl Shared {
             self.budget.force_take(bytes);
         }
         let budget: Arc<dyn ByteBudget> = self.budget.clone();
-        self.through(&mut state, Some(serial), frame, Reservation::new(bytes, budget))
+        self.through(state, Some(serial), frame, Reservation::new(bytes, budget))
     }
 
     /// After a recovery attach returned: a lane that is still lagged and still the recovering
@@ -1510,5 +1537,32 @@ fn relay_frame(frame: Bytes) -> serde_json::Result<Bytes> {
             to_vec(&update).map(Bytes::from)
         }
         _ => Ok(frame),
+    }
+}
+
+#[cfg(test)]
+mod give_back_tests {
+    use super::*;
+
+    #[test]
+    fn a_drained_queue_gives_back_its_peak_capacity_and_a_used_one_keeps_it() {
+        let mut state = State::default();
+        state.lagged.extend(0..1000u64);
+        state.give_back();
+        assert!(state.lagged.capacity() >= 1000, "a queue in use keeps its capacity");
+        state.lagged.clear();
+        state.give_back();
+        assert!(state.lagged.capacity() <= RETAINED);
+    }
+
+    #[test]
+    fn the_subscription_map_gives_back_capacity_after_its_lanes_go() {
+        let mut state = State::default();
+        for serial in 0..1000u64 {
+            state.by_sub.insert(SubscriptionId::from(format!("sub-{serial}")), serial);
+        }
+        state.by_sub.clear();
+        state.give_back();
+        assert!(state.by_sub.capacity() <= RETAINED);
     }
 }

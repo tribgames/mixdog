@@ -14,43 +14,76 @@
 //! is nearly every append. Those appends are an [`appending`] operation: they move the version and not the shape's, which
 //! [`shape_settled`] answers.
 //!
-//! The count is by session id and for the process: one process owns a data dir (`daemon-owner.lock`), and a test process
-//! with several data dirs only sees a version move more often than it had to. An entry is never removed, so a folder
-//! removed and created again does not start over at a version a reader may still hold.
+//! The count is for the process: one process owns a data dir (`daemon-owner.lock`), and a test process with several data
+//! dirs only sees a version move more often than it had to. A session has an entry only while an operation on it runs.
+//! What a session at rest answers is its stripe's floor, a value drawn from one process-wide counter each time an
+//! operation ends on a session of the stripe (the shape's floor when an operation that may reshape ends): a version a
+//! reader holds is therefore never answered again once an operation began after it, however long the entry was gone, and
+//! a read of a session that was never written inserts nothing. Sessions sharing a stripe only see a version move more
+//! often than it had to.
 
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 use std::sync::OnceLock;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
+/// Striped so appends of different sessions rarely share a lock; the tables only ever hold the operations running at once,
+/// so 256 keeps each lock cold without the count mattering to memory.
+const STRIPES: usize = 256;
+
+/// The operations running on one session.
 #[derive(Default)]
-struct State {
-    version: u64,
+struct Entry {
     writing: u32,
-    /// The version of the history's shape, and the operations running that may change it.
-    shape: u64,
     reshaping: u32,
-    /// Told each time the last such operation ends ([`shape_past`]).
-    reshaped: Arc<tokio::sync::Notify>,
 }
 
-type Shared = Arc<Mutex<State>>;
+#[derive(Default)]
+struct Stripe {
+    running: HashMap<String, Entry>,
+    /// The version and the shape's version of every session of the stripe with nothing running.
+    version: u64,
+    shape: u64,
+}
 
-fn of(session: &str) -> Shared {
-    static ALL: OnceLock<Mutex<HashMap<String, Shared>>> = OnceLock::new();
-    let mut all = ALL.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
-    match all.get(session) {
-        Some(state) => state.clone(),
-        None => all.entry(session.to_owned()).or_default().clone(),
-    }
+struct Stripes {
+    stripes: Vec<Mutex<Stripe>>,
+    /// Told each time an operation that may reshape ends on the stripe ([`shape_past`]).
+    reshaped: Vec<tokio::sync::Notify>,
+}
+
+fn stripes() -> &'static Stripes {
+    static ALL: OnceLock<Stripes> = OnceLock::new();
+    ALL.get_or_init(|| Stripes { stripes: (0..STRIPES).map(|_| Mutex::default()).collect(), reshaped: (0..STRIPES).map(|_| tokio::sync::Notify::new()).collect() })
+}
+
+fn stripe_of(session: &str) -> usize {
+    let mut hasher = DefaultHasher::new();
+    session.hash(&mut hasher);
+    (hasher.finish() as usize) % STRIPES
+}
+
+fn lock(stripe: usize) -> MutexGuard<'static, Stripe> {
+    stripes().stripes[stripe].lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn next() -> u64 {
+    static CLOCK: AtomicU64 = AtomicU64::new(1);
+    CLOCK.fetch_add(1, Ordering::Relaxed)
 }
 
 /// An operation that may change a session's log, from before its first write to after its last (a rollback included).
 #[must_use = "the operation is over when this is dropped"]
 pub struct Writing {
-    state: Shared,
+    session: String,
+    stripe: usize,
     reshapes: bool,
 }
 
@@ -75,13 +108,10 @@ pub fn appending_dir(dir: &Path) -> Writing {
 }
 
 fn appending(session: &str) -> Writing {
-    let state = of(session);
-    {
-        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.version += 1;
-        state.writing += 1;
-    }
-    Writing { state, reshapes: false }
+    let stripe = stripe_of(session);
+    let session = session.to_owned();
+    lock(stripe).running.entry(session.clone()).or_default().writing += 1;
+    Writing { session, stripe, reshapes: false }
 }
 
 impl Writing {
@@ -91,19 +121,29 @@ impl Writing {
             return;
         }
         self.reshapes = true;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.shape += 1;
-        state.reshaping += 1;
+        let mut stripe = lock(self.stripe);
+        let entry = stripe.running.get_mut(&self.session).expect("an operation keeps its session's entry");
+        entry.reshaping += 1;
     }
 }
 
 impl Drop for Writing {
     fn drop(&mut self) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.writing -= 1;
-        state.reshaping -= u32::from(self.reshapes);
-        if self.reshapes && state.reshaping == 0 {
-            state.reshaped.notify_waiters();
+        let mut stripe = lock(self.stripe);
+        let entry = stripe.running.get_mut(&self.session).expect("an operation keeps its session's entry");
+        entry.writing -= 1;
+        entry.reshaping -= u32::from(self.reshapes);
+        let over = entry.writing == 0;
+        if over {
+            stripe.running.remove(&self.session);
+            stripe.version = next();
+        }
+        if self.reshapes {
+            stripe.shape = next();
+        }
+        drop(stripe);
+        if self.reshapes {
+            stripes().reshaped[self.stripe].notify_waiters();
         }
     }
 }
@@ -113,17 +153,14 @@ impl Drop for Writing {
 /// what it read has ended, whether it succeeded or rolled back. What a reader folds while such an operation runs may be
 /// frames that are never acknowledged (written and not yet synced, then cut): it reads again after this.
 pub async fn shape_past(session: &str, seen: Option<u64>) {
-    let state = of(session);
-    let reshaped = state.lock().unwrap_or_else(PoisonError::into_inner).reshaped.clone();
+    let index = stripe_of(session);
+    let reshaped = &stripes().reshaped[index];
     loop {
         let told = reshaped.notified();
         tokio::pin!(told);
         told.as_mut().enable();
-        {
-            let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-            if state.reshaping == 0 && Some(state.shape) != seen {
-                return;
-            }
+        if shape_settled(session).is_some_and(|shape| Some(shape) != seen) {
+            return;
         }
         told.await;
     }
@@ -131,18 +168,15 @@ pub async fn shape_past(session: &str, seen: Option<u64>) {
 
 /// The version of `session`'s log, or `None` while an operation on it runs (what is read then may be between two states).
 pub fn settled(session: &str) -> Option<u64> {
-    let state = of(session);
-    let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-    (state.writing == 0).then_some(state.version)
+    let stripe = lock(stripe_of(session));
+    (!stripe.running.contains_key(session)).then_some(stripe.version)
 }
 
 /// The version of the shape of `session`'s history, or `None` while an operation that may change it runs.
 pub fn shape_settled(session: &str) -> Option<u64> {
-    let state = of(session);
-    let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-    (state.reshaping == 0).then_some(state.shape)
+    let stripe = lock(stripe_of(session));
+    (stripe.running.get(session).is_none_or(|entry| entry.reshaping == 0)).then_some(stripe.shape)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,7 +185,9 @@ mod tests {
     /// operations included; after it the version is another one, and a session written is not another session's.
     #[test]
     fn a_version_holds_until_an_operation_begins() {
-        let (session, other) = ("log-epoch-test-a", "log-epoch-test-b");
+        let session = "log-epoch-test-a";
+        let other = (0..).map(|n| format!("log-epoch-test-b{n}")).find(|name| stripe_of(name) != stripe_of(session)).unwrap();
+        let other = other.as_str();
         let first = settled(session).expect("nothing writes");
         assert_eq!(settled(session), Some(first));
         let apart = settled(other).expect("nothing writes");
@@ -183,9 +219,22 @@ mod tests {
         rewind.reshape();
         assert_eq!(shape_settled(session), None);
         drop(rewind);
-        assert_eq!(shape_settled(session), Some(shape + 1));
+        let reshaped = shape_settled(session).expect("nothing writes");
+        assert!(reshaped > shape);
         drop(writing(session));
-        assert_eq!(shape_settled(session), Some(shape + 2));
+        assert!(shape_settled(session).expect("nothing writes") > reshaped);
+    }
+
+    /// A session at rest holds no entry, however it was read or written, and its version still moves past what a reader held.
+    #[test]
+    fn a_session_at_rest_holds_nothing_and_its_version_still_moves() {
+        let session = "log-epoch-test-rest";
+        let held = (settled(session).expect("nothing writes"), shape_settled(session).expect("nothing writes"));
+        assert!(!lock(stripe_of(session)).running.contains_key(session));
+        drop(writing(session));
+        assert!(lock(stripe_of(session)).running.is_empty() || !lock(stripe_of(session)).running.contains_key(session));
+        let after = (settled(session).expect("nothing writes"), shape_settled(session).expect("nothing writes"));
+        assert!(after.0 > held.0 && after.1 > held.1);
     }
 
     /// A wait for the shape ends when the operation that may change it does, not before, and at once when the shape is

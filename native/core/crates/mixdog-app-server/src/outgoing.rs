@@ -609,17 +609,26 @@ impl HostChannel for Outgoing {
     }
 
     fn stream_event(&self, from: ConnectionId, request: &Value, event: Value) -> bool {
-        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
+        let Some(id) = request_id(request) else {
             return false;
         };
         self.connection(from).is_some_and(|conn| conn.host_stream_event(&id, event))
     }
 
     fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
-        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
+        let Some(id) = request_id(request) else {
             return false;
         };
         self.connection(from).is_some_and(|conn| conn.host_stream_alive(&id))
+    }
+}
+
+/// The id a host echoes of its request, read in place (the wire form of [`RequestId`]).
+fn request_id(request: &Value) -> Option<RequestId> {
+    match request {
+        Value::String(id) => Some(RequestId::String(id.clone())),
+        Value::Number(id) => id.as_i64().map(RequestId::Integer),
+        _ => None,
     }
 }
 
@@ -715,5 +724,17 @@ impl ConnectionNotifier for Outgoing {
             .sink
             .send_control(notification_frame(method.as_str(), params))
             .map_err(|_| CoreError::ConnectionClosed)
+    }
+}
+
+#[cfg(test)]
+mod request_id_tests {
+    use super::*;
+
+    #[test]
+    fn a_request_id_reads_as_it_deserializes() {
+        for wire in [serde_json::json!("host-1"), serde_json::json!(7), serde_json::json!(1.5), serde_json::json!(null), serde_json::json!({ "a": 1 })] {
+            assert_eq!(request_id(&wire), serde_json::from_value::<RequestId>(wire.clone()).ok());
+        }
     }
 }

@@ -261,3 +261,62 @@ async fn a_helper_frame_before_the_helper_serves_is_dropped() {
     let shared = until(|| live.track(KEY).ok()).await;
     assert!(shared.subscribe().borrow().is_none(), "nothing was drawn");
 }
+
+#[test]
+fn a_frame_the_worker_has_not_taken_is_replaced_and_control_events_keep_their_order() {
+    let queue = Queue::default();
+    let frame = |epoch: u64| ScreenFrame {
+        document_id: None,
+        geometry: geometry(8, 4),
+        epoch,
+        mime_type: "image/x-bgrx",
+        picture: HelperPictureFrame {
+            pixels: Arc::new(vec![0; 128]),
+            rows: 0..4,
+            width: 8,
+            height: 4,
+            stride: 32,
+            source: PixelArea { x: 0, y: 0, width: 8, height: 4 },
+            target: VideoArea { x: 0.0, y: 0.0, width: 8.0, height: 4.0 },
+        },
+    };
+    queue.event(None, Op::Capture("a".into()));
+    queue.frame(None, "screen:0", frame(1));
+    queue.event(None, Op::Drawn("b".into(), true));
+    queue.frame(None, "screen:0", frame(2));
+    queue.frame(None, "screen:0", frame(3));
+    assert!(matches!(queue.take(), Some(Next::Event((_, Op::Capture(key)))) if key == "a"));
+    assert!(matches!(queue.take(), Some(Next::Event((_, Op::Drawn(key, true)))) if key == "b"));
+    assert!(matches!(queue.take(), Some(Next::Frame(_, _, frame)) if frame.epoch == 3));
+    assert!(queue.take().is_none(), "the replaced frames were never queued");
+}
+#[test]
+fn a_frame_of_an_ended_session_does_not_displace_the_current_one_and_a_closed_queue_yields_nothing() {
+    let queue = Queue::default();
+    let frame = |epoch: u64| ScreenFrame {
+        document_id: None,
+        geometry: geometry(8, 4),
+        epoch,
+        mime_type: "image/x-bgrx",
+        picture: HelperPictureFrame {
+            pixels: Arc::new(vec![0; 128]),
+            rows: 0..4,
+            width: 8,
+            height: 4,
+            stride: 32,
+            source: PixelArea { x: 0, y: 0, width: 8, height: 4 },
+            target: VideoArea { x: 0.0, y: 0.0, width: 8.0, height: 4.0 },
+        },
+    };
+    queue.frame(Some(2), KEY, frame(20));
+    queue.frame(Some(1), KEY, frame(10));
+    let mut epochs = Vec::new();
+    while let Some(Next::Frame(_, session, frame)) = queue.take() {
+        epochs.push((session, frame.epoch));
+    }
+    epochs.sort();
+    assert_eq!(epochs, vec![(Some(1), 10), (Some(2), 20)]);
+    queue.event(None, Op::Capture("a".into()));
+    queue.close();
+    assert!(queue.take().is_none());
+}
