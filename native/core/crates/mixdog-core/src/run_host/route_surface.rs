@@ -365,6 +365,9 @@ pub trait ResumedSurface: Send + Sync {
     async fn restored(&self, session: &Header) -> Result<Header, String>;
 }
 
+/// The context window an agent last reported for a provider and model.
+pub type AgentWindow = Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>;
+
 /// The route facts of the running host: the catalog's context windows, the configured cache
 /// policy and the tool surface a route change rebuilds.
 pub struct AiRouteFacts {
@@ -372,7 +375,7 @@ pub struct AiRouteFacts {
     /// The context window the agent of a route's provider last reported on the route's model, when the provider is an
     /// agent's and it reported one: the catalog knows no agent, so the route's window starts from it rather than from a
     /// guess, and another model of the agent has its own.
-    pub agent_window: Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>,
+    pub agent_window: AgentWindow,
     /// The config's `autoClear` section, read at each call: Node loads it per `buildSessionProviderCacheOpts`, so a settings change reaches the next route change.
     pub auto_clear: Arc<dyn Fn() -> Value + Send + Sync>,
     pub surface_host: Arc<dyn SurfaceHost>,

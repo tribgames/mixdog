@@ -68,8 +68,10 @@ pub trait SendWarmth: Send + Sync {
 pub struct SideQuestionStore {
     requests: Mutex<HashMap<String, Slot>>,
     warm: std::sync::OnceLock<Arc<dyn SendWarmth>>,
-    ended: std::sync::OnceLock<Box<dyn Fn(&ThreadId, SideEnd) + Send + Sync>>,
+    ended: std::sync::OnceLock<SideEndHook>,
 }
+
+type SideEndHook = Box<dyn Fn(&ThreadId, SideEnd) + Send + Sync>;
 
 /// The fork of a session with no saved request. A compaction only sends it for a request that
 /// `SessionFork` found forkable, so reaching it is a bug of the caller.
