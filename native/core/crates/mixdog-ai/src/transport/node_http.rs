@@ -411,13 +411,52 @@ fn decoding(headers: &[(String, String)], method: &str, status: u16) -> Result<O
 }
 
 struct H2Body {
-    stream: h2::RecvStream,
+    /// Taken only by the drop of a body its reader is done with, to be read off.
+    wire: Option<H2Wire>,
     decoder: Option<Decoder>,
     /// The stream has ended (or failed in its decoding); only the decoder's steps are left.
     ended: bool,
+    /// The reader is done with the response ([`BodyStream::drain_on_drop`]).
+    done: bool,
     /// The connection's number, as its end is logged under.
     id: u64,
-    _guard: pool::H2Guard,
+}
+
+/// A response's stream, with the guard that keeps its connection in use while the stream is.
+struct H2Wire {
+    stream: h2::RecvStream,
+    guard: pool::H2Guard,
+}
+
+impl H2Body {
+    fn new(stream: h2::RecvStream, decoder: Option<Decoder>, id: u64, guard: pool::H2Guard) -> Self {
+        Self { wire: Some(H2Wire { stream, guard }), decoder, ended: false, done: false, id }
+    }
+}
+
+impl H2Wire {
+    /// Reads what is left of a response its reader is done with, releasing each frame, until END_STREAM or the end of the
+    /// stream or its connection. A stream silent for [`BODY_TIMEOUT`], the most any read of a body waits, is cancelled after all.
+    async fn read_out(mut self) {
+        while let Ok(Some(Ok(data))) = mixdog_rt::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
+            let _ = self.stream.flow_control().release_capacity(data.len());
+        }
+    }
+}
+
+impl Drop for H2Body {
+    /// Dropped before its end, a body is a cancel: h2 resets its stream. One whose reader is done is read to its end instead:
+    /// its last frames are already on their way, and h2 counts against the connection each frame that arrives for a stream it
+    /// reset, once it has forgotten that stream (`STREAM_CLOSED`, toward its local reset limit) or while it still remembers it
+    /// (toward its DATA frame budget).
+    fn drop(&mut self) {
+        if !self.done || self.ended {
+            return;
+        }
+        if let (Some(wire), Ok(runtime)) = (self.wire.take(), tokio::runtime::Handle::try_current()) {
+            runtime.spawn(wire.read_out());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -524,7 +563,7 @@ mod tests {
         let guard = pool.put_h2("k".into(), id, send.clone(), pool.generation());
         let (response, _) = send.ready().await.unwrap().send_request(hyper::http::Request::get("https://k/x").body(()).unwrap(), true).unwrap();
         let response = mixdog_rt::time::timeout(WITHIN, response).await.expect("the head within 20 s").unwrap();
-        let mut body = H2Body { stream: response.into_body(), decoder: None, ended: false, id, _guard: guard };
+        let mut body = H2Body::new(response.into_body(), None, id, guard);
         let first = mixdog_rt::time::timeout(WITHIN, body.next()).await.expect("a chunk within 20 s");
         assert_eq!(first.unwrap().unwrap(), Bytes::from_static(b"part"));
         read_part.notify_one();
@@ -575,7 +614,7 @@ mod tests {
         for (send, guard) in [(send, first_guard), (second_send, second_guard)] {
             let (response, _) = send.ready().await.unwrap().send_request(hyper::http::Request::get("https://k/x").body(()).unwrap(), true).unwrap();
             let response = mixdog_rt::time::timeout(WITHIN, response).await.expect("the head within 20 s").unwrap();
-            let mut body = H2Body { stream: response.into_body(), decoder: None, ended: false, id, _guard: guard };
+            let mut body = H2Body::new(response.into_body(), None, id, guard);
             let first = mixdog_rt::time::timeout(WITHIN, body.next()).await.expect("a chunk within 20 s");
             assert_eq!(first.unwrap().unwrap(), Bytes::from_static(b"part"));
             bodies.push(body);
@@ -634,9 +673,8 @@ mod tests {
     /// (connection number, stream id, request body length) of each complete request the stand-in has seen.
     type Seen = Arc<std::sync::Mutex<Vec<(usize, u32, usize)>>>;
 
-    /// A TLS h2 stand-in written frame by frame, so the GOAWAY's last-stream-id is exact. A complete request on the first
-    /// connection is announced on the channel.
-    async fn goaway_peer(script: Script) -> (SocketAddr, Arc<rustls::ClientConfig>, Seen, tokio::sync::mpsc::UnboundedReceiver<u32>) {
+    /// The TLS of an h2 stand-in on `localhost`: its acceptor, which offers h2 alone, and a client configuration trusting it alone.
+    fn tls_stand_in() -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfig>) {
         let issued = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
         let cert = issued.cert.der().clone();
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(issued.signing_key.serialize_der()));
@@ -656,7 +694,13 @@ mod tests {
             .with_root_certificates(roots)
             .with_no_client_auth();
         client.alpn_protocols = ALPN.iter().map(|p| p.to_vec()).collect();
-        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server));
+        (tokio_rustls::TlsAcceptor::from(Arc::new(server)), Arc::new(client))
+    }
+
+    /// A TLS h2 stand-in written frame by frame, so the GOAWAY's last-stream-id is exact. A complete request on the first
+    /// connection is announced on the channel.
+    async fn goaway_peer(script: Script) -> (SocketAddr, Arc<rustls::ClientConfig>, Seen, tokio::sync::mpsc::UnboundedReceiver<u32>) {
+        let (acceptor, client) = tls_stand_in();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let seen: Seen = Arc::default();
@@ -737,7 +781,7 @@ mod tests {
                 });
             }
         });
-        (addr, Arc::new(client), seen, announced)
+        (addr, client, seen, announced)
     }
 
     /// Sends one POST per body length through one client, each started once the stand-in has the one before it complete on
@@ -952,6 +996,203 @@ mod tests {
         task.abort();
         let ended = mixdog_rt::time::timeout(WITHIN, task).await.expect("the task ends within 20 s");
         assert!(ended.unwrap_err().is_cancelled());
+    }
+
+    /// What the trailing stand-in saw: the connections it accepted, each complete request (connection, stream), each
+    /// RST_STREAM the client sent (stream, code), and the GOAWAY the client sent (code, debug data).
+    #[derive(Default)]
+    struct Trailed {
+        connections: usize,
+        requests: Vec<(usize, u32)>,
+        resets: Vec<(u32, u32)>,
+        goaway: Option<(u32, Vec<u8>)>,
+    }
+
+    /// How many later requests a stream's closing frames wait behind: more than the reset streams h2 remembers (50), so a
+    /// stream the client resets at once is forgotten before they arrive.
+    const LAG: usize = 60;
+
+    /// A TLS h2 stand-in that answers each request without a body as a model's stream ends: its head and an event at once,
+    /// then a closing event and END_STREAM once `LAG` later requests came, frames already on their way when the reader stopped.
+    /// Every DATA frame with a payload holds 256 bytes or more, which h2's DATA frame budget never counts. A request with a
+    /// body gets every closing frame still held and is answered whole, or, with `close`, ends the connection.
+    async fn trailing_peer(close: bool) -> (SocketAddr, Arc<rustls::ClientConfig>, Arc<std::sync::Mutex<Trailed>>) {
+        let (acceptor, client) = tls_stand_in();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let seen = Arc::new(std::sync::Mutex::new(Trailed::default()));
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                let n = {
+                    let mut seen = log.lock().unwrap();
+                    seen.connections += 1;
+                    seen.connections
+                };
+                let (acceptor, log) = (acceptor.clone(), log.clone());
+                tokio::spawn(async move {
+                    let Ok(mut tls) = acceptor.accept(tcp).await else { return };
+                    let mut preface = [0u8; 24];
+                    if tls.read_exact(&mut preface).await.is_err() || tls.write_all(&h2_frame(4, 0, 0, &[])).await.is_err() {
+                        return;
+                    }
+                    let event = [b'e'; 300];
+                    let closing = |stream: u32| [h2_frame(0, 0, stream, &event), h2_frame(0, 1, stream, &[])].concat();
+                    let mut held = std::collections::VecDeque::new();
+                    loop {
+                        let mut head = [0u8; 9];
+                        if tls.read_exact(&mut head).await.is_err() {
+                            return;
+                        }
+                        let len = u32::from_be_bytes([0, head[0], head[1], head[2]]) as usize;
+                        let stream = u32::from_be_bytes([head[5] & 0x7f, head[6], head[7], head[8]]);
+                        let mut payload = vec![0u8; len];
+                        if tls.read_exact(&mut payload).await.is_err() {
+                            return;
+                        }
+                        let reply = match (head[3], head[4] & 1 != 0) {
+                            (4, false) => h2_frame(4, 1, 0, &[]),
+                            // A request whole with its HEADERS: a model's stream, whose closing frames wait.
+                            (1, true) => {
+                                log.lock().unwrap().requests.push((n, stream));
+                                held.push_back(stream);
+                                let mut reply = [h2_frame(1, 4, stream, &[0x88]), h2_frame(0, 0, stream, &event)].concat();
+                                if held.len() > LAG {
+                                    reply.extend(closing(held.pop_front().unwrap()));
+                                }
+                                reply
+                            }
+                            // A request whose body ends here.
+                            (0, true) => {
+                                log.lock().unwrap().requests.push((n, stream));
+                                if close {
+                                    return;
+                                }
+                                let mut reply: Vec<u8> = held.drain(..).flat_map(closing).collect();
+                                reply.extend([h2_frame(1, 4, stream, &[0x88]), h2_frame(0, 1, stream, b"ok")].concat());
+                                reply
+                            }
+                            (3, _) => {
+                                let code = u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                                log.lock().unwrap().resets.push((stream, code));
+                                continue;
+                            }
+                            (7, _) => {
+                                let code = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                                log.lock().unwrap().goaway = Some((code, payload[8..].to_vec()));
+                                return;
+                            }
+                            _ => continue,
+                        };
+                        if tls.write_all(&reply).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (addr, client, seen)
+    }
+
+    fn get(addr: SocketAddr) -> WireRequest {
+        WireRequest { method: "GET".into(), body: Vec::new(), ..post(addr) }
+    }
+
+    /// A model's stream on the trailing stand-in, read to its first event; its closing frames are still to come.
+    async fn opened(client: &NodeClient, addr: SocketAddr) -> HttpResponse {
+        let mut response =
+            mixdog_rt::time::timeout(WITHIN, client.send(&get(addr), Writer::Raw, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        let event = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("the event within 20 s");
+        assert_eq!(event.unwrap().unwrap().len(), 300);
+        response
+    }
+
+    /// Until `done` holds, at most `WITHIN`.
+    async fn until(what: &str, done: impl Fn() -> bool) {
+        let met = mixdog_rt::time::timeout(WITHIN, async {
+            while !done() {
+                mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(met.is_ok(), "{what} within 20 s");
+    }
+
+    // A model's turn ends at its terminal event, before its stream's last frames. Thousands of such streams on one connection,
+    // each read to its END_STREAM off the reader's path, reset none, and the connection serves on; the same streams cancelled
+    // reach h2's reset limit well before (`cancelled_streams_still_reset_and_a_local_goaway_logs_its_reason`).
+    #[tokio::test]
+    async fn thousands_of_finished_streams_reset_none_and_keep_their_connection() {
+        let (lines, _capture) = mixdog_rt::node_log::capture();
+        let (addr, tls, seen) = trailing_peer(false).await;
+        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
+        let mut conn = None;
+        for _ in 0..2_000 {
+            let mut response = opened(&client, addr).await;
+            let id = response.body.connection().expect("an h2 body names its connection").id;
+            conn.get_or_insert_with(|| client.pool.conn_state(id).expect("a live connection"));
+            response.body.drain_on_drop();
+        }
+        // Every closing frame still held comes ahead of this answer.
+        let tail = mixdog_rt::time::timeout(WITHIN, client.send(&post(addr), Writer::Raw, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        assert_eq!(drained(tail).await, b"ok");
+        let conn = conn.expect("the shared connection");
+        // Each read-out ends at its END_STREAM: no stream is open on the connection, and none is held by anything still reading.
+        until("every read-out ended", || conn.open_streams() == 0 && conn.exchanges() == 0).await;
+        let seen = seen.lock().unwrap();
+        assert!(seen.resets.is_empty(), "no stream was reset: {:?}", &seen.resets[..seen.resets.len().min(5)]);
+        assert!(seen.goaway.is_none());
+        assert_eq!(seen.connections, 1);
+        assert!(seen.requests.len() == 2_001 && seen.requests.iter().all(|(n, _)| *n == 1));
+        let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+        assert!(!lines.iter().any(|line| line.contains("goaway")), "{lines:?}");
+    }
+
+    // The same streams let go of before their end, as a turn the user stops is: each is reset (CANCEL), and the closing
+    // frames that cross the resets of streams h2 no longer remembers count toward its local reset limit, until it ends the
+    // connection with a GOAWAY whose reason the log names.
+    #[tokio::test]
+    async fn cancelled_streams_still_reset_and_a_local_goaway_logs_its_reason() {
+        let (lines, _capture) = mixdog_rt::node_log::capture();
+        let (addr, tls, seen) = trailing_peer(false).await;
+        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
+        let mut streams = 0;
+        while seen.lock().unwrap().goaway.is_none() {
+            assert!(streams < 2_000, "the reset limit within the streams finished ones keep their connection through");
+            streams += 1;
+            let Ok(Ok(mut response)) = mixdog_rt::time::timeout(WITHIN, client.send(&get(addr), Writer::Raw, Surface::Fetch)).await else {
+                continue;
+            };
+            let _ = mixdog_rt::time::timeout(WITHIN, response.body.next()).await;
+        }
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.resets.first(), Some(&(1, u32::from(h2::Reason::CANCEL))), "a body let go of unfinished is a cancel");
+        assert!(seen.resets.iter().any(|(_, code)| *code == u32::from(h2::Reason::STREAM_CLOSED)), "frames crossed forgotten resets");
+        let goaway = seen.goaway.as_ref().map(|(code, debug)| (*code, debug.as_slice()));
+        assert_eq!(goaway, Some((u32::from(h2::Reason::ENHANCE_YOUR_CALM), &b"too_many_internal_resets"[..])));
+        let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+        assert!(
+            lines.iter().any(|line| line.contains("protocol=h2 goaway by=local code=11 last_stream_id=0 reason=too_many_internal_resets ")),
+            "{lines:?}"
+        );
+    }
+
+    // A finished stream's read-out ends with its connection too: the peer ends the connection with the closing frames still
+    // held, and nothing is left reading the stream or holding the connection for it.
+    #[tokio::test]
+    async fn a_finished_streams_read_out_ends_with_its_connection() {
+        let (addr, tls, seen) = trailing_peer(true).await;
+        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
+        let mut response = opened(&client, addr).await;
+        let id = response.body.connection().expect("an h2 body names its connection").id;
+        let conn = client.pool.conn_state(id).expect("a live connection");
+        response.body.drain_on_drop();
+        drop(response);
+        assert_eq!((conn.open_streams(), conn.exchanges()), (1, 1), "the stream is read off, not reset");
+        let ended = mixdog_rt::time::timeout(WITHIN, client.send(&post(addr), Writer::Raw, Surface::Fetch)).await.expect("an answer within 20 s");
+        assert!(ended.is_err(), "the peer ended the connection under the request");
+        until("the read-out ended", || conn.exchanges() == 0).await;
+        assert!(seen.lock().unwrap().resets.is_empty());
     }
 }
 
@@ -1388,7 +1629,7 @@ impl NodeClient {
         Ok(HttpResponse {
             status,
             headers: list,
-            body: super::link::replay_counted(url, Box::new(H2Body { stream: response.into_body(), decoder, ended: false, id, _guard: guard })),
+            body: super::link::replay_counted(url, Box::new(H2Body::new(response.into_body(), decoder, id, guard))),
         })
     }
 }
@@ -1396,6 +1637,10 @@ impl NodeClient {
 impl BodyStream for H2Body {
     fn connection(&self) -> Option<ConnectionInfo> {
         Some(ConnectionInfo { id: self.id, protocol: "h2" })
+    }
+
+    fn drain_on_drop(&mut self) {
+        self.done = true;
     }
 
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
@@ -1419,7 +1664,8 @@ impl BodyStream for H2Body {
             if self.ended {
                 return None;
             }
-            let data = match mixdog_rt::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
+            let wire = self.wire.as_mut()?;
+            let data = match mixdog_rt::time::timeout(BODY_TIMEOUT, wire.stream.data()).await {
                 Err(_) => return Some(Err(TransportFault::Io { os_code: None })),
                 Ok(data) => data,
             };
@@ -1441,21 +1687,21 @@ impl BodyStream for H2Body {
                     // connection's own error; only a RST_STREAM is this stream's alone. The connection leaves the pool
                     // here, before the fault reaches the caller and its retry dials, and does not wait for its task.
                     if !e.is_reset() {
-                        self._guard.retire();
+                        wire.guard.retire();
                     }
                     // Each stream's own end, with its number: the streams a connection's end took, and which of them a GOAWAY
                     // named (those above its last stream id fail with it at once).
                     mixdog_rt::node_stderr!(
                         "[http] connection={} stream={} protocol=h2 failed: {} headers_received=true {}",
                         self.id,
-                        self.stream.stream_id().as_u32(),
+                        wire.stream.stream_id().as_u32(),
                         super::fault::describe_h2_end(&e),
-                        self._guard.counts()
+                        wire.guard.counts()
                     );
                     return Some(Err(super::fault::fault_from_chain(&e, false)));
                 }
             };
-            let _ = self.stream.flow_control().release_capacity(raw.len());
+            let _ = wire.stream.flow_control().release_capacity(raw.len());
             match self.decoder.as_mut() {
                 Some(decoder) => decoder.feed(&raw),
                 None if !raw.is_empty() => return Some(Ok(raw)),

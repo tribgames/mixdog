@@ -232,6 +232,10 @@ impl BodyStream for WarmCacheBody {
         }
         next
     }
+
+    fn drain_on_drop(&mut self) {
+        self.body.drain_on_drop();
+    }
 }
 
 /// Request bodies at least this large are sent gzip-encoded.
@@ -442,7 +446,7 @@ const ANTHROPIC_ORIGIN: &str = "https://api.anthropic.com";
 
 /// Cache-warm mode (`sendCacheWarm`): the request `attempt` would build for the warm of `request`
 /// (output capped at one token), POSTed once and plain: no retry, credential replay, fallback
-/// model or re-send, no compression, and the stream cut at the first content block. The account
+/// model or re-send, no compression, and its reading done at the first content block. The account
 /// gate may skip it; the response is read by the warmer's stream reader.
 #[async_trait]
 impl CacheWarmSend for AnthropicAdapter {
@@ -932,6 +936,67 @@ mod idle_tests {
         assert!(failure(&mut stream).await.partial_usage.is_none(), "an empty usage report is not evidence");
     }
 
+    /// A body that notes, when dropped, whether its reader had handed it on to be read off ([`BodyStream::drain_on_drop`]).
+    /// After its chunks it waits: the rest of the response is still on its way.
+    struct Noted {
+        chunks: VecDeque<bytes::Bytes>,
+        drain: bool,
+        dropped: Arc<std::sync::Mutex<Option<bool>>>,
+    }
+
+    #[async_trait]
+    impl BodyStream for Noted {
+        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+            match self.chunks.pop_front() {
+                Some(chunk) => Some(Ok(chunk)),
+                None => std::future::pending().await,
+            }
+        }
+
+        fn drain_on_drop(&mut self) {
+            self.drain = true;
+        }
+    }
+
+    impl Drop for Noted {
+        fn drop(&mut self) {
+            *self.dropped.lock().unwrap() = Some(self.drain);
+        }
+    }
+
+    /// A tool call's turn ends at its `message_delta`, while `message_stop` and the end of the body are still on their way: a
+    /// consumer that stops at the completion lets go of a body handed on to be read off, not cancelled. A stream let go of
+    /// mid-output is a cancel.
+    #[tokio::test]
+    async fn an_ended_turn_hands_its_body_on_to_be_read_off_and_a_cancelled_one_does_not() {
+        let open = |events: Vec<serde_json::Value>| {
+            let dropped = Arc::new(std::sync::Mutex::new(None));
+            let chunks = events.into_iter().map(|event| bytes::Bytes::from(format!("data: {event}\n\n"))).collect();
+            let body = Noted { chunks, drain: false, dropped: dropped.clone() };
+            (AnthropicStream::new(Box::new(body), Box::new(shared())), dropped)
+        };
+        let start = serde_json::json!({ "type": "message_start", "message": { "model": "claude-x", "usage": { "input_tokens": 1 } } });
+        let (mut stream, dropped) = open(vec![
+            start.clone(),
+            serde_json::json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "t1", "name": "echo" } }),
+            serde_json::json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{}" } }),
+            serde_json::json!({ "type": "content_block_stop", "index": 0 }),
+            serde_json::json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 1 } }),
+        ]);
+        // The broker's consumer stops at the completion.
+        while !matches!(stream.next().await.expect("an event").expect("no failure"), StreamEvent::Completed { .. }) {}
+        drop(stream);
+        assert_eq!(*dropped.lock().unwrap(), Some(true), "the ended turn's body is read off");
+        let (mut stream, dropped) = open(vec![
+            start,
+            serde_json::json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } }),
+            serde_json::json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "hi" } }),
+        ]);
+        while !matches!(stream.next().await.expect("an event").expect("no failure"), StreamEvent::TextDelta(_)) {}
+        drop(stream);
+        assert_eq!(*dropped.lock().unwrap(), Some(false), "a turn stopped mid-output cancels its body");
+    }
+
     const TEXT: &str = concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":1}}}\n\n",
         "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
@@ -1233,7 +1298,7 @@ impl ModelStream for AnthropicStream {
             }
             let body = self.body.as_mut()?;
             // The terminal event ends the attempt; whatever else the body
-            // carries (pings) is dropped with it.
+            // carries (`message_stop`, pings) is read off once it is dropped.
             if self.decoder.terminal_seen() {
                 self.body = None;
                 return None;
@@ -1282,6 +1347,11 @@ impl ModelStream for AnthropicStream {
                             if let Err(err) = self.decoder.feed(&[]) {
                                 self.fail(err);
                             } else if self.decoder.terminal_seen() {
+                                // The response ended (a tool call's turn at `message_delta`, before `message_stop`): the rest
+                                // of the body is read off wherever it is let go, by the thread or with this stream.
+                                if let Some(body) = self.body.as_mut() {
+                                    body.drain_on_drop();
+                                }
                                 self.complete_thread();
                                 self.settle_tail();
                             }

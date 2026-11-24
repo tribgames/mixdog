@@ -30,6 +30,9 @@ const END_STREAM: u8 = 0x1;
 const END_HEADERS: u8 = 0x4;
 const LOCAL_ENDED: u8 = 1;
 const REMOTE_ENDED: u8 = 2;
+/// The bytes of a GOAWAY kept: its last-stream-id and code, and the start of its debug data, which holds h2's longest
+/// reason (`header_list_way_too_large`) whole.
+const GOAWAY_KEPT: usize = 8 + 32;
 
 /// One frame the tap has classified.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,8 +41,8 @@ enum Frame {
     Begun { kind: u8, stream: u32 },
     /// A frame was read whole; for HEADERS, its whole header block, with the HEADERS frame's flags.
     Whole { kind: u8, flags: u8, stream: u32 },
-    /// A whole GOAWAY on stream 0.
-    GoAway { last: u32, code: u32 },
+    /// A whole GOAWAY on stream 0, with the start of its debug data.
+    GoAway { last: u32, code: u32, debug: Vec<u8> },
 }
 
 /// The streams of one connection, behind one lock.
@@ -173,11 +176,13 @@ impl ConnState {
                 }
                 streams.prune();
             }
-            Frame::GoAway { last, code } => {
-                // The count is the one the GOAWAY found; the streams it cuts leave afterwards. Only ids, codes and counts
-                // are logged, never the frame's debug data.
+            Frame::GoAway { last, code, debug } => {
+                // The count is the one the GOAWAY found; the streams it cuts leave afterwards. The debug data of a GOAWAY
+                // this side sends is h2's own reason, a static string (`too_many_internal_resets`, `too_many_data_frames`);
+                // the peer's is whatever the peer chose to send, and is never logged.
+                let reason = if peer || debug.is_empty() { String::new() } else { format!(" reason={}", debug.escape_ascii()) };
                 mixdog_rt::node_stderr!(
-                    "[http] connection={} protocol=h2 goaway by={} code={code} last_stream_id={last} {}",
+                    "[http] connection={} protocol=h2 goaway by={} code={code} last_stream_id={last}{reason} {}",
                     self.id,
                     if peer { "peer" } else { "local" },
                     self.counts()
@@ -200,7 +205,7 @@ struct Frames {
     head_len: usize,
     len: usize,
     left: usize,
-    payload: [u8; 8],
+    payload: [u8; GOAWAY_KEPT],
     got: usize,
     /// The flags of a HEADERS frame whose header block goes on in CONTINUATION frames.
     block: Option<u8>,
@@ -208,7 +213,7 @@ struct Frames {
 
 impl Frames {
     fn new(skip: usize) -> Self {
-        Self { skip, head: [0; FRAME_HEAD], head_len: 0, len: 0, left: 0, payload: [0; 8], got: 0, block: None }
+        Self { skip, head: [0; FRAME_HEAD], head_len: 0, len: 0, left: 0, payload: [0; GOAWAY_KEPT], got: 0, block: None }
     }
 
     /// The frame whose header is in `head` has been read to its end.
@@ -220,7 +225,7 @@ impl Frames {
                 if stream == 0 && self.len >= 8 {
                     let last = u32::from_be_bytes([self.payload[0] & 0x7f, self.payload[1], self.payload[2], self.payload[3]]);
                     let code = u32::from_be_bytes([self.payload[4], self.payload[5], self.payload[6], self.payload[7]]);
-                    report(Frame::GoAway { last, code });
+                    report(Frame::GoAway { last, code, debug: self.payload[8..self.got].to_vec() });
                 }
             }
             HEADERS if flags & END_HEADERS == 0 => self.block = Some(flags),
@@ -257,8 +262,8 @@ impl Frames {
                 }
             } else {
                 let n = self.left.min(data.len());
-                if self.head[3] == GOAWAY && self.got < 8 {
-                    let take = n.min(8 - self.got);
+                if self.head[3] == GOAWAY && self.got < GOAWAY_KEPT {
+                    let take = n.min(GOAWAY_KEPT - self.got);
                     self.payload[self.got..self.got + take].copy_from_slice(&data[..take]);
                     self.got += take;
                 }
@@ -336,10 +341,34 @@ mod tests {
     }
 
     fn goaway(stream: u32, last: u32, code: u32) -> Vec<u8> {
+        goaway_with(stream, last, code, b"dbg")
+    }
+
+    fn goaway_with(stream: u32, last: u32, code: u32, debug: &[u8]) -> Vec<u8> {
         let mut payload = last.to_be_bytes().to_vec();
         payload.extend_from_slice(&code.to_be_bytes());
-        payload.extend_from_slice(b"dbg");
+        payload.extend_from_slice(debug);
         frame(GOAWAY, 0, stream, &payload)
+    }
+
+    /// A GOAWAY this side sends is logged with the reason h2 wrote in its debug data, split across writes or not; the debug
+    /// data of the peer's GOAWAY is never logged.
+    #[test]
+    fn a_local_goaway_logs_its_reason_and_the_peers_debug_data_stays_unlogged() {
+        let (lines, _capture) = mixdog_rt::node_log::capture();
+        let state = ConnState::new(7);
+        let (mut out, mut inn) = (Frames::new(0), Frames::new(0));
+        let local = goaway_with(0, 0, 11, b"too_many_internal_resets");
+        for byte in &local {
+            feed(&state, &mut out, false, std::slice::from_ref(byte));
+        }
+        feed(&state, &mut inn, true, &goaway_with(0, 5, 0, b"peer-secret"));
+        feed(&state, &mut out, false, &goaway_with(0, 0, 0, b""));
+        let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("connection=7 protocol=h2 goaway by=local code=11 last_stream_id=0 reason=too_many_internal_resets "), "{lines:?}");
+        assert!(lines[1].contains("goaway by=peer code=0 last_stream_id=5 ") && !lines[1].contains("peer-secret") && !lines[1].contains("reason="), "{lines:?}");
+        assert!(lines[2].contains("goaway by=local code=0 last_stream_id=0 ") && !lines[2].contains("reason="), "no debug data, no reason: {lines:?}");
     }
 
     fn read(state: &Arc<ConnState>, wire: &[u8]) {

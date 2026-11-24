@@ -378,6 +378,10 @@ impl BodyStream for Counted {
         self.inner.hold_connection();
     }
 
+    fn drain_on_drop(&mut self) {
+        self.inner.drain_on_drop();
+    }
+
     fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
         self.inner.connection()
     }

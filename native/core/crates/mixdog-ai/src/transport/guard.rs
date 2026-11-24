@@ -83,6 +83,10 @@ impl BodyStream for LeasedBody {
         self.inner.hold_connection();
     }
 
+    fn drain_on_drop(&mut self) {
+        self.inner.drain_on_drop();
+    }
+
     fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
         self.inner.connection()
     }
@@ -117,6 +121,10 @@ impl BodyStream for RedactedBody {
 
     fn hold_connection(&mut self) {
         self.inner.hold_connection();
+    }
+
+    fn drain_on_drop(&mut self) {
+        self.inner.drain_on_drop();
     }
 
     fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {

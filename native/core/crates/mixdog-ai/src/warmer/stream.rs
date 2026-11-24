@@ -167,9 +167,16 @@ async fn read_frames(
             match event.get("type").and_then(Value::as_str) {
                 Some("message_start") => report(event.get("message").and_then(|m| m.get("usage")), usage, reported),
                 Some("message_delta") => report(event.get("usage"), usage, reported),
-                // The prefix was read (and the cache refreshed) before any content.
-                Some("content_block_start") if *reported => return Ok(()),
-                Some("message_stop") => return Ok(()),
+                // The prefix was read (and the cache refreshed) before any content, or the message ended. The rest of the
+                // one-token answer is already on its way: read off once the body is let go, not cancelled.
+                Some("content_block_start") if *reported => {
+                    body.drain_on_drop();
+                    return Ok(());
+                }
+                Some("message_stop") => {
+                    body.drain_on_drop();
+                    return Ok(());
+                }
                 _ => {}
             }
         }

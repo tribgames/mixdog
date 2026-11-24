@@ -273,7 +273,7 @@ impl ModelStream for CompatStream {
                 return Some(Err(err));
             }
             let body = self.body.as_mut()?;
-            // The terminal event ends the attempt; anything after it is dropped.
+            // The terminal event ends the attempt; anything after it is read off once the body is dropped.
             if self.decoder.terminal_seen() {
                 self.body = None;
                 return None;
@@ -286,6 +286,11 @@ impl ModelStream for CompatStream {
                         if held.is_some() {
                             self.body = None;
                             self.failed = held;
+                        } else if self.decoder.terminal_seen()
+                            && let Some(body) = self.body.as_mut()
+                        {
+                            // A consumer that stops at the completion drops this stream before it is read again.
+                            body.drain_on_drop();
                         }
                     }
                     Err(err) => {
