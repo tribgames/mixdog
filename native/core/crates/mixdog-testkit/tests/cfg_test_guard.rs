@@ -122,12 +122,12 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core-session/src/session/agent_registry/mod.rs", "walks: std::sync::atomic::AtomicUsize::new(0),", "the count above"),
     ("mixdog-core-session/src/session/agent_registry/mod.rs", "self.walks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);", "the count above"),
     (
-        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "mixdog-core-session/src/session/agent_registry/store_workers.rs",
         "pub(crate) async fn idle(&self) {",
         "a wait for the writers' tasks, for the inline write_marks and release_receipt tests alone: under `test-support` it would be unused",
     ),
     (
-        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "mixdog-core-session/src/session/agent_registry/store_workers.rs",
         "pub(crate) fn ledger_len(&self) -> usize {",
         "a read of the outcome ledger, for the inline write_marks tests alone: under `test-support` it would be unused",
     ),
