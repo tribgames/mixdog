@@ -44,8 +44,6 @@ test('idle pages close five minutes after their turn finished, or after ten minu
     now: () => clock.now,
     isBackgroundBusy: () => false,
     holdsUnfinishedWork: () => false,
-    documentGeneration: () => 0,
-    hasEditedFields: () => Promise.resolve(false),
     close: (sessionId, name, entry) => {
       closed.push(`${sessionId}/${name}`);
       sessions.deleteBackgroundPage(sessionId, name, entry);

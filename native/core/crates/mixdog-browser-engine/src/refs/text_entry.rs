@@ -56,7 +56,7 @@ impl RefActions {
     /// A rich editor owns its DOM: writing textContent bypasses its model and the next render drops the text. Everything is
     /// selected and the new text inserted as typed input instead, the way a person replaces it.
     async fn replace_content_editable(&self, ref_id: &str, text: &str) -> Result<String, RefError> {
-        self.input(vec![if text.is_empty() { press("Backspace", &[]) } else { insert_text(text) }]).await?;
+        self.edit_input(vec![if text.is_empty() { press("Backspace", &[]) } else { insert_text(text) }]).await?;
         let actual = self.call(ref_id, READ_EDITOR_TEXT, Vec::new()).await?;
         let actual = actual.as_str().unwrap_or_default();
         if !compact(text).is_empty() && compact(actual).is_empty() {
@@ -69,7 +69,7 @@ impl RefActions {
     /// `[REDACTED]` and its text is registered as a secret).
     pub async fn fill_ref(&self, ref_id: &str, text: &str) -> Result<String, RefError> {
         let declaration = with_editability(FILL_REF);
-        let outcome = checked_ref_result(self.call(ref_id, &declaration, vec![json!(text)]).await?, ref_id)?;
+        let outcome = checked_ref_result(self.edit(ref_id, &declaration, vec![json!(text)]).await?, ref_id)?;
         let outcome: FillOutcome = serde_json::from_value(outcome).unwrap_or_default();
         if outcome.content_editable {
             return self.replace_content_editable(ref_id, text).await;
@@ -168,6 +168,25 @@ mod tests {
         let host = Arc::new(FakeHost::scripted(vec![call(json!({"contentEditable": true})), batch_done(), call(json!("  \n "))]));
         let error = actions(host).fill_ref(REF, "lost").await.expect_err("dropped");
         assert!(error.to_string().contains("did not keep the inserted text"));
+    }
+
+    #[tokio::test]
+    async fn a_fill_and_its_editor_input_are_marked_as_edits_and_a_read_back_or_typing_is_not() {
+        let host = Arc::new(FakeHost::scripted(vec![
+            call(json!({"value": "x"})),
+            call(json!({"contentEditable": true, "unchanged": true})),
+            batch_done(),
+            call(json!("new text")),
+            call(json!({})),
+            batch_done(),
+        ]));
+        let actions = actions(host.clone());
+        actions.fill_ref(REF, "x").await.expect("filled");
+        actions.fill_ref(REF, "new text").await.expect("editor filled");
+        actions.type_ref(REF, "typed").await.expect("typed");
+        host.finish().expect("every call");
+        let edits: Vec<bool> = host.calls().iter().map(|call| call.params.get("edits") == Some(&json!(true))).collect();
+        assert_eq!(edits, [true, true, true, false, false, false], "typing is counted by the host from its keys");
     }
 
     #[tokio::test]

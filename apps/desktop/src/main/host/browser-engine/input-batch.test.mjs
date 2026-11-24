@@ -292,3 +292,45 @@ test('a hit guard on a page with DOM refs only finds its element in the page ref
   await assert.rejects(superseded.call({ steps: [step] }), (e) => e.code === -32010 && e.data.reason === 'snapshot');
   assert.equal(superseded.sent.length, 0);
 });
+
+test("the agent's typed text is its edit of the document; a click, Tab or Escape is not", async () => {
+  for (const steps of [[{ op: 'type', text: 'Ada' }], [{ op: 'insertText', text: '한' }], [{ op: 'press', key: 'Enter' }]]) {
+    const h = harness();
+    await h.call({ steps });
+    assert.equal(h.state.agentEdits, true, JSON.stringify(steps));
+    assert.notEqual(h.state.userEdits, true, 'never the person’s');
+  }
+  const pointed = harness();
+  await pointed.call({
+    steps: [
+      { op: 'pointer', kind: 'click', x: 1, y: 1 },
+      { op: 'press', key: 'Tab' },
+      { op: 'press', key: 'Escape' },
+    ],
+  });
+  assert.notEqual(pointed.state.agentEdits, true);
+});
+
+test('a batch the core marks as an edit counts once it completed, not when a dialog, the person or its guard stopped it', async () => {
+  const click = { op: 'pointer', kind: 'click', x: 10, y: 20, hitGuard: { snapshotId: 's1', ref: 'e1' } };
+  const checked = harness();
+  assert.equal((await checked.call({ edits: true, steps: [click] })).outcome, 'completed');
+  assert.equal(checked.state.agentEdits, true);
+
+  const unmarked = harness();
+  await unmarked.call({ steps: [click] });
+  assert.notEqual(unmarked.state.agentEdits, true, 'a click alone is not an edit');
+
+  const dialog = harness({ script: (event) => (event.type === 'mousePressed' ? 'dialog' : undefined) });
+  assert.equal((await dialog.call({ edits: true, steps: [click] })).outcome, 'dialog');
+  assert.notEqual(dialog.state.agentEdits, true);
+
+  const controller = new AbortController();
+  const taken = harness({ script: () => controller.abort(new HostRpcError(-32012, 'the person holds the page')) });
+  assert.equal((await taken.call({ edits: true, steps: [click] }, controller.signal)).outcome, 'userInput');
+  assert.notEqual(taken.state.agentEdits, true);
+
+  const missed = harness({ guardVerdict: { blocked: true } });
+  assert.equal((await missed.call({ edits: true, steps: [click] })).outcome, 'hitGuard');
+  assert.notEqual(missed.state.agentEdits, true);
+});

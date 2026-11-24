@@ -299,11 +299,7 @@ impl Drop for UrlPolicyOfRun {
 
 impl TurnEvents for BrowserEngine {
     fn turn_begun(&self, thread: &ThreadId) {
-        // A session that never used the browser has nothing to tell the host (its first command marks it live there).
-        if !locked(&self.inner.directory).sessions.contains_key(thread.as_str()) {
-            return;
-        }
-        let turn = locked(&self.inner.tasks).current(thread.as_str());
+        let Some(turn) = self.inner.begin_turn(thread) else { return };
         let inner = self.inner.clone();
         let thread = thread.clone();
         mixdog_rt::spawn("browser-turn-begin", mixdog_rt::TaskClass::Work, async move {
@@ -362,7 +358,19 @@ impl Drop for InFlight {
 }
 
 impl Inner {
-    /// Marks the running turn of `thread` as ended, and takes the pages it releases. `None`: no command ran in it.
+    /// A turn of `thread` began: the turn to tell the host of, which then has an end to tell too. `None`: a session that never used
+    /// the browser has nothing to tell the host (its first command marks it live there).
+    fn begin_turn(&self, thread: &ThreadId) -> Option<u64> {
+        if !locked(&self.directory).sessions.contains_key(thread.as_str()) {
+            return None;
+        }
+        let mut tasks = locked(&self.tasks);
+        tasks.touch(thread.as_str());
+        Some(tasks.current(thread.as_str()))
+    }
+
+    /// Marks the running turn of `thread` as ended, and takes the pages it releases. `None`: no command ran in it and the host was
+    /// not told it began.
     fn end_turn(&self, thread: &ThreadId, aborted: bool) -> Option<EndedTurn> {
         let mut tasks = locked(&self.tasks);
         if !tasks.take_touched(thread.as_str()) {
@@ -927,8 +935,8 @@ impl BrowserEngine {
 
     /// The running turn of `thread` ended (`finishBrowserTurn`): the pages it opened for itself are released when it was aborted (a
     /// dialog that needs a person keeps its page), no later command of that turn runs, and the host drops what it remembered of the
-    /// turn and the untouched blank page the agent has since left behind. A turn nobody ran a command in is nothing to finish.
-    /// Answers how many pages were closed.
+    /// turn and the untouched blank page the agent has since left behind. A turn nobody ran a command in and the host was not told
+    /// began is nothing to finish. Answers how many pages were closed.
     pub async fn finish_turn(&self, thread: &ThreadId, aborted: bool) -> usize {
         match self.inner.end_turn(thread, aborted) {
             Some(ended) => self.inner.close_ended(thread, ended, aborted).await,

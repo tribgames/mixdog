@@ -1045,6 +1045,10 @@ pub struct HostBrowserRefCallParams {
     pub timeout_ms: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Precondition>,
+    /// The function writes to the element: unless it throws, refuses (`error`) or answers `unchanged: true`, the host counts the call
+    /// as the agent's edit of the document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edits: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1219,6 +1223,9 @@ pub struct HostBrowserInputBatchParams {
     pub stop_on_dialog: bool,
     pub timeout_ms: u32,
     pub expect: Precondition,
+    /// The steps change what an element holds (a checkbox they click): a batch that completes counts as the agent's edit of the document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edits: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

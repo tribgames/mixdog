@@ -84,7 +84,9 @@ export class BrowserGuestStateStore {
       windowOpens: [],
       crashed: false,
       userInput: false,
-      typedInput: false,
+      userEdits: false,
+      agentEdits: false,
+      documentCommits: 0,
       pendingDialog: null,
       dismissedDialog: null,
       pendingFileChooser: null,
@@ -158,9 +160,12 @@ export class BrowserGuestStateStore {
     const state = this.for(guest);
     state.fault = fault;
     state.crashed = true;
-    // The dead renderer's prompts went with it; answering them reaches nothing.
+    // The dead renderer's prompts and edits went with it; answering them reaches nothing.
     state.pendingDialog = null;
     state.pendingFileChooser = null;
+    state.userEdits = false;
+    state.agentEdits = false;
+    state.documentCommits += 1;
     this.invalidateInteraction(guest);
     this.changed(guest, 'crash');
   }
@@ -284,13 +289,32 @@ export class BrowserGuestStateStore {
     state.pendingDialog = null;
     state.dismissedDialog = null;
     state.userInput = false;
-    state.typedInput = false;
+    state.userEdits = false;
+    state.agentEdits = false;
     state.actor = undefined;
     state.personDialogAnswerAt = undefined;
     state.dismissedDialogAt = undefined;
     state.userInputAt = undefined;
     state.windowOpens = [];
+    state.documentCommits += 1;
     this.changed(guest, 'document');
+  }
+
+  /** What reclaiming the page would lose because only its live document has
+   *  it: a person's edits, a dialog or file chooser waiting for an answer, a
+   *  secret typed for a sign-in, and while `turnLive` (its session's turn is
+   *  running or waiting on the user) the agent's own edits. Every idle
+   *  reclaim keeps such a page. */
+  holdsUnfinishedWork(guest: WebContents, turnLive: boolean): boolean {
+    const state = this.states.get(guest);
+    return Boolean(
+      state &&
+        (state.userEdits ||
+          (turnLive && state.agentEdits) ||
+          state.pendingDialog ||
+          state.pendingFileChooser ||
+          state.sensitiveValues?.size)
+    );
   }
 
   /** Text bound for the caller, minus the page's known secrets. */
@@ -320,6 +344,20 @@ export class BrowserGuestStateStore {
  *  navigation retires it, so nothing observed before can act afterwards. */
 export function browserDocumentId(state: Pick<BrowserGuestStateStore, 'pageId' | 'for'>, guest: WebContents): string {
   return `${state.pageId(guest)}:${state.for(guest).documentGeneration}`;
+}
+
+/** An edit about to reach the page `record` describes, a person's
+ *  (`userEdits`) or the agent's (`agentEdits`). Call the returned function
+ *  once the page has taken it: the document then holds it, unless a new
+ *  document committed meanwhile and the edit went with the old one. */
+export function beginEdit(
+  record: Pick<BrowserGuestState, 'documentCommits' | 'userEdits' | 'agentEdits'>,
+  by: 'userEdits' | 'agentEdits'
+): () => void {
+  const commits = record.documentCommits;
+  return () => {
+    if (record.documentCommits === commits) record[by] = true;
+  };
 }
 
 /** Append to a capped diagnostic list, redacting and trimming the entry. */

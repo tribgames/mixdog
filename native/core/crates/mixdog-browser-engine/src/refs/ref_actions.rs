@@ -27,6 +27,7 @@ use serde_json::Value;
 use super::access::RefError;
 use super::access::RefTarget;
 use super::access::call_ref;
+use super::access::edit_ref;
 use super::access::prepare_ref;
 use crate::error::HostCallError;
 use crate::limits::COMMAND_TIMEOUT;
@@ -71,6 +72,11 @@ impl RefActions {
         call_ref(&*self.host, &target, declaration, args, self.cancel.token()).await
     }
 
+    /// [`Self::call`] for a function that changes what the element holds: the host counts it as the agent's edit (`edit_ref`).
+    pub(super) async fn edit(&self, ref_id: &str, declaration: &str, args: Vec<Value>) -> Result<Value, RefError> {
+        edit_ref(&*self.host, &self.target(ref_id), declaration, args, self.cancel.token()).await
+    }
+
     pub(super) fn target<'a>(&'a self, ref_id: &'a str) -> RefTarget<'a> {
         RefTarget { page_id: &self.page_id, snapshot_id: snapshot_of(ref_id), ref_id, expect: Some(&self.expect) }
     }
@@ -82,12 +88,22 @@ impl RefActions {
 
     /// One `input/batch`: the steps run in order and the batch stops at a dialog (the reply reports it from the page's facts).
     pub(super) async fn input(&self, steps: Vec<InputStep>) -> Result<(), RefError> {
+        self.batch(steps, false).await
+    }
+
+    /// [`Self::input`] for steps that change what an element holds: the host counts a batch that completed as the agent's edit.
+    pub(super) async fn edit_input(&self, steps: Vec<InputStep>) -> Result<(), RefError> {
+        self.batch(steps, true).await
+    }
+
+    async fn batch(&self, steps: Vec<InputStep>, edits: bool) -> Result<(), RefError> {
         let params = HostBrowserInputBatchParams {
             page_id: self.page_id.clone(),
             steps,
             stop_on_dialog: true,
             timeout_ms: u32::try_from(COMMAND_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
             expect: self.expect.clone(),
+            edits: edits.then_some(true),
         };
         match self.host.input_batch(params, self.cancel.token()).await?.outcome {
             BrowserInputOutcome::Completed | BrowserInputOutcome::Dialog => Ok(()),
@@ -104,7 +120,8 @@ impl RefActions {
         self.input(vec![press(key, &[])]).await
     }
 
-    /// A left click at a viewport point, guarded so it lands only while `ref_id` is still what is under it.
+    /// A left click that changes the state of a control (a checkbox) at a viewport point, guarded so it lands only while `ref_id` is
+    /// still what is under it.
     pub(super) async fn click_guarded(&self, ref_id: &str, x: f64, y: f64) -> Result<(), RefError> {
         let step = BrowserPointerStep {
             kind: BrowserPointerKind::Click,
@@ -118,7 +135,7 @@ impl RefActions {
             to_y: None,
             hit_guard: Some(BrowserHitGuard { snapshot_id: snapshot_of(ref_id).to_string(), ref_id: ref_id.to_string() }),
         };
-        self.input(vec![InputStep::Pointer(step)]).await
+        self.edit_input(vec![InputStep::Pointer(step)]).await
     }
 }
 

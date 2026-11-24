@@ -1598,6 +1598,13 @@
     "HostBrowserInputBatchParams": {
       "description": "`host/browser/input/batch`: the steps run in order; the batch stops at a dialog.",
       "properties": {
+        "edits": {
+          "description": "The steps change what an element holds (a checkbox they click): a batch that completes counts as the agent's edit of the document.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "expect": {
           "$ref": "#/definitions/Precondition"
         },
@@ -2349,6 +2356,13 @@
           "items": true,
           "type": [
             "array",
+            "null"
+          ]
+        },
+        "edits": {
+          "description": "The function writes to the element: unless it throws, refuses (`error`) or answers `unchanged: true`, the host counts the call as the agent's edit of the document.",
+          "type": [
+            "boolean",
             "null"
           ]
         },

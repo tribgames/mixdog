@@ -6,7 +6,7 @@ function(wanted) {
     const list = root.getElementById?.(id);
     if (list && !lists.includes(list)) lists.push(list);
   }
-  if (!lists.length) return { pending: true };
+  if (!lists.length) return { pending: true, unchanged: true };
   const compact = value => String(value ?? '').slice(0, 2000).replace(/\s+/g, ' ').trim();
   const visible = element => {
     const rect = element.getBoundingClientRect();
@@ -31,7 +31,7 @@ function(wanted) {
       }
     }
   }
-  if (!candidates.size) return { pending: true };
+  if (!candidates.size) return { pending: true, unchanged: true };
   const label = node => compact(node.getAttribute('aria-label') || node.textContent);
   const matches = [...candidates].filter(node =>
     label(node) === wanted || compact(node.getAttribute('data-value')) === wanted);

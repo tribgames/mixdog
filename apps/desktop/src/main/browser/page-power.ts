@@ -64,13 +64,15 @@ export function createBrowserPagePower<T extends PowerGuest>(host: { isDisplayed
   };
 }
 
+/** Unload every idle session that holds nothing. Only host-side facts are
+ *  read, so a hung renderer cannot hold the pass up. */
 export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
   sessions: BrowserSessionRegistry;
   power: Pick<ReturnType<typeof createBrowserPagePower<T>>, 'isActive' | 'lastActiveAt'>;
   isBackgroundBusy(sessionId: string, name: string): boolean;
-  /** The page holds state a reload loses: typing, a pending dialog or file
-   *  chooser, audible media, a stored sensitive value. */
-  holdsPage(guest: T): boolean;
+  /** The page of `sessionId` holds what a reload loses: unfinished work
+   *  (host-state's `holdsUnfinishedWork`) or audible media. */
+  holdsPage(guest: T, sessionId: string): boolean;
   /** The session has a download in progress. */
   downloading(sessionId: string): boolean;
   unload(sessionId: string): void;
@@ -91,7 +93,9 @@ export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
     if (
       pages.some(
         (guest) =>
-          power.isActive(guest) || host.holdsPage(guest) || !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
+          power.isActive(guest) ||
+          host.holdsPage(guest, sessionId) ||
+          !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
       )
     ) {
       continue;

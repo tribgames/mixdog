@@ -5,11 +5,13 @@
  * the object; a ref in a cross-origin frame also answers that frame's offset.
  * A page whose accessibility tree was unavailable has DOM refs instead (the
  * page-side ref table), reached through a page evaluation. A ref of a snapshot that is no longer the page's current one is -32013; the
- * page's own exception is returned as `exception`, not thrown.
+ * page's own exception is returned as `exception`, not thrown. A call the core marks `edits` that answers a change is the
+ * agent's edit of the document, which holds its page while the agent's turn is live (`agentEdits`).
  */
 import type { WebContents } from 'electron';
 
 import type { BrowserExceptionDetails, Precondition } from '../../../../../../packages/protocol/src/index.ts';
+import { beginEdit } from '../../browser/host-state';
 import { redactBrowserText } from '../../browser/redaction';
 import { browserRefElementSource } from '../../browser/ref-access';
 import { createFrameOffsetResolver } from '../../browser/snapshot-frame-offset';
@@ -63,6 +65,14 @@ function exceptionOf(details: CdpExceptionDetails): BrowserExceptionDetails {
   };
 }
 
+/** Whether the answer of a call that writes to its element (`edits`) reports a change: a refusal (`error`) or an
+ *  answer that it changed nothing (`unchanged`) does not. */
+function answersChange(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return true;
+  const { error, unchanged } = value as { error?: unknown; unchanged?: unknown };
+  return !(typeof error === 'string' && error) && unchanged !== true;
+}
+
 /** The DOM-ref call: the function runs with the element as `this`; a page-side failure comes back as data. */
 function domRefExpression(ref: string, functionDeclaration: string, args: unknown[]): string {
   return `(async () => {
@@ -91,6 +101,7 @@ export function registerRefCall(connection: HostConnection, ctx: EngineContext, 
     const timeout = typeof timeoutMs === 'number' ? timeoutMs : undefined;
     const expect = (params.expect ?? undefined) as Precondition | undefined;
     requireCurrentSnapshot(page.state, snapshotId);
+    const edited = params.edits === true ? beginEdit(page.state, 'agentEdits') : undefined;
 
     const accessibility = page.state.accessibilityRefs;
     if (accessibility?.snapshotId !== snapshotId) {
@@ -102,7 +113,10 @@ export function registerRefCall(connection: HostConnection, ctx: EngineContext, 
           timeout
         )
       );
-      if (outcome.ok) return outcome.value === undefined ? {} : { value: outcome.value };
+      if (outcome.ok) {
+        if (answersChange(outcome.value)) edited?.();
+        return outcome.value === undefined ? {} : { value: outcome.value };
+      }
       if (outcome.text === 'stale ref') throw staleRef(ref);
       return { exception: { text: redactBrowserText(outcome.text) } };
     }
@@ -147,6 +161,7 @@ export function registerRefCall(connection: HostConnection, ctx: EngineContext, 
       if (response.exceptionDetails) return { exception: exceptionOf(response.exceptionDetails) };
       // A result kept by reference has no value to send; its description says what it is.
       const value = returnByValue !== false ? response.result?.value : response.result?.description;
+      if (answersChange(value)) edited?.();
       const answer = value === undefined ? {} : { value };
       // A ref inside a cross-origin frame is measured in that frame: where the frame sits in the top viewport goes with the
       // answer, so the core can place a point or a box there.

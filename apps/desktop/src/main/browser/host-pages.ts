@@ -134,7 +134,7 @@ export function createBrowserHostPages(options: {
           if (guest.isDestroyed()) return;
           const owner = sessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
           state.for(guest).userInput = true;
-          if (typing) state.for(guest).typedInput = true;
+          if (typing) state.for(guest).userEdits = true;
           state.for(guest).actor = 'person';
           state.for(guest).personDialogAnswerAt = undefined;
           userTakesPage(guest);

@@ -26,12 +26,17 @@ test('a contenteditable element is selected whole and its DOM is left for typed 
   try {
     const editor = dom.window.document.querySelector('#editor');
     Object.defineProperty(editor, 'isContentEditable', { value: true });
-    assert.deepEqual({ ...apply(editor, 'fill-ref.js', ['new text']) }, { contentEditable: true });
+    // `unchanged`: the host does not count the selection as the agent's edit; the typed input that follows is.
+    assert.deepEqual({ ...apply(editor, 'fill-ref.js', ['new text']) }, { contentEditable: true, unchanged: true });
     assert.equal(editor.textContent, 'old draft', 'the page script never overwrote the editor DOM');
     const selection = dom.window.getSelection();
     assert.equal(selection.rangeCount, 1);
     assert.equal(selection.getRangeAt(0).commonAncestorContainer, editor);
-    assert.deepEqual({ ...apply(editor, 'fill-ref.js', ['']) }, { contentEditable: true }, 'clearing selects it too');
+    assert.deepEqual(
+      { ...apply(editor, 'fill-ref.js', ['']) },
+      { contentEditable: true, unchanged: true },
+      'clearing selects it too'
+    );
   } finally {
     dom.window.close();
   }

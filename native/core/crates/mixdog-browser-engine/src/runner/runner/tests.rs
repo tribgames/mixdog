@@ -321,6 +321,28 @@ async fn a_turn_that_starts_after_a_command_ran_is_told_to_the_host_and_one_of_a
 }
 
 #[tokio::test]
+async fn a_turn_the_host_was_told_began_is_told_it_ended_though_it_ran_no_command_and_only_once() {
+    let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
+    let engine = engine(&host, None);
+    run(&engine, "snapshot", json!({})).await.expect("snapshot");
+    engine.finish_turn(&thread(), false).await;
+    // The next turn only reasons and asks the user: it never runs a browser command. What `turn_begun` does before it hands
+    // the note to a task.
+    assert_eq!(engine.inner.begin_turn(&thread()), Some(2), "the host is told turn 2 began");
+    engine.finish_turn(&thread(), false).await;
+    // A runtime that stops after the turn settled ends it again: nothing is left to tell.
+    engine.finish_turn(&thread(), false).await;
+    let ends: Vec<Option<i64>> = host
+        .calls()
+        .into_iter()
+        .filter(|call| call.method == "host/browser/turn" && call.params["op"] == "end")
+        .map(|call| call.params["turn"].as_i64())
+        .collect();
+    assert_eq!(ends, [Some(1), Some(2)]);
+    assert_eq!(locked(&engine.inner.tasks).current("s1"), 3, "the next turn is told as a newer one");
+}
+
+#[tokio::test]
 async fn the_document_revision_of_a_page_is_read_from_the_host_now_and_unknown_when_the_host_cannot_say() {
     let revision =
         |value: i64| Expect::ok("host/browser/revision", json!({"revision": value, "facts": page_facts("p1", 3)})).with_params(json!({"pageId": "p1"}));

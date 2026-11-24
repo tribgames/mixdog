@@ -1,9 +1,13 @@
 import type { BrowserWindow, WebContents } from 'electron';
+import { browserEditingKey } from '../../shared/browser-input-policy';
 import { agentInputInFlight } from './agent-input';
 import { browserPageView, browserPageWindow } from './page-window';
 
 /** Parked page windows sit here, outside every display. */
 const PARK_POSITION = -32_000;
+
+/** The key events among them; only those that edit text count as typing. */
+const TYPING_INPUT = new Set<string>(['rawKeyDown', 'keyDown']);
 
 /** Deliberate gestures that take a page over from the agent: presses, keys,
  *  wheel and touchpad/touch scrolling, and touches. */
@@ -16,9 +20,6 @@ const TAKEOVER_INPUT = new Set<string>([
   'gestureTapDown',
   'touchStart',
 ]);
-
-/** The key events among them: what a person types. */
-const TYPING_INPUT = new Set<string>(['rawKeyDown', 'keyDown']);
 
 export interface BrowserNativeRect {
   x: number;
@@ -145,7 +146,9 @@ export function createBrowserNativeViews(host: BrowserNativeViewHost) {
         if (agentInputInFlight(guest)) return;
         const pressed = input.modifiers?.some((modifier) => modifier.endsWith('buttondown'));
         if (TAKEOVER_INPUT.has(input.type) || (input.type === 'mouseMove' && pressed)) {
-          host.humanInput(guest, TYPING_INPUT.has(input.type));
+          const key = (input as { keyCode?: string }).keyCode;
+          const chord = input.modifiers?.some((modifier) => modifier === 'control' || modifier === 'meta') ? 'control+' : '';
+          host.humanInput(guest, TYPING_INPUT.has(input.type) && browserEditingKey(`${chord}${key ?? ''}`));
         }
       });
     },

@@ -89,8 +89,10 @@ export interface BrowserPageRetention {
   /** An agent command is driving it, whether or not something also displays it. */
   driven: boolean;
   keepAlive: boolean;
-  /** A person typed into the current document. */
-  typed: boolean;
+  /** The current document holds a person's edits (typed text, attached files). */
+  edited: boolean;
+  /** The current document holds the agent's own edits. */
+  agentEdited: boolean;
   secret: boolean;
   dialog: boolean;
   busy: boolean;
@@ -352,16 +354,8 @@ export function createBrowserHost(
       sessions,
       power: display.power,
       isBackgroundBusy: base.isBackgroundBusy,
-      holdsPage: (guest) => {
-        const record = state.peek(guest);
-        return Boolean(
-          record?.typedInput ||
-            record?.pendingDialog ||
-            record?.pendingFileChooser ||
-            record?.sensitiveValues?.size ||
-            guest.isCurrentlyAudible()
-        );
-      },
+      holdsPage: (guest, sessionId) =>
+        state.holdsUnfinishedWork(guest, sessions.turnLive(sessionId)) || guest.isCurrentlyAudible(),
       downloading: (sessionId) => base.partition.downloadLedger.hasActiveDownload(sessionId),
       unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
     });
@@ -446,7 +440,8 @@ export function createBrowserHost(
             shownBy,
             driven: display.power.isDriven(guest),
             keepAlive,
-            typed: record?.typedInput === true,
+            edited: record?.userEdits === true,
+            agentEdited: record?.agentEdits === true,
             secret: Boolean(record?.sensitiveValues?.size),
             dialog: Boolean(record?.pendingDialog || record?.pendingFileChooser),
             busy,

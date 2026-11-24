@@ -5699,6 +5699,17 @@
             "array",
             "null"
           ]
+        },
+        "toolOutput": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolOutputDisplay"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What this connection shows of a tool's output (a phone). The core sends the rows of `thread/snapshot`, `thread/window/changed`, `thread/transcript/changed` and the feed's item events with each tool output already cut to it, and says on the row how long the output was (`meta.ext.remoteOutputTruncated`); `thread/items/read` answers the item whole. Absent: every row whole."
         }
       },
       "type": "object"
@@ -13158,6 +13169,26 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "ToolOutputDisplay": {
+      "description": "The size a client shows a tool's output at: its first lines lines, at most chars characters.",
+      "properties": {
+        "chars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lines": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chars",
+        "lines"
+      ],
       "type": "object"
     },
     "ToolProfile": {

@@ -112,6 +112,8 @@ mod tests {
         ]));
         assert_eq!(actions(host.clone()).set_checked_ref(REF, true).await, Ok(()));
         host.finish().expect("state, point, click, state");
+        let edits: Vec<bool> = host.calls().iter().map(|call| call.params.get("edits") == Some(&json!(true))).collect();
+        assert_eq!(edits, [false, false, true, false], "only the click changes the box");
     }
 
     #[tokio::test]

@@ -716,6 +716,10 @@ export function createBrowserHostAgent(options: {
     finishTurn: (sessionId, turn, aborted) =>
       finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turn, { aborted }),
     forget: (sessionId) => taskLifecycle.forget(sessionId),
+    endTurns: (sessionId) => {
+      sessions.endLinkTurns(sessionId);
+      taskLifecycle.renumber(sessionId);
+    },
     onDiagnostic: options.onDiagnostic,
   };
   return { ...queue, bridge, loginFill, signIn, drivePage };

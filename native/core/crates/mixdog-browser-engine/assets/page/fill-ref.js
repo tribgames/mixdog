@@ -24,7 +24,7 @@ function(text) {
     const selection = doc.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
-    return { contentEditable: true };
+    return { contentEditable: true, unchanged: true };
   }
   return { error: 'element is not editable' };
 }

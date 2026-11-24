@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
+import { beginEdit, BrowserGuestStateStore } from './host-state.ts';
+import { createBrowserLocalPrompts } from './local-prompts.ts';
 import { createBrowserPagePower, reclaimIdleUserSessions } from './page-power.ts';
+import { createRefUpload } from './ref-upload.ts';
 import { BrowserSessionRegistry } from './session-registry.ts';
 import { BACKGROUND_PAGE_IDLE_MS, IDLE_RELEASE_MS } from './tab-policy.ts';
 
@@ -89,7 +93,7 @@ function harness(options = {}) {
       sessions,
       power,
       isBackgroundBusy: options.busy ?? (() => false),
-      holdsPage: (g) => held.has(g),
+      holdsPage: options.holdsPage ?? ((g) => held.has(g)),
       downloading: (sessionId) => downloading.has(sessionId),
       unload: (sessionId) => unloaded.push(sessionId),
       now,
@@ -149,7 +153,7 @@ test('displayed, driven, busy and held sessions stay loaded; an idle one unloads
   assert.deepEqual(h.unloaded, ['idle']);
 });
 
-test('a popup that depends on its live opener keeps the session loaded', () => {
+test('a popup with a live opener holds its session loaded until the opener is gone', () => {
   const h = harness();
   const opener = h.page('s', 1);
   const popup = guest(2);
@@ -166,6 +170,75 @@ test('a popup that depends on its live opener keeps the session loaded', () => {
   opener.isDestroyed = () => true;
   h.run(h.origin + IDLE_RELEASE_MS + 60_000);
   assert.deepEqual(h.unloaded, ['s']);
+});
+
+test("a person's edit holds its session, a failed upload does not; a press alone is no work", async () => {
+  const state = new BrowserGuestStateStore();
+  const h = harness({ holdsPage: (g, sessionId) => state.holdsUnfinishedWork(g, h.sessions.turnLive(sessionId)) });
+  const uploads = createRefUpload({
+    pendingFileChooser: (g) => state.for(g).pendingFileChooser,
+    clearFileChooser: (g) => (state.for(g).pendingFileChooser = null),
+    cdp: { call: async (_g, _method, _params, _signal, options = {}) => options.beforeDispatch?.() },
+  });
+  const prompts = createBrowserLocalPrompts({
+    state,
+    controller: () => 'any',
+    dialogs: {},
+    uploads,
+    chooseFiles: async () => ({ canceled: false, filePaths: [fileURLToPath(import.meta.url)] }),
+  });
+  const choose = (page, chooser) => {
+    state.for(page).pendingFileChooser = { mode: 'selectSingle', openedAt: 0, ...chooser };
+    return prompts.answer(page, { type: 'choose-files', requestId: prompts.describe(page).fileChooser.id }, () => {});
+  };
+  beginEdit(state.for(h.page('typed', 1)), 'userEdits')();
+  await choose(h.page('attached', 2), { backendNodeId: 7 });
+  await assert.rejects(choose(h.page('failed', 3), {}), /no target element/);
+  state.for(h.page('pressed', 4)).userInput = true;
+  h.run(h.origin + IDLE_RELEASE_MS + 60_000);
+  assert.deepEqual(h.unloaded, ['failed', 'pressed']);
+});
+
+test("the agent's edits keep its session loaded while the turn waits, and stop once the turn ends", () => {
+  const state = new BrowserGuestStateStore();
+  const h = harness({ holdsPage: (g, sessionId) => state.holdsUnfinishedWork(g, h.sessions.turnLive(sessionId)) });
+  beginEdit(state.for(h.page('filled', 1)), 'agentEdits')();
+  h.page('idle', 2);
+  h.sessions.beginTurn('filled', 1);
+  h.sessions.beginTurn('idle', 1);
+  // Both turns wait on the user well past the live-turn idle time.
+  h.run(h.origin + BACKGROUND_PAGE_IDLE_MS + 60_000);
+  assert.deepEqual(h.unloaded, ['idle']);
+  const finishedAt = h.origin + BACKGROUND_PAGE_IDLE_MS + 2 * 60_000;
+  h.sessions.finishTurn('filled', 1, finishedAt);
+  h.run(finishedAt + IDLE_RELEASE_MS);
+  assert.equal(h.unloaded.includes('filled'), true);
+});
+
+test('a hung renderer never holds a pass up: sessions are judged and unloaded within the call', () => {
+  const h = harness();
+  let asked = 0;
+  const hung = h.page('hung', 1);
+  hung.executeJavaScriptInIsolatedWorld = () => {
+    asked += 1;
+    return new Promise(() => {});
+  };
+  h.page('other', 2);
+  assert.equal(h.run(h.origin + IDLE_RELEASE_MS + 60_000), undefined);
+  assert.deepEqual(h.unloaded, ['hung', 'other']);
+  assert.equal(asked, 0);
+});
+
+test('a page opened in an idle session keeps the session loaded', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const h = harness();
+  h.page('quiet', 1);
+  h.page('opening', 2);
+  t.mock.timers.tick(IDLE_RELEASE_MS + 60_000);
+  // Opened just before the pass, through the tracking every new page gets.
+  h.background('opening', 'new', 3);
+  h.run(Date.now());
+  assert.deepEqual(h.unloaded, ['quiet']);
 });
 
 test('driven is reported apart from display', () => {

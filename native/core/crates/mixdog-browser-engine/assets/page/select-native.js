@@ -2,7 +2,7 @@ function(values) {
   const el = this;
   const error = (__MIXDOG_EDITABILITY__)(el);
   if (error) return { error };
-  if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
+  if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true, unchanged: true };
   if (el.options.length > 5000) return { error: 'select has too many options; narrow the control before selecting' };
   const options = Array.from(el.options);
   const selected = new Set();

@@ -195,6 +195,17 @@ test('custom selection waits for its associated list to render without opening i
   }
 });
 
+test('a selection answer that changed nothing says so: a custom control asked as a native one, a list not rendered yet', () => {
+  const f = fixture('<button role="combobox" aria-controls="cities">City</button>');
+  try {
+    const trigger = f.dom.window.document.querySelector('button');
+    assert.deepEqual(plain(apply(trigger, 'select-native.js', [['Busan']])), { custom: true, unchanged: true });
+    assert.deepEqual(plain(apply(trigger, 'pick-custom.js', ['Busan'])), { pending: true, unchanged: true });
+  } finally {
+    f.dom.window.close();
+  }
+});
+
 test('a native selection miss names the options the control actually offers', async () => {
   const f = fixture('<select><option value="a">Alpha</option><option value="b">Beta</option></select>');
   try {

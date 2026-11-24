@@ -273,8 +273,8 @@ impl BrowserApprovalContext {
 
 /// The session deps' `TurnSnapshots` with the browser engine told beside it: where an agent turn settles the engine ends its running
 /// turn, as aborted when the session said the turn did not complete (the host forgets what it remembered of the turn, the pages an
-/// aborted turn opened for itself and the untouched blank page are closed). A runtime that stops (an unload, a parked idle agent) is not a
-/// release: the engine's session ends in [`EngineSessionRelease`].
+/// aborted turn opened for itself and the untouched blank page are closed). A runtime that stops (an unload, a parked idle agent) ends the
+/// turn it was running, if any, but is not a release: the engine's session ends in [`EngineSessionRelease`].
 pub struct EngineTurnSnapshots {
     inner: Arc<dyn TurnSnapshots>,
     turns: Arc<dyn TurnEvents>,
@@ -306,6 +306,8 @@ impl TurnSnapshots for EngineTurnSnapshots {
     }
 
     fn runtime_stopped(&self, thread: &ThreadId) {
+        let aborted = self.aborted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread);
+        self.turns.turn_ended(thread, aborted);
         self.inner.runtime_stopped(thread);
     }
 
@@ -380,7 +382,7 @@ mod turn_tests {
     }
 
     #[test]
-    fn the_engine_is_told_how_a_turn_ended_and_a_stopped_runtime_is_no_release() {
+    fn the_engine_is_told_how_a_turn_ended_and_a_stopped_runtime_ends_its_turn_without_a_release() {
         let log = Arc::new(Log::default());
         let both = EngineTurnSnapshots::new(Arc::new(Snapshots(log.clone())), Arc::new(Events(log.clone())));
         let thread = ThreadId::from("s1");
@@ -388,8 +390,24 @@ mod turn_tests {
         both.turn_settled(&thread);
         both.turn_settled(&thread);
         both.runtime_stopped(&thread);
+        // A runtime stopped in the middle of a turn that did not complete.
+        both.turn_aborted(&thread);
+        both.runtime_stopped(&thread);
         both.dispose();
-        assert_eq!(*log.0.lock().unwrap(), ["ended s1 true", "settled s1", "ended s1 false", "settled s1", "stopped s1", "dispose"]);
+        assert_eq!(
+            *log.0.lock().unwrap(),
+            [
+                "ended s1 true",
+                "settled s1",
+                "ended s1 false",
+                "settled s1",
+                "ended s1 false",
+                "stopped s1",
+                "ended s1 true",
+                "stopped s1",
+                "dispose"
+            ]
+        );
     }
 
     #[test]
