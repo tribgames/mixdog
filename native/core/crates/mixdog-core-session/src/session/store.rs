@@ -1012,6 +1012,8 @@ mod projector_tests {
         let loaded = crate::session::tests::start_thread(&directory).await.id.clone();
         let stored = crate::session::tests::start_thread(&directory).await.id.clone();
         directory.release(&stored).await;
+        // The index answers for the stored row once its writer's retirement clears the row's writer mark.
+        directory.unload_settled(&stored).await;
         assert!(directory.handle(&stored).is_none(), "the session is stored, not loaded");
         threads.projected().await;
         let mut expected = Vec::new();
