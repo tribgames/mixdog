@@ -191,13 +191,25 @@ pub struct Pool {
     pub policy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_credits: Option<bool>,
+    /// The usage of the provider's own sign-in while no account is stored: the implicit `default` account's, which the
+    /// row made for it takes over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implicit_usage: Option<Usage>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
 impl Default for Pool {
     fn default() -> Self {
-        Self { accounts: Vec::new(), selected_id: None, auto: Some(true), policy: Some("limit".into()), use_credits: None, extra: Map::new() }
+        Self {
+            accounts: Vec::new(),
+            selected_id: None,
+            auto: Some(true),
+            policy: Some("limit".into()),
+            use_credits: None,
+            implicit_usage: None,
+            extra: Map::new(),
+        }
     }
 }
 
@@ -226,5 +238,13 @@ impl Pool {
 
     pub fn selected(&self) -> Option<&Account> {
         self.selected_id.as_deref().and_then(|id| self.account(id))
+    }
+
+    /// The stored usage of account `id`: its row's, or with no account stored, the implicit `default` account's.
+    pub(crate) fn usage_mut(&mut self, id: &str) -> Option<&mut Option<Usage>> {
+        if self.accounts.is_empty() && id == "default" {
+            return Some(&mut self.implicit_usage);
+        }
+        self.accounts.iter_mut().find(|row| row.id == id).map(|row| &mut row.usage)
     }
 }

@@ -98,10 +98,60 @@ test('an account reserves its remembered usage rows and repaints its last meters
   await render(React.createElement(ProviderAccountsList, { api, provider: 'reserve-oauth' }));
   assert.equal(document.querySelectorAll('.provider-account-usage > span').length, 3);
   withUsage = false;
-  await render(React.createElement(ProviderAccountsList, { api, provider: 'reserve-oauth-2' }));
+  await render(null);
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'reserve-oauth' }));
   const usage = document.querySelector('.provider-account-usage');
   assert.equal(usage.style.getPropertyValue('--usage-rows'), '3');
   assert.equal(usage.querySelectorAll(':scope > span').length, 3);
+});
+
+test("a provider's account shows none of another provider's meters remembered under the same account id", async (t) => {
+  const render = harness(t);
+  const signedIn = (usage) => ({
+    selectedId: 'default',
+    auto: true,
+    accounts: [{ id: 'default', label: 'Account 1', authenticated: true, usage }],
+  });
+  const pools = {
+    'openai-oauth': signedIn({ windows: [{ label: '7D', usedPct: 100 }] }),
+    'grok-oauth': signedIn(null),
+  };
+  const api = {
+    async invokeCapability({ capability, args }) {
+      if (capability === 'getUsageDashboard') return { value: { rows: [] } };
+      return { value: structuredClone(pools[args[0]]) };
+    },
+  };
+  const list = (provider) => React.createElement(ProviderAccountsList, { key: provider, api, provider });
+  await render(list('openai-oauth'));
+  await render(React.createElement(React.Fragment, null, list('openai-oauth'), list('grok-oauth')));
+  const [openai, grok] = document.querySelectorAll('.provider-accounts-list');
+  assert.equal(openai.querySelector('.provider-account-usage b').textContent, '100%');
+  assert.equal(grok.querySelector('.provider-account-usage'), null);
+  assert.equal(grok.querySelector('.provider-account-meta').textContent, 'Usage not checked yet');
+});
+
+test('a disconnected account leaves no meters for the next sign-in under its id', async (t) => {
+  const render = harness(t);
+  let accounts = [{ id: 'a', label: 'a', authenticated: true, usage: { windows: [{ label: '7D', usedPct: 100 }] } }];
+  const api = {
+    async invokeCapability({ capability }) {
+      if (capability === 'getUsageDashboard') return { value: { rows: [] } };
+      return { value: { selectedId: accounts[0]?.id ?? null, auto: true, accounts: structuredClone(accounts) } };
+    },
+  };
+  const remount = async () => {
+    await render(null);
+    await render(React.createElement(ProviderAccountsList, { api, provider: 'departed-oauth' }));
+  };
+  await remount();
+  assert.equal(document.querySelector('.provider-account-usage b').textContent, '100%');
+  accounts = [];
+  await remount();
+  accounts = [{ id: 'a', label: 'a', authenticated: true, usage: null }];
+  await remount();
+  assert.equal(document.querySelector('.provider-account-usage'), null);
+  assert.equal(document.querySelector('.provider-account-meta').textContent, 'Usage not checked yet');
 });
 
 for (const listOnly of [true, false]) {
