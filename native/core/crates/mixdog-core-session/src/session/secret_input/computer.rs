@@ -3,10 +3,7 @@
 //! takes (`computer-bridge` `executeSerialized`; `ProcessComputerBackend` is the helper), each
 //! under the human-only lock as each command of the desktop's queue was (`command-attempt.ts`).
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::PoisonError;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::computer::ComputerAction;
@@ -85,44 +82,44 @@ pub trait SavedLoginTurns: Send + Sync {
     fn turn(&self, thread: &ThreadId) -> Option<u64>;
 }
 
-/// The agent turns of the sessions, counted as they settle, which is what a saved-login fill is scoped to: the running turn of
-/// a session is the one after the last that settled (Node's `turn_id`). A settled turn lifts its fills' password redaction and
-/// pixel guard (`settleSavedLoginTurn`), and a session that ends lifts all of its own (`forget`); [`SettlingSavedLogins`] makes
-/// those calls where the actor reports them.
+/// The agent turns of the sessions as the registry counts them ([`SavedLoginRegistry::current_turn`]), which is what a saved-login
+/// fill is scoped to (Node's `turn_id`). The actor reports a runtime's start (its runtime hooks, before it takes any work) and
+/// stop (the same hooks, naming the runtime), and each settled turn ([`SettlingSavedLogins`]); a settled turn lifts its fills'
+/// password redaction and pixel guard (`settleSavedLoginTurn`). A session's count lasts across unloads and closes and goes when
+/// it is deleted ([`Self::session_deleted`]).
 pub struct SavedLoginTurnClock {
     registry: Arc<SavedLoginRegistry>,
-    /// Per session, how many turns have settled.
-    settled: Mutex<HashMap<String, u64>>,
 }
 
 impl SavedLoginTurnClock {
     pub fn new(registry: Arc<SavedLoginRegistry>) -> Arc<Self> {
-        Arc::new(Self { registry, settled: Mutex::new(HashMap::new()) })
+        Arc::new(Self { registry })
+    }
+
+    /// The session's runtime `runtime` started: its fills are admitted from here ([`SavedLoginRegistry::runtime_started`]).
+    pub fn runtime_started(&self, thread: &ThreadId, runtime: u64) {
+        self.registry.runtime_started(thread.as_str(), runtime);
     }
 
     fn turn_settled(&self, thread: &ThreadId) {
-        let turn = {
-            let mut settled = self.settled.lock().unwrap_or_else(PoisonError::into_inner);
-            let count = settled.entry(thread.as_str().to_owned()).or_insert(0);
-            *count += 1;
-            SavedLoginTurn { session: thread.as_str().to_owned(), turn: *count }
-        };
-        let registry = self.registry.clone();
-        drop(tokio::spawn(async move { registry.settle(&turn).await }));
+        self.registry.settle_current(thread.as_str());
     }
 
-    fn runtime_stopped(&self, thread: &ThreadId) {
-        // A turn the runtime stopped in is over: `forget` settles it, so the next runtime's first turn is a new number.
-        *self.settled.lock().unwrap_or_else(PoisonError::into_inner).entry(thread.as_str().to_owned()).or_insert(0) += 1;
-        let (registry, session) = (self.registry.clone(), thread.as_str().to_owned());
-        drop(tokio::spawn(async move { registry.forget(&session).await }));
+    /// The session's runtime `runtime` stopped ([`SavedLoginRegistry::runtime_stopped`]).
+    pub fn runtime_stopped(&self, thread: &ThreadId, runtime: u64) {
+        self.registry.runtime_stopped(thread.as_str(), runtime);
+    }
+
+    /// The session was deleted, whether or not its runtime has stopped yet: its count and everything of it go, and its runtime's
+    /// later calls keep nothing. What a fill still running set up goes when that fill finishes, so nothing waits for it here.
+    pub fn session_deleted(&self, thread: &ThreadId) {
+        drop(self.registry.discard(thread.as_str()));
     }
 }
 
 impl SavedLoginTurns for SavedLoginTurnClock {
     fn turn(&self, thread: &ThreadId) -> Option<u64> {
-        let settled = self.settled.lock().unwrap_or_else(PoisonError::into_inner);
-        Some(settled.get(thread.as_str()).copied().unwrap_or(0) + 1)
+        self.registry.current_turn(thread.as_str())
     }
 }
 
@@ -150,7 +147,6 @@ impl TurnSnapshots for SettlingSavedLogins {
     }
 
     fn runtime_stopped(&self, thread: &ThreadId) {
-        self.clock.runtime_stopped(thread);
         self.inner.runtime_stopped(thread);
     }
 
@@ -454,5 +450,113 @@ mod tests {
         assert!(lock.end(&hold, &desktop.caller));
         commands.execute(&thread, json!({ "action": "find" })).await.unwrap();
         assert_eq!(helper.sent.lock().unwrap().len(), 1);
+    }
+
+    fn fill_of(session: &str, turn: u64) -> SavedLoginTurn {
+        SavedLoginTurn { session: session.to_owned(), turn }
+    }
+
+    /// A session unloaded in its first turn, with no fill held, numbers its next runtime's first turn anew and keeps the stopped
+    /// turn refused; across unloads and reloads no turn number comes twice.
+    #[test]
+    fn an_unloaded_session_never_numbers_a_turn_twice_and_keeps_the_stopped_turn_refused() {
+        let registry = SavedLoginRegistry::new();
+        let clock = SavedLoginTurnClock::new(registry.clone());
+        let thread = ThreadId::from("S1");
+        assert_eq!(clock.turn(&thread), None, "no runtime runs: no turn");
+        clock.runtime_started(&thread, 1);
+        let first = fill_of("S1", clock.turn(&thread).unwrap());
+        clock.runtime_stopped(&thread, 1);
+        assert_eq!(clock.turn(&thread), None);
+        clock.runtime_started(&thread, 2);
+        let next = fill_of("S1", clock.turn(&thread).unwrap());
+        assert_eq!((first.turn, next.turn), (1, 2), "the reloaded session's first turn is a new number");
+        assert_eq!(registry.admit(&first).err().unwrap(), "its agent turn has already ended");
+        assert!(registry.admit(&next).is_ok());
+        clock.turn_settled(&thread);
+        clock.runtime_stopped(&thread, 2);
+        clock.runtime_started(&thread, 3);
+        assert_eq!(clock.turn(&thread), Some(4), "the settled turn 2 and the stopped turn 3 are both spent");
+        assert_eq!(registry.admit(&fill_of("S1", 3)).err().unwrap(), "its agent turn has already ended");
+    }
+
+    /// A session closed and reopened at once: the new runtime starts before the old one's stop lands. The start ends the old
+    /// runtime's turn, so the two never share a number, and the late stop changes nothing for the new runtime: it admits the fills
+    /// of its very first turn and of its later ones until its own stop.
+    #[test]
+    fn a_late_stop_of_the_previous_runtime_leaves_the_reopened_one_admitting_fills() {
+        let registry = SavedLoginRegistry::new();
+        let clock = SavedLoginTurnClock::new(registry.clone());
+        let thread = ThreadId::from("S1");
+        let (old, new) = (1, 2);
+        clock.runtime_started(&thread, old);
+        let stale = fill_of("S1", clock.turn(&thread).unwrap());
+        let running = registry.admit(&stale).expect("the old runtime's fill");
+        assert!(registry.remember(&stale, &["hunter2".to_owned()]));
+        clock.runtime_started(&thread, new);
+        let first = fill_of("S1", clock.turn(&thread).unwrap());
+        assert!(first.turn > stale.turn, "the reopened runtime's first turn is a number of its own");
+        assert_eq!(registry.admit(&stale).err().unwrap(), "its agent turn has already ended", "the start ended the old runtime's turn");
+        clock.runtime_stopped(&thread, old);
+        assert_eq!(clock.turn(&thread), Some(first.turn), "the late stop takes no turn from the new runtime");
+        assert!(registry.admit(&first).is_ok(), "the reopened runtime's first turn admits fills after the late stop");
+        assert_eq!(registry.redact("hunter2"), "[saved login]", "hidden while the old runtime's fill runs");
+        drop(running);
+        assert_eq!(registry.redact("hunter2"), "hunter2");
+        clock.turn_settled(&thread);
+        assert!(registry.admit(&fill_of("S1", clock.turn(&thread).unwrap())).is_ok(), "and so do its later turns");
+        clock.runtime_stopped(&thread, new);
+        assert_eq!(clock.turn(&thread), None, "its own stop ends it");
+    }
+
+    /// A close stops the runtime and lets go of nothing here: the stopped turn's protection retires once its fill finished, a late
+    /// fill of that turn stays refused, and the reopened session goes on counting.
+    #[test]
+    fn a_late_fill_for_a_stopped_turn_stays_refused_across_close() {
+        let registry = SavedLoginRegistry::new();
+        let clock = SavedLoginTurnClock::new(registry.clone());
+        let thread = ThreadId::from("S1");
+        clock.runtime_started(&thread, 1);
+        clock.turn_settled(&thread);
+        let stopped = fill_of("S1", clock.turn(&thread).unwrap());
+        let filling = registry.admit(&stopped).expect("admitted");
+        assert!(registry.remember(&stopped, &["hunter2".to_owned()]));
+        clock.runtime_stopped(&thread, 1);
+        assert_eq!(registry.admit(&stopped).err().unwrap(), "its agent turn has already ended", "refused from the stop on");
+        assert_eq!(registry.redact("hunter2"), "[saved login]", "hidden while its fill runs");
+        drop(filling);
+        assert_eq!(registry.redact("hunter2"), "hunter2");
+        assert_eq!(registry.admit(&stopped).err().unwrap(), "its agent turn has already ended", "still refused after the close");
+        clock.runtime_started(&thread, 2);
+        assert_eq!(clock.turn(&thread), Some(3));
+        assert!(registry.admit(&fill_of("S1", 3)).is_ok());
+    }
+
+    /// A delete before the runtime wound down: its late turn settlement and stop, and a settlement spawned before the delete that
+    /// runs after it, keep nothing of the session once its running fill finished; another session keeps its own.
+    #[tokio::test]
+    async fn a_session_deleted_before_its_runtime_wound_down_is_left_nowhere() {
+        let registry = SavedLoginRegistry::new();
+        let clock = SavedLoginTurnClock::new(registry.clone());
+        let (gone, kept) = (ThreadId::from("gone"), ThreadId::from("kept"));
+        clock.runtime_started(&gone, 1);
+        clock.runtime_started(&kept, 2);
+        let filled = fill_of("gone", clock.turn(&gone).unwrap());
+        let filling = registry.admit(&filled).expect("admitted");
+        assert!(registry.remember(&filled, &["hunter2".to_owned()]));
+        let settling = tokio::spawn({
+            let (registry, filled) = (registry.clone(), filled.clone());
+            async move { registry.settle(&filled).await }
+        });
+        clock.turn_settled(&kept);
+        clock.session_deleted(&gone);
+        clock.turn_settled(&gone);
+        clock.runtime_stopped(&gone, 1);
+        assert_eq!(registry.redact("hunter2"), "[saved login]", "hidden while the fill runs");
+        drop(filling);
+        settling.await.unwrap();
+        assert_eq!(registry.redact("hunter2"), "hunter2", "the fill's protection retired with it");
+        assert_eq!(registry.sessions(), ["kept"]);
+        assert_eq!((clock.turn(&gone), clock.turn(&kept)), (None, Some(2)));
     }
 }

@@ -104,29 +104,29 @@ fn rig(host_starts: bool) -> Rig {
 async fn sessions_starting_during_a_sweep_ask_the_host_once_and_a_start_after_it_sweeps_again() {
     let mut rig = rig(true);
     let mut completed = completions().subscribe();
-    rig.hooks.started(&thread("a"));
+    rig.hooks.started(&thread("a"), 1);
     let answer = mixdog_rt::time::timeout(WAIT, rig.taken.recv()).await.expect("the first session start asked the host for no sweep within 30 s").unwrap();
-    rig.hooks.started(&thread("b"));
-    rig.hooks.started(&thread("c"));
+    rig.hooks.started(&thread("b"), 2);
+    rig.hooks.started(&thread("c"), 3);
     answer.send(ExtFrame::Done(Ok(serde_json::Value::Null))).unwrap();
     mixdog_rt::time::timeout(WAIT, completed.recv()).await.expect("the sweep did not end within 30 s of the host's answer").unwrap();
     assert_eq!(rig.host.count.load(Ordering::Acquire), 1, "the sessions that started during the sweep asked the host again");
 
-    rig.hooks.started(&thread("d"));
+    rig.hooks.started(&thread("d"), 4);
     mixdog_rt::time::timeout(WAIT, rig.taken.recv()).await.expect("a session start after a finished sweep asked the host for none within 30 s").unwrap();
     assert_eq!(rig.host.count.load(Ordering::Acquire), 2);
 }
 #[tokio::test(start_paused = true)]
 async fn a_sweep_the_host_never_answers_is_let_go_at_its_limit_and_no_other_is_started() {
     let mut rig = rig(true);
-    rig.hooks.started(&thread("a"));
+    rig.hooks.started(&thread("a"), 1);
     let _unanswered = mixdog_rt::time::timeout(WAIT, rig.taken.recv()).await.expect("the session start asked the host for no sweep within 30 s").unwrap();
     tokio::time::advance(SWEEP_LIMIT - Duration::from_millis(1)).await;
     assert!(rig.dropped.try_recv().is_err(), "the call was let go before its limit");
     tokio::time::advance(Duration::from_millis(1)).await;
     mixdog_rt::time::timeout(WAIT, rig.dropped.recv()).await.expect("the unanswered call was not let go at its limit").unwrap();
 
-    rig.hooks.started(&thread("b"));
+    rig.hooks.started(&thread("b"), 2);
     assert_eq!(rig.hooks.sweeps.0.load(Ordering::Acquire), GIVEN_UP, "a session start after a sweep that did not finish began another");
     assert_eq!(rig.host.count.load(Ordering::Acquire), 1);
 }
@@ -134,22 +134,22 @@ async fn a_sweep_the_host_never_answers_is_let_go_at_its_limit_and_no_other_is_s
 #[tokio::test]
 async fn a_host_that_answers_the_sweep_with_an_error_is_asked_once_in_a_core_run() {
     let mut rig = rig(true);
-    rig.hooks.started(&thread("a"));
+    rig.hooks.started(&thread("a"), 1);
     let answer = mixdog_rt::time::timeout(WAIT, rig.taken.recv()).await.expect("the session start asked the host for no sweep within 30 s").unwrap();
     answer.send(ExtFrame::Done(Err(ExtError::Unavailable { reason: "extension worker failed to start".to_owned() }))).unwrap();
     mixdog_rt::time::timeout(WAIT, rig.dropped.recv()).await.expect("the sweep did not end within 30 s of the host's error").unwrap();
 
-    rig.hooks.started(&thread("b"));
+    rig.hooks.started(&thread("b"), 2);
     assert_eq!(rig.hooks.sweeps.0.load(Ordering::Acquire), GIVEN_UP, "a session start after a sweep the host failed began another");
     assert_eq!(rig.host.count.load(Ordering::Acquire), 1);
 }
 #[tokio::test]
 async fn a_host_that_cannot_start_is_asked_once_in_a_core_run() {
     let mut rig = rig(false);
-    rig.hooks.started(&thread("a"));
+    rig.hooks.started(&thread("a"), 1);
     mixdog_rt::time::timeout(WAIT, rig.asked.recv()).await.expect("the session start asked the host for no sweep within 30 s").unwrap();
     // The refusal is taken in the same poll that asked, so the next start sees it.
-    rig.hooks.started(&thread("b"));
+    rig.hooks.started(&thread("b"), 2);
     assert_eq!(rig.hooks.sweeps.0.load(Ordering::Acquire), GIVEN_UP, "a session start after a refused sweep began another");
     assert_eq!(rig.host.count.load(Ordering::Acquire), 1);
 }

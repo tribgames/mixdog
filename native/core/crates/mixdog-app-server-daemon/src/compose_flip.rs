@@ -1033,6 +1033,25 @@ impl mixdog_core_session::session::purge::RetiredAgents for RetiredAgentPurge {
     }
 }
 
+/// The sessions' runtime hooks with the saved-login turn count started first and stopped last: a runtime's fills are admitted from
+/// its start, which the actor reports before it takes any work.
+struct SavedLoginRuntimeHooks {
+    inner: Arc<dyn mixdog_core_session::session::runtime_hooks::RuntimeHooks>,
+    clock: Arc<mixdog_core_session::session::secret_input::SavedLoginTurnClock>,
+}
+
+impl mixdog_core_session::session::runtime_hooks::RuntimeHooks for SavedLoginRuntimeHooks {
+    fn started(&self, thread: &mixdog_core_api::ids::ThreadId, runtime: u64) {
+        self.clock.runtime_started(thread, runtime);
+        self.inner.started(thread, runtime);
+    }
+
+    fn stopped(&self, thread: &mixdog_core_api::ids::ThreadId, runtime: u64) {
+        self.inner.stopped(thread, runtime);
+        self.clock.runtime_stopped(thread, runtime);
+    }
+}
+
 /// Section 1 of `real_core`: the one section state, the first-start retirement of shipped copies, the config and its separations.
 async fn open_state_and_config(b: &Built) -> Result<(Arc<StateRuntime>, Config, mixdog_app_protocol::v1::DefaultsSeparation), ComposeError> {
     // The app feed has ONE section state: the composed one (`ComposedCore::sections()`, which `serving::start` takes too); a second would split the sections.
@@ -2449,7 +2468,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         None => fill,
     });
     // Saved-login fills (s3-06, g25-fu-cu-a): the one registry of filled passwords, the redactor that hides them and the session
-    // secrets from every computer reply, and the turn clock that settles them (`SettlingSavedLogins` in `SessionDeps.snapshots`).
+    // secrets from every computer reply, and the turn clock that settles them (`SettlingSavedLogins` in `SessionDeps.snapshots`),
+    // started and stopped with each runtime (`SavedLoginRuntimeHooks` in `SessionDeps.runtime_hooks`).
     let saved_logins = mixdog_core_session::session::secret_input::SavedLoginRegistry::new();
     let saved_login_turns = mixdog_core_session::session::secret_input::SavedLoginTurnClock::new(saved_logins.clone());
     // s3-bridge-core: the backend's saved-login fill takes the bridge's fill turn (the runtime's own turn number) before the core's clock.
@@ -3757,7 +3777,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 live_workspace: live_workspace.clone(),
                 context_status: context_status.clone(), // the load's status pass fills the display fields from the one context world
                 turn_admission: late_turn_admission.clone(),
-                runtime_hooks: office_startup,
+                runtime_hooks: Arc::new(SavedLoginRuntimeHooks { inner: office_startup, clock: saved_login_turns.clone() }),
                 resumed_tools: route_facts_ai.clone(), // `AiRouteFacts` is the `ResumedTools` too
                 room_members: late_room_members.clone(),
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
