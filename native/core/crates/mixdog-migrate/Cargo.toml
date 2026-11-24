@@ -55,7 +55,7 @@ mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 # The measurement driver judges with the product's retention rule itself (examples/migration_steps.rs).
-mixdog-core-session = { workspace = true }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
@@ -91,6 +91,13 @@ mixdog-trace = { workspace = true, features = ["flush-probe"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
+mixdog-core-review = { workspace = true, features = ["test-support"] }
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
+mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { workspace = true, features = ["Win32_System_Threading"] }

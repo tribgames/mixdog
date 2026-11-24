@@ -30,3 +30,5 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

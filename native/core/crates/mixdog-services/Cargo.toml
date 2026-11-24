@@ -131,3 +131,5 @@ mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

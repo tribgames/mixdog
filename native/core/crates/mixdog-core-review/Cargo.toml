@@ -71,3 +71,5 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

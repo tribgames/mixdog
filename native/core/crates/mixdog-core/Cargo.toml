@@ -139,4 +139,5 @@ mixdog-exthost = { workspace = true, features = ["test-support"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
-mixdog-imaging = { workspace = true }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }

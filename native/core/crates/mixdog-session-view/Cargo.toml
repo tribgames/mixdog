@@ -25,3 +25,4 @@ tokio = { workspace = true, features = ["rt", "macros", "sync"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-app-server-client = { workspace = true, features = ["test-support"] }

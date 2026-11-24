@@ -83,3 +83,6 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+fancy-regex = { workspace = true, features = ["probe"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

@@ -85,3 +85,5 @@ mixdog-trace = { workspace = true, features = ["flush-probe"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }

@@ -155,6 +155,15 @@ strip = "symbols"
 lto = "thin"
 codegen-units = 16
 
+# The build `update:dev:fast` installs on the PC that builds it (apps/desktop/scripts/dev-update-windows.ps1): release
+# without the thin-LTO link, which was 4+ minutes of a deploy, and with more codegen units. Never CI or a published
+# build. Cargo sets a build script's PROFILE to `release` for any profile inheriting it, so build-support/dev_only.rs
+# refuses the development-only features here as in `release`.
+[profile.release-local]
+inherits = "release"
+lto = false
+codegen-units = 64
+
 # Registry and git dependencies are compiled optimised; the workspace's own crates stay unoptimised, so an edit
 # rebuilds as fast as before. A dependency is compiled once per checkout and never again on an edit, while the
 # tests spend their processor time inside them (SQLite, sha2, serde_json, tokio). Measured 2026-11-10 on five

@@ -35,3 +35,7 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Im
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { path = ".", features = ["test-support"] }

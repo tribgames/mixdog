@@ -15,3 +15,8 @@ test-support = []
 [dependencies]
 sha2 = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-image-egress = { path = ".", features = ["test-support"] }

@@ -81,3 +81,5 @@ mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 fancy-regex = { workspace = true, features = ["probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
