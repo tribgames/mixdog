@@ -54,6 +54,9 @@ use source::PENDING_SUFFIX;
 use source::is_session_id;
 
 pub const SESSIONS_DIR: &str = "sessions";
+/// In a session item's stage directory: its dangling references, counted when it is verified. A serving core writes to the
+/// session from then on, records a migration never writes among them, so its log is not read again for the count.
+const DANGLING_FILE: &str = "dangling";
 const CHECKPOINT_DIR: &str = "turn-checkpoints";
 /// `<data>/archive-damage/<id>.json`: what was skipped of a session's compaction archive sidecars
 /// because it could not be read (the session converts and opens without it).
@@ -608,10 +611,13 @@ impl ItemDriver for SessionDriver {
         if origin.item_key.as_str() != item.key.as_str() || origin.manifest_sha256.as_str() != cx.manifest_sha256 || folded.id != session_id(item) {
             return Ok(mismatch("the target names another item".into()));
         }
-        let digest = folded.observable(cx)?.digest();
+        let observable = folded.observable(cx)?;
+        let digest = observable.digest();
         if digest != origin.source_digest.as_str() {
             return Ok(mismatch(format!("target {digest} ≠ source {}", origin.source_digest.as_str())));
         }
+        let dangling = observable.attachments.values().filter(|status| **status == BlobStatus::Dangling).count();
+        durable::publish_file(&cx.stage_dir(item.key.as_str()).join(DANGLING_FILE), dangling.to_string().as_bytes())?;
         Ok(Verdict::Verified { digest: Some(crate::json::digest(&digest)) })
     }
 
@@ -619,21 +625,13 @@ impl ItemDriver for SessionDriver {
         if item.kind != ItemKind::Session {
             return Ok(0);
         }
-        let dir = target_dir(cx, session_id(item));
-        // A session the user deleted behind the serving core has nothing left to dangle.
-        if !durable::exists(&dir)? {
-            return Ok(0);
-        }
-        let folded = target::read_session(cx, &dir).map_err(|detail| Blocked::journal(format!("{}: {detail}", item.key.as_str())))?;
-        let mut refs: BTreeSet<String> = folded.rows.iter().flat_map(|r| r.refs.iter().cloned()).collect();
-        for (_, entry) in &folded.queue {
-            observe::attachment_refs(entry, &mut refs);
-        }
-        let mut dangling = 0;
-        for r in refs {
-            dangling += u64::from(cx.blob_status(&r)? == BlobStatus::Dangling);
-        }
-        Ok(dangling)
+        let path = cx.stage_dir(item.key.as_str()).join(DANGLING_FILE);
+        // A session an earlier build verified has no count of its own.
+        let Some(bytes) = durable::read_optional(&path)? else { return Ok(0) };
+        std::str::from_utf8(&bytes)
+            .ok()
+            .and_then(|count| count.parse().ok())
+            .ok_or_else(|| Blocked::journal(format!("{}: not a count", path.display())))
     }
 
     fn withdraw(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {

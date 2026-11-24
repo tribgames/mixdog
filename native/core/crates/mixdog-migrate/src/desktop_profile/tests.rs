@@ -339,6 +339,40 @@ fn every_step_is_idempotent_so_a_resume_after_a_crash_reenters_it() {
 }
 
 #[test]
+fn a_late_profile_merges_with_the_rows_the_core_wrote_first() {
+    let run = Run::new(
+        None,
+        &[
+            ("desktop-projects.json", br#"{"version":2,"aliases":{"C:/shared":"Legacy","C:/old":"Old"}}"#.as_slice()),
+            ("agent-rooms.json", br#"{"rooms":{"shared":{"id":"shared","lastPreview":"legacy"},"old":{"id":"old"}}}"#.as_slice()),
+        ],
+        &BTreeSet::new(),
+    );
+    let connection = state_tables::open_state(&run.roots.data).unwrap();
+    connection.execute("INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES ('C:/shared', 'Mine', 0, NULL, 7), ('C:/new', 'New', 0, NULL, 9)", []).unwrap();
+    connection.execute(r#"INSERT INTO rooms (room_id, doc) VALUES ('shared', '{"id":"shared","lastPreview":"mine"}'), ('new', '{"id":"new"}')"#, []).unwrap();
+    drop(connection);
+
+    let projects = run.item(ItemKind::DesktopProjects);
+    let rooms = run.item(ItemKind::AgentRooms);
+    assert!(matches!(run.migrate_item(projects).unwrap(), Outcome::Verified(_)));
+    assert!(matches!(run.migrate_item(rooms).unwrap(), Outcome::Verified(_)));
+    let rows = |sql: &str| -> Vec<String> {
+        let connection = state_tables::open_state(&run.roots.data).unwrap();
+        let mut select = connection.prepare(sql).unwrap();
+        select.query_map([], |row| row.get::<_, String>(0)).unwrap().collect::<std::result::Result<Vec<_>, _>>().unwrap()
+    };
+    assert_eq!(rows("SELECT path || '=' || alias FROM projects ORDER BY path"), ["C:/new=New", "C:/old=Old", "C:/shared=Mine"]);
+    assert_eq!(rows("SELECT room_id FROM rooms ORDER BY room_id"), ["new", "old", "shared"]);
+    assert!(rows("SELECT doc FROM rooms WHERE room_id = 'shared'")[0].contains("mine"));
+
+    run.driver.withdraw(&run.cx(), projects).unwrap();
+    run.driver.withdraw(&run.cx(), rooms).unwrap();
+    assert_eq!(rows("SELECT path || '=' || alias FROM projects ORDER BY path"), ["C:/new=New", "C:/shared=Mine"]);
+    assert_eq!(rows("SELECT room_id FROM rooms ORDER BY room_id"), ["new", "shared"]);
+}
+
+#[test]
 fn a_damaged_or_wrongly_shaped_source_is_quarantined_not_blocked() {
     for (name, content, code) in [
         ("agent-rooms.json", b"[1]".as_slice(), QuarantineCode::SchemaViolation),

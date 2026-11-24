@@ -9,7 +9,7 @@ Mixdog 1.5.0 rebuilds the engine in Rust. It was a large undertaking made for Mi
 
 This update took far longer than planned. We are sorry for the wait, and thank you for bearing with us. Some errors may still remain right after the switch, but from now on we will be back to responding and fixing issues quickly, as before. With this new base in place, we can improve and stabilize Mixdog faster going forward.
 
-If you run into any issues, please report them on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or in the app via Settings › About › Give feedback. Note that going back to 1.4.5 after updating to 1.5.0 keeps attached files but not the conversation list, so please copy your data folder before updating if you may go back.
+If you run into any issues, please report them on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or in the app via Settings › About › Give feedback. Note that 1.4.5 cannot open a data folder that 1.5.0 has started on. If you may go back, copy your data folder before updating; to return to 1.4.5, reinstall it and put that copy back.
 
 ## v1.4.5 - 2026-11-03
 

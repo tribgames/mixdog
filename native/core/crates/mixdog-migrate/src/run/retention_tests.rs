@@ -176,6 +176,34 @@ fn an_expired_session_is_removed_unconverted_unless_something_else_is_bound_to_i
     assert!(data.join("tool-results/sess_tools/1.txt").exists());
 }
 
+/// A connector or worktree store that does not parse is set aside and names no session: the judgement reads neither, in
+/// the run that sets them aside nor in one resumed after they were moved, and the sessions convert.
+#[test]
+fn a_store_set_aside_names_no_session_and_does_not_stop_the_judgement() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = roots(dir.path());
+    let data = &roots.data;
+    session(data, "sess_young", NOW - DAY, "");
+    write(data, "connector-accounts-by-conversation.json", b"{broken");
+    write(data, "worktrees-v1/registry.json", b"{broken");
+    let week = Week::at(NOW);
+    let cut = format!("journal:disposed:{}:after", crate::stores::store_key(ItemKind::Worktrees));
+    let fault: FaultHook = {
+        let cut = cut.clone();
+        Arc::new(move |point| if point == cut { Err(Blocked::Interrupted { point: cut.clone() }) } else { Ok(()) })
+    };
+    assert_eq!(serving(&roots, Some(week.clone()), Some(fault)).run().unwrap_err(), Blocked::Interrupted { point: cut });
+    assert!(!data.join("worktrees-v1/registry.json").exists(), "the store was moved aside");
+
+    serving(&roots, Some(week), None).run().unwrap();
+
+    for kind in [ItemKind::ConnectorAccounts, ItemKind::Worktrees] {
+        let key = crate::stores::store_key(kind);
+        assert!(quarantine_dir(data, QuarantineCode::ParseError, &key).join(REASON_FILE).exists(), "{key}");
+    }
+    assert!(data.join("sessions/sess_young").is_dir());
+}
+
 /// Whether a published file of `sessions/<id>/` holds `text`.
 fn published_holds(roots: &MigrationRoots, id: &str, text: &str) -> bool {
     let dir = roots.data.join("sessions").join(id);

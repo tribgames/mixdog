@@ -8,7 +8,7 @@ Mixdog 1.5.0 xây dựng lại bộ máy bằng Rust. Đây là một dự án l
 
 Bản cập nhật này mất nhiều thời gian hơn dự kiến rất nhiều. Chúng tôi xin lỗi vì để bạn phải chờ đợi và cảm ơn bạn đã kiên nhẫn đồng hành cùng chúng tôi. Ngay sau khi chuyển đổi có thể vẫn còn sót một vài lỗi, nhưng từ giờ chúng tôi sẽ quay lại phản hồi và khắc phục sự cố nhanh chóng như trước. Với nền tảng mới này, chúng tôi có thể cải thiện và ổn định Mixdog nhanh hơn trong thời gian tới.
 
-Nếu gặp bất kỳ sự cố nào, vui lòng báo lại trên [GitHub Issues](https://github.com/tribgames/mixdog/issues) hoặc trong ứng dụng tại Cài đặt › Giới thiệu › Gửi phản hồi. Lưu ý rằng việc quay lại 1.4.5 sau khi cập nhật lên 1.5.0 vẫn giữ các tệp đính kèm nhưng không giữ lại danh sách cuộc trò chuyện, vì vậy hãy sao chép thư mục dữ liệu trước khi cập nhật nếu bạn có thể muốn quay lại.
+Nếu gặp bất kỳ sự cố nào, vui lòng báo lại trên [GitHub Issues](https://github.com/tribgames/mixdog/issues) hoặc trong ứng dụng tại Cài đặt › Giới thiệu › Gửi phản hồi. Lưu ý rằng 1.4.5 không thể mở thư mục dữ liệu đã từng khởi chạy với 1.5.0. Nếu bạn có thể muốn quay lại, hãy sao chép thư mục dữ liệu trước khi cập nhật; để trở về 1.4.5, hãy cài đặt lại phiên bản đó và đưa bản sao ấy trở lại.
 
 ## v1.4.5 - 2026-11-03
 

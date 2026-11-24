@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build and inspect data dirs with blocking std::fs and rusqlite")]
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,8 +12,11 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use mixdog_store::schema::blob::Slot;
+use mixdog_store::schema::bounded::Id;
 use mixdog_store::schema::migration::ItemKind;
 use mixdog_store::schema::migration::Root;
+use mixdog_store::schema::record::DraftRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::sql::INDEX_DDL;
 use mixdog_store::schema::sql::session_id_key;
@@ -391,6 +395,25 @@ fn classification_reads_a_log_only_home_and_rejects_changed_evidence() {
     assert!(matches!(back.home_evidence(|_, _| ()), Err(Blocked::SourceChanged { .. })));
 }
 
+/// A home whose history does not read is no evidence for the classification and does not stop the start: its conversion
+/// quarantines it as it does any damaged session, and the migration completes.
+#[test]
+fn a_damaged_home_is_no_evidence_and_is_quarantined_by_its_conversion() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().to_path_buf();
+    let roots = MigrationRoots { data: data.clone(), home: data.clone(), profile: None };
+    write(&data, "sessions/sess_home_buddy.json", b"{broken");
+    write(&data, "sessions/sess_home_pal.json", br#"{"id":"sess_home_pal","model":"m","messages":[{"role":"user","content":"hello"}]}"#);
+    let Front::Pending(back) = migrator(&roots, None).front().unwrap() else { panic!("pending homes") };
+
+    let homes = back.home_evidence(|header, _| header.get("model").cloned()).unwrap();
+
+    assert_eq!(homes, BTreeMap::from([("pal".to_owned(), Some(json!("m")))]));
+    back.run().unwrap();
+    assert!(quarantine_dir(&data, QuarantineCode::ParseError, "session/sess_home_buddy").join(REASON_FILE).exists());
+    assert!(data.join("sessions/sess_home_pal").is_dir());
+}
+
 /// The front a core waits for names a session's own files and hashes none of them; the files several sessions read are
 /// hashed there, once. A session's sizes and hashes are journaled when it is converted, ahead of its `staged` frame,
 /// and are those of the files as they lay.
@@ -506,6 +529,36 @@ fn a_session_deleted_during_the_background_migration_is_not_adopted_and_does_not
     assert!(!adopted.is_empty() && !adopted.iter().any(|id| id == "sess_b"), "{adopted:?}");
 }
 
+/// A session the serving core writes to once it is converted (here a draft, a record a migration never writes) does not
+/// keep the migration from completing: its dangling references are the ones counted when it was verified.
+#[test]
+fn a_session_the_serving_core_writes_to_is_counted_as_it_was_verified() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let projector = Arc::new(ServingProjector { adopted: Mutex::default() });
+    let drivers = product_drivers(projector, crate::session::context_blobs::testing::office(Arc::default()));
+    let data = roots.data.clone();
+    let verified: VerifiedHook = Arc::new(move |id: &str| {
+        let session = data.join("sessions").join(id);
+        let next = log_records(&session).last().map_or(0, |(ordinal, _)| ordinal + 1);
+        let newest = (0..)
+            .map(|no| session.join(format!("{}{no:06}", mixdog_store::schema::frame::LOG_FILE_PREFIX)))
+            .take_while(|path| path.exists())
+            .last()
+            .unwrap();
+        let draft = Record::Draft(DraftRecord { rid: Id::try_from("r1").unwrap(), body: Slot::Inline(json!({"text": "half typed"})) });
+        let mut log = std::fs::OpenOptions::new().append(true).open(newest).unwrap();
+        log.write_all(&crate::frame::encode(next, &serde_json::to_vec(&draft).unwrap())).unwrap();
+    });
+    let options = MigrateOptions { workers: 1, fault: None, verified: Some(verified), retention: None };
+
+    let complete = Migrator::new(roots.clone(), drivers, options).run().unwrap();
+
+    // One dangling attachment, one goal of a session that does not exist, as a run nobody writes behind counts them.
+    assert_eq!(complete.kinds.data.dangling, 2, "{complete:?}");
+    assert!(matches!(log_records(&roots.data.join("sessions/sess_a")).last(), Some((_, Record::Draft(_)))), "the core's draft is there");
+}
+
 /// A session opened while the others wait is converted ahead of them, to the bytes it gets in its turn: the whole tree,
 /// the journaled sources included, is the one a run that converts it last leaves.
 #[test]
@@ -587,7 +640,6 @@ fn the_fixture_migrates_every_kind_and_disposes_its_sources() {
         "agent-workers-released.json",
         "turn-checkpoints/sess_zzz.jsonl",
         "client-versions.json",
-        "usage-rollup.local.json",
     ] {
         assert!(!roots.data.join(gone).exists(), "{gone}");
     }
@@ -601,6 +653,41 @@ fn the_fixture_migrates_every_kind_and_disposes_its_sources() {
 fn a_second_run_of_a_migrated_fixture_finds_the_completion_marker() {
     let (_dir, roots, complete) = migrated_fixture();
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
+}
+
+/// A legacy usage file the ledger has not imported (no `importedThrough`) is retained where the usage history import reads
+/// it: disposal leaves it in place, its reason in the quarantine folder.
+#[test]
+fn usage_files_the_ledger_has_not_imported_stay_where_the_import_reads_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let backup = "usage-rollup.local.json.migrated.bak";
+    write(&roots.data, backup, br#"{"days":{}}"#);
+
+    let complete = migrator(&roots, None).run().unwrap();
+
+    assert_eq!(complete.kinds.data.retained, 3, "{complete:?}");
+    for (rel, bytes) in [("usage-rollup.local.json", b"{}".as_slice()), (backup, br#"{"days":{}}"#.as_slice())] {
+        assert_eq!(std::fs::read(roots.data.join(rel)).unwrap(), bytes, "{rel}");
+        let reasons = quarantine_dir(&roots.data, QuarantineCode::LedgerImportIncomplete, &crate::plan::retain_key(Root::Data, rel));
+        assert!(reasons.join(REASON_FILE).exists(), "{rel}");
+        assert!(!reasons.join(rel).exists(), "{rel} was moved aside");
+    }
+}
+
+/// The kind stamp's record stays where the core reads it: without it the core stamps the agents again, after the worker
+/// index that stamp reads is gone.
+#[test]
+fn the_agent_kind_record_stays_where_the_core_reads_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let record = br#"{"version":1,"completedAt":"2026-01-01T00:00:00.000Z","stamped":[],"restored":[]}"#;
+    write(&roots.data, "agent-kind-migration.json", record);
+
+    migrator(&roots, None).run().unwrap();
+
+    assert_eq!(std::fs::read(roots.data.join("agent-kind-migration.json")).unwrap(), record);
+    assert!(!roots.data.join("agent-workers.json").exists(), "the worker index the stamp reads is gone");
 }
 
 /// The 1.4.5 quota switch stays where 1.4.5 keeps it.

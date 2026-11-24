@@ -139,7 +139,7 @@ fn state_path(data: &Path) -> std::path::PathBuf {
     data.join("state").join("core.sqlite")
 }
 
-fn open_state(data: &Path) -> Result<Connection, ApplyError> {
+pub(super) fn open_state(data: &Path) -> Result<Connection, ApplyError> {
     let path = state_path(data);
     let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &path, error);
     if let Some(parent) = path.parent() {
@@ -182,27 +182,77 @@ pub(super) fn publish(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
     if published.as_deref() == Some(manifest_sha256) {
         return Ok(());
     }
+    // A row the table already holds (the core wrote it before the profile was named) stays as it is.
+    let mut kept = Vec::<String>::new();
     match &rows {
         Rows::Projects(rows) => {
             let mut insert = transaction
                 .prepare(
-                    "INSERT OR REPLACE INTO projects (path, alias, hidden, hidden_rank, last_used_at) \
+                    "INSERT OR IGNORE INTO projects (path, alias, hidden, hidden_rank, last_used_at) \
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                 )
                 .map_err(blocked)?;
             for row in rows {
-                insert.execute(params![row.path, row.alias, row.hidden, row.hidden_rank, row.last_used_at]).map_err(blocked)?;
+                if insert.execute(params![row.path, row.alias, row.hidden, row.hidden_rank, row.last_used_at]).map_err(blocked)? == 0 {
+                    kept.push(row.path.clone());
+                }
             }
         }
         Rows::Rooms(rows) => {
-            let mut insert = transaction.prepare("INSERT OR REPLACE INTO rooms (room_id, doc) VALUES (?1, ?2)").map_err(blocked)?;
+            let mut insert = transaction.prepare("INSERT OR IGNORE INTO rooms (room_id, doc) VALUES (?1, ?2)").map_err(blocked)?;
             for row in rows {
-                insert.execute(params![row.room_id, source::canonical_text(&row.doc)]).map_err(blocked)?;
+                if insert.execute(params![row.room_id, source::canonical_text(&row.doc)]).map_err(blocked)? == 0 {
+                    kept.push(row.room_id.clone());
+                }
             }
         }
     }
+    let kept_key = kept_key(item);
+    if kept.is_empty() {
+        transaction.execute("DELETE FROM meta WHERE key = ?1", [&kept_key]).map_err(blocked)?;
+    } else {
+        let text = serde_json::to_string(&kept).expect("keys serialize");
+        transaction.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![kept_key, text]).map_err(blocked)?;
+    }
     transaction.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, manifest_sha256]).map_err(blocked)?;
     transaction.commit().map_err(blocked)
+}
+
+fn kept_key(item: &ManifestItem) -> String {
+    format!("{}:kept", meta_key(item))
+}
+
+/// The keys of the source rows that were already in the table when they were published.
+fn kept_keys(connection: &Connection, item: &ManifestItem) -> Result<std::collections::BTreeSet<String>, rusqlite::Error> {
+    let text: Option<String> = connection
+        .query_row("SELECT value FROM meta WHERE key = ?1", [kept_key(item)], |row| row.get(0))
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+    Ok(text.and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default())
+}
+
+impl Rows {
+    /// The rows whose key is not in `skip`.
+    fn without(self, skip: &std::collections::BTreeSet<String>) -> Rows {
+        match self {
+            Rows::Projects(rows) => Rows::Projects(rows.into_iter().filter(|row| !skip.contains(&row.path)).collect()),
+            Rows::Rooms(rows) => Rows::Rooms(rows.into_iter().filter(|row| !skip.contains(&row.room_id)).collect()),
+        }
+    }
+
+    /// The rows whose key `other` also holds.
+    fn among(self, other: &Rows) -> Rows {
+        match (self, other) {
+            (Rows::Projects(rows), Rows::Projects(other)) => {
+                Rows::Projects(rows.into_iter().filter(|row| other.iter().any(|o| o.path == row.path)).collect())
+            }
+            (Rows::Rooms(rows), Rows::Rooms(other)) => Rows::Rooms(rows.into_iter().filter(|row| other.iter().any(|o| o.room_id == row.room_id)).collect()),
+            (rows, _) => rows,
+        }
+    }
 }
 
 /// Writes `meta` rows in one transaction (idempotent).
@@ -250,7 +300,17 @@ pub(super) fn withdraw(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
     let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &path, error);
     let mut connection = open_state(&cx.roots.data)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(blocked)?;
-    match rows {
+    // Only rows this item inserted go: the table may hold the core's own rows under the same keys.
+    let published = transaction
+        .query_row("SELECT 1 FROM meta WHERE key = ?1", [meta_key(item)], |_| Ok(()))
+        .map(|()| true)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(false),
+            other => Err(other),
+        })
+        .map_err(blocked)?;
+    let kept = kept_keys(&transaction, item).map_err(blocked)?;
+    match rows.filter(|_| published).map(|rows| rows.without(&kept)) {
         Some(Rows::Projects(rows)) => {
             for row in rows {
                 transaction.execute("DELETE FROM projects WHERE path = ?1", [row.path]).map_err(blocked)?;
@@ -263,6 +323,7 @@ pub(super) fn withdraw(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
         }
         None => {}
     }
+    transaction.execute("DELETE FROM meta WHERE key = ?1", [kept_key(item)]).map_err(blocked)?;
     transaction.execute("DELETE FROM meta WHERE key = ?1", [meta_key(item)]).map_err(blocked)?;
     transaction.commit().map_err(blocked)
 }
@@ -301,20 +362,25 @@ fn target_rows(data: &Path, table: StateTable) -> Result<Rows, ApplyError> {
     }
 }
 
-/// The source rows (read afresh) must equal the rows the database holds, and the meta
-/// row must name this manifest. The whole table is compared: the migration runs before
-/// the runtime serves, so nothing else has written to it.
+/// The source rows (read afresh) must equal the rows the database holds under their keys,
+/// and the meta row must name this manifest. Rows of the table the source does not name
+/// (the core's own, written before a late profile) are not compared.
 pub(super) fn verify(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTable) -> Step<Digest> {
     let (data, manifest_sha256) = (cx.roots.data.as_path(), cx.manifest_sha256);
-    let (expected, _) = source_rows(cx, item, table)?;
-    let observed = target_rows(data, table)?;
-    let published: String = open_state(data)?
-        .query_row("SELECT value FROM meta WHERE key = ?1", [meta_key(item)], |row| row.get(0))
-        .map_err(|error| ApplyError::blocked("sqlite", &state_path(data), error))?;
+    let (full, _) = source_rows(cx, item, table)?;
+    let connection = open_state(data)?;
+    let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &state_path(data), error);
+    let published: String = connection.query_row("SELECT value FROM meta WHERE key = ?1", [meta_key(item)], |row| row.get(0)).map_err(blocked)?;
+    let kept = kept_keys(&connection, item).map_err(blocked)?;
+    drop(connection);
     let mismatch = |detail: &str| ApplyError::quarantine(QuarantineCode::DigestMismatch, detail);
     if published != manifest_sha256 {
         return Err(mismatch("the meta row names another manifest"));
     }
+    // Rows the table held before the profile was named are the core's own and stay out of the comparison, as do rows
+    // the source never named.
+    let expected = full.clone().without(&kept);
+    let observed = target_rows(data, table)?.among(&expected);
     if let (Rows::Rooms(expected), Rows::Rooms(observed)) = (&expected, &observed)
         && expected != observed
     {
@@ -337,7 +403,7 @@ pub(super) fn verify(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTabl
                 }
             }
             transaction.commit().map_err(blocked)?;
-            return Ok(source::digest_value(&serde_json::to_value(Rows::Rooms(expected.clone())).expect("rows serialize")));
+            return Ok(source::digest_value(&serde_json::to_value(&full).expect("rows serialize")));
         }
     }
     let expected = serde_json::to_value(&expected).expect("rows serialize");
@@ -345,7 +411,7 @@ pub(super) fn verify(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTabl
     if source::canonical_text(&expected) != source::canonical_text(&observed) {
         return Err(mismatch("the table rows differ from the source"));
     }
-    Ok(source::digest_value(&expected))
+    Ok(source::digest_value(&serde_json::to_value(&full).expect("rows serialize")))
 }
 
 #[cfg(test)]

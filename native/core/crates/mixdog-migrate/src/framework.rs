@@ -134,8 +134,8 @@ pub trait ItemDriver: Send + Sync {
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged>;
     fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, staged: &StagedEntry) -> Result<()>;
     fn verify(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict>;
-    /// References of a verified item that name nothing (reported, never quarantined);
-    /// recounted when `complete.json` is written.
+    /// References of a verified item that name nothing (reported, never quarantined); asked
+    /// when `complete.json` is written (a session answers with its count at verification).
     fn dangling(&self, _cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<u64> {
         Ok(0)
     }
@@ -154,7 +154,8 @@ pub trait ItemDriver: Send + Sync {
     fn retention_facts(&self, _cx: &ItemContext<'_>, _item: &ManifestItem, _fields: &[&str]) -> Result<Option<RetentionFacts>> {
         Ok(None)
     }
-    /// Whether disposal of a verified item keeps its sources (they are the target).
+    /// Whether disposal keeps the item's sources where they are: a verified item's are its target, a retained item's
+    /// are read there by this version.
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
         item.contract == Contract::Preserve || matches!(item.target, Some(Target::Ledger))
     }
