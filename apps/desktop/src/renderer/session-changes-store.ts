@@ -583,7 +583,7 @@ function retainChangesWatch(target: ChangesTarget): () => void {
     const stop = watchGitRefreshEvidence(
       target.cwd,
       createGitRefreshScheduler(async () => {
-        if (!(await loadChanges(target, 'activity'))) throw new Error('The Changes read failed.');
+        if (!(await loadChanges(target, 'activity'))) throw new Error(t('The Changes read failed.'));
       })
     );
     watch = { count: 0, stop };

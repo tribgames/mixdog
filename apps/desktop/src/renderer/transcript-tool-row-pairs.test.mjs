@@ -102,7 +102,7 @@ const FIXTURES = {
       header: 'Create pull request · acme/app · Fix login redirect',
       fields: ['Repo', 'Pull request title'],
     },
-    ko: { verb: 'GitHub', header: 'PR 만들기 · acme/app · Fix login redirect', fields: ['저장소', '제목'] },
+    ko: { verb: 'GitHub', header: '풀 리퀘스트 만들기 · acme/app · Fix login redirect', fields: ['저장소', '제목'] },
   },
   browser: {
     item: { id: 'b', name: 'browser', args: { action: 'navigate', url: 'https://example.com/docs?a=1' }, result: 'ok' },
@@ -155,7 +155,7 @@ test(
   'github rows keep the target apart from the localized action',
   inLanguage('ko', () => {
     const row = (args) => present({ id: 'h', name: 'github', args, result: '{}' });
-    assert.equal(row({ action: 'pr.create', repo: 'a/b', title: 'New PR' }).subject, 'PR 만들기 · a/b · New PR');
+    assert.equal(row({ action: 'pr.create', repo: 'a/b', title: 'New PR' }).subject, '풀 리퀘스트 만들기 · a/b · New PR');
     assert.equal(row({ action: 'issue.list', repo: 'a/b' }).subject, '이슈 목록 · a/b');
     assert.equal(row({ action: 'pr.view', repo: 'a/b', number: 7 }).subject, 'PR 보기 · #7 · a/b');
     assert.equal(row({ action: 'issue.comments', repo: 'a/b', number: 3 }).subject, '댓글 읽기 · #3 · a/b');

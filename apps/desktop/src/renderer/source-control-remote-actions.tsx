@@ -49,9 +49,9 @@ export function sourceControlRemoteActions({
   const fetchEntry: SourceControlRemoteAction = {
     key: 'fetch',
     runKey: 'fetch',
-    verb: 'Fetch',
+    verb: t('Git remote: Fetch'),
     target: remoteName,
-    label: `Fetch ${remoteName}`,
+    label: t('Git remote: Fetch {{name}}', { name: remoteName }),
     reason: fetchReason,
     blocked: Boolean(fetchReason),
     icon: <RefreshCw size={14} aria-hidden="true" />,
@@ -62,9 +62,9 @@ export function sourceControlRemoteActions({
   const pushEntry: SourceControlRemoteAction = {
     key: 'push',
     runKey: 'push',
-    verb: 'Push',
+    verb: t('Push'),
     target: remoteName,
-    label: `Push ${remoteName}`,
+    label: t('Push {{value0}}', { value0: remoteName }),
     reason: pushReason,
     blocked: Boolean(pushReason),
     icon: <ArrowUp size={14} aria-hidden="true" />,

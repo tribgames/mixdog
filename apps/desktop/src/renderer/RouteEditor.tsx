@@ -2,6 +2,7 @@ import { type ReactNode, useId } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopModelOption } from '../shared/contract';
 import { displayEffortLabel } from './auto-effort-store';
+import { effortTierLabel } from './effort-tier-label';
 import { t } from './i18n';
 import { ModelCatalog } from './model-catalog';
 import { type RouteSpeed, routeSpeed } from './model-route-utils';
@@ -120,7 +121,7 @@ function routeSheetContent({
   const autoEffortOn = displayEffortLabel(effort, { autoOn: autoEffort?.enabled === true, capable: true }) !== null;
   // "Auto" is the effort's name (like "Fast"), shown untranslated on the model
   // chip and the Reasoning effort row.
-  const effortLabel = autoEffortOn ? 'Auto' : selectedEffort?.label || '';
+  const effortLabel = autoEffortOn ? 'Auto' : selectedEffort ? effortTierLabel(selectedEffort.value, selectedEffort.label) : '';
   const ultrafastAvailable = modelParameterOptions.some(
     (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
   );

@@ -2,6 +2,7 @@ import { Check } from 'lucide-react';
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { clampContextTokens, parseContextTokensInput } from './route-editor-context';
 import type { DesktopModelOption } from '../shared/contract';
+import { effortTierLabel } from './effort-tier-label';
 import { t, tExisting } from './i18n';
 import { wrappedNavigationIndex } from './list-navigation';
 import type { RouteSpeed } from './model-route-utils';
@@ -241,7 +242,7 @@ export function routeEffortPane({
             }}
             onKeyDown={onOptionKeyDown}
           >
-            <span>{option.label}</span>
+            <span>{effortTierLabel(option.value, option.label)}</span>
             {selected && <RouteSelectionCheck />}
           </button>
         );

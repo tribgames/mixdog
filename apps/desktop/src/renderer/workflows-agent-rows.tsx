@@ -39,7 +39,7 @@ export function agentRouteSummary(
   // with no model — Web Search's default marker or an empty route — says
   // "Default", and a set model shows its name.
   const pinned = model !== '' && !(provider === 'default' && model === 'default');
-  const unpinnedLabel = webSearch ? t('Follows Main') : 'Default';
+  const unpinnedLabel = webSearch ? t('Follows Main') : t('Default');
   const modelLabel = pinned ? modelDisplayName(model, provider, selected?.display || '') : unpinnedLabel;
   const effortValue = String(route.effort || preferredModelEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);

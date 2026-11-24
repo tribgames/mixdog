@@ -253,7 +253,7 @@ export function useSteerActions({
               draft,
               origin,
               { text: result.text },
-              { notice: 'The answer was not sent. Your message is back in the editor.' }
+              { notice: t('The answer was not sent. Your message is back in the editor.') }
             );
           }
           return;

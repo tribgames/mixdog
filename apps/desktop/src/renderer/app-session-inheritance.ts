@@ -39,13 +39,13 @@ export async function inheritSessionInPlace(
   const owner =
     target.leaves().find((leaf) => leaf.id === target.focusedLeafId() && ownsSource(leaf)) ??
     target.leaves().find(ownsSource);
-  if (!owner) throw new Error('The source session tab is no longer open.');
+  if (!owner) throw new Error(t('The source session tab is no longer open.'));
   const fallbackTitle = target.sourceTitle();
 
   const result = await target.inherit(sourceId, route, options);
   const sessionId = String(result?.sessionId || '').trim();
   if (!sessionId || sessionId === sourceId) {
-    throw new Error('The inherited session was not created.');
+    throw new Error(t('The inherited session was not created.'));
   }
   let snapshot = result.snapshot;
   if (snapshot && String(snapshot.sessionId || '') !== sessionId) {
@@ -56,7 +56,7 @@ export async function inheritSessionInPlace(
     snapshot = target.snapshot(sessionId);
   }
   if (!snapshot || String(snapshot.sessionId || '') !== sessionId || !Array.isArray(snapshot.items)) {
-    throw new Error('The inherited conversation is not ready. The original tab has been kept.');
+    throw new Error(t('The inherited conversation is not ready. The original tab has been kept.'));
   }
   // Catalog freshness is best-effort; a prepared transcript can still replace
   // the source using its returned title while a disconnected catalog recovers.

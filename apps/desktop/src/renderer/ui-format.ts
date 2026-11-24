@@ -21,8 +21,12 @@ export function uiCurrency(value: number, fractionDigits: number): string {
   return formatter.format(value);
 }
 
+export function uiNumber(value: number): string {
+  return new Intl.NumberFormat(uiFormatLocale()).format(value);
+}
+
 /** `pad`: two-digit value (`05s`) for the trailing units of a running timer. */
-export function uiTimeUnit(value: number, unit: 'day' | 'hour' | 'minute' | 'second', pad = false): string {
+export function uiTimeUnit(value: number, unit: 'month' | 'day' | 'hour' | 'minute' | 'second', pad = false): string {
   const locale = uiFormatLocale();
   const key = `${locale}:${unit}:${pad}`;
   let formatter = timeUnits.get(key);

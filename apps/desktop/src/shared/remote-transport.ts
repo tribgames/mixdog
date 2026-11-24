@@ -25,6 +25,9 @@ export { remoteWebrtcCertificateMatches, remoteWebrtcSdpFingerprints };
 // ---------------------------------------------------------------------------
 
 export const REMOTE_TRANSPORT_VERSION = 1 as const;
+
+/** The refusal a send gets when the relay leg ended first; the composer shows it translated. */
+export const FRAME_NOT_SENT_MESSAGE = 'The connection ended before the frame was sent.';
 /** The application data channel: one per transport peer connection, created
  *  by the desktop (the offerer) before its offer; reliable and ordered. It
  *  carries kinds 1 and 2 (app records and chunks) only. */

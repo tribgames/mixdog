@@ -39,7 +39,7 @@ export const desktopApi = (): ImportApi | undefined => desktopBridge<ImportApi>(
 
 async function readImport<T>(api: ImportApi, capability: 'listImportableConversations', input: unknown): Promise<T> {
   const [result] = await api.readCapabilities([{ capability, args: [input] }]);
-  if (!result?.ok) throw new Error(result?.error ?? 'Import read failed.');
+  if (!result?.ok) throw new Error(result?.error ?? t('Import read failed.'));
   return result.value as T;
 }
 

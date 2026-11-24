@@ -21,7 +21,7 @@ import {
 } from './file-download-transfer';
 import { t } from './i18n';
 import { formatBytes } from './studio-support';
-import { uiTimeUnit } from './ui-format';
+import { uiNumber, uiTimeUnit } from './ui-format';
 import './file-download-panel.css';
 
 interface DownloadRow {
@@ -170,13 +170,13 @@ function render(): void {
 function leftOutText(leftOut: FolderLeftOut | undefined): string {
   if (leftOut?.pages) {
     return t('Included the first {{included}} of {{total}} pages', {
-      included: leftOut.pages.included.toLocaleString(),
-      total: leftOut.pages.total.toLocaleString(),
+      included: uiNumber(leftOut.pages.included),
+      total: uiNumber(leftOut.pages.total),
     });
   }
   const ignored = leftOut?.ignored ?? 0;
   const secret = leftOut?.secret ?? 0;
-  const counts = { ignored: ignored.toLocaleString(), secret: secret.toLocaleString() };
+  const counts = { ignored: uiNumber(ignored), secret: uiNumber(secret) };
   if (ignored && secret) return t('Left out {{ignored}} ignored files and {{secret}} secret files', counts);
   if (ignored) return t('Left out {{ignored}} ignored files', counts);
   if (secret) return t('Left out {{secret}} secret files', counts);

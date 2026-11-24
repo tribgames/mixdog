@@ -155,7 +155,7 @@ export function selectProjectBranch(
 /** A history entry checked out detached, through the same guarded checkout. */
 async function checkoutProjectCommit(projectPath: string, commit: string): Promise<string> {
   const result = await guardedProjectCheckout({ projectPath, detach: commit });
-  return `HEAD is now at ${String(result.commit || commit).slice(0, 8)} (detached).`;
+  return t('HEAD is now at {{commit}} (detached).', { commit: String(result.commit || commit).slice(0, 8) });
 }
 
 async function guardedProjectCheckout(
@@ -183,13 +183,17 @@ export async function mergeProjectBranch(projectPath: string, branch: string, ta
     if (failure.code) throw new Error(worktreeFailureText(failure));
     throw reason;
   }
-  if (result.upToDate) return 'Already up to date.';
+  if (result.upToDate) return t('Already up to date.');
   if (!result.merged) {
     throw new Error(
       worktreeFailureText({ code: 'MERGE_CONFLICT', message: '', details: { files: result.conflicts ?? [] } })
     );
   }
-  return `Merged ${branch} into ${result.target} (${String(result.commit).slice(0, 8)}).`;
+  return t('Merged {{branch}} into {{target}} ({{commit}}).', {
+    branch,
+    target: result.target,
+    commit: String(result.commit).slice(0, 8),
+  });
 }
 
 // ONE implementation per branch action, shared by the branch row's inline

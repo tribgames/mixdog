@@ -130,7 +130,7 @@ export function AlwaysAllowedList({
               aria-label={t('Ask again: {{item}}', { item: item.label })}
               onClick={() => void askAgain(item)}
             >
-              {t('Ask again')}
+              {t('Always allowed: Ask again')}
             </button>
           </div>
         ))}

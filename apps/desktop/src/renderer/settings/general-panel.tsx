@@ -313,7 +313,7 @@ export function GeneralPanel({ data, pending, run }: PanelContext) {
     <>
       <Group title={t('Profile')}>
         <AutoSaveRow
-          title={t('Title')}
+          title={t('Profile: Title')}
           name="title"
           value={String(profile.title || '')}
           placeholder={t('Your name or role')}

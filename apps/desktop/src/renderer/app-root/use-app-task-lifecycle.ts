@@ -418,7 +418,7 @@ export function useAppTaskLifecycle({
     async (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => {
       const api = window.mixdogDesktop;
       if (typeof api?.inheritSession !== 'function') {
-        throw new Error('Session inheritance is unavailable on this surface.');
+        throw new Error(t('Session inheritance is unavailable on this surface.'));
       }
       await inheritSessionInPlace(
         sourceSessionId,

@@ -1,6 +1,6 @@
 # Registro delle modifiche
 
-Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasciare finché la sezione Unreleased è vuota, e la contrassegna con la versione rilasciata.
+Modifiche rilevanti, dalla più recente. La pipeline di deploy rifiuta di rilasciare finché la sezione Unreleased è vuota, e la contrassegna con la versione rilasciata.
 
 ## Unreleased
 
@@ -12,11 +12,11 @@ Se riscontri qualche problema, segnalalo su [GitHub Issues](https://github.com/t
 
 ## v1.4.5 - 2026-11-03
 
-Questa versione velocizza le conversazioni Claude in corso, organizza il pannello Sessioni per progetto e branch e introduce le lavagne di Studio, insieme a miglioramenti della stabilità per il lavoro parallelo.
+Questa versione velocizza le conversazioni Claude in corso, organizza il pannello Sessioni per progetto e branch e introduce le bacheche di Studio, insieme a miglioramenti della stabilità per il lavoro parallelo.
 
 ### Nuove funzionalità
 
-- **Lavagne di Studio** — Raggruppa le creazioni di Studio in lavagne dal menu del compositore ed esplora i lavori passati con la ricerca dalla barra laterale sinistra.
+- **Bacheche di Studio** — Raggruppa le creazioni di Studio in bacheche dal menu del campo di input ed esplora i lavori passati con la ricerca dalla barra laterale sinistra.
 - **Progetti in Sessioni** — Raggruppa le sessioni per progetto nel pannello Sessioni, con sottocategorie per ciascun branch quando un progetto ne ha più di uno.
 - **Impostazione schermata iniziale** — Scegli nelle impostazioni cosa aprire in una nuova finestra desktop, avviando per impostazione predefinita una sessione senza progetto senza accumulare schede vuote (#312).
 - **Risposte di Claude più rapide** — Le conversazioni Claude in corso ora inviano solo i nuovi messaggi dopo il turno iniziale, accelerando le risposte e ricorrendo a una richiesta completa se necessario.
@@ -26,7 +26,7 @@ Questa versione velocizza le conversazioni Claude in corso, organizza il pannell
 ### Modifiche
 
 - Modificato il pannello Sessioni per avviare attività con un pulsante + nell'intestazione e mostrare i bot come righe con il rispettivo stato.
-- Modificato il Registro richieste per mostrare le durate in secondi, i modelli richiesti e rispondenti per le richieste sostituite (#306) e i prezzi di listino dell'API per gli abbonamenti.
+- Modificato il Log richieste per mostrare le durate in secondi, i modelli richiesti e rispondenti per le richieste sostituite (#306) e i prezzi di listino dell'API per gli abbonamenti.
 - Modificate le notifiche in alto a destra per segnalare installazioni, aggiornamenti dell'app, pause per limite di utilizzo, accessi scaduti e conversazioni non salvate.
 - Modificate le liste di cose da fare per tracciare attività in sospeso, in corso, completate e scartate, evitando che un passaggio bloccato renda rosso l'anello di avanzamento.
 - Ottimizzati i pannelli laterali e la galleria di Studio per condividere spaziatura coerente, stili di stato vuoto e sfumature ai bordi superiore e inferiore.
@@ -38,18 +38,18 @@ Questa versione velocizza le conversazioni Claude in corso, organizza il pannell
 - Risolto un problema per cui Claude ignorava un messaggio inviato dopo un turno terminato senza risposta, scambiandolo per l'output di uno strumento.
 - Risolto il problema per cui i controlli dei worktree in background richiedevano due minuti su Windows dopo ogni avvio dell'app.
 - Risolto il problema degli aggiornamenti dei plugin che si completavano silenziosamente senza mostrare alcun avviso (#307).
-- Risolto il problema dei popover di contesto coperti sugli schermi mobili (#309) e dei timestamp lunghi che fuoriuscivano dalla colonna nel Registro richieste (#310).
-- Risolto il problema per cui premendo `F2` nel compositore della sessione non veniva rinominata la sessione attiva.
+- Risolto il problema dei popover di contesto coperti sugli schermi mobili (#309) e dei timestamp lunghi che fuoriuscivano dalla colonna nel Log richieste (#310).
+- Risolto il problema per cui premendo `F2` nel campo di input della sessione non veniva rinominata la sessione attiva.
 - Risolto il problema dei conteggi di ricerca che mostravano percorsi assoluti anziché relativi nelle cartelle con numeri e trattini nel nome (#304).
 
 ## v1.4.4 - 2026-11-02
 
-Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo reale per i subagenti, cronologia di navigazione delle sessioni e opzioni avanzate per i provider personalizzati.
+Aggiunta la scheda Log richieste in Utilizzo, pannelli laterali in tempo reale per i sotto-agenti, cronologia di navigazione delle sessioni e opzioni avanzate per i provider personalizzati.
 
 ### Nuove funzionalità
 
-- **Registro richieste** — Aggiunta una scheda Registro richieste in Utilizzo che filtra per periodo, stato e modello, mostrando token, costo, durata e stato (#300).
-- **Pannello laterale dei subagenti** — Aggiunta l'apertura dei subagenti dalla finestra Agenti o dall'elenco del compositore; si chiude con `Ctrl+B` e mantiene leggibili le sessioni terminate.
+- **Log richieste** — Aggiunta una scheda Log richieste in Utilizzo che filtra per periodo, stato e modello, mostrando token, costo, durata e stato (#300).
+- **Pannello laterale dei sotto-agenti** — Aggiunta l'apertura dei sotto-agenti dalla finestra Agenti o dall'elenco del campo di input; si chiude con `Ctrl+B` e mantiene leggibili le sessioni terminate.
 - **Navigazione tra sessioni** — Aggiunta la navigazione avanti e indietro nella cronologia di sessioni e posizioni dell'editor con `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` e pulsanti laterali del mouse (#289).
 - **Opzioni provider personalizzati** — Aggiunti parametri JSON avanzati, intestazioni HTTP personalizzate e strategie di routing OpenRouter (Auto, Price, Speed, Latency) in Impostazioni → Modelli (#231).
 - **Scorciatoie di zoom interfaccia** — Aggiunta la regolazione dello zoom dell'interfaccia dall'85% al 150% a passi del 5% con `Ctrl/Cmd+=`, `Ctrl/Cmd+-` e `Ctrl/Cmd+0` (#286).
@@ -57,7 +57,7 @@ Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo re
 ### Modifiche
 
 - Ottimizzato Computer Use per trasmettere i delta degli elementi, riutilizzare l'OCR e inviare scorrimento e combinazioni di tasti in background alle finestre Mixdog senza sottrarre il focus.
-- Modificata Mixy per rispondere direttamente a ciò che può risolvere da sola, passare il lavoro a un altro bot solo se nominato o se ne continua l'attività, e usare altrimenti subagenti.
+- Modificata Mixy per rispondere direttamente a ciò che può risolvere da sola, passare il lavoro a un altro bot solo se nominato o se ne continua l'attività, e usare altrimenti sotto-agenti.
 - Sincronizzate le domande delle sessioni delegate tra le chat, completando entrambe le schede simultaneamente in caso di risposta, chiusura o timeout.
 - Modificata la gestione della memoria per salvare automaticamente le preferenze esplicite e richiedere conferma per voci proposte dall'agente o con ambito ambiguo.
 - Modificata la mascotte del bot desktop per comparire solo quando attivata esplicitamente nelle impostazioni.
@@ -67,7 +67,7 @@ Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo re
 ### Correzioni di bug
 
 - Corrette le schede di completamento e le righe di avanzamento duplicate nelle catene di passaggio, mostrando una sola scheda e una sola riga di avanzamento per risposta.
-- Corretto il problema delle esecuzioni in background (ciclo di memoria, ricerca web) che mostravano il prompt come nome sessione nel Registro richieste; ora mostrano la loro azione con l'etichetta Interno.
+- Corretto il problema delle esecuzioni in background (ciclo di memoria, ricerca web) che mostravano il prompt come nome sessione nel Log richieste; ora mostrano la loro azione con l'etichetta Interno.
 - Risolto un errore per cui Explore non riusciva ad avviarsi se configurato solo con un provider di modelli OAuth (#301).
 - Risolto il fallimento delle attività avviate all'esterno dei repository Git quando l'impostazione predefinita dei worktree era attiva (#297).
 - Risolto un problema per cui la rimozione di un plugin poteva eliminare file esterni tramite collegamenti interni alla cartella, e risolti i blocchi `EPERM` su Windows durante gli aggiornamenti (#296).
@@ -88,7 +88,7 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - **Lista di cose da fare della sessione** — Aggiunta una lista di cose da fare della sessione che sostituisce le attività dei Goal, mostrando l'avanzamento dell'agente in tempo reale e conservando attività e Goal alla chiusura.
 - **Stili del campo di input** — Aggiunti gli stili Semplice, Standard e Dettagliato nelle Impostazioni con anteprima in tempo reale, barra reattiva e conferma opzionale delle risposte (#270, #276).
 - **Impostazioni di delega** — Aggiunta una pagina dedicata Impostazioni → Delega per le istruzioni di orchestrazione, e modifica diretta nelle istruzioni dello Stile di output con ripristino dei predefiniti (#291).
-- **Sub-agenti esecutori di routine** — Aggiunta la selezione di un sub-agente esecutore con il proprio modello per attività pianificate e webhook.
+- **Sotto-agenti esecutori di routine** — Aggiunta la selezione di un sotto-agente esecutore con il proprio modello per attività pianificate e webhook.
 - **Importazione da Claude Desktop Cowork** — Aggiunta l'importazione delle conversazioni da Claude Desktop Cowork, con le conversazioni speciali elencate per prime (#283).
 - **Link ai percorsi nella chat** — Aggiunta l'apertura dei link ai percorsi del PC dalla chat: le cartelle si aprono come radice nel pannello File e i file visualizzabili in Visualize (#277).
 - **Gesti per le immagini su smartphone** — Aggiunti pinch-to-zoom, panoramica e doppio tocco per ingrandire le immagini nella chat e in Visualize su smartphone (#275).
@@ -117,13 +117,13 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - Risolti gli errori di installazione causati dalla rimozione degli script di onnxruntime-node durante la pulizia degli embedding (#282).
 - Risolto il blocco all'avvio del servizio di memoria dovuto a blocchi PostgreSQL orfani dopo la chiusura imprevista di un processo (#278).
 - Risolto il malfunzionamento di reCAPTCHA e dei widget di autenticazione nel browser integrato concedendo l'accesso all'archiviazione compatibile con Chrome.
-- Risolto il problema per cui i report dei sub-agenti non raggiungevano l'agente Lead in caso di promemoria, input in coda o errori successivi.
+- Risolto il problema per cui i report dei sotto-agenti non raggiungevano l'agente Lead in caso di promemoria, input in coda o errori successivi.
 - Risolto il problema di Computer Use che riavviava l'host di input in caso di letture lente dello schermo e segnalava osservatori guasti durante brevi pause di input.
 - Risolto il problema per cui le ricerche nella memoria perdevano le parole di contenuto in coreano nelle query miste e ottimizzata la scansione per termini esatti.
 - Risolto il problema dei link web e delle schede del browser trasmesse su smartphone che non si adattavano agli schermi mobili o non si aprivano in Visualize.
 - Risolta la sovrapposizione delle righe dei colori con le descrizioni nelle finestre strette di Impostazioni ed evitato che modifiche simultanee sovrascrivessero le istruzioni (#287).
 - Risolto il problema per cui l'esecuzione di `npm ci` all'interno di un worktree svuotava il `node_modules` del checkout principale; ora ogni worktree installa le proprie dipendenze.
-- Risolto il problema per cui il rinvio di un'attività non avviata (ad esempio in cartelle senza supporto ai worktree) ripeteva «could not be resumed» fino al riavvio (#279).
+- Risolto il problema per cui il nuovo invio di un'attività non avviata (ad esempio in cartelle senza supporto ai worktree) ripeteva «could not be resumed» fino al riavvio (#279).
 - Risolto il problema degli strumenti Git e documenti Office che fallivano su Windows quando il percorso della cartella temporanea della sessione diventava troppo lungo.
 - Risolta l'assenza del controllo dello sforzo di ragionamento per i modelli Vertex AI Gemini 4 Argon e Gemini 3.8 Flash; la scelta (Basso, Medio, Alto) viene ora visualizzata e inviata con la richiesta (#292).
 
@@ -241,7 +241,7 @@ Migliorato il lavoro remoto dal telefono insieme a Browser Use e Computer Use e 
 - Corretta la perdita del layout a riquadri divisi quando viene reimpostata la memoria locale dell'app.
 - Corretto lo spostamento di bordi dei pannelli, divisori e colori all'apertura o alla chiusura di un pannello laterale.
 - Corretta la scomparsa del contenuto del cassetto del telefono durante lo scorrimento di chiusura.
-- Corretto il bot fissato che lasciava l'estremità destra del compositore dopo la chiusura di un pannello laterale e le chat che scendevano di una riga all'apertura.
+- Corretto il bot fissato che lasciava l'estremità destra del campo di input dopo la chiusura di un pannello laterale e le chat che scendevano di una riga all'apertura.
 - Corretta la riga di un bot che non ruotava né mostrava punti di non letto mentre le sue sessioni di attività lavorano.
 - Corretto il clic su una notifica desktop che lasciava la barra laterale sulla sessione precedente o non produceva alcun effetto con la finestra nascosta.
 - Corretta la risposta a una scheda di domanda al termine di una chat che impediva alla trascrizione di seguire la risposta.
@@ -307,8 +307,8 @@ Corretti lo scorrimento su smartphone che si interrompeva o saltava, gli elenchi
 - Corretto il tremolio laterale delle tabelle durante lo streaming di una risposta in una chat di programmazione.
 - Corretto lo Stop di una stanza che perdeva la risposta, l’approvazione o il messaggio di un membro terminati subito dopo (#201).
 - Corrette le opzioni selezionate su una scheda delle domande che andavano perse rispondendo dal campo di input (#202).
-- Corretto il mancato avvio di un sub-agente quando il relativo modello veniva indicato tramite il nome visualizzato (#203).
-- Corretti gli agenti che chiedevano di chiudere i propri sub-agenti completati anziché chiuderli autonomamente.
+- Corretto il mancato avvio di un sotto-agente quando il relativo modello veniva indicato tramite il nome visualizzato (#203).
+- Corretti gli agenti che chiedevano di chiudere i propri sotto-agenti completati anziché chiuderli autonomamente.
 - Corretto l’elenco dei modelli nell’editor agenti, nel profilo del bot e nel campo di input che ometteva i modelli da OpenCode Go, OpenRouter e altri provider (#205).
 
 ## v1.3.3 - 2026-10-22
@@ -350,7 +350,7 @@ Aggiunta l’impostazione del formato orario 12/24 ore, gli allegati Office nei 
 - Corretto il pallino di non letto che rimaneva su una chat che si stava leggendo in un pannello laterale.
 - Corretta la modifica di un messaggio precedente che rimuoveva i relativi allegati e i riavvolgimenti che ignoravano la cronologia successiva (#186).
 - Corretto il mancato rilevamento nelle conversazioni aperte degli agenti attivati o disattivati (#184).
-- Corretto il blocco delle risposte al limite di output e la mancata risoluzione di una valutazione dell'impegno di ragionamento non funzionante (#183).
+- Corretto il blocco delle risposte al limite di output e la mancata risoluzione di una valutazione dello sforzo di ragionamento non funzionante (#183).
 - Corretto un bot rimosso che continuava il suo lavoro nelle stanze e nelle conversazioni (#180).
 - Corretto l’aggiramento del limite tra bot da parte dei bot che transitavano attraverso attività in background.
 - Corretto un backup delle impostazioni non riuscito che eliminava prematuramente i backup corretti (thanks @22nsuk).
@@ -391,13 +391,13 @@ Aggiunti temi e skin con foto, l’overlay del bot principale e il cambio di wor
 - Regolate le stanze dei bot in modo che conversino naturalmente anziché concordare tra loro ogni volta; in assenza di un modello Maintainer, ogni bot menzionato risponde una sola volta.
 - I messaggi tra bot mostrano ora il bot mittente e quello destinatario, limitando lo scambio continuo tra bot a tre passaggi.
 - Le notifiche di risposta dei bot su PC e telefono utilizzano ora il nome del bot o della stanza come titolo.
-- Il pulsante Git del compositore apre ora la scheda Git, dove "Crea PR", "commit · push" e "Crea commit" hanno ciascuno il proprio pulsante "Eseguire".
+- Il pulsante Git del campo di input apre ora la scheda Git, dove "Crea PR", "commit · push" e "Crea commit" hanno ciascuno il proprio pulsante "Esegui".
 - La scheda di fine attività mostra ora solo le miniature dei file collegati nella risposta o aperti nel pannello laterale.
 - Modificato lo scorrimento in modo che la vista si muova solo quando si scorre e torni a seguire le nuove risposte una volta raggiunto il fondo; le risposte lunghe che arrivano tutte insieme iniziano dalla loro prima riga.
 - Un server MCP lento ritarda la prima risposta al massimo di 3 secondi; gli strumenti che si collegano successivamente sono disponibili dal turno seguente.
 - Modificate le risposte in streaming per apparire a piccoli passi con una breve dissolvenza sulle nuove parole, in modo che il testo non compaia più a blocchi.
 - Aggiunto il fissaggio degli agenti nella pagina dei bot dal menu del clic destro, e "Mantieni agenti terminati" nel menu `…` per 1 ora, 1 giorno, 7 giorni o Per sempre.
-- Aggiunto "Illimitato" alla cancellazione automatica delle sessioni inattive.
+- Aggiunto "Illimitato" alla pulizia automatica delle sessioni inattive.
 - Regolata la riga di token e costo nella finestra dell’agente per mantenere la propria posizione fin dall’inizio, evitando salti visivi.
 - Regolate le indicazioni dello strumento setup in modo che l’IA possa impostare la riga di attivazione (`when_to_use`) quando crea o modifica una skill.
 
@@ -422,7 +422,7 @@ Aggiunti temi e skin con foto, l’overlay del bot principale e il cambio di wor
 - Corretta una risposta lunga arrivata tutta insieme che appariva vuota e sbiadita per un istante.
 - Corretto un input in coda arrestato che veniva rieseguito dopo il ripristino (#142, thanks @22nsuk).
 - Corretti i processi shell la cui uscita non era mai stata confermata che venivano trattati come terminati (#133, thanks @22nsuk).
-- Corrette le attività in esecuzione che perdevano la loro protezione quando il record dello spazio di lavoro era danneggiato (#117, thanks @22nsuk).
+- Corrette le attività in esecuzione che perdevano la loro protezione quando il record dell'area di lavoro era danneggiato (#117, thanks @22nsuk).
 - Corretti i modelli Cursor che perdevano gli ID di chiamata dello strumento e i passaggi di strumenti bloccati che non terminavano mai (#156, thanks @22nsuk).
 - Corretto l’indicatore di digitazione che non scompariva mai nelle stanze dei bot e i messaggi inviati a metà risposta che andavano persi.
 - Corretto l’avviso "results omitted" che non appariva nella chat di un bot quando si accumulavano molti risultati di routine.
@@ -445,17 +445,17 @@ Ci scusiamo per il fatto che l'aggiornamento a 1.3.0 abbia ripristinato alcuni d
 
 ### Modifiche
 
-- Modificati i messaggi inviati durante un'attività in corso per comparire immediatamente nella chat, con **Invia ora** finché non vengono letti; la coda sopra il compositore è stata rimossa.
+- Modificati i messaggi inviati durante un'attività in corso per comparire immediatamente nella chat, con **Invia ora** finché non vengono letti; la coda sopra il campo di input è stata rimossa.
 - Modificate le schede di approvazione per azioni in uscita per apparire solo quando un bot invia, pubblica o elimina; le sessioni di programmazione non richiedono più conferma.
 - Modificati il bot rappresentativo e Lead per mantenere modelli separati, e l'invio senza modello apre il selettore dei modelli invece di sceglierne uno automaticamente.
 - Modificati i bot e gli agenti per trasferire allegati e file generati quando si passano il lavoro tra loro.
 - Modificate le schede visualize a una sola scheda per attività, raccogliendo le pagine aperte come miniature.
 - Modificate le finestre di dialogo di conferma come l'eliminazione da quella predefinita di Windows a finestre corrispondenti al tema dell'app.
-- Rimossi il selettore dei modelli e l'indicatore di contesto dal compositore delle stanze di bot.
+- Rimossi il selettore dei modelli e l'indicatore di contesto dal campo di input delle stanze di bot.
 - Modificato GitHub in modo che non sia più un connettore; utilizza direttamente la GitHub CLI con account connesso.
 - Regolati gli avvisi di errore per mostrare un messaggio chiaro anziché l'errore grezzo quando un modello non è disponibile o una chiave non è valida.
 - Regolati gli stili di output in modo che le risposte scelgano paragrafi, tabelle o elenchi a seconda del contenuto.
-- Modificato il valore tok/s del compositore per conteggiare l'attesa del primo token, allineandosi alla finestra Utilizzo.
+- Modificato il valore tok/s del campo di input per conteggiare l'attesa del primo token, allineandosi alla finestra Utilizzo.
 - Modificato lo sforzo di ragionamento automatico per usare il valutatore del ragionamento automatico v7, che concorda con le valutazioni di riferimento più spesso rispetto a v6.
 
 ### Correzioni di bug
@@ -468,7 +468,7 @@ Ci scusiamo per il fatto che l'aggiornamento a 1.3.0 abbia ripristinato alcuni d
 - Corretto il bot rappresentativo che non inviava il resoconto dopo aver passato il lavoro a un'altra sessione; i resoconti ora proseguono anche dopo il riavvio.
 - Corrette le sessioni di attività degli agenti create dal bot rappresentativo che si aprivano con un modello vuoto ("Seleziona modello").
 - Corretto il passaggio alla pagina Bot che sostituiva l'area principale con la chat del bot rappresentativo.
-- Corretto il compositore che non accettava input dopo l'eliminazione di una stanza di bot.
+- Corretto il campo di input che non accettava testo dopo l'eliminazione di una stanza di bot.
 - Corretti gli agenti che non passavano al modello successivo quando il primo raggiungeva il limite di utilizzo.
 - Corretto il caricamento infinito sul telefono quando il PC collegato era spento; ora segnala l'impossibilità di connettersi e consente di riprovare (#134).
 - Corretto lo scorrimento sul telefono che si arrestava o saltava durante il caricamento dei messaggi precedenti.
@@ -490,7 +490,7 @@ Aggiunti un sistema di bot e il supporto a più connettori, tra cui Gmail con pa
 
 ### Modifiche
 
-- Modificato il compositore su PC in una barra di immissione a riga singola che si espande con prompt più lunghi.
+- Modificato il campo di input su PC in una barra a riga singola che si espande con prompt più lunghi.
 - Modificati i lunghi elenchi di sessioni e le trascrizioni estese per uno scorrimento più fluido.
 - Modificate le viste diff di sessione per comprimere le righe non modificate e rimuovere i banner per i file mancanti.
 - Modificati gli aggiornamenti dell'app per smartphone per essere scaricati in background, con lo stato visibile in Impostazioni e nella barra delle attività.
@@ -531,7 +531,7 @@ Il desktop ora consuma meno risorse in inattività e passa da una sessione all'a
 
 - Corretto il blocco del backend sotto carico elevato di agent e il suo riavvio automatico, che interrompeva gli agent in esecuzione.
 - Corretto l'annullamento che lasciava processi figlio e server ancora in esecuzione (#115).
-- Corretto il testo incollato difficile da leggere o modificare quando era lungo (#110), e la digitazione di un singolo `/` nel compositore (thanks @oh1701).
+- Corretto il testo incollato difficile da leggere o modificare quando era lungo (#110), e la digitazione di un singolo `/` nel campo di input (thanks @oh1701).
 - Corretta la finestra di dialogo di conferma della shell che spingeva i propri pulsanti fuori dallo schermo (#114) e le cartelle `.git` vuote che bloccavano le attività (#108).
 - Corretto il totale di utilizzo degli agent che escludeva gli agent chiusi (#99, thanks @22nsuk).
 - Corretti gli allegati persi durante il caricamento e un agent non riuscito che contrassegnava l'intera scheda della sessione come non riuscita.
@@ -547,9 +547,9 @@ I telefoni ora si connettono più velocemente e senza popup, il desktop non rall
 - Modificate le connessioni dei telefoni per riconnettersi automaticamente senza popup o conti alla rovescia; un piccolo punto appare solo durante un'interruzione prolungata.
 - Modificate le risposte in streaming in modo che appaiano parola per parola con una dissolvenza morbida, senza salti dovuti a Markdown incompleto; i blocchi di codice appaiono con il rispettivo contenuto.
 - Modificato lo stato dell'agent per mostrare Done finché non si apre il risultato, poi Idle.
-- Modificato il menu del ramo per aprirsi da un pulsante `…` o con il clic destro; sui telefoni, premere a lungo su un ramo.
+- Modificato il menu del branch per aprirsi da un pulsante `…` o con il clic destro; sui telefoni, premere a lungo su un branch.
 - Modificate le pagine visualize sui telefoni per aprirsi direttamente senza la richiesta Run, come sul desktop.
-- Regolati il pannello di utilizzo e il riepilogo dell'isola del compositore per mantenere la loro altezza durante il caricamento delle cifre.
+- Regolati il pannello di utilizzo e il riepilogo dell'isola del campo di input per mantenere la loro altezza durante il caricamento delle cifre.
 - Modificato il codice QR di installazione per Android per scaricare direttamente l'app.
 
 ### Correzioni di bug
@@ -599,9 +599,9 @@ Aggiornamento che include il controllo delle sessioni degli agenti e l'assegnazi
 
 - Modificato in modo che gli agenti completati rimangano nel pannello per 1 ora, ripristinando il riepilogo del conteggio delle attività per stato e gli avvisi di attesa.
 
-### 7. Gestione delle sessioni da parte dell'agente principale
+### 7. Gestione delle sessioni da parte dell'agente Lead
 
-- Aggiunta la possibilità per l'agente principale di visualizzare l'elenco e i contenuti delle altre sessioni e gestirle direttamente inviando messaggi, annullando o eliminando le sessioni.
+- Aggiunta la possibilità per l'agente Lead di visualizzare l'elenco e i contenuti delle altre sessioni e gestirle direttamente inviando messaggi, annullando o eliminando le sessioni.
 
 ### 8. Ottimizzazioni delle prestazioni remote e desktop
 
@@ -624,13 +624,13 @@ Aggiornamento che include il controllo delle sessioni degli agenti e l'assegnazi
 
 Dal lancio, Mixdog è stato utilizzato da molti più utenti di quanto ci aspettassimo, e ve ne siamo davvero grati. Alcune parti sono ancora instabili e le stiamo correggendo il più rapidamente possibile. Le vostre segnalazioni e pull request hanno plasmato gran parte di questo rilascio. In caso di problemi, fatecelo sapere da **Impostazioni → Informazioni → Feedback**.
 
-Nuovo al ragionamento automatico? Un piccolo modello di valutazione sul vostro PC stabilisce l'intensità di riflessione del modello per ogni messaggio e passaggio. Per scoprire come funziona e come si è comportato su Terminal-Bench 2.1, consultate [Impegno di ragionamento automatico](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
+Prima volta con il ragionamento automatico? Un piccolo modello di valutazione sul tuo PC stabilisce lo sforzo di ragionamento del modello per ogni messaggio e passaggio. Per scoprire come funziona e come si è comportato su Terminal-Bench 2.1, consulta [Sforzo di ragionamento automatico](https://github.com/tribgames/mixdog/blob/main/docs/auto-reasoning-effort.md).
 
-Aggiunti lo spostamento di una chat in un worktree dall'isola del compositore, uno streaming di testo più fluido e un servizio in background più rapido e affidabile.
+Aggiunti lo spostamento di una chat in un worktree dall'isola del campo di input, uno streaming di testo più fluido e un servizio in background più rapido e affidabile.
 
 ### Nuove funzionalità
 
-- **Worktree dall'isola** — Aggiunto un segmento di ramo all'isola del compositore che sposta una chat in un worktree, portando con sé o lasciando le modifiche non confermate.
+- **Worktree dall'isola** — Aggiunto un segmento di branch all'isola del campo di input che sposta una chat in un worktree, trasferendo o lasciando le modifiche senza commit.
 - **Schede delle domande** — Aggiunta una scheda per le domande poste da un agent, nell'app desktop e nella TUI.
 - **`/btw`** — Aggiunto `/btw` per porre una domanda rapida senza interrompere l'attività corrente.
 - **Strumento di sessione** — Aggiunto uno strumento che consente all'agent di rinominare, compattare, creare fork e spostare la sessione corrente (#14, thanks @hyeon1035298).
@@ -652,16 +652,16 @@ Aggiunti lo spostamento di una chat in un worktree dall'isola del compositore, u
 ### Correzioni di bug
 
 - Corretto l'errore HTTP 400 dei modelli Claude su Antigravity dovuto agli schemi degli strumenti (#80, thanks @ProofPage).
-- Corretto il pulsante Nuovo ramo nella chat che non eseguiva alcuna operazione (#85, thanks @oh1701).
+- Corretto il pulsante Nuovo branch nella chat che non eseguiva alcuna operazione (#85, thanks @oh1701).
 - Corretti gli agent appena avviati che non vedevano gli strumenti MCP al loro primo turno (#88, thanks @oh1701).
 - Corretto il blocco del servizio in background durante l'eliminazione delle sessioni e la ricomparsa delle sessioni eliminate o delle relative schede.
 - Corretto il problema per cui a volte il database rimaneva aperto dopo l'uscita dall'app.
 - Corretto il primo messaggio dopo aver cambiato il modello di una chat che non riusciva con "Session state changed unexpectedly".
 - Corretto il pulsante Indietro di Android che non chiudeva il pannello laterale destro.
-- Corretto il nome del ramo dell'isola che appariva in ritardo spostando il layout e le righe della shell che sfarfallavano al completamento del comando.
+- Corretto il nome del branch dell'isola che appariva in ritardo spostando il layout e le righe della shell che sfarfallavano al completamento del comando.
 - Corretto il pannello laterale che rimaneva aperto dopo la chiusura dell'ultima scheda e il pannello Visualize che rimaneva compresso all'apertura di un elemento visivo.
 - Corretti gli interruttori dei provider per sviluppatori che risultavano disattivati dopo l'attivazione e gli errori dei provider personalizzati che mostravano messaggi interni.
-- Corretto il salto della trascrizione quando il compositore modificava la propria altezza.
+- Corretto il salto della trascrizione quando il campo di input modificava la propria altezza.
 
 ### Altro
 
@@ -675,7 +675,7 @@ Aggiunti l'accesso OAuth esplicito per MCP, il cambio modello sul posto e un ban
 
 - **Accesso MCP** — Aggiunto l'accesso OAuth esplicito per i server MCP con stato, finestra di dialogo condivisa, incolla remoto e comandi TUI (#74, thanks @oh1701).
 - **Cambio modello sul posto** — Aggiunta la possibilità di cambiare il modello di una chat senza avviare una nuova sessione e Fork nel menu di sessione (#73, #52, thanks @grapefruit0205).
-- **Banner di quota** — Aggiunto un banner a riga singola sopra il compositore al raggiungimento di un limite; Riprendi riserva la prossima esecuzione all'orario di ripristino.
+- **Banner di quota** — Aggiunto un banner a riga singola sopra il campo di input al raggiungimento di un limite; Riprendi programma la prossima esecuzione all'orario di azzeramento.
 - **Menu file** — Aggiunto un conteggio file sull'isola che tiene traccia delle modifiche di sessione non salvate, con Mostra modifiche ed Elimina cronologia.
 - **Dimensione testo della chat** — Aggiunta un'impostazione per dispositivo per la dimensione del testo della chat.
 
@@ -690,7 +690,7 @@ Aggiunti l'accesso OAuth esplicito per MCP, il cambio modello sul posto e un ban
 
 - Corretto il blocco di uno o due secondi del servizio in background ogni 30 minutes.
 - Corretta la perdita delle notifiche di completamento degli agent quando veniva annullato un turno che aveva già prodotto output.
-- Corretta l'isola del compositore che mostrava gli agent in esecuzione come inattivi o completati.
+- Corretta l'isola del campo di input che mostrava gli agenti in esecuzione come inattivi o completati.
 - Corretto il blocco del passaggio tra sessioni durante l'attesa della scansione delle modifiche di altre sessioni.
 - Corretta l'uscita delle finestre di dialogo della pagina del browser dal riquadro, il mancato completamento della conferma di uscita e il malfunzionamento delle scorciatoie di copia del browser.
 - Corretto il fallimento del caching dei prompt sui provider Responses personalizzati e la mancata corrispondenza dei progetti di sessione ereditati nella barra laterale (#70, #75, thanks @sukjong2002).
@@ -709,9 +709,9 @@ Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Com
 - **Importa conversazioni** — Aggiunta l'opzione Impostazioni > Generale > Importa conversazioni per trasferire le chat di Codex e Claude Code da questo PC in Mixdog.
 - **Command Code** — Aggiunto Command Code come provider che accede con il tuo account Command Code.
 - **Criteri di cambio account** — Aggiunte le opzioni Manuale, Cambia al limite e Più margine prima per i provider con più account.
-- **Menzioni di skill con `$`** — Aggiunto `$` nel compositore e nella TUI per selezionare una skill e applicarla a quel messaggio.
+- **Menzioni di skill con `$`** — Aggiunto `$` nel campo di input e nella TUI per selezionare una skill e applicarla a quel messaggio.
 - **Barra di utilizzo di 5 ore** — Aggiunta un'opzione nel menu di utilizzo che mostra una barra di 5 ore accanto al periodo più lungo sulla barra laterale (#66).
-- **Schede di feedback visualizzazione** — Aggiunte schede nel compositore per annotazioni, selezioni e modifiche in coda, nonché spille su immagini, fotogrammi video e aree trascinate.
+- **Schede di feedback di Visualize** — Aggiunte schede nel campo di input per pin, selezioni e regolazioni in coda di Visualize, nonché pin su immagini, fotogrammi video e aree trascinate.
 - **Chiudi Goal** — Aggiunto un pulsante per chiudere un Goal completato.
 
 ### Modifiche
@@ -724,7 +724,7 @@ Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Com
 - Modificate le miniature delle immagini inviate per caricarsi come anteprime ridotte sul PC e sui telefoni associati.
 - Regolato il caricamento degli strumenti MCP, le ricerche di file e il salvataggio degli account per non bloccare più il servizio in background nelle sessioni lunghe.
 - Regolato l'indicatore di avanzamento di Goal per mostrare sempre cinque celle.
-- Regolata l'isola del compositore posizionandola 12px sopra la scheda prompt e ripristinate le righe di attività degli strumenti a 14px.
+- Regolata l'isola del campo di input posizionandola 12px sopra la scheda prompt e ripristinate le righe di attività degli strumenti a 14px.
 
 ### Correzioni di bug
 
@@ -760,14 +760,14 @@ Questa versione introduce il pannello delle modifiche e le schede delle modifich
 - Una scheda delle modifiche sotto ogni turno mostra il numero di file modificati, un riepilogo diff di +N −N righe, un pulsante per visualizzare le modifiche e l'elenco dei file modificati.
 - Le schede degli strumenti riprogettate mostrano le modifiche apportate da ogni singola modifica anziché il totale cumulativo del turno, visualizzate nella stessa vista diff del pannello delle modifiche, e mostrano righe aggiunte ed eliminate mentre lo strumento è ancora in esecuzione.
 - Uno strumento integrato di visualizzazione genera mockup di progetto e diagrammi inline (Mermaid, SVG, ECharts, HTML e Markdown) in schede dedicate del pannello laterale. È possibile esaminare elementi, catturare errori di pagina, inserire feedback con puntine e selezioni dati per il messaggio successivo, confrontare e ripristinare versioni ed esportare design in formato PNG o PDF.
-- Le sessioni con Git worktree consentono di lavorare su rami isolati senza interferire con l'ambiente di lavoro corrente. Un selettore di ramo sopra il compositore consente di scegliere o creare un nuovo ramo worktree all'avvio di un'attività, con unioni protette che prevengono residui di conflitto.
+- Le sessioni con Git worktree consentono di lavorare su branch isolati senza interferire con l'ambiente di lavoro corrente. Un selettore di branch sopra il campo di input consente di scegliere o creare un nuovo branch worktree all'avvio di un'attività, con unioni protette che prevengono residui di conflitto.
 - Connettiti a server remoti tramite SSH da Impostazioni > Connessione. Mixdog si installa automaticamente sul server, si apre in una propria finestra con un pannello delle porte con inoltro delle porte, esplorazione remota dei file e terminali, e inoltra le chiamate ai modelli tramite il PC senza salvare credenziali sul server.
 - I telefoni associati possono ora scaricare e condividere i file prodotti dall'assistente e i contenuti multimediali generati direttamente dai collegamenti nella chat, con avanzamento del trasferimento, tentativi e annullamento (salvataggio in Download su Android e tramite pannello di condivisione su iOS; con il prossimo aggiornamento dell'app Android o build iOS) (#40). I telefoni associati sono inoltre rigorosamente limitati ai progetti registrati e ai file generati in quella sessione.
-- I comandi shell in background possono essere interrotti direttamente dall'app o da remoto. I comandi terminati rimangono elencati fino alla chiusura invece di scomparire immediatamente, e il pannello delle attività nel compositore si espande inline per mostrare i comandi in esecuzione insieme agli agenti con token cumulativi e chiamate agli strumenti.
+- I comandi shell in background possono essere interrotti direttamente dall'app o da remoto. I comandi terminati rimangono elencati fino alla chiusura invece di scomparire immediatamente, e il pannello delle attività nel campo di input si espande inline per mostrare i comandi in esecuzione insieme agli agenti con token cumulativi e chiamate agli strumenti.
 - Sposta una sessione in un altro progetto dal menu laterale o tramite trascinamento senza spostare la cartella sul disco; le sessioni nelle sottocartelle e nei worktree di un progetto vengono raggruppate automaticamente sotto tale progetto.
 - I pannelli laterali sui telefoni (browser, terminale, modifiche e anteprima) utilizzano la stessa intestazione del PC, completa di schede, menu per cambiare pannello e pulsante di chiusura. Nel browser del telefono, `+` apre una nuova scheda nel pannello laterale di quella sessione, e le schede si alternano e si chiudono esattamente come su PC (richiede l'app PC aggiornata).
 - Le immagini inviate nella chat mantengono le anteprime dopo il riavvio e le schede dei file HTML e di visualizzazione mostrano un'anteprima reale della pagina renderizzata localmente in un ambiente isolato senza accesso alla rete per i file del progetto.
-- Il compositore elenca gli agenti in esecuzione nello stesso formato della finestra degli agenti e nasconde automaticamente la sezione shell quando non ci sono comandi in background attivi.
+- Il campo di input elenca gli agenti in esecuzione nello stesso formato della finestra degli agenti e nasconde automaticamente la sezione shell quando non ci sono comandi in background attivi.
 - La chiusura dell'ultima scheda di terminale, browser o file chiude automaticamente il pannello laterale e la riapertura del terminale avvia una nuova scheda pulita (basato su #49 di @moveju112).
 - Le cartelle dei progetti e le sezioni della barra laterale rimangono aperte per impostazione predefinita e ricordano lo stato compresso, mentre selezionando una sessione in una cartella compressa la si apre automaticamente. Le sessioni possono anche essere riordinate tramite trascinamento o ordinate per attività recente.
 - L'app Android può ora cercare aggiornamenti in background, scaricare, verificare le firme e installare nuove versioni direttamente (con il prossimo aggiornamento dell'app Android).
@@ -777,12 +777,12 @@ Questa versione introduce il pannello delle modifiche e le schede delle modifich
 
 - Colori di accento più nitidi e maggiore contrasto del testo; le intestazioni delle schede degli strumenti e dei turni utilizzano un grigio sobrio con riquadri solo contorno; il codice inline viene mostrato come chip grigi e le citazioni con una barra a sinistra; il testo selezionato e i numeri di riga dei diff raggiungono un contrasto di 4.5:1 in entrambi i temi.
 - Il cassetto laterale si apre senza ombreggiatura e oscura lo schermo sottostante del 40%.
-- Il selettore di ramo e worktree sopra il compositore compare solo nei progetti Git e solo prima dell'inizio della conversazione.
-- Il conteggio dei file modificati nel compositore ora copre l'intera sessione anziché azzerarsi dopo ogni turno.
+- Il selettore di branch e worktree sopra il campo di input compare solo nei progetti Git e solo prima dell'inizio della conversazione.
+- Il conteggio dei file modificati nel campo di input ora copre l'intera sessione anziché azzerarsi dopo ogni turno.
 - Il selettore di visualizzazione è stato rimosso dall'intestazione del pannello; le visualizzazioni si aprono automaticamente o dalla relativa scheda nella conversazione.
 - L'anello del contesto si apre solo al clic e non più al passaggio del mouse (#48).
 - Sui telefoni, il tasto Invio inserisce un'interruzione di riga; l'invio avviene tramite il pulsante.
-- I messaggi sfumano gradualmente sotto il compositore anziché essere tagliati bruscamente.
+- I messaggi sfumano gradualmente sotto il campo di input anziché essere tagliati bruscamente.
 - I file esterni al progetto mostrano il loro nome con il percorso completo nel tooltip anziché un badge.
 - Scorrimento più fluido, in particolare su Android: la conversazione viene ridisegnata al massimo una volta per fotogramma, l'indicatore di caricamento si anima sulla GPU, la posizione di scorrimento viene salvata all'arresto, i tocchi non vengono più bloccati e la dissolvenza non ridisegna l'intero elenco.
 - Le chiamate agli strumenti MCP applicano timeout di esecuzione (120 secondi per impostazione predefinita) senza bloccarsi né ritentare richieste annullate, segnalano arresti anomali dei processi stdio con dettagli sull'errore e supportano la paginazione per elenchi estesi di strumenti.
@@ -794,7 +794,7 @@ Questa versione introduce il pannello delle modifiche e le schede delle modifich
 
 - Toccando un collegamento nella chat si apriva un browser interno vuoto; la pagina ora si carica correttamente e sui telefoni il browser si apre a schermo intero (#41).
 - L'indicatore di pensiero rimaneva in inglese fino al caricamento della lingua dell'applicazione; corretta l'animazione di scintillio sui telefoni.
-- La scheda del turno, il compositore e il pannello delle modifiche potevano mostrare conteggi discordanti dei file modificati.
+- La scheda del turno, il campo di input e il pannello delle modifiche potevano mostrare conteggi discordanti dei file modificati.
 - Il primo scorrimento verso l'alto nelle conversazioni lunghe poteva causare salti visivi.
 - La chiusura dell'ultima scheda del terminale creava una nuova scheda con sfarfallio (#49).
 - La lettura dei file non restituisce più contenuti obsoleti né indica intervalli di righe non effettivamente consegnati, anche quando un file di grandi dimensioni viene riscritto sul posto con le stesse dimensioni (#54, grazie a @22nsuk).
@@ -821,7 +821,7 @@ L'utilizzo di Muse Code e MiMo ora appare in una riga dedicata nella barra later
 
 La velocità Ultrafast è mostrata in arancione sulle etichette dei modelli, comprese le righe degli agenti nel pannello laterale.
 
-Nell'isola del compositore, un clic sul segmento dei file apre l'elenco dei file modificati nel pannello laterale destro quando sono cambiati più file (con un solo file modificato si apre ancora il suo diff). Anche i segmenti degli agenti e della shell aprono i loro elenchi nel pannello laterale, nel formato della barra laterale Agenti e navigabili con la tastiera.
+Nell'isola del campo di input, un clic sul segmento dei file apre l'elenco dei file modificati nel pannello laterale destro quando sono cambiati più file (con un solo file modificato si apre ancora il suo diff). Anche i segmenti degli agenti e della shell aprono i loro elenchi nel pannello laterale, nel formato della barra laterale Agenti e navigabili con la tastiera.
 
 Le righe degli strumenti non mostrano più il riflesso luminoso durante l'esecuzione.
 
@@ -845,7 +845,7 @@ Daybreak Blue è ora un interruttore per percorso sotto "Ragionamento automatico
 
 Il ragionamento automatico ora appare come "Auto" ovunque vengano mostrati modello e sforzo, inclusi la barra laterale degli agenti, i workflow, le pianificazioni e i webhook. La riga di stato del lavoro mostra lo sforzo effettivamente scelto da Auto, tradotto nella tua lingua (ad esempio "Sta pensando (medium)").
 
-L'isola del compositore sopra il campo del messaggio è stata ridisegnata. Gli obiettivi mostrano un'icona di stato, indicatori di avanzamento per attività e "In corso"; agenti, shell e file modificati vengono conteggiati separatamente con icone proprie; e gli agenti in attesa della tua approvazione mostrano "In attesa di approvazione" e un conteggio "Azione richiesta" invece di sembrare occupati. Facendo clic su un agente si apre la sua sessione, il tempo trascorso dell'agente viene ora calcolato dal turno corrente anziché dalla creazione e l'isola resta visibile brevemente al termine del lavoro invece di sfarfallare. Anche il pannello Agenti segnala gli agenti in attesa di approvazione.
+L'isola sopra il campo di input è stata ridisegnata. Gli obiettivi mostrano un'icona di stato, indicatori di avanzamento per attività e "In corso"; agenti, shell e file modificati vengono conteggiati separatamente con icone proprie; e gli agenti in attesa della tua approvazione mostrano "In attesa di approvazione" e un conteggio "Azione richiesta" invece di sembrare occupati. Facendo clic su un agente si apre la sua sessione, il tempo trascorso dell'agente viene ora calcolato dal turno corrente anziché dalla creazione e l'isola resta visibile brevemente al termine del lavoro invece di sfarfallare. Anche il pannello Agenti segnala gli agenti in attesa di approvazione.
 
 I tuoi messaggi non mostrano più "da questo PC"; l'attribuzione del dispositivo compare solo sui messaggi inviati da altri dispositivi.
 
@@ -887,7 +887,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
 
 - L'uso delle risorse in background è notevolmente ridotto durante l'inattività, con meno verifiche del demone, monitoraggio dei file ottimizzato per la ricerca e riepiloghi giornalieri memorizzati nella cache per le statistiche d'uso.
 
-- Shift+Enter inserisce in modo affidabile un'interruzione di riga nel compositore di messaggi anche dopo caratteri con tasto Maiusc, e la pressione di Invio non invia più prematuramente durante la composizione di testo coreano in un IME.
+- Shift+Enter inserisce in modo affidabile un'interruzione di riga nel campo di input dei messaggi anche dopo caratteri con tasto Maiusc, e la pressione di Invio non invia più prematuramente durante la composizione di testo coreano in un IME.
 
 - Revisione della qualità delle traduzioni in tutte le 11 lingue supportate, correggendo le etichette dell'interfaccia e aggiornando le finestre di dialogo localizzate.
 
@@ -1075,7 +1075,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
 
 - Lo strumento setup può gestire account OAuth, opzioni sviluppatore, elementi fissati della barra
   attività e il server MCP di un plugin, e le richieste dalle sessioni a riquadri divisi vengono
-  gestite. La finestra di cancellazione automatica propria di un provider ora ha la precedenza su quella globale.
+  gestite. La finestra di pulizia automatica propria di un provider ora ha la precedenza su quella globale.
 
 - Lo strumento Git si attiva ovunque sia installato `git`, senza installare
   un'estensione. Pianificazioni e webhook consegnano sempre alla sessione dell'app.
@@ -1097,7 +1097,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
 - Su Android, il gesto indietro chiude il pannello o il menu aperto senza
   far lampeggiare la barra di navigazione.
 
-- Le schede dello spazio di lavoro, l'intestazione del pannello laterale e il pulsante di pulizia di Studio sono
+- Le schede dell'area di lavoro, l'intestazione del pannello laterale e il pulsante di pulizia di Studio sono
   più compatti, e la scheda selezionata risalta in modo più chiaro.
 
 - Le etichette di Utilizzo sono più brevi, la quota da azzerare viene espressa per ora quando
@@ -1138,7 +1138,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
 
 - Le righe degli agenti del workflow si leggono allo stesso modo ovunque: una riga senza modello
   fissato, inclusa Ricerca web, mostra "Predefinito", e i nomi degli agenti e le etichette
-  dei modelli restano non tradotti. Le schede dello spazio di lavoro non selezionate poggiano su una tenue base
+  dei modelli restano non tradotti. Le schede dell'area di lavoro non selezionate poggiano su una tenue base
   invece che su sottili divisori.
 
 - Lo strumento Obiettivo e la skill goal-management descrivono gli Obiettivi come un elenco di attività
@@ -1159,7 +1159,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
 - Le sessioni in attesa di lavori shell in background risultano in attesa anziché inattive,
   e l'indicatore dei lavori shell non mostra più i lavori di un precedente proprietario né perde
   gli aggiornamenti che arrivano durante un polling. Gli elenchi di sessioni e agenti evitano ridisegni
-  superflui quando nulla è cambiato. Il grafico di utilizzo, le pagine della barra, le schede dello spazio di lavoro,
+  superflui quando nulla è cambiato. Il grafico di utilizzo, le pagine della barra, le schede dell'area di lavoro,
   gli elenchi delle estensioni e le finestre di dialogo hanno uno stile rinnovato.
 
 - Scansioni grep e read concorrenti identiche condividono un'unica scansione nativa, i risultati
@@ -1186,7 +1186,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   provider locali, funzioni integrate, voce e plugin mancanti o non validi.
 
 - I link ai file di Windows gestiscono separatori codificati e percorsi con spazi o
-  testo coreano. Una menzione di file che ha fallito la ricerca iniziale può essere cliccata
+  testo coreano. È possibile fare clic su una menzione di file la cui ricerca iniziale non è riuscita
   per riprovare. Seleziona tutto di Studio include ogni elemento della scheda, non solo
   le pagine già caricate.
 
@@ -1195,7 +1195,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   e attende mentre il desktop di input è bloccato invece di trattare il blocco come
   un errore dell'osservatore.
 
-- Le schede dello spazio di lavoro e il tutorial iniziale hanno uno stile più chiaro, la barra laterale
+- Le schede dell'area di lavoro e il tutorial iniziale hanno uno stile più chiaro, la barra laterale
   delle sessioni parte aperta, e i gruppi di strumenti non mostrano più il badge aggregato di errore.
   Il testo delle istruzioni di progetto non viene più aggiunto al blocco dell'ambiente del prompt di sistema.
   I pacchetti pubblicati escludono i test di sviluppo annidati.
@@ -1468,7 +1468,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   che il chiamante ha lasciato. Le app a pagina singola cambiano l'indirizzo con `history.pushState`
   e renderizzano la nuova vista un attimo dopo; nessun documento viene caricato, quindi l'attesa vedeva una
   pagina quieta e restituiva subito — e un `expect.url` era soddisfatto dal nuovo
-  indirizzo prima che fosse disegnato qualcosa. Cliccare "Learn" su react.dev rispondeva con
+  indirizzo prima che fosse disegnato qualcosa. Fare clic su "Learn" su react.dev rispondeva con
   la home page sotto l'indirizzo `/learn`. Quando un'azione cambia l'indirizzo
   senza un caricamento, la risposta ora attende che la pagina si quieti e una condizione
   URL non può accorciare l'attesa. Misurato sul banco di prova su dispositivi reali:
@@ -1642,7 +1642,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   che riporta un throw su una riga successiva.
 
 - Browser Use nomina un PDF invece di segnalare una pagina vuota. Aprire un link
-  a un PDF registrava l'indirizzo, ma il guest non ha un visualizzatore per esso, quindi lo
+  a un PDF registrava l'indirizzo, ma il guest non dispone di un visualizzatore dedicato, quindi lo
   snapshot mostrava una pagina senza titolo né testo e rumore di console su un foglio di stile del
   visualizzatore bloccato — nulla che dicesse cosa fosse successo. Il report della pagina
   ora dichiara che il documento è un PDF che questo browser non può visualizzare e che
@@ -2117,7 +2117,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   e accetta espressioni regolari `/pattern/i`, e un filtro che non trova nulla dice
   quanti elementi o caratteri stava filtrando. I controlli trasparenti o con
   pointer-events:none non vengono più rifiutati di netto: una casella nascosta
-  viene cliccata tramite la sua etichetta, e la protezione del target di input accetta
+  selezionata con un clic tramite la sua etichetta, e la protezione del target di input accetta
   l'attivazione dell'etichetta. `fill` su un editor `contenteditable` sostituisce il
   contenuto come input digitato dopo una selezione totale anziché sovrascrivere il suo DOM.
   Le risposte annotano "No observable change" quando un gesto ha lasciato intatti documento, URL
@@ -2283,7 +2283,7 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   finché non vengono tradotte.
 
 - La build dell'importatore del browser sostituisce un checkout upstream scritto a metà sotto
-  TEMP invece di fallire su di esso. Harness di test: le suite del renderer possono importare
+  TEMP invece di generare un errore. Harness di test: le suite del renderer possono importare
   moduli che includono un foglio di stile di funzionalità (un import `.css` si risolve in un
   modulo vuoto sotto Node), il controllo di import del daemon dell'artefatto compilato viene eseguito nella
   corsia live dopo una build, e le fixture dei percorsi dello store delle impostazioni si risolvono nella
@@ -2972,8 +2972,8 @@ Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni >
   preservano le schede di consegna completata e di completamento in background attraverso i ripristini,
   mantengono i prompt in coda esternalizzati e classificano gli esiti tra errori
   di comando, errori degli strumenti e mancate corrispondenze benigne.
-- La navigazione dello spazio di lavoro desktop ora preserva i titoli delle sessioni dei riquadri durante le interazioni
-  di trascinamento, aggiunge nuovi tentativi di ripristino dello spazio di lavoro all'avvio a freddo che impediscono
+- La navigazione dell'area di lavoro desktop ora preserva i titoli delle sessioni dei riquadri durante le interazioni
+  di trascinamento, aggiunge nuovi tentativi di ripristino dell'area di lavoro all'avvio a freddo che impediscono
   la perdita di schede, e aggiorna i pannelli di onboarding e di configurazione delle capacità.
 
 ## v0.9.133 - 2026-08-16

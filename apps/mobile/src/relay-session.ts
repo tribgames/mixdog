@@ -14,6 +14,7 @@ import {
   CarrierDeparture,
   type RemoteTransportPeer,
 } from '../../desktop/src/renderer/remote-transport-peer.ts';
+import { FRAME_NOT_SENT_MESSAGE } from '../../desktop/src/shared/remote-transport.ts';
 import type { RelayConnectorDeps, RelaySocket } from './relay-connector.ts';
 
 /** A socket whose desktop leg went away while the relay kept it: the relay re-challenges it when the desktop returns, so the
@@ -520,7 +521,7 @@ export class RelaySession {
     this.outbound = this.outbound
       .then(async () => {
         const channel = this.channel;
-        if (this.finished || !channel) return notLeft?.(new Error('The connection ended before the frame was sent.'));
+        if (this.finished || !channel) return notLeft?.(new Error(FRAME_NOT_SENT_MESSAGE));
         if (isRequest) this.inflight.add(request?.id);
         if (this.peer) {
           // Admission resolves here, so later frames keep their order; the departure follows on its own.
@@ -529,7 +530,7 @@ export class RelaySession {
         } else {
           const sealed = this.binaryFrames ? await channel.encryptBinary(request) : await channel.encryptJson(request);
           // The leg may have ended while the frame was sealing: it never reaches the relay, and its call is not told it left.
-          if (this.finished) return notLeft?.(new Error('The connection ended before the frame was sent.'));
+          if (this.finished) return notLeft?.(new Error(FRAME_NOT_SENT_MESSAGE));
           this.sendPlain(sealed);
           if (left) this.wsDeparture.since(this.wsDeparture.position()).then(left, notLeft);
         }

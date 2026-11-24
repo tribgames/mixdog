@@ -539,7 +539,7 @@ test(
       );
     assert.equal(read('signal: SIGKILL').outputText, 'SIGKILL 신호로 실패');
     assert.equal(read('timed_out: true').outputText, '시간 초과');
-    assert.equal(read('exit_code: 3').outputText, '종료 코드 3로 실패');
+    assert.equal(read('exit_code: 3').outputText, '종료 코드 3으로 실패');
   })
 );
 
@@ -564,7 +564,7 @@ test(
       ['github', 'pr.list', 'PR 목록'],
       ['github', 'list_prs', 'PR 목록'],
       ['github', 'view_pr', 'PR 보기'],
-      ['github', 'create_pr', 'PR 만들기'],
+      ['github', 'create_pr', '풀 리퀘스트 만들기'],
       ['github', 'merge', 'PR 병합'],
       ['github', 'comment', '댓글'],
       ['browser', 'click', '클릭'],

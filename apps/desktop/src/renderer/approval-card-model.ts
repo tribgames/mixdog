@@ -6,7 +6,7 @@ import { connectorById } from '../shared/core-src/runtime/shared/connector-catal
 import { loginSiteLabel } from '../shared/login-site';
 import { approveClickDecision, permissionAllowDecision, permissionChoices } from '../shared/approval-enter-rule';
 import type { Approval } from './desktop-types';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 import { asRecord, textOf } from './text-format';
 
 function approvalText(value: unknown, preferredKey: string): string {
@@ -183,7 +183,7 @@ export function amountText(details: Record<string, string>): string {
   const currency = details.currency || '';
   if (details.amount && Number.isFinite(amount) && /^[A-Z]{3}$/.test(currency)) {
     try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+      return new Intl.NumberFormat(uiFormatLocale(), { style: 'currency', currency }).format(amount);
     } catch {}
   }
   return [details.amount, currency].filter(Boolean).join(' ');
