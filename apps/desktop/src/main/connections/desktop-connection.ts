@@ -88,6 +88,9 @@ export function createDesktopConnection(
   let started = false;
   // The first connection failed: the core's first attachment is then the one a reopen brings, and is announced as the first.
   let firstFailed = false;
+  // The start in flight or done: every caller (the boot, each window shown, what waits for the service) shares it, so one
+  // attachment is announced once. A start that failed is let go: the next call starts again.
+  let starting: Promise<void> | null = null;
   const attached = (): void => {
     generation += 1;
     deps.onServiceReady?.(identity, { generation });
@@ -113,17 +116,29 @@ export function createDesktopConnection(
       if (spec.kind === 'local') return deps.sessionOptions().userDataPath;
       throw new Error(`The connection to ${spec.name} is not attached yet.`);
     },
-    async start() {
-      await client.start();
-      // The core is serving once its connection is open; windows read sections from here on.
-      try {
-        await protocol.start();
-      } catch (error) {
-        firstFailed = true;
-        throw error;
-      }
-      started = true;
-      attached();
+    start() {
+      starting ??= (async () => {
+        try {
+          await client.start();
+        } catch (error) {
+          starting = null;
+          throw error;
+        }
+        // The core is serving once its connection is open; windows read sections from here on.
+        try {
+          await protocol.start();
+        } catch (error) {
+          firstFailed = true;
+          starting = null;
+          throw error;
+        }
+        // A reopen after a failed first start may have attached the core already (and announced it).
+        if (started) return;
+        started = true;
+        firstFailed = false;
+        attached();
+      })();
+      return starting;
     },
     dispose() {
       disposal ??= (async () => {

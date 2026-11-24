@@ -6565,5 +6565,17 @@
   "Account 1": "アカウント 1",
   "Sign in with another account": "別のアカウントでサインイン",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "別のアカウントでサインインします。現在のアカウントは置き換えられます。{{name}} が保持できるアカウントは 1 つです。",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mixdog で実行中の {{name}} セッションはすべて今すぐ終了します。Mixdog の外の {{command}} コマンドも同じサインインを使うため、同様にサインアウトされます。"
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mixdog で実行中の {{name}} セッションはすべて今すぐ終了します。Mixdog の外の {{command}} コマンドも同じサインインを使うため、同様にサインアウトされます。",
+  "An earlier Mixdog is still running": "以前のバージョンのMixdogがまだ実行中です",
+  "Another program holds your Mixdog data": "別のプログラムがMixdogのデータを使用しています",
+  "Converting earlier conversations… {{done}} of {{total}}": "以前の会話を変換しています… {{done}}/{{total}}",
+  "Installing the update…": "アップデートをインストールしています…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "Mixdogのデータを使用しているため、このバージョンは同時に起動できません。続行するには停止してください。実行中の作業は終了します。",
+  "It is not Mixdog: continue": "Mixdogではない：続行",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "このプログラムが以前のMixdogかどうか判断できません。Mixdogでなければ続行し、Mixdogであれば先に終了してください。",
+  "process {{pid}}": "プロセス {{pid}}",
+  "Stop it and continue": "停止して続行",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "以前のバージョンからの更新で、変換できなかった{{items}}件の項目を別に保管しました。保存先：{{dir}}",
+  "Updating your data from the earlier version of Mixdog…": "以前のバージョンのMixdogからデータを更新しています…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "以前のバージョンのMixdogが実行中の作業を終えて終了するのを待っています…"
 }

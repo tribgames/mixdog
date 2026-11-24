@@ -348,3 +348,39 @@ test('every connection is served by its core connection alone', async () => {
   }
   await assert.rejects(server.start(), /disposed/);
 });
+
+// The boot, each window shown and a core that serves after a failed start all start this PC's connection: every normal start logged
+// `relay-redial-after-daemon-restart` for generations 2 and 3 and a second `daemon-service-ready`.
+test("one attachment of the core is announced once, however many callers start the connection; a real redial is the next generation", async () => {
+  const protocol = fakeProtocol();
+  let opens = 0;
+  let failNext = true;
+  protocol.start = async () => {
+    opens += 1;
+    if (failNext) {
+      failNext = false;
+      throw new Error('the first connection gave up');
+    }
+  };
+  const ready = [];
+  const connection = createDesktopConnection(
+    { id: 'local', kind: 'local', name: 'PC' },
+    {
+      sessionOptions: () => ({ userDataPath: 'profile' }),
+      appVersion: '0.0.0',
+      createProtocol: () => protocol,
+      onServiceReady: (_identity, { generation }) => ready.push(generation),
+    }
+  );
+  try {
+    await assert.rejects(connection.start(), /gave up/);
+    await Promise.all([connection.start(), connection.start()]);
+    await connection.start();
+    assert.equal(opens, 2, 'a failed start is let go; the one after it is shared');
+    assert.deepEqual(ready, [1], 'announced once, as the first attachment');
+    protocol.emit({ type: 'status', status: { state: 'ready' } });
+    assert.deepEqual(ready, [1, 2], 'a redial after a lost link is the next one');
+  } finally {
+    await connection.dispose();
+  }
+});

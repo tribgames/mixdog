@@ -56,18 +56,66 @@ export function launchCore({
 
 function notReadyError(last, { launched = true } = {}) {
   const state = last ? `the core is ${last.state}` : 'no core published its endpoint';
-  const detail = last?.blocked ? ` (${JSON.stringify(last.blocked)})` : '';
   const owner =
     !launched && !last?.blocked && last && Number.isInteger(last.pid) && !last.rpcPort
       ? `; its owner (pid ${last.pid}) is alive and holds the data directory but has not published an endpoint`
       : '';
-  return Object.assign(new Error(`core is not ready: ${state}${detail}${owner}`), { coreDiscovery: last ?? null });
+  return Object.assign(new Error(`core is not ready: ${state}${owner}`), { coreDiscovery: last ?? null });
+}
+
+/** The process a start waits on before it can own the data directory: the one a `blocked` core names, or the earlier version's
+ *  daemon this launcher asked to step aside (`retiring`, with what it answered). `coreBlockedAccess` is how the launcher can act
+ *  on it (the blocked core's control listener, the earlier daemon's own endpoint): credentials, never shown. */
+function blockedError(pid, last, retiring, message) {
+  const blocked = last?.state === 'blocked' ? last.blocked : null;
+  const legacy = last?.state === 'legacy' && last.pid === pid ? last : retiring?.pid === pid ? retiring.endpoint : null;
+  return Object.assign(new Error(`core is not ready: ${message}`), {
+    coreDiscovery: last ?? null,
+    coreBlocked: {
+      pid,
+      kind: blocked?.kind ?? 'waitExit',
+      image: typeof blocked?.image === 'string' && blocked.image ? blocked.image : null,
+      commandLine: typeof blocked?.commandLine === 'string' && blocked.commandLine ? blocked.commandLine : null,
+      // Only the core's `release{pid}` may let a start past an owner the core could not prove: the core publishes such a block as
+      // `undecidable`, and one it waits out with no release as `waitExit` (mgmt.rs `Blocked`).
+      releasable: blocked?.kind === 'undecidable',
+      // The earlier version's daemon, when it is the process: what it answered when asked to step aside (null when it was not asked).
+      legacy: Boolean(legacy) || blocked?.kind === 'waitExit',
+      retire: retiring?.pid === pid ? retiring.answer : null,
+    },
+    coreBlockedAccess: {
+      core: blocked && last.controlPort && last.token ? { controlPort: last.controlPort, token: last.token } : null,
+      legacy: legacy?.sessionPort && legacy?.token ? { port: legacy.sessionPort, token: legacy.token } : null,
+    },
+  });
+}
+
+/** The pid a `blocked` discovery names. */
+function blockerOf(last) {
+  return last?.state === 'blocked' && Number.isInteger(last.blocked?.pid) ? last.blocked.pid : null;
+}
+
+/** A start waits on the earlier version's daemon `retiring` asked to step aside, which agreed: it ends once its running work has. */
+function waitsOnRetiring(last, retiring) {
+  if (!retiring?.accepted || !last) return false;
+  return (last.state === 'legacy' && last.pid === retiring.pid) || blockerOf(last) === retiring.pid;
+}
+
+/** What the person waiting is shown: what the core does before it serves (the conversion of the earlier version's data, the
+ *  index rebuild) with the counts the file names of it, or the earlier daemon it waits on. */
+function stageOf(last, retiring) {
+  if (waitsOnRetiring(last, retiring)) return { stage: 'legacy', done: 0, total: 0 };
+  const counts = { done: last?.rebuild?.done ?? 0, total: last?.rebuild?.total ?? 0 };
+  if (last?.state === 'migrating') return { stage: 'migration', ...counts };
+  if (last?.rebuild) return { stage: 'rebuild', ...counts };
+  return null;
 }
 
 function endedBeforeServing(capture, last) {
   const record = capture?.snapshot?.();
   if (!record?.exitedAt) return null;
-  if (record.exitCode === 0 && !record.exitSignal) return null;
+  // A contender that yields (exit 0: another process holds the data directory's lock) while the file names no other core is a start
+  // that ended too: what holds the lock has published nothing to attach to, and the record says so.
   if (last && last.state !== 'legacy' && last.pid !== record.pid) return null;
   const summary = capture.summary?.() ?? {};
   const reason =
@@ -89,9 +137,14 @@ function endedBeforeServing(capture, last) {
   );
 }
 
-/** Whether the core `last` names says it is in a state that ends by itself and answers its control listener unstalled. */
-async function atWork(last, ping) {
-  if (!last || !SELF_ENDING_STATES.has(last.state) || !last.controlPort || !last.token) return false;
+/** Whether the core `last` names says it is in a state that ends by itself and answers its control listener unstalled. A wait on
+ *  the earlier version's daemon that agreed to step aside ends by itself too: while it runs (the file may name it, or the core
+ *  blocked on it, which answers its control listener). */
+async function atWork(last, ping, retiring) {
+  if (!last) return false;
+  if (last.state === 'legacy') return waitsOnRetiring(last, retiring);
+  if (!(SELF_ENDING_STATES.has(last.state) || waitsOnRetiring(last, retiring)) || !last.controlPort || !last.token)
+    return false;
   const { answered, stalledMs } = await ping(last);
   return answered && stalledMs === 0;
 }
@@ -102,7 +155,13 @@ function rebuildReporter(onProgress) {
   let toldBoot = null;
   return (progress, boot = null) => {
     const of = progress ? boot : null;
-    if (progress?.done === told?.done && progress?.total === told?.total && of === toldBoot) return;
+    if (
+      progress?.stage === told?.stage &&
+      progress?.done === told?.done &&
+      progress?.total === told?.total &&
+      of === toldBoot
+    )
+      return;
     told = progress;
     toldBoot = of;
     tell(progress, of);
@@ -120,9 +179,40 @@ export function processRuns(pid) {
 }
 
 /**
+ * What a launcher knows of the earlier version's daemons it asked to step aside (`retireLegacy`), one fact for every attempt
+ * that shares it: each daemon is asked once, whichever attempt saw it first, and an attempt that sees only the core blocked on
+ * it (its file replaced by the core's) gets the same answer and the daemon's own endpoint.
+ */
+export function legacyRetirement(retireLegacy = async () => null) {
+  const asked = new Map();
+  return {
+    /** Asks the daemon `last` names, once; resolves `{pid, accepted, answer, endpoint}`. */
+    ask(last) {
+      let record = asked.get(last.pid);
+      if (!record) {
+        record = Promise.resolve(retireLegacy(last)).then((answer) => ({
+          pid: last.pid,
+          accepted: answer?.accepted === true,
+          answer: answer ?? null,
+          endpoint: { sessionPort: last.sessionPort ?? null, token: last.token ?? null },
+        }));
+        asked.set(last.pid, record);
+      }
+      return record;
+    },
+    /** What `pid` answered (once it has), or null when it was never asked. */
+    of(pid) {
+      return asked.get(pid) ?? Promise.resolve(null);
+    },
+  };
+}
+
+/**
  * Resolves the serving core's discovery. A `blocked` core is the user's decision, so it fails at once instead of
- * waiting; `booting`, `migrating` and `draining` end by themselves, so they are waited out. A core this call started
- * that ends abnormally before serving fails at once too, with its exit and what it last said.
+ * waiting (`coreBlocked` names the process), unless it waits on the earlier version's daemon that `retirement` asked to
+ * step aside and that agreed; `booting`, `migrating` and `draining` end by themselves, so they are waited out. A core this
+ * call started that ends before serving fails at once too, with its exit and what it last said (a contender that yielded
+ * the data directory's lock to a holder that names no core included).
  *
  * A discovery file outlives a process that was killed (and the 1.4.5 daemon wrote the same file): one that names a
  * process no longer running names no core, so a core is started as when there is no file. Waiting for it never ends.
@@ -143,6 +233,8 @@ export async function ensureCore({
   runs = processRuns,
   ping = pingCore,
   onProgress = () => {},
+  retireLegacy = async () => null,
+  retirement = legacyRetirement(retireLegacy),
 } = {}) {
   let deadline = now() + Math.max(1, readyTimeoutMs);
   let launched = false;
@@ -150,19 +242,30 @@ export async function ensureCore({
   let last = null;
   let quiet = 0;
   let quietSeen = null;
+  /** The earlier version's daemon asked to step aside (by this call or another sharing `retirement`), and whether it agreed. */
+  let retiring = null;
   const report = rebuildReporter(onProgress);
   try {
     for (;;) {
       if (now() >= deadline) {
-        if (!(await atWork(last, ping))) break;
+        if (!(await atWork(last, ping, retiring))) break;
         // A core that answers but has said nothing new (its state and its counts) for `STALLED_WINDOWS` windows in a row is not at
         // work in any way the person can see: that is an error, not a wait that never ends.
         const seen = `${last.state}:${last.rebuild?.done ?? ''}/${last.rebuild?.total ?? ''}`;
         quiet = seen === quietSeen ? quiet + 1 : 0;
         quietSeen = seen;
         if (quiet >= STALLED_WINDOWS) {
+          const quietFor = Math.round((quiet * readyTimeoutMs) / 1000);
+          if (waitsOnRetiring(last, retiring)) {
+            throw blockedError(
+              retiring.pid,
+              last,
+              retiring,
+              `the earlier Mixdog (pid ${retiring.pid}) agreed to close but has not finished its running work for ${quietFor} s`
+            );
+          }
           throw Object.assign(notReadyError(last, { launched }), {
-            message: `core is not ready: the core is ${last.state} and has reported no progress for ${Math.round((quiet * readyTimeoutMs) / 1000)} s`,
+            message: `core is not ready: the core is ${last.state} and has reported no progress for ${quietFor} s`,
           });
         }
         log(`core ${last.state}: still at work, waiting`);
@@ -175,22 +278,54 @@ export async function ensureCore({
         last = null;
       }
       if (last && Number.isInteger(last.pid) && !runs(last.pid)) last = null;
-      report(last?.rebuild ?? null, last?.pid ?? null);
+      // The earlier version's daemon is asked once to step aside, before anything is started against it: it answers to a newer
+      // build by closing once its running work has ended (what it did for every newer 1.4 build), so the start resolves itself.
+      // An attempt that finds the core blocked on it takes what it answered.
+      const retiringPid = last?.state === 'legacy' ? last.pid : blockerOf(last);
+      if (retiringPid !== null && retiringPid !== undefined && retiring?.pid !== retiringPid) {
+        const known = await (last.state === 'legacy' ? retirement.ask(last) : retirement.of(retiringPid));
+        if (known) {
+          retiring = known;
+          if (known.accepted) log(`the earlier daemon (pid ${known.pid}) agreed to close once its work ends`);
+        }
+      }
+      report(stageOf(last, retiring), last?.pid ?? null);
       if (last?.state === 'serving' && last.rpcPort) {
         capture?.noteReady?.();
         return last;
       }
-      if (last?.state === 'blocked') throw notReadyError(last, { launched });
+      // A block on the daemon that agreed to close ends with it; any other is the person's to resolve.
+      const blocker = blockerOf(last);
+      if (last?.state === 'blocked' && !waitsOnRetiring(last, retiring)) {
+        throw blockedError(
+          blocker,
+          last,
+          retiring,
+          blocker === null
+            ? 'the core is blocked by an earlier owner of the data directory'
+            : `the data directory is held by an earlier process (pid ${blocker})`
+        );
+      }
       const ended = endedBeforeServing(capture, last);
       if (ended) throw ended;
       // A legacy endpoint cannot serve this client. Start the Rust contender so
-      // its ownership gate can judge the old process; the launcher never stops it.
+      // its ownership gate can judge the old process (waiting for it to close when it agreed to).
       if ((!last || last.state === 'legacy') && !launched) {
         launched = true;
         log('starting core');
         capture = await launch({ log });
       }
       await sleep(Math.min(POLL_MS, Math.max(1, deadline - now())));
+    }
+    // The earlier version's daemon that did not agree to close (or did not answer) still holds the data directory: the core
+    // started against it waits on it, and the file names the daemon again (it republishes over the core's).
+    if (last?.state === 'legacy') {
+      throw blockedError(
+        last.pid,
+        last,
+        retiring,
+        `the earlier Mixdog (pid ${last.pid}) still holds the data directory`
+      );
     }
     throw notReadyError(last, { launched });
   } finally {

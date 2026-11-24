@@ -6632,5 +6632,17 @@
   "Account 1": "Konto 1",
   "Sign in with another account": "Mit einem anderen Konto anmelden",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "Mit einem anderen Konto anmelden. Es ersetzt dieses: {{name}} behält nur ein Konto.",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Alle laufenden {{name}}-Sitzungen in Mixdog werden jetzt beendet. Der Befehl {{command}} außerhalb von Mixdog nutzt dieselbe Anmeldung und wird daher ebenfalls abgemeldet."
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Alle laufenden {{name}}-Sitzungen in Mixdog werden jetzt beendet. Der Befehl {{command}} außerhalb von Mixdog nutzt dieselbe Anmeldung und wird daher ebenfalls abgemeldet.",
+  "An earlier Mixdog is still running": "Eine frühere Mixdog-Version läuft noch",
+  "Another program holds your Mixdog data": "Ein anderes Programm belegt deine Mixdog-Daten",
+  "Converting earlier conversations… {{done}} of {{total}}": "Frühere Unterhaltungen werden konvertiert… {{done}} von {{total}}",
+  "Installing the update…": "Update wird installiert…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "Sie belegt deine Mixdog-Daten, daher kann diese Version nicht daneben starten. Beende sie, um fortzufahren; was sie noch ausführt, wird beendet.",
+  "It is not Mixdog: continue": "Es ist nicht Mixdog: fortfahren",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "Mixdog kann nicht erkennen, ob dieses Programm eine frühere Mixdog-Version ist. Falls nicht, lass Mixdog fortfahren; falls doch, schließe es zuerst.",
+  "process {{pid}}": "Prozess {{pid}}",
+  "Stop it and continue": "Beenden und fortfahren",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "Beim Update von der früheren Version wurden {{items}} Elemente, die nicht konvertiert werden konnten, beiseitegelegt. Sie liegen in {{dir}}.",
+  "Updating your data from the earlier version of Mixdog…": "Deine Daten aus der früheren Mixdog-Version werden aktualisiert…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "Warte, bis die frühere Mixdog-Version ihre laufende Arbeit beendet und sich schließt…"
 }

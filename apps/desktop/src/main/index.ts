@@ -121,8 +121,12 @@ import {
   forceEndCore,
   readCoreState,
   requestCoreStop,
+  resolveCoreBlock,
   resolveLocalCore,
+  retireLegacyDaemon,
+  type CoreBlockAccess,
 } from './protocol/local-core';
+import { coreLaunches } from './updater-core';
 import { watchCore } from '../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
@@ -464,8 +468,16 @@ function adoptLoginShellEnvironment(): Promise<void> {
 /** Where each connection's core listens (the same resolver its own link dials with), by connection id: a window's
  *  direct port to its core (core-port/relay.ts) opens with it. */
 const coreEndpoints = new Map<string, () => Promise<WsEndpoint>>();
-/** How far this PC's core has come in rebuilding its conversation index at start: the windows waiting for their core port are told. */
-const bootReports = new BootReports();
+/** What this PC's core does before it serves, and a start that cannot succeed or is blocked: the windows waiting for their core
+ *  port are told. The person's action past a block (`Try again` on its card) stops or releases the process it names. */
+const bootReports = new BootReports({
+  resolveBlock: ({ block, access }) => resolveCoreBlock(block, access as CoreBlockAccess),
+});
+// Main's own link gives up on a first start that failed; a core that serves later (a window's attempt, the recovery watch) starts it
+// again, so what hangs on it (the host role, Browser and Computer Use, notifications, the updater) comes up without a restart.
+bootReports.onServing(() => {
+  if (!quitApproved && !quitAfterDispose) startDaemonService();
+});
 // While a failure is confirmed nothing launches the core, so a core that comes up some other way is noticed here and the parked windows attach.
 watchRecovery({
   reports: bootReports,
@@ -500,6 +512,9 @@ const connectionDependencies: DesktopConnectionDependencies = {
             environmentReady: () => loginShellEnvironmentReady,
             reports: bootReports,
             desktopConfirmationPipe: true,
+            // An update shuts it before it stops the core and keeps it shut through the installer: a reconnecting link starts no core then.
+            launches: coreLaunches,
+            retireLegacy: (discovery) => retireLegacyDaemon(discovery, { version: app.getVersion() }),
             onLaunched: (child) => {
               localCoreProcess = child;
               localCoreConfirmation = desktopConfirmationWriter(child);
@@ -644,26 +659,30 @@ function reportDaemonServiceStart(): void {
     totalMs: daemonServiceStartedAt - desktopProcessStartedAt,
   });
 }
+/** The start of this PC's link in flight or done: the boot, each window shown and a core that serves after a failed start all ask
+ *  for it, and it runs (and is reported ready) once; a failed one is let go so the next ask starts it again. */
+let daemonServiceStarting: Promise<void> | null = null;
 function startDaemonService(): void {
   if (!daemonServiceStartedAt) daemonServiceStartedAt = Date.now();
   reportDaemonServiceStart();
   visualizeBridge.start();
-  void localConnection
-    .start()
-    .then(() => {
+  daemonServiceStarting ??= localConnection.start().then(
+    () => {
       hostRole.claimNow();
       refreshCorePageOrigin();
       diagnostics?.write('daemon-service-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
       });
-    })
-    .catch((error: unknown) => {
+    },
+    (error: unknown) => {
+      daemonServiceStarting = null;
       diagnostics?.write('daemon-service-start-failed', {
         totalMs: Date.now() - desktopProcessStartedAt,
         errorName: error instanceof Error ? error.name : typeof error,
       });
       console.error('Failed to start the Mixdog daemon:', error);
-    });
+    }
+  );
 }
 // Scheme privileges must be declared before the app is ready, otherwise the
 // media lane cannot stream or answer Range requests.
@@ -1455,6 +1474,8 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
       startAutoUpdater(
         async () => {
           await disposeDesktopResources();
+          // The quit sequence does not run after this (quitAfterDispose), so a core this app started ends here.
+          await stopLocalCore();
           quitAfterDispose = true;
         },
         async () => {
@@ -1567,6 +1588,32 @@ let localCoreProcess: CoreProcess | null = null;
 let localCoreConfirmation: (() => Promise<void>) | undefined;
 let coreWatcher: { stop(): void } | null = null;
 
+/** The core this app started is told to stop with its running work aborted (the app has left it, so nobody could confirm an
+ *  abort), then waited for: the app's exit would end it, and the PostgreSQL it runs, at once and without an exit hook. */
+async function stopLocalCore(): Promise<void> {
+  coreWatcher?.stop();
+  const core = localCoreProcess;
+  await stopCoreForQuit({
+    request: (timeoutMs) =>
+      requestCoreStop({
+        child: core,
+        bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
+        runtimeRoot: resolveRuntimeRoot(),
+        env: coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
+        timeoutMs,
+      }),
+    exit: (remainingMs) => coreExit(core, remainingMs),
+    record: async (outcome) => {
+      diagnostics?.write('desktop-daemon-stop', { pid: core?.pid ?? null, ...outcome });
+      await diagnostics?.flush();
+      if (!outcome.exited) {
+        console.error(`The Mixdog core did not stop within ${outcome.timeoutMs}ms of the quit; it is ended now.`);
+        forceEndCore(core);
+      }
+    },
+  });
+}
+
 // Windows vanish the moment a quit begins; detach, daemon stop and the
 // PostgreSQL behind it finish in this still-running main process afterwards.
 const quitSequence = createDesktopQuitSequence({
@@ -1575,29 +1622,7 @@ const quitSequence = createDesktopQuitSequence({
     for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
     windowIpcDisposers.clear();
     await disposeDesktopResources();
-    // The core this app started is told to stop with its running work aborted (the app has left it, so nobody could confirm an
-    // abort), then waited for: the app's exit would end it, and the PostgreSQL it runs, at once and without an exit hook.
-    coreWatcher?.stop();
-    const core = localCoreProcess;
-    await stopCoreForQuit({
-      request: (timeoutMs) =>
-        requestCoreStop({
-          child: core,
-          bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
-          runtimeRoot: resolveRuntimeRoot(),
-          env: coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
-          timeoutMs,
-        }),
-      exit: (remainingMs) => coreExit(core, remainingMs),
-      record: async (outcome) => {
-        diagnostics?.write('desktop-daemon-stop', { pid: core?.pid ?? null, ...outcome });
-        await diagnostics?.flush();
-        if (!outcome.exited) {
-          console.error(`The Mixdog core did not stop within ${outcome.timeoutMs}ms of the quit; it is ended now.`);
-          forceEndCore(core);
-        }
-      },
-    });
+    await stopLocalCore();
   },
   // A teardown step that never settles (a detach or a stop waiting on a hung core) must not keep the quitting app, its core and
   // the single-instance lock alive: the next launch would wait on them behind a black window.

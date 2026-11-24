@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
-import { CoreControlError, createCoreControl, createCoreUpdateGate, parseDaemonDiscovery } from './updater-core.ts';
+import {
+  CoreControlError,
+  CoreLaunchRefused,
+  createCoreControl,
+  createCoreLaunchLock,
+  createCoreUpdateGate,
+  parseDaemonDiscovery,
+} from './updater-core.ts';
 
 /** A control listener stand-in: records requests, answers from a mutable state. */
 async function fakeCore(initial = {}) {
@@ -170,6 +177,37 @@ test('stop with no core running does nothing; release cancels a drain that has n
   await gate.release();
   assert.equal(core.state.state, 'serving');
   assert.equal(core.state.hold, false);
+});
+
+test('a link the leaving core closes launches no core of the old install; only an abandoned install reopens launches', async () => {
+  const core = await fakeCore();
+  const launches = createCoreLaunchLock();
+  const launched = [];
+  // A link that reconnects finds no discovery file and launches, asking the lock as the launcher does.
+  const reconnect = () => {
+    try {
+      launches.assertOpen();
+      launched.push('core');
+    } catch (error) {
+      assert.ok(error instanceof CoreLaunchRefused);
+      launched.push('refused');
+    }
+  };
+  const gate = createCoreUpdateGate({
+    control: createCoreControl({ discoveryPath: core.discoveryPath }),
+    launches,
+    waitExit: async () => {
+      // The core's release: its discovery file goes and its links close before the process ends.
+      rmSync(core.discoveryPath);
+      reconnect();
+    },
+  });
+  await gate.stop({ abort: false, version: '1.5.1' });
+  reconnect();
+  assert.deepEqual(launched, ['refused', 'refused']);
+  await gate.release();
+  reconnect();
+  assert.deepEqual(launched, ['refused', 'refused', 'core']);
 });
 
 const discoveryJson = (overrides = {}) =>

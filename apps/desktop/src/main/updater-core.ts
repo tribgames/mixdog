@@ -4,7 +4,8 @@
 // the process to exit before the installer replaces its files. Every call goes
 // to the core's control listener (`/mgmt/*`, LR §6.1), which answers while the
 // core's RPC runtime is busy or draining. The new core is not started here:
-// the relaunched app starts it, and it refuses to start beside this one.
+// the relaunched app starts it, and it refuses to start beside this one. From
+// the wind-down on this app launches no core at all (`coreLaunches`).
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { request } from 'node:http';
@@ -278,6 +279,42 @@ export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
   };
 }
 
+/** A launch this app refused because an update is replacing its core. */
+export class CoreLaunchRefused extends Error {
+  override readonly name = 'CoreLaunchRefused';
+  constructor() {
+    super('No Mixdog core is launched while an update replaces it.');
+  }
+}
+
+/** Whether this app may launch a core. The core closes every link as it leaves, and a link that reconnects finds no
+ *  discovery file: a core it launched then would run from the install the installer replaces, holding its binary and the
+ *  data directory's owner lock. */
+export interface CoreLaunchLock {
+  /** Throws `CoreLaunchRefused` while shut: the launcher's last step before it spawns a core. */
+  assertOpen(): void;
+  shut(): void;
+  reopen(): void;
+}
+
+export function createCoreLaunchLock(): CoreLaunchLock {
+  let shut = false;
+  return {
+    assertOpen() {
+      if (shut) throw new CoreLaunchRefused();
+    },
+    shut() {
+      shut = true;
+    },
+    reopen() {
+      shut = false;
+    },
+  };
+}
+
+/** This app's lock: the update gate shuts it, the local core's launcher asks it. */
+export const coreLaunches = createCoreLaunchLock();
+
 /** What the updater controller needs from the core. */
 export interface CoreUpdateGate {
   /** Units of work running now; 0 when idle or no core runs. */
@@ -285,15 +322,18 @@ export interface CoreUpdateGate {
   /** Hold new work and report what runs in one step: 0 = idle (hold stays on
    *  until the core stops or `release`), a count = busy (hold released again). */
   hold(): Promise<number>;
-  /** Undo a hold, and a wind-down that has not reached its release. */
+  /** Undo a hold, and a wind-down that has not reached its release; core launches reopen. */
   release(): Promise<void>;
   /** Wind the core down for the update and wait for its process to exit. With
-   *  `abort`, the user confirmed the running work they were shown. */
+   *  `abort`, the user confirmed the running work they were shown. Core launches
+   *  are shut from its start until `release`. */
   stop(options: { abort: boolean; version: string }): Promise<void>;
 }
 
 export interface CoreUpdateGateDeps {
   control?: CoreControl;
+  /** Default: `coreLaunches`. */
+  launches?: CoreLaunchLock;
   /** Resolves once the OS reports the core process (pid + start time) gone. */
   waitExit: (core: { pid: number; processStartTime: string }) => Promise<void>;
 }
@@ -314,6 +354,7 @@ export function ctlWaitExit(mixdogd: string): CoreUpdateGateDeps['waitExit'] {
 
 export function createCoreUpdateGate(deps: CoreUpdateGateDeps): CoreUpdateGate {
   const control = deps.control ?? createCoreControl();
+  const launches = deps.launches ?? coreLaunches;
   const gate: CoreUpdateGate = {
     async running() {
       return (await control.status())?.status.running.length ?? 0;
@@ -325,12 +366,18 @@ export function createCoreUpdateGate(deps: CoreUpdateGateDeps): CoreUpdateGate {
       return count;
     },
     async release() {
-      const current = await control.status();
-      const drain = current?.status.drain;
-      if (drain && !drain.releasing) await control.cancelDrain(drain.drainId);
-      await control.hold(false);
+      try {
+        const current = await control.status();
+        const drain = current?.status.drain;
+        if (drain && !drain.releasing) await control.cancelDrain(drain.drainId);
+        await control.hold(false);
+      } finally {
+        launches.reopen();
+      }
     },
     async stop({ abort, version }) {
+      // Before the stop request: the links the core closes as it leaves reconnect at once.
+      launches.shut();
       const before = await control.status();
       if (!before) return;
       const replacement = { revision: version, version };

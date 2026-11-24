@@ -6566,5 +6566,17 @@
   "Account 1": "계정 1",
   "Sign in with another account": "다른 계정으로 로그인",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "다른 계정으로 로그인합니다. 지금 계정을 대체합니다. {{name}}은(는) 계정을 하나만 보관합니다.",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mixdog에서 실행 중인 {{name}} 세션이 모두 지금 종료됩니다. Mixdog 밖의 {{command}} 명령도 같은 로그인을 쓰므로 함께 로그아웃됩니다."
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mixdog에서 실행 중인 {{name}} 세션이 모두 지금 종료됩니다. Mixdog 밖의 {{command}} 명령도 같은 로그인을 쓰므로 함께 로그아웃됩니다.",
+  "An earlier Mixdog is still running": "이전 버전 Mixdog이 아직 실행 중입니다",
+  "Another program holds your Mixdog data": "다른 프로그램이 Mixdog 데이터를 사용 중입니다",
+  "Converting earlier conversations… {{done}} of {{total}}": "이전 대화를 변환하는 중… {{total}}개 중 {{done}}개",
+  "Installing the update…": "업데이트를 설치하는 중…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "Mixdog 데이터를 사용 중이라 이 버전을 함께 시작할 수 없습니다. 계속하려면 종료하세요. 실행 중인 작업도 끝납니다.",
+  "It is not Mixdog: continue": "Mixdog이 아님: 계속",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "이 프로그램이 이전 버전 Mixdog인지 확인할 수 없습니다. Mixdog이 아니면 계속하고, Mixdog이면 먼저 종료하세요.",
+  "process {{pid}}": "프로세스 {{pid}}",
+  "Stop it and continue": "종료하고 계속",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "이전 버전에서 업데이트하면서 변환하지 못한 항목 {{items}}개를 따로 보관했습니다. 보관 위치: {{dir}}",
+  "Updating your data from the earlier version of Mixdog…": "이전 버전 Mixdog의 데이터를 업데이트하는 중…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "이전 버전 Mixdog이 실행 중인 작업을 마치고 종료되기를 기다리는 중…"
 }

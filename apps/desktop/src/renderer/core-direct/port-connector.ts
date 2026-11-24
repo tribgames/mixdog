@@ -8,8 +8,9 @@ import type {
 export type PortSlot = 'primary' | 'pc';
 /** What main reports of the wait for the core (main/core-port/boot-progress.ts `BootReport`). */
 export interface BootReportShape {
-  progress: { done: number; total: number; boot?: number | null } | null;
-  failure: { message: string; exitCode: number | null; stderrPath: string | null } | null;
+  progress: { done: number; total: number; boot?: number | null; stage?: string } | null;
+  failure: { message: string; exitCode: number | null; stderrPath: string | null; blocked?: unknown } | null;
+  updating?: boolean;
 }
 /** `window.mixdogCorePort`: asks the main process for a new port and says which generation it will carry. */
 export interface CorePortBridge {

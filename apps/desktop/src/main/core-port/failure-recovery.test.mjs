@@ -175,6 +175,40 @@ test('a read answers for the failure that started it: one outstanding when the f
   assert.ok(reports.confirmed(), "the old read, answering late, is not the new failure's");
 });
 
+test('a block ends when the process it stood on has gone, before the core serves: the card gives way and what waits on a serving core is told', async () => {
+  const reports = new BootReports();
+  reports.attempt().failed(
+    Object.assign(new Error('core is not ready: the data directory is held by an earlier process (pid 41)'), {
+      coreDiscovery: null,
+      coreBlocked: { pid: 41, kind: 'waitExit', image: null, commandLine: null, releasable: false, legacy: true, retire: null },
+      coreBlockedAccess: { core: null, legacy: null },
+    })
+  );
+  let alive = true;
+  let onChange;
+  const told = [];
+  reports.onServing(() => told.push('serving'));
+  watchRecovery({
+    ensureRoot() {},
+    log() {},
+    reports,
+    runtimeRoot: 'r',
+    readState: async () => ({ state: 'blocked', rpcPort: null, pid: 42 }),
+    runs: (pid) => (pid === 41 ? alive : true),
+    watch: (_directory, change) => {
+      onChange = change;
+      return { close() {} };
+    },
+  });
+  await tick();
+  assert.ok(reports.confirmed(), 'the card stands while the process runs');
+  alive = false;
+  onChange();
+  await tick();
+  assert.equal(reports.confirmed(), null, 'gone: the core it blocked goes on, and the windows attach');
+  assert.deepEqual(told, ['serving']);
+});
+
 // Established by measurement, kept as a test: the real directory watch tells of the discovery file's atomic replacement (a staging file
 // renamed over daemon.json) made by another process, so recovery needs no polling interval.
 test('the real directory watch fires for the atomic replacement of daemon.json by another process', async () => {

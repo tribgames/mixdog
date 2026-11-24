@@ -158,3 +158,22 @@ test('an unknown phase collapses instead of passing through', () => {
   assert.equal(details.message, undefined);
   assert.equal(details.fingerprint, '00000000');
 });
+
+test('a boundary failure keeps its stack frames, component stack and selected conversation; an entry that is not a frame is left out whole', () => {
+  const details = normalizeRendererDiagnostic({
+    phase: 'boundary',
+    errorName: 'RangeError',
+    fingerprint: '713bee18',
+    stack: [
+      'Le@react-vendor-C.js:8:1234',
+      'x C:\\Users\\a\\secret.txt',
+      '/Users/alice/secret-project',
+      '<anonymous>@C:/Users/alice/x.js:1:2',
+    ],
+    componentStack: ['MarkdownBody@MarkdownBody-CL.js:6:77', 'section', 'at Users alice'],
+    sessionId: 'sess_desktop_02f53a65',
+  });
+  assert.deepEqual(details.stack, ['Le@react-vendor-C.js:8:1234']);
+  assert.deepEqual(details.componentStack, ['MarkdownBody@MarkdownBody-CL.js:6:77', 'section']);
+  assert.equal(details.sessionId, 'sess_desktop_02f53a65');
+});

@@ -2,8 +2,8 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncEx
 import { createPortal } from 'react-dom';
 
 import { createBootSurfaceBarrier, desktopBootCoverTimeoutAllowed, markBootStage } from './boot-metrics';
-import { useBootFailure, useBootProgress } from './boot-progress';
-import { useLocalCoreLink } from './local-core-link';
+import { useBootFailure, useBootProgress, useBootUpdating } from './boot-progress';
+import { useLocalCoreLink, useLocalCoreLinkFailure } from './local-core-link';
 import { ownScrollWrites } from './own-scroll-writes';
 import { DesktopBootFailure, DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
@@ -234,9 +234,12 @@ export function DesktopBootGate({
     () => null
   );
   const coreLink = useLocalCoreLink();
+  const linkFailure = useLocalCoreLinkFailure();
   const bootProgress = useBootProgress();
   const bootFailure = useBootFailure();
-  const connectionReady = remote ? connectionState === 'connected' : coreLink !== 'opening';
+  const bootUpdating = useBootUpdating();
+  // A window with a local core waits for its link to open; one whose first open failed keeps the cover, which says why.
+  const connectionReady = remote ? connectionState === 'connected' : coreLink === 'open' || coreLink === 'none';
   const barrierRef = useRef<ReturnType<typeof createBootSurfaceBarrier> | null>(null);
   barrierRef.current ||= createBootSurfaceBarrier();
   const barrier = barrierRef.current;
@@ -272,6 +275,7 @@ export function DesktopBootGate({
       !windowShown ||
       revealed ||
       coreLink === 'opening' ||
+      coreLink === 'failed' ||
       !desktopBootCoverTimeoutAllowed(restorePending)
     )
       return undefined;
@@ -343,8 +347,14 @@ export function DesktopBootGate({
       </div>
       {!handoffComplete && (
         <div className="desktop-boot-cover" data-leaving={coverLeaving ? 'true' : undefined}>
-          {bootFailure && coreLink === 'opening' ? (
+          {/* Every start ends in the workspace or here: the update's quit, a start that failed (main's confirmed failure, or this
+              window's own first open that gave up) with why and a way out, or the wait with what the core is doing. */}
+          {bootUpdating && coreLink !== 'open' ? (
+            <DesktopLoadingSurface label={t('Installing the update…')} brand caption={t('Installing the update…')} />
+          ) : bootFailure && coreLink !== 'open' ? (
             <DesktopBootFailure failure={bootFailure} />
+          ) : coreLink === 'failed' ? (
+            <DesktopBootFailure failure={{ message: linkFailure, stderrPath: null, blocked: null }} />
           ) : (
             <DesktopLoadingSurface label={label} brand progress={bootProgress} />
           )}

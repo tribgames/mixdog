@@ -320,6 +320,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         // the list; while the index is recovering it is behind the serving core, so the start does not wait for it (a
         // listing waits for the same sessions). A read that fails withdraws nothing, and the next start tries again.
         None => {
+            // What the completed migration set aside, for a client to tell the person once (it keys that by the migration's identity).
+            boot::publish_migration_settled(core.state_publisher().as_ref(), &sweep_dir);
             let index = core.catalog_index();
             let withdraw = {
                 let (index, dir) = (index.clone(), sweep_dir.to_path_buf());
@@ -424,6 +426,7 @@ fn start_after_ready_tasks(
         && let Err(error) = behind.run(
             core.catalog_index(),
             core.session_directory(),
+            core.state_publisher().clone(),
             stop.clone(),
             {
                 let log = ready_log.clone();

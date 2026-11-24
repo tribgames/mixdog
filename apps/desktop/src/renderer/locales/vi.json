@@ -6565,5 +6565,17 @@
   "Account 1": "Tài khoản 1",
   "Sign in with another account": "Đăng nhập bằng tài khoản khác",
   "Sign in with another account. It replaces this one: {{name}} keeps one account.": "Đăng nhập bằng tài khoản khác. Tài khoản này sẽ bị thay thế: {{name}} chỉ giữ một tài khoản.",
-  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mọi phiên {{name}} đang chạy trong Mixdog sẽ kết thúc ngay. Lệnh {{command}} bên ngoài Mixdog dùng chung lần đăng nhập này nên cũng sẽ bị đăng xuất."
+  "Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.": "Mọi phiên {{name}} đang chạy trong Mixdog sẽ kết thúc ngay. Lệnh {{command}} bên ngoài Mixdog dùng chung lần đăng nhập này nên cũng sẽ bị đăng xuất.",
+  "An earlier Mixdog is still running": "Một phiên bản Mixdog trước vẫn đang chạy",
+  "Another program holds your Mixdog data": "Một chương trình khác đang giữ dữ liệu Mixdog của bạn",
+  "Converting earlier conversations… {{done}} of {{total}}": "Đang chuyển đổi các cuộc trò chuyện trước… {{done}}/{{total}}",
+  "Installing the update…": "Đang cài đặt bản cập nhật…",
+  "It holds your Mixdog data, so this version cannot start beside it. Stop it to continue; whatever it is still running ends.": "Nó đang giữ dữ liệu Mixdog của bạn nên phiên bản này không thể khởi động cùng lúc. Hãy dừng nó để tiếp tục; mọi việc nó đang chạy sẽ kết thúc.",
+  "It is not Mixdog: continue": "Không phải Mixdog: tiếp tục",
+  "Mixdog cannot tell whether this program is an earlier Mixdog. If it is not, let Mixdog continue; if it is, close it first.": "Mixdog không xác định được chương trình này có phải là phiên bản Mixdog trước hay không. Nếu không phải, hãy để Mixdog tiếp tục; nếu phải, hãy đóng nó trước.",
+  "process {{pid}}": "tiến trình {{pid}}",
+  "Stop it and continue": "Dừng và tiếp tục",
+  "Updating from the earlier version set aside {{items}} items it could not convert. They are kept in {{dir}}.": "Khi cập nhật từ phiên bản trước, {{items}} mục không chuyển đổi được đã được để riêng. Chúng được lưu trong {{dir}}.",
+  "Updating your data from the earlier version of Mixdog…": "Đang cập nhật dữ liệu từ phiên bản Mixdog trước…",
+  "Waiting for the earlier version of Mixdog to finish its running work and close…": "Đang chờ phiên bản Mixdog trước hoàn tất công việc đang chạy và đóng lại…"
 }

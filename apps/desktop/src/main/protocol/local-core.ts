@@ -5,7 +5,12 @@ import type { ChildProcess } from 'node:child_process';
 import { linkSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { ensureCore, launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
+import {
+  CORE_PING_TIMEOUT_MS,
+  ensureCore,
+  launchCore,
+  legacyRetirement,
+} from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import type { BootFailure, LaunchAttempt } from '../core-port/boot-progress';
 import { readLocalDiscovery } from './discovery';
 import type { WsEndpoint } from './ws-connector';
@@ -109,28 +114,46 @@ export function coreEnvironment(
   return { ...inherited, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData };
 }
 
-export async function readCoreState(runtimeRoot: string): Promise<{
+export interface CoreState {
   state: string;
   rpcPort: number | null;
   blocked: unknown;
   pid: number | null;
   controlPort: number | null;
   token: string | null;
+  /** The session endpoint's port: on the earlier version's file, where its own management requests go. */
+  sessionPort: number | null;
   rebuild: { done: number; total: number } | null;
-}> {
+}
+
+/** No core is named: no file, or one that is not a discovery document (empty, zero-filled or cut short by a power loss). Every core
+ *  replaces the file whole (a staging file renamed over it), so such bytes are never a live core's, and the core started then
+ *  publishes over them. */
+function absent(runtimeRoot: string, why: string): Error {
+  return Object.assign(new Error(`no core is running (${runtimeRoot}: ${why})`), {
+    name: 'CoreDiscoveryError',
+    code: 'absent',
+  });
+}
+
+export async function readCoreState(runtimeRoot: string): Promise<CoreState> {
   let text: string;
   try {
     text = await readFile(join(runtimeRoot, 'daemon.json'), 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      throw Object.assign(new Error(`no core is running (${runtimeRoot})`), {
-        name: 'CoreDiscoveryError',
-        code: 'absent',
-      });
-    }
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') throw absent(runtimeRoot, 'no daemon.json');
     throw error;
   }
-  const discovery = JSON.parse(text) as {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw absent(runtimeRoot, `daemon.json is not a discovery document (${text.length} characters)`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw absent(runtimeRoot, 'daemon.json is not a discovery document');
+  }
+  const discovery = parsed as {
     pid?: unknown;
     core?: {
       state?: unknown;
@@ -160,6 +183,7 @@ export async function readCoreState(runtimeRoot: string): Promise<{
     // What a liveness ask of the core needs: its control listener and the session token (watchCore).
     controlPort: Number.isInteger(core?.control?.port) ? (core?.control?.port as number) : null,
     token: typeof discovery.endpoints?.session?.token === 'string' ? discovery.endpoints.session.token : null,
+    sessionPort: legacy ? (sessionPort as number) : null,
     // Present only while the core rebuilds its conversation index at start.
     rebuild:
       Number.isInteger(core?.rebuild?.done) &&
@@ -338,6 +362,117 @@ export async function requestCoreStop({
   });
 }
 
+/** The earlier version's (1.4) daemon speaks session protocol 1 and takes a replacement request from a build whose API revision is
+ *  past its own (1.4.5: 6; 1.4.5 `session-wire.mjs`, `session-transport/routes.mjs` `upgrade`). */
+const LEGACY_SESSION_PROTOCOL = 1;
+const LEGACY_REPLACEMENT_REVISION = 7;
+
+/** What the earlier version's daemon answered: `accepted` when it agreed to close once its running work has ended. */
+export interface LegacyAnswer {
+  readonly accepted: boolean;
+  readonly status: number | null;
+  readonly error: string | null;
+}
+
+async function legacyRequest(
+  endpoint: { sessionPort: number | null; token: string | null },
+  path: '/upgrade' | '/stop',
+  body: Record<string, unknown>,
+  fetchImpl: typeof fetch
+): Promise<{ status: number | null; body: Record<string, unknown> | null; error: string | null }> {
+  if (!endpoint.sessionPort || !endpoint.token) {
+    return { status: null, body: null, error: 'the earlier Mixdog published no endpoint to ask' };
+  }
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${endpoint.sessionPort}${path}`, {
+      method: 'POST',
+      headers: { 'X-Mixdog-Daemon-Token': endpoint.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(CORE_PING_TIMEOUT_MS),
+    });
+    const answer = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const error = response.ok ? null : String(answer?.error ?? `HTTP ${response.status}`);
+    return { status: response.status, body: answer, error };
+  } catch (error) {
+    return { status: null, body: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Asks the earlier version's daemon the file names to step aside for this build, as every newer 1.4 build did: not forced, so it
+ *  closes (its clients told it drains) once its running turns and calls have ended, and it runs its own teardown. */
+export async function retireLegacyDaemon(
+  discovery: { sessionPort: number | null; token: string | null },
+  { version, fetchImpl = fetch }: { version: string; fetchImpl?: typeof fetch }
+): Promise<LegacyAnswer> {
+  const { status, body, error } = await legacyRequest(
+    discovery,
+    '/upgrade',
+    { protocol: LEGACY_SESSION_PROTOCOL, revision: LEGACY_REPLACEMENT_REVISION, version, force: false },
+    fetchImpl
+  );
+  return { accepted: body?.accepted === true, status, error };
+}
+
+/** The process a start is blocked on, as the launcher named it (`coreBlocked`, ensure-core.mjs). */
+export interface CoreBlock {
+  readonly pid: number | null;
+  readonly kind: string;
+  readonly image: string | null;
+  readonly commandLine: string | null;
+  readonly releasable: boolean;
+  readonly legacy: boolean;
+  readonly retire: Pick<LegacyAnswer, 'accepted' | 'error'> | null;
+}
+
+/** How the launcher can act on the block (`coreBlockedAccess`): the blocked core's control listener, the earlier daemon's endpoint. */
+export interface CoreBlockAccess {
+  readonly core: { controlPort: number; token: string } | null;
+  readonly legacy: { port: number; token: string } | null;
+}
+
+/** The person's way past a block. An owner the core could not prove (`undecidable`) is released through the core's own decision
+ *  (`/mgmt/release`, journaled by the core); the earlier version's daemon is stopped through its own forced stop, which ends its
+ *  running work and runs its teardown; one that cannot be asked is ended with its process tree. The blocked core waits on the OS's
+ *  word that the process has gone and then starts by itself. */
+export async function resolveCoreBlock(
+  block: CoreBlock,
+  access: CoreBlockAccess,
+  {
+    fetchImpl = fetch,
+    endProcess = (pid: number) => forceEndCore({ pid, exitCode: null, signalCode: null, once: () => undefined }),
+  }: { fetchImpl?: typeof fetch; endProcess?: (pid: number) => boolean } = {}
+): Promise<void> {
+  if (block.pid === null) throw new Error('The blocking process is not known.');
+  if (block.releasable) {
+    if (!access.core) throw new Error('The blocked core cannot be reached to release the process.');
+    const base = `http://127.0.0.1:${access.core.controlPort}/mgmt`;
+    const headers = { authorization: `Bearer ${access.core.token}`, 'Content-Type': 'application/json' };
+    const asked = await fetchImpl(`${base}/status`, { headers, signal: AbortSignal.timeout(CORE_PING_TIMEOUT_MS) });
+    if (!asked.ok) throw new Error(`The blocked core did not say what it waits on (HTTP ${asked.status}).`);
+    const status = (await asked.json()) as { blocked?: { pid?: number; confirmToken?: string } | null };
+    const confirmToken = status.blocked?.pid === block.pid ? status.blocked.confirmToken : undefined;
+    if (!confirmToken) throw new Error(`The core is no longer blocked on process ${block.pid}.`);
+    const released = await fetchImpl(`${base}/release`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pid: block.pid, confirmToken }),
+      signal: AbortSignal.timeout(CORE_PING_TIMEOUT_MS),
+    });
+    if (!released.ok) throw new Error(`The core refused to release process ${block.pid} (HTTP ${released.status}).`);
+    return;
+  }
+  if (access.legacy) {
+    const { error } = await legacyRequest(
+      { sessionPort: access.legacy.port, token: access.legacy.token },
+      '/stop',
+      { force: true },
+      fetchImpl
+    );
+    if (!error) return;
+  }
+  if (!endProcess(block.pid)) throw new Error(`Process ${block.pid} could not be ended.`);
+}
+
 export function resolveLocalCore({
   runtimeRoot,
   bin,
@@ -349,6 +484,8 @@ export function resolveLocalCore({
   reports,
   spawnImpl = spawn,
   beginCapture,
+  launches,
+  retireLegacy,
 }: {
   runtimeRoot: string;
   /** The binary to start, or how to choose it at each launch ([`coreLaunchPath`]): chosen once at the app's start, a
@@ -370,35 +507,55 @@ export function resolveLocalCore({
   spawnImpl?: typeof spawn;
   /** Where a launch keeps the core's stderr and exit record (`<data>/daemon-crash`); tests pass their own. */
   beginCapture?: NonNullable<Parameters<typeof launchCore>[0]>['beginCapture'];
+  /** Whether this app may launch a core now (`coreLaunches` of updater-core.ts): asked right before every spawn. */
+  launches?: { assertOpen(): void };
+  /** Asks the earlier version's daemon the file names to step aside ([`retireLegacyDaemon`]). */
+  retireLegacy?: (discovery: CoreState) => Promise<LegacyAnswer>;
 }): () => Promise<WsEndpoint> {
+  /** The core this app started last: every attempt that would start one while it still runs (the main link's and each window's,
+   *  concurrent at a start) waits on it instead. A second process would only find the first one's lock and yield. */
+  let live: { child: ChildProcess; capture: ReturnType<typeof launchCore> } | null = null;
+  const launch = (): ReturnType<typeof launchCore> => {
+    // A child that never started (no pid) is not one to wait on.
+    if (live?.child.pid !== undefined && live.child.exitCode === null && live.child.signalCode === null) return live.capture;
+    // A start that is confirmed not to succeed is not tried again until the user asks, for an attempt already waiting on the core too:
+    // it attaches to a core that serves (or is booting), and never starts one.
+    const confirmedNow = reports?.confirmed();
+    if (confirmedNow) throw Object.assign(new Error(confirmedNow.message), { coreLaunchFailed: confirmedNow });
+    launches?.assertOpen();
+    let started = null as ChildProcess | null;
+    // The app owns its core: an ordinary child, so the core ends when the app does and Windows lists it under the app.
+    const capture = launchCore({
+      bin: typeof bin === 'function' ? bin() : bin,
+      detached: false,
+      desktopConfirmationPipe,
+      // The root this app selected and watches (it may be the live legacy tmp/mixdog): the core would otherwise default to tmp/mixdog-<uid>.
+      env: { ...(env ? env() : process.env), MIXDOG_RUNTIME_ROOT: runtimeRoot },
+      spawnImpl: ((...args: Parameters<typeof spawn>) => {
+        const child = spawnImpl(...args);
+        started = child;
+        onLaunched?.(child);
+        return child;
+      }) as typeof spawn,
+      ...(beginCapture ? { beginCapture } : {}),
+    });
+    // The spawn runs inside the launch's promise executor, so the child is known here.
+    if (started) live = { child: started, capture };
+    return capture;
+  };
+  // One fact for every attempt (the main link's and each window's): the earlier daemon is asked once, and an attempt that sees only
+  // the core blocked on it waits with the others, or acts on it through its own endpoint.
+  const retirement = legacyRetirement(retireLegacy && ((discovery) => retireLegacy(discovery as CoreState)));
   return async () => {
     await environmentReady();
     const attempt = reports?.attempt();
     try {
       await ensure({
         readDiscovery: () => readCoreState(runtimeRoot),
-        // The app owns its core: an ordinary child, so the core ends when the app does and Windows lists it under the app.
-        launch: () => {
-          // A start that is confirmed not to succeed is not tried again until the user asks, for an attempt already waiting on the core too:
-          // it attaches to a core that serves (or is booting), and never starts one.
-          const confirmedNow = reports?.confirmed();
-          if (confirmedNow) throw Object.assign(new Error(confirmedNow.message), { coreLaunchFailed: confirmedNow });
-          return launchCore({
-            bin: typeof bin === 'function' ? bin() : bin,
-            detached: false,
-            desktopConfirmationPipe,
-            // The root this app selected and watches (it may be the live legacy tmp/mixdog): the core would otherwise default to tmp/mixdog-<uid>.
-            env: { ...(env ? env() : process.env), MIXDOG_RUNTIME_ROOT: runtimeRoot },
-            spawnImpl: ((...args: Parameters<typeof spawn>) => {
-              const child = spawnImpl(...args);
-              onLaunched?.(child);
-              return child;
-            }) as typeof spawn,
-            ...(beginCapture ? { beginCapture } : {}),
-          });
-        },
+        launch,
         readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,
         ...(attempt ? { onProgress: attempt.progress } : {}),
+        retirement,
       });
     } catch (error) {
       throw attempt ? attempt.failed(error) : error;

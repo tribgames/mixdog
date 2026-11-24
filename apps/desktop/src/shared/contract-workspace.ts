@@ -448,6 +448,12 @@ export interface DesktopRendererFailureDiagnostic {
   source?: string;
   line?: number;
   column?: number;
+  /** The error's stack as frames (`function@file:line:column`), no message text and no directories. */
+  stack?: string[];
+  /** React's component stack of a boundary failure, in the same frame form. */
+  componentStack?: string[];
+  /** The conversation the window had selected when the failure happened. */
+  sessionId?: string;
 }
 
 export interface DesktopRendererLongTaskDiagnostic {
