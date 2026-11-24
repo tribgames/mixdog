@@ -5,7 +5,7 @@
 //!
 //! The table is `Map<token, Map<'deviceId\nclientId', association>>`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Map, Value};
@@ -53,13 +53,21 @@ struct Association {
     device_id: String,
     client_id: String,
     platform: String,
+    /// The generation of the desktop leg that made it.
+    generation: u64,
 }
 
 enum Entry {
     Many(HashMap<String, Association>),
 }
 
-type Table = HashMap<String, Entry>;
+/// The associations by token, and for each desktop the tokens it holds one for, so a desktop's bindings are found without a scan
+/// of every token.
+#[derive(Default)]
+struct Table {
+    tokens: HashMap<String, Entry>,
+    by_device: HashMap<String, HashSet<String>>,
+}
 
 fn association_key(device_id: &str, client_id: &str) -> String {
     format!("{device_id}\n{client_id}")
@@ -73,17 +81,26 @@ fn associations_of(entry: &mut Entry) -> &mut HashMap<String, Association> {
 
 /// Removes the associations of `device_id` (optionally one client, optionally one token) and forgets tokens nobody is
 /// associated with any more.
-fn drop_associations(table: &mut Table, device_id: &str, client_id: Option<&str>, token: Option<&str>) {
+fn drop_associations(table: &mut Table, device_id: &str, client_id: Option<&str>, token: Option<&str>, up_to_generation: Option<u64>) {
     let tokens: Vec<String> = match token {
-        None => table.keys().cloned().collect(),
+        None => table.by_device.get(device_id).map_or_else(Vec::new, |held| held.iter().cloned().collect()),
         Some(token) => vec![token.to_owned()],
     };
     for token in tokens {
-        let Some(entry) = table.get_mut(&token) else { continue };
+        let Some(entry) = table.tokens.get_mut(&token) else { continue };
         let associations = associations_of(entry);
-        associations.retain(|_, held| !(held.device_id == device_id && client_id.is_none_or(|client| held.client_id == client)));
+        associations.retain(|_, held| {
+            !(held.device_id == device_id && client_id.is_none_or(|client| held.client_id == client) && up_to_generation.is_none_or(|generation| held.generation <= generation))
+        });
+        let device_holds = associations.values().any(|held| held.device_id == device_id);
         if associations.is_empty() {
-            table.remove(&token);
+            table.tokens.remove(&token);
+        }
+        if !device_holds && let Some(held) = table.by_device.get_mut(device_id) {
+            held.remove(&token);
+            if held.is_empty() {
+                table.by_device.remove(device_id);
+            }
         }
     }
 }
@@ -131,7 +148,7 @@ impl NativePushService {
     }
 
     pub fn with_limiter(push: Option<Arc<dyn PushSender>>, limiter: RateLimiter) -> Self {
-        Self { push, table: Mutex::new(HashMap::new()), limiter: Mutex::new(limiter) }
+        Self { push, table: Mutex::new(Table::default()), limiter: Mutex::new(limiter) }
     }
 
     fn table(&self) -> MutexGuard<'_, Table> {
@@ -152,6 +169,11 @@ impl NativePushService {
 
     /// `native-push-bind`: associates a token with one of this desktop's own paired clients.
     pub fn bind(&self, device_id: &str, paired: &dyn PairedClients, message: &Value) {
+        self.bind_for_leg(device_id, 0, paired, message);
+    }
+
+    /// `bind` made over the desktop leg of `generation`.
+    pub fn bind_for_leg(&self, device_id: &str, generation: u64, paired: &dyn PairedClients, message: &Value) {
         let (Some(platform), Some(token)) = (text(message, "platform"), text(message, "token")) else { return };
         if !self.platforms().contains(&platform) || !valid_native_token(platform, token) {
             return;
@@ -163,35 +185,46 @@ impl NativePushService {
         let client_id = client_id.unwrap_or_default();
         let key = association_key(device_id, client_id);
         let mut table = self.table();
-        let held = table.get_mut(token).is_some_and(|entry| associations_of(entry).contains_key(&key));
+        let held = table.tokens.get_mut(token).is_some_and(|entry| associations_of(entry).contains_key(&key));
         if !held {
-            let mine: usize =
-                table.values_mut().map(|entry| associations_of(entry).values().filter(|association| association.device_id == device_id).count()).sum();
+            let mine: usize = table.by_device.get(device_id).map_or(0, |tokens| {
+                tokens
+                    .iter()
+                    .filter_map(|held| table.tokens.get(held))
+                    .map(|Entry::Many(map)| map.values().filter(|association| association.device_id == device_id).count())
+                    .sum()
+            });
             if mine >= MAX_NATIVE_BINDINGS_PER_DEVICE {
                 return;
             }
         }
-        let association = Association { device_id: device_id.to_owned(), client_id: client_id.to_owned(), platform: platform.to_owned() };
-        match table.get_mut(token) {
+        let association = Association { device_id: device_id.to_owned(), client_id: client_id.to_owned(), platform: platform.to_owned(), generation };
+        match table.tokens.get_mut(token) {
             Some(entry) => {
                 associations_of(entry).insert(key, association);
             }
             None => {
-                table.insert(token.to_owned(), Entry::Many(HashMap::from([(key, association)])));
+                table.tokens.insert(token.to_owned(), Entry::Many(HashMap::from([(key, association)])));
             }
         }
+        table.by_device.entry(device_id.to_owned()).or_default().insert(token.to_owned());
     }
 
     /// `native-push-unbind`. Without a `clientId` (older desktops) every association THIS desktop holds for the token
     /// goes; another desktop's never does.
     pub fn unbind(&self, device_id: &str, message: &Value) {
         let Some(token) = text(message, "token") else { return };
-        drop_associations(&mut self.table(), device_id, text(message, "clientId"), Some(token));
+        drop_associations(&mut self.table(), device_id, text(message, "clientId"), Some(token), None);
+    }
+
+    /// The desktop leg of `generation` stayed gone past the grace: what it and the legs before it bound goes, what a later leg bound stays.
+    pub fn drop_ended_leg(&self, device_id: &str, generation: u64) {
+        drop_associations(&mut self.table(), device_id, None, None, Some(generation));
     }
 
     /// Forgets every association a revoked client (or desktop) could still send to.
     pub fn drop_bindings(&self, device_id: &str, client_id: Option<&str>) {
-        drop_associations(&mut self.table(), device_id, client_id, None);
+        drop_associations(&mut self.table(), device_id, client_id, None, None);
     }
 
     /// `native-push`, the part that answers at once and in frame order, as Node's handler does before it starts the send:
@@ -200,7 +233,7 @@ impl NativePushService {
     pub fn admit(&self, device_id: &str, paired: &dyn PairedClients, message: &Value) -> Option<Admitted> {
         self.push.as_ref().filter(|push| !push.platforms().is_empty())?;
         let Some(request) = self.validated(message) else { return Some(Admitted::Refused(refusal(message, "invalid-message"))) };
-        let bound = self.table().get_mut(&request.token).is_some_and(|entry| {
+        let bound = self.table().tokens.get_mut(&request.token).is_some_and(|entry| {
             associations_of(entry).values().any(|association| {
                 association.device_id == device_id && association.platform == request.platform.as_str() && owns(paired, device_id, Some(&association.client_id))
             })
@@ -230,7 +263,7 @@ impl NativePushService {
         // Only the sender's associations go: every other desktop learns the token is dead from its own send and cleans up
         // its own store.
         if result.invalid {
-            drop_associations(&mut self.table(), device_id, None, Some(&request.token));
+            drop_associations(&mut self.table(), device_id, None, Some(&request.token), None);
         }
         let mut fields = vec![("ok", Value::Bool(result.ok))];
         if result.status != 0 {
@@ -266,6 +299,12 @@ impl NativePushService {
     /// How many desktops hold an association for the token .
     #[cfg(any(test, feature = "test-support"))]
     pub fn association_count(&self, token: &str) -> Option<usize> {
-        self.table().get_mut(token).map(|entry| associations_of(entry).len())
+        self.table().tokens.get_mut(token).map(|entry| associations_of(entry).len())
+    }
+
+    /// How many tokens a desktop holds an association for.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn device_token_count(&self, device_id: &str) -> usize {
+        self.table().by_device.get(device_id).map_or(0, HashSet::len)
     }
 }

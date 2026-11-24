@@ -121,6 +121,10 @@ impl Devices {
         &self.rows
     }
 
+    pub(super) fn into_rows(self) -> Map<String, Value> {
+        self.rows
+    }
+
     pub(super) fn row(&self, device_id: &str) -> Option<&Map<String, Value>> {
         self.rows.get(device_id).and_then(Value::as_object)
     }

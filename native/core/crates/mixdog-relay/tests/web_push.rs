@@ -772,3 +772,16 @@ fn web_push_is_off_when_the_identity_is_unusable() {
     write(&dir.path().join(VAPID_FILE), "{}");
     assert!(WebPush::open(dir.path(), PushService::new()).is_none());
 }
+
+#[test]
+fn capable_devices_the_store_no_longer_knows_are_forgotten_and_stored() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut registry = Registry::open(dir.path());
+    registry.mark_capable("pc-a");
+    registry.mark_capable("pc-b");
+    registry.retain_capable(|device_id| device_id == "pc-b");
+    assert!(!registry.is_capable("pc-a"));
+    let reloaded = Registry::open(dir.path());
+    assert!(!reloaded.is_capable("pc-a"));
+    assert!(reloaded.is_capable("pc-b"));
+}

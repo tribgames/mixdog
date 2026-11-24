@@ -35,6 +35,9 @@ mod media_proxy;
 #[cfg(feature = "test-support")]
 #[path = "../native_push.rs"]
 mod native_push;
+#[cfg(feature = "test-support")]
+#[path = "../native_push_offline.rs"]
+mod native_push_offline;
 #[path = "../pages.rs"]
 mod pages;
 #[path = "../pair_codes.rs"]

@@ -858,3 +858,25 @@ async fn a_relay_without_credentials_ignores_native_push_frames() {
     assert!(service(&idle).send("dev-a", &paired, &send_frame(&json!({}))).await.is_none());
     assert_eq!(idle.sent(), 0);
 }
+
+#[tokio::test]
+async fn dropping_a_desktops_bindings_frees_its_tokens_and_its_binding_budget() {
+    let clients: Vec<String> = (0..64).map(|index| format!("client-{index}")).collect();
+    let paired = Paired::of(vec![("dev-a", clients.iter().map(String::as_str).collect()), ("dev-b", vec!["client-9"])]);
+    let push = FakePush::new(&["apns", "fcm"], delivered());
+    let service = service(&push);
+    for client in &clients {
+        service.bind("dev-a", &paired, &bind_frame(&json!({ "clientId": client })));
+    }
+    service.bind("dev-b", &paired, &bind_frame(&json!({ "clientId": "client-9" })));
+    assert_eq!(service.device_token_count("dev-a"), 1);
+    service.drop_bindings("dev-a", None);
+    assert_eq!(service.device_token_count("dev-a"), 0);
+    assert_eq!(service.association_count(APNS_TOKEN), Some(1));
+    service.bind("dev-a", &paired, &bind_frame(&json!({})));
+    assert_eq!(service.association_count(APNS_TOKEN), Some(2));
+    service.drop_bindings("dev-b", None);
+    service.drop_bindings("dev-a", None);
+    assert_eq!(service.association_count(APNS_TOKEN), None);
+    assert_eq!(service.device_token_count("dev-b"), 0);
+}

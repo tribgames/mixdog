@@ -187,7 +187,7 @@ pub struct Registry {
     endpoints: HashMap<String, Entry>,
     /// The PCs that said they deliver through the relay (`webpush-ready`), in the order they said so. Kept on disk, since a
     /// browser registers while its PCs are offline; an older PC never says so and keeps its own registration.
-    capable: Vec<String>,
+    capable: HashMap<String, u64>,
 }
 
 impl Registry {
@@ -195,7 +195,7 @@ impl Registry {
     /// registry starts empty (browsers re-register on their next launch: a corrupt file costs a gap, never a crash).
     pub fn open(data_dir: &Path) -> Self {
         let path = data_dir.join(SUBSCRIPTIONS_FILE);
-        let mut registry = Self { path, next_seq: 0, endpoints: HashMap::new(), capable: Vec::new() };
+        let mut registry = Self { path, next_seq: 0, endpoints: HashMap::new(), capable: HashMap::new() };
         let bytes = match mixdog_fsio::read(&mixdog_fsio::Unlaned, &registry.path) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -221,7 +221,8 @@ impl Registry {
             if let Some(device_id) = device.as_str().filter(|id| is_device_id(id))
                 && !self.is_capable(device_id)
             {
-                self.capable.push(device_id.to_owned());
+                let seq = self.take_seq();
+                self.capable.insert(device_id.to_owned(), seq);
             }
         }
         for row in parsed.get("subscriptions").and_then(Value::as_array).into_iter().flatten() {
@@ -284,7 +285,10 @@ impl Registry {
             .collect();
         let mut file = Map::new();
         file.insert("version".to_owned(), json!(1));
-        file.insert("devices".to_owned(), json!(self.capable));
+        let mut capable: Vec<(&String, &u64)> = self.capable.iter().collect();
+        capable.sort_by_key(|(_, seq)| **seq);
+        let capable: Vec<&String> = capable.into_iter().map(|(device_id, _)| device_id).collect();
+        file.insert("devices".to_owned(), json!(capable));
         file.insert("subscriptions".to_owned(), Value::Array(subscriptions));
         match write_owner_only(&self.path, &js::wire(&Value::Object(file))) {
             Ok(()) => true,
@@ -402,16 +406,27 @@ impl Registry {
         if self.is_capable(device_id) {
             return Capable::Unchanged;
         }
-        self.capable.push(device_id.to_owned());
+        let seq = self.take_seq();
+        self.capable.insert(device_id.to_owned(), seq);
         if self.persist() {
             return Capable::Ok;
         }
-        self.capable.retain(|known| known != device_id);
+        self.capable.remove(device_id);
         Capable::StoreFailed
     }
 
     pub fn is_capable(&self, device_id: &str) -> bool {
-        self.capable.iter().any(|known| known == device_id)
+        self.capable.contains_key(device_id)
+    }
+
+    /// Forgets the capable PCs `known` does not recognise (the device store at start-up): a PC that left the store has no use
+    /// for its mark.
+    pub fn retain_capable(&mut self, known: impl Fn(&str) -> bool) {
+        let before = self.capable.len();
+        self.capable.retain(|device_id, _| known(device_id));
+        if self.capable.len() != before {
+            self.persist();
+        }
     }
 
     pub fn has(&self, device_id: &str, client_id: &str, endpoint: &str) -> bool {
@@ -449,10 +464,7 @@ impl Registry {
     /// A revoked client (or, without `client_id`, a revoked device). True when an association went.
     pub fn drop_client(&mut self, device_id: &str, client_id: Option<&str>) -> bool {
         let removed = self.remove(|held| held.device_id == device_id && client_id.is_none_or(|id| held.client_id == id), None);
-        let forgotten = client_id.is_none() && self.is_capable(device_id);
-        if forgotten {
-            self.capable.retain(|known| known != device_id);
-        }
+        let forgotten = client_id.is_none() && self.capable.remove(device_id).is_some();
         if !removed.is_empty() || forgotten {
             self.persist();
         }

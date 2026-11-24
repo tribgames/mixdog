@@ -342,7 +342,7 @@ const DESKTOP_FRAME_HANDLERS = new Map([
   ['broadcast', broadcastFrame],
 ]);
 
-function releaseDesktopLeg(liveDesktops, deviceId, entry, socket) {
+function releaseDesktopLeg(liveDesktops, deviceId, entry, socket, nativeBindings) {
   releaseLeg(socket);
   releaseIngressLeg(socket);
   if (liveDesktops.get(deviceId)?.socket !== socket) return;
@@ -359,6 +359,7 @@ function releaseDesktopLeg(liveDesktops, deviceId, entry, socket) {
     if (liveDesktops.get(deviceId)?.socket !== socket) return;
     for (const phone of entry.clients.values()) closeQuietly(phone, DESKTOP_OFFLINE_CLOSE, 'desktop offline');
     liveDesktops.delete(deviceId);
+    dropNativeBindings(nativeBindings, deviceId);
   }, 45_000);
   entry.offlineTimer.unref?.();
 }
@@ -454,7 +455,7 @@ function listenDesktopFrames(leg, liveDesktops, maxFrameBytes) {
     // A closed live leg's code dies with it; a superseded leg must not clear
     // the code its replacement just requested.
     if (liveDesktops.get(deviceId)?.socket === socket) pairCodes?.clear(deviceId);
-    releaseDesktopLeg(liveDesktops, deviceId, entry, socket);
+    releaseDesktopLeg(liveDesktops, deviceId, entry, socket, leg.nativeBindings);
   });
 }
 

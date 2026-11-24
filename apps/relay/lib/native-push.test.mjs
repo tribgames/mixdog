@@ -530,3 +530,23 @@ test('a relay without credentials ignores native push frames (old/unconfigured r
   await settle();
   assert.equal(a.socket.sent.length, before);
 });
+
+test('a desktop that stays offline past the grace loses its bindings; one that returns keeps them', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const store = clientsOf({ 'dev-a': ['client-1'], 'dev-b': ['client-1'] });
+  const bindings = new Map();
+  const a = connectDesktop({ deviceId: 'dev-a', store, bindings, nativePush: fakeNativePush() });
+  const b = connectDesktop({ deviceId: 'dev-b', store, bindings, nativePush: fakeNativePush() });
+  a.emit(bind());
+  b.emit(bind());
+  assert.equal(bindings.get(APNS_TOKEN).size, 2);
+  a.socket.emit('close');
+  t.mock.timers.tick(44_000);
+  assert.equal(bindings.get(APNS_TOKEN).size, 2);
+  t.mock.timers.tick(1_000);
+  assert.equal(bindings.get(APNS_TOKEN).size, 1);
+  assert.deepEqual([...bindings.get(APNS_TOKEN).values()].map((row) => row.deviceId), ['dev-b']);
+  b.socket.emit('close');
+  t.mock.timers.tick(45_000);
+  assert.equal(bindings.size, 0);
+});

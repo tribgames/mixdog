@@ -149,9 +149,11 @@ function createRelayIce(turnEnv) {
 function createRelayWebPush(relay, dataDir, fetchImpl) {
   const keys = loadOrCreateVapidKeys(resolve(dataDir));
   if (!keys) return null;
+  const registry = createWebPushRegistry({ dataDir: resolve(dataDir) });
+  registry.retainCapable((deviceId) => relay.store.isKnown(deviceId));
   return {
     publicKey: keys.publicKey,
-    registry: createWebPushRegistry({ dataDir: resolve(dataDir) }),
+    registry,
     sender: createWebPushSender({ keys, ...(fetchImpl ? { fetchImpl } : {}) }),
     limiter: new RateLimiter(WEB_PUSH_RATE_LIMIT, WEB_PUSH_RATE_WINDOW_MS),
     mutationLimiter: new RateLimiter(WEB_PUSH_MUTATION_LIMIT, WEB_PUSH_MUTATION_WINDOW_MS),

@@ -112,7 +112,7 @@ impl Inner {
             Change::Keep(result) => return Ok(result),
             Change::Write(result) => result,
         };
-        if let Err(error) = self.write_rows(draft.rows().clone()).await {
+        if let Err(error) = self.write_rows(draft.into_rows()).await {
             log_failure(&error);
             return Err(NotPersisted);
         }
