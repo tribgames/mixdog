@@ -139,6 +139,19 @@ struct Routing {
     ended: bool,
 }
 
+impl Routing {
+    fn issue(&mut self, agent_id: &str, turn: &str, epoch: u64) -> String {
+        let base = format!("{turn}.{agent_id}");
+        let id = (1..).map(|n| mixdog_protocol::tool_call_ids::distinct_id(&base, epoch, n)).find(|id| !self.issued.contains(id)).expect("an id not yet issued");
+        self.issued.insert(id.clone());
+        id
+    }
+
+    fn turn_ended(&mut self) {
+        self.issued.clear();
+    }
+}
+
 /// The agent's own report of its context (`usage_update`): the tokens the context holds now, and the window it
 /// holds them in. Neither is a sum over turns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -498,6 +511,8 @@ impl AgentSession {
         for routed in unread {
             self.act(routed).await;
         }
+        // Ids carry their turn, so none of this turn's is issued again by a later one.
+        lock(&self.routing).turn_ended();
     }
 
     /// `session/cancel`. A `prompt` that is open is the agent's to close, and what it sends until then is that
@@ -546,12 +561,7 @@ impl AgentSession {
     /// A row id for the agent's call `agent_id` made in `turn`: distinct from every id this session issued, and,
     /// carrying the turn, from every id of an earlier process of the agent, which counts its calls from the start again.
     pub fn call_id(&self, agent_id: &str, turn: &str, epoch: u64) -> String {
-        let mut routing = lock(&self.routing);
-        let base = format!("{turn}.{agent_id}");
-        let id =
-            (1..).map(|n| mixdog_protocol::tool_call_ids::distinct_id(&base, epoch, n)).find(|id| !routing.issued.contains(id)).expect("an id not yet issued");
-        routing.issued.insert(id.clone());
-        id
+        lock(&self.routing).issue(agent_id, turn, epoch)
     }
 
     /// Folds `update` into the background call `agent_id` and tells whether that ended it; `None` for a call
@@ -721,6 +731,16 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
+
+    #[test]
+    fn a_turns_issued_ids_are_released_when_it_ends() {
+        let mut routing = Routing::default();
+        let first = routing.issue("call", "turn-1", 0);
+        assert_ne!(routing.issue("call", "turn-1", 0), first, "within a turn no id repeats");
+        routing.turn_ended();
+        assert!(routing.issued.is_empty());
+        assert_ne!(routing.issue("call", "turn-2", 0), first, "ids carry their turn");
+    }
 
     struct Writes(Mutex<Vec<(AbsPath, String)>>, bool);
 

@@ -3429,7 +3429,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let late_room_members = Arc::new(mixdog_core::run_host::room_approvals::LateRoomMembers::default()); // `SessionDeps.room_members`: bound to the rooms below
     let route_change = Arc::new(mixdog_core::run_host::route_change::RunHostRouteChange::new(route_facts, clock_agent.clone()));
     // The manual compaction and the inheritance fit (composition values, built before the path: they need the compaction world and the hook bus).
-    let manual_compaction: Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction> = Arc::new(
+    let host_compaction = Arc::new(
         mixdog_core::run_host::manual_compaction::HostManualCompaction::new(mixdog_core::run_host::manual_compaction::ManualParts {
             world: context_world.clone(),
             threads: Arc::new(mixdog_core::run_host::compose_parts::LateThreads(late.clone())),
@@ -3487,6 +3487,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         })
         .with_warm_uses(warm_touches.clone()),
     ); // the cache warmer's record: the idle auto-clear measures idleness from the last use of the prompt cache, warms included
+    // A thread that unloads or closes lets go of the media meters its compaction prepared.
+    side_store.on_end({
+        let compaction = host_compaction.clone();
+        move |thread, end| {
+            if matches!(end, mixdog_core_session::session::turn_ops::SideEnd::Detach | mixdog_core_session::session::turn_ops::SideEnd::Tombstone | mixdog_core_session::session::turn_ops::SideEnd::Unload) {
+                compaction.release_thread(thread);
+            }
+        }
+    });
+    let manual_compaction: Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction> = host_compaction;
     let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> =
         Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(

@@ -409,6 +409,25 @@ async fn the_runtime_scope_stays_readable_after_its_servers_are_dropped() {
     until(&hub.server_in(&scope, "alpha").unwrap(), ready).await;
     assert_eq!(runtime.open_runtime("/w").await, Ok(scope.clone()), "the owner is not closed");
 }
+/// A folder set while a scope is being released is never left behind: whichever of the two comes first, the scope ends with none.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scope_root_set_while_the_scope_is_released_is_not_left_behind() {
+    let Rig { hub, .. } = rig();
+    for round in 0..300 {
+        let scope = format!("raced-{round}");
+        let setter = {
+            let (hub, scope) = (hub.clone(), scope.clone());
+            std::thread::spawn(move || {
+                for _ in 0..20 {
+                    hub.set_scope_root(&scope, "/w");
+                }
+            })
+        };
+        hub.retire_scope(&scope);
+        setter.join().unwrap();
+        assert!(!hub.has_scope_root(&scope), "round {round}");
+    }
+}
 /// An owner that closes while its scope is still opening (a failed create after the seed, a
 /// session closed at once) leaves no server behind, and the owner opens nothing afterwards.
 #[tokio::test(flavor = "multi_thread")]
@@ -426,6 +445,18 @@ async fn an_owner_that_closes_while_its_scope_is_opening_leaves_nothing_behind()
     assert_eq!(opening.await.unwrap(), Err(ScopeReleased), "the opener is told, not handed a dead scope");
     assert!(!hub.has_scope("s1") && hub.is_released("s1"));
     assert_eq!(runtime.open("s2", "t1", "/w").await, Err(ScopeReleased), "a closed owner opens no other scope");
+}
+/// A released scope keeps no workspace folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_released_scope_forgets_its_workspace_folder() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    configs.set(&["alpha"]);
+    runtime.open("s1", "t1", "/w").await.unwrap();
+    assert!(hub.has_scope_root("s1"));
+    runtime.release("t1");
+    assert!(!hub.has_scope_root("s1"));
+    hub.set_scope_root("s1", "/w");
+    assert!(!hub.has_scope_root("s1"), "a released scope takes no folder again");
 }
 /// A second opener of a scope that is still connecting waits for that connect (and so sees every
 /// server settled); an operation requested meanwhile queues behind it and resolves its

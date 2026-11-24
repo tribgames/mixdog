@@ -4,6 +4,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::SecretChanges;
 use mixdog_protocol::config::desktop_files;
 use mixdog_protocol::config::keys;
+use mixdog_core_session::session::turn_ops::ShownSender;
 use mixdog_rt::TaskClass;
 use serde_json::json;
 use tokio::sync::watch;
@@ -146,6 +147,21 @@ mod tests {
             .await
             .expect("a setting");
         assert_eq!(*counted.borrow(), 1);
+    }
+    /// A thread whose feed was dropped leaves the followers at once, not at the next settings write.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_follower_leaves_when_its_feed_ends() {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
+        let changes = SettingsChanges::start(config, secrets);
+        let kept = changes.feed(&ThreadId::from("kept"));
+        drop(changes.feed(&ThreadId::from("gone")));
+        assert_eq!(changes.shown.lock().unwrap().iter().map(|(thread, _)| thread.clone()).collect::<Vec<_>>(), ["kept"]);
+        drop(kept);
     }
     /// A settings call answers only once every following thread has shown the change it wrote; a thread that is gone holds nothing.
     #[tokio::test(flavor = "current_thread")]
@@ -316,7 +332,11 @@ impl SettingsChanges {
     pub fn feed(&self, thread: &mixdog_core_api::ids::ThreadId) -> mixdog_core_session::session::turn_ops::SettingsFeed {
         let changes = self.announced.subscribe();
         let (shown, follower) = watch::channel(*changes.borrow());
-        self.shown.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((thread.as_str().to_owned(), follower));
+        self.shown.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((thread.as_str().to_owned(), follower.clone()));
+        let (followers, mine) = (self.shown.clone(), follower);
+        let shown = ShownSender::new(shown, move || {
+            followers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|(_, other)| !other.same_channel(&mine));
+        });
         mixdog_core_session::session::turn_ops::SettingsFeed { changes, shown }
     }
 

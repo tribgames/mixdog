@@ -89,6 +89,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_forgotten_root_leaves_the_cache() {
+        let cache = DeclarationCache::new();
+        let (kept, gone) = (Path::new("kept"), Path::new("gone"));
+        cache.load_with(kept, |_| DeclarationFile::Missing);
+        cache.load_with(gone, |_| DeclarationFile::Missing);
+        cache.forget(gone);
+        let entries = cache.entries.lock().unwrap();
+        assert!(entries.contains_key(kept) && !entries.contains_key(gone));
+    }
+
+    #[test]
     fn an_edit_during_a_fill_cannot_cache_an_old_declaration_under_new_bytes() {
         let cache = DeclarationCache::new();
         let root = Path::new("plugin");

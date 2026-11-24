@@ -1968,6 +1968,8 @@ pub struct ProcessComputerBackend {
     authority: Authority,
     /// `revoke_and_stop`, run once: every caller after the first waits for the same acknowledgement.
     revocation: tokio::sync::OnceCell<bool>,
+    /// Runs when the backend ends, for what tracks it elsewhere.
+    on_end: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 /// The environment the Linux preflight reads, taken afresh for each action.
@@ -2075,7 +2077,14 @@ impl ProcessComputerBackend {
             failed_capture_attempts: Mutex::new(None),
             authority: Authority::default(),
             revocation: tokio::sync::OnceCell::new(),
+            on_end: None,
         }
+    }
+
+    /// `end` runs once the backend has ended and is dropped.
+    pub fn with_end_hook(mut self, end: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_end = Some(Box::new(end));
+        self
     }
 
     /// Acts, and starts helpers, only under `authority` (one scope per backend, made by the pool).
@@ -2787,6 +2796,9 @@ impl ProcessComputerBackend {
 
 impl Drop for ProcessComputerBackend {
     fn drop(&mut self) {
+        if let Some(end) = &self.on_end {
+            end();
+        }
         // Ends watch_for_death's tasks.
         self.gone.notify_one();
         self.arrivals.wake.notify_one();
