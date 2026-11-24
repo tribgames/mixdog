@@ -1108,25 +1108,31 @@ test("folds are one record per session: a fold made in one place shows in every 
       React.createElement(Probe, { name: 'island', sessionId })
     );
   const { root } = await mount(t, both('one'));
-  // Nothing is folded until the user folds it; a to-do fold stands as its list asks until the user sets it.
-  for (const category of SESSION_RAIL_CATEGORIES) assert.equal(folds.panel.isOpen(category), true, category);
+  // Agents, Shells, Changes and Git start folded and the rest open, until the user turns one; a to-do fold stands
+  // as its list asks until the user sets it.
+  const foldedFirst = ['agents', 'shells', 'changes', 'git'];
+  for (const category of SESSION_RAIL_CATEGORIES)
+    assert.equal(folds.panel.isOpen(category), !foldedFirst.includes(category), category);
   assert.equal(folds.panel.groupOpen('done', false), false);
   assert.equal(folds.panel.groupOpen('done', true), true);
   await act(async () => folds.panel.setGroups({ 'agents:Worker': false }));
   assert.equal(folds.island.groupOpen('agents:Worker', true), false, 'the island shows the panel’s fold');
   await act(async () => folds.island.setGroups({ done: true }));
   await act(async () => folds.panel.toggle('agents'));
+  await act(async () => folds.island.toggle('info'));
   for (const name of ['panel', 'island']) {
     assert.equal(folds[name].groupOpen('agents:Worker', true), false, name);
     assert.equal(folds[name].groupOpen('done', false), true, name);
-    assert.equal(folds[name].isOpen('agents'), false, name);
+    assert.equal(folds[name].isOpen('agents'), true, `${name}: opened against its default`);
+    assert.equal(folds[name].isOpen('info'), false, `${name}: folded against its default`);
   }
   await act(async () => root.render(both('two')));
-  assert.equal(folds.panel.isOpen('agents'), true, 'another session starts with everything open');
+  assert.equal(folds.panel.isOpen('agents'), false, 'another session starts from the defaults');
+  assert.equal(folds.panel.isOpen('info'), true);
   assert.equal(folds.panel.groupOpen('agents:Worker', true), true);
   await act(async () => root.render(both('one', 'again')));
-  assert.equal(folds.island.isOpen('agents'), false);
-  assert.equal(folds.island.isOpen('info'), true);
+  assert.equal(folds.island.isOpen('agents'), true);
+  assert.equal(folds.island.isOpen('info'), false);
   assert.equal(folds.island.groupOpen('agents:Worker', true), false);
   assert.equal(folds.island.groupOpen('done', false), true);
 });
@@ -2209,9 +2215,9 @@ test('a clean branch with commits not pushed keeps Git and its actions', async (
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   const section = document.querySelector('[data-category="git"]');
   assert.ok(section, 'two commits ahead: the category stays');
-  // The closed head counts what waits, without the branch's name (Info's row).
+  // The closed head shows the commits to push, with no file count and without the branch's name (Info's row).
   const head = section.querySelector('.session-rail-tg');
-  assert.equal(head.querySelector('.session-rail-sm').textContent, `${t('Files {{count}}', { count: 0 })} · ↑2`);
+  assert.equal(head.querySelector('.session-rail-sm').textContent, '↑2');
   assert.doesNotMatch(head.textContent, /main/);
   const run = () => section.querySelector('.session-rail-hd > .composer-island-git-run');
   // Folded: the Run of the picked action stands at the head's end, after the count.

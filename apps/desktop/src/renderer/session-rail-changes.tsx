@@ -194,12 +194,8 @@ export function GitSection({
     <RailSection
       category="git"
       title={t('Git')}
-      // The branch is Info's row: the closed head counts what waits here.
-      summary={
-        <span className="session-rail-cut">
-          {[t('Files {{count}}', { count: files }), ahead > 0 ? `↑${ahead}` : ''].filter(Boolean).join(' · ')}
-        </span>
-      }
+      // The branch is Info's row: the closed head shows only the commits waiting to be pushed.
+      summary={ahead > 0 ? <span className="session-rail-cut">{`↑${ahead}`}</span> : undefined}
       action={
         <button
           type="button"
