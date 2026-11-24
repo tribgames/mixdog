@@ -112,6 +112,20 @@ test('a native clamp during replacement is repaired even when the final extent i
   assert.deepEqual(state.reported.at(-1), { top: 800, intended: 800 });
 });
 
+test('a pin that finds the end already held records no write: no scroll event will come for one', async () => {
+  const state = fixture();
+  state.pin.request();
+  await Promise.resolve();
+  assert.deepEqual(state.reported, [{ top: 800, intended: 800 }], 'the write that moved the offset is recorded');
+  for (let pin = 0; pin < 5; pin += 1) {
+    state.pin.request();
+    await Promise.resolve();
+    state.pin.now();
+  }
+  assert.deepEqual(state.writes, [800]);
+  assert.equal(state.reported.length, 1, 'pins that wrote nothing record nothing');
+});
+
 test('a height change held by a gesture is pinned on idle without another mutation', async () => {
   const state = fixture();
   state.gesture();

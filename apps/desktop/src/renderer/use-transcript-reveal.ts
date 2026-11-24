@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
+import { transcriptDockInset } from './transcript-list-dock-inset';
 import { transcriptThreadInset } from './transcript-list-geometry';
 import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_RELEARN_ATTRIBUTE } from './transcript-virtual-cache';
 import { transcriptScrollPosition } from './use-transcript-follow';
@@ -139,6 +140,8 @@ export function useTranscriptReveal({
       // The boxes that settle: the rows in view that are not streaming. A streaming reply, and with it the list's
       // extent, changes for as long as it streams.
       const signature: number[] = [position.viewportHeight];
+      // The list's own end padding: the spacer below the last row, and the dock's height floating over it.
+      const endPadding = TRANSCRIPT_BOTTOM_SPACER + transcriptDockInset(root);
       let visible = 0;
       let visiblePending = false;
       const visibleRows: HTMLElement[] = [];
@@ -150,7 +153,7 @@ export function useTranscriptReveal({
         if (end <= top || start >= bottom) return;
         visible++;
         visibleRows.push(row);
-        closedEnds.push(next ? end : end - TRANSCRIPT_BOTTOM_SPACER);
+        closedEnds.push(next ? end : end - endPadding);
         if (row.querySelector(STREAMING)) return;
         if (warm && !visiblePending) visiblePending = Boolean(row.querySelector(ROW_PENDING));
         signature.push(Number(row.dataset.index), start, end);

@@ -215,8 +215,10 @@ export function Conversation(props: ConversationProps) {
             agentMode={agentMode}
           />
         </HandoffQuestionsContext.Provider>
-        {/* The dock is the column's in-flow sibling below the viewport: its
-          height changes resize the viewport, never the virtual geometry. */}
+        {/* The dock is the column's in-flow sibling below the transcript's shell;
+          the scroller runs on under it, so its height changes move the
+          timeline's bottom inset (transcript-list-dock-inset.ts), never the
+          viewport's size. */}
         {!readOnly && (
           <ConversationComposerDock
             {...props}

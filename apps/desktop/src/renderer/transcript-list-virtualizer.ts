@@ -88,6 +88,8 @@ export function useTranscriptVirtualizer({
   shouldAnchorBottom,
   initialMeasurements,
   requestEndPin,
+  pinEndNow,
+  bottomInset,
   noteScrollOffset,
   domTop,
   markProgrammaticScrollRef,
@@ -106,6 +108,10 @@ export function useTranscriptVirtualizer({
   shouldAnchorBottom: boolean;
   initialMeasurements: VirtualItem[] | undefined;
   requestEndPin: () => void;
+  /** The end pin in the caller's task. */
+  pinEndNow: () => void;
+  /** What the dock floating over the viewport's bottom covers of it (transcript-list-dock-inset.ts). */
+  bottomInset: MutableRefObject<number>;
   noteScrollOffset: MutableRefObject<(top: number) => void>;
   domTop: MutableRefObject<number | null>;
   markProgrammaticScrollRef: MutableRefObject<((top: number, intended?: number) => void) | undefined>;
@@ -153,9 +159,10 @@ export function useTranscriptVirtualizer({
     // end pin. An 80px band lost tall rows in a short split and invited a
     // second scrollToEnd writer. Reader release flips followOnAppend off.
     scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
-    // The one tail gap: the dock is a layout sibling below the viewport, so
-    // no chrome clearance belongs to the scroll content.
-    paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
+    // The tail gap above the dock, which floats over the viewport's bottom:
+    // what it covers belongs to the scroll content, so the dock changing
+    // height never resizes the viewport (transcript-list-dock-inset.ts).
+    paddingEnd: TRANSCRIPT_BOTTOM_SPACER + bottomInset.current,
     // React's async rerender lets the core move scrollTop pre-paint while rows
     // still paint at their previous position; direct DOM updates write row
     // positions inside the core transaction.
@@ -166,15 +173,20 @@ export function useTranscriptVirtualizer({
     // Transform mode gives each row its own compositor layer, which Chromium can
     // present from different scroll phases (a horizontal tear).
     directDomUpdatesMode: 'position',
-    // The viewport and the rows share one geometry owner. Request the pin
-    // AFTER the core accepts the new height, including its first observation;
-    // a separate observer could read the previous height and skip the pin.
+    // The viewport and the rows share one geometry owner. Pin AFTER the core
+    // accepts the new size of either axis, including its first observation. A
+    // shown viewport resized is pinned in the same observer pass: a pin left for
+    // later paints the frame between detached from the end. One coming out of
+    // no size (its pane shown again, or first laid out) is the list's appearance,
+    // which its reveal presents once its geometry holds: that pin is requested.
     observeElementRect: (instance, cb) =>
       observeElementRect(instance, (rect) => {
-        const previous = instance.scrollRect?.height;
+        const previous = instance.scrollRect;
         if (rect.width > 0) timelineWidth.current = rect.width;
         cb(rect);
-        if (rect.height !== previous) requestEndPin();
+        if (rect.height === previous?.height && rect.width === previous?.width) return;
+        if (previous && previous.height > 0 && rect.height > 0) pinEndNow();
+        else requestEndPin();
       }),
     observeElementOffset: observeTranscriptOffset(noteScrollOffset, domTop, deviation),
     scrollToFn: transcriptScrollTo({ viewport, spacer, domTop, markProgrammaticScrollRef, requestEndPin, deviation }),

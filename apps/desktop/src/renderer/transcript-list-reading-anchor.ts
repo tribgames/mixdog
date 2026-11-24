@@ -43,6 +43,7 @@ export function useReadingAnchor({
   flushDeferredResizes,
   indexForPendingKey,
   deviation,
+  syncDockInset,
 }: {
   rows: readonly TranscriptRowModel[];
   virtualizer: TranscriptVirtualizer;
@@ -57,11 +58,16 @@ export function useReadingAnchor({
   flushDeferredResizes: (only?: (index: number) => boolean) => void;
   indexForPendingKey: (key: unknown, hint: number) => number;
   deviation: TouchScrollDeviation;
+  /** Lays the dock's inset out from the layout as it stands (transcript-list-dock-inset.ts). */
+  syncDockInset: () => void;
 }) {
   const writeReadingOffset = useCallback(
     (instance: TranscriptVirtualizer, target: number) => {
       const element = viewport.current;
       if (!element) return;
+      // The end the offset is clamped to includes the dock's inset as it stands, whichever observer of a pane being
+      // shown runs first.
+      syncDockInset();
       if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
       const top = Math.max(0, Math.min(target, maxScrollTop()));
       const core = coreScrollState(instance);
@@ -79,7 +85,7 @@ export function useReadingAnchor({
       // flushSync cannot run inside a layout effect, so never a sync notify.
       core.notify(false);
     },
-    [maxScrollTop, viewport, spacer, domTop, markProgrammaticScrollRef, deviation]
+    [maxScrollTop, viewport, spacer, domTop, markProgrammaticScrollRef, deviation, syncDockInset]
   );
   const laidOutRows = useRef(rows);
   const pendingAnchor = useRef<{ base: readonly TranscriptRowModel[]; anchor: ReadingAnchor | null } | null>(null);
@@ -119,17 +125,26 @@ export function useReadingAnchor({
       hold.start = start;
       // Where the anchor sits in the view the list writes: what the hold is checked against from here on.
       hold.offset = start - target;
-      if (
-        Math.abs(target - reading) < 0.5 &&
-        (!landing || (domTop.current !== null && Math.abs(domTop.current - target) < 0.5))
-      )
-        return;
+      // A landing is checked against the view as it stands: the browser clamps an offset the list wrote when the extent
+      // under it shrinks (a pane laid out before the dock's inset reached its end padding).
+      const element = viewport.current;
+      const shown = element ? element.scrollTop + deviation.amount() : domTop.current;
+      if (Math.abs(target - reading) < 0.5 && (!landing || (shown !== null && Math.abs(shown - target) < 0.5))) return;
       if (transcriptScrollDiagnosticsEnabled()) {
         logTranscriptScroll('reading-anchor', { from: reading, to: target, index: at, start, landing });
       }
       writeReadingOffset(instance, target);
     },
-    [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset, virtualizerRef, domTop]
+    [
+      flushDeferredResizes,
+      indexForPendingKey,
+      readingAnchorHeld,
+      writeReadingOffset,
+      virtualizerRef,
+      domTop,
+      viewport,
+      deviation,
+    ]
   );
   noteScrollOffset.current = (top: number) => {
     domTop.current = top;

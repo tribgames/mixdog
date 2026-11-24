@@ -73,7 +73,8 @@ export function createTranscriptWidthSync({
   baseResizeItem: { current: ((index: number, size: number) => void) | null };
   /** True while the batch applies: the core must not compensate each row. */
   suppressAdjustment: { current: boolean };
-  endPin: { request(): void };
+  /** Pins in the caller's task: a width change lands the end in the pass that saw it. */
+  endPin: { now(): void };
   anchorHold: ReadingAnchorState['anchorHold'];
   restoreReadingAnchor(landing?: boolean): void;
 }) {
@@ -114,7 +115,7 @@ export function createTranscriptWidthSync({
     }
     if (!changed) return;
     if (following) {
-      endPin.request();
+      endPin.now();
       return;
     }
     if (!anchor) return;
@@ -191,7 +192,7 @@ function useWidthSyncRegistration({
     pendingResizes,
     baseResizeItem,
     suppressAdjustment: widthSyncing,
-    endPin: { request: () => latest.current.endPin.request() },
+    endPin: { now: () => latest.current.endPin.now() },
     anchorHold,
     restoreReadingAnchor: (landing) => latest.current.restoreReadingAnchor(landing),
   });

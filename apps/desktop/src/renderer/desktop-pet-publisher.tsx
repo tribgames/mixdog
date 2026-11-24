@@ -32,6 +32,7 @@ import { hasOpenModal, subscribeModals } from './settings/dialog-modality';
 import { subscribeTitleBarDim, titleBarDimHeld } from './titlebar-dim';
 import { companionBubble, latestCompletion } from './skin-companion-model';
 import { commandShowsActivity } from './transcript-status';
+import { transcriptDockInset } from './transcript-list-dock-inset';
 import { TRANSCRIPT_BOTTOM_SPACER } from './transcript-virtual-cache';
 
 type PetApi = Pick<
@@ -393,14 +394,15 @@ function islandPill(card: Element): Pick<Required<DesktopPetComposer>, 'island' 
 }
 
 function transcriptColumn(card: Element): DesktopPetComposer['transcript'] {
-  const scroller = card.closest('.conversation, .pane-cell')?.querySelector('.transcript');
+  const scroller = card.closest('.conversation, .pane-cell')?.querySelector<HTMLElement>('.transcript');
   if (!scroller) return undefined;
   const box = scroller.getBoundingClientRect();
   if (box.width <= 0 || box.height <= 0) return undefined;
+  // The scroller runs on under the dock; what shows of it ends the dock's height above its bottom.
   return {
     left: Math.round(box.left),
     right: Math.round(box.left + box.width),
-    bottom: Math.round(box.top + box.height - TRANSCRIPT_BOTTOM_SPACER),
+    bottom: Math.round(box.top + box.height - transcriptDockInset(scroller) - TRANSCRIPT_BOTTOM_SPACER),
   };
 }
 

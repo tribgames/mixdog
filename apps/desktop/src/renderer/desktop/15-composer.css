@@ -12,10 +12,10 @@
   /* Same reading frame as the rows above it — both read the pane ladder. */
   padding: 0 var(--pane-inset) 16px;
 }
-/* The dock is an ordinary layout sibling BELOW the transcript viewport: the
-   conversation column gives the transcript shell whatever the dock's
-   intrinsic height leaves, so every dock change resizes the viewport itself
-   and nothing is fed back into the transcript as padding. */
+/* The dock is a layout sibling below the transcript shell, which ends at the
+   dock's top edge; the transcript's scroller runs on under the dock at the
+   conversation's whole height (12-transcript.css), so a dock change moves the
+   shell's edge and the timeline's bottom inset, never the scroller's size. */
 .conversation > .composer-region,
 .studio-shell > .studio-dock {
   position: relative;
@@ -80,8 +80,8 @@
    tool approval card and flashes short notices. Its slot is in the dock's
    flow: the island's real height plus the 12px gap above the input while it
    carries something, and no box at all once it carries nothing. The approval
-   card takes real room (bounded below), so the transcript viewport above
-   gets shorter; expanded panels float over the transcript instead and leave
+   card takes real room (bounded below), so the transcript's bottom inset
+   grows with it; expanded panels float over the transcript instead and leave
    the slot at its collapsed height.
    ComposerIsland owns the slot's height (--island-slot-height, px) and its
    data-presence: "open" while something is carried, "grace" for a short
@@ -129,7 +129,7 @@
 }
 /* An expanded panel overlays the transcript instead of taking dock room. The
    stage keeps its collapsed height (pill + gap) out of flow, so the slot
-   measures the same as collapsed and the transcript viewport never resizes.
+   measures the same as collapsed and the transcript's bottom inset never moves.
    The panel hangs down from the pill's top edge and is lifted by its own
    height less one pill: its layout origin stays put (nothing is reported as
    shifting) while it paints above the pill's place on the slot's floor. The

@@ -217,6 +217,30 @@
      only the pointer shape is pinned. */
   cursor: default;
 }
+/* The composer dock floats over the transcript's bottom. The scroller keeps
+   the conversation's whole height (and the height a soft keyboard covers,
+   --mx-keyboard-inset from shell-viewport.ts), so the composer, the island and
+   the keyboard changing height never resize it; its shell still ends at the
+   dock's top edge and clips what runs on under the dock. The covered height is
+   the timeline's bottom inset (transcript-list-dock-inset.ts), which the
+   scroller carries for its scrollbar track and scroll padding. */
+.conversation > .transcript-shell {
+  overflow: clip;
+}
+.conversation > .transcript-shell > .transcript {
+  flex: none;
+  height: calc(100cqh + var(--mx-keyboard-inset, 0px));
+  scroll-padding-bottom: var(--transcript-dock-inset, 0px);
+}
+.transcript::-webkit-scrollbar-track {
+  margin-bottom: var(--transcript-dock-inset, 0px);
+}
+/* The inset is the scroller's own: set again here, the rows inherit a constant,
+   so the inset changing on every frame of the dock's motion restyles the
+   scroller alone. */
+.transcript > .thread {
+  --transcript-dock-inset: 0px;
+}
 /* Top scroll fade strip. Absolute sibling of the scroller, so scroll geometry
    and the virtual list's measurements are untouched. No fade above the
    composer. */

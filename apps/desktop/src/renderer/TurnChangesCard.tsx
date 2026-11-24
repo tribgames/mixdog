@@ -23,6 +23,7 @@ import { ownedFocus } from './own-scroll-writes';
 import { isAbsolutePath } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { MarkdownProjectContext } from './MarkdownLink';
+import { transcriptDockInset } from './transcript-list-dock-inset';
 import type { TranscriptRowModel } from './transcript-rows';
 import {
   invokeTurnChanges,
@@ -513,12 +514,14 @@ function TurnChangesCardBody({
     const port = view.getBoundingClientRect();
     // A row with no box (its pane is not rendered) says nothing of where it is.
     if (box.height <= 0 || port.height <= 0) return true;
-    if (box.bottom <= port.top || box.top >= port.bottom) return false;
+    // What the dock floating over the viewport's bottom covers is out of view.
+    const bottom = port.bottom - transcriptDockInset(view);
+    if (box.bottom <= port.top || box.top >= bottom) return false;
     if (view.dataset.following !== 'true') return true;
     // Rows are placed by their offsets, not by their order in the document.
     return [...(row.parentElement?.children ?? [])].some((other) => {
       const next = other.getBoundingClientRect();
-      return other !== row && next.height > 0 && next.top >= box.bottom - 1 && next.top < port.bottom;
+      return other !== row && next.height > 0 && next.top >= box.bottom - 1 && next.top < bottom;
     });
   };
   const seatHeight = (): number => seat.current?.getBoundingClientRect().height ?? 0;

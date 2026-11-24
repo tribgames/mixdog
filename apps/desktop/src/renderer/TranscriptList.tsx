@@ -3,6 +3,7 @@ import { type MutableRefObject, type ReactNode, type RefObject, useEffect, useMe
 import { useAnchorOverride } from './transcript-list-anchor-override';
 import { useTranscriptHandles, useRememberVirtualMeasurements, useSelectionDrag } from './transcript-list-handles';
 import { useDeferredResizes } from './transcript-list-deferred-resizes';
+import { useDockInset } from './transcript-list-dock-inset';
 import { useTranscriptEndPin } from './transcript-list-end-pin';
 import { logicalScrollOffset, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { transcriptRowVariant } from './transcript-list-estimates';
@@ -117,6 +118,7 @@ export function TranscriptList({
   // measurements are replayed immediately and corrected by virtual-core if
   // the current width wraps them differently.
   const restored = useMemo(() => readTranscriptVirtualSnapshot(sessionKey), [sessionKey]);
+  const bottomInset = useRef(0);
   const { virtualizer, virtualizerRef, relearnFrame, provisionalFrame } = useTranscriptVirtualizer({
     count: rows.length,
     viewport,
@@ -130,6 +132,8 @@ export function TranscriptList({
     initialMeasurements: restored?.measurements,
     // Resolved at call time: the end pin is built below, from this instance.
     requestEndPin: () => endPin.request(),
+    pinEndNow: () => endPin.now(),
+    bottomInset,
     noteScrollOffset,
     domTop,
     markProgrammaticScrollRef,
@@ -159,6 +163,18 @@ export function TranscriptList({
     markProgrammaticScrollRef,
     deviation,
   });
+  const syncDockInset = useDockInset({
+    viewport,
+    spacer,
+    virtualizerRef,
+    bottomInset,
+    // Resolved at call time: the reading anchor is built below, from this instance.
+    onChange: () => {
+      const instance = virtualizerRef.current;
+      if (instance.options.anchorTo === 'end' || instance.options.followOnAppend) endPin.now();
+      else if (readingAnchorHeld()) restoreReadingAnchor(true);
+    },
+  });
   const { laidOutRows, pendingAnchor, anchorHold, readingAnchorHeld, restoreReadingAnchor, queueAnchorRestore } =
     useReadingAnchor({
       rows,
@@ -174,6 +190,7 @@ export function TranscriptList({
       flushDeferredResizes,
       indexForPendingKey,
       deviation,
+      syncDockInset,
     });
   useReaderPlace({
     sessionKey,
@@ -185,8 +202,9 @@ export function TranscriptList({
     anchorHold,
     restoreReadingAnchor,
     flushDeferredResizes,
+    syncDockInset,
   });
-  useMountedRowMeasurement({
+  const rowMeasurement = {
     rows,
     spacer,
     virtualizerRef,
@@ -197,7 +215,7 @@ export function TranscriptList({
     pendingAnchor,
     anchorHold,
     restoreReadingAnchor,
-  });
+  };
   const { settleHeldShrinks } = useVirtualizerResizePatch({
     virtualizer,
     viewport,
@@ -259,22 +277,34 @@ export function TranscriptList({
       ? virtualRows
       : activeIndexesRef.current.flatMap((index) => virtualizer.measurementsCache[index] ?? []);
   return (
-    // directDomUpdates owns this height synchronously through containerRef.
-    // A React height prop can commit an older render after a native wheel
-    // reaches the bottom and temporarily clip one pane at stale geometry.
-    <div className="transcript-virtual-space" ref={bindSpacer}>
-      {mounted.map((virtualRow) =>
-        renderVirtualRow(
-          virtualRow,
-          rows,
-          measureRow,
-          rowNodes,
-          visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex),
-          waiting
-        )
-      )}
-    </div>
+    <>
+      {/* directDomUpdates owns this height synchronously through containerRef.
+        A React height prop can commit an older render after a native wheel
+        reaches the bottom and temporarily clip one pane at stale geometry. */}
+      <div className="transcript-virtual-space" ref={bindSpacer}>
+        {mounted.map((virtualRow) =>
+          renderVirtualRow(
+            virtualRow,
+            rows,
+            measureRow,
+            rowNodes,
+            visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex),
+            waiting
+          )
+        )}
+      </div>
+      <MountedRowMeasurement {...rowMeasurement} />
+    </>
   );
+}
+
+/** Reads the rows a commit laid out before the list writes that commit's spacer height: a child's layout effects run
+ *  after the spacer's ref is bound and before its parent's, where virtual-core writes the spacer. A row that changed
+ *  with the rows around it (a live band leaving as the turn's footer folds onto its reply) is applied in the same
+ *  pass, so the spacer never shrinks first and clamps the view. */
+function MountedRowMeasurement(props: Parameters<typeof useMountedRowMeasurement>[0]) {
+  useMountedRowMeasurement(props);
+  return null;
 }
 
 const noTouchScroll = () => false;

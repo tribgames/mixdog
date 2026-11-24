@@ -13,6 +13,9 @@ const HARNESS = `
   import { SessionGoalIsland } from './SessionGoalIsland';
   import { TranscriptList } from './TranscriptList';
   import { useTranscriptFollow } from './use-transcript-follow';
+  import { PaneKeyContext } from './pane-key-context';
+  import { openReaderPlace } from './transcript-list-reader-place';
+  import { setHistoryPositions } from '../../../../packages/protocol-client/src/rows';
 
   const root = createRoot(document.getElementById('root'));
   const pending = new Map();
@@ -24,10 +27,12 @@ const HARNESS = `
     } }),
   };
   const empty = [];
+  // Each row shows a stored record: a pane can be handed a reader's place on one.
   const rows = Array.from({ length: 40 }, (_, index) => ({
     key: 'message-' + index, _tag: 'AssistantPart',
-    item: { kind: 'assistant', text: 'Message ' + index },
+    item: setHistoryPositions({ kind: 'assistant', text: 'Message ' + index }, 'p-' + index, 'p-' + index),
   }));
+  window.openPlace = (session, place) => openReaderPlace('pane-1', session, place);
   function Body({ id }) {
     if (pending.has(id)) throw pending.get(id).promise;
     return <article data-body={id}>
@@ -112,9 +117,12 @@ const HARNESS = `
       </ComposerDock>
     </section>;
   }
-  window.mountFixture = (session) => {
+  // A pane key keeps the reader's places of the sessions mounted in it.
+  window.mountFixture = (session, pane = '') => {
     pending.clear();
-    flushSync(() => root.render(<Harness key={session} session={session} />));
+    flushSync(() => root.render(<PaneKeyContext.Provider value={pane}>
+      <Harness key={session} session={session} />
+    </PaneKeyContext.Provider>));
   };
 `;
 
@@ -143,6 +151,8 @@ const PAGE_PROBES = `
       motion: slot?.hasAttribute('data-motion') ?? false,
       viewportHeight: view.height,
       viewportBottom: view.bottom,
+      // What shows of the viewport: its shell clips the part that runs on under the dock.
+      shownBottom: viewport.parentElement.getBoundingClientRect().bottom,
       top: viewport.scrollTop,
       key: row?.dataset.timelineKey,
       rowTop: row?.getBoundingClientRect().top,
@@ -351,9 +361,10 @@ function assertDockHeight(label, kind, before, after, frames) {
   }
 }
 
-/** While following: the viewport ends at the dock, gives up exactly what the
- *  dock takes, and the tail sits TRANSCRIPT_BOTTOM_SPACER (24px) above it on
- *  every resized and painted frame, through the slot's whole easing. */
+/** While following: the viewport keeps its height under the dock, what shows
+ *  of it ends where the dock starts, and the tail sits
+ *  TRANSCRIPT_BOTTOM_SPACER (24px) above the dock on every resized and painted
+ *  frame, through the slot's whole easing. */
 async function assertFollowedChange(page, label, change, kind, instant = false) {
   const result = await framesOf(page, change);
   const { before, after, frames } = result;
@@ -362,12 +373,12 @@ async function assertFollowedChange(page, label, change, kind, instant = false) 
   for (const frame of frames) {
     assert.equal(frame.following, true, `${label}: still following`);
     assert.ok(
-      Math.abs(frame.viewportBottom - frame.dockTop) < 0.5,
-      `${label}: the viewport ends where the dock starts`
+      Math.abs(frame.shownBottom - frame.dockTop) < 0.5,
+      `${label}: what shows of the viewport ends where the dock starts`
     );
     assert.ok(
-      Math.abs(frame.viewportHeight + frame.dockHeight - (before.viewportHeight + before.dockHeight)) < 0.5,
-      `${label}: the viewport changes with the dock`
+      Math.abs(frame.viewportHeight - before.viewportHeight) < 0.5,
+      `${label}: the dock never resizes the viewport`
     );
     assert.ok(
       Math.abs(frame.gap - 24) < 0.5,
@@ -377,7 +388,7 @@ async function assertFollowedChange(page, label, change, kind, instant = false) 
   return after;
 }
 
-/** While reading: the dock still resizes the viewport, but the message the
+/** While reading: the dock moves over the viewport, and the message the
  *  reader looks at keeps its screen position on every frame. */
 async function assertReadChange(page, label, change, key, kind) {
   const result = await framesOf(page, change, key);
@@ -387,9 +398,10 @@ async function assertReadChange(page, label, change, key, kind) {
   for (const frame of frames) {
     assert.equal(frame.following, false, `${label}: the reader stays detached`);
     assert.ok(
-      Math.abs(frame.viewportBottom - frame.dockTop) < 0.5,
-      `${label}: the viewport ends where the dock starts`
+      Math.abs(frame.shownBottom - frame.dockTop) < 0.5,
+      `${label}: what shows of the viewport ends where the dock starts`
     );
+    assert.ok(Math.abs(frame.viewportHeight - before.viewportHeight) < 0.5, `${label}: the viewport keeps its height`);
     assert.ok(Math.abs(frame.rowTop - before.rowTop) <= 1, `${label}: the read message stays at its screen position`);
   }
   return after;
@@ -535,15 +547,19 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       window.armPainted();
       return (await window.paintedUntilSettled()).at(-1);
     });
-    assert.ok(Math.abs(before.viewportHeight + before.dockHeight - height) < 0.5, 'the dock sits below the viewport');
-    assert.ok(Math.abs(before.viewportBottom - before.dockTop) < 0.5, 'the viewport ends where the dock starts');
+    assert.ok(
+      Math.abs(before.viewportHeight - height) < 0.5,
+      'the viewport runs the pane’s whole height, under the dock'
+    );
+    assert.ok(Math.abs(before.viewportBottom - before.paneBottom) < 0.5, 'and ends with the pane');
+    assert.ok(Math.abs(before.shownBottom - before.dockTop) < 0.5, 'what shows of it ends where the dock starts');
     assert.equal(before.slotHeight, 0, 'an empty island slot takes no room');
     assert.ok(Math.abs(before.gap - 24) < 0.5, `the tail sits 24px above the dock (was ${before.gap?.toFixed(2)})`);
     const emptyDock = before.dockHeight;
     const restingFade = await checkScrollFade(page);
 
-    // Following: every dock member growing and shrinking resizes the viewport
-    // and keeps the tail exactly 24px above the dock on every frame.
+    // Following: every dock member growing and shrinking moves the dock over
+    // the viewport and keeps the tail exactly 24px above it on every frame.
     for (const [label, change, kind] of dockChanges(page)) await assertFollowedChange(page, label, change, kind);
     assert.equal((await geometry(page)).dockHeight, emptyDock, 'the last item leaving leaves no island footprint');
     assert.equal((await geometry(page)).slotHeight, 0, 'nothing holds the emptied slot open');
@@ -696,5 +712,49 @@ test('in a short pane the island scrolls inside and the composer never leaves th
     assert.ok(box.islandTop >= box.paneTop - 0.5, `${label}: the island stays inside the pane`);
     assert.ok(box.islandOverflow > 0, `${label}: the approval scrolls inside the island`);
   }
+  assert.deepEqual(errors, []);
+});
+
+test("a place handed to the list before the dock's observer reports the dock's new height: the reader is put there against the end the dock leaves", async (t) => {
+  const { page, errors } = await openDockPage(t);
+  await page.setViewport({ width: 1280, height: 800 });
+  const geometry = () => {
+    const view = document.querySelector('.transcript');
+    const pad = Number.parseFloat(getComputedStyle(view.querySelector('.thread')).paddingTop) || 0;
+    const box = view.getBoundingClientRect();
+    return {
+      top: view.scrollTop,
+      max: view.scrollHeight - view.clientHeight,
+      inset: Number.parseFloat(view.style.getPropertyValue('--transcript-dock-inset')) || 0,
+      rows: [...view.querySelectorAll('.transcript-virtual-row')].map((row) => ({
+        index: Number(row.dataset.index),
+        start: row.getBoundingClientRect().top - box.top + view.scrollTop - pad,
+      })),
+    };
+  };
+  await page.evaluate(() => window.mountFixture('placed', 'pane-1'));
+  await settle(page);
+  // The reader reads above the end.
+  await page.evaluate(() => window.fixture.read());
+  await settle(page);
+  const before = await page.evaluate(geometry);
+  assert.ok(before.inset > 0, 'the dock covers the bottom of the viewport');
+  // The composer grows by several lines, and in the same task the reader is handed a place below the end the list had:
+  // the list puts the reader there before any observer has reported the dock's new height.
+  const target = before.max + 60;
+  const row = before.rows.find((entry) => entry.start >= target);
+  const place = { position: `p-${row.index}`, key: `message-${row.index}`, top: row.start - target };
+  await page.evaluate((handed) => {
+    window.fixture.type(Array.from({ length: 10 }, (_, line) => `line ${line + 1}`).join('\n'));
+    window.openPlace('placed', handed);
+  }, place);
+  await settle(page);
+  await settle(page);
+  const shown = await page.evaluate(geometry);
+  t.diagnostic(`place: ${JSON.stringify({ target, place, top: shown.top, max: shown.max, inset: shown.inset })}`);
+  assert.ok(shown.inset > before.inset + 60, 'the dock covers more of the viewport');
+  assert.equal(shown.max, before.max + shown.inset - before.inset, "the end carries the dock's new inset");
+  assert.ok(Math.abs(shown.top - target) <= 1, `the reader is put at ${target}, not ${shown.top}`);
+  assert.equal(await page.evaluate(() => window.fixture.following()), false);
   assert.deepEqual(errors, []);
 });

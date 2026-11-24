@@ -38,7 +38,7 @@ async function readerTimeline(root, firstEnd) {
       hasScrollGestureRef: useRef(() => true),
       visibleTop: () => 500,
       maxScrollTop: () => 0,
-      endPin: { request() {} },
+      endPin: { request() {}, now() {} },
       resizePinned: useRef([]),
       resizePinFrame: useRef(0),
       pendingResizes,

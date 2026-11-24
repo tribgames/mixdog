@@ -11,10 +11,10 @@ import {
   gestureScroller,
   keyUpRecent,
   liftLeftAboveEnd,
+  pressOnScrollbar,
   scrollerTakes,
   touchLiftNeedsJudgement,
   wheelIsVerticalScroll,
-  wheelReleasesFollow,
   reportRearm,
   reportRelease,
   type WheelLike,
@@ -41,19 +41,21 @@ export {
 export {
   TRANSCRIPT_OVERFLOW_ANCHOR,
   activationReleasesFollow,
-  attributeWrite,
+  atWrittenOffset,
   chromePressHeld,
   classifyScrollKey,
   jumpButtonVisible,
   judgeScrollEvent,
+  pressOnScrollbar,
   touchScrollLatchOpen,
-  wheelReleasesFollow,
   boundaryGestureReached,
   transcriptScrollGeometryRegistered,
 } from './transcript-follow-rules';
 
 interface TranscriptFollow {
+  /** The end is kept: follow is on and no selection holds it. */
   following: boolean;
+  /** Follow is on: the reader has not scrolled away (a selection may hold the end meanwhile). */
   followingRef: RefObject<boolean>;
   showJump: boolean;
   hasScrollGesture(): boolean;
@@ -136,9 +138,9 @@ export function useTranscriptFollow({
   const wheelMotionAt = useRef(0);
   // The run of notches a wheel is turning: its last notch and the scroller its first one reached.
   const wheelRun = useRef<{ at: number; scroller: GestureScroller }>({ at: 0, scroller: null });
-  const { lastTop, lastNativeTop, reseedBaselines } = useScrollBaselines();
+  const { lastTop, lastNativeTop, lastExtent, reseedBaselines } = useScrollBaselines();
   const { markProgrammaticScroll, attributeScroll, settleWrites, lastWriteAt, forgetWrites } = useProgrammaticWrites();
-  const { signals, clearMutation, reset: resetSignals } = useFollowSignals(viewport);
+  const { signals, reset: resetSignals } = useFollowSignals(viewport);
   const sessionKeyRef = useRef(sessionKey);
   sessionKeyRef.current = sessionKey;
   // The session whose transcript holds a selection: it holds follow, writing no end under the text being selected. A
@@ -146,23 +148,30 @@ export function useTranscriptFollow({
   const heldSession = useRef<string | null>(null);
   const selectionHolds = useCallback(() => heldSession.current === sessionKeyRef.current, []);
   const settleAtEnd = useRef<() => boolean>(() => false);
+  const arrived = useCallback(() => signals.current.arrived, [signals]);
+  const session = useCallback(() => sessionKeyRef.current, []);
   const { showJump, scheduleScrollState } = useJumpButtonState({
     followingRef,
     holds: selectionHolds,
+    arrived,
+    session,
     atEnd: settleAtEnd,
   });
   const { cancelJumpPin, startJumpPin } = useJumpPin({ viewport, followingRef, scrollToEndRef });
   const publish = useCallback(
     (next: boolean) => {
       followingRef.current = next;
+      // Follow taken back is what an arrival at the end was for: the next let-go arrives nowhere until the reader moves.
+      if (next) signals.current.arrived = false;
       // The timeline anchor is part of the same decision, not a consequence of
-      // the re-render that follows it.
-      setAnchorBottomRef?.current?.(next && !selectionHolds());
-      setFollowing((current) => (current === next ? current : next));
+      // the re-render that follows it. A held selection keeps the end unwritten, and follow says so with it.
+      const kept = next && !selectionHolds();
+      setAnchorBottomRef?.current?.(kept);
+      setFollowing((current) => (current === kept ? current : kept));
       // The jump control follows the pinned flag.
       if (viewport.current) scheduleScrollState(viewport.current);
     },
-    [scheduleScrollState, selectionHolds, setAnchorBottomRef, viewport]
+    [scheduleScrollState, selectionHolds, setAnchorBottomRef, signals, viewport]
   );
 
   /** The jump owns the viewport only until the reader asks for it back. */
@@ -231,7 +240,7 @@ export function useTranscriptFollow({
           nativeAt.current = Date.now();
           nativeMotionAt.current = 0;
           // A thumb let go near the end is the reader coming back: the scroll it made is judged without the press.
-          signals.current.pressAt = 0;
+          signals.current.barAt = 0;
           judgeRef.current();
         } else {
           // The control acts on the click its release makes: that is still the reader's.
@@ -337,6 +346,7 @@ export function useTranscriptFollow({
       if (element) scheduleScrollState(element);
       if (was === held || !followingRef.current) return;
       setAnchorBottomRef?.current?.(!held);
+      setFollowing(!held);
       if (!held) restore();
     },
     [restore, scheduleScrollState, selectionHolds, setAnchorBottomRef, viewport]
@@ -356,11 +366,13 @@ export function useTranscriptFollow({
     signals,
     lastTop,
     lastNativeTop,
+    lastExtent,
     scheduleScrollState,
     noteScroll,
     attributeScroll,
     settleWrites,
     fingerOnGlass,
+    hasTouchScroll,
     hasReaderScroll,
     markReaderMotion,
     publish,
@@ -397,7 +409,6 @@ export function useTranscriptFollow({
       const root = event.currentTarget;
       const delta = normalizeWheelDelta(event);
       if (!delta) return;
-      clearMutation();
       // A notch within the gesture window of the last one continues its run, latched to the scroller its first notch
       // reached. A scroller inside the transcript that takes the notch moves; the transcript does not.
       const run = wheelRun.current;
@@ -405,17 +416,19 @@ export function useTranscriptFollow({
       if (now - run.at >= GESTURE_WINDOW_MS) run.scroller = gestureScroller(root, event.target);
       run.at = now;
       if (scrollerTakes(run.scroller, delta)) return;
-      markGesture();
-      wheelAt.current = Date.now();
-      wheelMotionAt.current = 0;
-      if (event.deltaY < 0) {
-        signals.current.wheelUpAt = Date.now();
-        if (wheelReleasesFollow(event, scrollMetrics(root).top)) stop('wheel', lastTop.current);
-      } else {
+      if (delta > 0) {
         signals.current.wheelUpAt = 0;
+        // A notch down at the kept end moves nothing: the end goes on being kept.
+        if (followingRef.current) return;
+      } else {
+        // The notch vouches for the scroll it makes; that scroll, once it moves the view off the end, lets go.
+        signals.current.wheelUpAt = now;
       }
+      markGesture();
+      wheelAt.current = now;
+      wheelMotionAt.current = 0;
     },
-    [clearMutation, lastTop, markGesture, signals, stop]
+    [markGesture, signals]
   );
 
   // A selection drag's press ends where its pointer is released, wherever that is.
@@ -424,13 +437,13 @@ export function useTranscriptFollow({
     (delta: number) => {
       if (!Number.isFinite(delta) || delta === 0) return;
       markGesture();
-      signals.current.pressAt = Date.now();
+      signals.current.selectUpAt = delta < 0 ? Date.now() : 0;
       selectionPress.current ??= awaitRelease(
         ['pointerup', 'pointercancel'],
         () => true,
         () => {
           selectionPress.current = null;
-          signals.current.pressAt = 0;
+          signals.current.selectUpAt = 0;
         }
       );
     },
@@ -445,11 +458,12 @@ export function useTranscriptFollow({
   const handlePointerDown = useCallback(
     (event: PointerLike) => {
       const root = event.currentTarget;
-      clearMutation();
-      // The scrollbar and empty padding are the scroller itself.
-      if (event.target === root) markGesture();
-      if (event.target === root && (event.button ?? 0) === 0 && event.pointerType !== 'touch') {
-        signals.current.pressAt = Date.now();
+      // A press on the scrollbar's track takes the scroll; one on the scroller's padding is no scroll at all.
+      if (pressOnScrollbar(root, event) && (event.button ?? 0) === 0 && event.pointerType !== 'touch') {
+        markGesture();
+        signals.current.barAt = Date.now();
+        // The press's moves are judged against the extent it began over, whatever the content did before it.
+        lastExtent.current = root.clientHeight > 0 ? root.scrollHeight - root.clientHeight : 0;
         holdPress(true);
       }
       // Pressing a control is about to change the content under the reader.
@@ -458,11 +472,11 @@ export function useTranscriptFollow({
         holdPress(false);
       }
     },
-    [clearMutation, holdPress, lastTop, markGesture, signals, stop]
+    [holdPress, lastExtent, lastTop, markGesture, signals, stop]
   );
 
   const handlePointerUp = useCallback(() => {
-    signals.current.pressAt = 0;
+    signals.current.barAt = 0;
     releasePress.current();
   }, [signals]);
 
@@ -489,8 +503,8 @@ export function useTranscriptFollow({
         holdPress(false, event.key);
       }
       const direction = classifyScrollKey(event);
-      if (direction === 'none') return;
-      clearMutation();
+      // A key down at the kept end moves nothing: the end goes on being kept.
+      if (direction === 'none' || (direction === 'down' && followingRef.current)) return;
       markGesture();
       nativeAt.current = Date.now();
       nativeMotionAt.current = 0;
@@ -498,7 +512,7 @@ export function useTranscriptFollow({
       // the window, and the window keeps the end pin off meanwhile.
       if (direction === 'up') signals.current.keyUpAt = Date.now();
     },
-    [clearMutation, holdPress, lastTop, markGesture, signals, stop, viewport]
+    [holdPress, lastTop, markGesture, signals, stop, viewport]
   );
 
   const rearm = useCallback(
@@ -540,6 +554,8 @@ export function useTranscriptFollow({
     if (!activeRef.current) return false;
     if (hasReaderScroll() || pressHeld(false) || pendingReaderPlace(pane, sessionKeyRef.current)) return true;
     rearm('end');
+    // What streamed in while the reader's input ended is the end's now.
+    scrollToBottom(false);
     return false;
   };
   useEffect(() => {

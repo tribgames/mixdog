@@ -72,18 +72,29 @@ export function useJumpPin({
 export function useJumpButtonState({
   followingRef,
   holds,
+  arrived,
+  session,
   atEnd,
 }: {
   followingRef: RefObject<boolean>;
   /** A selection holds follow: the end is not kept while it lasts. */
   holds(): boolean;
-  /** Follow is off and the view stands at the end: takes follow back, or answers true while the reader's input still
-   *  in flight has to end first. */
+  /** The last move of the view was the reader's own way down near the end. */
+  arrived(): boolean;
+  /** The session the view shows now. */
+  session(): string;
+  /** Follow is off and the view stands at the end (or the reader's move brought it there, nothing moving it up since):
+   *  takes follow back, or answers true while the reader's input still in flight has to end first. */
   atEnd: RefObject<() => boolean>;
 }) {
   const [showJump, setShowJump] = useState(false);
   const scrollStateFrame = useRef(0);
   const scrollStateTarget = useRef<HTMLDivElement | null>(null);
+  // Where the reader's own move last brought a view with follow off to the end, while nothing has moved it up since: a
+  // turn streaming on below it takes the end away again before the reader's input ends, and the view is still the
+  // reader's arrival there. A view let go of where it stood (a control pressed at the end) arrived nowhere. An arrival is
+  // the session's it was made in: the view entering another session arrived nowhere in it.
+  const reachedEnd = useRef<{ session: string; top: number } | null>(null);
 
   /** Answers true when the view has to be looked at again next frame. */
   const updateScrollState = useCallback(
@@ -95,12 +106,19 @@ export function useJumpButtonState({
         return false;
       }
       const metrics = scrollMetrics(element);
-      const wait = !followingRef.current && standsAtEnd(metrics) && atEnd.current();
+      const standing = standsAtEnd(metrics);
+      const shown = session();
+      if (reachedEnd.current?.session !== shown) reachedEnd.current = null;
+      if (followingRef.current) reachedEnd.current = null;
+      else if (standing && arrived()) reachedEnd.current = { session: shown, top: metrics.top };
+      else if (reachedEnd.current !== null && metrics.top < reachedEnd.current.top) reachedEnd.current = null;
+      const wait = !followingRef.current && (standing || reachedEnd.current !== null) && atEnd.current();
+      if (!wait) reachedEnd.current = null;
       const jump = jumpButtonVisible(metrics, followingRef.current && !holds());
       setShowJump((current) => (current === jump ? current : jump));
       return wait;
     },
-    [atEnd, followingRef, holds]
+    [arrived, atEnd, followingRef, holds, session]
   );
 
   const scheduleScrollState = useCallback(

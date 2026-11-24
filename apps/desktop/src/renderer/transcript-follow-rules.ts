@@ -22,13 +22,6 @@ const KEY_UP_WINDOW_MS = 1_000;
 // A lifted finger that left the transcript above the end vouches for the
 // momentum scrolls that follow.
 const TOUCH_END_WINDOW_MS = 2_500;
-// A DOM mutation or a width change explains an upward scroll this long.
-const MUTATION_WINDOW_MS = 400;
-// Mutations right after a restore are the restore's own.
-const RESTORE_QUIET_MS = 150;
-// A scroll up smaller than this many device pixels after a zoom change is
-// rounding, not a leave.
-const DEVICE_PX_FLOOR = 0.75;
 // A scroll moving down with no reader gesture behind it that ends this close to the end is the reader coming back:
 // follow re-engages on the spot.
 const JUMP_CONTROL_PX = 200;
@@ -47,10 +40,6 @@ const TOUCH_FLING_IDLE_MS = 700;
  *  (finger or momentum) has been quiet this long. iOS fires its last touch
  *  event as momentum starts, so quiet scroll events are the only end signal. */
 export const IOS_TOUCH_SETTLE_MS = 150;
-// A scroll event this soon after a write of the timeline's own is that write.
-// Later events are the timeline's only when they land exactly on the value it
-// last wrote (the first event after that write).
-export const PROGRAMMATIC_WINDOW_MS = 150;
 // A jump drops reader ownership, then re-pins the tail each frame until Chromium's residual momentum is overwritten.
 export const JUMP_PIN_MS = 400;
 export const JUMP_PIN_SETTLE_FRAMES = 3;
@@ -76,10 +65,15 @@ export function touchScrollLatchOpen({
   return Number.isFinite(sinceScrollMs) && sinceScrollMs < idleMs;
 }
 
-/** Is this wheel a vertical scroll? A pinch-zoom (ctrl) and a sideways swipe
- *  with a little vertical drift are not a move toward older rows. */
-export function wheelIsVerticalScroll(event: { deltaY: number; deltaX?: number; ctrlKey?: boolean }): boolean {
-  return !event.ctrlKey && Math.abs(event.deltaY) > Math.abs(event.deltaX ?? 0);
+/** Is this wheel a vertical scroll? A pinch-zoom (ctrl), a shift-wheel and a
+ *  sideways swipe with a little vertical drift are not a move toward older rows. */
+export function wheelIsVerticalScroll(event: {
+  deltaY: number;
+  deltaX?: number;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+}): boolean {
+  return !event.ctrlKey && !event.shiftKey && Math.abs(event.deltaY) > Math.abs(event.deltaX ?? 0);
 }
 
 /** Does this keydown scroll the transcript up or down? A modified key is an
@@ -124,13 +118,13 @@ export function chromePressHeld({ pressedAt, now }: { pressedAt: number; now: nu
   return pressedAt > 0 && now - pressedAt < CHROME_PRESS_MAX_MS;
 }
 
-/** Does this wheel notch, taken by the transcript itself, release follow? Only a vertical notch toward older rows over
- *  a transcript that has rows above its viewport. */
-export function wheelReleasesFollow(
-  event: { deltaY: number; deltaX?: number; ctrlKey?: boolean },
-  scrollTop: number
-): boolean {
-  return wheelIsVerticalScroll(event) && event.deltaY < 0 && scrollTop > 0;
+/** Does this press land on the scroller's scrollbar? The scroller's own padding targets it too, so only a press on the
+ *  track its gutter reserves counts. */
+export function pressOnScrollbar(root: Element, event: { target: EventTarget | null; clientX?: number }): boolean {
+  if (event.target !== root || event.clientX === undefined) return false;
+  const box = root as HTMLElement;
+  const track = box.offsetWidth - box.clientWidth - box.clientLeft * 2;
+  return track > 0 && root.getBoundingClientRect().right - event.clientX <= track;
 }
 
 /** Did a wheel notch toward older rows happen lately? */
@@ -148,54 +142,15 @@ export function touchEndRecent({ touchEndUpAt, now }: { touchEndUpAt: number; no
   return touchEndUpAt > 0 && now - touchEndUpAt < TOUCH_END_WINDOW_MS;
 }
 
-/** Has the finger travelled beyond a tap from where it landed? */
-export function touchTravelled(startY: number, y: number): boolean {
-  return Math.abs(y - startY) > TOUCH_MOVED_PX;
+/** Has the finger travelled up or down beyond a tap from where it landed? A sideways swipe (pane traversal) has not. */
+export function touchTravelled(start: { x?: number; y: number }, at: { x?: number; y: number }): boolean {
+  const down = Math.abs(at.y - start.y);
+  return down > TOUCH_MOVED_PX && down >= Math.abs((at.x ?? 0) - (start.x ?? 0));
 }
 
-/** Which of the timeline's own writes explains this scroll event? */
-export function attributeWrite({
-  lastWriteAt,
-  writtenTops,
-  top,
-  now,
-}: {
-  /** When the timeline last wrote the offset; 0 before any write. */
-  lastWriteAt: number;
-  /** The offsets that write left (the target and where it landed). */
-  writtenTops: readonly number[];
-  top: number;
-  now: number;
-}): { recent: boolean; exact: boolean } {
-  return {
-    recent: lastWriteAt > 0 && now - lastWriteAt <= PROGRAMMATIC_WINDOW_MS,
-    exact: writtenTops.includes(Math.round(top)),
-  };
-}
-
-/** Is a mutation or width change fresh enough to explain an upward scroll, and
- *  not the aftermath of a restore of ours? */
-export function mutationExplainsScroll({
-  mutationAt,
-  restoredAt,
-  now,
-}: {
-  mutationAt: number;
-  restoredAt: number;
-  now: number;
-}): boolean {
-  return now - mutationAt < MUTATION_WINDOW_MS && mutationAt > restoredAt;
-}
-
-/** Was a mutation too close to the last restore to be counted? */
-export function mutationIsOwnRestore({ restoredAt, now }: { restoredAt: number; now: number }): boolean {
-  return now - restoredAt < RESTORE_QUIET_MS;
-}
-
-/** A container width change not yet answered by a restore: the client width is
- *  a new one and has not been spent on a restore already. */
-export function widthShiftPending(seen: { client: number; spent: number | null } | null, clientWidth: number): boolean {
-  return seen !== null && clientWidth !== seen.client && clientWidth !== seen.spent;
+/** Is this scroll event at an offset the timeline wrote since the last one (the target or where it landed)? */
+export function atWrittenOffset(writtenTops: readonly number[], top: number): boolean {
+  return writtenTops.includes(Math.round(top));
 }
 
 /** Does this move of the offset bring the reader back near the end: down, not onto an offset the timeline wrote, and
@@ -215,10 +170,11 @@ type ScrollVerdict = 'pin' | 'unpin' | 'restore' | 'none';
 /**
  * What one scroll observation means for follow.
  *
- * Arriving where the jump control would not show re-engages follow at once; a pinned viewport that moved
- * up is a leave only when something corroborates it, and is otherwise put
- * back whenever the timeline's own write, a zoom change, or a fresh layout
- * change explains the move. A move nothing explains is a leave as well.
+ * Only the reader leaves the end: a pinned viewport that moved up past the end tolerance is a leave when an upward
+ * input of theirs is behind the move (a wheel notch, a key, a travelled finger or its fling, a dragged thumb, a
+ * selection dragged above the view). An upward move nothing of theirs explains (a clamp to a shrunken extent, a
+ * zoom's rounding) is never theirs: it is put back. A move down onto the band near the end that the timeline did not
+ * write, with no input of theirs in flight, is the reader coming back.
  */
 export function judgeScrollEvent(input: {
   pinned: boolean;
@@ -228,45 +184,25 @@ export function judgeScrollEvent(input: {
   distance: number;
   /** The last move that changed the offset was the reader's way back near the end (`moveArrivesNearEnd`). */
   arrived: boolean;
-  touchDown: boolean;
-  wheelUpRecent: boolean;
-  /** This is a scroll event within the write window of the timeline's last write. */
-  inWriteWindow: boolean;
-  /** This scroll event is exactly the value the timeline last wrote. */
+  /** An upward input of the reader's is behind this move. */
+  upward: boolean;
+  /** Input of the reader's is still in flight (a finger on the glass, a held thumb): it is judged when it ends. */
+  inFlight: boolean;
+  /** This scroll event is at an offset the timeline wrote since the last one. */
   atWrittenTop: boolean;
-  /** A mouse press (scrollbar, selection drag) is held. */
-  pressHeld: boolean;
-  keyUpRecent: boolean;
-  touchEndRecent: boolean;
-  zoomChanged: boolean;
-  /** Zoom factor now. */
-  zoom: number;
-  mutationRecent: boolean;
-  widthShifted: boolean;
 }): ScrollVerdict {
-  const gesture = input.touchDown || input.wheelUpRecent;
-  // Inside the write window an event at an offset the timeline did not write,
-  // moving down, is the reader's own arrival: nothing would reconsider it
-  // once the window closes.
-  const writeExplains = input.atWrittenTop || (input.inWriteWindow && !(input.top > input.previousTop));
-  // A thumb still held has not stopped: its release is judged (use-transcript-follow.ts `holdPress`).
   if (
     !input.pinned &&
-    !gesture &&
-    !input.pressHeld &&
-    !writeExplains &&
+    !input.inFlight &&
+    !input.upward &&
+    !input.atWrittenTop &&
     input.arrived &&
     input.distance <= JUMP_CONTROL_PX
   ) {
     return 'pin';
   }
   if (!input.pinned || !(input.top < input.previousTop) || input.distance <= END_TOLERANCE_PX) return 'none';
-  const corroborated = gesture || input.pressHeld || input.keyUpRecent || input.touchEndRecent;
-  if ((input.inWriteWindow || input.atWrittenTop) && !corroborated) return 'restore';
-  if (corroborated) return 'unpin';
-  if (input.zoomChanged && (input.previousTop - input.top) * input.zoom < DEVICE_PX_FLOOR) return 'restore';
-  if (input.mutationRecent || input.widthShifted) return 'restore';
-  return 'unpin';
+  return input.upward ? 'unpin' : 'restore';
 }
 
 /** Does a finger lift need its own judgement of the scroll it ended? Only a
@@ -301,12 +237,14 @@ export function liftLeftAboveEnd({
   return top < startTop && distance > END_TOLERANCE_PX;
 }
 
+// A link opens elsewhere and changes nothing under the reader, so it is not here.
 const PRESS_INTERACTIVE =
-  'a[href],button,summary,label,input,select,textarea,iframe,video,audio,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="switch"],[role="radio"]';
+  'button,summary,label,input,select,textarea,iframe,video,audio,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="switch"],[role="radio"]';
 const KEEPS_FOLLOW = '[data-transcript-keeps-follow]';
 
-/** Is this target an interactive control (an expander, a link, a button)? Activating one is about to change the
- *  content under the reader, so a press or an Enter/Space on it lets go of follow. Chrome does not. */
+/** Is this target an interactive control that changes the content (an expander, a button)? Activating one is about to
+ *  change the content under the reader, so a press or an Enter/Space on it lets go of follow. Chrome, links and the
+ *  controls that keep follow (a copy button: data-transcript-keeps-follow) do not. */
 export function activationReleasesFollow(root: Element, target: EventTarget | null): boolean {
   if (!(target instanceof Element) || target === root || target.closest(KEEPS_FOLLOW)) return false;
   const control = target.closest(PRESS_INTERACTIVE);
@@ -388,17 +326,19 @@ export type WheelLike = {
   deltaX?: number;
   deltaMode?: number;
   ctrlKey?: boolean;
+  shiftKey?: boolean;
 };
 export type PointerLike = {
   target: EventTarget | null;
   currentTarget: HTMLDivElement;
   button?: number;
   pointerType?: string;
+  clientX?: number;
 };
 export type TouchLike = {
   target: EventTarget | null;
   currentTarget: HTMLDivElement;
-  touches: ArrayLike<{ clientY: number }>;
+  touches: ArrayLike<{ clientY: number; clientX?: number }>;
 };
 
 export function normalizeWheelDelta(event: WheelLike): number {

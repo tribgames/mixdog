@@ -1223,9 +1223,12 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     background: transparent;
   }
   /* The scrollbar thumb stops above the rounded corner instead of being
-     clipped by it. */
+     clipped by it, and above the dock floating over the scroller's bottom. */
   :root:not([data-mixdog-mobile-tabs]) .pane-cell .transcript::-webkit-scrollbar-track {
-    margin-bottom: calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right));
+    margin-bottom: max(
+      calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right)),
+      var(--transcript-dock-inset, 0px)
+    );
   }
   /* An overlay dock's shadow reaches the cell edge: cut it on the sheet's
      corner curve, as the panel clip did. */

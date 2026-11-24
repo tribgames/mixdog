@@ -32,6 +32,7 @@ export function createTranscriptEndPin({
   getMaxScrollTop,
   hasReaderGesture,
   markProgrammaticScroll,
+  noteOffset,
   dropDeviation,
 }: {
   getVirtualizer(): Virtualizer<HTMLDivElement, HTMLDivElement>;
@@ -41,7 +42,10 @@ export function createTranscriptEndPin({
    *  size and the observed viewport height — never read back from layout. */
   getMaxScrollTop(): number;
   hasReaderGesture(): boolean;
+  /** A write moved the offset: the scroll event it makes is the pin's. */
   markProgrammaticScroll(top: number, intended: number): void;
+  /** Where every pin, a write or none, leaves the offset. */
+  noteOffset?(top: number): void;
   /** The end is a native offset: a row offset held from a touch scroll ends
    *  with this write. */
   dropDeviation?(): void;
@@ -49,57 +53,66 @@ export function createTranscriptEndPin({
   let queued = false;
   let generation = 0;
   let idleFrame = 0;
+  const write = () => {
+    queued = false;
+    const element = getViewport();
+    if (!element?.isConnected) return;
+    const instance = getVirtualizer();
+    // Follow may have been released after the request but before this
+    // write, even without a continuing native gesture.
+    if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) return;
+    // A height change during a downward wheel/touch must survive the
+    // gesture. Dropping it left the tail detached until another mutation.
+    if (hasReaderGesture()) {
+      if (!idleFrame && instance.targetWindow) {
+        const requestedGeneration = generation;
+        idleFrame = instance.targetWindow.requestAnimationFrame(() => {
+          idleFrame = 0;
+          if (requestedGeneration === generation) pin.request();
+        });
+      }
+      return;
+    }
+    const spacer = getSpacer();
+    if (spacer) spacer.style.height = `${instance.getTotalSize()}px`;
+    // Reading scrollHeight right after that write forced a synchronous
+    // layout of the whole list; the virtual geometry already knows it.
+    const target = getMaxScrollTop();
+    const core = dropCoreCompensation(instance);
+    // Chromium clamps scrollTop before delivering its scroll event when a replacement shrinks the spacer,
+    // so the cached offset can still equal the target: read the actual offset after committing the spacer.
+    const diagnose = transcriptScrollDiagnosticsEnabled();
+    dropDeviation?.();
+    const before = element.scrollTop;
+    if (Math.abs(before - target) >= 0.5) element.scrollTop = target;
+    const landed = element.scrollTop;
+    core.scrollOffset = landed;
+    core._intendedScrollOffset = landed;
+    if (diagnose) {
+      logTranscriptScroll('end-pin', {
+        from: before,
+        to: landed,
+        delta: landed - before,
+        total: instance.getTotalSize(),
+        height: element.scrollHeight,
+      });
+    }
+    noteOffset?.(landed);
+    // A pin that moved nothing makes no scroll event: there is no write to record.
+    if (landed !== before) markProgrammaticScroll(landed, target);
+  };
   const pin = {
     request() {
       if (queued) return;
       queued = true;
       const requestedGeneration = generation;
       queueMicrotask(() => {
-        if (requestedGeneration !== generation) return;
-        queued = false;
-        const element = getViewport();
-        if (!element?.isConnected) return;
-        const instance = getVirtualizer();
-        // Follow may have been released after the request but before this
-        // microtask, even without a continuing native gesture.
-        if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) return;
-        // A height change during a downward wheel/touch must survive the
-        // gesture. Dropping it left the tail detached until another mutation.
-        if (hasReaderGesture()) {
-          if (!idleFrame && instance.targetWindow) {
-            idleFrame = instance.targetWindow.requestAnimationFrame(() => {
-              idleFrame = 0;
-              if (requestedGeneration === generation) pin.request();
-            });
-          }
-          return;
-        }
-        const spacer = getSpacer();
-        if (spacer) spacer.style.height = `${instance.getTotalSize()}px`;
-        // Reading scrollHeight right after that write forced a synchronous
-        // layout of the whole list; the virtual geometry already knows it.
-        const target = getMaxScrollTop();
-        const core = dropCoreCompensation(instance);
-        // Chromium clamps scrollTop before delivering its scroll event when a replacement shrinks the spacer,
-        // so the cached offset can still equal the target: read the actual offset after committing the spacer.
-        const diagnose = transcriptScrollDiagnosticsEnabled();
-        dropDeviation?.();
-        const before = element.scrollTop;
-        if (Math.abs(before - target) >= 0.5) element.scrollTop = target;
-        const landed = element.scrollTop;
-        core.scrollOffset = landed;
-        core._intendedScrollOffset = landed;
-        if (diagnose) {
-          logTranscriptScroll('end-pin', {
-            from: before,
-            to: landed,
-            delta: landed - before,
-            total: instance.getTotalSize(),
-            height: element.scrollHeight,
-          });
-        }
-        markProgrammaticScroll(landed, target);
+        if (requestedGeneration === generation && queued) write();
       });
+    },
+    /** Pins in the caller's task: a resize observer's pass lands the end before the frame paints. */
+    now() {
+      write();
     },
     cancel() {
       generation += 1;

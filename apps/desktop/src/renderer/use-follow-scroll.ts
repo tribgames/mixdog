@@ -1,28 +1,19 @@
 import { type RefObject, useCallback, useRef } from 'react';
-import { takeScrollWrite, type ToldScrollWrite } from './own-scroll-writes';
+import { takeScrollWrite } from './own-scroll-writes';
 import {
-  attributeWrite,
   chromePressHeld,
   distanceFromBottom,
   judgeScrollEvent,
   keyUpRecent,
   moveArrivesNearEnd,
-  mutationExplainsScroll,
   reportRearm,
   scrollMetrics,
   touchEndRecent,
   transcriptScrollDeviation,
   wheelUpRecent,
-  widthShiftPending,
 } from './transcript-follow-rules';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import type { FollowSignals } from './use-follow-signals';
-
-/** Is this scroll event the one the reader's key focus made? */
-function attributeKeyFocus(told: ToldScrollWrite, top: number, now: number): boolean {
-  const write = attributeWrite({ lastWriteAt: told.at, writtenTops: [told.top], top, now });
-  return write.recent || write.exact;
-}
 
 /** What the last scroll event saw: the baselines every direction judgement is
  *  made against. */
@@ -33,9 +24,13 @@ export function useScrollBaselines() {
   // native displacement: a correction the timeline holds (or lands) during a
   // touch scroll moves the logical offset while the reader does not move.
   const lastNativeTop = useRef(0);
+  // The native scroll extent when a press on the scrollbar began or last moved the view: the press's next move up is
+  // the reader's only while the extent under it did not shrink since (a shrink clamps the offset up by itself).
+  const lastExtent = useRef(0);
 
   /** Re-seeds from the viewport as it is now (or zeroes without one). */
   const reseedBaselines = useCallback((element: HTMLDivElement | null) => {
+    lastExtent.current = 0;
     if (!element) {
       lastNativeTop.current = 0;
       lastTop.current = 0;
@@ -50,7 +45,7 @@ export function useScrollBaselines() {
     }
   }, []);
 
-  return { lastTop, lastNativeTop, reseedBaselines };
+  return { lastTop, lastNativeTop, lastExtent, reseedBaselines };
 }
 
 export function useFollowScrollJudge({
@@ -59,11 +54,13 @@ export function useFollowScrollJudge({
   signals,
   lastTop,
   lastNativeTop,
+  lastExtent,
   scheduleScrollState,
   noteScroll,
   attributeScroll,
   settleWrites,
   fingerOnGlass,
+  hasTouchScroll,
   hasReaderScroll,
   markReaderMotion,
   publish,
@@ -75,11 +72,14 @@ export function useFollowScrollJudge({
   signals: RefObject<FollowSignals>;
   lastTop: { current: number };
   lastNativeTop: { current: number };
+  lastExtent: { current: number };
   scheduleScrollState(element: HTMLDivElement): void;
   noteScroll(): void;
-  attributeScroll(top: number, own?: { at: number; top: number }): { recent: boolean; exact: boolean };
+  attributeScroll(top: number, own?: { at: number; top: number }): boolean;
   settleWrites(): void;
   fingerOnGlass(): boolean;
+  /** A drag moving the transcript, or its fling, is in progress. */
+  hasTouchScroll(): boolean;
   hasReaderScroll(): boolean;
   markReaderMotion(): void;
   publish(next: boolean): void;
@@ -107,58 +107,57 @@ export function useFollowScrollJudge({
       lastNativeTop.current = nativeTop;
       lastTop.current = top;
       const told = scrollEvent ? takeScrollWrite(element) : undefined;
-      const own = told && !told.reader ? told : undefined;
-      const write = scrollEvent ? attributeScroll(nativeTop, own) : { recent: false, exact: false };
-      // A focus a reader's key moved (own-scroll-writes.ts `readerKeyFocus`) vouches for this move as a scroll key does.
-      const toldByKey = told?.reader === true && attributeKeyFocus(told, nativeTop, now);
+      const written = scrollEvent && attributeScroll(nativeTop, told && !told.reader ? told : undefined);
       let distance = distanceFromBottom(metrics);
-      // A viewport that grew (the dock shrank) is clamped by the browser onto
-      // its new end before the timeline observes the new height, so its cached
-      // extent still reads far from the end. For a move that could leave, the
-      // native extent has the final word.
-      if (top < previousTop && followingRef.current && element.clientHeight > 0) {
-        distance = Math.min(distance, element.scrollHeight - element.clientHeight - nativeTop);
-      }
+      const movedUp = top < previousTop;
+      const barHeld = chromePressHeld({ pressedAt: state.barAt, now });
+      // A viewport that grew is clamped by the browser onto its new end before
+      // the timeline observes the new height, so its cached extent still reads
+      // far from the end. For a move that could leave, the native extent has
+      // the final word; under a held press it also says whether the move is the press's own.
+      const extent = (movedUp || barHeld) && element.clientHeight > 0 ? element.scrollHeight - element.clientHeight : 0;
+      if (movedUp && followingRef.current && extent > 0) distance = Math.min(distance, extent - nativeTop);
+      // A followed view arrives nowhere: its moves are the end kept.
       if (top !== previousTop) {
-        state.arrived = moveArrivesNearEnd({ previousTop, top, distance, written: write.exact });
+        state.arrived = !followingRef.current && moveArrivesNearEnd({ previousTop, top, distance, written });
       }
-      const zoom = window.devicePixelRatio || 1;
-      const zoomChanged = zoom !== state.zoom;
-      state.zoom = zoom;
       const touchDown = fingerOnGlass();
-      const widthShifted = widthShiftPending(state.width, element.clientWidth);
+      const upward =
+        wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }) ||
+        keyUpRecent({ keyUpAt: state.keyUpAt, now }) ||
+        // A focus a reader's key moved (own-scroll-writes.ts `readerKeyFocus`) vouches for this move as a scroll key does.
+        told?.reader === true ||
+        // A finger that travelled toward older rows, on the glass or dragging on from a row that has since left the
+        // document.
+        ((touchDown || hasTouchScroll()) && state.touchMoved && state.touchDragsUp) ||
+        touchEndRecent({ touchEndUpAt: state.touchEndUpAt, now }) ||
+        chromePressHeld({ pressedAt: state.selectUpAt, now }) ||
+        (barHeld && movedUp && extent >= lastExtent.current);
+      if (scrollEvent && barHeld) lastExtent.current = extent;
       const verdict = judgeScrollEvent({
         pinned: followingRef.current,
         previousTop,
         top,
         distance,
         arrived: state.arrived,
-        touchDown,
-        wheelUpRecent: wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }),
-        inWriteWindow: write.recent,
-        atWrittenTop: write.exact,
-        pressHeld: chromePressHeld({ pressedAt: state.pressAt, now }),
-        keyUpRecent: keyUpRecent({ keyUpAt: state.keyUpAt, now }) || toldByKey,
-        touchEndRecent: touchEndRecent({ touchEndUpAt: state.touchEndUpAt, now }),
-        zoomChanged,
-        zoom,
-        mutationRecent: mutationExplainsScroll({ mutationAt: state.mutationAt, restoredAt: state.restoredAt, now }),
-        widthShifted,
+        upward,
+        inFlight: touchDown || barHeld,
+        atWrittenTop: written,
       });
       // A scroll the timeline did not write while a finger is down.
-      if (scrollEvent && touchDown && !write.recent && !write.exact) state.touchScrolled = true;
+      if (scrollEvent && touchDown && !written) state.touchScrolled = true;
       if (scrollEvent) settleWrites();
       if (transcriptScrollDiagnosticsEnabled() && Math.abs(top - previousTop) >= 8) {
         logTranscriptScroll('viewport-move', {
           from: previousTop,
           to: top,
           delta: top - previousTop,
-          programmatic: write.recent || write.exact,
+          programmatic: written,
           following: followingRef.current,
           verdict,
         });
       }
-      if (top !== previousTop && !write.recent && !write.exact && hasReaderScroll()) markReaderMotion();
+      if (top !== previousTop && !written && hasReaderScroll()) markReaderMotion();
       if (verdict === 'pin') {
         reportRearm('scroll', metrics);
         publish(true);
@@ -167,8 +166,6 @@ export function useFollowScrollJudge({
       } else if (verdict === 'unpin') {
         stop('scroll', previousTop);
       } else if (verdict === 'restore') {
-        if (widthShifted && state.width) state.width.spent = element.clientWidth;
-        state.restoredAt = now;
         restore();
       }
     },
@@ -177,6 +174,8 @@ export function useFollowScrollJudge({
       fingerOnGlass,
       followingRef,
       hasReaderScroll,
+      hasTouchScroll,
+      lastExtent,
       lastNativeTop,
       lastTop,
       markReaderMotion,
