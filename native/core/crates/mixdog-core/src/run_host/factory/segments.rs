@@ -54,6 +54,25 @@ impl Segments {
         Some(id)
     }
 
+    /// The segments taken whole as a dead attempt's shown output settles for display only, the next attempt starting
+    /// afresh: each one with the text it showed, blank ones included.
+    pub(super) fn drain_display(&mut self) -> Vec<(ItemId, String)> {
+        let mut all = std::mem::take(&mut self.closed);
+        all.extend(self.open.take());
+        self.calls = 0;
+        let shown = std::mem::take(&mut self.shown);
+        self.updates = false;
+        let mut offset: usize = 0;
+        all.into_iter()
+            .map(|(id, len, _)| {
+                let end = offset.saturating_add(len).min(shown.len());
+                let slice = shown.get(offset..end).unwrap_or_default().to_owned();
+                offset = end;
+                (id, slice)
+            })
+            .collect()
+    }
+
     /// The response's segments, taken whole as its message commits: the row's id (its first segment's) and what the row's
     /// `meta` names of the showing, which the transcript reads back to show the same rows. `segments` when the text was not
     /// shown whole before the calls, as more than one or after a call (`[{id, len, after}]`, `len` in bytes of the shown

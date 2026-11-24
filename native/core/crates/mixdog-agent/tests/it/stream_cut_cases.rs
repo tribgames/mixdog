@@ -139,16 +139,110 @@ async fn reasoning_then_a_cut_tool_input_is_replayed_with_the_notice() {
     assert_eq!(waits(&h), [Duration::from_secs(5)]);
 }
 
-/// A cut tool input is decided before text continuation: text shown that the owner cannot withdraw ends the turn with the
-/// cut's error, with no replay and no continuation that would drop the call.
 #[tokio::test]
-async fn shown_text_then_a_cut_tool_input_the_owner_cannot_withdraw_ends_the_turn() {
+async fn shown_text_then_a_cut_tool_input_the_owner_cannot_withdraw_is_kept_and_the_turn_continues() {
     let mut exposure = input_cut();
     exposure.text_emitted = true;
+    let (h, provider) = product(vec![turn(vec![text("part"), Step::Fail(connection_cut(exposure))]), turn(vec![text("split"), done(StopReason::EndTurn)])]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "part\n\nsplit");
+    assert_eq!(output.tool_calls_total, 0, "the cut call is dropped unrun");
+    assert_eq!(provider.requests().len(), 2);
+    assert_eq!(notices(&output), 1);
+    assert!(dump(&output.transcript).iter().any(|line| line.contains("part")), "the shown text stays in the history");
+    assert_eq!(waits(&h), [Duration::from_secs(5)]);
+    assert_eq!(reconnecting(&h), [(1, 3)]);
+}
+
+#[tokio::test]
+async fn progress_then_a_cut_tool_input_the_owner_cannot_withdraw_continues_the_turn() {
+    let mut exposure = input_cut();
+    exposure.text_emitted = true;
+    let progress = Step::Event(StreamEvent::ProgressDelta("thinking about it".into()));
+    let (h, provider) = product(vec![turn(vec![progress, Step::Fail(connection_cut(exposure))]), turn(vec![text("split"), done(StopReason::EndTurn)])]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "split");
+    assert_eq!(provider.requests().len(), 2);
+    assert_eq!(notices(&output), 1);
+    assert_eq!(waits(&h), [Duration::from_secs(5)]);
+}
+
+/// Progress, then the blank text a model streams between its thinking and its next block, then a cut mid-stream: blank
+/// text is no kept text. The attempt settles for display and is replayed on the loop's ladder, its thinking blocks go
+/// with it, and neither an empty-turn nudge nor a blank or thinking-only assistant turn reaches the history or the
+/// replay, for a hidden role either.
+#[tokio::test]
+async fn progress_then_blank_text_then_a_cut_keeps_nothing_and_is_replayed() {
+    for hidden_agent in [false, true] {
+        let mut cut = connection_cut(shown());
+        cut.partial_thinking_blocks = vec![json!({ "type": "thinking", "thinking": "weighing", "signature": "sig-1" })];
+        let progress = Step::Event(StreamEvent::ProgressDelta("thinking it over".into()));
+        let (h, provider) = product(vec![turn(vec![progress, text("\n"), Step::Fail(cut)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        let mut config = config();
+        config.hidden_agent = hidden_agent;
+        let output = finish(h.run(config, vec![], vec![AgentMessage::user("go")])).await;
+        assert_eq!(output.response.content, "ok", "hidden {hidden_agent}");
+        assert_eq!(dump(&output.transcript), ["user:go"], "hidden {hidden_agent}: nothing of the dead attempt is history");
+        let requests = provider.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(wire_dump(&requests[1]), ["User:go"], "hidden {hidden_agent}: the replay is the request as it was");
+        assert_eq!(waits(&h), [Duration::from_secs(5)], "hidden {hidden_agent}: the loop's own ladder");
+        let settled = h.observer.events().iter().filter(|event| matches!(event, RunEvent::AttemptDisplaySettled)).count();
+        assert_eq!(settled, 1, "hidden {hidden_agent}: the shown progress settles for display once");
+    }
+}
+
+/// A reasoning mark with none of its text (a reasoning item opening, its text withheld) shows the owner nothing, though the
+/// adapter calls the send unsafe for it: the cut is retried in place, with nothing to settle.
+#[tokio::test]
+async fn a_cut_after_a_reasoning_mark_alone_is_retried_in_place() {
+    let mut cut = connection_cut(Exposure::default());
+    cut.unsafe_to_retry = true;
+    let mark = Step::Event(StreamEvent::Progress(mixdog_core_api::domain::provider::ProgressKind::Reasoning));
+    let (h, provider) = product(vec![turn(vec![mark, Step::Fail(cut)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "ok");
+    assert_eq!(provider.requests().len(), 2, "one retry");
+    let waited = waits(&h);
+    assert_eq!(waited.len(), 1);
+    assert!(waited[0] < Duration::from_secs(5), "the provider's in-place row, not the loop ladder: {waited:?}");
+    assert!(!h.observer.events().iter().any(|event| matches!(event, RunEvent::AttemptDisplaySettled)), "nothing shown, nothing settled");
+}
+
+/// An attempt that showed progress and kept nothing settles for display as the loop decides so, before the backoff: a stop
+/// in the wait finds it settled, and a ladder that ends settles every attempt it ran, the last one included.
+#[tokio::test]
+async fn shown_progress_settles_before_the_backoff_whatever_ends_the_attempt() {
+    let progress = || Step::Event(StreamEvent::ProgressDelta("thinking it over".into()));
+    let settled = |h: &Harness| h.observer.events().iter().filter(|event| matches!(event, RunEvent::AttemptDisplaySettled)).count();
+
+    let (mut h, provider) = product(vec![turn(vec![progress(), Step::Fail(connection_cut(shown()))]), turn(vec![text("never"), done(StopReason::EndTurn)])]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
+    let task = tokio::spawn(h.run(config(), vec![], vec![AgentMessage::user("go")]).run());
+    timer.waiting.notified().await;
+    assert_eq!(settled(&h), 1, "settled before the wait ends");
+    h.cancel.cancel();
+    assert!(matches!(task.await.unwrap().expect_err("stopped in the wait").error, AgentError::Aborted));
+    assert_eq!(provider.requests().len(), 1, "no replay after the stop");
+    assert_eq!(settled(&h), 1);
+
+    let script = (0..16).map(|_| turn(vec![progress(), Step::Fail(connection_cut(shown()))])).collect();
+    let (h, provider) = product(script);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the cut surfaces");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(settled(&h), provider.requests().len(), "each dead attempt settles once, the one the ladder ended on too");
+}
+
+#[tokio::test]
+async fn text_then_a_cut_after_a_dispatch_still_surfaces() {
+    let mut exposure = input_cut();
+    exposure.text_emitted = true;
+    exposure.tool_dispatched = true;
     let (h, provider) = product(vec![turn(vec![text("part"), Step::Fail(connection_cut(exposure))]), turn(vec![text("never"), done(StopReason::EndTurn)])]);
-    let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("the cut surfaces");
-    assert!(matches!(failure.error, AgentError::Provider(ref error) if error.transport == Some(TransportFault::H2GoAway { code: 0 })));
-    assert_eq!(provider.requests().len(), 1, "not replayed, not continued");
+    let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("a dispatched call is a replay boundary");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(provider.requests().len(), 1);
     assert!(waits(&h).is_empty());
 }
 

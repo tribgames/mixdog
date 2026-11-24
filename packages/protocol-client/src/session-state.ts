@@ -328,12 +328,12 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
       // A record's rows reach the window as its unit (`thread/transcript/changed`), which states where it stands. These
       // are the rows of the running turn no record shows yet: they stand at the newest end until their record is told.
       const item = asObj(p.item);
-      const rows = itemRows(item);
+      const rows = notifiedRows(n, item);
       const [row] = rows;
-      if (row === undefined || shownIn(held, item.id)) return s;
+      const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
+      if (row === undefined || shownIn(held, item.id)) return live === s.live ? s : withLive(s, live);
       if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(s, liveOf(item, row));
       for (const folded of rows) rowItems.set(folded, String(item.id));
-      const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
       const fields =
         p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
       let loose: readonly Obj[] = s.loose ?? [];
@@ -645,6 +645,13 @@ function fieldsOfState(state: Obj): Obj {
   return fields;
 }
 
+/** The rows a notification folds `item` to. A reply that completes blank has none, as after a reload: the core stores no row
+ *  of whitespace, and completes a live reply that way only to end its live row. */
+function notifiedRows(n: JsonRpcNotification, item: Obj): Obj[] {
+  const blank = item.type === 'agentMessage' && typeof item.text === 'string' && !/\S/.test(item.text);
+  return n.method === 'item/completed' && blank ? [] : itemRows(item);
+}
+
 /** The live text of an `agentMessage` item: the row it settles as, without its text. */
 function liveOf(item: Obj, row: Obj): Live {
   const { text, ...identity } = row;
@@ -771,7 +778,7 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'item/started':
       case 'item/completed': {
         const item = asObj(p.item);
-        const rows = itemRows(item);
+        const rows = notifiedRows(n, item);
         const [row, ...batched] = rows;
         // After a compaction the core sends each row of its window again, archived (`show_archived`). A row this store does not
         // hold lies above its tail window, older than the divider; appended, it showed below the divider, inside the current turn.
@@ -780,10 +787,10 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         // The item is held from here on, whatever it folds to below: every later return starts from `held`.
         const coreItems = holding(s.coreItems ?? [], item);
         const held = coreItems === s.coreItems ? s : { ...s, coreItems };
-        if (row === undefined) return held;
+        const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
+        if (row === undefined) return live === s.live ? held : withLive(held, live);
         if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(held, liveOf(item, row));
         for (const folded of rows) rowItems.set(folded, String(item.id));
-        const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
         // A room log's row and the view that landed with it are one revision: the view rides on the row's notification
         // (`roomView`), so both are folded here, before any subscriber is told.
         const viewed =

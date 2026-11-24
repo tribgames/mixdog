@@ -125,7 +125,7 @@ impl SessionActor {
                 let now = self.deps.clock.now_ms();
                 // Whitespace is not output (`onTextDelta` marks the prompt committed only for text that trims to something).
                 if method == "item/agentMessage/delta" && !mixdog_js::js_trim(&text).is_empty() {
-                    self.prompt_committed();
+                    self.prompt_shown();
                 }
                 let mut figure = None;
                 if let Some(run) = self.run.as_mut() {

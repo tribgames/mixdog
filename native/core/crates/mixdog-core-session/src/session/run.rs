@@ -680,6 +680,10 @@ pub(crate) enum RunShown {
     /// The assistant text streamed before a tool call, final as the call starts (`settleSegmentBeforeToolCall`): its row
     /// until the assistant row that carries it is committed under the same id.
     TextSettled(ItemId),
+    /// A cut attempt's shown output settled for display only: its text segments, each stored once as a non-model display
+    /// record (`Form::Display`) or, blank, ended with no row, then the reasoning it was still showing as a thinking row, all
+    /// after the end of the draft's message, whose write `ack` tells.
+    DisplaySettled { segments: Vec<(ItemId, String)>, reasoning: Option<(ItemId, String)>, ack: oneshot::Sender<Result<(), RunError>> },
     /// The compact marker (`applyCompactEvent`).
     Compact(mixdog_agent::env::CompactEvent),
     /// The pre-send check of a request (`compactTelemetry(ctx, 'pre_send_check')`).
@@ -955,6 +959,17 @@ impl RunPort {
     /// assistant row committed under the same id takes its place.
     pub async fn text_settled(&self, item: ItemId) -> Result<(), RunError> {
         self.shown(RunShown::TextSettled(item)).await
+    }
+
+    /// A cut attempt's shown output settled for display only, handed on in order with the run's drafts (after every one of
+    /// the attempt, before any of the next): the run's draft ends its message as an assistant commit does, then each text
+    /// segment is stored once as a non-model display item (`Form::Display`, `model: false`), a blank one ended with no row, and
+    /// the reasoning still open as a thinking row. Neither the records nor a recovery take any of it into model history. Its
+    /// write is told by [`Self::saved`].
+    pub async fn queue_display_settled(&self, segments: Vec<(ItemId, String)>, reasoning: Option<(ItemId, String)>) -> Result<Queued, RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.shown(RunShown::DisplaySettled { segments, reasoning, ack }).await?;
+        Ok(Queued { rx, scoped: false })
     }
 
     /// A compaction pass's marker (`onCompactEvent` → `applyCompactEvent`): the

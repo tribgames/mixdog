@@ -137,6 +137,7 @@ fn a_draft_taken_while_its_message_commits_is_queued_before_the_row() {
             Job::Commit(_, item, _) => format!("row {}", item.iid.as_str()),
             Job::Compact(..) => "compact".to_owned(),
             Job::Rewound(..) => "rewound".to_owned(),
+            Job::Settle(..) => "settle".to_owned(),
         });
     }
     assert_eq!(order, ["draft reading", "row row"]);

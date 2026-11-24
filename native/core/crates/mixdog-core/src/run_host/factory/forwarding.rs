@@ -20,6 +20,20 @@ pub(super) enum Handover {
     Gone,
 }
 
+impl Handover {
+    /// The port the row goes on: once the forwarder is gone, the one whose send outlives the run's cancel.
+    pub(super) fn port<'a>(&self, worker: &'a RunPort, unheld: &'a RunPort) -> &'a RunPort {
+        if matches!(self, Self::Gone) { unheld } else { worker }
+    }
+
+    /// The row went: the forwarder takes the reports after it.
+    pub(super) fn handed(self) {
+        if let Self::Reached(handed) = self {
+            let _ = handed.send(());
+        }
+    }
+}
+
 /// The one wait of a row's hand-over (hence of `accepted`, which the tool start waits on): the forwarder reaching the row's
 /// place among the shown reports. What it can wait for, and why that is bounded:
 /// - the reports ahead of the row being sent to the port: each is a send into the producer lane, which waits only for

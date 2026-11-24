@@ -78,6 +78,30 @@ pub(super) enum Job {
     /// A rewrite that is not a compaction: the model context restarts at these rows, with no divider.
     Rewound(u64, Vec<(ItemId, Value)>),
     Draft(u64, Value),
+    /// A cut attempt's shown output settled for display only ([`Jobs::settle`]): its text segments and the reasoning it was
+    /// still showing, with the settle's place among the run's shown reports.
+    Settle(u64, Vec<(ItemId, String)>, Option<(ItemId, String)>, Option<RowPlace>),
+}
+
+/// A test's hold of a settle on its way to the session, after [`Jobs::settle`] took the attempt's text and before the session
+/// has it: the settle of a segment showing `.0` tells `.1` it is held, then waits for `.2`.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) type SettleHold = (String, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>);
+
+#[cfg(any(test, feature = "test-support"))]
+pub(super) static SETTLE_HOLDS: std::sync::Mutex<Vec<SettleHold>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(any(test, feature = "test-support"))]
+async fn settle_held(segments: &[(ItemId, String)]) {
+    let hold = {
+        let mut holds = SETTLE_HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let at = holds.iter().position(|(text, ..)| segments.iter().any(|(_, shown)| shown == text));
+        at.map(|at| holds.remove(at))
+    };
+    if let Some((_, held, go)) = hold {
+        held.notify_one();
+        go.notified().await;
+    }
 }
 
 /// `TURN_CHECKPOINT_THROTTLE_MS` (`ask-turn-state.mjs:14`): streamed text is drafted at most this often; every other
@@ -182,14 +206,28 @@ impl Jobs {
         if let Some(sealed) = sealed {
             self.queue(&mut observed, |n| Job::Draft(n, sealed));
         }
-        // The rows and the shown reports reach the port on two tasks: the row takes its place among the reports here, after
-        // every report the run produced before it ([`row_handover`]). A forwarder already gone drops the place at once.
-        let place = self.shown.as_ref().map(|shown| {
+        let place = self.place();
+        self.queue(&mut observed, |n| Job::Commit(n, item, place))
+    }
+
+    /// Queues the settle of a cut attempt's shown output for display only (`RunEvent::AttemptDisplaySettled`), which ends the
+    /// draft's message as an assistant row does: in the one order of the run's jobs, so the session takes it after every
+    /// draft of the attempt and before any of the next.
+    pub(super) fn settle(&self, segments: Vec<(ItemId, String)>, reasoning: Option<(ItemId, String)>) -> u64 {
+        let mut observed = lock(&self.observed);
+        observed.message_committed();
+        let place = self.place();
+        self.queue(&mut observed, |n| Job::Settle(n, segments, reasoning, place))
+    }
+
+    /// The rows and the shown reports reach the port on two tasks: a row takes its place among the reports here, after every
+    /// report the run produced before it ([`row_handover`]). A forwarder already gone drops the place at once.
+    fn place(&self) -> Option<RowPlace> {
+        self.shown.as_ref().map(|shown| {
             let (reached, place) = tokio::sync::oneshot::channel();
             let _ = shown.send(Shown::Row(reached));
             place
-        });
-        self.queue(&mut observed, |n| Job::Commit(n, item, place))
+        })
     }
 
     /// Numbers and queues one job; `_held` is the observed record, held by the caller.
@@ -231,16 +269,19 @@ impl PortSink {
                 while let Some(job) = turn_input(queue.recv()).await {
                     let (n, queued, failed) = match job {
                         Job::Commit(n, item, place) => {
-                            let queued = match row_handover(place).await {
-                                Handover::Reached(handed) => {
-                                    let queued = worker.queue_item(item).await;
-                                    let _ = handed.send(());
-                                    queued
-                                }
-                                Handover::Unplaced => worker.queue_item(item).await,
-                                Handover::Gone => unheld.queue_item(item).await,
-                            };
+                            let handover = row_handover(place).await;
+                            let queued = handover.port(&worker, &unheld).queue_item(item).await;
+                            handover.handed();
                             (n, queued, "[session] message save failed")
+                        }
+                        // Its write is the draft's: told once the draft no longer holds the attempt.
+                        Job::Settle(n, segments, reasoning, place) => {
+                            #[cfg(any(test, feature = "test-support"))]
+                            settle_held(&segments).await;
+                            let handover = row_handover(place).await;
+                            let queued = handover.port(&worker, &unheld).queue_display_settled(segments, reasoning).await;
+                            handover.handed();
+                            (n, queued, "[turn-checkpoint] write failed")
                         }
                         Job::Compact(n, compaction) => (n, worker.queue_compacted(compaction).await, "[session] compaction save failed"),
                         Job::Rewound(n, replacement) => (n, worker.queue_context_rewound(replacement).await, "[session] context save failed"),

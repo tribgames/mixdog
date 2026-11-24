@@ -71,6 +71,8 @@ pub(crate) enum Change {
         item: ItemId,
         text: String,
     },
+    /// An in-progress item that ends with no row (a cut attempt's blank text): it leaves the live items.
+    LiveEnded(ItemId),
     /// The session part of the prompt history, recomputed over the remaining lineage after a
     /// history mutation. `publish: false` (rewind) keeps the published list: today's rewind
     /// only drops the restored prompt from it (`replaceItems(.., {preserveSpill})`), and the
@@ -484,6 +486,7 @@ impl SessionState {
                 },
                 _ => {}
             },
+            Change::LiveEnded(item) => self.live.retain(|live| live.item.id() != item),
             Change::PromptSession { session, publish } => {
                 self.prompt_session = session.clone();
                 if *publish {

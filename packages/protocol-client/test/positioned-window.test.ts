@@ -413,3 +413,21 @@ test('a held record sent again with a compaction divider shows the divider after
   } as unknown as Json);
   assert.deepEqual(ids(again.items), ['r1', 'r2', 'divider:c1']);
 });
+
+test('a live reply completed blank ends its live row and folds to no row, in a positioned fold and a plain one', () => {
+  const plain = sessionReducer.initial({ thread: { id: 't' }, state: {}, items: [], hasOlder: false } as unknown as Json);
+  for (const [name, start] of [
+    ['positioned', snapshot(['r1', 'r2'])],
+    ['plain', plain],
+  ] as const) {
+    const blank = (text: string) => ({ type: 'agentMessage', id: 'blank', text, meta: { status: 'inProgress' } });
+    let s = at(start, 'item/started', { turnId: 'x', item: blank('') });
+    s = at(s, 'item/agentMessage/delta', { itemId: 'blank', delta: '\n' });
+    assert.equal(s.live?.id, 'blank', name);
+    const rows = ids(s.items);
+    s = at(s, 'item/completed', { turnId: 'x', item: blank('\n') });
+    assert.equal(s.live, null, `${name}: the live row ends`);
+    assert.equal(state(s).streamingTail ?? null, null, name);
+    assert.deepEqual(ids(s.items), rows, `${name}: whitespace is no row`);
+  }
+});

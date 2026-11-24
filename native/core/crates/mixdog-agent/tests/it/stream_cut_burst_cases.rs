@@ -76,7 +76,8 @@ async fn a_spent_budget_surfaces_the_cut_after_every_send_ran_its_stream_row() {
     for line in &attempts {
         assert!(line.contains(" phase=stream ") && line.contains(" delivery=Accepted "), "{line}");
         // The daemon log appends the turn's trace identity (session, turn, send, attempt, phase) to every line.
-        assert!(line.contains(" fault=H2GoAway { code: 0 } connection=h2/7 session=t turn=r send="), "{line}");
+        assert!(line.contains(" fault=H2GoAway { code: 0 } connection=h2/7 text_emitted=false "), "{line}");
+        assert!(line.contains(" tool_dispatched=false session=t turn=r send="), "{line}");
     }
 }
 

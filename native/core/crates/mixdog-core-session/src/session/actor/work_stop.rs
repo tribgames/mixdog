@@ -381,8 +381,13 @@ impl SessionActor {
             super::super::stop::Reason::UserCancel => mixdog_agent::cancel::USER_CANCEL,
         };
         // The abort that ends the run decides how its end reads: a Stop behind another abort (a takeover, a room's Stop from
-        // outside the actor) changes nothing of it.
-        let ends_run = self.cell.abort_first(&turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name)).unwrap_or(false);
+        // outside the actor) changes nothing of it. The prompt this Stop keeps, the turn's close keeps: the close follows the
+        // decision in the reply, not what output it finds then.
+        let mut abort = mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name);
+        if decision.keeps_prompt {
+            abort.reason = mixdog_agent::interrupt::AbortReason::UserCancelKeepPrompt;
+        }
+        let ends_run = self.cell.abort_first(&turn, &abort).unwrap_or(false);
         let _ = self.cell.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
         let facts = run.prompt.snapshot();
         let restore = facts.reclaim.as_ref().map(|reclaim| Restore {

@@ -2026,6 +2026,7 @@ fn prompt_state(input: &TurnInput, submitter: Option<&Submitter>, wake: bool) ->
         device: submitter.map(|submitter| submitter.device.clone()).unwrap_or_default(),
         restorable: submitter.is_some_and(|submitter| submitter.restorable) && !wake,
         committed: false,
+        shown_commit: None,
         entry: json!({ "message": input.prompt, "options": input.options }),
         user_stopped: false,
         reclaim: None,
@@ -4605,6 +4606,19 @@ impl SessionActor {
         }
     }
 
+    /// A finished thinking row: a display record of the turn, no message of it.
+    fn show_reasoning(&mut self, turn: &TurnId, id: &str, content: &[String]) {
+        self.show_stored(Some(turn), id, json!({ "kind": "reasoning", "id": id, "content": content }));
+    }
+
+    /// The run showed text: its prompt is committed as by output until that text settles as display only
+    /// ([`super::stop::PromptState::commit_shown`]).
+    fn prompt_shown(&self) {
+        if let Some(run) = &self.run {
+            run.prompt.commit_shown();
+        }
+    }
+
     /// `pushToast` (`notice-surface.mjs`): a transient notice of the session, shown in the runtime section's `toasts` for `TOAST_TTL` and then removed. Empty text is no toast.
     /// `effects` run when the toast's change is released; for an empty text, at once.
     fn push_toast(&mut self, text: &str, tone: &str, owner: Option<&str>, effects: Vec<Effect>) {
@@ -4683,7 +4697,7 @@ impl SessionActor {
             // snapshot, in any window and after a reload, and the model's context holds none of it.
             RunShown::Reasoning(item) => {
                 if let ThreadItem::Reasoning { id, content, .. } = &item {
-                    self.show_stored(Some(&turn), id.as_str(), json!({ "kind": "reasoning", "id": id.as_str(), "content": content }));
+                    self.show_reasoning(&turn, id.as_str(), content);
                 }
             }
             RunShown::TextSettled(item) => {
@@ -4703,6 +4717,48 @@ impl SessionActor {
                     .map(|live| live.item.clone())
                 {
                     self.accept_view(Change::Settled { turn, item: text }, Vec::new());
+                }
+            }
+            RunShown::DisplaySettled { segments, reasoning, ack } => {
+                // The draft's message ends first, as at an assistant commit (`mark_committing`), written whole without it: the
+                // rows after it wait for that write (`Effect::Draft` with its ack), so a recovery never takes the attempt's
+                // text into the model's history; a process that dies between them loses the display rows instead. None of it is
+                // an answer: a prompt only its text committed is the user's to take back again.
+                let marks = self.deps.sensitive.clone();
+                let ended = self.run.as_mut().and_then(|run| {
+                    run.prompt.shown_settled();
+                    run.journal.message_committed();
+                    run.journal
+                        .written()
+                        .then(|| super::turn_draft::DraftWrite::Append { rid: run.turn.as_str().to_owned(), body: run.journal.reset(&*marks, &self.id) })
+                });
+                match ended {
+                    Some(ended) => self.accept_view_with(Change::Barrier, Vec::new(), vec![Effect::Draft(ended, Some(ack))]),
+                    None => drop(ack.send(Ok(()))),
+                }
+                for (id, text) in segments {
+                    // Blank text is no row, as at a settle before a tool call: its item ends with nothing stored, and a client's
+                    // live row of it ends on its completion, which folds to no row.
+                    if text.trim().is_empty() {
+                        let ended = self.projected.live.iter().find(|live| live.item.id() == &id).map(|live| live.item.clone());
+                        let notes = ended
+                            .map(|item| {
+                                Note::new(
+                                    "item/completed",
+                                    &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item, room_view: None },
+                                )
+                            })
+                            .into_iter()
+                            .collect();
+                        self.accept_view(Change::LiveEnded(id), notes);
+                        continue;
+                    }
+                    self.committed_texts.push(id.clone());
+                    self.show_stored(Some(&turn), id.as_str(), json!({ "kind": "assistant", "id": id.as_str(), "text": text }));
+                }
+                // The thinking it was still showing came after all its text.
+                if let Some((id, text)) = reasoning {
+                    self.show_reasoning(&turn, id.as_str(), &[text]);
                 }
             }
             RunShown::Usage(report) => self.shown_usage(report),
@@ -4807,14 +4863,10 @@ impl SessionActor {
     fn shown_context(&mut self, used: u64) {
         let now = self.deps.clock.now_ms();
         self.stats.measured(used as f64, now);
-        let set = [
-            ("lastContextTokens", json!(used)),
-            ("lastContextTokensUpdatedAt", json!(now)),
-            ("lastContextTokensStaleAfterCompact", json!(false)),
-        ]
-        .into_iter()
-        .map(|(key, value)| (key.to_owned(), value))
-        .collect();
+        let set = [("lastContextTokens", json!(used)), ("lastContextTokensUpdatedAt", json!(now)), ("lastContextTokensStaleAfterCompact", json!(false))]
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value))
+            .collect();
         self.defer_header(Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() }));
         if let Some(run) = self.run.as_mut() {
             run.journal.context(Some(used));

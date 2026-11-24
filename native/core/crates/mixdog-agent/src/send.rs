@@ -82,9 +82,18 @@ struct Failure {
     midstream: bool,
     shown_chars: usize,
     reasoning_shown: bool,
+    /// The stream marked reasoning under way (`Progress(Reasoning)`) without any of its text: a liveness mark, no shown output.
+    reasoning_marked: bool,
 }
 
-fn fail(error: ProviderError, builder: ResponseBuilder, midstream: bool, shown_chars: usize, reasoning_shown: bool) -> Result<ModelResponse, Box<Failure>> {
+fn fail(
+    error: ProviderError,
+    builder: ResponseBuilder,
+    midstream: bool,
+    shown_chars: usize,
+    reasoning_shown: bool,
+    reasoning_marked: bool,
+) -> Result<ModelResponse, Box<Failure>> {
     let mut partial = builder.finish();
     if partial.replay.is_empty()
         && let Some(replay) = &error.partial_replay
@@ -94,7 +103,30 @@ fn fail(error: ProviderError, builder: ResponseBuilder, midstream: bool, shown_c
     if partial.thinking_blocks.is_none() && !error.partial_thinking_blocks.is_empty() {
         partial.thinking_blocks = Some(serde_json::Value::Array(error.partial_thinking_blocks.clone()));
     }
-    Err(Box::new(Failure { error, partial, midstream, shown_chars, reasoning_shown }))
+    Err(Box::new(Failure { error, partial, midstream, shown_chars, reasoning_shown, reasoning_marked }))
+}
+
+fn is_thinking_or_blank_block(block: &serde_json::Value) -> bool {
+    match block.get("type").and_then(serde_json::Value::as_str) {
+        Some("thinking" | "redacted_thinking" | "reasoning") => true,
+        Some("text") => block.get("text").and_then(serde_json::Value::as_str).is_none_or(|t| mixdog_js::js_trim(t).is_empty()),
+        _ => false,
+    }
+}
+
+fn is_thinking_only_replay(items: &serde_json::Value) -> bool {
+    match items {
+        serde_json::Value::Array(list) => list.iter().all(is_thinking_or_blank_block),
+        serde_json::Value::Null => true,
+        other => is_thinking_or_blank_block(other),
+    }
+}
+
+fn strip_thinking_only_replay(response: &mut ModelResponse) {
+    response.replay.retain(|envelope| !is_thinking_only_replay(&envelope.items));
+    if response.server_blocks.iter().all(is_thinking_or_blank_block) {
+        response.server_blocks.clear();
+    }
 }
 
 /// What the session's fallback chain did with a failure.
@@ -736,7 +768,7 @@ impl Run {
         let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages).in_session(epoch));
         let request = match self.prepare_request(request).await? {
             Ok(request) => request,
-            Err(error) => return Ok(fail(*error, builder, false, 0, false)),
+            Err(error) => return Ok(fail(*error, builder, false, 0, false, false)),
         };
         let Some(slot) = self.config.slot.clone() else { return self.exchange(request, builder).await };
         let mut settled = None;
@@ -896,13 +928,14 @@ impl Run {
                 identity.observe(mixdog_core_api::domain::provider::Boundary::AttemptFailed);
                 identity.deliver_pending(|stage, payload| self.deliver_raised(stage, payload));
                 self.show_notices(&error);
-                return Ok(fail(error, builder, false, 0, false));
+                return Ok(fail(error, builder, false, 0, false, false));
             }
             Some(Ok(stream)) => stream,
         };
         self.emit(RunEvent::Stage(Stage::Streaming));
         let mut shown_chars = 0usize;
         let mut reasoning_shown = false;
+        let mut reasoning_marked = false;
         self.settle_gate.send_replace(false);
         // Invariant (`crate::batch::settle_gate`): the gate is open only while a pending `next` waits for the wire. It is
         // opened here, between polls of `next`, and closed by the stream itself inside the poll in which the wire's
@@ -949,7 +982,7 @@ impl Run {
                     self.show_notices(&error);
                     // The stream is issued anew by the retry: the provider's once-per-ladder `requesting` is raised again.
                     identity.reissue();
-                    return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
+                    return Ok(fail(error, builder, true, shown_chars, reasoning_shown, reasoning_marked));
                 }
                 Some(Ok(event)) => event,
             };
@@ -980,11 +1013,12 @@ impl Run {
                     reasoning_shown = true;
                     self.emit(RunEvent::ReasoningDelta(text.clone()));
                 }
-                // Shown like text, so it cannot be withdrawn either; the turn's content does not hold it.
+                // Thinking updates: shown, but no part of the turn's content, so they expose like reasoning, not like text.
                 StreamEvent::ProgressDelta(text) => {
-                    shown_chars += mixdog_js::utf16_len(text);
+                    reasoning_shown = true;
                     self.emit(RunEvent::ProgressDelta(text.clone()));
                 }
+                StreamEvent::Progress(mixdog_core_api::domain::provider::ProgressKind::Reasoning) => reasoning_marked = true,
                 // Informational only: never progress, never death.
                 StreamEvent::ProviderKeepalive => {
                     self.emit(RunEvent::Stage(Stage::WaitingOnProvider));
@@ -1037,7 +1071,7 @@ impl Run {
             // A stream may only end with its terminal event.
             let mut error = ProviderError::transport(TransportFault::TruncatedStream, stream.delivery());
             error.exposure.text_emitted = shown_chars > 0;
-            return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
+            return Ok(fail(error, builder, true, shown_chars, reasoning_shown, reasoning_marked));
         }
         self.last_streamed_chars = shown_chars;
         if keeps_its_run(provider.id().as_str()) {
@@ -1092,10 +1126,10 @@ impl Run {
     }
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {
-        let Failure { mut error, partial, midstream, shown_chars, reasoning_shown } = fail;
+        let Failure { mut error, mut partial, midstream, shown_chars, reasoning_shown, reasoning_marked } = fail;
         if let Some(fault) = &error.transport {
             mixdog_rt::node_stderr!(
-                "[attempt-error] session={} provider={} model={} phase={} code={} delivery={:?} fault={fault:?} connection={}",
+                "[attempt-error] session={} provider={} model={} phase={} code={} delivery={:?} fault={fault:?} connection={} text_emitted={} shown_chars={shown_chars} reasoning_shown={reasoning_shown} tool_input_cut={} tool_dispatched={}",
                 self.config.thread_id.as_str(),
                 self.provider.id().as_str(),
                 self.model,
@@ -1103,6 +1137,9 @@ impl Run {
                 error.code.as_deref().filter(|code| !code.is_empty()).unwrap_or("-"),
                 error.delivery,
                 error.connection.map_or_else(|| "-".to_owned(), |c| format!("{}/{}", c.protocol, c.id)),
+                error.exposure.text_emitted,
+                error.exposure.tool_input_cut,
+                error.exposure.tool_dispatched,
             );
         }
         // A terminal unary refusal is the answer, not another failed way to get the stream's answer. The send group
@@ -1133,6 +1170,24 @@ impl Run {
             let recovery_notice = input_cut.then(|| AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE));
             return Ok(Recovery::Proceed(Box::new(ModelResponse { stop: Some(StopReason::ToolUse), recovery_notice, ..partial })));
         }
+        // A provider's exposure flag also covers reasoning text; what the owner saw as text is `shown_chars`.
+        let reasoning_only = shown_chars == 0 && reasoning_shown;
+        let text_shown = shown_chars > 0 || (error.exposure.text_emitted && !reasoning_only);
+        let exposed = text_shown || reasoning_shown;
+        // What an owner that cannot withdraw keeps of the attempt: shown text with more than whitespace in it. Blank text,
+        // progress and reasoning are shown and kept by no one: the attempt is settled for display and replayed.
+        let kept = text_shown && partial.has_content();
+        // Withdrawing shown text makes a replay safe; it is asked only once a
+        // replay is decided. A dispatched tool call can never be replayed.
+        let retractable = exposed && !error.exposure.tool_dispatched && self.eager.is_empty() && partial.tool_calls.is_empty();
+        // With no reset channel, shown output is never withdrawn: kept text before a cut call is committed and the call alone
+        // is replayed, and an attempt that kept nothing is replayed after its output settles for display.
+        let keep_shown = retractable && (!kept || error.exposure.tool_input_cut) && !self.env.observer.can_retract();
+        // An attempt that kept nothing is dead whatever follows (a wait and its replay, a stop in the wait, an ended ladder,
+        // another route): what it showed settles now, so no draft of it outlives the decision.
+        if keep_shown && !kept {
+            self.emit(RunEvent::AttemptDisplaySettled);
+        }
         // First-party Responses marks a failure after visible reasoning
         // terminal even when the UI could retract it. Keep the usage and
         // original error, without another sample on this or another route.
@@ -1152,11 +1207,7 @@ impl Run {
         if midstream && self.reissue_cut_stream(&error, &partial, shown_chars, reasoning_shown) {
             return Ok(Recovery::Replay);
         }
-        // A provider's exposure flag also covers reasoning text; what the owner saw as text is `shown_chars`.
-        let reasoning_only = shown_chars == 0 && reasoning_shown;
-        let text_shown = shown_chars > 0 || (error.exposure.text_emitted && !reasoning_only);
-        let exposed = text_shown || reasoning_shown;
-        if text_shown
+        if kept
             && is_stream_cut(&error)
             && partial.tool_calls.is_empty()
             && self.eager.is_empty()
@@ -1164,12 +1215,10 @@ impl Run {
             && !error.exposure.tool_dispatched
             && !self.env.observer.can_retract()
         {
+            strip_thinking_only_replay(&mut partial);
             return Ok(Recovery::Proceed(Box::new(ModelResponse { stop: None, truncated: true, stream_cut: true, tool_calls: Vec::new(), ..partial })));
         }
         let ws_owner_replay = error.ws_phase == Some(WsPhase::Stream) && !error.recovery_exhausted && (exposed || error.exposure.tool_input_cut);
-        // Withdrawing shown text makes a replay safe; it is asked only once a
-        // replay is decided. A dispatched tool call can never be replayed.
-        let retractable = exposed && !error.exposure.tool_dispatched && self.eager.is_empty() && partial.tool_calls.is_empty();
         let mut decide_on = error.clone();
         // A call already running cannot be replayed.
         decide_on.exposure.tool_dispatched |= !self.eager.is_empty();
@@ -1177,9 +1226,14 @@ impl Run {
             decide_on.exposure.text_emitted = false;
             // The adapter marks any shown output unsafe; the owner's withdrawal (asked once the replay is decided) is what
             // makes the owner's replay of a socket closed mid-response safe.
-            if reasoning_only || ws_owner_replay {
+            if keep_shown || reasoning_only || ws_owner_replay {
                 decide_on.unsafe_to_retry = false;
             }
+        }
+        // An adapter marks a send unsafe once reasoning started, text of it or not; a mark alone showed the owner nothing, so
+        // the attempt takes the route of one that showed nothing.
+        if reasoning_marked && !exposed && partial.tool_calls.is_empty() {
+            decide_on.unsafe_to_retry = false;
         }
         let split_notice = decide_on.exposure.tool_input_cut;
         decide_on.exposure.tool_input_cut = false;
@@ -1250,10 +1304,9 @@ impl Run {
             }
             return if replay_safe { self.surface(error).await } else { Err(AgentError::Provider(Box::new(error))) };
         };
-        // Where the owner has no reset channel, shown reasoning is not withdrawn at all and is replayed; a channel that
+        // Where the owner has no reset channel, what it keeps of the shown output is not withdrawn at all; a channel that
         // exists and refuses ends the send.
-        let no_channel_reasoning = reasoning_only && !self.env.observer.can_retract();
-        if retractable && !no_channel_reasoning && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
+        if retractable && !keep_shown && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
             for state in spent {
                 self.retry.store(state);
             }
@@ -1289,8 +1342,18 @@ impl Run {
             self.emit(RunEvent::Stage(Stage::Reconnecting { attempt: used, max, delay, reason, payload: Some(payload) }));
             self.retry_wait(delay).await?;
         }
+        // Kept text from the dead attempt commits as its own finished segment.
+        if keep_shown && kept {
+            strip_thinking_only_replay(&mut partial);
+            let text = partial.content.clone();
+            if let Some(mut message) = crate::response::intermediate_message(&partial) {
+                message.turn_reminder = self.last_reminder.clone();
+                self.push(message).await?;
+                self.record_segment(&text, true);
+            }
+        }
         if split_notice {
-            // A repeated cut keeps the single notice already at the tail.
+            // A notice already at the tail is not repeated.
             let tail_is_notice = self.messages.last().is_some_and(|m| m.source == Some(Source::StreamCutRecovery));
             if !tail_is_notice {
                 self.push(AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE)).await?;
