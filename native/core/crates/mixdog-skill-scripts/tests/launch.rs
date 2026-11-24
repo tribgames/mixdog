@@ -95,6 +95,7 @@ fn write_launchers(dir: &Path, shell: Shell) -> PathBuf {
     dir.join(if shell == Shell::Cmd { "mixdog-skill-node.cmd" } else { "mixdog-skill-node" })
 }
 
+#[cfg(windows)]
 fn ps_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }

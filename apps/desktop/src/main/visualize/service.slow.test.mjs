@@ -1438,6 +1438,8 @@ function desktopHarness() {
     webContents: {
       id: 7,
       isDestroyed: () => false,
+      getZoomFactor: () => 1,
+      capturePage: async () => ({ isEmpty: () => false, toPNG: () => Buffer.from('PNG') }),
       once() {},
       on(name, listener) {
         if (name === 'will-frame-navigate') network.navigate = listener;
@@ -1513,21 +1515,13 @@ test('a desktop tab reaches the remote mirror with its file, and failed page ass
     network.completed(fromPage({ url: frame.url, statusCode: 404, resourceType: 'subFrame' }));
     network.completed(fromPage({ url: 'http://127.0.0.1:1/other/x.css', statusCode: 404, resourceType: 'stylesheet' }));
     network.failed(fromPage({ url: asset('gone.js'), error: 'net::ERR_ABORTED', resourceType: 'script' }));
-    // A failed lease-URL request of another webContents, of a frame that is
-    // not a pane of that lease, or of no frame at all, is not this page's.
+    // A failed lease-URL request of a frame that is not a pane of that lease,
+    // or of no frame at all, is not this page's.
     const failing = { url: asset('missing.css'), statusCode: 404, resourceType: 'stylesheet' };
-    network.completed(fromPage(failing, { webContentsId: 99 }));
-    network.completed(fromPage(failing, { webContentsId: undefined }));
     network.completed(
       fromPage(failing, { frame: { url: 'file:///C:/app/index.html', isDestroyed: () => false, parent: null } })
     );
     network.completed(fromPage(failing, { frame: null }));
-    network.failed(
-      fromPage(
-        { url: asset('font.woff'), error: 'net::ERR_CONNECTION_RESET', resourceType: 'font' },
-        { webContentsId: 99 }
-      )
-    );
     assert.equal(problems(), undefined);
     network.completed(fromPage(failing));
     network.failed(fromPage({ url: asset('font.woff'), error: 'net::ERR_CONNECTION_RESET', resourceType: 'font' }));
@@ -1562,8 +1556,8 @@ test('outside network is refused for visualize pages only, filed as problems, an
         frame: { url: frame.url, isDestroyed: () => false, parent: null },
         url: 'https://cdn.example.com/lib.js',
       }),
-      false,
-      'another webContents is never judged'
+      true,
+      'a lease page is judged by its frame, in whichever window it was opened'
     );
     assert.equal(cancelled({ frame: page, url: 'https://cdn.example.com/lib.js', resourceType: 'script' }), true);
     assert.equal(cancelled({ frame: page, url: 'wss://live.example.com/socket', resourceType: 'webSocket' }), true);
@@ -1595,7 +1589,13 @@ test('outside network is refused for visualize pages only, filed as problems, an
       problems()
         .filter((problem) => problem.kind === 'blocked-network')
         .map((problem) => problem.message),
-      ['cdn.example.com (script)', 'live.example.com (webSocket)', 'tracker.example (image)', 'localhost:3000 (xhr)']
+      [
+        'cdn.example.com (xhr)',
+        'cdn.example.com (script)',
+        'live.example.com (webSocket)',
+        'tracker.example (image)',
+        'localhost:3000 (xhr)',
+      ]
     );
     assert.equal(remoteEvents.at(-1).state.tabs[0].networkAllowed, undefined);
     assert.equal(remoteVisualizeState(remoteEvents.at(-1).state).tabs[0].networkAllowed, undefined);
