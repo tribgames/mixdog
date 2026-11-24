@@ -407,3 +407,26 @@ test('Copy on a cut row asks for the whole output and copies that, never the pre
   await act(async () => root.unmount());
   host.remove();
 });
+
+test('a row the core sent cut is read when the person asks, never ahead of that', async (t) => {
+  resetFullToolOutputs();
+  const originalApi = window.mixdogDesktop;
+  const reads = [];
+  t.after(() => {
+    resetFullToolOutputs();
+    window.mixdogDesktop = originalApi;
+  });
+  window.mixdogDesktop = {
+    readTranscriptItem: (sessionId, id) => {
+      reads.push([sessionId, id]);
+      return Promise.resolve({ id, result: FULL });
+    },
+  };
+  const onRequest = { ...CUT, id: 'core-cut', remoteOutputOnRequest: true };
+  await act(async () => prefetchToolOutputs('session-1', [onRequest, { ...CUT, id: 'phone-cut' }], {}));
+  assert.deepEqual(reads, [['session-1', 'phone-cut']], 'the phone-cut row is prefetched from its own state, the core-cut one is not');
+  const view = await mount(onRequest);
+  await view.click();
+  assert.deepEqual(reads.at(-1), ['session-1', 'core-cut'], 'pressing "Show full output" reads it');
+  await view.unmount();
+});

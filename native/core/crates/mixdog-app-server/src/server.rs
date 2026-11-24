@@ -811,6 +811,9 @@ impl Shared {
         if feed_ranges {
             conn.sink.coalesce_appends();
         }
+        if let Some(display) = capabilities.tool_output {
+            conn.sink.cut_tool_output(display.chars as usize, display.lines as usize);
+        }
         // Before the response: the client sends nothing the registry must know about until it has read it.
         let device = self.core.connection_opened(conn.id, origin, &device, kind);
         let response = v1::InitializeResponse {

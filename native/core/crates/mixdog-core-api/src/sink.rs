@@ -72,6 +72,10 @@ pub trait ConnectionSink: Send + Sync {
     /// The peer announced `feedRanges` at initialize: it folds a frame that stands for a run of feed positions (`feed.from`), so
     /// the writer may coalesce a thread's consecutive text appends for it. A sink that does not coalesce ignores it.
     fn coalesce_appends(&self) {}
+
+    /// The peer announced `toolOutput` at initialize: the notification frames written to it carry each tool output cut to `chars`
+    /// characters and `lines` lines. A sink that does not cut ignores it.
+    fn cut_tool_output(&self, _chars: usize, _lines: usize) {}
 }
 
 /// One subscription's ordered lane inside a connection.

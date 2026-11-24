@@ -255,7 +255,8 @@ function pumpPrefetches(): void {
  *  way, each row once. */
 export function prefetchToolOutputs(sessionId: string, items: readonly TranscriptItem[], owner: object): void {
   for (const item of items) {
-    if (!toolOutputCut(item) || item.id == null || !sessionId) continue;
+    // A row the core sent cut is read when the person asks, not ahead of that: each read is a request over the link.
+    if (!toolOutputCut(item) || item.remoteOutputOnRequest === true || item.id == null || !sessionId) continue;
     const key = fullToolOutputKey(sessionId, item);
     if (!prefetchDue(key) || queued.some((entry) => entry.key === key)) continue;
     queued.push({ key, sessionId, id: fullReadId(item), owner, replayToken: projectedReplayToken(item) });

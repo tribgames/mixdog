@@ -10,6 +10,7 @@ import {
   type SessionFold,
   type ThreadReducer,
 } from '../../../packages/protocol-client/src/index.ts';
+import { REMOTE_TOOL_OUTPUT_DISPLAY } from '../../desktop/src/shared/remote-tool-output-display.ts';
 import { CLOSE_DESKTOP_OFFLINE, phoneConnectionOf, terminalOfClose, type PhoneConnection } from './phone-status.ts';
 import { createScreenReporter, type ScreenReporter, type ScreenSource } from './screen-reporter.ts';
 import {
@@ -212,7 +213,13 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
           build: options.build,
         },
         // `feedRanges`: the protocol client folds a coalesced text append (`feed.from`), so the core batches this phone's appends.
-        capabilities: { optOutNotificationMethods: [], experimentalApi: false, feedRanges: true },
+        // `toolOutput`: the core cuts each tool output to what the phone shows (the rest is read on request, `thread/items/read`).
+        capabilities: {
+          optOutNotificationMethods: [],
+          experimentalApi: false,
+          feedRanges: true,
+          toolOutput: REMOTE_TOOL_OUTPUT_DISPLAY,
+        },
         threadReducer: options.threadReducer ?? sessionReducer,
         // The phone holds a window of each transcript the core keeps for it, not the conversation.
         positionedTranscripts: true,

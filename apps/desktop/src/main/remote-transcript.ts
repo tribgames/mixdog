@@ -3,6 +3,8 @@ import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
 import { normalizeToolName } from '../../../../packages/protocol-client/src/rows/tool-primitives.mjs';
 import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
 import { REMOTE_TRANSCRIPT_TAIL_BYTES } from '../shared/desktop-transcript-limits';
+import { cutOutputStatsOf, paddedToWholeLines } from '../../../../packages/protocol-client/src/rows/cut-output';
+import { REMOTE_TOOL_OUTPUT_DISPLAY } from '../shared/remote-tool-output-display';
 import { wholeOutputRevision } from '../shared/tool-output-revision';
 
 const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks', 'providerReplay'] as const;
@@ -31,10 +33,10 @@ const REMOTE_TOOL_OUTPUT_FIELDS = ['result', 'rawResult'] as const;
  *  repeats `result` verbatim, and each output keeps its first lines, at most
  *  this many characters. `remoteOutputTruncated` stays on the row, so opening
  *  it (or the phone's idle prefetch) reads the whole text (`remoteToolOutput`). */
-export const REMOTE_HISTORY_OUTPUT_CHARS = 600;
+export const REMOTE_HISTORY_OUTPUT_CHARS = REMOTE_TOOL_OUTPUT_DISPLAY.chars;
 // The phone's 5-line preview (PREVIEW_OUTPUT_LINES); a command keeps one more,
 // the line its open preview shows instead of a count.
-const HISTORY_OUTPUT_LINES = 5;
+const HISTORY_OUTPUT_LINES = REMOTE_TOOL_OUTPUT_DISPLAY.lines;
 const HISTORY_COMMAND_LINES = 6;
 const HISTORY_COMMAND_TOOLS = new Set(['shell', 'bash', 'bash_session', 'shell_command']);
 const HISTORY_WHOLE_OUTPUT =
@@ -90,6 +92,16 @@ function wholeOutputFacts(whole: Record<string, unknown>, cut: Record<string, un
   return changed.length ? Object.fromEntries(changed) : null;
 }
 
+/** The facts the whole output of a row the core cut gives and its cut text does not, or null: the core says how many lines the whole
+ *  had, and the facts are read from the cut text padded to them. */
+function coreCutFacts(record: Record<string, unknown>): object | null {
+  const stats = cutOutputStatsOf(record as Parameters<typeof cutOutputStatsOf>[0]);
+  const text = record.result;
+  if (!stats || typeof text !== 'string') return null;
+  const whole = { ...record, result: paddedToWholeLines(text, stats) };
+  return wholeOutputFacts(whole, record);
+}
+
 function isDigestibleDiff(diff: string): boolean {
   return /^diff --git /.test(diff);
 }
@@ -138,12 +150,19 @@ function cappedToolRecord(record: Record<string, unknown>, history = false): Rec
     longest = Math.max(longest, value.length);
   }
   if (capped && longest > 0) {
-    capped[REMOTE_OUTPUT_TRUNCATED_FIELD] = longest;
-    capped[REMOTE_OUTPUT_NOTES_FIELD] = notes;
+    // What the core said of a text it cut already stands beside what is cut here.
+    const held = record[REMOTE_OUTPUT_TRUNCATED_FIELD];
+    capped[REMOTE_OUTPUT_TRUNCATED_FIELD] = typeof held === 'number' ? Math.max(held, longest) : longest;
+    capped[REMOTE_OUTPUT_NOTES_FIELD] = { ...asRecord(record[REMOTE_OUTPUT_NOTES_FIELD]), ...notes };
     // An older row's header reads what the whole output gives, wherever its
     // cut text gives other (the newest rows keep the copy the desktop sends).
     const facts = history ? wholeOutputFacts(record, capped) : null;
     if (facts) capped[REMOTE_OUTPUT_FACTS_FIELD] = facts;
+  }
+  const carried = coreCutFacts(capped ?? record);
+  if (carried) {
+    capped ??= { ...record };
+    capped[REMOTE_OUTPUT_FACTS_FIELD] = carried;
   }
   return capped ?? record;
 }

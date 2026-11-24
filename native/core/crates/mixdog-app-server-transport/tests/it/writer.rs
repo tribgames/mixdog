@@ -681,3 +681,52 @@ async fn only_a_feed_ranges_client_gets_a_window_of_appends_as_one_ranged_frame(
     assert_eq!(every.iter().map(|frame| frame["feed"]["seq"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2, 3, 4]);
     assert!(every.iter().all(|frame| frame["feed"].get("from").is_none()), "a client without `feedRanges` never sees a range");
 }
+
+/// Two clients, one notification carrying a tool row with a long output: the one that announced `toolOutput` is written the row cut
+/// to what it shows, with the output's length said on it; the other is written the frame as it was.
+#[tokio::test(start_paused = true)]
+async fn only_a_tool_output_client_is_written_the_tool_output_cut() {
+    install_rt();
+    let hub = ConnectionHub::new(small_limits()).unwrap();
+    let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
+    let mut desktop = connect(&hub, ConnectionOrigin::Loopback, true);
+    phone.connection.sink.cut_tool_output(600, 5);
+    let output = "a line of output\n".repeat(200);
+    let frame = serde_json::json!({
+        "method": "thread/window/changed",
+        "params": { "added": [{ "units": [{ "items": [{
+            "type": "toolCall", "id": "i1", "name": "read", "input": {}, "output": output,
+            "run": { "result": output }, "meta": { "ext": {} },
+        }] }] }] },
+    });
+    let bytes = Bytes::from(serde_json::to_vec(&frame).unwrap());
+    phone.connection.sink.send_control(bytes.clone()).unwrap();
+    desktop.connection.sink.send_control(bytes).unwrap();
+
+    let shown = parsed(&phone.take_text(1).await[0]);
+    let item = &shown["params"]["added"][0]["units"][0]["items"][0];
+    assert_eq!(item["output"].as_str().unwrap().lines().count(), 5);
+    assert_eq!(item["meta"]["ext"]["remoteOutputTruncated"], output.chars().count());
+    let whole = parsed(&desktop.take_text(1).await[0]);
+    assert_eq!(whole, frame, "a client that declared nothing is written the frame as it was");
+}
+
+/// A client that declares a size of nothing is cut to one line, as a size of one: the writer takes no frame to the end of its own cut.
+#[tokio::test(start_paused = true)]
+async fn a_tool_output_declared_as_nothing_is_cut_to_one_line_and_writes_on() {
+    install_rt();
+    let hub = ConnectionHub::new(small_limits()).unwrap();
+    let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
+    phone.connection.sink.cut_tool_output(0, 0);
+    let output = "a line of output\n".repeat(200);
+    let frame = serde_json::json!({
+        "method": "thread/window/changed",
+        "params": { "added": [{ "units": [{ "items": [{
+            "type": "toolCall", "id": "i1", "name": "read", "input": {}, "output": output,
+            "run": { "result": output }, "meta": { "ext": {} },
+        }] }] }] },
+    });
+    phone.connection.sink.send_control(Bytes::from(serde_json::to_vec(&frame).unwrap())).unwrap();
+    let shown = parsed(&phone.take_text(1).await[0]);
+    assert_eq!(shown["params"]["added"][0]["units"][0]["items"][0]["output"], "a");
+}

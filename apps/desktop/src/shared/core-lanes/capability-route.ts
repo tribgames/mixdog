@@ -153,6 +153,12 @@ export interface CapabilityLane {
     args: unknown[] | undefined,
     sessionId: string | undefined
   ): Promise<DesktopCapabilityResult<T>>;
+  /** `invoke` without the read of the session's state that follows it, for a caller that uses the value alone. */
+  invokeValue<T = unknown>(
+    capability: DesktopCapability | 'setFast',
+    args: unknown[] | undefined,
+    sessionId: string | undefined
+  ): Promise<{ value: T }>;
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   /** `SessionHostLifecycle.renameSession` on a core connection: the host's own checks, then `thread/name/set`. */
   renameSession(sessionId: string, title: string): Promise<void>;
@@ -388,17 +394,38 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
       remoteSessionIdOf(remoteSession)
     ) as unknown as SessionSnapshot;
   };
+  async function invokeCapability<T>(
+    capability: DesktopCapability | 'setFast',
+    args: unknown[],
+    sessionId: string | undefined,
+    withState: true
+  ): Promise<DesktopCapabilityResult<T>>;
+  async function invokeCapability<T>(
+    capability: DesktopCapability | 'setFast',
+    args: unknown[],
+    sessionId: string | undefined,
+    withState: false
+  ): Promise<{ value: T }>;
+  async function invokeCapability<T>(
+    capability: DesktopCapability | 'setFast',
+    args: unknown[],
+    sessionId: string | undefined,
+    withState: boolean
+  ): Promise<{ value: T } | DesktopCapabilityResult<T>> {
+    try {
+      const value = (await send(capability, args, sessionId)) as T;
+      return withState ? { value, snapshot: await stateOf(sessionId ?? (await controlThread())) } : { value };
+    } catch (error) {
+      // Node sent a call naming its session to that session (`session-host-lifecycle.ts` `invokeCapability` -> the daemon's
+      // `session-action.mjs`), which answers a session it does not have with its own text; the core answers `threadNotFound`.
+      throw sessionId && isThreadNotFound(error) ? new Error(`session ${sessionId} is not available`) : error;
+    }
+  }
   return {
-    async invoke<T>(capability: DesktopCapability | 'setFast', args: unknown[] = [], sessionId?: string) {
-      try {
-        const value = (await send(capability, args, sessionId)) as T;
-        return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
-      } catch (error) {
-        // Node sent a call naming its session to that session (`session-host-lifecycle.ts` `invokeCapability` -> the daemon's
-        // `session-action.mjs`), which answers a session it does not have with its own text; the core answers `threadNotFound`.
-        throw sessionId && isThreadNotFound(error) ? new Error(`session ${sessionId} is not available`) : error;
-      }
-    },
+    invoke: <T>(capability: DesktopCapability | 'setFast', args: unknown[] = [], sessionId?: string) =>
+      invokeCapability<T>(capability, args, sessionId, true),
+    invokeValue: <T>(capability: DesktopCapability | 'setFast', args: unknown[] = [], sessionId?: string) =>
+      invokeCapability<T>(capability, args, sessionId, false),
     async setSessionFavorite(sessionId, favorite) {
       await request('thread/metadata/update', { threadId: sessionIdOf(sessionId), favorite });
     },
