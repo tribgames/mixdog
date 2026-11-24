@@ -1,4 +1,4 @@
-import { createLucideIcon, DatabaseZap, DollarSign, Gauge, type LucideIcon } from 'lucide-react';
+import { createLucideIcon, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
 import { type CSSProperties, type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
@@ -186,10 +186,10 @@ export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: n
 const KEEP_ORDER = ['speed', 'total', 'hit'];
 const DISPLAY_ORDER = ['total', 'speed', 'hit'];
 
-/** The estimated-cost item for an already formatted amount (`$6,216.60`). */
+/** The estimated-cost item for an already formatted amount (`$6,216.60`); its `$` marks it, so it carries no icon. */
 export function costReadoutItem(cost: string): ReadoutItem {
   const label = t('Island: {{cost}} est. cost', { cost });
-  return { icon: DollarSign, text: cost, label, word: label };
+  return { icon: null, text: cost, label, word: label };
 }
 
 /** The session panel's Usage row: the usage readout's worded line, always
@@ -209,7 +209,7 @@ export function usageWithCostVariants(snapshot: Snapshot): ReadoutItem[][] {
       ...worded.slice(0, -1),
       { ...worded[worded.length - 1], separator: true },
       // The amount alone: its tooltip names it.
-      { ...cost, icon: null },
+      cost,
     ],
     worded,
     [...icons, cost],
