@@ -143,6 +143,7 @@ pub fn skills_disabled(value: &str) -> bool {
     ["1", "true", "on", "yes"].iter().any(|flag| value.eq_ignore_ascii_case(flag))
 }
 impl SkillCatalog {
+    #[allow(clippy::disallowed_types, reason = "see SkillCatalog::collecting")]
     pub fn new(data_dir: PathBuf, maintenance: MaintenanceIo, roots: SkillRoots, settings: Arc<dyn SkillSettingsSource>, watch: &SkillsWatch) -> Arc<Self> {
         Arc::new(Self {
             data_dir,

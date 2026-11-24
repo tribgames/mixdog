@@ -1055,9 +1055,9 @@ struct Piece {
 fn covering_records(intervals: &[&Interval], events: &[Event]) -> usize {
     let mut seen: HashSet<usize> = HashSet::new();
     for interval in intervals {
-        for index in interval.start..interval.end {
-            if events[index].fraction_in(interval.from_ms, interval.to_ms) > 0.0 {
-                seen.insert(index);
+        for (offset, event) in events[interval.start..interval.end].iter().enumerate() {
+            if event.fraction_in(interval.from_ms, interval.to_ms) > 0.0 {
+                seen.insert(interval.start + offset);
             }
         }
     }
