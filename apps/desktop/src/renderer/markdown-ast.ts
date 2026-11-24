@@ -201,7 +201,9 @@ const markdownProcessor = unified()
   .use(preserveRawHtmlAsText)
   .use(remarkRehype)
   .use(measureKatexTextGlyphs)
-  .use(rehypeKatex)
+  // TeX that cannot typeset reads as its source in the muted text tone; the
+  // reason is on hover.
+  .use(rehypeKatex, { errorColor: 'var(--mx-text-muted)' })
   // Explicit-language fences only (no auto-detection); unknown languages
   // simply stay unhighlighted, matching the previous plain rendering.
   .use(rehypeHighlight)
