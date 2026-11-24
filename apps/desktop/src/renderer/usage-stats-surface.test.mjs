@@ -1008,7 +1008,7 @@ test('chart hover detail cannot capture the pointer outside the bars, but pinned
   assert.equal(document.querySelector('.stats-trend-detail'), null);
 });
 
-test('Korean chart hover uses the same thousand, ten-thousand and hundred-million token units as the table', async (context) => {
+test('Korean chart hover uses the same K and M token units as the table, as every language does', async (context) => {
   const render = harness(context);
   const language = i18next.language;
   context.after(async () => {
@@ -1028,15 +1028,15 @@ test('Korean chart hover uses the same thousand, ten-thousand and hundred-millio
     node.getAttribute('aria-label').startsWith('09:00')
   );
   await act(async () => bar.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
-  assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.4억');
-  assert.equal(document.querySelector('.stats-trend-detail dd').textContent, '1.4억');
+  assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '135.8M');
+  assert.equal(document.querySelector('.stats-trend-detail dd').textContent, '135.8M');
   assert.deepEqual(
     [...document.querySelectorAll('td.stats-total-cell')].map((node) => node.textContent),
-    ['1.2억', '1234.6만', '1.2천']
+    ['123.5M', '12.3M', '1.2K']
   );
   assert.deepEqual(
     [...document.querySelectorAll('.stats-trend-detail li > b')].map((node) => node.textContent),
-    ['1.2억', '1234.6만', '1.2천']
+    ['123.5M', '12.3M', '1.2K']
   );
   assert.equal(document.querySelectorAll('.stats-trend-detail dd')[2].textContent, '1,387');
   await act(async () => button('Requests').click());

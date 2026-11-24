@@ -1,4 +1,3 @@
-import { uiFormatLocale } from './i18n';
 import { uiCurrency } from './ui-format';
 
 export function usageNumber(value: unknown): number | null {
@@ -28,9 +27,10 @@ export function usageProviderLabel(label: string): string {
 export function usageCompact(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '';
-  // One decimal at every magnitude: "1293만" and "4억" hid a third of the
-  // difference between two routes that both rounded to the same figure.
-  return new Intl.NumberFormat(uiFormatLocale(), {
+  // Token units (K, M, B) read the same in every language. One decimal at
+  // every magnitude: whole units hid a third of the difference between two
+  // routes that both rounded to the same figure.
+  return new Intl.NumberFormat('en', {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(amount);
