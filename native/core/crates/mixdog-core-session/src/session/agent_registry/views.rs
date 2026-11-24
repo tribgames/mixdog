@@ -615,6 +615,16 @@ pub(super) struct Views {
 }
 
 impl Views {
+    /// The view of scope goes; the next read of the scope makes it again.
+    pub(super) fn forget_scope(&mut self, scope: &Scope) {
+        self.scoped.remove(&scope_key(scope));
+    }
+
+    #[cfg(test)]
+    pub(super) fn scopes_held(&self) -> usize {
+        self.scoped.len()
+    }
+
     /// A session was written: its row and tombstone are read again before the next read.
     pub(super) fn touched(&mut self, session: &str) {
         if self.dirty_set.insert(session.to_owned()) {

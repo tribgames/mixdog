@@ -228,7 +228,7 @@ struct State {
     /// Every session's title work ends with this token ([`SessionTitles::dispose_all`]).
     root: CancellationToken,
     /// The token each session's title work, waiting or running, ends with ([`SessionTitles::dispose_session`]).
-    sessions: HashMap<String, CancellationToken>,
+    sessions: HashMap<String, Slot>,
     disposed: bool,
     /// The sessions the "no route" line was written for.
     said_unrouted: HashSet<String>,
@@ -255,9 +255,42 @@ impl State {
         self.attempts(stage).retain(|seen| seen != id);
     }
 
-    fn session(&mut self, id: &str) -> CancellationToken {
+    fn lease(&mut self, titles: &Arc<SessionTitles>, id: &str) -> Lease {
         let root = &self.root;
-        self.sessions.entry(id.to_owned()).or_insert_with(|| root.child_token()).clone()
+        let slot = self.sessions.entry(id.to_owned()).or_insert_with(|| Slot { token: root.child_token(), holders: Arc::new(()) });
+        Lease { titles: titles.clone(), id: id.to_owned(), token: slot.token.clone(), holder: Some(slot.holders.clone()) }
+    }
+}
+
+/// A session's token and the title work holding it.
+struct Slot {
+    token: CancellationToken,
+    holders: Arc<()>,
+}
+
+/// One title run's hold on its session's token; the token leaves the controller with the last run that held it.
+struct Lease {
+    titles: Arc<SessionTitles>,
+    id: String,
+    token: CancellationToken,
+    holder: Option<Arc<()>>,
+}
+
+impl std::ops::Deref for Lease {
+    type Target = CancellationToken;
+
+    fn deref(&self) -> &CancellationToken {
+        &self.token
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        drop(self.holder.take());
+        let mut state = self.titles.state();
+        if state.sessions.get(&self.id).is_some_and(|slot| Arc::strong_count(&slot.holders) == 1) {
+            state.sessions.remove(&self.id);
+        }
     }
 }
 
@@ -414,7 +447,7 @@ impl SessionTitles {
         }
     }
 
-    fn run(self: &Arc<Self>, id: &str, source: String, stage: Stage, session: CancellationToken) {
+    fn run(self: &Arc<Self>, id: &str, source: String, stage: Stage, session: Lease) {
         if session.is_cancelled() {
             self.state().forget(stage, id);
             self.dropped(id, stage);
@@ -471,7 +504,7 @@ impl SessionTitles {
         (!source.is_empty()).then_some(source)
     }
 
-    fn promote_greeting(self: &Arc<Self>, id: &str, greeting: &'static str, session: CancellationToken) {
+    fn promote_greeting(self: &Arc<Self>, id: &str, greeting: &'static str, session: Lease) {
         self.log(&format!("generated id={id} stage=first title={} deterministic=greeting", serde_json::to_string(greeting).unwrap_or_default()));
         let (titles, id) = (self.clone(), id.to_owned());
         mixdog_rt::spawn("session-title", TaskClass::Work, async move {
@@ -492,7 +525,7 @@ impl SessionTitles {
         let token = {
             let mut state = self.state();
             state.remember(Stage::First, id);
-            state.session(id)
+            state.lease(self, id)
         };
         let greeting = greeting_title(&source);
         if !greeting.is_empty() {
@@ -549,7 +582,7 @@ impl SessionTitles {
         let token = {
             let mut state = self.state();
             state.remember(Stage::Third, id);
-            state.session(id)
+            state.lease(self, id)
         };
         self.run(id, source, Stage::Third, token);
         true
@@ -571,8 +604,8 @@ impl SessionTitles {
     pub fn dispose_session(&self, id: &str) {
         let mut state = self.state();
         state.said_unrouted.remove(id);
-        if let Some(token) = state.sessions.remove(id) {
-            token.cancel();
+        if let Some(slot) = state.sessions.remove(id) {
+            slot.token.cancel();
         }
     }
 }
@@ -1031,6 +1064,23 @@ mod tests {
         assert_eq!(rig.model.early.load(Ordering::SeqCst), 0, "the model was asked before the turn showed output");
         assert_eq!(rig.lines("[mixdog] llm-title start id=sess_1 stage=first").len(), 1);
         assert_eq!(rig.lines("[mixdog] llm-title generated id=sess_1 stage=first title=\"Parser crash fix\"").len(), 1);
+    }
+
+    /// A finished title run leaves no token of its session in the controller; a disposed session's work is not resurrected by it.
+    #[tokio::test]
+    async fn a_finished_title_run_leaves_no_session_token_behind() {
+        let rig = Rig::new(Ok("Parser crash fix"), json!({ "title": "Why does the parser crash on empty input" }));
+        let (_, release) = rig.prompt(Some(&user("Why does the parser crash on empty input")));
+        assert_eq!(rig.hooks.titles.state().sessions.len(), 1, "the waiting run holds its session's token");
+        release.send();
+        rig.until("the first title", |rig| rig.store.field("title") == json!("Parser crash fix")).await;
+        for _ in 0..1000 {
+            if rig.hooks.titles.state().sessions.is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        panic!("the finished run kept its session's token");
     }
 
     #[tokio::test]

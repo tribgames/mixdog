@@ -246,13 +246,24 @@ impl WsPool {
     /// `socket.close(1000, reason)`, for every pooled entry, busy or not, and every unpooled one). A socket in use goes
     /// on delivering what arrives until the server's close; its checkout never parks it.
     pub fn release_scope(self: &Arc<Self>, key: &str, reason: &str) {
+        self.release_sockets(key, reason, false);
+    }
+
+    /// A session's runtime unloaded: its sockets are closed and their chains dropped, and it stays pinned to HTTP when it was.
+    pub fn release_unloaded(self: &Arc<Self>, key: &str) {
+        self.release_sockets(key, "session_unloaded", true);
+    }
+
+    fn release_sockets(self: &Arc<Self>, key: &str, reason: &str, keep_http: bool) {
         let (gone, in_use, released) = {
             let mut state = self.state();
             // `_clearPoolOwnerScope` first, and in the same hold as the scan below: a checkout still dialing has no lease
             // to revoke, and finds the session's ownership gone when its socket arrives (`attach`).
             let released = state.owners.remove(key).is_some();
             state.fresh.remove(key);
-            state.http.remove(key);
+            if !keep_http {
+                state.http.remove(key);
+            }
             let in_use: Vec<WsCloser> = state
                 .leases
                 .values_mut()
@@ -475,5 +486,24 @@ mod tests {
         pool.release_session("session-a");
         held.finish(Chain::default());
         assert_eq!(pool.parked("session-a"), 0);
+    }
+
+    // A session whose runtime unloads keeps nothing parked, but stays pinned to HTTP; the session's end lifts the pin.
+    #[tokio::test]
+    async fn an_unload_closes_the_parked_sockets_and_keeps_the_http_pin_until_the_session_ends() {
+        mixdog_rt::testing::tokens();
+        let pool = Arc::new(WsPool::default());
+        let compat = Compat::new("route", "identity", "cache");
+        let (near, _far) = tokio::io::duplex(1 << 12);
+        let mut held = pool.checkout("session-a", &compat, false, false).await;
+        assert!(held.attach(Box::new(WsConnection::client_over(near).await)));
+        held.finish(Chain::default());
+        assert_eq!(pool.parked("session-a"), 1);
+        pool.mark_http("session-a");
+        pool.release_unloaded("session-a");
+        assert_eq!(pool.parked("session-a"), 0);
+        assert!(pool.http_active(&["session-a"]), "the pin outlives the runtime");
+        pool.release_session("session-a");
+        assert!(!pool.http_active(&["session-a"]));
     }
 }

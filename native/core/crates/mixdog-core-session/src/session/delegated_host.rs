@@ -69,7 +69,8 @@ struct Registry {
     pending: Vec<Pending>,
     opener: Option<Arc<dyn SessionOpener>>,
     handoffs: Vec<Handoff>,
-    ended: Vec<String>,
+    /// The run ids whose hand-off ended, with the session the work was handed to when the end or the note of it says.
+    ended: Vec<(String, Option<String>)>,
     serial: u64,
 }
 
@@ -104,6 +105,14 @@ impl Handoffs for HostHandoffs {
 
     fn end(&self, run_id: &str) {
         self.0.end_handoff(run_id);
+    }
+
+    fn end_watch(&self, watch: &Value) {
+        match (watch.get("runId"), watch.get("taskSessionId")) {
+            (Some(run_id), Some(task)) if !falsy(Some(run_id)) && !falsy(Some(task)) => self.0.end_handoff_of(&js_string(run_id), Some(js_string(task))),
+            (Some(run_id), _) if !falsy(Some(run_id)) => self.0.end_handoff(&js_string(run_id)),
+            _ => {}
+        }
     }
 }
 
@@ -163,7 +172,9 @@ impl DelegatedApprovalHost {
         let (run_id, task) = (js_string(run_id.unwrap_or(&Value::Null)), js_string(task.unwrap_or(&Value::Null)));
         let steps = {
             let mut registry = self.lock();
-            if registry.ended.contains(&run_id) {
+            if let Some((_, known)) = registry.ended.iter_mut().find(|(ended, _)| *ended == run_id) {
+                // A note that follows its end learns whose session the end belongs to.
+                known.get_or_insert(task);
                 return;
             }
             let handoff = Handoff {
@@ -184,16 +195,34 @@ impl DelegatedApprovalHost {
 
     /// `endHandoff`: the report watch `run_id` is gone, so its hand-off ends for good.
     pub fn end_handoff(self: &Arc<Self>, run_id: &str) {
+        self.end_handoff_of(run_id, None);
+    }
+
+    /// `endHandoff` of a watch that names its task session (`task`): the end is remembered until that session ends.
+    pub fn end_handoff_of(self: &Arc<Self>, run_id: &str, task: Option<String>) {
         let steps = {
             let mut registry = self.lock();
-            if !registry.ended.iter().any(|ended| ended == run_id) {
-                registry.ended.push(run_id.to_owned());
+            let held = registry.handoffs.iter().position(|held| held.run_id == run_id);
+            let task = task.or_else(|| held.map(|at| registry.handoffs[at].session_id.clone()));
+            match registry.ended.iter_mut().find(|(ended, _)| ended == run_id) {
+                Some((_, known)) => *known = known.take().or(task),
+                None => registry.ended.push((run_id.to_owned(), task)),
             }
-            let Some(at) = registry.handoffs.iter().position(|held| held.run_id == run_id) else { return };
+            let Some(at) = held else { return };
             let task = registry.handoffs.remove(at).session_id;
             sync_copies(&mut registry, &task)
         };
         self.run(steps);
+    }
+
+    /// The session `session_id` ended: the hand-offs of work given to it that ended are no longer remembered as ended.
+    pub fn session_ended(&self, session_id: &str) {
+        self.lock().ended.retain(|(_, task)| task.as_deref() != Some(session_id));
+    }
+
+    #[cfg(test)]
+    fn ended_held(&self) -> usize {
+        self.lock().ended.len()
     }
 
     /// `registerApprovalQueue`: the returned handle's `unregister` is Node's returned function.
@@ -400,4 +429,44 @@ fn sync_copies(registry: &mut Registry, session_id: &str) -> Vec<Step> {
     }
     registry.serial = serial;
     steps
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn watch(run: &str, task: &str, home: &str) -> Value {
+        json!({ "runId": run, "taskSessionId": task, "homeSessionId": home })
+    }
+
+    #[tokio::test]
+    async fn an_ended_hand_off_is_forgotten_with_the_task_session_whichever_order_its_end_and_note_come_in() {
+        let host = DelegatedApprovalHost::new();
+        let handoffs = HostHandoffs::new(host.clone());
+        // Ended after it was noted.
+        let (a, b) = (watch("run-a", "task-1", "chat-a"), watch("run-b", "task-2", "chat-b"));
+        host.note_handoff(&a);
+        host.note_handoff(&b);
+        handoffs.end_watch(&a);
+        handoffs.end_watch(&b);
+        // Ended before it was ever noted.
+        let early = watch("run-c", "task-3", "chat-c");
+        handoffs.end_watch(&early);
+        assert_eq!(host.ended_held(), 3);
+
+        host.session_ended("task-1");
+        host.session_ended("task-3");
+        assert_eq!(host.ended_held(), 1);
+
+        host.note_handoff(&b);
+        assert!(host.handoff_chats_of("task-2").is_empty(), "an ended hand-off of a session that is still there is not noted again");
+
+        // A note that follows an end that named no task learns it.
+        host.end_handoff("run-d");
+        host.note_handoff(&watch("run-d", "task-4", "chat-d"));
+        host.session_ended("task-4");
+        assert_eq!(host.ended_held(), 1);
+    }
 }

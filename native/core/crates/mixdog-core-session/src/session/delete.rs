@@ -197,6 +197,11 @@ pub trait DeleteSeams: Send + Sync {
     fn release_mcp_scope(&self, session_id: &str);
     /// Release resources of an unloaded runtime without closing the conversation.
     fn release_unloaded_runtime(&self, _session_id: &str) {}
+    /// The session ended for good (a closing tombstone or a delete): what other owners keep for it goes.
+    fn session_ended(&self, _session_id: &str) {}
+    /// The session was deleted (after [Self::session_ended]), its runtime possibly still winding down: what a closed session
+    /// still needs goes.
+    fn session_deleted(&self, _session_id: &str) {}
     /// `forgetSessionSearch(id)`, not awaited.
     fn forget_session_search(&self, session_id: &str);
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the
@@ -445,6 +450,8 @@ async fn removed(deps: &super::SessionDeps, thread: &ThreadId, cwds: &[String], 
     deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
     deps.deletion.release_mcp_scope(thread.as_str());
     deps.session_grants.forget(thread.as_str());
+    deps.deletion.session_ended(thread.as_str());
+    deps.deletion.session_deleted(thread.as_str());
     if stored {
         // A failed purge leaves the marked session's files for the next delete's purge or the
         // boot purge; the session is deleted either way.
@@ -498,6 +505,12 @@ pub(crate) fn row_cwds(row: &serde_json::Value) -> Vec<String> {
         if let Some(cwd) = value.and_then(serde_json::Value::as_str).filter(|cwd| !cwd.is_empty())
             && !cwds.iter().any(|seen| seen == cwd)
         {
+            cwds.push(cwd.to_owned());
+        }
+    }
+    let recorded = row.get(super::transcript_writer::TRANSCRIPT_CWDS).and_then(serde_json::Value::as_array);
+    for cwd in recorded.into_iter().flatten().filter_map(serde_json::Value::as_str).filter(|cwd| !cwd.is_empty()) {
+        if !cwds.iter().any(|seen| seen == cwd) {
             cwds.push(cwd.to_owned());
         }
     }

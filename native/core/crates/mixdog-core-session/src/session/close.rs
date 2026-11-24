@@ -275,6 +275,7 @@ impl SessionClose {
         self.teardown(&thread, reason, crate::session::turn_ops::SideEnd::Tombstone).await;
         // A closed conversation ends its "Allow for this session" grants.
         self.directory.deps().session_grants.forget(session_id);
+        self.directory.deps().deletion.session_ended(session_id);
         true
     }
 
@@ -534,6 +535,7 @@ pub(crate) async fn close_idle(
     deps.side.forget(&thread, super::turn_ops::SideEnd::Tombstone);
     deps.deletion.release_mcp_scope(id);
     deps.session_grants.forget(id);
+    deps.deletion.session_ended(id);
     Ok(true)
 }
 

@@ -208,6 +208,12 @@ impl ProviderAdapter for MultiWireAdapter {
         }
     }
 
+    fn release_unloaded_session(&self, session_id: &str) {
+        for (_, engine) in &self.engines {
+            engine.release_unloaded_session(session_id);
+        }
+    }
+
     fn release_transport_scope(&self, scope: &str) {
         for (_, engine) in &self.engines {
             engine.release_transport_scope(scope);

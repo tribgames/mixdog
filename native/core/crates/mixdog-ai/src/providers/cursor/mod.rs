@@ -608,6 +608,11 @@ impl ProviderAdapter for CursorAdapter {
         self.rotated.release(session_id);
         self.runs.release(session_id);
     }
+    /// The waiting run goes with the runtime; the conversation's throttle record stays, so a reloaded session does not send the
+    /// refused id again.
+    fn release_unloaded_session(&self, session_id: &str) {
+        self.runs.release(session_id);
+    }
     fn id(&self) -> &ProviderId {
         &self.id
     }

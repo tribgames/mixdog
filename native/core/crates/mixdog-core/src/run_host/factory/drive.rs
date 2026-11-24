@@ -349,6 +349,16 @@ async fn drive(
     }
     // `ensureSessionTranscriptWriter(); transcript.appendUser(prompt)` (`turn-prepare.mjs:162-163`): the prompt as submitted,
     // before the turn's reminders ride it.
+    // The session's record names the folder its transcript is written in before the writer opens, so a delete finds the file.
+    if let Some(recorded) = transcripts.as_ref().and_then(|files| files.cwds_to_record(&header)) {
+        let key = mixdog_core_session::session::transcript_writer::TRANSCRIPT_CWDS;
+        let mut set = serde_json::Map::new();
+        set.insert(key.to_owned(), Value::from(recorded.clone()));
+        if port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await.is_err() {
+            return failed("the session's transcript folder could not be saved", Value::Null);
+        }
+        header.insert(key.to_owned(), Value::from(recorded));
+    }
     let turn_transcript = transcripts.as_ref().and_then(|files| files.turn(thread.as_str(), &header, &prior));
     if let Some(transcript) = &turn_transcript {
         transcript.user(input_body.get("content").unwrap_or(&Value::Null));

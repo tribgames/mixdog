@@ -744,6 +744,12 @@ impl ProviderAdapter for KeyPoolAdapter {
             engine.release_session(session_id);
         }
     }
+    fn release_unloaded_session(&self, session_id: &str) {
+        self.pool.primary.release_unloaded_session(session_id);
+        for engine in self.pool.engines.built() {
+            engine.release_unloaded_session(session_id);
+        }
+    }
     fn release_transport_scope(&self, scope: &str) {
         self.pool.primary.release_transport_scope(scope);
         for engine in self.pool.engines.built() {

@@ -755,6 +755,14 @@ impl ProviderRegistry {
         }
     }
 
+    /// A session's runtime unloaded: every registered provider closes its parked connections for it.
+    pub fn release_unloaded_session(&self, session_id: &str) {
+        let adapters: Vec<_> = self.state().providers.values().map(|e| Arc::clone(&e.adapter)).collect();
+        for adapter in adapters {
+            adapter.release_unloaded_session(session_id);
+        }
+    }
+
     /// `getProvider(name)` as the route-meta memo reads it: the registered adapter's listing, and its stored-row
     /// capability when its class has one.
     pub fn route_provider(&self, name: &str) -> Option<RouteProvider> {

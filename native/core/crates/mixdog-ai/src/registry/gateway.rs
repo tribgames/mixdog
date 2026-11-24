@@ -203,6 +203,12 @@ impl ProviderAdapter for ResponsesEngine {
         }
         self.account.release_session(session_id);
     }
+    fn release_unloaded_session(&self, session_id: &str) {
+        if let Some(socket) = self.xai_socket.as_ref() {
+            socket.release_unloaded_session(session_id);
+        }
+        self.account.release_unloaded_session(session_id);
+    }
     fn id(&self) -> &ProviderId {
         self.account.id()
     }
@@ -672,6 +678,12 @@ impl ProviderAdapter for GatewayAdapter {
         self.account.release_session(session_id);
         for (_, engine) in &self.engines {
             engine.release_session(session_id);
+        }
+    }
+    fn release_unloaded_session(&self, session_id: &str) {
+        self.account.release_unloaded_session(session_id);
+        for (_, engine) in &self.engines {
+            engine.release_unloaded_session(session_id);
         }
     }
     /// `sendOnRoute`: the send on its route; one clear "unsupported" refusal before any output sends the same request

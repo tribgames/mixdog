@@ -436,6 +436,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn release_session(&self, session_id: &str) {
         self.inner.release_session(session_id);
     }
+    fn release_unloaded_session(&self, session_id: &str) {
+        self.inner.release_unloaded_session(session_id);
+    }
     fn begin_loop(&self) {
         self.inner.begin_loop();
     }

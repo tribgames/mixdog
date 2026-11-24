@@ -58,6 +58,10 @@ struct Store {
     refuse_releases: std::sync::atomic::AtomicBool,
     /// The sessions this store can tell no identity of.
     unknown: Mutex<HashSet<String>>,
+    /// The sessions the registry told the store were deleted.
+    forgotten: Mutex<Vec<String>>,
+    /// Reading the Lead index fails.
+    fail_leads: std::sync::atomic::AtomicBool,
 }
 
 impl Store {
@@ -149,6 +153,9 @@ impl WorkerStore for Store {
     }
 
     async fn lead_rows(&self) -> Result<Vec<(String, Row)>, String> {
+        if self.fail_leads.load(Ordering::SeqCst) {
+            return Err("the Lead index could not be read".into());
+        }
         Ok(self.leads.lock().unwrap().iter().map(|(id, row)| (id.clone(), row.clone())).collect())
     }
 
@@ -159,6 +166,10 @@ impl WorkerStore for Store {
             None => leads.remove(session),
         };
         self.lead_writes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn forget_session(&self, session: &str) {
+        self.forgotten.lock().unwrap().push(session.to_owned());
     }
 
     fn hold_signals(&self, sessions: &[String]) -> Box<dyn Send> {
@@ -1163,6 +1174,59 @@ async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
     assert!(rig.store.map("s-busy").unwrap().contains_key("sessionId"));
     assert!(registry.forget_deleted_session("s-lead").await, "the Lead's row goes");
     assert!(rig.store.map("s-lead").is_none(), "with no tombstone");
+}
+
+/// What the registry keeps for one session (a cancellation mark and epoch, a removed Lead's row, the Lead's scope view and the
+/// store's incarnation) goes when the session is deleted, and the other sessions keep theirs.
+#[tokio::test]
+async fn a_deleted_session_leaves_nothing_of_its_own_in_the_registry() {
+    let rig = Rig::new();
+    let registry = Arc::new(rig.registry());
+    for id in ["s-gone", "s-kept"] {
+        registry.set_cancelled(id, true);
+        drop(registry.begin_cancellation(&[id.to_owned()]));
+        registry.lock().lead_rows.insert(id.to_owned(), None);
+    }
+
+    registry.forget_deleted_session("s-gone").await;
+
+    assert_eq!(*rig.store.forgotten.lock().unwrap(), ["s-gone"]);
+    let cancelled = registry.cancelled.lock().unwrap().iter().cloned().collect::<Vec<_>>();
+    assert_eq!(cancelled, ["s-kept"]);
+    let st = registry.lock();
+    assert_eq!(st.epochs.keys().collect::<Vec<_>>(), ["s-kept"]);
+    assert_eq!(st.lead_rows.keys().collect::<Vec<_>>(), ["s-kept"]);
+}
+
+/// A Lead deleted while the Lead index could not be read leaves no tombstone once the removal is written, and the row does not come back
+/// when the index is read later.
+#[tokio::test]
+async fn a_deleted_lead_stays_deleted_when_the_index_was_unreadable_at_the_delete() {
+    let rig = Rig::new();
+    rig.store.write("s-lead", Some(worker_row("s-lead", "lead", json!({ "agent": "lead" }))));
+    rig.store.fail_leads.store(true, Ordering::SeqCst);
+    let registry = rig.registry();
+    assert!(registry.forget_deleted_session("s-lead").await);
+    rig.store.fail_leads.store(false, Ordering::SeqCst);
+    registry.reload().await.unwrap();
+    assert!(registry.lock().lead_rows.get("s-lead").is_none_or(Option::is_none), "the deleted Lead's row is not read back");
+    assert!(rig.store.leads.lock().unwrap().is_empty());
+}
+
+/// A Lead that unloads lets go of its scope view of its agents; another Lead's stays, and the read makes it again.
+#[tokio::test]
+async fn an_unloaded_leads_scope_view_is_released_and_made_again_by_the_next_read() {
+    let rig = Rig::new();
+    let registry = rig.registry();
+    let now = registry.now();
+    for id in ["lead-a", "lead-b"] {
+        registry.lock().rows(&lead(id), now);
+    }
+    assert_eq!(registry.lock().views.get_mut().scopes_held(), 2);
+    registry.forget_scope("lead-a");
+    assert_eq!(registry.lock().views.get_mut().scopes_held(), 1);
+    registry.lock().rows(&lead("lead-a"), now);
+    assert_eq!(registry.lock().views.get_mut().scopes_held(), 2);
 }
 
 /// A session deleted while the daemon runs: Node's purge hook forgets it (`agent-tool.mjs:347`, `gone-rows.mjs:214`), its

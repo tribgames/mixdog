@@ -193,6 +193,8 @@ pub trait WorkerStore: Send + Sync {
     /// Replaces a Lead's row in the Lead index (`None` removes it); one session's writes apply in call order. Only the
     /// Agents pool lists these rows, so only the pool is told; a store with no Lead index keeps nothing.
     fn write_lead(&self, _session: &str, _row: Option<Row>) {}
+    /// The session was deleted: what the store remembers of its incarnation goes.
+    fn forget_session(&self, _session: &str) {}
     /// Keeps the map of a session deleted while its rows still count: Node's index file keeps every row its forget does not take
     /// (`gone-rows.mjs:214-226`), and a restart reads it again. From now on [`worker_maps`](Self::worker_maps) lists it and
     /// [`write`](Self::write) writes it there.
@@ -1436,26 +1438,60 @@ impl AgentRegistry {
         if id.is_empty() {
             return false;
         }
+        // Whatever the registry and its store hold for the deleted session itself goes whether or not its row can be read now.
+        self.store.forget_session(&id);
+        self.cancelled.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+        self.lock().epochs.remove(&id);
+        self.forget_scope(&id);
         // Rows that could not be read are not forgotten from memory alone: the row stays for a later forget.
         if let Err(error) = self.reload().await {
             tracing::warn!(thread = %id, "[agent] a deleted session's worker row is not forgotten yet: {error}");
             return false;
         }
+        let (forgot, unwritten) = self.forget_row(&id);
+        // The index is read once. Until it was (a read that failed), the removed row is still in the store and a later read
+        // would bring it back: the tombstone stays until the removal is written.
+        if unwritten && self.store.settled().await.is_ok() {
+            let mut st = self.lock();
+            if st.lead_rows.get(&id).is_some_and(Option::is_none) {
+                st.lead_rows.remove(&id);
+            }
+        }
+        forgot
+    }
+
+    /// The row of a deleted session as the registry holds it now: whether one went, and whether a removed Lead's tombstone
+    /// waits for its write.
+    fn forget_row(&self, id: &str) -> (bool, bool) {
+        let id = id.to_owned();
         let now = self.now();
         let mut st = self.lock();
         let indexed = st.lead_rows.get(&id).is_some_and(Option::is_some);
         if indexed || st.map(&id).is_some_and(|map| lead_row::is_lead_map(map) && clean(map.get("sessionId")) == id) {
             self.remove_lead(&mut st, &id);
-            return true;
+            let read = st.leads_loaded;
+            if read {
+                st.lead_rows.remove(&id);
+            }
+            return (true, !read);
+        }
+        if st.leads_loaded && st.lead_rows.get(&id).is_some_and(Option::is_none) {
+            st.lead_rows.remove(&id);
         }
         let Some(row) = st.map(&id).cloned().and_then(|map| st.row(&id, &map, now)) else {
-            return false;
+            return (false, false);
         };
         if clean(row.get("sessionId")) != id || outlives_delete(&row) {
-            return false;
+            return (false, false);
         }
         self.tombstone_rows(&mut st, &[row]);
-        true
+        (true, false)
+    }
+
+    /// A Lead that unloads, closes or is deleted lets go of the view of its own agents; the next read of them makes it again.
+    pub fn forget_scope(&self, session_id: &str) {
+        let scope = Scope { caller_session_id: Some(session_id.to_owned()), host_pid: None };
+        self.lock().views.get_mut().forget_scope(&scope);
     }
 
     /// `removeWorkerRow({sessionId})`: an owed restart failure stays.

@@ -41,6 +41,12 @@ pub trait Handoffs: Send + Sync {
     fn note(&self, watch: &Value);
     /// The report watch `run_id` is gone: its hand-off ends for good.
     fn end(&self, run_id: &str);
+    /// The report watch is gone, as it was stored: by default its run's hand-off ends.
+    fn end_watch(&self, watch: &Value) {
+        if let Some(run_id) = watch.get("runId").and_then(Value::as_str) {
+            self.end(run_id);
+        }
+    }
 }
 
 /// Why a watch was not stored.
@@ -574,9 +580,9 @@ impl RoutineResultQueue {
                 Ok((stored, (before.clone(), after.unwrap_or(before), result)))
             })
             .await?;
-        for run_id in before.keys() {
+        for (run_id, watch) in &before {
             if !after.contains_key(run_id) {
-                self.handoffs.end(run_id);
+                self.handoffs.end_watch(watch);
             }
         }
         for (run_id, watch) in &after {

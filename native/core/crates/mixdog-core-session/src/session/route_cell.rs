@@ -47,6 +47,34 @@ impl SessionRoutes {
         Self { resolve: Box::new(resolve), cells: Mutex::new(HashMap::new()) }
     }
 
+    /// The thread ended (closed for good or deleted): its cell goes. A thread that is read again starts from the config.
+    pub fn forget(&self, thread: &ThreadId) {
+        self.cells.lock().unwrap_or_else(|e| e.into_inner()).remove(thread);
+    }
+
+    /// The thread's runtime unloaded: a cell no route was set on (its route came from the record or the config, which open
+    /// reads again) goes; one whose route was set in this process is the only copy of it and stays until the thread ends.
+    pub fn release_unloaded(&self, thread: &ThreadId) {
+        let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
+        if cells.get(thread).is_some_and(|cell| cell.generation == 0) {
+            cells.remove(thread);
+        }
+    }
+
+    #[cfg(test)]
+    fn held(&self) -> usize {
+        self.cells.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// A read: a thread with no cell reads the route the config resolves now, and no cell is made for it.
+    fn read<R>(&self, thread: &ThreadId, f: impl FnOnce(&Cell) -> R) -> R {
+        let cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
+        match cells.get(thread) {
+            Some(cell) => f(cell),
+            None => f(&Cell { route: self.resolve.resolve(&Route::new()).unwrap_or_default(), generation: 0 }),
+        }
+    }
+
     fn with<R>(&self, thread: &ThreadId, f: impl FnOnce(&mut Cell) -> R) -> R {
         let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
         let cell = cells.entry(thread.clone()).or_insert_with(|| Cell {
@@ -60,7 +88,7 @@ impl SessionRoutes {
 
 impl LiveRoute for SessionRoutes {
     fn route(&self, thread: &ThreadId) -> Route {
-        self.with(thread, |cell| cell.route.clone())
+        self.read(thread, |cell| cell.route.clone())
     }
 
     /// `setRouteState(resolveRoute(getConfig(), held))` (`set-route.mjs:470`); a held pick the
@@ -92,7 +120,7 @@ impl RouteCell for SessionRoutes {
     }
 
     fn route_generation(&self, thread: &ThreadId) -> u64 {
-        self.with(thread, |cell| cell.generation)
+        self.read(thread, |cell| cell.generation)
     }
 
     /// `resumedRouteFor` (`resume.mjs`): the record's own effort wins; a record with none takes the effort of the route the runtime
@@ -147,17 +175,45 @@ mod tests {
     }
 
     #[test]
-    fn a_threads_route_starts_from_the_config_and_keeps_it_when_the_config_moves() {
+    fn a_threads_route_starts_from_the_config_and_a_booted_one_keeps_it_when_the_config_moves() {
         let main = Arc::new(Mutex::new("gpt-5"));
         let calls = Arc::new(AtomicUsize::new(0));
         let routes = SessionRoutes::new(resolver(main.clone(), calls.clone()));
         let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+        routes.boot(&a, &route(json!({ "provider": "openai", "model": "gpt-5" })));
         assert_eq!(routes.route(&a), route(json!({ "provider": "openai", "model": "gpt-5" })));
         assert_eq!(routes.route_generation(&a), 0, "the boot route is no setRouteState");
         *main.lock().unwrap() = "gpt-5-mini";
         assert_eq!(routes.route(&a)["model"], "gpt-5", "the runtime's route is not re-resolved");
         assert_eq!(routes.route(&b)["model"], "gpt-5-mini", "another thread starts from today's config");
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(routes.held(), 1, "a read makes no cell");
+    }
+
+    #[test]
+    fn an_ended_thread_leaves_no_cell_and_the_others_keep_theirs() {
+        let routes = SessionRoutes::new(resolver(Arc::new(Mutex::new("gpt-5")), Arc::default()));
+        let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+        routes.set_route_state(&a, route(json!({ "provider": "anthropic", "model": "opus" })));
+        routes.set_route_state(&b, route(json!({ "provider": "anthropic", "model": "sonnet" })));
+        routes.forget(&a);
+        assert_eq!(routes.held(), 1);
+        assert_eq!(routes.route(&b)["model"], "sonnet");
+        assert_eq!(routes.route_generation(&b), 1);
+    }
+
+    #[test]
+    fn an_unload_releases_a_cell_nothing_was_set_on_and_keeps_a_set_route_until_the_thread_ends() {
+        let routes = SessionRoutes::new(resolver(Arc::new(Mutex::new("gpt-5")), Arc::default()));
+        let (booted, chosen) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+        routes.boot(&booted, &route(json!({ "provider": "anthropic", "model": "opus" })));
+        routes.set_route_state(&chosen, route(json!({ "provider": "anthropic", "model": "sonnet" })));
+        assert_eq!(routes.held(), 2);
+        routes.release_unloaded(&booted);
+        routes.release_unloaded(&chosen);
+        assert_eq!(routes.held(), 1);
+        assert_eq!(routes.route(&chosen)["model"], "sonnet");
+        routes.forget(&chosen);
+        assert_eq!(routes.held(), 0);
     }
 
     #[test]
