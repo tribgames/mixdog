@@ -30,6 +30,8 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use crate::agents::lock;
+
 /// How much of the agent's stderr is kept for an error message.
 const STDERR_TAIL_BYTES: usize = 4096;
 
@@ -218,10 +220,6 @@ pub struct Connection {
     stderr: Mutex<String>,
     /// Why this client ended the process itself.
     broken: Mutex<Option<String>>,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn rpc_error(error: &Value) -> RpcError {

@@ -3,6 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { sideFileDirtyKey, sideFileKey } from './side-file-tabs.ts';
 import { usePaneTabClose } from './use-pane-tab-close.ts';
 
 const session = (id) => ({ kind: 'session', id });
@@ -10,8 +11,17 @@ const file = (rel) => ({ kind: 'file', project: '/p', rel });
 const key = (selection) =>
   selection.kind === 'file' ? `file:${selection.project}:${selection.rel}` : `${selection.kind}:${selection.id}`;
 
+/** The group without the tab; the active tab's close activates its nearest neighbour (closeTabInPaneLeaf). */
+function withoutTab(entry, tabKey) {
+  const index = entry.tabs.findIndex((tab) => key(tab) === tabKey);
+  const tabs = entry.tabs.filter((tab) => key(tab) !== tabKey);
+  const activeKey =
+    entry.activeKey === tabKey && tabs.length ? key(tabs[Math.min(index, tabs.length - 1)]) : entry.activeKey;
+  return { ...entry, tabs, activeKey };
+}
+
 /** Mounts the hook over a pane workspace the test describes and records every effect of closing a tab. */
-async function mounted({ leaves, focusedLeafId = 'a', dirtyFileKeys = new Set() }, body) {
+async function mounted({ leaves, focusedLeafId = 'a', dirtyFileKeys = new Set(), docks = {} }, body) {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><body><main></main></body>',
     jsdom: { url: 'http://localhost/' },
@@ -28,16 +38,39 @@ async function mounted({ leaves, focusedLeafId = 'a', dirtyFileKeys = new Set() 
     handoff: { current: null },
     saveHandles: { current: new Map([['file:/p:a.ts', {}]]) },
   };
+  // `leaves`/`focusedLeafId` as the last render saw them; `now()` as each
+  // close left them, before the next render (usePaneWorkspace).
+  const panes = { leaves, focusedLeafId };
   const paneWorkspace = {
     leaves,
     focusedLeafId,
-    closeTab: (leafId, tabKey) => calls.push(['closeTab', leafId, tabKey]),
+    now: () => ({ ...panes }),
+    closeTab: (leafId, tabKey) => {
+      calls.push(['closeTab', leafId, tabKey]);
+      panes.leaves = panes.leaves
+        .map((entry) => (entry.id === leafId ? withoutTab(entry, tabKey) : entry))
+        .filter((entry) => entry.tabs.length > 0);
+      if (!panes.leaves.some((entry) => entry.id === panes.focusedLeafId)) {
+        panes.focusedLeafId = panes.leaves[0]?.id ?? '';
+      }
+    },
+  };
+  /** The app's openSession: the session's tab becomes the focused group's active one. */
+  const openSession = async (id) => {
+    calls.push(['openSession', id]);
+    const opened = session(id);
+    const withOpened = (entry) => {
+      const present = entry.tabs.some((tab) => key(tab) === key(opened));
+      return { ...entry, tabs: present ? entry.tabs : [...entry.tabs, opened], activeKey: key(opened) };
+    };
+    panes.leaves = panes.leaves.map((entry) => (entry.id === panes.focusedLeafId ? withOpened(entry) : entry));
   };
   const root = createRoot(document.querySelector('main'));
   const control = {};
   function Harness() {
     control.hook = usePaneTabClose({
       paneWorkspace,
+      paneSideDocks: { docks },
       dirtyFileKeys,
       editorSaveHandles: refs.saveHandles,
       handleFileDirty: (tabKey, dirty) => calls.push(['dirty', tabKey, dirty]),
@@ -45,7 +78,7 @@ async function mounted({ leaves, focusedLeafId = 'a', dirtyFileKeys = new Set() 
         calls.push(['setTabs', update([{ key: 'file:/p:a.ts' }, { key: 'keep' }]).map((t) => t.key)]),
       pendingConversationHandoff: refs.handoff,
       setConversationHandoff: (handoff) => calls.push(['handoff', handoff]),
-      openSession: async (id) => calls.push(['openSession', id]),
+      openSession,
       navigateTab: (tab) => calls.push(['navigateTab', tab.key]),
       selectionRef: refs.selection,
       viewedSessionRef: refs.viewed,
@@ -59,7 +92,7 @@ async function mounted({ leaves, focusedLeafId = 'a', dirtyFileKeys = new Set() 
   }
   try {
     await act(async () => root.render(React.createElement(Harness)));
-    await body({ control, calls, released, refs, lastSessionStorageKey });
+    await body({ control, calls, released, refs, lastSessionStorageKey, panes });
   } finally {
     await act(async () => root.unmount());
     dom.window.close();
@@ -166,6 +199,56 @@ test('closing the only tab resets to a new task and forgets the last session', a
     assert.equal(refs.unread.current, '');
     assert.equal(window.localStorage.getItem(lastSessionStorageKey), null);
   });
+});
+
+test('Close Others closes each tab against the groups the close before it left', async () => {
+  const [a, b, c] = ['a', 'b', 'c'].map(session);
+  for (const active of [c, b]) {
+    await mounted({ leaves: [leaf('a', [a, b, c], active)] }, async ({ control, calls, panes }) => {
+      // The tab menu closes every other tab in one handler, before any re-render.
+      const { closeTab } = control.hook;
+      await act(async () => {
+        for (const other of [b, c]) closeTab('a', tabOf(other));
+      });
+      assert.deepEqual(
+        panes.leaves.map((entry) => entry.tabs.map(key)),
+        [['session:a']]
+      );
+      assert.deepEqual(calls.filter(([kind]) => kind === 'openSession').at(-1), ['openSession', 'a']);
+    });
+  }
+});
+
+test('closing a session first confirms the unsaved side-dock files that would go with it', async () => {
+  const s1 = session('s1');
+  const s2 = session('s2');
+  const sideFile = { project: '/p', rel: 'notes.md' };
+  const dirtyKey = sideFileDirtyKey(sideFile);
+  const docks = {
+    a: {
+      open: true,
+      view: null,
+      surface: 'file',
+      diff: null,
+      owner: 's1',
+      files: [sideFile],
+      activeFile: sideFileKey(sideFile),
+    },
+  };
+  // The pane's other tab cannot show s1's files; a split pane that closes with its last tab drops its whole dock.
+  for (const leaves of [[leaf('a', [s1, s2], s1)], [leaf('a', [s1]), leaf('b', [s2])]]) {
+    await mounted({ leaves, docks, dirtyFileKeys: new Set([dirtyKey]) }, async ({ control, calls }) => {
+      await act(async () => control.hook.closeTab('a', tabOf(s1)));
+      assert.deepEqual(calls, []);
+      assert.equal(control.hook.pendingUnsavedClose.tab.key, dirtyKey);
+      await act(async () => control.hook.discardAndClosePendingTab());
+      assert.deepEqual(calls[0], ['dirty', dirtyKey, false]);
+      assert.ok(
+        calls.some(([kind, leafId, tabKey]) => kind === 'closeTab' && leafId === 'a' && tabKey === 'session:s1')
+      );
+      assert.equal(control.hook.pendingUnsavedClose, null);
+    });
+  }
 });
 
 test('closing an active non-conversation tab onto a conversation focuses the composer', async () => {

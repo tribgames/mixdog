@@ -872,10 +872,10 @@ pub enum TakeoverMessage {
     Consumed,
 }
 
+/// Why a takeover was refused. The checks run in this order, before anything is changed, and the first that applies is named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-/// Why a takeover was refused. The checks run in this order, before anything is changed, and the first that applies is named.
 pub enum TakeoverRefusal {
     /// The thread runs no turn.
     NoRunningTurn,

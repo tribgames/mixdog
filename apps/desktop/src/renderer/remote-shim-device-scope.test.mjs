@@ -115,6 +115,17 @@ test('an existing single-PC user keeps working after migration', async () => {
   assert.equal(ctx.browserId, 'browser-a');
 });
 
+test("an id kept without its credential is replaced at boot; a pending claim's id is kept", async () => {
+  const keys = remotePairingKeys(ORIGIN, A);
+  const lost = memoryStorage({ [keys.browserId]: 'browser-a', [keys.paired]: '1' });
+  const ctx = await loadContext({ pathname: `/d/${A}/`, storage: lost });
+  assert.notEqual(ctx.browserId, 'browser-a', 'the relay holds browser-a paired under a credential this device lost');
+  assert.equal(lost.getItem(keys.browserId), ctx.browserId, 'the fresh id is the stored one');
+
+  const claiming = memoryStorage({ [keys.browserId]: 'browser-a', [keys.claim]: '{"claimId":"c1"}' });
+  assert.equal((await loadContext({ pathname: `/d/${A}/`, storage: claiming })).browserId, 'browser-a');
+});
+
 test("opening PC B after pairing A uses none of A's credentials and starts B's own claim", async () => {
   const storage = memoryStorage(legacySeed(A));
   const first = await loadContext({ pathname: `/d/${A}/`, storage });

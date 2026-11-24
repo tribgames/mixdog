@@ -12,6 +12,10 @@ use crate::measure::NO_USAGE_COST_SOURCE;
 use crate::measure::is_conversation_source;
 use crate::time::day_number;
 
+/// The `metadata` counter of unpriced records ever appended, imported or written, whatever their times: the insertion
+/// order `usage_events` (WITHOUT ROWID) does not keep. Only a price refresh reads it.
+pub const UNPRICED_APPENDED: &str = "unpricedAppended";
+
 /// Largest append transaction (SM §10.1: event batches are ≤ 512 rows).
 pub const MAX_APPEND_ROWS: usize = 512;
 
@@ -257,6 +261,10 @@ fn append_tx(conn: &mut Connection, rows: &[UsageRecord]) -> Result<Vec<bool>> {
         let new = insert_event(&tx, row)?;
         if new {
             index_event(&tx, row, rank_of(row))?;
+            if row.cost_source == "unpriced" && row.cost_usd.is_none() {
+                tx.prepare_cached("INSERT INTO metadata VALUES (?1,'1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1")?
+                    .execute([UNPRICED_APPENDED])?;
+            }
             if row.origin == "live" && metadata(&tx, "liveSince")?.is_none() {
                 tx.prepare_cached("INSERT INTO metadata VALUES ('liveSince', ?1)")?.execute([row.ts.to_string()])?;
             }

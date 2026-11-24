@@ -82,6 +82,54 @@ test('cancel while an approved answer is in flight stores no credential and stay
   t.after(() => layer.remove());
 });
 
+test('a claim refused because its id is already paired is made again under a fresh id, as a new device', async (t) => {
+  let publicKey = '';
+  const claimed = [];
+  const reply = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+  const fakeFetch = async (url, init = {}) => {
+    const path = new URL(String(url), 'https://relay.example').pathname;
+    if (path === '/claim' && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      claimed.push(body.clientId);
+      publicKey = body.publicKey;
+      return body.clientId === 'paired-id' ? reply({ status: 'paired' }, 409) : reply({ claimId: 'c1' }, 202);
+    }
+    return reply({
+      status: 'approved',
+      token: 'a'.repeat(64),
+      sealed: await sealRelayE2EEPairingMaterial(MATERIAL, publicKey),
+    });
+  };
+  const { document } = installTestDom(t, {
+    jsdom: { url: 'https://relay.example/d/abc/' },
+    expose: ['localStorage', 'location', 'navigator'],
+    globals: { fetch: fakeFetch },
+  });
+  const { createRemotePairingScreen } = await import('./remote-pairing-screen.ts');
+  let clientId = 'paired-id';
+  let accepted = 0;
+  createRemotePairingScreen({
+    deviceId: 'abc',
+    claimStorageKey: 'claim',
+    serverBase: () => 'https://relay.example',
+    clientId: () => clientId,
+    renewClientId: () => {
+      clientId = 'fresh-id';
+    },
+    acceptApproval: () => {
+      accepted += 1;
+      return true;
+    },
+    verifyConnection: () => Promise.resolve(),
+  })('', true);
+  const layer = () => document.getElementById('mixdog-remote-pairing');
+  const title = () => layer()?.querySelector('.mxp-title')?.textContent;
+  await until(() => accepted === 1 || title() === 'Connection failed');
+  t.after(() => layer()?.remove());
+  assert.equal(accepted, 1, 'the approval is taken, not a dead end');
+  assert.deepEqual(claimed, ['paired-id', 'fresh-id']);
+});
+
 test('pairing completes on engines without AbortSignal.any (Chrome < 116, Safari < 17.4)', async (t) => {
   const original = AbortSignal.any;
   delete AbortSignal.any;

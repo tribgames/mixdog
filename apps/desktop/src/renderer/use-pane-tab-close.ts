@@ -5,7 +5,9 @@ import { disposeTerminalPane } from './lazy-widgets';
 import { nextWorkspaceTabAfterClose } from './nav-types';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { paneActiveSelection } from './pane-layout';
+import { dirtySideFilesClosedWith, paneDockOwnerOf, type PaneSideDockEntry } from './pane-side-dock-model';
 import type { usePaneWorkspace } from './pane-workspace-state';
+import { sideFileDirtyKey, sideFileTabDirtyKey, type PaneSideDockFile } from './side-file-tabs';
 import { navigationKey } from './text-format';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
@@ -59,6 +61,7 @@ function fallbackTabAfterClose(
 
 export function usePaneTabClose({
   paneWorkspace,
+  paneSideDocks,
   dirtyFileKeys,
   editorSaveHandles,
   handleFileDirty,
@@ -76,6 +79,8 @@ export function usePaneTabClose({
   lastSessionStorageKey,
 }: {
   paneWorkspace: PaneWorkspace;
+  /** The pane docks: a tab's dirty side files are confirmed before it closes. */
+  paneSideDocks: { docks: Readonly<Record<string, PaneSideDockEntry>> };
   dirtyFileKeys: ReadonlySet<string>;
   editorSaveHandles: MutableRefObject<Map<string, EditorSaveHandle>>;
   handleFileDirty(key: string, dirty: boolean): void;
@@ -97,8 +102,10 @@ export function usePaneTabClose({
   const [unsavedCloseBusy, setUnsavedCloseBusy] = useState(false);
   const [unsavedCloseError, setUnsavedCloseError] = useState('');
 
+  // Every close reads the panes as the close before it left them: a menu's
+  // "Close Others" closes several tabs before the next render.
   const releaseClosedTab = (leafId: string, tab: WorkspaceTab) => {
-    if (!tabOpenInOtherLeaf(paneWorkspace.leaves, leafId, tab.key)) {
+    if (!tabOpenInOtherLeaf(paneWorkspace.now().leaves, leafId, tab.key)) {
       if (tab.selection.kind === 'file') {
         handleFileDirty(tab.key, false);
         editorSaveHandles.current.delete(tab.key);
@@ -124,14 +131,15 @@ export function usePaneTabClose({
   };
 
   const closeTabNow = (leafId: string, tab: WorkspaceTab) => {
-    const leaf = paneWorkspace.leaves.find((entry) => entry.id === leafId);
+    const { leaves, focusedLeafId } = paneWorkspace.now();
+    const leaf = leaves.find((entry) => entry.id === leafId);
     if (!leaf) return;
-    const wasActive = leafId === paneWorkspace.focusedLeafId && tab.key === leaf.activeKey;
+    const wasActive = leafId === focusedLeafId && tab.key === leaf.activeKey;
     if (!wasActive) {
       releaseClosedTab(leafId, tab);
       return;
     }
-    const fallback = fallbackTabAfterClose(paneWorkspace.leaves, leaf, tab);
+    const fallback = fallbackTabAfterClose(leaves, leaf, tab);
     const closingSession = isConversationKind(tab.selection.kind);
     if (closingSession && fallback?.selection.kind === 'session') {
       if (tab.selection.kind === 'session' || tab.selection.kind === 'new') {
@@ -155,16 +163,52 @@ export function usePaneTabClose({
     }
   };
 
+  /** The dirty side-dock files closing the tab would drop: its pane's whole
+   *  dock when the pane closes with it, else what the tab's session owns there. */
+  const dirtySideFilesOf = (leafId: string, tab: WorkspaceTab): PaneSideDockFile[] => {
+    const { leaves } = paneWorkspace.now();
+    const leaf = leaves.find((entry) => entry.id === leafId);
+    if (!leaf) return [];
+    const tabbedElsewhere = (owner: string) =>
+      leaves.some(
+        (entry) => entry.id !== leafId && entry.tabs.some((selection) => paneDockOwnerOf(selection) === owner)
+      );
+    return dirtySideFilesClosedWith(
+      paneSideDocks.docks[leafId],
+      paneDockOwnerOf(tab.selection),
+      leaves.length > 1 && leaf.tabs.length === 1,
+      tabbedElsewhere,
+      (fileKey) => dirtyFileKeys.has(sideFileTabDirtyKey(fileKey))
+    );
+  };
+
+  /** Confirms each dirty side file in turn, then closes the tab. */
+  const closeTabAfterSideFiles = (leafId: string, tab: WorkspaceTab, files: readonly PaneSideDockFile[]) => {
+    const [file, ...rest] = files;
+    if (!file) {
+      closeTabNow(leafId, tab);
+      return;
+    }
+    const key = sideFileDirtyKey(file);
+    confirmSideFileExit(key, file, () => {
+      handleFileDirty(key, false);
+      closeTabAfterSideFiles(leafId, tab, rest);
+    });
+  };
+
   const closeTab = (leafId: string, tab: WorkspaceTab) => {
-    const openElsewhere = tabOpenInOtherLeaf(paneWorkspace.leaves, leafId, tab.key);
-    if (!openElsewhere && tab.selection.kind === 'file' && dirtyFileKeys.has(tab.key)) {
+    if (tabOpenInOtherLeaf(paneWorkspace.now().leaves, leafId, tab.key)) {
+      closeTabNow(leafId, tab);
+      return;
+    }
+    if (tab.selection.kind === 'file' && dirtyFileKeys.has(tab.key)) {
       setUnsavedCloseError('');
       setPendingUnsavedCloses((queue) =>
         queue.some((entry) => entry.tab.key === tab.key) ? queue : [...queue, { leafId, tab }]
       );
       return;
     }
-    closeTabNow(leafId, tab);
+    closeTabAfterSideFiles(leafId, tab, dirtySideFilesOf(leafId, tab));
   };
 
   const saveAndClosePendingTab = async () => {

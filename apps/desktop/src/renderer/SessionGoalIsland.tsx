@@ -218,10 +218,11 @@ function TodoRows({
   );
 }
 
-/** A step's state mark: a ring in the state's ink, empty while the step waits. */
+/** A step's state mark: a quiet ring while the step waits, the ring and its dot in the state's ink while it is in
+ *  hand, the check or the cross alone once it is over. */
 export function TodoGlyph({ status }: { status: TodoStatus }) {
   const glyph = (status && TODO_GLYPHS[status as keyof typeof TODO_GLYPHS]) || null;
-  return <StepRing fraction={1} glyph={glyph} size={14} />;
+  return <StepRing fraction={1} glyph={glyph} size={12} />;
 }
 
 /** A plan's steps in plan order, split into what remains and what is done
@@ -494,7 +495,7 @@ export function useSessionGoal(snapshot: Snapshot) {
     dismissible: Boolean(goal) && goal?.status !== 'active',
     // The time budget ran out: Resume first asks for a new limit (the edit dialog).
     exhausted: Number(goal?.timeLimitMs) > 0 && Number(goal?.remainingMs) === 0,
-    noteTone: kind === 'blocked' ? 'blocked' : kind === 'waiting' ? 'waiting' : undefined,
+    noteTone: kind === 'blocked' || kind === 'waiting' ? kind : undefined,
   };
 }
 

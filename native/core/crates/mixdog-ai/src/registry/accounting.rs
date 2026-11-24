@@ -243,11 +243,11 @@ pub enum Outcome<'a> {
     Failed(&'a ProviderError),
 }
 
-/// `usageRouteKind`.
+/// `usageRouteKind`. An ACP agent's route (`acp-*`) runs on the account its CLI signed in with: a subscription.
 fn route_kind(provider: &str) -> &'static str {
     if provider == "mixdog-local" {
         "local"
-    } else if provider.ends_with("-oauth") {
+    } else if provider.ends_with("-oauth") || provider.starts_with("acp-") {
         "oauth"
     } else {
         "api"

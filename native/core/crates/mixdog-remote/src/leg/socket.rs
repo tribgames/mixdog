@@ -6,11 +6,13 @@ use std::time::Duration;
 
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
+use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
@@ -154,6 +156,36 @@ impl LegConfig {
     }
 }
 
+/// The upgrade request of a leg on `path` as `identity`, and the socket limits for messages of `max_payload` bytes.
+fn leg_request(relay_url: &str, path: &str, identity: &DeviceIdentity, max_payload: usize) -> Option<(Request, WebSocketConfig)> {
+    let (url, authorization) = leg_socket_request(relay_url, path, identity).ok()?;
+    let mut request = url.as_str().into_client_request().ok()?;
+    request.headers_mut().insert("Authorization", HeaderValue::from_str(&authorization).ok()?);
+    let mut ws_config = WebSocketConfig::default();
+    ws_config.max_message_size = Some(max_payload);
+    ws_config.max_frame_size = Some(max_payload);
+    Some((request, ws_config))
+}
+
+/// One authenticated `revoke-device` on a desktop leg of its own (`revokeIdentity`): true once the relay confirms it deleted
+/// the registration of `identity`. A dial that fails, a leg that ends first and a refusal are false.
+pub async fn revoke_registration(relay_url: &str, identity: &DeviceIdentity, max_payload: usize) -> bool {
+    let Some((request, ws_config)) = leg_request(relay_url, DESKTOP_PATH, identity, max_payload) else { return false };
+    let Ok((mut socket, _)) = crate::dial::connect(request, Some(ws_config)).await else { return false };
+    if socket.send(Message::Text(serde_json::json!({ "type": "revoke-device" }).to_string().into())).await.is_err() {
+        return false;
+    }
+    while let Some(Ok(message)) = socket.next().await {
+        let Message::Text(text) = message else { continue };
+        let Ok(reply) = serde_json::from_str::<Value>(text.as_str()) else { continue };
+        if reply.get("type").and_then(Value::as_str) == Some("device-revoked") {
+            let _ = socket.close(None).await;
+            return reply.get("ok") != Some(&Value::Bool(false));
+        }
+    }
+    false
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Ended {
     Cancelled,
@@ -167,12 +199,7 @@ async fn serve_leg(
     redial: &mut Redial,
     cancel: &CancellationToken,
 ) -> Result<Ended, ()> {
-    let (url, authorization) = leg_socket_request(&config.relay_url, &config.path, &config.identity).map_err(|_| ())?;
-    let mut request = url.as_str().into_client_request().map_err(|_| ())?;
-    request.headers_mut().insert("Authorization", HeaderValue::from_str(&authorization).map_err(|_| ())?);
-    let mut ws_config = WebSocketConfig::default();
-    ws_config.max_message_size = Some(config.max_payload);
-    ws_config.max_frame_size = Some(config.max_payload);
+    let (request, ws_config) = leg_request(&config.relay_url, &config.path, &config.identity, config.max_payload).ok_or(())?;
     let connected = tokio::select! {
         () = cancel.cancelled() => return Ok(Ended::Cancelled),
         result = crate::dial::connect(request, Some(ws_config)) => result,

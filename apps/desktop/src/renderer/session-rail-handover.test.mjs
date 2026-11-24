@@ -91,17 +91,33 @@ async function setup(t) {
     {},
     {
       get: (_, name) => {
-        if (!actionCache.has(name)) actionCache.set(name, name === 'composerInvokeResult' ? (action) => action() : noop);
+        if (!actionCache.has(name))
+          actionCache.set(name, name === 'composerInvokeResult' ? (action) => action() : noop);
         return actionCache.get(name);
       },
     }
   );
-  const island = { wrapSubmit: (submit) => submit, approval: null, islandFlash: null, quotaCard: null, quotaResume: null };
-  const submission = { goalSubmissionId: '', reviewItems: [], steerItems: [], pendingPromptIds: [], holdSlashCommand: noop, actions };
+  const island = {
+    wrapSubmit: (submit) => submit,
+    approval: null,
+    islandFlash: null,
+    quotaCard: null,
+    quotaResume: null,
+  };
+  const submission = {
+    goalSubmissionId: '',
+    reviewItems: [],
+    steerItems: [],
+    pendingPromptIds: [],
+    holdSlashCommand: noop,
+    actions,
+  };
   /** The pane's conversation as the app draws it below the transcript: its composer dock. `label` names its project. */
   const conversation = (selection, leafId, overrides = {}) => {
     const draft = selection.kind === 'new';
-    const snapshot = draft ? {} : { sessionId: selection.id, provider: MODEL.provider, model: MODEL.model, effort: 'high' };
+    const snapshot = draft
+      ? {}
+      : { sessionId: selection.id, provider: MODEL.provider, model: MODEL.model, effort: 'high' };
     return React.createElement(ConversationComposerDock, {
       snapshot,
       routeSnapshot: snapshot,
@@ -207,14 +223,22 @@ test('the first panel: the composer keeps its controls until the panel draws its
   );
   // The panel's module has not arrived: the panel is empty and each composer keeps what it would take.
   assert.equal(panelProject(body('cold-draft')), '');
-  assert.deepEqual(controls(composer('cold-draft')), { contextBar: true, modelControls: true }, "the draft's pickers and pill");
+  assert.deepEqual(
+    controls(composer('cold-draft')),
+    { contextBar: true, modelControls: true },
+    "the draft's pickers and pill"
+  );
   assert.equal(controls(composer('cold-session')).modelControls, true, "the session's model pill");
   check('before the panel loads');
   await import('./SessionRail.tsx');
   await view.settle();
   assert.equal(panelProject(body('cold-draft')), 'draft d-cold', "the draft's rows");
   assert.equal(panelProject(body('cold-session')), 'session s-cold', "the session's rows");
-  assert.deepEqual(controls(composer('cold-draft')), { contextBar: false, modelControls: false }, 'then the composer is bare');
+  assert.deepEqual(
+    controls(composer('cold-draft')),
+    { contextBar: false, modelControls: false },
+    'then the composer is bare'
+  );
   assert.deepEqual(controls(composer('cold-session')), { contextBar: false, modelControls: false });
   check('after the panel loads');
   assert.deepEqual(lapses, [], 'no frame without the controls in either the composer or the panel');
@@ -309,7 +333,11 @@ for (const [name, fromIndex, toIndex] of [
     assert.equal(pane.preparing(), 0);
     assert.equal(panelProject(pane.body()), label(from));
     const before = controls(pane.composer(from));
-    assert.deepEqual(before, { contextBar: false, modelControls: false }, 'the shown composer is bare beside its panel');
+    assert.deepEqual(
+      before,
+      { contextBar: false, modelControls: false },
+      'the shown composer is bare beside its panel'
+    );
     const handed = await pane.switchTo(to, (when) => {
       const slot = sessionRailSlot('pane-h');
       assert.deepEqual(
@@ -320,7 +348,11 @@ for (const [name, fromIndex, toIndex] of [
       assert.equal(pane.preparing(), 1, `${when}: the pane still shows ${label(from)}`);
       assert.equal(panelProject(pane.body()), label(from), `${when}: the panel too`);
       assert.equal(pane.body().querySelectorAll('[data-category="info"]').length, 1, `${when}: one Info`);
-      assert.deepEqual(controls(pane.composer(from)), before, `${when}: the shown composer neither gains nor loses controls`);
+      assert.deepEqual(
+        controls(pane.composer(from)),
+        before,
+        `${when}: the shown composer neither gains nor loses controls`
+      );
     });
     assert.deepEqual(
       handed,
@@ -389,7 +421,14 @@ test("a New Task's panel rows follow each pick: project, branch, model, workflow
   assert.equal(projectText(), 'app');
 
   rail.querySelector('.session-rail-branch').getBoundingClientRect = () => ({
-    x: 300, y: 400, left: 300, right: 600, top: 400, bottom: 428, width: 300, height: 28,
+    x: 300,
+    y: 400,
+    left: 300,
+    right: 600,
+    top: 400,
+    bottom: 428,
+    width: 300,
+    height: 28,
   });
   await act(async () => row('Branch and worktree').click());
   await act(async () => document.querySelector('.branch-tab-host [data-branch="dev"]').click());
@@ -404,7 +443,9 @@ test("a New Task's panel rows follow each pick: project, branch, model, workflow
 
   const { requestOpenModelPicker } = await import('./model-picker-event.ts');
   await act(async () => requestOpenModelPicker());
-  const effort = [...document.querySelectorAll('.route-sheet-row')].find((button) => button.textContent.includes('Reasoning effort'));
+  const effort = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+    button.textContent.includes('Reasoning effort')
+  );
   await act(async () => effort.click());
   await act(async () => menuItem('Low').click());
   await view.settle();

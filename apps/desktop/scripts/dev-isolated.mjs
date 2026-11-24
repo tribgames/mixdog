@@ -168,6 +168,21 @@ const insideDir = (path, parent) => {
   return rel === '' || (!rel.startsWith('..') && !rel.startsWith(sep) && !/^[a-z]:/i.test(rel));
 };
 
+/** The variables that make the core read a provider's own credential from another file than its data folder's
+ *  (native/core/crates/mixdog-ai/src/accounts/mod.rs OWN_FILES). */
+const CREDENTIAL_PATH_VARIABLES = [
+  'OPENAI_OAUTH_CREDENTIALS_PATH',
+  'ANTHROPIC_OAUTH_CREDENTIALS_PATH',
+  'GROK_OAUTH_CREDENTIALS_PATH',
+  'MUSE_CODE_OAUTH_CREDENTIALS_PATH',
+  'COMMAND_CODE_OAUTH_CREDENTIALS_PATH',
+  'OPENCODE_GO_OAUTH_CREDENTIALS_PATH',
+  'MIMO_OAUTH_CREDENTIALS_PATH',
+  'CURSOR_OAUTH_CREDENTIALS_PATH',
+  'DEVIN_OAUTH_CREDENTIALS_PATH',
+  'ANTIGRAVITY_OAUTH_CREDENTIALS_PATH',
+];
+
 /** Throws unless every data location sits inside the instance and no port is a shared one. */
 export function assertIsolation(env, { instanceDir, cdpPort, rendererPort, parent = process.env }) {
   if (RESERVED_PORTS.has(cdpPort) || RESERVED_PORTS.has(rendererPort)) {
@@ -196,6 +211,12 @@ export function assertIsolation(env, { instanceDir, cdpPort, rendererPort, paren
     if (!value || !insideDir(value, instanceDir)) throw new Error(`${key} is not inside the instance (${value}).`);
     const shared = forbidden.find((path) => insideDir(value, path) || insideDir(path, value));
     if (shared) throw new Error(`${key} overlaps a shared location: ${shared}`);
+  }
+  for (const key of CREDENTIAL_PATH_VARIABLES) {
+    const value = env[key];
+    if (!value) continue;
+    const shared = forbidden.find((path) => insideDir(value, path) || insideDir(path, value));
+    if (shared) throw new Error(`${key} names a credential file in a shared location: ${shared}`);
   }
   if (env.MIXDOG_RELAY_URL !== 'off' && !LOOPBACK_RELAY.test(env.MIXDOG_RELAY_URL || '')) {
     throw new Error('An isolated instance must not dial the relay (only a loopback --relay).');
@@ -397,7 +418,8 @@ export async function sweep(
 ) {
   const results = [];
   for (const lease of await readLeases(root)) {
-    if (all || leaseIsStale(lease, { now, alive })) results.push(await stopInstance(root, lease, { list, devProfileDir }));
+    if (all || leaseIsStale(lease, { now, alive }))
+      results.push(await stopInstance(root, lease, { list, devProfileDir }));
   }
   // List reservations and directories BEFORE reading leases: a starter writes
   // its lease before either, so anything listed here already has its lease.
@@ -814,7 +836,8 @@ async function applyCarriedAuth(dataDir, entries, kept) {
       isPlainObject(copied) && copied.version === 1 && isPlainObject(copied.providers)
         ? copied
         : { version: 1, providers: {} };
-    for (const [provider, entry] of pools) roster.providers[provider] = mergePool(roster.providers[provider], entry.pool);
+    for (const [provider, entry] of pools)
+      roster.providers[provider] = mergePool(roster.providers[provider], entry.pool);
     await writeFile(rosterPath, JSON.stringify(roster, null, 2), { mode: 0o600 });
   }
   return seeded;
@@ -947,9 +970,7 @@ async function carryAuthOut(root, lease, devProfileDir) {
     const saved = [];
     for (const [provider, files] of found) {
       const own = Object.fromEntries(
-        Object.entries(files).filter(
-          ([rel, credential]) => hasRefreshToken(credential) || !fromKeptProfile(rel)
-        )
+        Object.entries(files).filter(([rel, credential]) => hasRefreshToken(credential) || !fromKeptProfile(rel))
       );
       if (!Object.keys(own).length) continue;
       const ids = new Set(Object.keys(own).map(accountIdOf));
@@ -963,7 +984,8 @@ async function carryAuthOut(root, lease, devProfileDir) {
       const option = DEVELOPER_OPTION[provider];
       const developer = option && agentConfig?.developer?.[option];
       if (typeof developer === 'boolean') record.developer = developer;
-      else if (typeof previous.get(provider)?.developer === 'boolean') record.developer = previous.get(provider).developer;
+      else if (typeof previous.get(provider)?.developer === 'boolean')
+        record.developer = previous.get(provider).developer;
       if (isPlainObject(pool) && Array.isArray(pool.accounts)) {
         record.pool = {
           ...pool,
@@ -971,7 +993,10 @@ async function carryAuthOut(root, lease, devProfileDir) {
           selectedId: ids.has(pool.selectedId) ? pool.selectedId : undefined,
         };
         if (isPlainObject(earlier?.pool)) {
-          record.pool = { ...mergePool(earlier.pool, record.pool), selectedId: record.pool.selectedId ?? earlier.pool.selectedId };
+          record.pool = {
+            ...mergePool(earlier.pool, record.pool),
+            selectedId: record.pool.selectedId ?? earlier.pool.selectedId,
+          };
         }
       } else if (earlier?.pool) record.pool = earlier.pool;
       await writePrivateJson(join(store, `${provider}.json`), record);
@@ -1148,7 +1173,7 @@ export function assertCoreBinary(
     env.MIXDOGD_BIN
       ? `MIXDOGD_BIN names no file that can be run (${env.MIXDOGD_BIN}): the app could not start its core. Name a built mixdogd and start again.`
       : 'No core to start: MIXDOGD_BIN is not set and PATH has no mixdogd that can be run, so the app could not start its core. ' +
-        'Set MIXDOGD_BIN to a built mixdogd (laid out by apps/desktop/scripts/dev-core-install.mjs) and start again.'
+          'Set MIXDOGD_BIN to a built mixdogd (laid out by apps/desktop/scripts/dev-core-install.mjs) and start again.'
   );
 }
 

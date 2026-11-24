@@ -5,9 +5,13 @@ export const PANEL_TYPE_ROLES = {
   figures: { size: '--mx-font-meta', line: '--mx-line-ui', weight: '--mx-weight-regular' },
   // To-do's "Remaining 6" line (.session-rail-gl).
   kind: { size: '--mx-font-meta', line: '--mx-line-meta', weight: '--mx-weight-label' },
-  // An agent's name, finished or at work, as the to-do in progress.
-  name: { size: '--mx-font-item', line: '--mx-line-ui', weight: '--mx-weight-label' },
-  working: { size: '--mx-font-item', line: '--mx-line-ui', weight: '--mx-weight-label' },
+  // An agent's name, finished or at work: a row name, as a left sidebar session row's.
+  name: { size: '--mx-font-item', line: '--mx-line-ui', weight: '--mx-weight-regular' },
+  working: { size: '--mx-font-item', line: '--mx-line-ui', weight: '--mx-weight-regular' },
+  // A row's name at rest: a to-do step, a context kind, a changed file.
+  row: { size: '--mx-font-item', line: '--mx-line-ui', weight: '--mx-weight-regular' },
+  // A row's own figures: a context kind's tokens and share, a file's line counts, an agent's steps.
+  rowFigures: { size: '--mx-font-meta', line: '--mx-line-meta', weight: '--mx-weight-regular' },
   command: { size: '--mx-font-code', line: '--mx-line-ui', weight: '--mx-weight-regular' },
   state: { size: '--mx-font-supporting', line: '--mx-line-meta', weight: '--mx-weight-regular' },
   foot: { size: '--mx-font-supporting', line: '--mx-line-meta', weight: '--mx-weight-regular' },

@@ -1,5 +1,7 @@
-//! `forget(account)` per provider: Anthropic removes only the `claudeAiOauth` key of the account's file, Antigravity
-//! overwrites the file with `{}`, every other provider deletes the file; `{ removed }` says whether anything was there.
+//! `forget(account)` per provider: Anthropic removes only the `claudeAiOauth` key of the account's file (content that
+//! was read and is broken, whose sign-in cannot be told from the rest, is deleted; a file that cannot be read now is
+//! left and the forget fails), Antigravity overwrites the file with `{}`, every other provider deletes the file;
+//! `{ removed }` says whether anything was there.
 //! The CLI's own `~/.claude` file is never read or cleared (golden `oauth-forget`).
 
 use std::path::PathBuf;
@@ -257,27 +259,40 @@ impl OAuthProvider for FileOAuth {
 
 /// `forget<Provider>OAuthCredentials()` over the account's file: `{ removed }`.
 pub async fn forget_file(id: &str, file: &CredentialFile) -> Result<Value, String> {
-    let removed = match (id, file.load_document().await) {
-        (_, Probe::Absent) => false,
-        ("anthropic-oauth", Probe::Present(mut document)) => {
-            // Only the sign-in goes: the file's other keys stay.
-            let had = document.shift_remove("claudeAiOauth").is_some();
-            if had {
-                file.replace(document).await.map_err(|error| error.to_string())?;
+    let removed = match id {
+        "anthropic-oauth" => match file.load_document_checked().await {
+            Ok(Probe::Absent) => false,
+            Ok(Probe::Present(mut document)) => {
+                // Only the sign-in goes: the file's other keys stay.
+                let had = document.shift_remove("claudeAiOauth").is_some();
+                if had {
+                    file.replace(document).await.map_err(|error| error.to_string())?;
+                }
+                had
             }
-            had
-        }
-        ("anthropic-oauth", Probe::Unreadable) => false,
-        ("antigravity-oauth", _) => {
-            // Overwritten in place with an empty document (the file stays), so the secret does not
-            // survive in a freed block.
-            file.replace(Map::new()).await.map_err(|error| error.to_string())?;
-            true
-        }
-        _ => {
-            file.remove().await.map_err(|error| error.to_string())?;
-            true
-        }
+            Ok(Probe::Unreadable) => {
+                file.remove().await.map_err(|error| error.to_string())?;
+                true
+            }
+            Err(error) => {
+                return Err(format!(
+                    "The sign-out could not be completed: the Anthropic credential file cannot be read right now ({error}). Nothing was changed."
+                ));
+            }
+        },
+        _ => match (id, file.load_document().await) {
+            (_, Probe::Absent) => false,
+            ("antigravity-oauth", _) => {
+                // Overwritten in place with an empty document (the file stays), so the secret does not
+                // survive in a freed block.
+                file.replace(Map::new()).await.map_err(|error| error.to_string())?;
+                true
+            }
+            _ => {
+                file.remove().await.map_err(|error| error.to_string())?;
+                true
+            }
+        },
     };
     Ok(json!({ "removed": removed }))
 }
@@ -323,5 +338,71 @@ impl ProviderAdmin {
         let vertex_adc = Arc::new(AdcLogin(Arc::clone(&builder)));
         let accounts = oauth.accounts.clone();
         Self::with_browser(providers, builder, accounts, vault, config, refresh, vertex_adc, registry, oauth_usage, io, browser)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::disallowed_methods, reason = "the credential fixtures are written and read directly")]
+
+    use super::*;
+
+    fn io() -> CredentialIo {
+        let tokens = mixdog_rt::testing::tokens();
+        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io }
+    }
+
+    /// Signing out of an Anthropic file whose content is broken (it was read and does not parse, or parses to no
+    /// object) removes it, as every other provider's: left in place it would keep reading as a sign-in that is never a
+    /// logout.
+    #[tokio::test]
+    async fn signing_out_of_a_broken_anthropic_file_removes_it() {
+        for broken in ["{ half", "[1]"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("anthropic-oauth-credentials.json");
+            std::fs::write(&path, broken).unwrap();
+            let file = CredentialFile::new(path, io());
+            assert_eq!(forget_file("anthropic-oauth", &file).await.unwrap(), json!({ "removed": true }), "{broken}");
+            assert_eq!(file.load_document().await, Probe::Absent, "{broken}");
+        }
+    }
+
+    /// Holds `path` unreadable while it can still be removed, as a failure that passes does: on Windows a handle that
+    /// shares deletion but not reading (a sharing violation), elsewhere no read permission (a permission error). The
+    /// file reads again once the guard is dropped.
+    #[cfg(windows)]
+    fn unreadable_now(path: &std::path::Path) -> impl Sized {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+        std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_DELETE).open(path).unwrap()
+    }
+
+    #[cfg(unix)]
+    fn unreadable_now(path: &std::path::Path) -> impl Sized {
+        use std::os::unix::fs::PermissionsExt;
+        struct Restored(PathBuf);
+        impl Drop for Restored {
+            fn drop(&mut self) {
+                std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        }
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        Restored(path.to_owned())
+    }
+
+    /// A file that could not be read at all, for a reason that may pass, is left as it is with its other keys, and
+    /// the sign-out says it could not be completed instead of answering as done.
+    #[tokio::test]
+    async fn signing_out_of_an_anthropic_file_that_cannot_be_read_now_leaves_it_and_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("anthropic-oauth-credentials.json");
+        let stored = r#"{"claudeAiOauth":{"accessToken":"a"},"mcpOAuth":{"s":1}}"#;
+        std::fs::write(&path, stored).unwrap();
+        let file = CredentialFile::new(path.clone(), io());
+        let held = unreadable_now(&path);
+        let error = forget_file("anthropic-oauth", &file).await.expect_err("a sign-out that read nothing is not done");
+        drop(held);
+        assert!(error.contains("could not be completed"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), stored, "the file and its other keys are kept");
     }
 }

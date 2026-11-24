@@ -2,6 +2,7 @@ import { useContext, useMemo } from 'react';
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
 import { Copy } from 'lucide-react';
 import { t } from '../i18n';
+import { usePictureHold } from '../local-image-hold';
 import { useLocalImagePreview } from '../local-image-preview';
 import { safeMarkdownUrl } from '../markdown-url';
 import { copyTextToClipboard } from '../text-format';
@@ -50,9 +51,16 @@ export function RichMarkdownCodeBlock({ node, updateAttributes }: NodeViewProps)
   );
 }
 
-function LocalImage({ projectPath, path, alt }: { projectPath: string; path: string; alt: string }) {
+export function RichMarkdownLocalImage({ projectPath, path, alt }: { projectPath: string; path: string; alt: string }) {
   const preview = useLocalImagePreview(projectPath, path);
   const name = alt || path.split('/').at(-1) || path;
+  const shown = preview.unavailable ? '' : preview.url;
+  const hold = usePictureHold(
+    '',
+    `rich-markdown-image|${projectPath}|${path}`,
+    shown !== '' || preview.unavailable,
+    shown
+  );
   if (preview.unavailable) {
     return (
       <span className="rich-markdown-image-missing" title={path}>
@@ -60,8 +68,10 @@ function LocalImage({ projectPath, path, alt }: { projectPath: string; path: str
       </span>
     );
   }
-  if (!preview.url) return <span className="rich-markdown-image-loading" aria-hidden="true" />;
-  return <img src={preview.url} alt={name} title={path} draggable={false} />;
+  if (!shown) return <span className="rich-markdown-image-loading" aria-hidden="true" style={hold.style} />;
+  return (
+    <img ref={hold.ref} src={shown} alt={name} title={path} draggable={false} style={hold.style} onLoad={hold.onLoad} />
+  );
 }
 
 /** `![alt](src)`: local paths resolve against the document's folder through
@@ -73,7 +83,7 @@ export function RichMarkdownImage({ node, selected }: NodeViewProps) {
   const localPath = richMarkdownImagePath(src, relPath);
   const remote = localPath === null ? safeMarkdownUrl(src, 'src') : '';
   let image: React.ReactElement;
-  if (localPath !== null) image = <LocalImage projectPath={projectPath} path={localPath} alt={alt} />;
+  if (localPath !== null) image = <RichMarkdownLocalImage projectPath={projectPath} path={localPath} alt={alt} />;
   else if (remote) image = <img src={remote} alt={alt} title={node.attrs.title ?? undefined} draggable={false} />;
   else image = <span className="rich-markdown-image-missing">{alt || src}</span>;
   return (

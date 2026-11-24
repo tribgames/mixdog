@@ -118,8 +118,7 @@ function agentRouteView(agent: DesktopAgentPoolRow, autoOn: boolean, capable: bo
 
 type AgentRouteView = NonNullable<ReturnType<typeof agentRouteView>>;
 
-/** An agent row's second line: model and effort. */
-export function AgentRouteSummary({ agent }: { agent: DesktopAgentPoolRow }) {
+function useAgentRouteView(agent: DesktopAgentPoolRow) {
   const catalog = useModelCatalogRevision();
   const { provider, model } = agent;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the catalog read is what `catalog` counts; a catalog that arrives later draws the line again.
@@ -127,7 +126,12 @@ export function AgentRouteSummary({ agent }: { agent: DesktopAgentPoolRow }) {
     () => Boolean(provider && model && cachedAutoEffortCapable(provider, model)),
     [provider, model, catalog]
   );
-  const view = agentRouteView(agent, useAutoEffortMasterOn(capable), capable);
+  return agentRouteView(agent, useAutoEffortMasterOn(capable), capable);
+}
+
+/** An agent row's second line: model and effort. */
+export function AgentRouteSummary({ agent }: { agent: DesktopAgentPoolRow }) {
+  const view = useAgentRouteView(agent);
   if (!view) return null;
   return <AgentRouteLabel view={view} title={String(agent.model || '')} />;
 }
@@ -135,14 +139,7 @@ export function AgentRouteSummary({ agent }: { agent: DesktopAgentPoolRow }) {
 /** The words of an agent's model line ("Claude Opus 4.5 High Fast"), for a row that shows no model line; empty when
  *  the line would show nothing. */
 export function useAgentRouteText(agent: DesktopAgentPoolRow): string {
-  const catalog = useModelCatalogRevision();
-  const { provider, model } = agent;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: as AgentRouteSummary: the catalog read is what `catalog` counts.
-  const capable = useMemo(
-    () => Boolean(provider && model && cachedAutoEffortCapable(provider, model)),
-    [provider, model, catalog]
-  );
-  return routeWords(agentRouteView(agent, useAutoEffortMasterOn(capable), capable));
+  return routeWords(useAgentRouteView(agent));
 }
 
 /** The model line's words every one of `agents` whose route is known shows (a kind's agents on one route); empty

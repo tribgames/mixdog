@@ -111,9 +111,12 @@ use crate::transport::preconnect::Preconnect;
 use crate::transport::preconnect::Setting;
 use mixdog_core_api::domain::provider::AttemptHandle;
 use mixdog_core_api::domain::provider::AttemptPhase;
+use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::MediaSupport;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::PhaseWindows;
+use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamTimeoutPhase;
 use mixdog_rt::Expired;
 
@@ -287,7 +290,11 @@ pub enum Credentials {
 /// The secret one request carries, for a subscription the login it was served under, and for an engine the attempt
 /// its credential served.
 #[derive(Clone)]
-struct Secret(String, Option<super::oauth::Attempt>, Option<EngineSent>);
+struct Secret {
+    key: String,
+    login: Option<super::oauth::Attempt>,
+    engine: Option<EngineSent>,
+}
 
 /// What an engine's credential served one request on, and whether that attempt's login was renewed for it.
 #[derive(Clone)]
@@ -297,20 +304,24 @@ struct EngineSent {
 }
 
 impl Secret {
+    fn key(key: String) -> Self {
+        Self { key, login: None, engine: None }
+    }
+
     fn of(attempt: super::oauth::Attempt) -> Self {
-        Self(attempt.access_token.clone(), Some(attempt), None)
+        Self { key: attempt.access_token.clone(), login: Some(attempt), engine: None }
     }
 
     /// An engine's attempt; the secret redacted from its refusals is the key its header carries.
     fn sent(attempt: Attempt, exchanged: bool) -> Self {
         let value = attempt.header.as_ref().map_or("", |(_, value)| value.as_str());
         let key = value.strip_prefix("Bearer ").unwrap_or(value).to_owned();
-        Self(key, None, Some(EngineSent { attempt, exchanged }))
+        Self { key, login: None, engine: Some(EngineSent { attempt, exchanged }) }
     }
 
     /// The engine's attempt was served on a login renewed for it.
     fn exchanged(&self) -> bool {
-        self.2.as_ref().is_some_and(|sent| sent.exchanged)
+        self.engine.as_ref().is_some_and(|sent| sent.exchanged)
     }
 }
 
@@ -318,7 +329,7 @@ impl Credentials {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn current(&self) -> Result<Secret, ProviderError> {
         match self {
-            Self::ApiKey(source) => source.key().await.map(|key| Secret(key, None, None)),
+            Self::ApiKey(source) => source.key().await.map(Secret::key),
             Self::OAuth(session) => session.attempt().await.map(Secret::of),
             Self::Engine(credential) => credential.attempt().await.map(|attempt| Secret::sent(attempt, false)),
         }
@@ -331,14 +342,14 @@ impl Credentials {
         match self {
             Self::ApiKey(source) => {
                 let key = source.reload().await?;
-                Ok((key != rejected.0).then_some(Secret(key, None, None)))
+                Ok((key != rejected.key).then_some(Secret::key(key)))
             }
-            Self::OAuth(session) => match &rejected.1 {
+            Self::OAuth(session) => match &rejected.login {
                 Some(attempt) => session.after_rejection(attempt).await.map(|next| Some(Secret::of(next))),
                 None => Ok(None),
             },
             Self::Engine(credential) => {
-                let Some(sent) = &rejected.2 else { return Ok(None) };
+                let Some(sent) = &rejected.engine else { return Ok(None) };
                 // The refusal is of the attempt this request was sent on; the same refused header is not sent again, unless
                 // the credential resends whatever the refresh gave.
                 let next = credential.after_rejection(&sent.attempt).await?;
@@ -351,17 +362,17 @@ impl Credentials {
     /// for a subscription.
     fn thread_account(&self, provider: &str, base_url: &str, secret: &Secret) -> String {
         match self {
-            Self::ApiKey(_) | Self::Engine(_) => threads::account_key(provider, &[base_url, &secret.0]),
+            Self::ApiKey(_) | Self::Engine(_) => threads::account_key(provider, &[base_url, &secret.key]),
             Self::OAuth(session) => threads::account_key(provider, &[&session.account()]),
         }
     }
 
     fn header(&self, secret: &Secret) -> Option<(String, String)> {
         match self {
-            Self::ApiKey(_) => Some(("x-api-key".to_owned(), secret.0.clone())),
+            Self::ApiKey(_) => Some(("x-api-key".to_owned(), secret.key.clone())),
             // `postMessages` (`gzip-post.mjs:19`): the first header, spelled `Authorization`.
-            Self::OAuth(_) => Some(("Authorization".to_owned(), format!("Bearer {}", secret.0))),
-            Self::Engine(_) => secret.2.as_ref().and_then(|sent| sent.attempt.header.clone()),
+            Self::OAuth(_) => Some(("Authorization".to_owned(), format!("Bearer {}", secret.key))),
+            Self::Engine(_) => secret.engine.as_ref().and_then(|sent| sent.attempt.header.clone()),
         }
     }
 
@@ -1333,7 +1344,7 @@ impl ModelStream for AnthropicStream {
 /// refused request was sent with, not whichever one the account holds by the time the refusal is read.
 fn scrub_refusal(mut refusal: ErrorResponse, secret: &Secret) -> ErrorResponse {
     let text = String::from_utf8_lossy(&refusal.body);
-    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&secret.0]);
+    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&secret.key]);
     if clean != text {
         refusal.body = clean.into_bytes();
     }
@@ -1710,7 +1721,6 @@ impl AnthropicAdapter {
         let mut options = request.options.clone();
         options.shared_cache_prefix_count = None;
         options.effort_projection = None;
-        use mixdog_core_api::domain::provider::{Content, Message, Role};
         let probe =
             ModelRequest { model: request.model.clone(), messages: vec![Message::new(Role::User, Content::Text("x".into()))], tools: Vec::new(), options };
         let body: Value = serde_json::from_slice(&self.codec.encode_plain(&probe).ok()?.wire.body).ok()?;
@@ -1895,7 +1905,7 @@ impl AnthropicAdapter {
             Ok(rejected) => {
                 let rejected = scrub_refusal(rejected, secret);
                 let mut error = self.codec.classify(&rejected);
-                error.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
+                error.message = super::errors::quota_error_text(&rejected, &[&secret.key]);
                 error
             }
             Err(err) => err,
@@ -2137,7 +2147,7 @@ impl AnthropicAdapter {
                 if self.codec.flavor() == Flavor::OAuth && rejected.status == Some(429) {
                     // `anthropicQuotaError(status, headers, scrubTokens(text))` (initial-status.mjs:90): the quota wording
                     // over the scrubbed body, never the body's own message.
-                    err.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
+                    err.message = super::errors::quota_error_text(&rejected, &[&secret.key]);
                 } else if self.codec.flavor() == Flavor::OAuth {
                     // `judgeInitialStatus` (initial-status.mjs:101) words a transient status alone; any other refusal
                     // is worded and logged by `_handleHttpError` (anthropic-oauth.mjs:862, :949).
@@ -2146,7 +2156,7 @@ impl AnthropicAdapter {
                         err.message = format!("Anthropic OAuth API {status}");
                     } else {
                         // `scrubTokens(text).slice(0, 200)`: a credential the server echoed is redacted before it is logged or returned.
-                        let shown = crate::oauth::scrub::scrubbed_prefix(&refusal, &[&secret.0], 200);
+                        let shown = crate::oauth::scrub::scrubbed_prefix(&refusal, &[&secret.key], 200);
                         mixdog_rt::node_stderr!("[anthropic-oauth] API error {status}: {shown}");
                         err.message = format!("Anthropic OAuth API {status}: {shown}");
                     }
@@ -2237,7 +2247,7 @@ impl AnthropicStream {
     }
 
     fn with_secret(mut self, secret: &Secret) -> Self {
-        self.secret = Some(secret.0.clone());
+        self.secret = Some(secret.key.clone());
         self
     }
 

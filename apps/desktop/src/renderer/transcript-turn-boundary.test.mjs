@@ -2,19 +2,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
-import { TurnChangesContext } from './TurnChangesCard.tsx';
+import { mountTranscriptPane } from './test-support/transcript-pane.mjs';
 import { turnOf } from './conversation-turn-index.ts';
-import { resetTurnChangesCache } from './turn-changes-model.ts';
-import {
-  claimTurnPreviewEnd,
-  resetTurnPreviews,
-  runningTurnKeyOf,
-  turnPreviewOpenPending,
-} from './turn-preview-model.ts';
-import { trailingTurnRuns, useConversationLinkSurfaces } from './use-conversation-link-surfaces.ts';
-import { useConversationRowRenderer } from './use-conversation-row-renderer.ts';
-import { useTranscriptRows } from './use-conversation-rows.ts';
+import { claimTurnPreviewEnd, turnPreviewOpenPending } from './turn-preview-model.ts';
 
 const h = React.createElement;
 const settle = (ms = 20) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -32,95 +22,10 @@ const done = {
   at: 4_000,
 };
 
-/** A pane's transcript over `props`: `items`, `busy`, `liveItem`, `activityAt` (0: no activity shown). The record of the
- *  turn's changes answers `pending` until `view.sealed`, as the core does while the turn still holds it. */
+/** The shared pane with its turn's changes record unsealed: pending, as the core answers while the turn holds it. */
 async function mountPane(t) {
-  resetTurnChangesCache();
-  resetTurnPreviews();
-  const { dom, document, root } = installTestDom(t, {
-    expose: ['HTMLElement', 'Node', 'Event', 'MouseEvent', 'CustomEvent'],
-    rootId: 'root',
-  });
-  const view = { sealed: false, reads: 0, read: [], rows: [], document };
-  dom.window.mixdogDesktop = {
-    invokeCapability: async (request) => {
-      if (request.capability !== 'getTurnChanges') return { value: null };
-      view.reads += 1;
-      const checkpointId = request.args[0].checkpointId;
-      view.read.push(checkpointId);
-      const file = { path: 'src/a.ts', status: 'M', additions: 2, deletions: 1, state: 'applied', revertable: true };
-      return {
-        value: {
-          status: view.sealed ? 'ready' : 'pending',
-          checkpointId,
-          revision: 1,
-          root: 'C:/Project/app',
-          files: view.sealed ? [file] : [],
-          canUndo: true,
-          canReapply: false,
-        },
-      };
-    },
-  };
-  function Pane({ items, busy = false, liveItem = null, activityAt = 0, steerItems = [] }) {
-    const { transcriptRows, settledTurnKeys, turnPastEnd, pastLastEnd } = useTranscriptRows({
-      identity: 's1',
-      sessionKey: 's1',
-      settledItems: items,
-      settledRowItems: items,
-      failedTurnKeys: [],
-      precomputedTurnKeys: null,
-      pendingItems: [],
-      steerItems,
-      liveItem,
-      busy,
-      commandBusy: false,
-      commandActivityVisible: activityAt > 0,
-      commandActivityStartedAt: activityAt,
-      optimisticActivityStartedAt: 0,
-    });
-    const links = useConversationLinkSurfaces(
-      {},
-      {
-        turnChangesSessionId: 's1',
-        turnChangesBusy: busy,
-        turnChangesRunning: trailingTurnRuns(busy, 0, pastLastEnd),
-        // As Conversation.tsx names the running turn.
-        runningTurnKey: trailingTurnRuns(busy, 0, turnPastEnd)
-          ? runningTurnKeyOf(items, settledTurnKeys, settledTurnKeys.at(-1) ?? '')
-          : '',
-      }
-    );
-    const { renderTranscriptRow } = useConversationRowRenderer({
-      snapshot: { sessionId: 's1', busy },
-      disclosureScope: 's1',
-      readOnly: false,
-      transitioning: false,
-      renderAssistantRow: () => 'assistant',
-      onOpenSettings() {},
-      settledItems: items,
-      settledTurnKeys,
-      optimisticActivityStartedAt: 0,
-      submit: async () => true,
-      questionCard: null,
-      agentMode: false,
-    });
-    view.rows = transcriptRows;
-    return h(
-      TurnChangesContext.Provider,
-      { value: links.turnChangesSurface },
-      transcriptRows.map((row, index) => h('div', { key: row.key }, renderTranscriptRow(row, index, transcriptRows)))
-    );
-  }
-  view.root = root;
-  view.Pane = Pane;
-  view.render = async (props) => {
-    await act(async () => root.render(h(Pane, props)));
-    await settle();
-  };
-  view.tags = () => view.rows.map((row) => row._tag);
-  view.card = () => document.querySelector('.turn-changes-card');
-  view.cards = () => document.querySelectorAll('.turn-changes-card').length;
+  const view = await mountTranscriptPane(t);
+  view.sealed = false;
   return view;
 }
 
@@ -241,7 +146,9 @@ test('a wake that closes the same checkpoint again keeps the card standing throu
   assert.equal(view.cards(), 1);
   // The wake's end names the same checkpoint and the session still reports it busy: the card moves to that end, shown
   // from the reply held of the earlier end while the newer one is read.
-  await act(async () => view.root.render(h(view.Pane, { items: [...settled, wakeDone], busy: true, activityAt: 9_000 })));
+  await act(async () =>
+    view.root.render(h(view.Pane, { items: [...settled, wakeDone], busy: true, activityAt: 9_000 }))
+  );
   assert.equal(view.cards(), 1, 'never hidden between the two ends, nor while it is read again');
   await settle();
   assert.equal(view.cards(), 1);
@@ -263,11 +170,15 @@ test('a wake’s end written before its reply settles leaves the card on the end
   const before = view.tags();
   assert.equal(view.cards(), 1);
   await act(async () =>
-    view.root.render(h(view.Pane, { items: [prompt, reply, done, wakeDone], busy: true, liveItem: arriving, activityAt: 9_000 }))
+    view.root.render(
+      h(view.Pane, { items: [prompt, reply, done, wakeDone], busy: true, liveItem: arriving, activityAt: 9_000 })
+    )
   );
   assert.equal(view.cards(), 1, 'the end is not shown before its reply: the card has not moved');
   assert.deepEqual(view.tags(), before);
-  await act(async () => view.root.render(h(view.Pane, { items: [prompt, reply, done, wakeDone, wakeReply], busy: true })));
+  await act(async () =>
+    view.root.render(h(view.Pane, { items: [prompt, reply, done, wakeDone, wakeReply], busy: true }))
+  );
   assert.equal(view.cards(), 1, 'moved with the reply, shown from the reply held');
   await view.render({ items: [prompt, reply, done, wakeDone, wakeReply], busy: false });
   assert.equal(view.cards(), 1);
@@ -276,7 +187,14 @@ test('a wake’s end written before its reply settles leaves the card on the end
 test('an end that names a reply still arriving closes no earlier reply of its turn', async (t) => {
   const view = await mountPane(t);
   const first = { kind: 'assistant', id: 'first', text: 'I will check.', at: 1_500 };
-  const tool = { kind: 'tool', id: 'tool', name: 'read', args: { file_path: 'a.ts' }, result: 'ok', completedAt: 2_000 };
+  const tool = {
+    kind: 'tool',
+    id: 'tool',
+    name: 'read',
+    args: { file_path: 'a.ts' },
+    result: 'ok',
+    completedAt: 2_000,
+  };
   const arriving = { ...reply, streaming: true };
   await view.render({ items: [prompt, first, tool], busy: true, liveItem: arriving, activityAt: 1_000 });
   const footers = () => view.rows.filter((row) => row.completion).map((row) => row.item.id);
@@ -363,7 +281,11 @@ test('a reply that settles after the end that names it stays in its turn, under 
   // The turn with its end settled before its reply, the session still winding down.
   await view.render({ items: [prompt, done, reply], busy: true, activityAt: 1_000 });
   const late = shape();
-  assert.deepEqual(view.tags(), ['UserMessage', 'AssistantPart'], 'no gap above the reply and no band under its footer');
+  assert.deepEqual(
+    view.tags(),
+    ['UserMessage', 'AssistantPart'],
+    'no gap above the reply and no band under its footer'
+  );
   assert.equal(late[1][2], true, 'the reply carries the end as its footer');
   assert.equal(view.reads, 0, 'the card still waits for idle');
   // The same turn in order reads the same.
@@ -386,7 +308,10 @@ test('a message sent during a streaming wake leaves its reply out of the finishe
   assert.equal(view.rows[live - 1]._tag, 'TurnGap', 'the gap above the reply stands');
   assert.equal(view.rows[live].turnKey, liveBefore.turnKey, 'the reply keeps its turn');
   assert.deepEqual(
-    view.rows.slice(live + 1).map((row) => row._tag).filter((tag) => tag !== 'TurnGap'),
+    view.rows
+      .slice(live + 1)
+      .map((row) => row._tag)
+      .filter((tag) => tag !== 'TurnGap'),
     ['UserMessage', 'Thinking']
   );
 });

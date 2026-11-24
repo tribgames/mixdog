@@ -1255,3 +1255,44 @@ test('an API-key or connection-string connector adds an account through its cred
   }
   await pane.unmount();
 });
+
+test('a rejected MCP server edit keeps the editor open with what was typed and shows the refusal', async () => {
+  globalThis.FormData = window.FormData;
+  const open = {
+    mcp: (host) => click(host.querySelector('[data-extension-row="unitymcp"]')),
+    connectors: async (host) => {
+      await click(rowOf(host, 'unitymcp').querySelector('button'));
+      await click(button(document.body, 'Advanced settings'));
+    },
+  };
+  for (const category of ['mcp', 'connectors']) {
+    const pane = await render(
+      React.createElement(CategoryPanel, {
+        category,
+        context: panelContext({
+          async run(capability) {
+            if (capability === 'getMcpServerConfig')
+              return { name: 'unitymcp', config: { type: 'stdio', command: 'unity' } };
+            if (capability === 'saveMcpServer') throw new Error('MCP server command is not allowed.');
+            return {};
+          },
+        }),
+      })
+    );
+    await open[category](pane.host);
+    const command = () => document.body.querySelector('.extensions-mcp-dialog [name="mcp-command"]');
+    command().value = 'unity --edited';
+    await act(async () => {
+      document.body
+        .querySelector('.extensions-mcp-dialog form')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+    assert.equal(command()?.value, 'unity --edited', `${category}: the editor stays open with the edit`);
+    assert.match(
+      document.body.querySelector('.extensions-mcp-dialog').textContent,
+      /MCP server command is not allowed\./,
+      `${category}: the refusal is shown in the editor`
+    );
+    await pane.unmount();
+  }
+});

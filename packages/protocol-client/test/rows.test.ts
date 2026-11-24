@@ -97,7 +97,12 @@ test('an imported Skill run, finished and counted with no result body, stays sho
 });
 
 test('a run notice or compaction marker inside a run of calls follows the run, which a reload shows whole', () => {
-  const notice = { type: 'statusRow', id: 'n', kind: 'notice', meta: { ext: { text: 'Prompt cache expired', tone: 'info' } } };
+  const notice = {
+    type: 'statusRow',
+    id: 'n',
+    kind: 'notice',
+    meta: { ext: { text: 'Prompt cache expired', tone: 'info' } },
+  };
   const marker = { type: 'statusRow', id: 'm', kind: 'statusdone', meta: { label: 'Compact checked' } };
   for (const live of [false, true]) {
     const rows = project([

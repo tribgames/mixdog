@@ -126,7 +126,10 @@ test('goal, plan, reaction, handoff, terminal run and session close each read as
   // One todo call is one plan update, whatever number of steps it carries.
   assert.equal(header('todo', { op: 'set', items: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }), 'Updated 1 plan');
   assert.equal(header('react', { emoji: '👍' }), 'Reacted 1 message');
-  assert.equal(header('handoff_user', { handoff: { kind: 'takeover', need: 'sign_in' } }), 'Handed over 1 step to user');
+  assert.equal(
+    header('handoff_user', { handoff: { kind: 'takeover', need: 'sign_in' } }),
+    'Handed over 1 step to user'
+  );
   assert.equal(header('terminal', { action: 'run', command: 'npm run dev' }), 'Ran 1 terminal command');
   assert.equal(header('terminal', { action: 'read', tab: 1 }), 'Read 1 terminal output');
   assert.equal(header('session', { action: 'close' }), 'Closed 1 session');

@@ -37,7 +37,8 @@ export function parseTree(text) {
       continue;
     }
     const host =
-      (depth > 0 && (hostAt[depth - 1] || headingAt[depth - 1] === '[build-dependencies]')) || / \(proc-macro\)/.test(body);
+      (depth > 0 && (hostAt[depth - 1] || headingAt[depth - 1] === '[build-dependencies]')) ||
+      / \(proc-macro\)/.test(body);
     hostAt.length = depth;
     headingAt.length = depth;
     hostAt[depth] = host;
@@ -45,7 +46,14 @@ export function parseTree(text) {
     const [name, version] = body.slice(0, at).split(' ');
     const key = `${host ? 'host' : 'target'} ${name} ${version}`;
     if (!out.has(key)) out.set(key, new Set());
-    out.get(key).add(body.slice(at + 1).split(',').filter(Boolean).sort().join(','));
+    out.get(key).add(
+      body
+        .slice(at + 1)
+        .split(',')
+        .filter(Boolean)
+        .sort()
+        .join(',')
+    );
   }
   return out;
 }
@@ -83,7 +91,8 @@ export function widening(whole, tree, members) {
   const names = new Set();
   for (const [key, lists] of tree) {
     const name = nameOf(key);
-    if (members.includes(name) && name !== HACK && [...lists].some((list) => !whole.get(key)?.has(list))) names.add(name);
+    if (members.includes(name) && name !== HACK && [...lists].some((list) => !whole.get(key)?.has(list)))
+      names.add(name);
   }
   return [...names].sort();
 }
@@ -113,7 +122,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const given = args.packages.split(/\s+/).filter((part) => part && part !== '-p');
     const tree = args.tree ? parseTree(readFileSync(args.tree, 'utf8')) : undefined;
     const selected = [...new Set([...given, ...(tree ? widening(whole, tree, members) : [])])];
-    const required = (args.features ?? '').split(',').filter((feature) => feature && selected.includes(feature.split('/')[0]));
+    const required = (args.features ?? '')
+      .split(',')
+      .filter((feature) => feature && selected.includes(feature.split('/')[0]));
     console.log(`packages=${selected.map((name) => `-p ${name}`).join(' ')}`);
     // The first round names the features it was given; each next one adds what its tree still lacked.
     console.log(`features=${(tree ? selectionFeatures(whole, selected, required, tree) : required).join(',')}`);

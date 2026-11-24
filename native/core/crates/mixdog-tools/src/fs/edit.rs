@@ -14,6 +14,7 @@ use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_core_api::turn_review::ReviewContent;
 use mixdog_js::js_object_keys;
 use mixdog_protocol::JsonValue;
 
@@ -209,7 +210,7 @@ async fn commit_replacement(
     if let Some(state) = state {
         note_edit(ctx, state, abs, pre, &after).await;
     }
-    Ok(committed_edit(ctx, abs, Some(bytes), after, text_output(text)).await)
+    Ok(committed_edit(ctx, abs, ReviewContent::bytes(bytes), after, text_output(text)).await)
 }
 
 fn unreadable(full: &str, why: &str) -> ToolError {
@@ -243,7 +244,7 @@ async fn create(ctx: &ToolContext, state: Option<&ReadState>, abs: &AbsPath, sho
     if let Some(state) = state {
         note_edit(ctx, state, abs, None, new.as_bytes()).await;
     }
-    Ok(committed_edit(ctx, abs, None, new.as_bytes().to_vec(), text_output(format!("Created {shown} ({} bytes)", new.len()))).await)
+    Ok(committed_edit(ctx, abs, ReviewContent::Absent, new.as_bytes().to_vec(), text_output(format!("Created {shown} ({} bytes)", new.len()))).await)
 }
 
 /// The tool names of other agent CLIs that [`WriteTool`] answers to (`WRITE_NAMES`).
@@ -328,12 +329,21 @@ impl Tool for WriteTool {
         let stat = ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok();
         // Node tests existence (existsSync), not readability: a target that cannot be read is still "Updated".
         let existed = stat.is_some();
+        let size = stat.as_ref().map(|s| s.len);
         let pre = match &self.state {
             Some(_) => stat.and_then(|s| FileVersion::of(&s)),
             None => None,
         };
-        let before =
-            if ctx.review.is_some() { ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes) } else { None };
+        // A file that exists but could not be read has no pre-image: the review lists it as changed and offers no undo.
+        let before = if ctx.review.is_some() {
+            match (ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await, size) {
+                (Ok(read), _) => ReviewContent::bytes(read.bytes),
+                (Err(_), Some(size)) => ReviewContent::Omitted { size, reason: Some("unreadable".to_owned()) },
+                (Err(_), None) => ReviewContent::Absent,
+            }
+        } else {
+            ReviewContent::Absent
+        };
         if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
             let _ = guarded(ctx, "write", ctx.files.create_dir(ctx.io.durability, parent, true)).await?;
         }

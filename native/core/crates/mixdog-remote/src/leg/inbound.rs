@@ -16,7 +16,7 @@ pub enum Inbound {
     WebPushResult(Value),
     PairCode(Value),
     ClientClaim(Value),
-    /// `credential_id` is empty on a relay that does not name it: the leg stays untrusted.
+    /// `credential_id` is empty on a relay that does not name it: the client is refused.
     ClientOpen {
         client_id: String,
         credential_id: String,

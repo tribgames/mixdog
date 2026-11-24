@@ -150,7 +150,11 @@ export class BootReports implements BootReportSource {
       // once. A core that serves later withdraws it (failure-recovery.ts).
       const held = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : null;
       if (!held || (held.coreSpawnFailed === undefined && !('coreDiscovery' in held))) return error;
-      this.failure = { message: error instanceof Error ? error.message : String(error), exitCode: null, stderrPath: null };
+      this.failure = {
+        message: error instanceof Error ? error.message : String(error),
+        exitCode: null,
+        stderrPath: null,
+      };
       this.emit();
       return Object.assign(error as Error, { coreLaunchFailed: this.failure });
     }

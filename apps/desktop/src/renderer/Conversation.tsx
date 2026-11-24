@@ -73,7 +73,7 @@ export function Conversation(props: ConversationProps) {
     following: view.follow.following,
   });
   // The live rows: a history window the reader scrolled into is the
-  // timeline's alone.
+  // timeline's alone. They are read with their own turn keys (`timeline.liveTurnKeys`).
   const settledItems = source.liveSettledItems;
   const submission = useConversationSubmission(props, {
     draftMode,
@@ -130,8 +130,7 @@ export function Conversation(props: ConversationProps) {
     transitioning,
     renderAssistantRow,
     onOpenSettings,
-    settledItems,
-    settledTurnKeys: timeline.settledTurnKeys,
+    ...timeline.rowItems,
     optimisticActivityStartedAt,
     submit: actions.composerSubmit,
     questionCard: readOnly ? null : approvals.questionCard,
@@ -145,7 +144,7 @@ export function Conversation(props: ConversationProps) {
     turnChangesRunning: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.pastLastEnd),
     // With no prompt pending, the last settled item is the running turn's, unless it is the end of the turn before.
     runningTurnKey: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.turnPastEnd)
-      ? runningTurnKeyOf(settledItems, timeline.settledTurnKeys, timeline.settledTurnKeys.at(-1) ?? '')
+      ? runningTurnKeyOf(settledItems, timeline.liveTurnKeys, timeline.liveTurnKeys.at(-1) ?? '')
       : '',
   });
   const island = useConversationIsland({
@@ -154,7 +153,7 @@ export function Conversation(props: ConversationProps) {
     snapshot,
     routeSnapshot,
     settledItems,
-    settledTurnKeys: timeline.settledTurnKeys,
+    settledTurnKeys: timeline.liveTurnKeys,
     pendingPromptCount: pendingItems.length,
     actions,
   });
@@ -211,7 +210,6 @@ export function Conversation(props: ConversationProps) {
             renderRow={renderTranscriptRow}
             itemCount={itemCount}
             cover={props.transcriptCover}
-            listHeld={props.transcriptListHeld}
             intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
             agentMode={agentMode}
           />

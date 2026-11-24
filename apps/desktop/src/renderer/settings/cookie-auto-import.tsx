@@ -24,11 +24,12 @@ function cookieAutoImportSummary(status: DesktopCookieAutoImportStatus): string 
   if (!status.needsManualImport && !status.skippedChromeRunning && status.lastError) {
     return t('Last import failed: {{error}}', { error: status.lastError });
   }
-  const state = status.needsManualImport
-    ? t('Needs one manual import: use Import to approve once and save the Chrome key.')
-    : status.skippedChromeRunning
-      ? t('Last import skipped: Chrome was running. Close Chrome to import cookies.')
-      : '';
+  let state = '';
+  if (status.needsManualImport) {
+    state = t('Needs one manual import: use Import to approve once and save the Chrome key.');
+  } else if (status.skippedChromeRunning) {
+    state = t('Last import skipped: Chrome was running. Close Chrome to import cookies.');
+  }
   const last =
     status.lastImportAt === undefined
       ? ''

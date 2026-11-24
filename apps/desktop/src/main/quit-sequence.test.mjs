@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
 import {
   IN_TREE_DAEMON_STOP_GRACE_MS,
   PG_FORCED_STOP_AT_MS,
 } from '../shared/core-src/standalone/daemon-stop-budget.mjs';
+import { backupWindow } from './test-support/editor-backup-window.mjs';
 import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS, stopCoreForQuit } from './quit-sequence.ts';
 
 function harness({ teardown } = {}) {
@@ -47,6 +49,78 @@ test('a quit hides every window before any teardown starts, then exits once tear
   finish();
   await quit;
   assert.deepEqual(events, ['hide:main', 'hide:server', 'teardown:start', 'teardown:end', 'exit']);
+});
+
+function quitHarness(events) {
+  return createDesktopQuitSequence({
+    windows: () => [],
+    teardown: async () => events.push('teardown'),
+    exit: () => events.push('exit'),
+    relaunch: () => {},
+  });
+}
+
+test('the teardown waits until every window has answered the editor-backup flush or is gone', async () => {
+  const events = [];
+  const main = backupWindow('main', events);
+  const server = backupWindow('server', events);
+  try {
+    main.load();
+    server.load();
+    const quit = quitHarness(events).begin();
+    await Promise.all([main.asked, server.asked]);
+    main.contents.ipc.emit(DESKTOP_IPC.editorBackupsFlushed, {}, 'another request');
+    main.answer();
+    // Everything the main window's answer starts runs before this check.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ['flush:main', 'flush:server'], 'the server window has not answered yet');
+    // A crashed renderer counts as answered.
+    server.contents.emit('render-process-gone');
+    await quit;
+    assert.deepEqual(events, ['flush:main', 'flush:server', 'teardown', 'exit']);
+  } finally {
+    main.leave();
+    server.leave();
+  }
+});
+
+test('a window that cannot answer counts as answered: not loaded, navigating away, or reported unresponsive', async () => {
+  const events = [];
+  const loading = backupWindow('loading', events);
+  const navigating = backupWindow('navigating', events);
+  const hung = backupWindow('hung', events);
+  try {
+    navigating.load();
+    hung.load();
+    const quit = quitHarness(events).begin();
+    await Promise.all([navigating.asked, hung.asked]);
+    navigating.contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    hung.contents.emit('unresponsive');
+    await quit;
+    assert.deepEqual(events, ['flush:navigating', 'flush:hung', 'teardown', 'exit'], 'the loading window is not asked');
+  } finally {
+    loading.leave();
+    navigating.leave();
+    hung.leave();
+  }
+});
+
+test('a window reloaded after it was reported unresponsive is asked again', async () => {
+  const events = [];
+  const reloaded = backupWindow('reloaded', events);
+  try {
+    reloaded.load();
+    reloaded.contents.emit('unresponsive');
+    reloaded.contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    reloaded.load();
+    const quit = quitHarness(events).begin();
+    await reloaded.asked;
+    reloaded.answer();
+    await quit;
+    assert.deepEqual(events, ['flush:reloaded', 'teardown', 'exit']);
+  } finally {
+    reloaded.leave();
+  }
 });
 
 test('a failing teardown still exits', async () => {

@@ -117,20 +117,10 @@ pub(crate) mod testing {
     use mixdog_core_api::domain::login::LoginSession;
     use mixdog_core_api::domain::login::LoginState;
     use mixdog_core_api::domain::provider::ProviderError;
-    use mixdog_core_api::domain::provider::TransportFault;
 
     use super::*;
-    use crate::transport::BodyStream;
     use crate::transport::HttpResponse;
-
-    struct Once(Option<Bytes>);
-
-    #[async_trait]
-    impl BodyStream for Once {
-        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-            self.0.take().map(Ok)
-        }
-    }
+    use crate::transport::testing::Once;
 
     /// Answers requests in order and records them.
     pub struct Scripted {

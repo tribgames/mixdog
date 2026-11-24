@@ -246,6 +246,15 @@ test('a queued agent reads Queued while a running one shows elapsed time, never 
   const queued = rows.filter((row) => row.textContent.includes(translate('Queued')));
   assert.equal(queued.length, 1);
   assert.match(queued[0].textContent, /wait-b/);
+  // With only the queued one left, the pill's mark rests as the panel's head mark does: in progress, not at work.
+  await publishPool([
+    poolAgent('wait-b', { agent: 'reviewer', stage: 'queued', status: 'queued', startedAt: Date.now() - 1_000 }),
+  ]);
+  const segment = document.querySelector('.composer-island-seg-agents');
+  assert.equal(segment.textContent, '1 agent');
+  assert.ok(segment.querySelector('.composer-island-dot-idle'), 'a queued agent rests');
+  assert.equal(segment.querySelector('.composer-island-pulse'), null);
+  assert.ok(document.querySelector('.composer-island-tab .composer-island-mark-slot .composer-island-dot-idle'));
 });
 
 test('a continued agent times its current turn, not its session creation', async (t) => {
@@ -278,6 +287,9 @@ test('an agent blocked on a user approval reads as needing the user, not working
   const segment = document.querySelector('.composer-island-seg-agents');
   // The pill names the agents alone; how many run is in its tooltip.
   assert.equal(segment.textContent, '2 agents');
+  // The agent waiting on the user is in progress, and the pill's mark asks for attention, never the working pulse.
+  assert.ok(segment.querySelector('.composer-island-attention'), 'the attention mark');
+  assert.equal(segment.querySelector('.composer-island-pulse'), null);
   await act(async () => segment.click());
   const state = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
   assert.equal(document.querySelectorAll('.agent-pool-row').length, 2);

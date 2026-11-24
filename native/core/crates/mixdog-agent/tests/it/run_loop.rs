@@ -98,7 +98,7 @@ enum Step {
     Ledger(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
 }
 
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, reason = "test script entries, built once per attempt")]
 enum Attempt {
     Stream(Vec<Step>),
     Reject(ProviderError),
@@ -382,8 +382,14 @@ struct Observer {
     early_arrived: tokio::sync::Notify,
     /// The calls whose settlement was told as that of a run the batch does not take the result of.
     superseded: Mutex<Vec<String>>,
-    /// What the batch said of the result to keep for a call it ran again: the call and the result's text.
+    /// What the batch said of the result to keep for a call it ran again or answered without the run its stream started:
+    /// the call and the result's text.
     replaced: Mutex<Vec<(String, Option<String>)>>,
+    /// How many times the batch said so.
+    replacements: tokio::sync::watch::Sender<usize>,
+    /// The result kept for each call until its row commits, as the run host keeps it: a settled call's early result unless
+    /// it was told as that of a run the batch does not take, and what the batch says to keep in its place.
+    kept: Mutex<Vec<AgentMessage>>,
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
@@ -395,6 +401,8 @@ impl Observer {
             early_arrived: tokio::sync::Notify::new(),
             superseded: Mutex::default(),
             replaced: Mutex::default(),
+            replacements: tokio::sync::watch::Sender::new(0),
+            kept: Mutex::default(),
         })
     }
     /// Resolves when the observer is given its first `requesting` stage.
@@ -406,9 +414,7 @@ impl Observer {
     fn events(&self) -> Vec<RunEvent> {
         self.events.lock().unwrap().clone()
     }
-}
-impl RunObserver for Observer {
-    fn event(&self, event: RunEvent) {
+    fn record(&self, event: RunEvent) {
         if matches!(event, RunEvent::Stage(Stage::Requesting))
             && let Some(told) = self.requesting.lock().unwrap().take()
         {
@@ -420,12 +426,26 @@ impl RunObserver for Observer {
             self.early_arrived.notify_one();
         }
     }
+}
+impl RunObserver for Observer {
+    fn event(&self, event: RunEvent) {
+        if let RunEvent::EarlyResult(message) = &event {
+            self.kept.lock().unwrap().push(message.clone());
+        }
+        self.record(event);
+    }
     fn early_result_superseded(&self, _generation: u64, message: AgentMessage) {
         self.superseded.lock().unwrap().extend(message.tool_call_id().map(str::to_owned));
-        self.event(RunEvent::EarlyResult(message));
+        self.record(RunEvent::EarlyResult(message));
     }
     fn early_result_replaced(&self, _generation: u64, call_id: &str, result: Option<AgentMessage>) {
-        self.replaced.lock().unwrap().push((call_id.to_owned(), result.map(|message| message.text())));
+        self.replaced.lock().unwrap().push((call_id.to_owned(), result.as_ref().map(AgentMessage::text)));
+        {
+            let mut kept = self.kept.lock().unwrap();
+            kept.retain(|early| early.tool_call_id() != Some(call_id));
+            kept.extend(result);
+        }
+        self.replacements.send_modify(|n| *n += 1);
     }
     fn can_retract(&self) -> bool {
         self.reset_channel
@@ -1458,6 +1478,25 @@ async fn a_stale_request_goes_on_from_the_stored_history_at_its_generation() {
     );
     assert!(requests[0].options.provider_state.is_some());
     assert!(requests[1].options.provider_state.is_none(), "the rebuilt history cannot reuse an anchor into the retired transcript");
+}
+
+/// A history another writer rewrote after a send of this run settled is a rewrite the prefix guard is told of: the shorter
+/// reloaded history is sent, not refused as one that shrank.
+#[tokio::test]
+async fn a_history_reloaded_after_a_settled_send_is_sent() {
+    use mixdog_core_api::domain::cache_tail::{TailGateHandle, TailRefusal};
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        Attempt::Reject(ProviderError::tail_refused(TailRefusal::Stale)),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let mut config = config();
+    config.options.tail_gate = Some(TailGateHandle(Arc::new(NoBook)));
+    config.options.tail_generation = Some(1);
+    config.history = Some(Arc::new(Rewritten(Mutex::new(0))));
+    let output = finish(h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "ok");
+    assert_eq!(wire_dump(&h.provider.requests()[2]), ["User:compacted: go"]);
 }
 
 /// A Stop hook that blocks the stop `blocks` times, asked with each `stop_hook_active`.
@@ -3031,6 +3070,24 @@ async fn a_rejected_replay_is_dropped_from_the_newest_assistant_turn() {
     assert_eq!(replaced[0].1, Rewrite::default(), "a repair drops nothing");
 }
 
+/// The thinking a rejection strips from a turn an earlier send of this run carried is a rewrite the prefix guard is told
+/// of: the repaired request is sent, not refused as a mutated history.
+#[tokio::test]
+async fn a_replay_rejected_after_a_settled_send_is_repaired_and_sent() {
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        rejection(ErrorKind::ReplayRejected, None),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let mut assistant = AgentMessage::assistant("t", Vec::new());
+    assistant.message.assistant_blocks = Some(json!([{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "t"}]));
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("a"), assistant, AgentMessage::user("b")])).await;
+    assert_eq!(output.response.content, "ok");
+    let requests = h.provider.requests();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[2].messages[1].assistant_blocks, Some(json!([{"type": "text", "text": "t"}])));
+}
+
 #[tokio::test]
 async fn a_rejected_tool_schema_drops_the_tool_and_refuses_later_calls() {
     let Attempt::Reject(mut schema) = rejection(ErrorKind::ToolSchemaRejected, None) else { unreachable!() };
@@ -3047,6 +3104,88 @@ async fn a_rejected_tool_schema_drops_the_tool_and_refuses_later_calls() {
     assert!(dump(&output.transcript)[2].starts_with(
         "tool#c1(Error):Error: tool \"echo\" is unavailable with the current model: the provider rejected its input schema at / (the provider rejected it with HTTP 400: bad request)"
     ));
+}
+
+/// An `apply_patch` that does not apply; names each call that ran.
+struct FailingPatch(ToolSpec, Arc<Mutex<Vec<String>>>);
+impl FailingPatch {
+    fn tool(runs: &Arc<Mutex<Vec<String>>>) -> Arc<dyn Tool> {
+        Arc::new(Self(ToolSpec { name: "apply_patch".into(), ..Boom::tool().spec().clone() }, runs.clone()))
+    }
+}
+#[async_trait]
+impl Tool for FailingPatch {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        self.1.lock().unwrap().push(ctx.call_id.as_str().to_owned());
+        Err(ToolError::new(ToolErrorCode::Io { os_code: None }, "Error: the patch does not apply"))
+    }
+}
+
+/// A `shell` that is no read: a streamed run of it waits for every mutation started before it in its turn, and the batch
+/// takes that run, so a patch started ahead of the batch has run by the end of the turn.
+fn shell() -> Arc<dyn Tool> {
+    Arc::new(Echo(ToolSpec { name: "shell".into(), annotations: ToolAnnotations::default(), ..Echo::tool().spec().clone() }))
+}
+
+/// A call of a tool whose schema the provider rejected is not started ahead of the batch, which tells the model no call
+/// was sent.
+#[tokio::test]
+async fn a_call_of_a_dropped_tool_is_never_started_ahead_of_the_batch() {
+    let Attempt::Reject(mut schema) = rejection(ErrorKind::ToolSchemaRejected, None) else { unreachable!() };
+    schema.rejected_tool = Some("apply_patch".into());
+    let h = Harness::new(vec![
+        Attempt::Reject(schema),
+        turn(vec![call("c1", "apply_patch", json!({"patch": "p"})), call("c2", "shell", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let runs = Arc::new(Mutex::new(Vec::new()));
+    let output = finish(h.run(config(), vec![FailingPatch::tool(&runs), shell()], vec![AgentMessage::user("go")])).await;
+    assert!(dump(&output.transcript)[2].starts_with("tool#c1(Error):Error: tool \"apply_patch\" is unavailable with the current model"));
+    assert!(runs.lock().unwrap().is_empty(), "{:?}", runs.lock().unwrap());
+}
+
+/// Two failures of a patch are recorded and the next response repeats it twice: once the first repeat records its failure
+/// the second is the repeat guard's to answer, so it is not started ahead of the batch.
+#[tokio::test]
+async fn a_call_the_repeat_guard_may_answer_is_never_started_ahead_of_the_batch() {
+    let patch = |id: &str| call(id, "apply_patch", json!({"patch": "p"}));
+    let h = Harness::new(vec![
+        turn(vec![patch("c1"), done(StopReason::ToolUse)]),
+        turn(vec![patch("c2"), done(StopReason::ToolUse)]),
+        turn(vec![patch("c3"), patch("c4"), call("c5", "shell", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let runs = Arc::new(Mutex::new(Vec::new()));
+    let output = finish(h.run(config(), vec![FailingPatch::tool(&runs), shell()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(*runs.lock().unwrap(), ["c1", "c2", "c3"]);
+    let repeat = output.transcript.iter().find(|m| m.tool_call_id() == Some("c4")).expect("the repeat is answered");
+    assert!(repeat.text().starts_with("[repeat-failure-guard]"), "{}", repeat.text());
+}
+
+/// A clean session's step `[computer, patch, patch, patch, computer, patch]`: the batch answers the second `computer` call
+/// unrun (one call per step), the three patches fail, and the repeat guard answers the last patch. The batch decides the
+/// third patch only once the first call's outcome is recorded and starts the calls after it from there, with the patches'
+/// outcomes not recorded yet: the last patch is not started ahead of its decision then either.
+#[tokio::test]
+async fn a_patch_the_repeat_guard_answers_behind_a_second_computer_call_never_runs() {
+    let computer = |id: &str| call(id, "computer", json!({"u": "x"}));
+    let patch = |id: &str| call(id, "apply_patch", json!({"patch": "p"}));
+    let h = Harness::new(vec![
+        turn(vec![computer("c1"), patch("c2"), patch("c3"), patch("c4"), computer("c5"), patch("c6"), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let runs = Arc::new(Mutex::new(Vec::new()));
+    let first: Arc<dyn Tool> = Arc::new(Echo(ToolSpec { name: "computer".into(), annotations: ToolAnnotations::default(), ..Echo::tool().spec().clone() }));
+    let output = finish(h.run(config(), vec![FailingPatch::tool(&runs), first], vec![AgentMessage::user("go")])).await;
+    let mut ran = runs.lock().unwrap().clone();
+    ran.sort();
+    assert_eq!(ran, ["c2", "c3", "c4"], "the last patch never ran");
+    let row = |id: &str| output.transcript.iter().find(|m| m.tool_call_id() == Some(id)).map(AgentMessage::text).unwrap_or_default();
+    assert!(row("c5").starts_with("[computer-call-cardinality]"), "{:?}", dump(&output.transcript));
+    assert!(row("c6").starts_with("[repeat-failure-guard] Identical normalized `apply_patch` call failed 3 times"), "{:?}", dump(&output.transcript));
 }
 
 struct RecordingEffort {
@@ -3169,7 +3308,6 @@ async fn an_effort_change_between_two_turns_keeps_every_byte_the_earlier_request
     use mixdog_ai::providers::anthropic::AnthropicConfig;
     use mixdog_ai::providers::anthropic::Flavor;
     use mixdog_ai::providers::anthropic::ModelCaps;
-    use mixdog_core_api::domain::provider::WireCodec;
     const MODEL: &str = "claude-opus-5-5";
     fn snap(provider: &str, effort: &str) -> EffortSnapshot {
         EffortSnapshot { provider: provider.into(), model: MODEL.into(), mode: EffortMode::Anthropic, initial_effort: "low".into(), effort: effort.into() }
@@ -3406,6 +3544,25 @@ async fn the_attachment_preflight_rewrites_the_transcript_with_compaction_off() 
     assert_eq!(replaced.len(), 1, "the rewrite is persisted once");
     assert_eq!(replaced[0].0[0].message.content, Content::Text("referenced".into()));
     assert_eq!(replaced[0].1, Rewrite::default());
+}
+
+/// An attachment a settled send carried inline that the preflight moves to a reference later (a newer attachment passed the
+/// inline share) is a rewrite the prefix guard is told of: the turn is sent with the reference.
+#[tokio::test]
+async fn an_attachment_referenced_after_it_was_sent_inline_is_sent() {
+    let first = Harness::new(vec![turn(vec![text("seen"), done(StopReason::EndTurn)])]);
+    let settled = finish(first.run(config(), vec![], vec![AgentMessage::user("attached")])).await;
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { preflight: true, ..Default::default() }));
+    let mut messages = settled.transcript;
+    messages.push(AgentMessage::assistant("seen", Vec::new()));
+    messages.push(AgentMessage::user("another"));
+    let carry = RunCarry { prefix_guard: settled.carry.prefix_guard, ..RunCarry::default() };
+    let run =
+        Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config(), messages, carry);
+    let output = finish(run).await;
+    assert_eq!(output.response.content, "ok");
+    assert_eq!(wire_dump(&h.provider.requests()[0]), ["User:referenced", "Assistant:seen", "User:another"]);
 }
 
 /// Media pressure compacts without requiring the transcript to shrink.
@@ -4287,6 +4444,19 @@ async fn an_explicit_success_is_not_classified_by_its_wording() {
     assert!(log.0.lock().unwrap().is_empty());
 }
 
+/// A tool that answers `Error: …` instead of failing has failed: its failures count toward the repeat-failure guard, and
+/// the fourth identical call is not run.
+#[tokio::test]
+async fn a_tool_answering_error_text_counts_toward_the_repeat_failure_guard() {
+    let round = |id: &str| turn(vec![call(id, "agent", json!({"type": "x"})), done(StopReason::ToolUse)]);
+    let h = Harness::new(vec![round("c1"), round("c2"), round("c3"), round("c4"), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    let output = finish(h.run(config(), vec![Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
+    let fourth = output.transcript.iter().find(|m| m.tool_call_id() == Some("c4")).expect("the fourth call is answered");
+    assert!(fourth.text().starts_with("[repeat-failure-guard]"), "{}", fourth.text());
+}
+
 /// Answers `loaded` with the follow-up body `BODY` and an empty follow-up, as `Skill` answers.
 struct SkillBody(ToolSpec);
 #[async_trait]
@@ -4956,7 +5126,7 @@ impl Harness {
     }
 
     fn with_tail(mut self, context: mixdog_agent::tail_rules::TailContext) -> Self {
-        self.tail = Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context }));
+        self.tail = Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context, rules: crate::feature_rules::KOREAN_ON_OPUS }));
         self
     }
 
@@ -5240,6 +5410,90 @@ async fn a_reconsidered_route_takes_the_request_after_a_tool_round() {
     assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if message == "available again")));
 }
 
+/// A tool whose schema the route left behind rejected is offered again on the route the run moves to: its provider may
+/// accept it.
+#[tokio::test]
+async fn a_tool_the_left_provider_rejected_is_offered_on_the_route_taken() {
+    let Attempt::Reject(mut schema) = rejection(ErrorKind::ToolSchemaRejected, None) else { unreachable!() };
+    schema.rejected_tool = Some("echo".into());
+    let next = Scripted::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    let route = Arc::new(ReturnRoute {
+        asked: Mutex::new(0),
+        switch: Mutex::new(Some(RouteSwitch {
+            provider: next.clone(),
+            model: "claude-fable-5-2".into(),
+            notice: "available again".into(),
+            request: Default::default(),
+            effort: None,
+            text_only: None,
+        })),
+    });
+    let mut h = Harness::new(vec![Attempt::Reject(schema), turn(vec![call("c1", "shell", json!({})), done(StopReason::ToolUse)])]);
+    h.route = Some(route);
+    let output = finish(h.run(config(), vec![Echo::tool(), shell()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "done");
+    let sent = next.requests();
+    let offered: Vec<&str> = sent[0].tools.iter().map(|tool| tool.name.as_str()).collect();
+    assert!(offered.contains(&"echo"), "{offered:?}");
+}
+
+/// Judges every step at its route's `xhigh`.
+struct LadderJudge;
+#[async_trait]
+impl mixdog_agent::step_effort::StepEffortJudge for LadderJudge {
+    async fn judge(&self, _input: mixdog_agent::step_effort::StepInput) -> Option<mixdog_agent::step_effort::StepResult> {
+        Some(mixdog_agent::step_effort::StepResult { level: Some("xhigh".into()), effort: Some("high".into()) })
+    }
+}
+
+/// The step judge rates a step on the ladder of the route it was given with: a route the session's order moves the run to
+/// before the request after a tool round is sent at its own effort, never at a level the route left behind judged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_judged_on_the_route_left_behind_does_not_reach_the_route_taken() {
+    use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot, EffortWiring};
+    let next = Scripted::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    let route = Arc::new(ReturnRoute {
+        asked: Mutex::new(0),
+        switch: Mutex::new(Some(RouteSwitch {
+            provider: next.clone(),
+            model: "claude-fable-5-2".into(),
+            notice: "available again".into(),
+            request: mixdog_agent::env::RouteSwitchRequest {
+                options: mixdog_core_api::domain::provider::RequestOptions { effort: Some("medium".into()), ..Default::default() },
+                ..Default::default()
+            },
+            effort: None,
+            text_only: None,
+        })),
+    });
+    let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)])]);
+    h.route = Some(route);
+    // The step grace never passes: a judgment still held when the request is built would land on it.
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(Arc::new(HeldTimer::default()))));
+    let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
+    let seed =
+        EffortSnapshot { provider: "openai".into(), model: "gpt-6-1".into(), mode: EffortMode::Responses, initial_effort: "low".into(), effort: "low".into() };
+    let mut cfg = config();
+    cfg.effort = Some(EffortWiring {
+        route: EffortRoute {
+            provider: "openai".into(),
+            model: "gpt-6.1".into(),
+            mode: Some(EffortMode::Responses),
+            allowed: ["low", "high"].map(String::from).to_vec(),
+            seed: Some(seed),
+            wire: Arc::new(|e| Some(e.to_owned())),
+        },
+        adapter,
+    });
+    cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: "go".into(), base: "low".into() });
+    let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")]);
+    run.set_step_judge(Arc::new(LadderJudge));
+    mixdog_rt::time::timeout(Duration::from_secs(30), finish(run)).await.expect("the run ends");
+    let sent = next.requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].options.effort.as_deref(), Some("medium"), "the route taken is sent at its own effort");
+}
+
 /// A capture that records the model of each send and the route changes it was told of.
 struct RouteTap(Arc<SideLog>);
 
@@ -5327,7 +5581,7 @@ async fn the_request_a_run_sends_is_what_the_shared_assembly_gives_for_a_model_w
     let run = h.run(cfg.clone(), vec![Echo::tool()], messages.clone());
     finish(run).await;
     let sent = h.provider.requests()[0].clone();
-    let tail = mixdog_agent::tail_rules::RuleTailReminder { context: tail_context() };
+    let tail = mixdog_agent::tail_rules::RuleTailReminder { context: tail_context(), rules: crate::feature_rules::KOREAN_ON_OPUS };
     let (assembled, reminder) = mixdog_agent::assemble_request(
         &cfg.model,
         sent.options.clone(),

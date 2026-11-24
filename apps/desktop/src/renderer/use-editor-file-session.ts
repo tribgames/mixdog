@@ -71,7 +71,7 @@ export function useEditorFileSession({
     documentPreviewRef,
     documentPagesInFlight,
     documentWidth,
-    documentSettling,
+    documentRefreshPending,
   } = useEditorDocumentPages({ api, projectPath, relPath, accessToken });
   const [error, setError] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -158,6 +158,7 @@ export function useEditorFileSession({
     readModel,
     markDirty,
     deleteBackup,
+    held: richHeldRef,
     loadedRef,
     readOnlyRef,
     savedMtime,
@@ -187,17 +188,21 @@ export function useEditorFileSession({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge re-creates this callback.
   const saveNow = useCallback(
-    async (encoding?: DesktopTextFileEncoding): Promise<boolean> => {
+    async (encoding?: DesktopTextFileEncoding, recreate = false): Promise<boolean> => {
       const editor = editorRef.current;
       const model = readModel();
       const writer = api?.writeProjectFile;
+      // `recreate`: the file is gone from disk and is saved as a new one (missing folders included). A file opened
+      // through an access grant has no create call.
+      const creator = recreate && !accessToken ? api?.createProjectEntry : undefined;
+      const stat = api?.statProjectFile;
       const generation = backupGeneration.current;
       if (richHeldRef.current) {
         setSaveError(heldSaveError());
         return false;
       }
-      if (!model || !writer || readOnlyRef.current) return false;
-      if (!encoding && model.getValue() === savedText.current) return true;
+      if (!model || !writer || readOnlyRef.current || (recreate && (!creator || !stat))) return false;
+      if (!encoding && !recreate && model.getValue() === savedText.current) return true;
       if (editorSettings.formatOnSave) {
         try {
           if (formatDocument) await formatDocument();
@@ -212,13 +217,24 @@ export function useEditorFileSession({
         }
       }
       const content = model.getValue();
-      const expectedContent = savedDiskText.current;
+      const expectedContent = creator ? '' : savedDiskText.current;
       savingRef.current = true;
       setSaving(true);
       setSaveError('');
       setRevertError('');
       try {
-        const result = await writer(projectPath, relPath, content, expectedContent, accessToken, encoding);
+        if (creator) {
+          const rel = relPath.replace(/\\/g, '/');
+          const cut = rel.lastIndexOf('/');
+          await creator(projectPath, rel.slice(0, Math.max(cut, 0)), rel.slice(cut + 1), false);
+          savedDiskText.current = '';
+          savedText.current = '';
+        }
+        // An empty buffer is saved by creating its file.
+        const result =
+          creator && stat && content === ''
+            ? await stat(projectPath, relPath, accessToken)
+            : await writer(projectPath, relPath, content, expectedContent, accessToken, encoding);
         savedMtime.current = result?.mtimeMs ?? Date.now();
         savedDiskText.current = content;
         savedText.current = content;
@@ -270,14 +286,15 @@ export function useEditorFileSession({
     ]
   );
 
-  const save = useCallback(
-    (encoding?: DesktopTextFileEncoding): Promise<boolean> => {
-      const queued = saveQueue.current.catch(() => false).then(() => saveNow(encoding));
+  const queueSave = useCallback(
+    (encoding?: DesktopTextFileEncoding, recreate = false): Promise<boolean> => {
+      const queued = saveQueue.current.catch(() => false).then(() => saveNow(encoding, recreate));
       saveQueue.current = queued;
       return queued;
     },
     [saveNow]
   );
+  const save = useCallback((encoding?: DesktopTextFileEncoding): Promise<boolean> => queueSave(encoding), [queueSave]);
   const saveRef = useRef<() => Promise<boolean>>(save);
   saveRef.current = save;
 
@@ -373,34 +390,45 @@ export function useEditorFileSession({
   }, [deleteBackup]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge re-creates this callback.
-  const keepEdits = useCallback(() => {
+  const keepEdits = useCallback(async (): Promise<void> => {
     const model = readModel();
     const reader = api?.readProjectFile;
     if (!model || !reader) return;
     const generation = backupGeneration.current;
     setSaveError('');
-    void reader(projectPath, relPath, accessToken)
-      .then((result) => {
-        if (result.binary || result.tooLarge || result.readOnly) {
-          // Keep the original save baseline and the user's dirty buffer.
-          throw new Error(t('The disk version can no longer be safely edited as text.'));
-        }
-        const savedContent = normalizeEditorModelText(result.content);
-        const currentContent = model.getValue();
-        savedMtime.current = result.mtimeMs;
-        savedDiskText.current = result.content;
-        savedText.current = savedContent;
-        setDiskChanged(false);
-        setError('');
-        const changed = currentContent !== savedContent;
-        markDirty(changed);
-        void settleBackup(changed ? currentContent : null, generation).catch(() => undefined);
-      })
-      .catch((reason) => {
-        setDiskChanged(true);
-        setSaveError(fileAccessError(reason));
-      });
-  }, [accessToken, api, readModel, markDirty, projectPath, relPath, settleBackup]);
+    const read = await reader(projectPath, relPath, accessToken).then(
+      (file) => ({ file, reason: null }),
+      (reason: unknown) => ({ file: null, reason })
+    );
+    if (!read.file) {
+      setDiskChanged(true);
+      setSaveError(fileAccessError(read.reason));
+      // Gone from disk: keeping the edits saves them to the path again. A save
+      // that cannot happen leaves this error and creates nothing.
+      if (isFileGone(read.reason)) await queueSave(undefined, true);
+      return;
+    }
+    const result = read.file;
+    try {
+      if (result.binary || result.tooLarge || result.readOnly) {
+        // Keep the original save baseline and the user's dirty buffer.
+        throw new Error(t('The disk version can no longer be safely edited as text.'));
+      }
+      const savedContent = normalizeEditorModelText(result.content);
+      const currentContent = model.getValue();
+      savedMtime.current = result.mtimeMs;
+      savedDiskText.current = result.content;
+      savedText.current = savedContent;
+      setDiskChanged(false);
+      setError('');
+      const changed = currentContent !== savedContent;
+      markDirty(changed);
+      void settleBackup(changed ? currentContent : null, generation).catch(() => undefined);
+    } catch (reason) {
+      setDiskChanged(true);
+      setSaveError(fileAccessError(reason));
+    }
+  }, [accessToken, api, readModel, markDirty, projectPath, queueSave, relPath, settleBackup]);
 
   /** Rich reports whether it holds an edit the model does not have, and
    *  how to read the file text with it. A held edit is backed up like any
@@ -456,7 +484,7 @@ export function useEditorFileSession({
     documentPreviewRef,
     documentPagesInFlight,
     documentWidth,
-    documentSettling,
+    documentRefreshPending,
   });
 
   const completePreview = useCallback(() => {

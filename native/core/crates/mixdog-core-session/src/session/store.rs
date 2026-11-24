@@ -2863,7 +2863,7 @@ impl ThreadStore for StoreThreads {
             next_ordinal: fold.next_ordinal,
             tail: Vec::new(),
             drafts: read.drafts,
-            append: AppendPosition(Box::new(opened)),
+            append: AppendPosition(std::sync::Arc::new(std::sync::Mutex::new(Some(opened)))),
         })
     }
 
@@ -3371,7 +3371,13 @@ impl ThreadStore for StoreThreads {
         if self.owed.holds(id.as_str()) {
             return Err(BarrierError::failed("sensitiveRewriteOwed"));
         }
-        let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
+        // A failed open leaves the position empty: the next attempt reads the log again.
+        let held =
+            at.0.downcast_ref::<std::sync::Mutex<Option<log::OpenedLog>>>().expect("StoreThreads position").lock().unwrap_or_else(|p| p.into_inner()).take();
+        let opened = match held {
+            Some(opened) => opened,
+            None => log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index).map_err(|e| BarrierError::failed(&format!("reopen:{e}")))?,
+        };
         // Admission: no writer is opened over a row the mark did not reach.
         let activation = mixdog_store::sqlite::new_activation();
         self.wait(lane, self.index.mark_dirty(id.as_str(), &opened.fold.log_id, activation)).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;

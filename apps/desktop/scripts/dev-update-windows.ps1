@@ -9,14 +9,17 @@
                   -> relaunch. The core stop is the point: a dev rebuild keeps
                   the same version, so a fresh install would otherwise attach
                   to the still-running old core. The stop is
-                  `mixdogd ctl stop --when-idle --reason fastDeploy`: it waits
+                  `mixdogd ctl stop --when-idle --reason fastDeploy`, sent by
+                  the mixdogd this deploy installs: it waits
                   for the core to be idle and never kills it; -AbortRunning
                   lists the running work and aborts it after a typed ABORT.
 
     -ViaUpdater   build a version-bumped artifact, serve dist over 127.0.0.1 and
                   let the app's own updater (check -> download -> ready ->
                   install -> relaunch) perform the swap. Same code the release
-                  build runs, pointed at this working tree.
+                  build runs, pointed at this working tree. The installed app's
+                  updater has to name the build it installs; an older one is
+                  refused before anything is built.
 
     -FastDirect   fingerprint build inputs, rebuild only changed targets, then
                   atomically swap only affected installed artifacts: the
@@ -94,8 +97,8 @@ $unpackedDir = Join-Path $distDir 'win-unpacked'
 $installedExe = Join-Path $InstallDir 'Mixdog.exe'
 $runtimeRoot = if ($env:MIXDOG_RUNTIME_ROOT) { $env:MIXDOG_RUNTIME_ROOT } else { Join-Path $env:TEMP 'mixdog' }
 $daemonDiscovery = Join-Path $runtimeRoot 'daemon.json'
-# The installed core (electron-builder.yml extraResources): the binary that
-# stops the running core through its control listener.
+# The installed core (electron-builder.yml extraResources). The control requests go through the core this deploy
+# installs (Get-DeployedCore), not this one: an installed build can predate the flags a replacement stop needs.
 $coreExe = Join-Path $InstallDir 'resources\core\mixdogd.exe'
 $fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
 $fastRendererWatchHelper = Join-Path $PSScriptRoot 'dev-renderer-watch.mjs'
@@ -392,7 +395,7 @@ function Stop-MixdogApp {
 }
 
 function Get-CoreRunningWork {
-    $status = & $coreExe ctl status --json | ConvertFrom-Json
+    $status = & $controlCore ctl status --json | ConvertFrom-Json
     return $status
 }
 
@@ -410,8 +413,16 @@ function Confirm-AbortRunningWork {
     if ($typed -ne 'ABORT') {
         throw 'Abort was not confirmed; the core keeps draining and exits when idle.'
     }
-    & $coreExe ctl stop --abort --reason fastDeploy --confirm-token $status.drain.confirmToken --json | Out-Null
+    $replacement = Get-ReplacementArguments
+    & $controlCore ctl stop --abort --reason fastDeploy @replacement --confirm-token $status.drain.confirmToken --json | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop --abort exited with $LASTEXITCODE" }
+}
+
+# A replacement stop names the build that replaces the core (the core refuses one that does not). A deploy has no
+# build id of its own: its version, the one the receipt and the target line carry, stands for the revision too.
+function Get-ReplacementArguments {
+    $version = if ($targetVersion) { $targetVersion } else { [string](Get-Content -Raw -LiteralPath (Join-Path $desktopDir 'package.json') | ConvertFrom-Json).version }
+    return @('--revision', $version, '--version', $version)
 }
 
 function Stop-Daemon {
@@ -422,8 +433,8 @@ function Stop-Daemon {
     $record = Get-DaemonRecord
     if (-not $record -or -not $record.pid) { Write-Host '    no core running'; return }
     if (-not (Test-Path -LiteralPath $coreExe -PathType Leaf)) {
-        # An install without mixdogd (1.4.5 and earlier) is not one this script deploys over: its daemon is ended
-        # with the installed processes.
+        # An install without mixdogd (1.4.5 and earlier) runs a daemon no `ctl` reaches, and is not one this script
+        # deploys over: its daemon is ended with the installed processes.
         Write-Host '    the install has no core binary; nothing to ask'
         return
     }
@@ -431,11 +442,13 @@ function Stop-Daemon {
     # process, never with a later one that reused the pid.
     $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
     if (-not $process) { Write-Host '    core process already gone'; return }
-    & $coreExe ctl stop --when-idle --reason fastDeploy --json | Out-Null
+    $replacement = Get-ReplacementArguments
+    & $controlCore ctl stop --when-idle --reason fastDeploy @replacement --json | Out-Null
     if ($LASTEXITCODE -ne 0) {
         $stopExit = $LASTEXITCODE
-        # The app that was just closed was the core's last client: a core that ended by itself (noClients) between the
-        # look above and the ask has nothing left to stop. Seen: the ask answered 1 and the deploy stopped with the app closed.
+        # The core refuses a replacement stop that does not name the build, so a refusal is no longer expected. What
+        # reaches here is a core that ended by itself (noClients: the app just closed was its last client) between the
+        # look above and the ask, and is still leaving: give its process the time to finish.
         if ($process.WaitForExit(15000)) { Write-Host '    core ended by itself before the stop was asked'; return }
         throw "mixdogd ctl stop exited with $stopExit"
     }
@@ -461,12 +474,13 @@ function Stop-Daemon {
         Write-FastDirectReceipt -Status 'waiting-for-idle-core' -Detail $titles
         if (-not $aborted -and $waited -ge $DrainLimitSeconds -and $status.drain -and @($status.running).Count -eq 0) {
             Write-Host "    the drain did not end within $DrainLimitSeconds s with nothing running; stopping the core by the confirmed abort"
-            & $coreExe ctl stop --abort --reason fastDeploy --confirm-token $status.drain.confirmToken --json | Out-Null
+            $replacement = Get-ReplacementArguments
+            & $controlCore ctl stop --abort --reason fastDeploy @replacement --confirm-token $status.drain.confirmToken --json | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop --abort exited with $LASTEXITCODE" }
             $aborted = $true
         }
         if ($aborted -and $waited -ge $DrainLimitSeconds + 120) {
-            throw "The core (pid $($record.pid)) is still running 120 s after the confirmed abort. Nothing was killed: end it with `"$coreExe ctl terminate`" (see ctl terminate --help) or by its pid, then rerun."
+            throw "The core (pid $($record.pid)) is still running 120 s after the confirmed abort. Nothing was killed: end it with `"$controlCore ctl terminate`" (see ctl terminate --help) or by its pid, then rerun."
         }
     }
 }
@@ -555,6 +569,26 @@ function Get-CoreTargetDir {
 function Get-BuiltCorePath {
     if ($CoreBinary) { return $CoreBinary }
     return Join-Path (Get-CoreTargetDir) 'release\mixdogd.exe'
+}
+
+# The mixdogd that sends this deploy's control requests: the core it installs, built from this tree, so it knows the
+# replacement stop the running core requires. Cargo's copy, which a swap never moves, so the restore paths have it
+# too. An incremental deploy that keeps the installed core builds none, and needs none: its plan exists only over an
+# install this script deployed last, and an unchanged core group means that core was built from these sources.
+function Get-DeployedCore {
+    if ($FastDirect -and -not [bool]$fastPlan.full -and -not [bool]$fastPlan.core) { return $coreExe }
+    return Get-BuiltCorePath
+}
+
+# The app's own updater stops its core for the update, and that core refuses a replacement stop that does not name
+# the build replacing it. The updater began naming it in the change that gave mixdogd `ctl stop --revision`, so the
+# installed mixdogd's usage tells an older app apart; an install without mixdogd runs 1.4.5's daemon, which asks none.
+function Assert-InstalledUpdaterNamesBuild {
+    if (-not (Test-Path -LiteralPath $coreExe -PathType Leaf)) { return }
+    $usage = & $coreExe ctl stop --help | Out-String
+    if ($usage -notmatch '--revision') {
+        throw "-ViaUpdater cannot update the installed build at $InstallDir ($installedBefore): its updater does not name the build it installs, which its core requires, so the update would be refused. Deploy this tree once without -ViaUpdater (the default mode or -FastDirect), then rerun -ViaUpdater."
+    }
 }
 
 function Build-LocalCore {
@@ -1162,6 +1196,10 @@ else { $Version }
 if ($ViaUpdater -and $FastDirect) {
     throw 'ViaUpdater and FastDirect are mutually exclusive.'
 }
+if ($FastDirect -and $AbortRunning) {
+    # The FastDirect worker that stops the core runs hidden and non-interactive: it could never read the typed ABORT.
+    throw '-AbortRunning asks for a typed ABORT, which the hidden FastDirect worker cannot read; use it without -FastDirect.'
+}
 
 Write-Host ''
 Write-Host "mode            : $(if ($ViaUpdater) { 'via updater (local feed)' } elseif ($FastDirect) { 'fast direct' } else { 'reinstall' })"
@@ -1184,6 +1222,7 @@ if ($DryRun) {
 if (-not (Test-Path -LiteralPath $InstallDir)) {
     throw "No installed build at $InstallDir. Install one first (npm run build:win, then run the installer)."
 }
+if ($ViaUpdater) { Assert-InstalledUpdaterNamesBuild }
 
 # Release CI commits to the default branch (version bump, synchronized runtime
 # and native manifests). A tree without those commits installs stale manifests
@@ -1259,13 +1298,19 @@ if ($FastDirect -and $BuildOnly) {
     exit 0
 }
 
+# Resolved before anything is stopped: a deploy that cannot send its stop fails with the app and the core untouched.
+$controlCore = Get-DeployedCore
+if (($FastDirect -or -not $KeepDaemon) -and -not (Test-Path -LiteralPath $controlCore -PathType Leaf)) {
+    throw "The core this deploy installs, which sends its stop, is missing: $controlCore. Build without -SkipBuild, or name one with -CoreBinary. Nothing was stopped."
+}
+
 if ($FastDirect -and -not $FastDirectWorker) {
     if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
         $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
     }
     if ($StopBeforeSwap) {
         Write-Step 'stopping before the swap (-StopBeforeSwap); the detached worker would:'
-        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { 'ask the installed core to stop when idle (mixdogd ctl stop --when-idle)' } else { 'nothing to ask: the install has no core binary' }
+        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { "ask the running core to stop when idle for $((Get-ReplacementArguments)[-1]) ($controlCore ctl stop --when-idle)" } else { 'nothing to ask: the install has no core binary' }
         Write-Host "  1. close the app: $(if ($appBefore.Count) { 'pid ' + ($appBefore.ProcessId -join ', ') } else { '(not running)' })"
         Write-Host "  2. $drain"
         Write-Host '  3. force-stop what still holds files under the install dir (after 10 s)'

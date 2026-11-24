@@ -137,6 +137,32 @@ pub struct UsageReport {
     pub same_quota_as: Option<String>,
 }
 
+/// How a CLI is started with none of its own tools, for a session that is handed Mixdog's: an agent definition the CLI
+/// finds under its start folder, and the arguments that select it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnToolsOff {
+    pub args: Vec<String>,
+    /// Where the definition goes, under the folder the CLI is started in.
+    pub file: String,
+    /// The agent's name, the one `args` select.
+    pub name: String,
+    /// The definition's instructions to the model.
+    pub body: String,
+}
+
+impl OwnToolsOff {
+    /// The definition of an agent with none of the CLI's tools and the tools `server` lists. The CLI declares a server's
+    /// tool to the model with its schema only where the definition names it eager; any other it lists by name alone,
+    /// behind a call that reads the schema from a file first.
+    pub fn definition(&self, server: &str, tools: &[String]) -> String {
+        let eager: String = tools.iter().map(|tool| format!("      {}:\n        eager: true\n", serde_json::Value::from(tool.as_str()))).collect();
+        format!(
+            "---\nname: {}\ndescription: Works with the tools Mixdog hands over.\ntools: []\nmcpServers:\n  - name: {server}\n    tools:\n{eager}subagent: false\n---\n{}",
+            self.name, self.body
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentPreset {
     pub id: String,
@@ -147,6 +173,8 @@ pub struct AgentPreset {
     pub command: String,
     /// The arguments that start the agent's ACP mode.
     pub args: Vec<String>,
+    /// `None` for an agent whose own tools stay on when a session is handed Mixdog's.
+    pub own_tools_off: Option<OwnToolsOff>,
     /// The arguments that print the CLI's version and exit.
     pub version_args: Vec<String>,
     /// Set for the agent's ACP mode and its sign-in, not for its version, install and update runs.
@@ -159,15 +187,15 @@ pub struct AgentPreset {
     pub usage: Option<UsageReport>,
 }
 
-fn antigravity_installer() -> Option<Command> {
+fn antigravity_installer() -> Command {
     let command = |program: &str, args: &[&str]| Command { program: program.into(), args: args.iter().map(|arg| (*arg).to_owned()).collect() };
     if cfg!(windows) {
-        Some(command(
+        command(
             "powershell",
             &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "irm https://antigravity.google/cli/install.ps1 | iex"],
-        ))
+        )
     } else {
-        Some(command("bash", &["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"]))
+        command("bash", &["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"])
     }
 }
 
@@ -185,11 +213,18 @@ pub fn builtin() -> Vec<AgentPreset> {
         provider: "acp-antigravity".into(),
         command: "agy".into(),
         args: vec!["acp".into(), "--disable-telemetry".into()],
+        // A custom agent whose `tools` list is empty has none of the CLI's file, shell, search and planning tools.
+        own_tools_off: Some(OwnToolsOff {
+            args: vec!["--agent".into(), "mixdog".into()],
+            file: ".agents/agents/mixdog/agent.md".into(),
+            name: "mixdog".into(),
+            body: "You are a coding agent working in the user's workspace, with the tools Mixdog hands you.\n".into(),
+        }),
         version_args: vec!["--version".into()],
         // The CLI replaces its own binary in the background of a regular run; a session's process is not to have
         // that happen under it, so Mixdog runs the update itself while no session's agent is running.
         env: vec![("AGY_CLI_DISABLE_AUTO_UPDATE".into(), "1".into())],
-        upkeep: Upkeep { installer: antigravity_installer(), installed_at: antigravity_installed_at(), update_args: Some(vec!["update".into()]) },
+        upkeep: Upkeep { installer: Some(antigravity_installer()), installed_at: antigravity_installed_at(), update_args: Some(vec!["update".into()]) },
         // Without a display the CLI prints its sign-in link only.
         login: Some(Login { args: vec!["acp".into(), "--login".into()], env_remove: vec!["DISPLAY".into(), "WAYLAND_DISPLAY".into()] }),
         // The `/usage` command in print mode: the account's quota as data, with no turn.

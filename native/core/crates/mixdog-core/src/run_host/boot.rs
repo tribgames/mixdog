@@ -7,7 +7,6 @@ use std::sync::{Arc, Weak};
 
 use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::env::Clock;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::ToolIo;
@@ -21,6 +20,7 @@ use super::prewarm::StartupProbes;
 use super::reactions::ReactionTargets;
 use super::settings::SettingsSources;
 use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_ports::ports::route_facts::RouteFacts;
 use mixdog_core_prompt::prompt::probes::StartupObservations;
 use mixdog_core_session::session::RunFactory;
 use mixdog_core_session::session::SessionDeps;
@@ -28,7 +28,8 @@ use mixdog_core_session::session::SessionDirectory;
 
 /// What the turn assembly is made of; `HostServices` less the directory.
 pub struct HostParts {
-    pub registry: Arc<ProviderRegistry>,
+    /// What a route's provider is, an agent's route included.
+    pub facts: Arc<dyn RouteFacts>,
     pub clock: Arc<dyn Clock>,
     pub files: Arc<dyn FileService>,
     pub processes: Arc<dyn ProcessManager>,
@@ -69,13 +70,13 @@ pub struct HostParts {
 pub fn build_directory(
     host: HostParts,
     deps: impl FnOnce(Arc<dyn RunFactory>) -> SessionDeps,
-    late: impl FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> DirectoryParts,
+    late: impl FnOnce(&Arc<SessionDirectory>, &Arc<dyn RouteFacts>) -> DirectoryParts,
 ) -> Arc<SessionDirectory> {
     let mut bound = None;
-    let registry = host.registry.clone();
+    let facts = host.facts.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
         let HostParts {
-            registry,
+            facts,
             clock,
             files,
             processes,
@@ -104,7 +105,7 @@ pub fn build_directory(
         } = host;
         let services = HostServices {
             outside,
-            registry,
+            facts,
             clock,
             files,
             processes,
@@ -135,7 +136,7 @@ pub fn build_directory(
     });
     if let Some(seams) = bound {
         // Bound exactly once, here.
-        let _ = seams.bind(late(&directory, &registry));
+        let _ = seams.bind(late(&directory, &facts));
     }
     directory
 }

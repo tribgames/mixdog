@@ -47,10 +47,12 @@ export function useRemoteHostImageUrl(path: string): string {
 }
 
 /** Resolves a local image path inside its Project and asks main for a preview
- *  URL; the result is only ever shown through `<img>`. */
-export function useLocalImagePreview(project: string, path: string): LocalImagePreview {
+ *  URL; the result is only ever shown through `<img>`. `sessionId`: the
+ *  conversation that links the image, which a paired device's host finds it by
+ *  (as for the link itself). */
+export function useLocalImagePreview(project: string, path: string, sessionId = ''): LocalImagePreview {
   const [state, setState] = useState<{ key: string; value: LocalImagePreview }>({ key: '', value: PENDING });
-  const key = `${project}\0${path}`;
+  const key = `${project}\0${path}\0${sessionId}`;
   const mediaSession = useMediaSessionEpoch();
   // biome-ignore lint/correctness/useExhaustiveDependencies: mediaSession only re-triggers the resolve.
   useEffect(() => {
@@ -60,7 +62,7 @@ export function useLocalImagePreview(project: string, path: string): LocalImageP
       return;
     }
     let active = true;
-    verifyLocalLink(project, path)
+    verifyLocalLink(project, path, sessionId || undefined)
       .then(async (target) => ({ target, preview: await previewFile(target.project, target.path, target.accessToken) }))
       .then(
         ({ target, preview }) => {
@@ -73,7 +75,7 @@ export function useLocalImagePreview(project: string, path: string): LocalImageP
     return () => {
       active = false;
     };
-  }, [project, path, key, mediaSession]);
+  }, [project, path, sessionId, key, mediaSession]);
   return state.key === key ? state.value : PENDING;
 }
 

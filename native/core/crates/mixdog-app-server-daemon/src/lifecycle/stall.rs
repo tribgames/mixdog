@@ -3,8 +3,8 @@
 //! [`StallReporter::watching_lanes`] it also reports pooled lanes whose workers are stuck past their
 //! lease. A stall is reported, not acted on, until it has lasted [`END_AFTER`]: a runtime that has
 //! answered nothing for that long (the old supervisor's freeze limit, `DAEMON_FREEZE_LIMIT_MS`) is
-//! ended by this thread through the lifecycle's stalled-core exit (`Lifecycle::terminate`: the exit
-//! record, discovery withdrawn, the process ends), because the core may have been started detached by a
+//! ended by this thread through the lifecycle's stalled-core exit (`Lifecycle::end_stalled`: the exit
+//! record, discovery withdrawn, the process ends with a failure status), because the core may have been started detached by a
 //! launcher that has gone, and a hung core serves nothing and nobody else would end it. The time is
 //! awake time: a gap between two looks (a system sleep) starts the count again. A launcher that owns its
 //! core also asks the control status (`stalledMs`, answered by a thread of its own) and kills a core that
@@ -271,14 +271,11 @@ impl StallReporter {
     }
 
     /// The runtime has answered nothing for `stalled_ms`, as long as the limit: the line says so and the lifecycle's stalled-core exit ends
-    /// the process (it touches nothing the runtime owns: it records the exit, withdraws discovery and exits).
+    /// the process as the watchdog's (it touches nothing the runtime owns: it records the exit, withdraws discovery and exits).
     fn end(&self, lifecycle: &Lifecycle, stalled_ms: u64) {
         tracing::error!(stalled_ms, "the runtime answered nothing for the stall limit: ending the process");
         self.append("ending", stalled_ms);
-        let token = lifecycle.status().terminate_token.clone();
-        if let Err(error) = lifecycle.terminate(&token, || {}) {
-            tracing::error!(%error, "the stalled core could not be ended");
-        }
+        lifecycle.end_stalled();
     }
 
     fn write_line(&self, fields: &str) {
@@ -471,9 +468,10 @@ mod tests {
             "spans: session.read#abcd1234:getTurnChanges 395ms | in-flight: activeCalls=0 queuedCalls=0 busySessions=0 busyMemoryAgents=0"
         );
     }
-    /// A runtime that answers nothing (the probe is never run) for the limit ends the process through the lifecycle's stalled-core exit.
+    /// A runtime that answers nothing (the probe is never run) for the limit ends the process through the lifecycle's stalled-core exit,
+    /// recorded as the watchdog's and with a failure status.
     #[test]
-    fn a_runtime_that_answers_nothing_for_the_limit_ends_the_process() {
+    fn a_runtime_that_answers_nothing_for_the_limit_ends_the_process_as_the_watchdogs_failure() {
         let fx = fixture();
         let (reporter, path, _) = reporter_with(&fx, WorkCounts::default());
         let _monitor = StallMonitor::spawn(
@@ -486,7 +484,9 @@ mod tests {
         while !fx.recorder.has_exited() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(fx.recorder.exit_code(), Some(0));
+        assert_eq!(fx.recorder.exit_code(), Some(1), "a watchdog end is a failure, not a clean stop");
+        let exit: serde_json::Value = serde_json::from_slice(&std::fs::read(fx.runtime_root.path().join(super::super::LAST_EXIT_FILE)).unwrap()).unwrap();
+        assert_eq!(exit["reason"], "watchdogTerminated", "the watchdog's end, not the user's");
         assert!(std::fs::read_to_string(path).unwrap().contains("\"event\":\"ending\""));
     }
 }

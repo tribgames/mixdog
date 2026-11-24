@@ -12,7 +12,7 @@ const { dom } = installTestDom(null, {
   expose: ['HTMLElement'],
 });
 const { createRoot } = await import('react-dom/client');
-const { useWorkflowEditors } = await import('./workflows-editors.tsx');
+const { useWorkflowEditors, routeEditorModels } = await import('./workflows-editors.tsx');
 const { routeWithEditedFallbacks } = await import('./RouteChainEditor.tsx');
 test.after(() => dom.window.close());
 
@@ -71,6 +71,19 @@ test('routeWithEditedFallbacks omits an unchanged list and keeps an edited one',
       routeWithEditedFallbacks({ provider: 'openai', model: 'a', fallbacks: [] }, { provider: 'openai', model: 'a' }),
     false
   );
+});
+
+test('the Explore route editor offers no external agent; other agents and Lead offer every model', () => {
+  const agent = {
+    provider: 'acp-antigravity',
+    model: 'gemini-3.8-pro',
+    display: 'Antigravity ACP · Gemini 3.8 Pro',
+    runner: 'acp',
+  };
+  const models = [agent, { ...OTHER, display: 'GPT-5.4' }];
+  assert.deepEqual(routeEditorModels({ id: 'explore', modelKind: 'agent' }, models, []), [models[1]]);
+  assert.deepEqual(routeEditorModels({ id: 'maintainer', modelKind: 'agent' }, models, []), models);
+  assert.deepEqual(routeEditorModels({ id: 'lead', modelKind: 'main' }, models, []), models);
 });
 
 test('switching an agent on or off sends only the switch, never the stored route', async (t) => {

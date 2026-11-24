@@ -39,12 +39,12 @@ fn ledger(dir: &Path) -> Connection {
     conn
 }
 
-fn options(backup: bool) -> RepairOptions {
-    RepairOptions { through_ts: 10_000_000_000_000, only_unpriced: true, backup, ..RepairOptions::default() }
+fn options() -> RepairOptions {
+    RepairOptions { through_ts: 10_000_000_000_000, only_unpriced: true, ..RepairOptions::default() }
 }
 
 #[test]
-fn repair_reprices_keeps_records_and_backs_up_the_prior_state() {
+fn repair_reprices_and_keeps_every_other_field_of_the_records() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
     let rows = [record("a", 1_000, "2026-01-01", "p", None, "unpriced"), record("b", 2_000, "2026-01-01", "p", Some(0.5), "catalog")];
@@ -52,7 +52,7 @@ fn repair_reprices_keeps_records_and_backs_up_the_prior_state() {
     let before = integrity(&conn).unwrap();
 
     let mut price = |_: &_| Ok(Priced { cost_usd: Some(0.25), rates: None });
-    let report = repair_usage_ledger(&mut conn, &options(true), 5_000, &mut price).unwrap();
+    let report = repair_usage_ledger(&mut conn, &options(), 5_000, &mut price).unwrap();
     assert_eq!((report.repriced, report.still_unpriced, report.reattributed), (1, 0, 0));
     assert_eq!(report.integrity.as_ref(), Some(&before));
     assert_eq!(integrity(&conn).unwrap(), before);
@@ -63,12 +63,11 @@ fn repair_reprices_keeps_records_and_backs_up_the_prior_state() {
     let daily: f64 = conn.query_row("SELECT SUM(cost_usd) FROM daily", [], |r| r.get(0)).unwrap();
     assert_eq!(daily, 0.75);
 
-    let backup = Connection::open(report.backup_path.unwrap()).unwrap();
-    let old: Option<f64> = backup.query_row("SELECT cost_usd FROM usage_events WHERE ts=1000", [], |r| r.get(0)).unwrap();
-    assert_eq!(old, None);
+    // No copy of the ledger is made beside it.
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().filter(|e| e.as_ref().unwrap().path().is_dir()).count(), 0);
 
     // A second repair has nothing to do and writes nothing.
-    let again = repair_usage_ledger(&mut conn, &options(false), 6_000, &mut price).unwrap();
+    let again = repair_usage_ledger(&mut conn, &options(), 6_000, &mut price).unwrap();
     assert!(again.integrity.is_none() && again.repriced == 0);
 }
 
@@ -83,7 +82,7 @@ async fn repricing_keeps_missing_output_unknown_in_the_request_list() {
     unmeasured.cache_write = 0.0;
     unmeasured.rates = Some(r#"{"inputTokensKnown":false,"outputTokensKnown":false}"#.into());
     append_batch(&mut conn, &[unmeasured]).unwrap();
-    repair_usage_ledger(&mut conn, &options(false), 5_000, &mut |_| Ok(Priced { cost_usd: None, rates: None })).unwrap();
+    repair_usage_ledger(&mut conn, &options(), 5_000, &mut |_| Ok(Priced { cost_usd: None, rates: None })).unwrap();
 
     let tokens = mixdog_rt::testing::tokens();
     let reader = UsageReader::new(&dir.path().join("ledger.sqlite"), tokens.interactive_io, tokens.maintenance_io);
@@ -98,7 +97,7 @@ fn repair_rejects_an_invalid_price_and_writes_nothing() {
     let mut conn = ledger(dir.path());
     append_batch(&mut conn, &[record("a", 1_000, "2026-01-01", "p", None, "unpriced")]).unwrap();
     let mut price = |_: &_| Ok(Priced { cost_usd: Some(-1.0), rates: None });
-    let error = repair_usage_ledger(&mut conn, &options(false), 5_000, &mut price).unwrap_err();
+    let error = repair_usage_ledger(&mut conn, &options(), 5_000, &mut price).unwrap_err();
     assert!(matches!(error, LedgerError::RepairPrice));
     let cost: Option<f64> = conn.query_row("SELECT cost_usd FROM usage_events", [], |r| r.get(0)).unwrap();
     assert_eq!(cost, None);

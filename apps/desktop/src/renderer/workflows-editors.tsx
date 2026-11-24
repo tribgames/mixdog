@@ -217,6 +217,16 @@ export function useWorkflowEditors({
   };
 }
 
+/** The models a route editor offers. Explore's tool loop runs inside Mixdog, so an external agent, which runs its own, is none of them. */
+export function routeEditorModels(
+  target: Pick<RouteEditorTarget, 'id' | 'modelKind'>,
+  models: DesktopModelOption[],
+  webSearchModels: DesktopModelOption[]
+): DesktopModelOption[] {
+  if (target.modelKind === 'webSearch') return webSearchModels;
+  return target.id === 'explore' ? models.filter((option) => option.runner !== 'acp') : models;
+}
+
 /** The open editor dialogs (only while the panel is active). */
 export function WorkflowEditorDialogs({
   api,
@@ -288,7 +298,7 @@ export function WorkflowEditorDialogs({
         <RouteEditorDialog
           key={`${routeEditor.capability}:${routeEditor.id}`}
           target={routeEditor}
-          models={routeEditor.modelKind === 'webSearch' ? webSearchModels : models}
+          models={routeEditorModels(routeEditor, models, webSearchModels)}
           providerNames={providerNames}
           busy={busy}
           error={error}

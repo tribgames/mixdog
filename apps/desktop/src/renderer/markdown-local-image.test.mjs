@@ -4,13 +4,16 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import MarkdownAstBody from './MarkdownAstBody';
 import { parseMarkdownToHast } from './markdown-ast';
-import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
+import { MarkdownOpenFileContext, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
+import { notifyMediaSessionChanged } from './remote-file-preview';
+import { _runIdleReclaimForTest } from './idle-reclaim';
+import { deleteSessionImagePreviews } from './image-preview-store';
 
 const PROJECT = 'C:/Project/conversation';
-const FILES = ['output/a.png', 'output/b.svg', 'output/c.pptx', 'output/broken.png'];
+const FILES = ['output/a.png', 'output/b.svg', 'output/c.pptx', 'output/broken.png', 'output/d.png'];
 const CopyControl = () => null;
 
-async function mount(t, text, configure = () => {}) {
+async function mount(t, text, configure = () => {}, session = '') {
   const { dom, root } = installTestDom(t, { rootId: 'root' });
   const opened = [];
   const local = [];
@@ -42,18 +45,21 @@ async function mount(t, text, configure = () => {}) {
     },
   };
   configure(dom.window.mixdogDesktop);
-  await act(async () => {
-    root.render(
+  const tree = React.createElement(
+    MarkdownSessionContext.Provider,
+    { value: session },
+    React.createElement(
+      MarkdownProjectContext.Provider,
+      { value: PROJECT },
       React.createElement(
-        MarkdownProjectContext.Provider,
-        { value: PROJECT },
-        React.createElement(
-          MarkdownOpenFileContext.Provider,
-          { value: (...args) => opened.push(args) },
-          React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: CopyControl })
-        )
+        MarkdownOpenFileContext.Provider,
+        { value: (...args) => opened.push(args) },
+        React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: CopyControl })
       )
-    );
+    )
+  );
+  await act(async () => {
+    root.render(tree);
   });
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const doc = dom.window.document;
@@ -61,7 +67,7 @@ async function mount(t, text, configure = () => {}) {
     act(async () => {
       element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ...init }));
     });
-  return { dom, doc, opened, local, press };
+  return { dom, doc, opened, local, press, root, tree };
 }
 
 const dialogImage = (doc) => doc.querySelector('dialog img');
@@ -76,6 +82,137 @@ test('a local image becomes a thumbnail rendered with <img>, svg included', asyn
   );
   assert.equal(f.doc.querySelector('a'), null);
   assert.equal(f.doc.querySelector('svg, iframe'), null);
+});
+
+const settleLookups = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+/** The picture loads, laid out at `width` x `height` (jsdom lays nothing out). */
+const loadPicture = (f, width = 360, height = 203) =>
+  act(async () => {
+    const img = f.doc.querySelector('.markdown-local-image img');
+    Object.defineProperty(img, 'offsetWidth', { configurable: true, value: width });
+    Object.defineProperty(img, 'offsetHeight', { configurable: true, value: height });
+    img.dispatchEvent(new f.dom.window.Event('load'));
+  });
+
+/** Unmounts the image, runs `between`, and mounts it again; nothing a lookup answers lands in between. */
+const mountAgain = (f, between = () => {}) => {
+  act(() => f.root.render(null));
+  between();
+  act(() => f.root.render(f.tree));
+};
+
+const heldBox = (f) => f.doc.querySelector('.markdown-local-image')?.getAttribute('style') || null;
+
+test("an image mounted again holds its picture's box until the picture has loaded", async (t) => {
+  const f = await mount(t, '![chart](output/a.png)', () => {}, 'box-remount');
+  await loadPicture(f);
+  // A transcript row scrolled back into view, or its conversation shown again, mounts the image anew; a loading box
+  // there would shrink the row until the picture loads, moving the transcript by the picture's height and back.
+  mountAgain(f);
+  assert.equal(f.doc.querySelector('.markdown-local-image')?.getAttribute('data-state'), 'loading');
+  assert.equal(heldBox(f), 'width: 360px; height: 203px;');
+  await settleLookups();
+  assert.equal(
+    f.doc.querySelector('.markdown-local-image img')?.getAttribute('src'),
+    'mixdog-media://preview/token/output/a.png'
+  );
+  assert.equal(heldBox(f), 'width: 360px; height: 203px;', 'held while the picture loads');
+  await loadPicture(f);
+  assert.equal(heldBox(f), null);
+});
+
+test("a held box goes with its conversation's previews, at idle reclaim and with a new media session", async (t) => {
+  const f = await mount(t, '![chart](output/a.png)', () => {}, 'box-drop');
+  const drops = {
+    'conversation deleted': () => deleteSessionImagePreviews('box-drop'),
+    'idle reclaim': () => _runIdleReclaimForTest(),
+    'new media session': () => notifyMediaSessionChanged(),
+  };
+  for (const [name, drop] of Object.entries(drops)) {
+    await loadPicture(f);
+    mountAgain(f, drop);
+    assert.equal(f.doc.querySelector('.markdown-local-image')?.getAttribute('data-state'), 'loading', name);
+    assert.equal(heldBox(f), null, name);
+    await settleLookups();
+  }
+});
+
+test('an image that comes to show no picture holds nothing: a deleted file mounts again as its link', async (t) => {
+  let removed = false;
+  const f = await mount(
+    t,
+    '![chart](output/a.png)',
+    (api) => {
+      const preview = api.previewProjectFile;
+      api.previewProjectFile = (project, path, token) =>
+        removed ? Promise.reject(new Error('ENOENT')) : preview(project, path, token);
+    },
+    'box-deleted'
+  );
+  await loadPicture(f);
+  removed = true;
+  mountAgain(f);
+  assert.equal(heldBox(f), 'width: 360px; height: 203px;', 'held until the lookup answers');
+  await settleLookups();
+  assert.equal(f.doc.querySelector('a')?.getAttribute('href'), 'output/a.png');
+  mountAgain(f);
+  assert.equal(f.doc.querySelector('.markdown-local-image')?.getAttribute('data-state'), 'loading');
+  assert.equal(heldBox(f), null, 'the box of a picture no longer shown is not held');
+  await settleLookups();
+});
+
+test('a lookup that settles after its image is gone shows in no later mount', async (t) => {
+  let settleLate = () => {};
+  let removed = false;
+  const f = await mount(
+    t,
+    '![chart](output/a.png)',
+    (api) => {
+      api.previewProjectFile = (_project, path) =>
+        removed
+          ? Promise.reject(new Error('ENOENT'))
+          : new Promise((resolve) => {
+              settleLate = () =>
+                resolve({ url: `mixdog-media://preview/late/${path}`, kind: 'image', mime: 'image/png' });
+            });
+    },
+    'box-late'
+  );
+  act(() => f.root.render(null));
+  removed = true;
+  await act(async () => settleLate());
+  act(() => f.root.render(f.tree));
+  assert.equal(f.doc.querySelector('img'), null, 'the late answer is not painted');
+  await settleLookups();
+  assert.equal(f.doc.querySelector('img'), null);
+  assert.equal(f.doc.querySelector('a')?.getAttribute('href'), 'output/a.png', 'the removed file shows its link');
+});
+
+test('an image mounted again paints no URL an earlier mount resolved', async (t) => {
+  let token = 'first';
+  const f = await mount(
+    t,
+    '![chart](output/a.png)',
+    (api) => {
+      api.previewProjectFile = async (_project, path) => ({
+        url: `mixdog-media://preview/${token}/${path}`,
+        kind: 'image',
+        mime: 'image/png',
+      });
+    },
+    'box-token'
+  );
+  await loadPicture(f);
+  // Its owner dropped the first token meanwhile (main keeps 256 previews, the remote lane 48 blob URLs).
+  token = 'second';
+  mountAgain(f);
+  assert.equal(f.doc.querySelector('img'), null, 'no picture before the lookup answers');
+  await settleLookups();
+  assert.equal(
+    f.doc.querySelector('.markdown-local-image img')?.getAttribute('src'),
+    'mixdog-media://preview/second/output/a.png'
+  );
 });
 
 test('a failed preview falls back to the path link', async (t) => {
@@ -99,6 +236,61 @@ test('an image that fails to load falls back to the path link', async (t) => {
   );
   assert.equal(broken.doc.querySelector('img'), null);
   assert.equal(broken.doc.querySelector('a')?.getAttribute('href'), 'output/a.png');
+});
+
+test('an image outside the Project is resolved for the conversation that links it, as its link is', async (t) => {
+  const elsewhere = '/elsewhere/out.png';
+  const f = await mount(
+    t,
+    `![x](${elsewhere})`,
+    (api) => {
+      const stat = api.statProjectFile;
+      api.statProjectFile = async (project, path, token) =>
+        project === '/elsewhere' ? { size: 10, mtimeMs: 1 } : stat(project, path, token);
+      // A paired device's host finds a path outside every Project only in a conversation that links it.
+      api.resolveLocalPaths = async ([absolutePath], sessionId) =>
+        absolutePath === elsewhere && sessionId === 'session-1'
+          ? [{ absolutePath, dir: false, name: 'out.png', size: 10, projectPath: '/elsewhere', relPath: 'out.png' }]
+          : [];
+    },
+    'session-1'
+  );
+  assert.equal(
+    f.doc.querySelector('.markdown-local-image img')?.getAttribute('src'),
+    'mixdog-media://preview/token/out.png'
+  );
+});
+
+test('a picture that fails to load gives way for itself alone: the next URL is shown, a kept copy that fails shows the link', async (t) => {
+  let media = 1;
+  const kept = 'data:image/png;base64,AAAA';
+  const f = await mount(t, '![a](output/a.png)\n\n![d](output/d.png)', (api) => {
+    // d.png's preview is a small data URL: it is also the copy kept of it.
+    api.previewProjectFile = async (_project, path) => ({
+      url: path === 'output/d.png' ? kept : `mixdog-media://preview/${media}/${path}`,
+      kind: 'image',
+      mime: 'image/png',
+    });
+  });
+  const sources = () => [...f.doc.querySelectorAll('.markdown-local-image img')].map((img) => img.getAttribute('src'));
+  const fail = (src) =>
+    act(async () =>
+      f.doc.querySelector(`.markdown-local-image img[src="${src}"]`).dispatchEvent(new f.dom.window.Event('error'))
+    );
+  assert.deepEqual(sources(), ['mixdog-media://preview/1/output/a.png', kept]);
+  await fail('mixdog-media://preview/1/output/a.png');
+  assert.deepEqual(sources(), [kept], 'the image that failed shows its link');
+  // A new media session: the image resolves again, to a URL that has not failed.
+  media = 2;
+  await act(async () => notifyMediaSessionChanged());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.deepEqual(sources(), ['mixdog-media://preview/2/output/a.png', kept]);
+  await fail(kept);
+  assert.deepEqual(sources(), ['mixdog-media://preview/2/output/a.png'], 'a kept copy that fails shows the link too');
+  assert.deepEqual(
+    [...f.doc.querySelectorAll('a')].map((link) => link.getAttribute('href')),
+    ['output/d.png']
+  );
 });
 
 test('non-image local targets and remote images keep their behavior', async (t) => {

@@ -104,7 +104,13 @@ export interface DesktopSessionContentMatch {
  *  for every pane of the session, and one pane's move keeps the stretch another stands in. */
 export type DesktopTranscriptMove =
   | { readonly kind: 'follow'; readonly reader?: string }
-  | { readonly kind: 'read'; readonly first: string; readonly last: string; readonly end?: boolean; readonly reader?: string }
+  | {
+      readonly kind: 'read';
+      readonly first: string;
+      readonly last: string;
+      readonly end?: boolean;
+      readonly reader?: string;
+    }
   | { readonly kind: 'at'; readonly position: string; readonly reader?: string };
 
 /** A prompt the session can be rewound to (`thread/rewindTargets/list`): `position` is what the rewind names. */

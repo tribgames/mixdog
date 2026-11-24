@@ -7,16 +7,27 @@ use mixdog_agent::tail_rules::RuleTailReminder;
 use mixdog_agent::tail_rules::TailContext;
 use mixdog_agent::tail_rules::TailLanguage;
 use mixdog_agent::tail_rules::TailRole;
+use mixdog_agent::tail_rules::TailRule;
 use mixdog_agent::tail_rules::model_family_id;
 use serde_json::json;
 
+/// A rule of the shape a built-in one takes, for the matching and the sending of a reminder.
+pub(crate) const KOREAN_ON_OPUS: &[TailRule] = &[TailRule {
+    id: "test-korean",
+    provider: &[],
+    model: &["claude-opus-5-5"],
+    language: &["ko"],
+    role: &["lead", "bot"],
+    text: "Write all user-facing text in {language}.",
+}];
+
 fn reminder(role: TailRole, language: Option<(&str, &str)>) -> RuleTailReminder {
     let language = language.map(|(id, name)| TailLanguage { id: id.into(), name: name.into() });
-    RuleTailReminder { context: TailContext { provider: "anthropic".into(), language, role } }
+    RuleTailReminder { context: TailContext { provider: "anthropic".into(), language, role }, rules: KOREAN_ON_OPUS }
 }
 
 #[test]
-fn a_korean_session_on_opus_5_5_gets_the_language_reminder_wrapped_as_one_system_reminder() {
+fn a_matching_rule_is_sent_as_its_text_wrapped_as_one_system_reminder() {
     let text = reminder(TailRole::Lead, Some(("ko", "Korean"))).text("claude-opus-5-5").unwrap();
     assert_eq!(text, "<system-reminder>Write all user-facing text in Korean.</system-reminder>");
     assert!(reminder(TailRole::Bot, Some(("ko", "Korean"))).text("claude-opus-5-5").is_some());

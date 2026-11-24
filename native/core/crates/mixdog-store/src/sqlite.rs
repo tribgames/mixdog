@@ -207,7 +207,8 @@ fn check_schema(mut conn: Connection, app_id: i32, user_version: i32) -> Result<
     }
     conn.wal_hook(Some(|wal: &mut rusqlite::hooks::Wal, pages| {
         if pages >= WAL_CHECKPOINT_PAGES {
-            wal.checkpoint_v2(rusqlite::wal::CheckpointMode::PASSIVE)?;
+            // The commit frame is already in the WAL: a failed checkpoint must not turn a committed transaction into an error.
+            let _ = wal.checkpoint_v2(rusqlite::wal::CheckpointMode::PASSIVE);
         }
         Ok(())
     }))?;
@@ -266,6 +267,18 @@ fn runtime_ddl() -> String {
 /// The index database of a data dir.
 pub const INDEX_FILE: &str = "index/store.sqlite";
 
+/// The index at `path` opened for an in-place upgrade; `None` when there is no file or it is not an index of `version`.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
+fn open_at_version(path: &Path, version: i32) -> Result<Option<Connection>, DbError> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let conn = open_connection(path)?;
+    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+    let found: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    Ok((app == INDEX_APPLICATION_ID && found == version).then_some(conn))
+}
+
 /// The `modelParameters` member a version 19 `sessions.listed` takes, from the row's `summary` (which normalises the
 /// header's member: an object as it is, an array as an object keyed by index, anything else and absence as null): the
 /// header's object when only an object gives that summary, `None` when the summary does not tell which member the header
@@ -285,15 +298,7 @@ fn listed_model_parameters(summary: &serde_json::Value) -> Option<serde_json::Va
 /// the file is not an index of version 18, and is left as it is.
 #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
 fn upgrade_from_18(data: &Path, path: &Path) -> Result<bool, DbError> {
-    if !path.exists() {
-        return Ok(false);
-    }
-    let mut conn = open_connection(path)?;
-    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
-    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if app != INDEX_APPLICATION_ID || version != 18 {
-        return Ok(false);
-    }
+    let Some(mut conn) = open_at_version(path, 18)? else { return Ok(false) };
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     {
         let rows: Vec<(String, Option<String>, String)> = tx
@@ -326,17 +331,8 @@ const HISTORY_TURN_INDEX: &str = "CREATE INDEX IF NOT EXISTS history_turn ON his
 
 /// Brings an index of version 19 to 20 in place, in one transaction: `history` gains its `history_turn` index, built from
 /// the rows it holds (one pass over the table). `Ok(false)`: the file is not an index of version 19, and is left as it is.
-#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
 fn upgrade_from_19(path: &Path) -> Result<bool, DbError> {
-    if !path.exists() {
-        return Ok(false);
-    }
-    let mut conn = open_connection(path)?;
-    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
-    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if app != INDEX_APPLICATION_ID || version != 19 {
-        return Ok(false);
-    }
+    let Some(mut conn) = open_at_version(path, 19)? else { return Ok(false) };
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(HISTORY_TURN_INDEX)?;
     tx.pragma_update(None, "user_version", 20)?;
@@ -352,17 +348,8 @@ const VERSION_21_COLUMNS: [(&str, &str, &str); 2] =
 /// columns of [`VERSION_21_COLUMNS`] at their defaults, which is what their logs say (a build that wrote an index of
 /// 20 reads no log holding a turn's end form), and `compactions` its `cid` index. A
 /// column that is there already is left. `Ok(false)`: the file is not an index of version 20, and is left as it is.
-#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
 fn upgrade_from_20(path: &Path) -> Result<bool, DbError> {
-    if !path.exists() {
-        return Ok(false);
-    }
-    let mut conn = open_connection(path)?;
-    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
-    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if app != INDEX_APPLICATION_ID || version != 20 {
-        return Ok(false);
-    }
+    let Some(mut conn) = open_at_version(path, 20)? else { return Ok(false) };
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     for (table, column, declaration) in VERSION_21_COLUMNS {
         let held: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)", params![table, column], |r| r.get(0))?;
@@ -451,8 +438,8 @@ impl RebuildProgress {
 }
 /// Publishes over `path` an index that holds no session yet and owes each of `sessions` its rows ([`rebuild_key`]): the repairs
 /// project them from their logs behind the serving core, those of `first` (all of them when `None`) before the rest. The old
-/// file's WAL and shared memory go first, so they never pair with the new file; a crash before the publish leaves a file that
-/// still fails its open and is made anew again.
+/// file is marked unusable in itself, then its WAL and shared memory go, so they never pair with the new file; a crash
+/// before the publish leaves a file that fails its open and is made anew again.
 #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
 fn fresh_index(
     _lane: &InLane<MaintenanceIo>,
@@ -486,6 +473,18 @@ fn fresh_index(
     let whole = std::fs::OpenOptions::new().read(true).write(true).open(&staged).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sync_file(&whole, &staged).map_err(|e| failed(e.to_string()))?;
     drop(whole);
+    // Until the publish the old main file must not open as a clean index without its WAL: it is marked unusable first.
+    if path.exists() {
+        match Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).and_then(|old| {
+            // Out of WAL mode first: the mark lands in the main file, not in the WAL removed next.
+            old.pragma_update(None, "journal_mode", "DELETE")?;
+            old.pragma_update(None, "user_version", 0)
+        }) {
+            Err(rusqlite::Error::SqliteFailure(e, _)) if matches!(e.code, rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt) => {}
+            Err(e) => return Err(failed(e.to_string())),
+            Ok(()) => {}
+        }
+    }
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut side = path.as_os_str().to_owned();
         side.push(suffix);
@@ -840,8 +839,6 @@ ON CONFLICT(id) DO UPDATE SET
     worker_host_pid = excluded.worker_host_pid, agent_tag = excluded.agent_tag,
     agent_owner = excluded.agent_owner, user_name = excluded.user_name, listed = excluded.listed";
 
-/// Writes the catalog row of `head` with the message state projected so far; the bytes
-/// of the list row.
 /// `sessions.listed` of each session the index can answer for, in order ([`SqliteStore::listed`]).
 fn listed_on(c: &Connection, sessions: &[String]) -> Result<Vec<Option<Option<String>>>, DbError> {
     // A fork whose inherited state is still being computed keeps the row it had (`upsert_edge`): that row does not hold
@@ -859,6 +856,8 @@ fn listed_on(c: &Connection, sessions: &[String]) -> Result<Vec<Option<Option<St
 /// snapshot ([`withheld`]).
 pub(crate) const WITHHELD_COL: &str = "EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)";
 
+/// Writes the catalog row of `head` with the message state projected so far; the bytes
+/// of the list row.
 fn upsert(
     tx: &Transaction<'_>,
     head: &CatalogHead,
@@ -902,13 +901,7 @@ fn upsert_edge(
     let stats = crate::message_index::read_stats(tx, &head.session, with_incoming)?.into_stats(&head.session);
     let mut row = crate::summary::catalog_row(head, &stats, now_ms());
     resolve_archive(&mut row, archive);
-    let before = if watch {
-        tx.prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
-            .query_row([&row.id], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
-            .optional()?
-    } else {
-        None
-    };
+    let before = if watch { stored_row(tx, &row.id)? } else { None };
     write_row(tx, &row, dirty, labels)?;
     tx.prepare_cached("DELETE FROM archived_agents WHERE session = ?1")?.execute([&head.session])?;
     for child in crate::archived_agent::children(&head.header) {
@@ -919,25 +912,29 @@ fn upsert_edge(
     Ok((row.summary.len(), edge))
 }
 
+fn add_offload_ref(tx: &Transaction<'_>, session: &str, source: &str) -> rusqlite::Result<()> {
+    tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?
+        .execute(params![crate::offload_sources::segment_key(source), session])?;
+    Ok(())
+}
+
 fn write_offload_refs(tx: &Transaction<'_>, head: &CatalogHead) -> rusqlite::Result<()> {
     use crate::offload_sources as sets;
     tx.prepare_cached("DELETE FROM offload_marks WHERE session = ?1")?.execute([&head.session])?;
     if let Some((source, boot)) = sets::mark(&head.header) {
         tx.prepare_cached("INSERT INTO offload_marks (session, source, boot) VALUES (?1, ?2, ?3)")?.execute(params![head.session, source, boot])?;
     }
-    if sets::holds_set(&head.header) {
+    let holds_set = sets::holds_set(&head.header);
+    if holds_set {
         tx.prepare_cached("DELETE FROM offload_refs WHERE session = ?1")?.execute([&head.session])?;
-        for source in sets::sources(&head.header) {
-            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?
-                .execute(params![sets::segment_key(&source), head.session])?;
-        }
+    }
+    for source in sets::sources(&head.header) {
+        add_offload_ref(tx, &head.session, &source)?;
+    }
+    if holds_set {
         tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, NULL, ?2) ON CONFLICT(session) DO UPDATE SET ordinal = NULL, rules = excluded.rules")?
             .execute(params![head.session, sets::RULES])?;
     } else {
-        for source in sets::sources(&head.header) {
-            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?
-                .execute(params![sets::segment_key(&source), head.session])?;
-        }
         tx.prepare_cached("DELETE FROM offload_known WHERE session = ?1 AND ordinal IS NULL")?.execute([&head.session])?;
     }
     Ok(())
@@ -957,7 +954,7 @@ fn record_offload_scan(tx: &Transaction<'_>, session: &str, ordinal: i64, source
         return Ok(());
     }
     for source in sources {
-        tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(source), session])?;
+        add_offload_ref(tx, session, source)?;
     }
     tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, ?2, ?3) ON CONFLICT(session) DO UPDATE SET ordinal = excluded.ordinal, rules = excluded.rules")?
         .execute(params![session, ordinal, sets::RULES])?;
@@ -1384,6 +1381,18 @@ pub(crate) fn hole_key(session: &str) -> String {
     format!("hole:{session}")
 }
 
+/// The `meta` keys of a session whose rows are complete or purged for good: it is neither marked nor owed a repair.
+fn forget_keys(c: &Connection, session: &str) -> rusqlite::Result<()> {
+    c.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2, ?3)")?.execute([hole_key(session), mark_key(session), rebuild_key(session)])?;
+    Ok(())
+}
+
+/// The end of what a session was owed (its hole and its rebuild): nothing is left to rebuild its rows from.
+fn clear_debt(c: &Connection, session: &str) -> rusqlite::Result<()> {
+    c.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
+    Ok(())
+}
+
 /// A projection being applied: frames before `next` are committed.
 struct Pending {
     projection: Projection,
@@ -1461,11 +1470,7 @@ fn whole_on(
     if let Some(damage) = &finish.damage {
         set_status_on(tx, &replay.session, SessionStatus::Damaged, Some(damage))?;
     }
-    tx.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2, ?3)")?.execute([
-        mark_key(&replay.session),
-        hole_key(&replay.session),
-        rebuild_key(&replay.session),
-    ])?;
+    forget_keys(tx, &replay.session)?;
     Ok(true)
 }
 
@@ -1561,10 +1566,7 @@ fn apply_small(
             for session in &sessions {
                 let Some(entry) = archive.and_then(|archive| archive.entry(session)) else { continue };
                 let archived_at = entry.archived_at();
-                let before = tx
-                    .prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
-                    .query_row([session], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
-                    .optional()?;
+                let before = stored_row(tx, session)?;
                 let changed = tx
                     .prepare_cached("UPDATE sessions SET archived = ?2, archived_at = ?3 WHERE id = ?1 AND (archived <> ?2 OR archived_at IS NOT ?3)")?
                     .execute(params![session, archived_at.is_some(), archived_at])?;
@@ -1981,7 +1983,7 @@ impl Writer {
             RepairWork::Replay(replay) => self.replay_part(replay, ack, at),
             RepairWork::Finish(finish) => self.replay_finish(finish, ack, at),
             RepairWork::Forget { session } => {
-                let _ = ack.send(self.forget_debt(&session).map_err(|e| DbError::Write(e.to_string())));
+                let _ = ack.send(clear_debt(&self.conn, &session).map_err(|e| DbError::Write(e.to_string())));
             }
         }
     }
@@ -2225,7 +2227,7 @@ impl Writer {
             if let Some(damage) = &finish.damage {
                 set_status_on(&tx, session, SessionStatus::Damaged, Some(damage))?;
             }
-            tx.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
+            clear_debt(&tx, session)?;
             if finish.dirty == DirtyMark::Clear {
                 tx.prepare_cached("DELETE FROM meta WHERE key = ?1")?.execute([mark_key(session)])?;
             }
@@ -2282,7 +2284,7 @@ impl Writer {
             if let Some(damage) = &finish.damage {
                 set_status_on(&tx, session, SessionStatus::Damaged, Some(damage))?;
             }
-            tx.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
+            clear_debt(&tx, session)?;
             tx.commit()
         })();
         #[cfg(test)]
@@ -2290,12 +2292,6 @@ impl Writer {
             self.trace("finish", session, ROW_ROOM);
         }
         let _ = ack.send(step.map_err(|e| DbError::Write(format!("{session}: {e}"))));
-    }
-
-    /// What a session whose folder is gone was owed: nothing is left to rebuild it from.
-    fn forget_debt(&mut self, session: &str) -> rusqlite::Result<()> {
-        self.conn.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
-        Ok(())
     }
 
     /// The rows of `rewrite`'s session rebuilt from its log before the store serves: the boot's own step, on the
@@ -2323,7 +2319,7 @@ impl Writer {
             }
             // The rows are the log's again, whatever projection of it was missed before: only here, with the complete row,
             // does the session stop being one a start has to repair ([`owed_repairs`]).
-            tx.execute("DELETE FROM meta WHERE key IN (?1, ?2)", [hole_key(session), rebuild_key(session)]).map_err(|e| e.to_string())?;
+            clear_debt(&tx, session).map_err(|e| e.to_string())?;
             if dirty == DirtyMark::Clear {
                 tx.execute("DELETE FROM meta WHERE key = ?1", [mark_key(session)]).map_err(|e| e.to_string())?;
             }
@@ -2345,7 +2341,7 @@ impl Writer {
     fn boot_purge(&mut self, lane: &InLane<MaintenanceIo>, data: &Path, incomplete: &[String]) -> Result<(), DbError> {
         for session in incomplete {
             while !self.purge_rows(session, false)? {}
-            self.forget_keys(session)?;
+            forget_keys(&self.conn, session)?;
         }
         // A fork's edge is in the index only once its first frame is: while a session's projection is owed (a repair, a rebuild
         // cut off), a missing edge is no proof that no fork reads a deleted session's log, so nothing is purged.
@@ -2357,14 +2353,8 @@ impl Writer {
             let Some(session) = next else { return Ok(()) };
             remove_session_dir(lane, &data.join("sessions").join(&session))?;
             while !self.purge_rows(&session, false)? {}
-            self.forget_keys(&session)?;
+            forget_keys(&self.conn, &session)?;
         }
-    }
-
-    /// The `meta` keys of a session whose rows were purged for good: it is neither marked nor owed a repair.
-    fn forget_keys(&mut self, session: &str) -> rusqlite::Result<()> {
-        self.conn.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2, ?3)")?.execute([hole_key(session), mark_key(session), rebuild_key(session)])?;
-        Ok(())
     }
 
     #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
@@ -2425,7 +2415,7 @@ impl Writer {
             Ok(false) => {}
             Ok(true) => {
                 let (session, ack) = self.purges.pop_front().expect("front");
-                let _ = ack.send(self.forget_keys(&session).map_err(|e| DbError::Write(e.to_string())));
+                let _ = ack.send(forget_keys(&self.conn, &session).map_err(|e| DbError::Write(e.to_string())));
             }
             Err(e) => {
                 let (_, ack) = self.purges.pop_front().expect("front");
@@ -2777,8 +2767,7 @@ impl Writer {
             // queued. Each failure so takes its work off the queue, and the next transaction is another. Everything else
             // is queued as it was and goes in with that one. A projection dropped here leaves its session with a later
             // one past its cursor: that one is applied, the session is noted as holed, and the next start purges its rows
-            // and replays its log from the first frame, behind the serving core. A full disk did that to six sessions
-            // on 2026-11-23 13:08Z ("index write failed: database or disk is full"), one of them with a 717 MB log.
+            // and replays its log from the first frame, behind the serving core.
             let unbegun = matches!(failing, Failing::Begin) && !locked;
             let mut failed: std::collections::HashSet<String> = match &failing {
                 Failing::Begin | Failing::Small => std::collections::HashSet::new(),
@@ -2998,20 +2987,8 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
             }
             used = rewound;
         }
-        FrameKind::Compacted { cid, at, rows, mode, dropped, silent } => {
-            // The divider sits at the compaction's own record (`archive_index::divider_place`).
-            tx.prepare_cached(COMPACTION_ROW_SQL)?.execute(params![
-                session,
-                ordinal,
-                cid,
-                file_no,
-                offset,
-                len,
-                ordinal,
-                at,
-                *mode as i64,
-                i64::from(*silent)
-            ])?;
+        FrameKind::Compacted { rows, dropped, .. } => {
+            write_compaction_row(tx, session, frame)?;
             if let Some(dropped) = dropped {
                 let mut put = tx.prepare_cached("INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)")?;
                 for id in &dropped.message_ids {
@@ -3149,11 +3126,29 @@ const COMPACTION_ROW_SQL: &str = "INSERT OR REPLACE INTO compactions (session, o
      boundary, at, drop_mode, silent, superseded_rev)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)";
 
+fn write_compaction_row(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame) -> rusqlite::Result<()> {
+    let FrameKind::Compacted { cid, at, mode, silent, .. } = &frame.kind else { unreachable!("a compaction") };
+    let (ordinal, file_no, offset) = pos_params(&frame.pos);
+    tx.prepare_cached(COMPACTION_ROW_SQL)?.execute(params![
+        session,
+        ordinal,
+        cid,
+        file_no,
+        offset,
+        frame.frame_len as i64,
+        ordinal,
+        at,
+        *mode as i64,
+        i64::from(*silent)
+    ])?;
+    Ok(())
+}
+
 /// A compaction with more rows than one transaction holds, from part `done` on while `budget` has room: its own row, each
 /// dropped id, each replacement row, then its epoch with the frame's tail. Every part is written as the whole frame would
 /// write it, and a part written twice is the same row.
 fn apply_compaction_part(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, done: usize, budget: &mut Budget) -> rusqlite::Result<(usize, bool)> {
-    let FrameKind::Compacted { cid, at, rows, mode, dropped, silent } = &frame.kind else { unreachable!("a compaction") };
+    let FrameKind::Compacted { rows, dropped, .. } = &frame.kind else { unreachable!("a compaction") };
     let (ordinal, file_no, offset) = pos_params(&frame.pos);
     let len = frame.frame_len as i64;
     let ids: Vec<(i64, &String)> =
@@ -3165,18 +3160,7 @@ fn apply_compaction_part(tx: &Transaction<'_>, session: &str, frame: &ProjectedF
             return Ok((part, false));
         }
         if part == 0 {
-            tx.prepare_cached(COMPACTION_ROW_SQL)?.execute(params![
-                session,
-                ordinal,
-                cid,
-                file_no,
-                offset,
-                len,
-                ordinal,
-                at,
-                *mode as i64,
-                i64::from(*silent)
-            ])?;
+            write_compaction_row(tx, session, frame)?;
         } else if part <= ids.len() {
             let (kind, id) = ids[part - 1];
             tx.prepare_cached("INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)")?
@@ -3301,6 +3285,14 @@ fn refresh_prompt(tx: &Transaction<'_>, session: &str, key: &str) -> rusqlite::R
         None => tx.prepare_cached("DELETE FROM prompt_history WHERE session = ?1 AND key = ?2")?.execute([session, key])?,
     };
     Ok(())
+}
+
+/// Notes each of `sessions` as owed an archive projection, at read sequence `noted` or later.
+fn raise_debts(owed: &mut HashMap<String, u64>, sessions: impl IntoIterator<Item = String>, noted: u64) {
+    for id in sessions {
+        let debt = owed.entry(id).or_insert(noted);
+        *debt = (*debt).max(noted);
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -3522,7 +3514,7 @@ impl SqliteStore {
                 repairs.push(thread.spawn_thread("mixdog-index-repair", move |_| repair_owed(&repairer, &data)).map_err(|e| DbError::Write(e.to_string()))?);
             }
         }
-        let store = SqliteStore {
+        Ok(SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 gate,
@@ -3544,8 +3536,7 @@ impl SqliteStore {
                 rebuilding,
                 boot_steps,
             }),
-        };
-        Ok(store)
+        })
     }
 
     /// Whether this open owes a rebuild of the index (made anew now, or by an earlier start that did not finish it): its rows
@@ -3690,11 +3681,7 @@ impl SqliteStore {
                 owed.retain(|id, debt| !(seen.contains(id) && *debt < read));
             }
             Err(_) => {
-                let noted = self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst);
-                for id in seen {
-                    let debt = owed.entry(id).or_insert(noted);
-                    *debt = (*debt).max(noted);
-                }
+                raise_debts(&mut owed, seen, self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst));
             }
         }
         projected
@@ -3703,12 +3690,7 @@ impl SqliteStore {
     /// Records `sessions` as owed a projection without waiting for the writer: [`search`](Self::search) and the next
     /// [`project_archive`](Self::project_archive) settle them.
     pub fn owe_archive(&self, sessions: Vec<String>) {
-        let noted = self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst);
-        let mut owed = self.owed();
-        for id in sessions {
-            let debt = owed.entry(id).or_insert(noted);
-            *debt = (*debt).max(noted);
-        }
+        raise_debts(&mut self.owed(), sessions, self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     fn owed(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
@@ -4125,14 +4107,6 @@ impl SqliteStore {
         .await
     }
 
-    /// Removes the files and index rows of every deleted session no live thread's lineage
-    /// reads, and returns their ids in removal order. A deleted session that is a fork base
-    /// stays while any session forked from it (at any depth) is not deleted: the fork reads
-    /// its base's logs. Each removal unlinks the first log file (a rebuild then no longer
-    /// sees the folder), then the folder, on the maintenance lane; then the writer drops the
-    /// index rows in maintenance steps of `STEP_ROWS` rows, the catalog row last. A base whose
-    /// last fork went is removed in the same call. Run it after a delete; `open` runs the
-    /// same purge at boot, so an interrupted removal resumes.
     /// The purge the boot defers while projections are owed ([`Writer::boot_purge`]): it waits for the gate's verdict on
     /// every session ([`Need::All`]) and then purges as any other does, each removal decided again on a certified read. A
     /// failed repair defers it to the next start (`Err` with that failure): nothing is removed.
@@ -4147,6 +4121,14 @@ impl SqliteStore {
         !matches!(self.shared.gate.settled_now(&Need::All), Ok(true))
     }
 
+    /// Removes the files and index rows of every deleted session no live thread's lineage
+    /// reads, and returns their ids in removal order. A deleted session that is a fork base
+    /// stays while any session forked from it (at any depth) is not deleted: the fork reads
+    /// its base's logs. Each removal unlinks the first log file (a rebuild then no longer
+    /// sees the folder), then the folder, on the maintenance lane; then the writer drops the
+    /// index rows in maintenance steps of `STEP_ROWS` rows, the catalog row last. A base whose
+    /// last fork went is removed in the same call. Run it after a delete; `open` runs the
+    /// same purge at boot, so an interrupted removal resumes.
     pub async fn purge_deleted(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
         let mut purged = Vec::new();
         // As at boot ([`Writer::boot_purge`]): that no fork reads a deleted session is known only with every session's
@@ -4630,7 +4612,7 @@ pub(crate) const COMPACTION_ENTRY_SQL: &str = "SELECT m.ordinal, c.cid FROM mess
      ORDER BY m.ordinal DESC LIMIT 1";
 
 fn indexed_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<crate::worker::IndexedSession> {
-    let worker: Option<serde_json::Map<String, serde_json::Value>> = match r.get::<_, Option<String>>(2)? {
+    let mut worker: Option<serde_json::Map<String, serde_json::Value>> = match r.get::<_, Option<String>>(2)? {
         Some(text) => Some(serde_json::from_str(&text).map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e)))?),
         None => None,
     };
@@ -4639,7 +4621,6 @@ fn indexed_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<crate::worker::Ind
         Some(summary) => Some((r.get(3)?, summary)),
         None => None,
     };
-    let mut worker = worker;
     if r.get::<_, bool>(5)? {
         if let Some(worker) = worker.as_mut() {
             withheld::keep_structural(worker);
@@ -4920,6 +4901,14 @@ impl ToWriter<'_> {
         done.recv().map_err(|_| stopped())?.map_err(|e| e.to_string())
     }
 
+    /// [`Self::replay`] of `frames` with the row `start` holds (taken), or nothing when there is neither.
+    fn replay_from(&self, folded: &str, start: &mut Option<CatalogHead>, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        if frames.is_empty() && start.is_none() {
+            return Ok(());
+        }
+        self.replay(folded, start.take(), frames)
+    }
+
     /// `frames`, folded as `folded`; with `start`, the row written dirty before them.
     fn replay(&self, folded: &str, start: Option<CatalogHead>, frames: Vec<ProjectedFrame>) -> Result<(), String> {
         self.send(RepairWork::Replay(Box::new(Replay {
@@ -4964,10 +4953,7 @@ impl ProjectTo for Streaming<'_> {
     }
 
     fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
-        if frames.is_empty() && self.start.is_none() {
-            return Ok(());
-        }
-        self.to.replay(session, self.start.take(), frames)
+        self.to.replay_from(session, &mut self.start, frames)
     }
 }
 
@@ -5032,10 +5018,7 @@ impl Collecting<'_> {
             return Ok(());
         }
         let frames = std::mem::take(&mut self.frames);
-        if frames.is_empty() && self.start.is_none() {
-            return Ok(());
-        }
-        self.to.replay(&self.session, self.start.take(), frames)
+        self.to.replay_from(&self.session, &mut self.start, frames)
     }
 }
 
@@ -5047,10 +5030,7 @@ impl ProjectTo for Collecting<'_> {
 
     fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
         if self.spilled {
-            if frames.is_empty() && self.start.is_none() {
-                return Ok(());
-            }
-            return self.to.replay(session, self.start.take(), frames);
+            return self.to.replay_from(session, &mut self.start, frames);
         }
         session.clone_into(&mut self.session);
         self.frames.extend(frames);
@@ -5192,9 +5172,9 @@ fn repair_session(
         return Ok(Some(gate::Repaired::Left));
     }
     let dir = data.join("sessions").join(session);
-    let holed = pool.with(|c| Ok(c.prepare_cached("SELECT 1 FROM meta WHERE key = ?1")?.exists([hole_key(session)])?)).map_err(|e| e.to_string())?;
-    let owed_rebuild =
-        !holed && pool.with(|c| Ok(c.prepare_cached("SELECT 1 FROM meta WHERE key = ?1")?.exists([rebuild_key(session)])?)).map_err(|e| e.to_string())?;
+    let meta_held = |key: String| pool.with(|c| Ok(c.prepare_cached("SELECT 1 FROM meta WHERE key = ?1")?.exists([key])?)).map_err(|e| e.to_string());
+    let holed = meta_held(hole_key(session))?;
+    let owed_rebuild = !holed && meta_held(rebuild_key(session))?;
     if !holed && !owed_rebuild && !dir.is_dir() {
         return Ok(Some(gate::Repaired::Done));
     }
@@ -5582,18 +5562,25 @@ fn boundaries_on(
     Ok(out)
 }
 
+macro_rules! boundaries_sql {
+    ($order:literal) => {
+        concat!(
+            "SELECT ordinal, file_no, frame_offset, frame_len, cid, at
+     FROM compactions
+     WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
+     ORDER BY ordinal ",
+            $order,
+            " LIMIT ?5"
+        )
+    };
+}
+
 /// The compactions of session `?1` in `[?3, ?4)` that list a divider, live for the reader at `?2`, oldest first, at most
 /// `?5` (`-1`: all).
-pub(crate) const BOUNDARIES_SQL: &str = "SELECT ordinal, file_no, frame_offset, frame_len, cid, at
-     FROM compactions
-     WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
-     ORDER BY ordinal LIMIT ?5";
+pub(crate) const BOUNDARIES_SQL: &str = boundaries_sql!("ASC");
 
 /// [`BOUNDARIES_SQL`], newest first.
-pub(crate) const BOUNDARIES_NEWEST_SQL: &str = "SELECT ordinal, file_no, frame_offset, frame_len, cid, at
-     FROM compactions
-     WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
-     ORDER BY ordinal DESC LIMIT ?5";
+pub(crate) const BOUNDARIES_NEWEST_SQL: &str = boundaries_sql!("DESC");
 
 /// The newest compaction `?2` of session `?1` below `?3` that lists a divider, live for the reader at `?4`.
 pub(crate) const BOUNDARY_NAMED_SQL: &str = "SELECT ordinal FROM compactions INDEXED BY compactions_cid
@@ -5694,7 +5681,7 @@ fn call_results_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, c
                 home_done = true;
             }
             let mut stmt = c.prepare_cached(CALL_RESULTS_SQL)?;
-            let mut rows = stmt.query(params![lineage[level].session, clamp_i64(before), floor, turn, clamp_i64(from)])?;
+            let mut rows = stmt.query(params![lineage[level].session, clamp_i64(before), floor, turn, clamp_i64(from), amend_bound(lineage, cut, level)])?;
             while let Some(r) = rows.next()? {
                 let Some(facets) = r.get::<_, Option<String>>(12)?.and_then(|f| serde_json::from_str::<crate::message_facets::Facets>(&f).ok()) else {
                     continue;
@@ -5723,7 +5710,8 @@ fn call_results_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, c
 pub(crate) const CALL_RESULTS_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
        h.facets, h.end_form
-     FROM history h INDEXED BY history_turn LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
+     FROM history h INDEXED BY history_turn LEFT JOIN amends a ON a.session = h.session AND a.ordinal = (SELECT max(x.ordinal) FROM amends x WHERE x.session = h.session
+       AND x.target_ordinal = h.ordinal AND x.ordinal < ?6 AND (x.superseded_rev IS NULL OR x.superseded_rev >= ?6))
      WHERE h.session = ?1 AND h.turn IS ?4 AND h.ordinal < ?2 AND h.ordinal >= ?5 AND h.model = 1 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
      ORDER BY h.ordinal ASC";
@@ -5785,6 +5773,11 @@ fn level_bounds(lineage: &[LineageLevel], cut: Option<u64>, level: usize, before
         before = before.min(cut);
     }
     (before, fork_end.map_or(i64::MAX, |e| e as i64))
+}
+
+/// The exclusive version bound of a level's amends: the fork point or cut a model context reads the level at ([`crate::context`]), none for the live level.
+fn amend_bound(lineage: &[LineageLevel], cut: Option<u64>, level: usize) -> i64 {
+    clamp_i64(level_bounds(lineage, cut, level, u64::MAX).0)
 }
 
 /// Where the rows older than a row that a client's id names start.
@@ -5993,7 +5986,7 @@ fn unit_page_on(
         let marks_full = marks.len() as i64 == want;
         let mut marks = marks.into_iter().peekable();
         let mut stmt = c.prepare_cached(PAGE_SQL)?;
-        let mut rows = stmt.query(params![level.session, clamp_i64(before), floor, want])?;
+        let mut rows = stmt.query(params![level.session, clamp_i64(before), floor, want, amend_bound(lineage, cut, cur.level)])?;
         let mut got = 0;
         let mut stopped = false;
         while let Some(r) = rows.next()? {
@@ -6085,7 +6078,7 @@ fn unit_page_after_on(
         let marks_full = marks.len() as i64 == want;
         let mut marks = marks.into_iter().peekable();
         let mut stmt = c.prepare_cached(PAGE_AFTER_SQL)?;
-        let mut rows = stmt.query(params![level.session, clamp_i64(before), floor, want, clamp_i64(cur.from)])?;
+        let mut rows = stmt.query(params![level.session, clamp_i64(before), floor, want, clamp_i64(cur.from), amend_bound(lineage, cut, cur.level)])?;
         let mut got = 0;
         let mut stopped = false;
         while let Some(r) = rows.next()? {
@@ -6160,7 +6153,8 @@ pub(crate) const ENTRY_SWITCHES_SQL: &str = "SELECT min(m.idx), s.ordinal, s.pro
 pub(crate) const PAGE_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
        h.facets, h.end_form
-     FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
+     FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = (SELECT max(x.ordinal) FROM amends x WHERE x.session = h.session
+       AND x.target_ordinal = h.ordinal AND x.ordinal < ?5 AND (x.superseded_rev IS NULL OR x.superseded_rev >= ?5))
      WHERE h.session = ?1 AND h.ordinal < ?2 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
      ORDER BY h.ordinal DESC LIMIT ?4";
@@ -6175,7 +6169,8 @@ pub(crate) const TURN_MESSAGES_SQL: &str = "SELECT h.ordinal, h.iid, h.form, h.f
 pub(crate) const PAGE_AFTER_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
        h.facets, h.end_form
-     FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
+     FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = (SELECT max(x.ordinal) FROM amends x WHERE x.session = h.session
+       AND x.target_ordinal = h.ordinal AND x.ordinal < ?6 AND (x.superseded_rev IS NULL OR x.superseded_rev >= ?6))
      WHERE h.session = ?1 AND h.ordinal < ?2 AND h.ordinal >= ?5 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
      ORDER BY h.ordinal ASC LIMIT ?4";

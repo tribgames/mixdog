@@ -123,7 +123,7 @@ fn usage_value(usage: &mixdog_core_api::domain::provider::Usage) -> Value {
 
 /// What changed between two headers, as a header change.
 pub(crate) fn header_change(before: &Header, after: &Header) -> HeaderChange {
-    let mut change = HeaderChange { set: Header::new(), unset: Vec::new(), patch: Default::default() };
+    let mut change = HeaderChange::default();
     for (key, value) in after {
         if before.get(key) != Some(value) {
             change.set.insert(key.clone(), value.clone());
@@ -154,6 +154,22 @@ fn with_status<R>(snapshot: &ContextSnapshot, session: &Header, messages: &[Agen
         env: &mixdog_ai::registry::keys::ProcessEnv,
     };
     f(&input)
+}
+
+/// `header` with the summary threshold at its floor (1): whatever the conversation's size is summarized.
+fn summarizing(header: &Header) -> Header {
+    let mut header = header.clone();
+    let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+    compaction.insert("conversationThresholdTokens".into(), json!(1));
+    header.insert("compaction".into(), Value::Object(compaction));
+    header
+}
+
+/// The header a manual pass builds its compactor over. A session whose agent still holds the conversation holds more than the
+/// stored rows show (what the agent did itself is not in them), so the rows' size says nothing of whether a summary is
+/// due: the pass summarizes them, as the agent's automatic compaction does.
+fn pass_header(header: &Header) -> Header {
+    if header.contains_key(mixdog_core_session::session::turn_ops::AGENT_SESSION) { summarizing(header) } else { header.clone() }
 }
 
 /// `handoffSummaryTimeoutMs(session)` (`compaction-runner.mjs`): a pass between turns bounds its summary by
@@ -442,7 +458,7 @@ impl HostManualCompaction {
             archive: Arc::new(ToolResultArtifacts::new(parts.io, &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
-        let Some(compactor) = parts.compactors.compactor(thread, &snapshot.header, &rows, input).await else {
+        let Some(compactor) = parts.compactors.compactor(thread, &pass_header(&snapshot.header), &rows, input).await else {
             return Err(failed(DOMAIN, "no compactor for this session"));
         };
         // `plan.requireReduction`: an explicit request (a manual pass is not automatic) unless the
@@ -578,12 +594,7 @@ impl ManualCompaction for HostManualCompaction {
         let parts = &self.parts;
         let Ok(stored) = parts.threads.header(source).await else { return Ok(None) };
         let messages = super::factory::session_messages(&stored, rows).map_err(|e| failed(DOMAIN, e))?;
-        let mut header = stored;
-        if summarize {
-            let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
-            compaction.insert("conversationThresholdTokens".into(), json!(1));
-            header.insert("compaction".into(), Value::Object(compaction));
-        }
+        let header = if summarize { summarizing(&stored) } else { stored };
         let Some(mut settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
         settings.handoff_timeout_ms = handoff_summary_timeout_ms(&header);
         let input = CompactorInput {

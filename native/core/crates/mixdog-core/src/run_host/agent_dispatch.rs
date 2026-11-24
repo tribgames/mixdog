@@ -341,6 +341,11 @@ fn normalize_candidate(candidate: &Value) -> Option<Value> {
     if let Some(tokens) = normalize_context_tokens(route.get("contextTokens")) {
         out.insert("contextTokens".into(), number(tokens));
     }
+    if let Ok(fallbacks) = mixdog_ai::service::routes::execution_fallbacks(candidate)
+        && !fallbacks.is_empty()
+    {
+        out.insert("fallbacks".into(), Value::Array(fallbacks));
+    }
     Some(Value::Object(out))
 }
 

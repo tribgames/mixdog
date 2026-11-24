@@ -245,7 +245,7 @@ test('an early prompt the core shows again changes once, in its place, and the r
   land(core, replyRow('after', 'after'));
   const next = rows();
   assert.equal(next.length, after.length + 1);
-  after.forEach((row, index) => assert.equal(next[index], row));
+  for (const [index, row] of after.entries()) assert.equal(next[index], row);
 });
 
 test('a frame leaves a reader above the tail and its selection where they are, while another pane follows', async (t) => {
@@ -304,7 +304,7 @@ test('a frame leaves a reader above the tail and its selection where they are, w
     });
   const unmoved = (message) => {
     const now = shown();
-    held.forEach((node, index) => assert.equal(now[index], node, message));
+    for (const [index, node] of held.entries()) assert.equal(now[index], node, message);
     assert.equal(selection.toString(), copied, message);
     assert.equal(document.getElementById('following').children.length, now.length);
   };
@@ -336,7 +336,7 @@ test('a tool run that goes on in the next frame stays one card, and the rows bef
   const after = rows();
   assert.equal(after.length, before.length, 'the run is one card across the frames');
   assert.deepEqual([after.at(-1).aggregate, after.at(-1).count], [true, 4]);
-  before.slice(0, -1).forEach((row, index) => assert.equal(after[index], row));
+  for (const [index, row] of before.slice(0, -1).entries()) assert.equal(after[index], row);
   // A row that is no tool ends the run: the next reads are another card.
   land(core, replyRow('done', 'done'));
   land(core, read(4));
@@ -350,7 +350,7 @@ test('a tool run that goes on in the next frame stays one card, and the rows bef
       ['tool', 2],
     ]
   );
-  after.slice(0, -1).forEach((row, index) => assert.equal(next[index], row));
+  for (const [index, row] of after.slice(0, -1).entries()) assert.equal(next[index], row);
 });
 
 test('a narrower replay keeps the rows above it; a rewind the core states takes the rows it rewound', () => {
@@ -365,10 +365,10 @@ test('a narrower replay keeps the rows above it; a rewind the core states takes 
     rows().map((row) => row.id),
     whole.map((row) => row.id)
   );
-  whole.forEach((row, index) => assert.equal(rows()[index], row));
+  for (const [index, row] of whole.entries()) assert.equal(rows()[index], row);
   land(core, replyRow('next', 'next'));
   assert.equal(rows().length, whole.length + 1);
-  whole.forEach((row, index) => assert.equal(rows()[index], row));
+  for (const [index, row] of whole.entries()) assert.equal(rows()[index], row);
   // The core rewinds to a prompt of the window it holds: the rows after it are gone, here as there.
   core.follow('t1', [...items, replyRow('next', 'next')]);
   core.notify('t1', 'thread/historyReset', { fromItemId: 'p1', hasOlder: false });
@@ -390,7 +390,13 @@ test('Esc Esc offers nothing when the settled rows hold no prompt, and reads no 
   const core = connection();
   const { store } = shownLane(core);
   // The tail window of a session whose prompts all lie above it.
-  core.follow('t1', agentSession().filter((item) => item.type !== 'userMessage').slice(-32), true);
+  core.follow(
+    't1',
+    agentSession()
+      .filter((item) => item.type !== 'userMessage')
+      .slice(-32),
+    true
+  );
   const dock = await mountedSelector(t, store);
   assert.deepEqual(dock.selector.messages, []);
   core.calls.length = 0;

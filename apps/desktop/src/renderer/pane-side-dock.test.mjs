@@ -342,14 +342,21 @@ test("owned dock state follows its session's tab between panes and is released w
   // Unsaved file tabs are never released: with no pane holding their tab they stay where they are.
   const dirty = { L1: owned };
   for (const panes of [{ L1: [] }, { L2: ['s2'] }]) {
-    assert.strictEqual(reconcilePaneDockOwners(dirty, panes, () => true), dirty, JSON.stringify(panes));
+    assert.strictEqual(
+      reconcilePaneDockOwners(dirty, panes, () => true),
+      dirty,
+      JSON.stringify(panes)
+    );
   }
   // They follow their tab like clean ones (the editor follows the file, not the pane).
   for (const panes of [{ L1: [], L2: ['s1'] }, { L2: ['s1'] }]) {
     const moved = reconcilePaneDockOwners(dirty, panes, () => true);
     assert.deepEqual([moved.L2.owner, moved.L2.files], ['s1', owned.files], JSON.stringify(panes));
   }
-  const crowded = { L1: owned, L2: { ...withPaneDockFileOpened(closed(), { project: 'C:/p', rel: 'b.ts' }, 3, { now: 3 }), owner: 's2' } };
+  const crowded = {
+    L1: owned,
+    L2: { ...withPaneDockFileOpened(closed(), { project: 'C:/p', rel: 'b.ts' }, 3, { now: 3 }), owner: 's2' },
+  };
   const joined = reconcilePaneDockOwners(crowded, { L2: ['s2', 's1'] }, () => true);
   assert.deepEqual(joined.L2.held.s1.files, owned.files);
   // Unowned entries are left alone.
@@ -576,25 +583,27 @@ async function mountSideFileDock(calls) {
   const root = createRoot(document.getElementById('root'));
   await act(async () =>
     root.render(
-      withEditors(React.createElement(PaneSideDock, {
-        leafId: 'pane-1',
-        groups: [['source-control']],
-        descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
-        focused: true,
-        onSelect() {},
-        onClose() {},
-        onCloseDiff() {},
-        onCloseFile: () => calls.push(['close']),
-        onMoveGroup() {},
-        onMoveView() {},
-        onFocusPane() {},
-        openFileTab: (...args) => calls.push(['open', ...args]),
-        renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
-        renderFileProblems: (file) =>
-          React.createElement('div', { 'data-testid': 'side-problems' }, `problems:${file.rel}`),
-        renderView: () => null,
-        entry: withPaneDockFileOpened(closed(), { ...fileLink, accessToken: 'tok' }, 1, { now: 2 }),
-      }))
+      withEditors(
+        React.createElement(PaneSideDock, {
+          leafId: 'pane-1',
+          groups: [['source-control']],
+          descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
+          focused: true,
+          onSelect() {},
+          onClose() {},
+          onCloseDiff() {},
+          onCloseFile: () => calls.push(['close']),
+          onMoveGroup() {},
+          onMoveView() {},
+          onFocusPane() {},
+          openFileTab: (...args) => calls.push(['open', ...args]),
+          renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
+          renderFileProblems: (file) =>
+            React.createElement('div', { 'data-testid': 'side-problems' }, `problems:${file.rel}`),
+          renderView: () => null,
+          entry: withPaneDockFileOpened(closed(), { ...fileLink, accessToken: 'tok' }, 1, { now: 2 }),
+        })
+      )
     )
   );
   return {
@@ -698,25 +707,27 @@ test('phone sheet: the pane header row is the top row and its ⋯ menu switches 
   const render = (entry) =>
     act(async () =>
       root.render(
-        withEditors(React.createElement(PaneSideDock, {
-          leafId: 'pane-1',
-          groups: [['session-diff'], ['terminal']],
-          descriptors,
-          focused: true,
-          sessionBound: true,
-          onOpenFiles: () => calls.push(['files']),
-          onSelect: (id) => calls.push(['select', id]),
-          onClose: () => calls.push(['fold']),
-          onCloseDiff() {},
-          onCloseFile: () => calls.push(['close-file']),
-          onMoveGroup() {},
-          onMoveView() {},
-          onFocusPane() {},
-          openFileTab() {},
-          renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
-          renderView: () => null,
-          entry,
-        }))
+        withEditors(
+          React.createElement(PaneSideDock, {
+            leafId: 'pane-1',
+            groups: [['session-diff'], ['terminal']],
+            descriptors,
+            focused: true,
+            sessionBound: true,
+            onOpenFiles: () => calls.push(['files']),
+            onSelect: (id) => calls.push(['select', id]),
+            onClose: () => calls.push(['fold']),
+            onCloseDiff() {},
+            onCloseFile: () => calls.push(['close-file']),
+            onMoveGroup() {},
+            onMoveView() {},
+            onFocusPane() {},
+            openFileTab() {},
+            renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
+            renderView: () => null,
+            entry,
+          })
+        )
       )
     );
   try {
@@ -2147,7 +2158,10 @@ test("the strip's last toggle hides the session panel and shows it again, on a s
     };
   };
   try {
-    for (const selection of [{ kind: 'session', id: 's-hide' }, { kind: 'new', draftId: 'd-hide' }]) {
+    for (const selection of [
+      { kind: 'session', id: 's-hide' },
+      { kind: 'new', draftId: 'd-hide' },
+    ]) {
       await act(async () => root.render(await stripAndPanel(selection)));
       assert.ok(document.querySelector('.session-rail'), 'the panel');
       const button = toggle();
@@ -2350,8 +2364,10 @@ async function firstFrame(cellWidth, props, read) {
 
 test("a new pane's first painted frame has the dock and the session panel laid out for the measured cell", async () => {
   // 500px: no room for the dock beside the conversation, so it floats over it.
-  const overlay = await firstFrame(500, resizableDockProps({ ...closed(), open: true }), (cell) =>
-    cell.querySelector('.pane-side-dock').dataset.overlay
+  const overlay = await firstFrame(
+    500,
+    resizableDockProps({ ...closed(), open: true }),
+    (cell) => cell.querySelector('.pane-side-dock').dataset.overlay
   );
   assert.deepEqual(overlay, { frames: ['true'], settled: 'true' });
   // 1,300px: a 300px panel, and the conversation re-centred left of its 308px band (sessionRailFit).

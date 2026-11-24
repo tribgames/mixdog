@@ -55,9 +55,18 @@ export const isCoreInput = (path) => CORE_INPUTS.some((re) => re.test(path) || r
 // The sites whose reach the scan cannot resolve to a path (the repository root, or a `..` join of a base other than the
 // crate's own directory), each with what it reads, reviewed by reading the code.
 export const REVIEWED = {
-  'native/core/crates/mixdog-entry/tests/node_free.rs': { reads: NODE_RUNTIME, why: 'the Node runtime from the package root' },
-  'native/core/crates/mixdog-tui/tests/support/daemon.rs': { reads: NODE_RUNTIME, why: 'the Node runtime from the package root' },
-  'native/core/crates/mixdog-office/tests/live_com/other.rs': { reads: NODE_RUNTIME, why: 'the script runtime from the package root' },
+  'native/core/crates/mixdog-entry/tests/node_free.rs': {
+    reads: NODE_RUNTIME,
+    why: 'the Node runtime from the package root',
+  },
+  'native/core/crates/mixdog-tui/tests/support/daemon.rs': {
+    reads: NODE_RUNTIME,
+    why: 'the Node runtime from the package root',
+  },
+  'native/core/crates/mixdog-office/tests/live_com/other.rs': {
+    reads: NODE_RUNTIME,
+    why: 'the script runtime from the package root',
+  },
   'native/core/crates/mixdog-office/tests/pptx_script.rs': {
     reads: NODE_RUNTIME,
     why: 'the pptx script entry and node_modules/pptxgenjs (installed from package-lock.json)',
@@ -70,8 +79,14 @@ export const REVIEWED = {
     reads: ['apps/mobile/src/index.html', 'apps/desktop/src/renderer/remote-pairing-screen.ts'],
     why: 'repo_file() of the two pages that carry the pairing CSS',
   },
-  'native/core/crates/mixdog-skill-scripts/tests/launch.rs': { reads: ['src/'], why: 'repo_file() of the shipped skill scripts' },
-  'native/core/crates/mixdog-core-replays/tests/workflow/context.rs': { reads: ['src/'], why: 'the shipped workflow packs under src' },
+  'native/core/crates/mixdog-skill-scripts/tests/launch.rs': {
+    reads: ['src/'],
+    why: 'repo_file() of the shipped skill scripts',
+  },
+  'native/core/crates/mixdog-core-replays/tests/workflow/context.rs': {
+    reads: ['src/'],
+    why: 'the shipped workflow packs under src',
+  },
   'native/core/crates/mixdog-app-server-daemon/src/discovery/tests.rs': {
     reads: ['packages/protocol-client/src/launch/ensure-core.mjs'],
     why: 'the Node client launcher the same-PID attach test imports',
@@ -92,7 +107,8 @@ export const REVIEWED = {
 };
 
 const DOTDOT = /"((?:\.\.\/)*\.\.\/?[^"]*|\.\.)"((?:\s*\)?\s*\.join\(\s*"[^"]+"\s*\))*)/g;
-const REPO_LITERAL = /"((?:src|apps|packages|scripts|bin|benchmarks|native|vendor|docs|design|changelog|LICENSES|node_modules)\/[^"]+|package(?:-lock)?\.json)"/g;
+const REPO_LITERAL =
+  /"((?:src|apps|packages|scripts|bin|benchmarks|native|vendor|docs|design|changelog|LICENSES|node_modules)\/[^"]+|package(?:-lock)?\.json)"/g;
 
 const crateDirOf = (file, manifests) => {
   let dir = posix.dirname(file);
@@ -117,9 +133,13 @@ export function codeMap(text) {
       let depth = 1;
       let j = i + 2;
       while (j < text.length && depth) {
-        if (text[j] === '/' && text[j + 1] === '*') (depth += 1), (j += 2);
-        else if (text[j] === '*' && text[j + 1] === '/') (depth -= 1), (j += 2);
-        else j += 1;
+        if (text[j] === '/' && text[j + 1] === '*') {
+          depth += 1;
+          j += 2;
+        } else if (text[j] === '*' && text[j + 1] === '/') {
+          depth -= 1;
+          j += 2;
+        } else j += 1;
       }
       code.fill(0, i, j);
       i = j;
@@ -166,10 +186,12 @@ const OPEN = String.raw`\s*[(\[{]`;
 function namedPath(argument, dir, crate) {
   const literal = /^\s*"([^"\\]*)"\s*$/.exec(argument);
   if (literal) return posix.normalize(posix.join(dir, literal[1]));
-  const concat = /^\s*concat!\s*[(\[{]([\s\S]*)[)\]}]\s*$/.exec(argument);
+  const concat = /^\s*concat!\s*[([{]([\s\S]*)[)\]}]\s*$/.exec(argument);
   if (!concat) return null;
   const body = concat[1].trim().replace(/,$/, '');
-  const parts = [...body.matchAll(/\s*(?:env!\s*[(\[{]\s*"(CARGO_MANIFEST_DIR|OUT_DIR)"\s*[)\]}]|"([^"\\]*)")\s*(?:,|$)/gy)];
+  const parts = [
+    ...body.matchAll(/\s*(?:env!\s*[([{]\s*"(CARGO_MANIFEST_DIR|OUT_DIR)"\s*[)\]}]|"([^"\\]*)")\s*(?:,|$)/gy),
+  ];
   if (parts.map((part) => part[0]).join('') !== body || !parts.length) return null;
   const [first, ...rest] = parts;
   if (first[1] === 'OUT_DIR') return crate;
@@ -193,27 +215,37 @@ export function reachesOf(file, text, crate) {
   const reaches = [];
   const code = codeMap(text);
   const lineAt = (index) => text.slice(0, index).split('\n').length;
-  const reach = (index, path) =>
-    reaches.push(
-      path === null
-        ? { line: lineAt(index), review: 'include' }
-        : path === '.' || path === '..' || path.startsWith('../')
-          ? { line: lineAt(index), review: 'root' }
-          : { line: lineAt(index), path }
-    );
+  const reach = (index, path) => {
+    const line = lineAt(index);
+    if (path === null) reaches.push({ line, review: 'include' });
+    else if (path === '.' || path === '..' || path.startsWith('../')) reaches.push({ line, review: 'root' });
+    else reaches.push({ line, path });
+  };
   const literal = (argument, dir) => {
     const value = /^\s*"([^"\\]*)"\s*,?\s*$/.exec(argument ?? '');
     return value ? posix.normalize(posix.join(dir, value[1])) : null;
   };
-  const macros = new RegExp(String.raw`\b(?:r#)?(include(?:_str|_bytes)?|concat|fixture(?:_bytes|_const)?)!${OPEN}`, 'g');
+  const macros = new RegExp(
+    String.raw`\b(?:r#)?(include(?:_str|_bytes)?|concat|fixture(?:_bytes|_const)?)!${OPEN}`,
+    'g'
+  );
   for (const match of text.matchAll(macros)) {
     if (!code[match.index]) continue;
     const argument = macroArgument(text, code, match.index + match[0].length - 1);
     if (match[1] === 'concat') {
       // A concat! inside an include is the include's argument; elsewhere it names a path only from the manifest directory.
-      if (new RegExp(String.raw`include(?:_str|_bytes)?!${OPEN}\s*$`).test(text.slice(Math.max(0, match.index - 40), match.index)))
+      if (
+        new RegExp(String.raw`include(?:_str|_bytes)?!${OPEN}\s*$`).test(
+          text.slice(Math.max(0, match.index - 40), match.index)
+        )
+      )
         continue;
-      if (argument === null || !/^\s*env!\s*[(\[{]\s*"CARGO_MANIFEST_DIR"\s*[)\]}]/.test(argument) || argument.includes('$')) continue;
+      if (
+        argument === null ||
+        !/^\s*env!\s*[([{]\s*"CARGO_MANIFEST_DIR"\s*[)\]}]/.test(argument) ||
+        argument.includes('$')
+      )
+        continue;
       const path = namedPath(`concat!(${argument})`, posix.dirname(file), crate);
       if (path !== null) reach(match.index, path);
     } else if (match[1].startsWith('fixture')) reach(match.index, literal(argument, crate));
@@ -225,7 +257,8 @@ export function reachesOf(file, text, crate) {
     const after = match.index + match[0].length;
     if (match[1] === 'path') {
       const value = /^\s*=\s*("([^"\\]*)")?/.exec(text.slice(after));
-      if (value) reach(match.index, value[2] !== undefined ? posix.normalize(posix.join(posix.dirname(file), value[2])) : null);
+      if (value)
+        reach(match.index, value[2] !== undefined ? posix.normalize(posix.join(posix.dirname(file), value[2])) : null);
       continue;
     }
     const open = text.slice(after).search(/\S/) + after;
@@ -250,7 +283,9 @@ export function reachesOf(file, text, crate) {
       if (ups > 0) {
         let path = posix.normalize(posix.join(crate, ...Array(ups).fill('..')));
         for (const join of line.matchAll(/join\(\s*"([^"]+)"\s*\)/g)) path = posix.normalize(posix.join(path, join[1]));
-        reaches.push(path === '.' || path === '..' || path.startsWith('../') ? { ...at, review: 'root' } : { ...at, path });
+        reaches.push(
+          path === '.' || path === '..' || path.startsWith('../') ? { ...at, review: 'root' } : { ...at, path }
+        );
       }
     }
     if (!joinsManifest || /include(?:_str|_bytes)?!|#\[path|fixture(?:_bytes|_const)?!|concat!/.test(line)) return;
@@ -258,7 +293,8 @@ export function reachesOf(file, text, crate) {
       if (!inCode(match)) continue;
       const ups = match[1].split('/').filter((part) => part === '..').length;
       let path = posix.normalize(posix.join(crate, match[1]));
-      for (const join of (match[2] ?? '').matchAll(/join\(\s*"([^"]+)"/g)) path = posix.normalize(posix.join(path, join[1]));
+      for (const join of (match[2] ?? '').matchAll(/join\(\s*"([^"]+)"/g))
+        path = posix.normalize(posix.join(path, join[1]));
       const ownBase = /CARGO_MANIFEST_DIR|manifest_dir|crate_dir/.test(line) || file.endsWith('/build.rs');
       if (path === '.' || path === '..' || path.startsWith('../')) reaches.push({ ...at, review: 'root' });
       else if (outside(path) || ownBase || ups < 2) reaches.push({ ...at, path });
@@ -302,7 +338,11 @@ export function inputProblems(tracked, read) {
     }
     const reviewed = REVIEWED[site.file];
     if (!reviewed) {
-      const what = { root: 'the repository root', base: 'a base the scan cannot resolve', include: 'an include path the scan cannot resolve' };
+      const what = {
+        root: 'the repository root',
+        base: 'a base the scan cannot resolve',
+        include: 'an include path the scan cannot resolve',
+      };
       problems.push(`${where} reaches ${what[site.review]}: read it, list what it reads in REVIEWED`);
       continue;
     }
@@ -313,7 +353,8 @@ export function inputProblems(tracked, read) {
   for (const [file, reviewed] of Object.entries(REVIEWED)) {
     if (!sites.some((site) => site.file === file && site.review))
       problems.push(`REVIEWED names ${file}, which no longer reaches outside native/core: remove it`);
-    for (const path of reviewed.reads) if (!isCoreInput(path)) problems.push(`REVIEWED ${file} reads ${path}, which CORE_INPUTS does not cover`);
+    for (const path of reviewed.reads)
+      if (!isCoreInput(path)) problems.push(`REVIEWED ${file} reads ${path}, which CORE_INPUTS does not cover`);
   }
   return problems;
 }

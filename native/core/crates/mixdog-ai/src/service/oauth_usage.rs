@@ -100,8 +100,9 @@ pub trait UsageHttp: Send + Sync {
 }
 
 /// The credential one usage request is sent with: a JSON doc with Node's key spelling (`access_token`/`accessToken`,
-/// `account_id`, `user_id`, `key`), and the attempt its source handed it out on. The retry behind its refusal hands the
-/// whole of it back, so the source refreshes the login of that attempt and of no other.
+/// `account_id`, `user_id`, `key`) and the fields its stored document names its account by, whose [`credential_stamp`]
+/// is the stamp of what the request measures; and the attempt its source handed it out on. The retry behind its refusal
+/// hands the whole of it back, so the source refreshes the login of that attempt and of no other.
 #[derive(Clone)]
 pub struct UsageAuth {
     pub doc: Value,
@@ -134,8 +135,9 @@ pub trait UsageSource: Send + Sync {
     async fn ensure_auth(&self, provider: &str, account_id: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError>;
 
     /// `getUsageSnapshot()` of cursor-oauth, cursor-api, antigravity-oauth,
-    /// muse-code-oauth, command-code-oauth and opencode-go-oauth.
-    async fn provider_snapshot(&self, provider: &str, account_id: &str) -> Result<Option<Value>, UsageError>;
+    /// muse-code-oauth, command-code-oauth and opencode-go-oauth. `sent` is the credential the reading's request was sent
+    /// with, as stored (its account fields with its token), once the source authorised it.
+    async fn provider_snapshot(&self, provider: &str, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError>;
 
     /// Resolve the configured key once, before either a cache lookup or a new flight.
     async fn cursor_api_plan(&self) -> Result<Option<Arc<dyn CursorApiPlan>>, UsageError> {
@@ -214,6 +216,8 @@ struct Caches {
     memory: HashMap<String, Value>,
     inflight: HashMap<String, Inflight>,
     last_warn: HashMap<String, i64>,
+    /// The sign-in each slot's empty answer was measured under: another sign-in's empty answer says nothing about this one.
+    negative_stamps: HashMap<String, Option<String>>,
     cursor_key: Option<[u8; 32]>,
     cursor_generation: u64,
 }
@@ -231,25 +235,39 @@ pub struct OAuthUsage {
 /// The snapshot field naming the sign-in a reading was measured under.
 const CREDENTIAL_STAMP: &str = "credentialStamp";
 
-/// Marks a reading with the sign-in whose request produced it. Only the source that sent the successful request knows
-/// which credential that was (an auth retry or a replaced login changes it), so the mark is made there, never inferred
-/// from the credential before or after.
+/// Marks a reading with the sign-in whose request produced it. Only the source that sent the request knows which
+/// credential that was (an auth retry or a replaced login changes it), so the mark is made from the credential it hands
+/// the measurement, never inferred from the credential stored before or after.
 pub fn stamp_reading(reading: &mut Value, stamp: Option<String>) {
     if let (Some(stamp), Some(object)) = (stamp, reading.as_object_mut()) {
         object.insert(CREDENTIAL_STAMP.into(), Value::String(stamp));
     }
 }
 
-/// An opaque identity of an OAuth sign-in: its account identity when the document names one, else its access token. A
-/// document with no access token (an API key, a logged-out file) has none, so it never gates on a subscription reading.
-/// The two spellings of a credential (the usage source's and the file's) may name different fields; a stamp that does
-/// not match leaves the reading unused, never applied.
+/// The one definition of an account slot's stamp, over its stored credential document: the account it names (id, user id,
+/// project, email or user name, whichever the file holds) so a routine token refresh keeps it, else the token itself, which
+/// is what every provider whose file names no account stands on. A document with no token (a logged-out file) has none.
+/// Readings are saved with the stamp of the credential their request was sent with and served only while it is the slot's
+/// ([`reading_belongs`]).
 pub fn credential_stamp(provider: &str, doc: &serde_json::Map<String, Value>) -> Option<String> {
     let nested = doc.get("claudeAiOauth").and_then(Value::as_object).unwrap_or(doc);
     let pick = |keys: &[&str]| keys.iter().find_map(|k| nested.get(*k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()));
-    let token = pick(&["access_token", "accessToken"])?;
-    let identity = pick(&["account_id", "accountId", "user_id", "userId", "project_id", "projectId", "email"]).unwrap_or(token);
+    let token = match provider {
+        "command-code-oauth" | "mimo-oauth" => pick(&["apiKey"])?,
+        _ => pick(&["access_token", "accessToken"])?,
+    };
+    let named = nested.get("identity").and_then(Value::as_object);
+    let identity = pick(&["account_id", "accountId", "user_id", "userId", "project_id", "projectId", "email", "userName"])
+        .or_else(|| ["id", "email"].iter().find_map(|k| named?.get(*k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())))
+        .unwrap_or(token);
     Some(crate::catalog::account_fingerprint(&[provider, identity]))
+}
+
+/// The one rule for every reader of the cache file, in any crate: an account provider's reading is shown only for the
+/// sign-in in force for its slot now, `current` (that slot's [`credential_stamp`], `accounts::slot_stamp`), by the stamp
+/// the reading was saved with. A reading without a stamp, or of a slot with no sign-in, is never shown.
+pub fn reading_belongs(provider: &str, reading: &Value, current: Option<&str>) -> bool {
+    !ACCOUNT_PROVIDERS.contains(&provider) || current.is_some_and(|now| reading.get(CREDENTIAL_STAMP).and_then(Value::as_str) == Some(now))
 }
 
 /// What the window states is left of it (dollars or credits), kept beside its percent, which is stored as observed: a
@@ -375,8 +393,6 @@ fn header(name: &str, value: impl Into<String>) -> (String, String) {
 struct CodexAuth {
     token: String,
     account_id: Option<String>,
-    /// The sign-in this credential is ([`credential_stamp`]).
-    stamp: Option<String>,
     /// What the source handed out, for the retry behind a refusal.
     sent: UsageAuth,
 }
@@ -385,9 +401,8 @@ fn codex_auth_shape(sent: Option<UsageAuth>) -> Option<CodexAuth> {
     let sent = sent?;
     let auth = &sent.doc;
     let token = clean_token(or_truthy(auth, &["access_token", "accessToken"]))?;
-    let stamp = auth.as_object().and_then(|doc| credential_stamp("openai-oauth", doc));
     let account_id = clean(or_truthy(auth, &["account_id", "accountId"]));
-    Some(CodexAuth { token, account_id, stamp, sent })
+    Some(CodexAuth { token, account_id, sent })
 }
 
 fn clean_token(v: Option<&Value>) -> Option<String> {
@@ -543,7 +558,23 @@ impl OAuthUsage {
             let key = format!("cursor-api\u{2}{generation}");
             return fresh(caches.memory.get(&key), LIVE_CACHE_TTL_MS, now_ms()).map(|reading| cursor_route_view(reading, route));
         }
-        self.cache.displayed(&route_key(route), &cache_provider_key(route), allow_stale).await
+        let reading = self.cache.displayed(&route_key(route), &cache_provider_key(route), allow_stale).await?;
+        self.belongs(route, reading).await
+    }
+
+    /// The sign-in in force now for the route's account slot ([`credential_stamp`] of its credential).
+    async fn current_stamp(&self, route: &RouteInfo) -> Option<String> {
+        let provider = provider_key(route);
+        if !ACCOUNT_PROVIDERS.contains(&provider.as_str()) {
+            return None;
+        }
+        self.deps.store.quota_credential(&provider, &route.account_id).await
+    }
+
+    /// [`reading_belongs`] for the route's slot: the reading, while the sign-in it was measured under is the one in force.
+    async fn belongs(&self, route: &RouteInfo, reading: Value) -> Option<Value> {
+        let current = self.current_stamp(route).await;
+        reading_belongs(&provider_key(route), &reading, current.as_deref()).then_some(reading)
     }
 
     /// The stored `default`-slot reading of `provider`, only when it was measured for this provider under the sign-in
@@ -623,6 +654,11 @@ impl OAuthUsage {
         let Some(auth) = self.codex_auth(account_id, None).await? else {
             return Err(UsageError::new("Codex is not signed in"));
         };
+        // The credit is single-use: it is spent only on the offer the user was shown, of the account that offer names.
+        let live = self.reset_credits_with_auth(&auth).await?;
+        if live.as_ref().and_then(|offer| offer.get("offerRevision")).and_then(Value::as_str) != Some(revision) {
+            return Err(UsageError::new("Codex reset offer changed; refresh and try again"));
+        }
         let response = match self.post_consume(&auth, key).await {
             Ok(r) => r,
             Err(_) => self.post_consume(&auth, key).await?,
@@ -658,7 +694,6 @@ impl OAuthUsage {
         {
             o.insert("resetCredits".into(), resolved);
         }
-        stamp_reading(&mut usage, auth.stamp.clone());
         Ok(Some(usage))
     }
 
@@ -682,9 +717,7 @@ impl OAuthUsage {
         if !res.ok() {
             return Err(status_error("anthropic oauth usage", res.status));
         }
-        let Some(mut usage) = normalize_anthropic_usage(&res.json()?, "anthropic-oauth", now_ms()) else { return Ok(None) };
-        stamp_reading(&mut usage, auth.as_ref().and_then(Value::as_object).and_then(|doc| credential_stamp("anthropic-oauth", doc)));
-        Ok(Some(usage))
+        Ok(normalize_anthropic_usage(&res.json()?, "anthropic-oauth", now_ms()))
     }
 
     // Grok
@@ -795,7 +828,7 @@ impl OAuthUsage {
             "anthropic-oauth" => self.fetch_anthropic_usage(&route.account_id, rejected, sent).await,
             "grok-oauth" => self.fetch_grok_usage(route, rejected, sent).await,
             "cursor-oauth" | "cursor-api" | "antigravity-oauth" | "muse-code-oauth" | "command-code-oauth" | "opencode-go-oauth" => {
-                self.deps.source.provider_snapshot(&provider, &route.account_id).await
+                self.deps.source.provider_snapshot(&provider, &route.account_id, sent).await
             }
             _ => Ok(None),
         }
@@ -803,14 +836,14 @@ impl OAuthUsage {
 
     /// One measurement, retried once behind a forced credential refresh when
     /// the server rejected the token: the stored expiry is only what the
-    /// server said at issue, a subscription change can revoke it earlier.
-    async fn measure_with_auth_retry(&self, route: &RouteInfo) -> Result<Option<Value>, UsageError> {
-        let mut sent = None;
-        match self.measure_usage(route, None, &mut sent).await {
+    /// server said at issue, a subscription change can revoke it earlier. `sent` ends as the credential the answer's own
+    /// request was sent with.
+    async fn measure_with_auth_retry(&self, route: &RouteInfo, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+        match self.measure_usage(route, None, sent).await {
             Err(e) if e.auth_rejection() && self.deps.source.can_refresh(&provider_key(route)) => {
                 // The refresh is for the credential the refused request itself carried.
                 let rejected = sent.take();
-                self.measure_usage(route, rejected.as_ref(), &mut sent).await
+                self.measure_usage(route, rejected.as_ref(), sent).await
             }
             other => other,
         }
@@ -932,12 +965,16 @@ impl OAuthUsage {
         let provider_only = cache_provider_key(route);
         if !force {
             // A reading this process measured within the live window; one the file seeded is not a measurement.
-            let cached = self.cache.measured(&key, &provider_only).await;
-            if cached.is_some() {
-                return cached;
+            if let Some(cached) = self.cache.measured(&key, &provider_only).await
+                && let Some(own) = self.belongs(route, cached).await
+            {
+                return Some(own);
             }
             if self.cache.measured_nothing(&key, &provider_only).await {
-                return None;
+                let now = self.current_stamp(route).await;
+                if self.caches().negative_stamps.get(&provider_only) == Some(&now) {
+                    return None;
+                }
             }
         }
         let (ticket, measuring) = {
@@ -955,21 +992,31 @@ impl OAuthUsage {
         };
         let answer = measuring.await;
         // A measurement whose epoch a retirement ended serves nothing: the caller gets what is current for the route.
-        self.cache.resolved(&ticket, answer, &key)
+        let answer = self.cache.resolved(&ticket, answer, &key)?;
+        // It is the slot's usage only while the sign-in it was measured under is still the one in force.
+        self.belongs(route, answer).await
     }
 
     async fn measure_and_cache(&self, route: &RouteInfo, provider: &str, provider_only: &str, ticket: &cache::Ticket) -> Option<Value> {
         let key = route_key(route);
-        let measured = self.measure_with_auth_retry(route).await;
+        let mut sent = None;
+        let measured = self.measure_with_auth_retry(route, &mut sent).await;
         // A retirement overtook the measurement: what it brings back, a reading, nothing or a failure, changes nothing
         // in the cache, the roster or the history.
         if !self.cache.current(ticket) {
             return None;
         }
+        // The answer is of the sign-in its request was sent with, as its source handed that credential over, whatever was
+        // refreshed or stored on the way.
+        let stamp = sent.as_ref().and_then(|auth| auth.doc.as_object()).and_then(|doc| credential_stamp(provider, doc));
         let snapshot = match measured {
             Ok(s) => s,
             Err(e) => self.usage_after_failure(&e, provider, &route.account_id).await,
         };
+        let snapshot = snapshot.map(|mut reading| {
+            stamp_reading(&mut reading, stamp.clone());
+            reading
+        });
         if let Some(none) = snapshot.as_ref().filter(|s| !contentful(s) && s.get("quotaWindows").is_some_and(Value::is_array))
             && let Some(stamp) = none.get(CREDENTIAL_STAMP).and_then(Value::as_str)
         {
@@ -985,12 +1032,21 @@ impl OAuthUsage {
             // Do not replace another sign-in's cached reading with a slot-wide negative entry.
             return None;
         }
+        // Whose answer this is for the slot is decided by the sign-in in force when the measurement ends.
+        let current = self.current_stamp(route).await;
         let Some(snapshot) = snapshot.filter(contentful) else {
-            if !crate::accounts::rotation::uses_bound_plan_evidence(provider) {
+            // Nothing measured stands for the sign-in it was sent with (the one in force, when no credential went out),
+            // and for that sign-in alone.
+            if stamp.as_ref().is_none_or(|own| Some(own) == current.as_ref()) && !crate::accounts::rotation::uses_bound_plan_evidence(provider) {
+                self.caches().negative_stamps.insert(provider_only.to_owned(), current);
                 self.cache.put_negative(ticket, &[&key, provider_only]);
             }
             return None;
         };
+        // Another sign-in's figures are not the slot's: nothing of them reaches the roster row, the history or the cache.
+        if !reading_belongs(provider, &snapshot, current.as_deref()) {
+            return None;
+        }
         // The roster is what the pool and the quota check choose over. A reading it does not hold is a failed reading:
         // it is not returned as measured, and not cached, so the next call measures and records again.
         if ACCOUNT_PROVIDERS.contains(&provider) && !self.record_account_usage(provider, &route.account_id, &snapshot).await {

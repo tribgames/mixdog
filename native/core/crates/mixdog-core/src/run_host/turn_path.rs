@@ -1,12 +1,11 @@
 // Transparent callback/state names; existing ownership and call signatures are unchanged.
-type HopFactoryBuilder = dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory;
+type HopFactoryBuilder = dyn FnOnce(&Arc<SessionDirectory>, &Arc<dyn RouteFacts>) -> HopFactory;
 
 use std::sync::Arc;
 
 use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::compact::image::ToolImageCompactor;
 use mixdog_agent::env::Clock;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
@@ -36,6 +35,7 @@ use super::unattended::UnattendedRunRegistry;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::ContactIds;
 use mixdog_core_goal::goal::GoalRuntime;
+use mixdog_core_ports::ports::route_facts::RouteFacts;
 use mixdog_core_prompt::prompt::probes::StartupObservations;
 use mixdog_core_run::ports::todo_view::TodoViews;
 use mixdog_core_run::run_host::guards::RunningWork;
@@ -52,9 +52,9 @@ pub struct TurnPathParts {
     /// `Paths::from_process`, built once at boot.
     pub paths: Paths,
     // The model side.
-    /// The process's one provider registry, built before the turn path (`compose_parts::provider_registry`):
-    /// `ProviderReadiness` and the settings and feature effects hold the same `Arc`.
-    pub registry: Arc<ProviderRegistry>,
+    /// What a route's provider is, an agent's route included: the process's route facts over its one provider registry
+    /// (`compose_parts::provider_registry`). The turns reach a route's provider through these only.
+    pub facts: Arc<dyn RouteFacts>,
     /// The shared effort-judge model (needs the ONNX Runtime library, WP-INTEGRATE).
     pub effort_judge: Arc<EffortJudgeModel>,
     /// The one side-question store: compaction.requests is built over the same instance.
@@ -106,7 +106,7 @@ pub struct TurnPathParts {
     /// The session compactors, built over the compaction world (WP-COMPACTION-WORLD) by the composition: the manual compaction and the inheritance fit
     /// read the same world, and neither can be built from inside this path (the `deps` closure is called in it with the run factory only).
     pub compactors: Arc<SessionCompactors>,
-    /// The route hop, built over the directory and the path's registry.
+    /// The route hop, built over the directory and the path's route facts.
     pub hops: Box<HopFactoryBuilder>,
     /// The runtime's shell control: the progress watchdog's stop reaps a turn's shells through it.
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
@@ -136,7 +136,6 @@ pub struct TurnPath {
     pub reaction_targets: Arc<ReactionTargets>,
     /// Clear a session's live result caches on a workspace change (`HostRuntime::workspace_context`).
     pub reuses: Arc<super::result_reuse::LiveReuses>,
-    pub registry: Arc<ProviderRegistry>,
     /// `markUnattendedRun`: schedule and webhook runs mark themselves here for the length of a run.
     pub unattended: Arc<UnattendedRunRegistry>,
     /// The contact-bot snapshot; call `refresh().await` at start and when the agents change.
@@ -160,7 +159,7 @@ impl TurnPath {
             tokens,
             clock,
             paths,
-            registry,
+            facts,
             effort_judge,
             side,
             next,
@@ -217,7 +216,7 @@ impl TurnPath {
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
         let live_gate_env = gate_env.clone();
         let host = HostParts {
-            registry: registry.clone(),
+            facts,
             clock: clock.clone(),
             files,
             processes: processes.clone(),
@@ -253,7 +252,7 @@ impl TurnPath {
             search_usage,
             outside,
         };
-        let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings, liveness, gate_env: live_gate_env })
+        let directory = build_directory(host, deps, move |directory, facts| DirectoryParts { hops: Arc::new(hops(directory, facts)), compactors });
+        Ok(Self { directory, reaction_targets, reuses, unattended, contacts, exclusions, turn_settings, liveness, gate_env: live_gate_env })
     }
 }

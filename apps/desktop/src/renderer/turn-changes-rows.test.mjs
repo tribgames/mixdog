@@ -242,7 +242,11 @@ test("Sign in again opens an agent route's card among the built-in features, and
   const press = (provider) => {
     const items = [
       { kind: 'user', id: 'u1', text: 'one' },
-      { kind: 'turndone', id: 'd1', status: 'failed', message: 'Sign-in expired.',
+      {
+        kind: 'turndone',
+        id: 'd1',
+        status: 'failed',
+        message: 'Sign-in expired.',
         errorKind: { kind: 'auth', code: '', status: 0, retryAfterMs: null, resetAt: null },
         provider,
       },

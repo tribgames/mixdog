@@ -130,6 +130,22 @@ async fn answer(handle: &SessionHandle, req: CoreRequest) -> Result<Value, CoreE
     Ok(value)
 }
 
+/// A follow-up that may only join a running turn finds the session idle: it is refused and nothing starts, so the sender runs the
+/// turn itself as a job it tracks.
+#[tokio::test(start_paused = true)]
+async fn a_queue_only_follow_up_to_an_idle_session_is_refused_and_starts_nothing() {
+    let rig = Rig::new();
+    let (_hold, directory) = held(&rig);
+    let handle = start_thread(&directory).await;
+    let mut follow_up = submit(&handle, "op-1", "later", "sub1");
+    follow_up.params["input"]["options"]["queueOnly"] = json!(true);
+    follow_up.ctx = CallContext::internal("agent-message");
+    let refused = answer(&handle, follow_up).await.err();
+    assert!(matches!(&refused, Some(CoreError::DomainError { code: Some(code), .. }) if &**code == mixdog_protocol::thread::QUEUE_ONLY_IDLE), "{refused:?}");
+    assert!(idle(&handle) && handle.cell.queue.load().is_empty());
+    assert!(!rows(&handle).contains(&("user", "later".to_owned())), "no turn started");
+}
+
 /// Node's work gate refuses a client's send while it holds (`callRefusal`: `HOLD_ALLOWED_CALLS` lacks the submit): nothing is queued
 /// and nothing starts, and once the hold is released the same prompt starts.
 #[tokio::test(start_paused = true)]

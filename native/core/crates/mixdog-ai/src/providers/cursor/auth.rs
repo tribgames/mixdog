@@ -26,11 +26,19 @@ use serde_json::Value;
 use super::Access;
 use super::AccessToken;
 use crate::oauth::CredentialFile;
+use crate::oauth::Pace;
 use crate::oauth::Probe;
+use crate::oauth::lease::LockProcess;
+use crate::oauth::lease::REFRESH_LEASE;
+use crate::oauth::lease::lease_error;
+use crate::oauth::lease::refresh_lock_path;
+use crate::oauth::pace::SystemPace;
 use crate::providers::connect::ConnectFailure;
 use crate::providers::connect::provider_error;
 use crate::retry::advice;
 use crate::transport::http::HttpSend;
+use crate::transport::link::Surface;
+use crate::transport::link::deadline_error;
 
 pub const EXCHANGE_URL: &str = "https://api2.cursor.sh/auth/exchange_user_api_key";
 /// A token this close to its expiry is refreshed first.
@@ -83,6 +91,11 @@ impl StoredTokens {
             refresh_token,
             reauth_required: false,
         }
+    }
+
+    /// `CURSOR_ACCESS_TOKEN` as the tokens it stands in for (`loadStoredCredentials`): no refresh token, its own expiry.
+    pub fn standing_in(token: String) -> Self {
+        Self { expires_at: token_expiry(&token), access_token: token, refresh_token: None, reauth_required: false }
     }
 
     /// Whether the token must be exchanged before use at `now_ms`.
@@ -163,7 +176,7 @@ fn storage(message: &str) -> ProviderError {
     error
 }
 
-fn document(tokens: &StoredTokens) -> Result<serde_json::Map<String, Value>, ProviderError> {
+pub(crate) fn document(tokens: &StoredTokens) -> Result<serde_json::Map<String, Value>, ProviderError> {
     match serde_json::to_value(tokens) {
         Ok(Value::Object(map)) => Ok(map),
         _ => Err(storage("tokens not serializable")),
@@ -172,13 +185,17 @@ fn document(tokens: &StoredTokens) -> Result<serde_json::Map<String, Value>, Pro
 
 /// `cursor-oauth`: the signed-in account's tokens in `cursor-oauth.json`,
 /// refreshed with the stored refresh token. The file is the one source of
-/// truth: every call reads it, and a rotation is published only over the pair
-/// that was exchanged, so another process that refreshed first wins.
+/// truth: every call reads it. One refresh of an account runs at a time: in this
+/// process every handle on the account's file shares it, and across processes it
+/// runs holding the refresh lease beside that file, where a pair another refresher
+/// stored first is taken instead of exchanging the old token again. A rotation is
+/// published only over the pair that was exchanged.
 pub struct FileAccess {
     http: std::sync::Arc<dyn HttpSend>,
     file: CredentialFile,
-    /// One refresh at a time in this process; waiters adopt its result.
-    refreshing: tokio::sync::Semaphore,
+    /// The process as the refresh lease's lock protocol sees it, and the clock and waits of its attempts.
+    process: std::sync::Arc<LockProcess>,
+    pace: std::sync::Arc<dyn Pace>,
     /// `CURSOR_ACCESS_TOKEN`: stands in for the file (`loadStoredCredentials`), with no refresh token.
     env_token: Option<String>,
 }
@@ -219,20 +236,11 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use bytes::Bytes;
-    use mixdog_core_api::domain::provider::TransportFault;
 
     use super::*;
-    use crate::transport::http::BodyStream;
+    use crate::oauth::pace::Parked;
     use crate::transport::http::HttpResponse;
-
-    struct Once(Option<Bytes>);
-
-    #[async_trait]
-    impl BodyStream for Once {
-        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-            self.0.take().map(Ok)
-        }
-    }
+    use crate::transport::testing::Once;
 
     /// Answers every exchange after yielding, so concurrent callers overlap.
     struct Exchange {
@@ -264,7 +272,7 @@ mod tests {
         assert!(tokens.iter().all(|t| *t == tokens[0]));
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
         // A cached, fresh token needs no exchange.
-        access.access_token().await.unwrap().token;
+        access.access_token().await.unwrap();
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 
@@ -421,6 +429,103 @@ mod tests {
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 
+    /// A token endpoint that counts each exchange, announces it and answers it once the test lets it through.
+    struct GatedExchange {
+        calls: AtomicUsize,
+        arrived: tokio::sync::Semaphore,
+        gate: tokio::sync::Semaphore,
+        body: String,
+    }
+
+    #[async_trait]
+    impl HttpSend for GatedExchange {
+        async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.arrived.add_permits(1);
+            self.gate.acquire().await.expect("an open gate").forget();
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(self.body.clone())))) })
+        }
+    }
+
+    /// Two handles of one account (one following the selected account to its file, one bound to that file) find its
+    /// pair expired at once: the second joins the exchange the first started, so the refresh token is spent once. The
+    /// pair that exchange answers is itself due for renewal, so a handle that ran a refresh of its own would exchange
+    /// again.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes a fixture credential file synchronously")]
+    async fn two_handles_of_one_account_refreshing_at_once_exchange_once() {
+        use crate::oauth::CredentialIo;
+
+        let dir = tempfile::tempdir().unwrap();
+        let account = dir.path().join("selected.json");
+        std::fs::write(&account, format!(r#"{{"access_token":"{}","refresh_token":"r1"}}"#, jwt(1))).unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: rt.interactive_io, write: rt.durability_io };
+        let selected = account.clone();
+        let following = CredentialFile::new(dir.path().join("cursor-oauth.json"), io).following(std::sync::Arc::new(move || {
+            let selected = selected.clone();
+            Box::pin(async move { selected })
+        }));
+        let http = std::sync::Arc::new(GatedExchange {
+            calls: AtomicUsize::new(0),
+            arrived: tokio::sync::Semaphore::new(0),
+            gate: tokio::sync::Semaphore::new(0),
+            body: format!(r#"{{"accessToken":"{}","refreshToken":"r2"}}"#, jwt(now_ms() / 1000 + 60)),
+        });
+        let first = FileAccess::new(http.clone(), following);
+        let second = FileAccess::new(http.clone(), CredentialFile::new(account, io));
+        let held = second.stored().await.unwrap();
+        let leading = tokio::spawn(async move { first.access_token().await.map(|access| access.token) });
+        http.arrived.acquire().await.unwrap().forget();
+        let mut joining = std::pin::pin!(second.refresh(held, false));
+        assert!(futures::poll!(joining.as_mut()).is_pending(), "the second handle's refresh waits");
+        http.gate.add_permits(2);
+        let joined = joining.await.unwrap();
+        assert_eq!(leading.await.unwrap().unwrap(), joined.access_token);
+        assert_eq!(http.calls.load(Ordering::SeqCst), 1, "the refresh token was exchanged twice");
+    }
+
+    /// Another process holds the refresh lease of the account's file when this one finds its pair expired: this one
+    /// waits for the lease, and under it takes the pair the other stored, exchanging nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test: writes fixture credential files synchronously")]
+    async fn a_refresh_waits_for_another_processs_lease_and_takes_the_pair_it_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = file_in(&dir);
+        std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r1"}}"#, jwt(1))).unwrap();
+        let (taken, release) = (std::sync::Arc::new(tokio::sync::Semaphore::new(0)), std::sync::Arc::new(tokio::sync::Semaphore::new(0)));
+        let holding = tokio::spawn({
+            let (file, taken, release) = (file.clone(), taken.clone(), release.clone());
+            async move {
+                let other = LockProcess::new(mixdog_statefile::LockOwner::another_in_process());
+                let held = async move {
+                    taken.add_permits(1);
+                    release.acquire().await.expect("an open gate").forget();
+                };
+                file.lease(&refresh_lock_path(file.path()), &other, &SystemPace, REFRESH_LEASE, held).await.is_ok()
+            }
+        });
+        taken.acquire().await.unwrap().forget();
+        let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
+        let parked = std::sync::Arc::new(Parked::new());
+        let mut access = FileAccess::new(http.clone(), file.clone());
+        let pace: std::sync::Arc<dyn Pace> = parked.clone();
+        access.pace = pace;
+        let mut refreshing = tokio::spawn(async move { access.access_token().await.map(|access| access.token) });
+        let waited = tokio::select! {
+            _ = parked.waiting.acquire() => true,
+            _ = &mut refreshing => false,
+        };
+        assert!(waited, "the refresh went ahead while another process held the lease");
+        let stored_since = jwt(4_200_000_000);
+        std::fs::write(file.path(), format!(r#"{{"access_token":"{stored_since}","refresh_token":"r2"}}"#)).unwrap();
+        release.add_permits(1);
+        parked.go.add_permits(1_000);
+        assert!(holding.await.unwrap());
+        assert_eq!(refreshing.await.unwrap().unwrap(), stored_since);
+        assert_eq!(http.calls.load(Ordering::SeqCst), 0, "the refresh token the other process renewed was exchanged again");
+    }
+
     /// The refresh that outlives its timer reads as the real Node function did (`sites.cursorRefresh`).
     #[tokio::test(start_paused = true)]
     async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
@@ -517,7 +622,7 @@ impl ApiKeyAccess {
 }
 impl FileAccess {
     pub fn new(http: std::sync::Arc<dyn HttpSend>, file: CredentialFile) -> Self {
-        Self { http, file, refreshing: tokio::sync::Semaphore::new(1), env_token: None }
+        Self { http, file, process: LockProcess::this_process(), pace: std::sync::Arc::new(SystemPace), env_token: None }
     }
 
     pub fn with_env_token(mut self, token: Option<String>) -> Self {
@@ -530,36 +635,9 @@ impl FileAccess {
         if let Some(token) = &self.env_token
             && self.file.is_own_now().await
         {
-            return Ok(StoredTokens { access_token: token.clone(), refresh_token: None, expires_at: token_expiry(token), reauth_required: false });
+            return Ok(StoredTokens::standing_in(token.clone()));
         }
-        match self.file.load::<StoredTokens>().await {
-            // The service refused this sign-in and its renewal: nothing is sent on it until the user signs in again.
-            Probe::Present(tokens) if tokens.reauth_required => {
-                let mut error = reauth("Cursor refused this sign-in.");
-                error.status = Some(401);
-                Err(error)
-            }
-            Probe::Present(mut tokens) => {
-                self.file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
-                // `Number(raw.expires_at) || cursorTokenExpiry(raw.access_token)`: a file that records no expiry
-                // still expires when its token's own claim says so.
-                if tokens.expires_at == 0 {
-                    tokens.expires_at = token_expiry(&tokens.access_token);
-                }
-                Ok(tokens)
-            }
-            Probe::Absent => Err(reauth("Cursor OAuth is not connected.")),
-            Probe::Unreadable => Err(storage("the credential file cannot be read")),
-        }
-    }
-
-    /// Records that the refresh token was refused, unless another process has
-    /// replaced it since. The tokens stay; a new sign-in clears the marker.
-    async fn mark_dead(&self, refresh_token: &str) {
-        let expected = refresh_token.to_owned();
-        let mut update = serde_json::Map::new();
-        update.insert("reauth_required".to_owned(), Value::Bool(true));
-        let _ = self.file.replace_if(move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()), update).await;
+        stored_in(&self.file).await
     }
 
     /// `tokens` exchanged for new ones; without a refresh token they serve until they expire.
@@ -574,41 +652,98 @@ impl FileAccess {
     }
 
     /// `force` is the refresh behind a refused attempt, which was sent on `old`: a pair stored since is that attempt's
-    /// answer as it is, never exchanged on its behalf.
+    /// answer as it is, never exchanged on its behalf. Callers holding `old`'s refresh token share the refresh running
+    /// for the account's file this handle reads now, made on that file pinned.
     async fn refresh(&self, old: StoredTokens, force: bool) -> Result<StoredTokens, ProviderError> {
-        let _gate = self.refreshing.acquire().await.map_err(|_| storage("refresh gate closed"))?;
-        // A concurrent refresher (or process) may already have rotated.
-        let latest = self.stored().await?;
-        let rotated = latest.access_token != old.access_token || latest.refresh_token != old.refresh_token;
-        let valid_after = now_ms() + REFRESH_SKEW.as_millis() as u64;
-        if rotated && (force || latest.expires_at == 0 || latest.expires_at > valid_after) {
-            return Ok(latest);
-        }
-        let Some(refresh_token) = latest.refresh_token.clone() else {
-            return Err(reauth("Cursor OAuth refresh token is unavailable."));
-        };
-        let next = match exchange_token(self.http.as_ref(), &refresh_token).await {
-            Ok(next) => next,
-            Err(error) => {
-                if error.reauth_required {
-                    self.mark_dead(&refresh_token).await;
-                }
-                return Err(error);
-            }
-        };
-        self.file.keep(&[&next.access_token, next.refresh_token.as_deref().unwrap_or(&refresh_token)]);
-        let (access, refresh) = (latest.access_token.clone(), refresh_token);
-        let published = self
-            .file
-            .replace_if(
-                move |doc| {
-                    doc.get("access_token").and_then(Value::as_str) == Some(access.as_str())
-                        && doc.get("refresh_token").and_then(Value::as_str) == Some(refresh.as_str())
-                },
-                document(&next)?,
-            )
+        let held = old.refresh_token.clone().unwrap_or_default();
+        let (http, process, pace) = (self.http.clone(), self.process.clone(), self.pace.clone());
+        self.file
+            .refresh_once(&held, move |file| refresh_leased(http, file, process, pace, old, force))
             .await
-            .map_err(|_| storage("the refreshed tokens could not be stored"))?;
-        if published { Ok(next) } else { self.stored().await }
+            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
     }
+}
+
+/// The tokens `file` holds, as every send reads them.
+async fn stored_in(file: &CredentialFile) -> Result<StoredTokens, ProviderError> {
+    match file.load::<StoredTokens>().await {
+        // The service refused this sign-in and its renewal: nothing is sent on it until the user signs in again.
+        Probe::Present(tokens) if tokens.reauth_required => {
+            let mut error = reauth("Cursor refused this sign-in.");
+            error.status = Some(401);
+            Err(error)
+        }
+        Probe::Present(mut tokens) => {
+            file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
+            // `Number(raw.expires_at) || cursorTokenExpiry(raw.access_token)`: a file that records no expiry
+            // still expires when its token's own claim says so.
+            if tokens.expires_at == 0 {
+                tokens.expires_at = token_expiry(&tokens.access_token);
+            }
+            Ok(tokens)
+        }
+        Probe::Absent => Err(reauth("Cursor OAuth is not connected.")),
+        Probe::Unreadable => Err(storage("the credential file cannot be read")),
+    }
+}
+
+/// Records that the refresh token was refused, unless another process has
+/// replaced it since. The tokens stay; a new sign-in clears the marker.
+async fn mark_dead(file: &CredentialFile, refresh_token: &str, status: u16) {
+    let expected = refresh_token.to_owned();
+    let mut update = serde_json::Map::new();
+    update.insert("reauth_required".to_owned(), Value::Bool(true));
+    if let Ok(true) = file.replace_if(move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()), update).await {
+        file.note_marked_reauth("cursor-oauth", status).await;
+    }
+}
+
+/// The refresh of the account's tokens in `file` (pinned), holding the cross-process refresh lease beside it: another
+/// process (or another handle in this one) that refreshes first has stored its pair before this one reads the file.
+async fn refresh_leased(
+    http: std::sync::Arc<dyn HttpSend>,
+    file: CredentialFile,
+    process: std::sync::Arc<LockProcess>,
+    pace: std::sync::Arc<dyn Pace>,
+    old: StoredTokens,
+    force: bool,
+) -> Result<StoredTokens, ProviderError> {
+    let lock = refresh_lock_path(file.path());
+    file.lease(&lock, &process, &*pace, REFRESH_LEASE, exchange_stored(http.as_ref(), &file, old, force)).await.map_err(lease_error)?
+}
+
+/// Under the lease the file is read again: a pair stored since `old` is taken as it is while it is still good (and for
+/// a refused attempt on `old` always); otherwise the stored refresh token is exchanged.
+async fn exchange_stored(http: &dyn HttpSend, file: &CredentialFile, old: StoredTokens, force: bool) -> Result<StoredTokens, ProviderError> {
+    let latest = stored_in(file).await?;
+    let rotated = latest.access_token != old.access_token || latest.refresh_token != old.refresh_token;
+    let valid_after = now_ms() + REFRESH_SKEW.as_millis() as u64;
+    if rotated && (force || latest.expires_at == 0 || latest.expires_at > valid_after) {
+        return Ok(latest);
+    }
+    let Some(refresh_token) = latest.refresh_token.clone() else {
+        return Err(reauth("Cursor OAuth refresh token is unavailable."));
+    };
+    let next = match exchange_token(http, &refresh_token).await {
+        Ok(next) => next,
+        Err(error) => {
+            if error.reauth_required {
+                mark_dead(file, &refresh_token, error.status.unwrap_or(0)).await;
+            }
+            return Err(error);
+        }
+    };
+    file.keep(&[&next.access_token, next.refresh_token.as_deref().unwrap_or(&refresh_token)]);
+    let (access, refresh) = (latest.access_token.clone(), refresh_token);
+    let published = file
+        .replace_if(
+            move |doc| {
+                doc.get("access_token").and_then(Value::as_str) == Some(access.as_str())
+                    && doc.get("refresh_token").and_then(Value::as_str) == Some(refresh.as_str())
+            },
+            document(&next)?,
+        )
+        .await
+        .map_err(|_| storage("the refreshed tokens could not be stored"))?;
+    if published { Ok(next) } else { stored_in(file).await }
 }

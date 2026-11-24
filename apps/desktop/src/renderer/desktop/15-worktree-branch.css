@@ -378,6 +378,29 @@ html[data-mixdog-mobile-tabs] .composer-island-panel-foot.branch-menu-foot .comp
 .branch-menu-foot > .composer-island-button[data-selected] {
   background: var(--composer-island-wash);
 }
+/* In the island's branch tab (in the pill and hosted by the session panel) a row is the left sidebar's session
+   row: a 14px glyph and the name 22px in, the name in the row ink at rest and full ink where the row is washed
+   (pointed at, focused, the current branch); its age on the figures' line. The group labels take the panel's
+   sub-label tier. */
+.composer-island-branch-panel .branch-menu-item {
+  color: var(--mx-row-title-ink);
+}
+.composer-island-branch-panel .branch-menu-item > svg:first-child,
+.composer-island-branch-panel .branch-menu-item > .progress-spinner-turn:first-child > svg {
+  width: 14px;
+  height: 14px;
+}
+.composer-island-branch-panel .branch-menu-item:is(:hover:not([aria-disabled="true"]), :focus-visible, [data-mark="current"]),
+.composer-island-branch-panel .branch-row-shell:hover > .branch-menu-item:not([aria-disabled="true"]) {
+  color: var(--mx-row-title-ink-active);
+}
+.composer-island-branch-panel .branch-menu-item > small {
+  line-height: var(--mx-line-meta);
+}
+.composer-island-branch-panel .branch-menu-label {
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-meta);
+}
 .branch-menu-foot > [data-danger] {
   color: var(--mx-danger);
 }

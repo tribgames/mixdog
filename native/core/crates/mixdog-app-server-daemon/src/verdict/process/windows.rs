@@ -85,6 +85,17 @@ fn image(handle: &OwnedHandle) -> Option<PathBuf> {
     (ok != 0).then(|| PathBuf::from(String::from_utf16_lossy(&buffer[..len as usize])))
 }
 
+/// A process with an empty command line reports `Length == 0` with a null `Buffer`, which `from_raw_parts` forbids.
+///
+/// # Safety
+/// `ptr` is null, or valid for reads of `len` `u16`s for the returned lifetime.
+unsafe fn wide_text<'a>(ptr: *const u16, len: usize) -> &'a [u16] {
+    if ptr.is_null() {
+        return &[];
+    }
+    // SAFETY: non-null and valid per the caller.
+    unsafe { std::slice::from_raw_parts(ptr, len) }
+}
 fn command_line(handle: &OwnedHandle) -> Option<String> {
     let mut buffer = vec![0u64; 512];
     loop {
@@ -106,7 +117,7 @@ fn command_line(handle: &OwnedHandle) -> Option<String> {
     // points into the same allocation.
     let text = unsafe {
         let string = &*(buffer.as_ptr() as *const UNICODE_STRING);
-        std::slice::from_raw_parts(string.Buffer, usize::from(string.Length) / 2)
+        wide_text(string.Buffer, usize::from(string.Length) / 2)
     };
     Some(String::from_utf16_lossy(text))
 }
@@ -143,5 +154,14 @@ pub(super) fn listens(pid: u32, port: u16) -> io::Result<bool> {
         return Ok(rows
             .iter()
             .any(|row| row.dwOwningPid == pid && u16::from_be(row.dwLocalPort as u16) == port && row.dwLocalAddr.to_ne_bytes() == [127, 0, 0, 1]));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn an_empty_command_line_with_a_null_buffer_is_empty_text() {
+        // SAFETY: a null pointer is the case under test.
+        assert!(unsafe { super::wide_text(std::ptr::null(), 0) }.is_empty());
     }
 }

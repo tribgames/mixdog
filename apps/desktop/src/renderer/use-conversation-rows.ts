@@ -30,8 +30,13 @@ function passedEnds(items: readonly TranscriptItem[], liveItem: TranscriptItem |
     if (item?.kind === 'user' && !item.steered) break;
     const attempt = attemptOf(item);
     if (!attempt) continue;
-    if (item?.kind !== 'turndone') (after ??= new Set()).add(attempt);
-    else if (closesReply(item) && after?.has(attempt)) (places ??= []).unshift(index);
+    if (item?.kind !== 'turndone') {
+      after ??= new Set();
+      after.add(attempt);
+    } else if (closesReply(item) && after?.has(attempt)) {
+      places ??= [];
+      places.unshift(index);
+    }
   }
   return places ?? NO_PLACES;
 }
@@ -232,23 +237,20 @@ export function useTranscriptRows({
   );
   const opening = thinking && turnPastEnd;
   const shownRows = useRef<readonly TranscriptRowModel[] | undefined>(undefined);
-  const transcriptRows = useMemo(
-    () => {
-      const rows = appendLiveTranscriptRows({
-        sessionKey: identity,
-        settled: settledProjection,
-        pendingItems,
-        steerItems,
-        liveItem,
-        thinking,
-        opening,
-        turnRunning: Boolean(busy),
-        prior: shownRows.current,
-      });
-      shownRows.current = rows;
-      return rows;
-    },
-    [identity, settledProjection, pendingItems, steerItems, busy, thinking, opening, liveItem]
-  );
+  const transcriptRows = useMemo(() => {
+    const rows = appendLiveTranscriptRows({
+      sessionKey: identity,
+      settled: settledProjection,
+      pendingItems,
+      steerItems,
+      liveItem,
+      thinking,
+      opening,
+      turnRunning: Boolean(busy),
+      prior: shownRows.current,
+    });
+    shownRows.current = rows;
+    return rows;
+  }, [identity, settledProjection, pendingItems, steerItems, busy, thinking, opening, liveItem]);
   return { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd };
 }

@@ -940,15 +940,14 @@ mod pinned_credentials {
     use mixdog_core_api::domain::provider::RequestOptions;
     use mixdog_core_api::domain::provider::Role;
     use mixdog_core_api::domain::provider::StreamEvent;
-    use mixdog_core_api::domain::provider::TransportFault;
     use mixdog_core_api::domain::provider::WireRequest;
 
     use super::*;
     use crate::accounts::AccountChange;
     use crate::accounts::rotation::AccountRotation;
-    use crate::transport::BodyStream;
     use crate::transport::Exchange;
     use crate::transport::HttpResponse;
+    use crate::transport::testing::Once;
 
     const OPENAI: &str = "openai-oauth";
     const ID_A: &str = "11111111-1111-4111-8111-111111111111";
@@ -960,15 +959,6 @@ mod pinned_credentials {
     impl Environment for Vars {
         fn var(&self, name: &str) -> Option<String> {
             self.0.get(name).cloned()
-        }
-    }
-
-    struct Once(Option<Bytes>);
-
-    #[async_trait]
-    impl BodyStream for Once {
-        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-            self.0.take().map(Ok)
         }
     }
 

@@ -519,3 +519,138 @@ test('repeated usage popup lifetimes release listeners and do not multiply refre
   assert.equal(calls, 0);
   assert.equal(clock.timers.size + clock.doc.listenerCount() + clock.win.listenerCount(), 0);
 });
+
+test('a reading older than the one a provider shows never replaces it, whichever arrives last', async (t) => {
+  const clock = createRendererClock();
+  bind(t, clock);
+  const reading = (usedPct, updatedAt) => [
+    { id: 'anthropic-oauth', authenticated: true, updatedAt, windows: [{ label: '5H', usedPct }] },
+  ];
+  const stored = () => JSON.parse(clock.storage.get(CACHE_KEY)).rows;
+
+  // A refresh is answered from the read the core already runs; that read's own result is pushed before the answer lands.
+  const answer = Promise.withResolvers();
+  const host = sectionsHost({ invokeCapability: () => answer.promise });
+  const release = holdUsageDashboardCadence(host);
+  await clock.settle();
+  const request = refreshUsageDashboard(host, { force: true });
+  host.push(reading(10, 200));
+  answer.resolve({ value: { rows: reading(9, 100) } });
+  await request;
+  assert.deepEqual(rowsOf(), reading(10, 200));
+  assert.deepEqual(stored(), reading(10, 200));
+  release();
+  await clock.settle();
+
+  // The first section snapshot, read before a refresh, resolves after the refresh's newer answer.
+  const snapshot = Promise.withResolvers();
+  const late = sectionsHost({
+    sections: { snapshot: () => snapshot.promise, subscribe: () => () => undefined },
+    invokeCapability: async () => ({ value: { rows: reading(11, 300) } }),
+  });
+  const releaseLate = holdUsageDashboardCadence(late);
+  await refreshUsageDashboard(late, { force: true });
+  assert.deepEqual(rowsOf(), reading(11, 300));
+  snapshot.resolve({
+    status: 'ready',
+    entries: [{ section: 'usage', key: 'dashboard', revision: 1, value: { rows: reading(10, 200) } }],
+  });
+  await clock.settle();
+  assert.deepEqual(rowsOf(), reading(11, 300));
+  assert.deepEqual(stored(), reading(11, 300));
+  releaseLate();
+  await clock.settle();
+});
+
+test('readings are ordered only within one account: another account replaces the shown row whatever its time', async (t) => {
+  const clock = createRendererClock();
+  bind(t, clock);
+  const reading = (account, usedPct, updatedAt) => [
+    { id: 'anthropic-oauth', authenticated: true, updatedAt, credentialStamp: account, windows: [{ label: '5H', usedPct }] },
+  ];
+  const stored = () => JSON.parse(clock.storage.get(CACHE_KEY)).rows;
+  const stateListeners = new Set();
+  const answers = [];
+  const host = sectionsHost({
+    subscribeState(listener) {
+      stateListeners.add(listener);
+      return () => void stateListeners.delete(listener);
+    },
+    invokeCapability: () => new Promise((resolve) => answers.push(resolve)),
+  });
+  const release = holdUsageDashboardCadence(host);
+  await clock.settle();
+  const switchTo = (accountId, at) => {
+    for (const listener of stateListeners)
+      listener({ providerAccountChange: { provider: 'anthropic-oauth', accountId, at } });
+  };
+  const A = (usedPct = 10, at = 200) => reading('aaaa', usedPct, at);
+  const B = (usedPct = 40, at = 150) => reading('bbbb', usedPct, at);
+
+  host.push(A());
+  assert.deepEqual(rowsOf(), A());
+
+  // Switch seen by this window: B, measured earlier, is answered.
+  switchTo('b', clock.now + 1);
+  await clock.settle();
+  answers.shift()({ value: { rows: B() } });
+  await clock.settle();
+  assert.deepEqual(rowsOf(), B());
+  assert.deepEqual(stored(), B());
+
+  // The same account still orders: B's older reading never replaces B's newer one.
+  host.push(B(41, 160));
+  host.push(B(40, 150));
+  assert.deepEqual(rowsOf(), B(41, 160));
+
+  // A push carrying A lands between the switch back to A and its answer, then B's stale row is answered late.
+  switchTo('a', clock.now + 2);
+  await clock.settle();
+  host.push(A());
+  answers.shift()({ value: { rows: A() } });
+  await clock.settle();
+  assert.deepEqual(rowsOf(), A());
+
+  // A switch made by another client: this window hears of it only as a push with an older time.
+  host.push(B());
+  assert.deepEqual(rowsOf(), B());
+  assert.deepEqual(stored(), B());
+  host.push(A());
+  assert.deepEqual(rowsOf(), A(), 'a newer reading of the other account takes the row back');
+  release();
+  await clock.settle();
+});
+
+test('a stored row carries its account, so a restart orders against it', async (t) => {
+  const clock = createRendererClock();
+  bind(t, clock);
+  const row = (account, updatedAt, usedPct) => [
+    { id: 'anthropic-oauth', authenticated: true, updatedAt, credentialStamp: account, windows: [{ label: '5H', usedPct }] },
+  ];
+  publishUsageDashboard({ rows: row('aaaa', 200, 10) });
+  const host = sectionsHost();
+  const release = holdUsageDashboardCadence(host);
+  await clock.settle();
+  host.push(row('aaaa', 100, 9));
+  assert.deepEqual(rowsOf(), row('aaaa', 200, 10), 'the same account keeps its newer stored reading');
+  host.push(row('bbbb', 150, 40));
+  assert.deepEqual(rowsOf(), row('bbbb', 150, 40));
+  release();
+  await clock.settle();
+});
+
+test('a core that sends no account keeps ordering by the readings this document accepted', async (t) => {
+  const clock = createRendererClock();
+  bind(t, clock);
+  const row = (updatedAt, usedPct) => [
+    { id: 'anthropic-oauth', authenticated: true, updatedAt, windows: [{ label: '5H', usedPct }] },
+  ];
+  const host = sectionsHost();
+  const release = holdUsageDashboardCadence(host);
+  await clock.settle();
+  host.push(row(200, 10));
+  host.push(row(150, 40));
+  assert.deepEqual(rowsOf(), row(200, 10));
+  release();
+  await clock.settle();
+});

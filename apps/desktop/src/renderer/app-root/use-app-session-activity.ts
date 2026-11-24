@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react';
-import { isAgentHomeSessionId } from '../../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { BOT_DELETED_EVENT } from '../agent-profile-actions';
 import { closeSessionTabsEverywhere } from '../session-tab-cleanup';
 import { sessionDisplayTitle } from '../session-display-title';
@@ -34,7 +33,6 @@ type SessionActivityOptions = Pick<
   'sessions' | 'setTabs' | 'refreshSessions'
 > & {
   setSessionCatalogReady: (ready: boolean) => void;
-  subscribeSessionsRemoved: (listener: (sessionIds: string[]) => void) => () => void;
   closePaneTab: (key: string) => void;
 };
 
@@ -43,7 +41,6 @@ export function useAppSessionActivity({
   setTabs,
   refreshSessions,
   setSessionCatalogReady,
-  subscribeSessionsRemoved,
   closePaneTab,
 }: SessionActivityOptions) {
   // A phone holds no turn of its own: only the conversation it shows can be
@@ -66,24 +63,16 @@ export function useAppSessionActivity({
     if (!sessions.length) return;
     setTabs((current) => retitleSessionTabs(current, sessions));
   }, [sessions, setTabs]);
+  // A session deleted elsewhere is torn down by the session actions, like a
+  // local delete. A bot deleted in this window: its chat is archived, its tabs close.
   useEffect(() => {
-    const closeTabs = (ids: readonly string[]) => closeSessionTabsEverywhere(ids, setTabs, closePaneTab);
-    // An agent's home keeps its fixed id for good: after 대화 초기화 it is
-    // empty, so the catalog leaves it out, yet its chat stays open.
-    const unsubscribe = subscribeSessionsRemoved((removedIds) =>
-      closeTabs(removedIds.filter((id) => !isAgentHomeSessionId(id)))
-    );
-    // A bot deleted in this window: its chat is archived, its tabs close.
     const onBotDeleted = (event: Event) => {
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
-      if (typeof sessionId === 'string' && sessionId) closeTabs([sessionId]);
+      if (typeof sessionId === 'string' && sessionId) closeSessionTabsEverywhere([sessionId], setTabs, closePaneTab);
     };
     window.addEventListener(BOT_DELETED_EVENT, onBotDeleted);
-    return () => {
-      unsubscribe();
-      window.removeEventListener(BOT_DELETED_EVENT, onBotDeleted);
-    };
-  }, [subscribeSessionsRemoved, setTabs, closePaneTab]);
+    return () => window.removeEventListener(BOT_DELETED_EVENT, onBotDeleted);
+  }, [setTabs, closePaneTab]);
   useEffect(() => {
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;

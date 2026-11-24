@@ -54,6 +54,7 @@ use crate::fsio::WriteLane;
 use crate::fsio::err;
 use crate::log::ForwardEnd;
 use crate::log::WriterIo;
+use crate::log::is_group_file;
 use crate::log::list_logs;
 use crate::log::log_name;
 use crate::log::ordinal_of;
@@ -62,7 +63,11 @@ use crate::schema::blob::BodyBlob;
 use crate::schema::blob::Slot;
 use crate::schema::checkpoint::CheckpointState;
 use crate::schema::checkpoint::FramePos;
+use crate::schema::frame::FRAME_OVERHEAD;
+use crate::schema::frame::GROUP_MARKER_LEN;
 use crate::schema::frame::ORDINAL_DIGITS;
+use crate::schema::frame::group_file_head;
+use crate::schema::frame::parse_group_file_head;
 use crate::schema::record::CheckpointRecord;
 use crate::schema::record::Record;
 use crate::schema::record::Refs;
@@ -372,16 +377,16 @@ fn build_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, 
     remove_dir(&new)?;
     let mut moved: HashMap<u64, FramePos> = HashMap::new();
     // The checkpoints' blobs, published before the files naming them.
-    for file in read_log(&session_dir(data, session))? {
-        let mut out = Vec::with_capacity(file.bytes.len());
-        for (record, pos, frame_len) in &file.frames {
-            let offset = out.len() as u64;
+    let files = read_log(&session_dir(data, session))?;
+    let numbers: Vec<u32> = files.iter().map(|f| f.file_no).collect();
+    for file in files {
+        let rewritten = |record: &Record, pos: &FramePos, moved: &HashMap<u64, FramePos>| -> Result<Option<Vec<u8>>, RewriteError> {
             let mut payload = replacements.get(&pos.ordinal).map(|p| p.as_bytes().to_vec());
             let replaced = payload.as_deref().map(serde_json::from_slice::<Record>).transpose().map_err(log_error)?;
             if let Record::Checkpoint(checkpoint) = replaced.as_ref().unwrap_or(record) {
                 let mut resolve = |b: &BodyBlob| blobs.read_unlaned(&b.descriptor().digest).map_err(|e| e.to_string());
                 let state: CheckpointState = resolve_slot(&checkpoint.state, &mut resolve).map_err(RewriteError::Log)?;
-                if let Some(state) = moved_state(&state, &moved) {
+                if let Some(state) = moved_state(&state, moved) {
                     let encoded = encode_record(Record::Checkpoint(CheckpointRecord { state: Slot::Inline(state) })).map_err(log_error)?;
                     for blob in encoded.blobs() {
                         blobs.put_unlaned(&blob.bytes, |p, b| io.publish(p, b)).map_err(log_error)?;
@@ -389,12 +394,46 @@ fn build_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, 
                     payload = Some(encoded.payload().to_vec());
                 }
             }
-            match payload {
-                Some(payload) => framing::encode_into(&mut out, pos.ordinal, &payload),
-                None => out.extend_from_slice(&file.bytes[pos.offset as usize..(pos.offset + frame_len) as usize]),
+            Ok(payload)
+        };
+        let original = |pos: &FramePos, frame_len: u64| &file.bytes[pos.offset as usize..(pos.offset + frame_len) as usize];
+        let out = if is_group_file(&numbers, file.file_no) {
+            // The head frame names the members' length and SHA-256, so it is written last, over the rewritten members.
+            let ((head, head_pos, head_len), members) = file.frames.split_first().ok_or_else(|| RewriteError::Log("group file without a head".into()))?;
+            let checkpoint = match rewritten(head, head_pos, &moved)? {
+                Some(payload) => payload,
+                None => {
+                    let payload = framing::check_frame(original(head_pos, *head_len), head_pos.ordinal).map_err(|e| log_error(format!("{e:?}")))?;
+                    parse_group_file_head(payload).map_err(|e| log_error(format!("{e:?}")))?.1.to_vec()
+                }
+            };
+            let head_frame_len = (GROUP_MARKER_LEN + 1 + checkpoint.len() + FRAME_OVERHEAD) as u64;
+            moved.insert(head_pos.ordinal, FramePos { ordinal: head_pos.ordinal, file_no: file.file_no, offset: 0 });
+            let mut body = Vec::new();
+            for (record, pos, frame_len) in members {
+                let offset = head_frame_len + body.len() as u64;
+                match rewritten(record, pos, &moved)? {
+                    Some(payload) => framing::encode_into(&mut body, pos.ordinal, &payload),
+                    None => body.extend_from_slice(original(pos, *frame_len)),
+                }
+                moved.insert(pos.ordinal, FramePos { ordinal: pos.ordinal, file_no: file.file_no, offset });
             }
-            moved.insert(pos.ordinal, FramePos { ordinal: pos.ordinal, file_no: file.file_no, offset });
-        }
+            let mut out = Vec::with_capacity(head_frame_len as usize + body.len());
+            framing::encode_into(&mut out, head_pos.ordinal, &group_file_head(members.len() as u64, &body, &checkpoint));
+            out.extend_from_slice(&body);
+            out
+        } else {
+            let mut out = Vec::with_capacity(file.bytes.len());
+            for (record, pos, frame_len) in &file.frames {
+                let offset = out.len() as u64;
+                match rewritten(record, pos, &moved)? {
+                    Some(payload) => framing::encode_into(&mut out, pos.ordinal, &payload),
+                    None => out.extend_from_slice(original(pos, *frame_len)),
+                }
+                moved.insert(pos.ordinal, FramePos { ordinal: pos.ordinal, file_no: file.file_no, offset });
+            }
+            out
+        };
         hook(Step::Build(file.file_no))?;
         io.publish(&building.join(log_name(file.file_no)), &out)?;
     }

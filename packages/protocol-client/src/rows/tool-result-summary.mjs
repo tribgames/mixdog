@@ -273,14 +273,16 @@ export function textBetweenTag(text, tag) {
 }
 
 function stripInlineMarkdown(value) {
-  return String(value ?? '')
-    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    // `mcp__gmail__send_email` is a name, not bold: emphasis opens and closes at a word edge.
-    .replace(/(?<!\w)__([^_]+)__(?!\w)/g, '$1')
-    .replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .trim();
+  return (
+    String(value ?? '')
+      .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      // `mcp__gmail__send_email` is a name, not bold: emphasis opens and closes at a word edge.
+      .replace(/(?<!\w)__([^_]+)__(?!\w)/g, '$1')
+      .replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .trim()
+  );
 }
 
 // Envelope field lines (`status: …`, `task_id: …`) that precede or surround a

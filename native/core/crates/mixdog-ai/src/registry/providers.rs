@@ -342,7 +342,8 @@ impl ProviderRegistry {
     async fn with_custom_key_ids(&self, config: &Map<String, Value>) -> Result<Map<String, Value>, RegistryError> {
         let mut out = config.clone();
         for (name, cfg) in config {
-            if !is_custom(name, cfg) || cfg.get("auth").and_then(Value::as_str) == Some("none") {
+            let env_key = cfg.get("apiKeyEnv").and_then(Value::as_str).is_some_and(|variable| !variable.is_empty());
+            if !is_custom(name, cfg) || cfg.get("auth").and_then(Value::as_str) == Some("none") || env_key {
                 continue;
             }
             let ids = self.builder.custom_key_ids(name).await.map_err(RegistryError::plain)?;

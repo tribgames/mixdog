@@ -22,7 +22,11 @@ const lock = {
       optionalDependencies: { native: '^1' },
     },
     'node_modules/app/node_modules/typed/node_modules/inner': { version: '1.5.0', integrity: 'sha512-i' },
-    'node_modules/app/node_modules/typed/node_modules/native': { version: '1.0.0', integrity: 'sha512-n', optional: true },
+    'node_modules/app/node_modules/typed/node_modules/native': {
+      version: '1.0.0',
+      integrity: 'sha512-n',
+      optional: true,
+    },
     'node_modules/shared': { version: '1.2.0', integrity: 'sha512-s', dependencies: { typed: '^1', both: '^1' } },
     'node_modules/both': { version: '1.0.0', integrity: 'sha512-b' },
     'node_modules/typed': { version: '1.0.0', integrity: 'sha512-t1' },
@@ -80,7 +84,10 @@ test('a name listed as a required peer and as an optional dependency is optional
     },
   });
   const request = { manifest: { dependencies: { a: '^1' } }, names: ['a'] };
-  const held = lockSubset({ lock: overlap({ 'node_modules/p': { version: '1.0.0', integrity: 'sha512-p' } }), ...request });
+  const held = lockSubset({
+    lock: overlap({ 'node_modules/p': { version: '1.0.0', integrity: 'sha512-p' } }),
+    ...request,
+  });
   assert.equal(held.lock.packages['node_modules/p'].optional, true);
   assert.ok(lockSubset({ lock: overlap({}), ...request }));
 });
@@ -167,5 +174,8 @@ test('a devDependency of another package is installable (apps/desktop: @electron
   assert.ok(manifest.dependencies['@electron/asar']);
   assert.ok(lock.packages['node_modules/@electron/asar']);
   assert.equal(Object.keys(lock.packages).length - 1, 16);
-  assert.deepEqual(Object.keys(lock.packages).filter((key) => lock.packages[key].optional), []);
+  assert.deepEqual(
+    Object.keys(lock.packages).filter((key) => lock.packages[key].optional),
+    []
+  );
 });

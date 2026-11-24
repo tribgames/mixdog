@@ -16,20 +16,11 @@ use super::*;
 use crate::oauth::CredentialIo;
 use crate::registry::keys::Environment;
 use crate::service::oauth_usage::OAuthUsage;
-use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
+use crate::transport::testing::Once;
 
 #[path = "usage_provider_reads_tests.rs"]
 mod provider_reads;
-
-struct Body(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Body {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
 
 struct Reply {
     url: String,
@@ -79,7 +70,7 @@ impl HttpSend for Net {
         match replies.iter_mut().find(|r| r.url == url && !r.used) {
             Some(reply) if !reply.fail => {
                 reply.used = true;
-                Ok(HttpResponse { status: reply.status, headers: Vec::new(), body: Box::new(Body(Some(Bytes::from(reply.body.clone())))) })
+                Ok(HttpResponse { status: reply.status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(reply.body.clone())))) })
             }
             Some(reply) => {
                 reply.used = true;
@@ -105,7 +96,7 @@ impl UsageSource for Flow {
         Ok(Some(UsageAuth::plain(if *refreshed && !self.forced.is_null() { self.forced.clone() } else { self.auth.clone() })))
     }
 
-    async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         Ok(None)
     }
 }
@@ -164,7 +155,7 @@ async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_i
         assert!(source.ensure_auth(provider, "default", None).await.is_err(), "{provider}");
     }
     assert!(source.ensure_auth("cursor-oauth", "default", None).await.unwrap().is_none());
-    assert!(source.provider_snapshot("cursor-oauth", "default").await.is_err());
+    assert!(source.provider_snapshot("cursor-oauth", "default", &mut None).await.is_err());
 }
 
 #[tokio::test]
@@ -326,13 +317,134 @@ async fn cursor_api_plan_read_exchanges_the_configured_key_without_a_registered_
     let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), Arc::new(Vars(HashMap::new())), false);
     let source = ProviderUsageSource::new(store, net.clone())
         .with_cursor_api(keys, Arc::new(|| KeyConfig { api_key: Some("fixture-cursor-key".into()), api_key_env: None }));
-    let reading = source.provider_snapshot("cursor-api", "default").await.unwrap().unwrap();
+    let reading = source.provider_snapshot("cursor-api", "default", &mut None).await.unwrap().unwrap();
     assert_eq!(reading["provider"], "cursor-api");
     let seen = net.seen.lock().unwrap();
     assert_eq!(seen.len(), 3);
     for (idx, expected) in ["Bearer fixture-cursor-key", "Bearer fixture-cursor-bearer", "Bearer fixture-cursor-bearer"].into_iter().enumerate() {
         assert!(seen[idx].headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("authorization") && value == expected));
     }
+}
+
+/// An environment whose variables the test changes while the service runs.
+struct LiveVars(Mutex<HashMap<String, String>>);
+
+impl LiveVars {
+    fn set(&self, name: &str, value: Option<&str>) {
+        let mut vars = self.0.lock().unwrap();
+        match value {
+            Some(value) => vars.insert(name.to_owned(), value.to_owned()),
+            None => vars.remove(name),
+        };
+    }
+}
+
+impl Environment for LiveVars {
+    fn var(&self, name: &str) -> Option<String> {
+        self.0.lock().unwrap().get(name).cloned()
+    }
+}
+
+/// A JWT whose `exp` claim is `exp` (epoch seconds).
+fn jwt(exp: u64) -> String {
+    use base64::Engine;
+    format!("h.{}.s", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#)))
+}
+
+/// A Cursor usage answer whose plan includes a 100-cent allowance (`planUsage.limit`): one dollar window.
+const CURSOR_ALLOWANCE: &str = "\u{1a}\u{2}\u{28}\u{64}";
+
+/// The OAuth usage service over the production source of `store`, its requests answered by `net`.
+fn cursor_usage(dir: &tempfile::TempDir, store: AccountStore, net: Arc<Net>, io: CredentialIo) -> Arc<OAuthUsage> {
+    let versions = ClientVersions::new(Net::from(&json!([])), dir.path().to_path_buf(), io, Arc::new(Vars(HashMap::new())));
+    OAuthUsage::new(UsageDeps {
+        http: Arc::new(RoutedUsageHttp::new(net.clone())),
+        source: Arc::new(ProviderUsageSource::new(store.clone(), net)),
+        grok: Arc::new(GrokVersionHeaders::new(versions)),
+        history: Arc::new(History::default()),
+        store,
+        io,
+        log: Arc::new(|_| {}),
+        data_dir: dir.path().join("data"),
+    })
+}
+
+/// The bearers the Cursor usage requests went out with, in order.
+fn cursor_bearers(net: &Net) -> Vec<String> {
+    let path = format!("{}{}", crate::providers::cursor::API_URL, usage_cursor::USAGE_PATH);
+    let seen = net.seen.lock().unwrap();
+    seen.iter()
+        .filter(|request| request.url == path)
+        .filter_map(|request| request.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).map(|(_, value)| value.clone()))
+        .collect()
+}
+
+/// The default Cursor slot's stored token is due for renewal when its usage is measured: the measurement exchanges it
+/// and reads on the new one. The reading is that new token's, the one stored when it lands, so the next read serves it
+/// and nothing is measured again.
+#[tokio::test]
+async fn a_cursor_reading_taken_on_a_token_renewed_for_it_is_served_on_the_next_read() {
+    use crate::providers::cursor::{API_URL, auth::EXCHANGE_URL};
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let store = AccountStore::new(dir.path().to_path_buf(), io);
+    let (stale, renewed) = (jwt(1), jwt(4_100_000_000));
+    let login = json!({ "access_token": stale, "refresh_token": "fixture-cursor-refresh" });
+    store.credential_file("cursor-oauth", "default").unwrap().save(&login).await.unwrap();
+    let net = Net::from(&json!([
+        { "url": EXCHANGE_URL, "body": { "accessToken": renewed, "refreshToken": "fixture-cursor-refresh-2" } },
+        { "url": format!("{API_URL}{}", usage_cursor::USAGE_PATH), "body": CURSOR_ALLOWANCE },
+        { "url": format!("{API_URL}{}", usage_cursor::PLAN_PATH), "body": "" }
+    ]));
+    let usage = cursor_usage(&dir, store, net.clone(), io);
+    let route = crate::service::oauth_usage::RouteInfo { provider: "cursor-oauth".into(), model: String::new(), account_id: "default".into() };
+
+    let measured = usage.fetch_snapshot(&route, false).await.expect("the reading taken on the renewed token");
+    assert_eq!(cursor_bearers(&net), [format!("Bearer {renewed}")]);
+    let served = usage.read_cached(&route, false).await.expect("the renewed token's reading is served");
+    assert_eq!(served["quotaWindows"], measured["quotaWindows"]);
+    assert!(usage.fetch_snapshot(&route, false).await.is_some());
+    assert_eq!(net.seen.lock().unwrap().len(), 3, "the reading was measured again");
+}
+
+/// `CURSOR_ACCESS_TOKEN` is the credential in force for the default Cursor slot while it is set: the reading is measured
+/// on it and belongs to it. Set to another account's token, the old reading is not served and the next is measured on
+/// the new token; unset, the slot's file is in force again, no override's reading is served and the next is the file's.
+#[tokio::test]
+async fn the_default_cursor_slots_reading_follows_its_environment_override() {
+    use crate::providers::cursor::API_URL;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let env = Arc::new(LiveVars(Mutex::new(HashMap::new())));
+    env.set("CURSOR_ACCESS_TOKEN", Some("fixture-override-a"));
+    let store = AccountStore::new(dir.path().to_path_buf(), io).with_env(env.clone());
+    let login = json!({ "access_token": "fixture-cursor-file", "refresh_token": "fixture-cursor-refresh" });
+    store.credential_file("cursor-oauth", "default").unwrap().save(&login).await.unwrap();
+    let reading = [
+        json!({ "url": format!("{API_URL}{}", usage_cursor::USAGE_PATH), "body": CURSOR_ALLOWANCE }),
+        json!({ "url": format!("{API_URL}{}", usage_cursor::PLAN_PATH), "body": "" }),
+    ];
+    let net = Net::from(&Value::Array(reading.iter().cycle().take(6).cloned().collect()));
+    let usage = cursor_usage(&dir, store, net.clone(), io);
+    let route = crate::service::oauth_usage::RouteInfo { provider: "cursor-oauth".into(), model: String::new(), account_id: "default".into() };
+
+    assert!(usage.fetch_snapshot(&route, false).await.is_some());
+    assert!(usage.read_cached(&route, true).await.is_some(), "the override's reading while it is in force");
+
+    env.set("CURSOR_ACCESS_TOKEN", Some("fixture-override-b"));
+    assert!(usage.read_cached(&route, true).await.is_none(), "another account's token: the old reading is not its");
+    assert!(usage.fetch_snapshot(&route, false).await.is_some());
+    assert!(usage.read_cached(&route, true).await.is_some());
+
+    env.set("CURSOR_ACCESS_TOKEN", None);
+    assert!(usage.read_cached(&route, true).await.is_none(), "unset: the file is in force, not an override's reading");
+    assert!(usage.fetch_snapshot(&route, false).await.is_some());
+    assert!(usage.read_cached(&route, true).await.is_some());
+    assert_eq!(cursor_bearers(&net), ["Bearer fixture-override-a", "Bearer fixture-override-b", "Bearer fixture-cursor-file"]);
 }
 
 /// An OAuth usage read that is never answered ends 4.5 s in with the text of a timed-out signal.

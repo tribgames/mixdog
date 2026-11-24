@@ -469,6 +469,7 @@ export function transcriptRowNode(
     retryDisabled,
     settledItems,
     settledTurnKeys,
+    liveItems = settledItems,
     latestCompletion,
     snapshot,
     onRetryTurn,
@@ -486,10 +487,13 @@ export function transcriptRowNode(
     readOnly: boolean;
     renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
     retryDisabled: boolean;
+    /** The rows shown and their own turn keys: a row's retry and turn record are read from them. */
     settledItems: readonly TranscriptItem[];
     /** The last settled turndone; computed once per transcript, not per row. */
     latestCompletion: TranscriptItem | undefined;
     settledTurnKeys: readonly string[];
+    /** The live rows, when the rows shown are a history window: the pending question's call is among them. */
+    liveItems?: readonly TranscriptItem[];
     snapshot: Snapshot;
     onRetryTurn(turnKey: string): void;
     onOpenSettings(section?: SettingsSection | null): void;
@@ -531,7 +535,7 @@ export function transcriptRowNode(
     // answered one stays as its summary.
     // Exactly one call holds the card (askUserCardKey).
     const cardKey = questionCard
-      ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
+      ? askUserCardKey(liveItems, String(snapshot.toolApproval?.toolCallId ?? ''))
       : undefined;
     const parts = toolActivityParts(row.items, cardKey !== undefined, cardKey);
     const record = turnRecordOf(settledItems, settledTurnKeys, row.turnKey);

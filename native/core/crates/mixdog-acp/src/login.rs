@@ -41,6 +41,7 @@ use serde_json::Value;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::agents::AccountEvent;
 use crate::agents::Agents;
 use crate::agents::Readiness;
 use crate::agents::lock;
@@ -209,6 +210,7 @@ impl Agents {
         if let Some(prior) = lock(&self.logins).insert(preset.id.clone(), stop.clone()) {
             prior.cancel();
         }
+        self.account_left(&preset.id, AccountEvent::Left);
         let launch = Launch { program: self.program(preset), args: login.args.clone(), env: preset.env.clone(), env_remove: login.env_remove.clone(), cwd };
         let (handle, events) =
             spawn_piped(&self.parts.processes, launch).await.map_err(|fault| format!("{}'s sign-in did not start: {fault}", preset.label))?;
@@ -236,6 +238,7 @@ impl Agents {
                     // The account the user signed in with is not the one the agent refused.
                     Some(Readiness::Ready { .. }) => {
                         agents.answered(&preset).await;
+                        agents.account_left(&preset.id, AccountEvent::SignedIn);
                         Ok(true)
                     }
                     Some(Readiness::SignedOut { .. }) => Err(format!("{} still reports that it is signed out.", preset.label)),
@@ -274,7 +277,7 @@ impl DomainService for AgentLogins {
                 || async { self.agents.sign_out(preset).await.map(|()| Value::Bool(true)).map_err(|message| Failure::error(message).into_core(DOMAIN)) };
             return self.ops.run(&req, None, sign_out, || async { Ok(Value::Bool(true)) }).await;
         }
-        let Some(preset) = Some(()).filter(|()| req.method.as_str() == BEGIN).and_then(|()| self.agents.preset_of_route(&provider)) else {
+        let Some(preset) = (req.method.as_str() == BEGIN).then(|| self.agents.preset_of_route(&provider)).flatten() else {
             return self.inner.call(req).await;
         };
         let begin = || async {

@@ -127,7 +127,7 @@ function fakeContents(id) {
   return { contents, handlers };
 }
 
-test('watchPageProblems judges only requests made by its own webContents and ignores aborted loads', () => {
+test('watchPageProblems judges a request of any window on the session, leaves an unattributed one alone, and ignores aborted loads', () => {
   const calls = [];
   const service = {
     reportConsole: (report) => calls.push(['console', report.frameUrl]),
@@ -137,7 +137,7 @@ test('watchPageProblems judges only requests made by its own webContents and ign
     },
     guardRequest: (chain, request) => {
       calls.push(['request', chain.length, request.url]);
-      return true;
+      return chain.length > 0;
     },
     reportAssetFailure: (url, detail, chain) => calls.push(['asset', url, detail, chain.length]),
     reportNavigation: (url, code) => calls.push(['navigated', url, code]),
@@ -153,7 +153,14 @@ test('watchPageProblems judges only requests made by its own webContents and ign
     cancelled = answer.cancel;
   });
   assert.equal(cancelled, true);
+  // A window opened after this one was observed has another id: its frames are still judged.
   handlers.onBeforeRequest({ ...foreign, url: 'http://y/', resourceType: 'script' }, () => {});
+  // A request naming no window, frame or referrer belongs to no Visualize page: it passes.
+  let unattributed;
+  handlers.onBeforeRequest({ frame: null, referrer: '', url: 'http://y/', resourceType: 'other' }, (reply) => {
+    unattributed = reply.cancel;
+  });
+  assert.equal(unattributed, false);
   handlers.onCompleted({ ...mine, url: 'http://y/a.css', statusCode: 404, resourceType: 'stylesheet' });
   handlers.onCompleted({ ...mine, url: 'http://y/', statusCode: 404, resourceType: 'mainFrame' });
   handlers.onErrorOccurred({ ...mine, url: 'http://y/b.js', error: 'net::ERR_ABORTED', resourceType: 'script' });
@@ -164,6 +171,7 @@ test('watchPageProblems judges only requests made by its own webContents and ign
   handlers['did-frame-navigate']({}, 'http://y/g', 200, '', false);
 
   assert.deepEqual(calls, [
+    ['request', 2, 'http://y/'],
     ['request', 2, 'http://y/'],
     ['request', 0, 'http://y/'],
     ['asset', 'http://y/a.css', '404', 2],

@@ -517,20 +517,40 @@ fn sync_directory(target: &Path) {
     }
 }
 
-/// Node: `writeRestoredFile` + chmod. The restore rewrites in place, through the handle that wrote it.
+/// Node: `writeRestoredFile` + chmod. The restore is published by rename, as the batch replaced the file: a read-only
+/// file cannot be opened for writing, and a truncating open leaves a torn file when the write fails.
 fn restore_in_place(path: &Path, content: &[u8], mode: Option<u32>) -> io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-    file.write_all(content)?;
-    sync(&file)?;
-    drop(file);
+    let tmp = temp_name(path);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    // Private from the first byte: the staging file has the file's own permissions, never the default ones.
     #[cfg(unix)]
-    if let Some(mode) = mode {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o7777))?;
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode.map_or(0o600, |mode| mode & 0o7777));
     }
     #[cfg(not(unix))]
     let _ = mode;
-    Ok(())
+    // A name that exists is not ours: the failed open returns before anything is removed.
+    let mut file = options.open(&tmp)?;
+    let staged = (|| -> io::Result<()> {
+        file.write_all(content)?;
+        sync(&file)?;
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&tmp, fs::Permissions::from_mode(mode & 0o7777))?;
+        }
+        Ok(())
+    })()
+    .and_then(|()| {
+        drop(file);
+        fs::rename(&tmp, path)
+    });
+    if staged.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    staged
 }
 
 struct PreImage {
@@ -2047,6 +2067,24 @@ mod tests {
 
     fn put(path: &AbsPath, content: &[u8], precondition: WritePrecondition) -> WriteRequest {
         WriteRequest { path: path.clone(), content: content.to_vec(), precondition }
+    }
+
+    /// A batch rollback puts a read-only file back, with its mode, and leaves no staging file.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_file_is_restored_by_a_batch_rollback() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, root) = root();
+        let target = root.as_path().join("ro.txt");
+        fs::write(&target, b"replaced").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o444)).unwrap();
+        restore_in_place(&target, b"original", Some(0o100444)).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o7777, 0o444);
+        // A private file is staged private: the staging file never has the default permissions.
+        restore_in_place(&target, b"private", Some(0o100600)).unwrap();
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o7777, 0o600);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     fn tmp_suffix_is_eight_hex(tmp_name: &str, target_name: &str) -> bool {

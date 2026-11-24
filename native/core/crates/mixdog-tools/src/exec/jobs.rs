@@ -1034,6 +1034,9 @@ pub struct ExecRuntime {
     /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
     /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
     artifacts: Mutex<Vec<PathBuf>>,
+    /// The removals waiting for a job to settle, so a test waits for one to finish.
+    #[cfg(test)]
+    cleanups: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) standby: Arc<super::standby::Standby>,
 }
 
@@ -1335,6 +1338,10 @@ impl Job {
 
     pub fn exit(&self) -> Option<ProcessExit> {
         self.state().exit
+    }
+
+    pub fn is_settled(&self) -> bool {
+        *self.settled.borrow()
     }
 
     pub async fn settled(&self) {
@@ -1658,6 +1665,8 @@ impl ExecRuntime {
             reconciled: tokio::sync::watch::Sender::new(None),
             sweep: Mutex::new(None),
             artifacts: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            cleanups: Mutex::new(Vec::new()),
             standby: Arc::default(),
         })
     }
@@ -1681,23 +1690,52 @@ impl ExecRuntime {
             let _ = sweep.await;
         }
         self.snapshots.drain(self.config.lanes.maintenance, cancel).await;
-        let pending = std::mem::take(&mut *lock(&self.artifacts));
+        let pending = lock(&self.artifacts).clone();
         for path in pending {
-            spill::remove_file(self.config.lanes.durability, cancel, &path).await;
+            self.remove_artifact(&path).await;
         }
     }
 
-    /// `path` stays in use until `job` settles; then it is removed (`cleanupArtifactAfter`). One
-    /// that cannot be removed then is removed at shutdown.
-    pub(crate) fn remove_when_settled(self: &Arc<Self>, job: &Arc<Job>, path: PathBuf, cancel: CancellationToken) {
+    /// Removes a recorded file; the record keeps it unless the file is gone.
+    async fn remove_artifact(&self, path: &Path) {
+        if spill::remove_file(self.config.lanes.durability, path).await {
+            lock(&self.artifacts).retain(|pending| pending != path);
+        }
+    }
+
+    /// Records `path`, a file no command uses, and removes it; a removal that does not happen
+    /// leaves it recorded for the shutdown sweep.
+    pub(crate) async fn remove_unused(&self, path: PathBuf) {
         lock(&self.artifacts).push(path.clone());
+        self.remove_artifact(&path).await;
+    }
+
+    /// `path` stays in use until `job` settles; then it is removed (`cleanupArtifactAfter`), at
+    /// once when it already has. One that cannot be removed stays recorded, for the shutdown sweep.
+    pub(crate) async fn remove_when_settled(self: &Arc<Self>, job: &Arc<Job>, path: PathBuf) {
+        lock(&self.artifacts).push(path.clone());
+        if job.is_settled() {
+            self.remove_artifact(&path).await;
+            return;
+        }
         let (runtime, settled) = (self.clone(), job.clone());
-        mixdog_rt::spawn("shell-artifact-cleanup", TaskClass::Work, async move {
+        let cleanup = mixdog_rt::spawn("shell-artifact-cleanup", TaskClass::Work, async move {
             settled.settled().await;
-            if spill::remove_file(runtime.config.lanes.durability, &cancel, &path).await {
-                lock(&runtime.artifacts).retain(|pending| pending != &path);
-            }
+            runtime.remove_artifact(&path).await;
         });
+        #[cfg(test)]
+        lock(&self.cleanups).push(cleanup);
+        #[cfg(not(test))]
+        drop(cleanup);
+    }
+
+    /// Waits for every removal started so far to finish.
+    #[cfg(test)]
+    pub(crate) async fn cleanups_done(&self) {
+        let pending = std::mem::take(&mut *lock(&self.cleanups));
+        for cleanup in pending {
+            let _ = cleanup.await;
+        }
     }
 
     /// Remembers the shells a timeout reap of `owner` stopped.

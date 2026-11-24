@@ -21,13 +21,14 @@ export async function mountTranscriptPane(t) {
     expose: ['HTMLElement', 'Node', 'Event', 'MouseEvent', 'CustomEvent'],
     rootId: 'root',
   });
-  const view = { sealed: true, reads: 0, rows: [], frames: [], document };
+  const view = { sealed: true, reads: 0, read: [], rows: [], frames: [], document };
   // The reads a render started and the pane has not been answered yet.
   const reading = new Set();
   const answer = async (request) => {
     if (request.capability !== 'getTurnChanges') return { value: null };
     view.reads += 1;
     const checkpointId = request.args[0].checkpointId;
+    view.read.push(checkpointId);
     const file = { path: 'src/a.ts', status: 'M', additions: 2, deletions: 1, state: 'applied', revertable: true };
     return {
       value: {
@@ -113,6 +114,7 @@ export async function mountTranscriptPane(t) {
     );
   }
   view.root = root;
+  view.Pane = Pane;
   view.render = async (props) => {
     await act(async () => root.render(h(Pane, props)));
     await settle();
@@ -129,6 +131,7 @@ export async function mountTranscriptPane(t) {
   };
   view.tags = () => view.rows.map((row) => row._tag);
   view.text = () => (document.getElementById('root')?.textContent || '').replace(/\s+/g, ' ').trim();
+  view.card = () => document.querySelector('.turn-changes-card');
   view.cards = () => document.querySelectorAll('.turn-changes-card').length;
   view.status = (selector = '.turn-status') => [...document.querySelectorAll(selector)].map((node) => node.className);
   return view;

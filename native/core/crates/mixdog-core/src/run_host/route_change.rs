@@ -3,7 +3,7 @@ use std::sync::Arc;
 use mixdog_agent::compact::pressure::{invalidate_context_usage_snapshot, invalidate_provider_context_baseline};
 use mixdog_agent::env::Clock;
 use mixdog_store::schema::record::{Header, HeaderChange};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
@@ -26,7 +26,7 @@ pub trait RouteFacts: Send + Sync {
     /// Synchronous and pure, over the skill list [`RouteFacts::surface_lookup`] collected for the header on the session's actor, before the
     /// change ran. Nothing by default (facts that rebuild no surface).
     fn surface_change(&self, _header: &Header, _previous: &Route, _lookup: &SurfaceLookup) -> HeaderChange {
-        HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
+        HeaderChange::default()
     }
 
     /// The skill list the surface is resolved from, collected now (Node collects it inside the call):
@@ -112,6 +112,7 @@ impl RunHostRouteChange {
             json!({})
         };
         let meta = (!provider.is_empty() && !model.is_empty()).then(|| self.facts.context_meta(provider, model, &seed)).flatten();
+        unset(change, mixdog_core_session::session::turn_ops::AGENT_WINDOW);
         let Some(meta) = meta else {
             for key in ["contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "autoCompactTokenLimit", "compactBoundaryTokens"] {
                 unset(change, key);
@@ -222,6 +223,38 @@ mod tests {
         }
     }
 
+    struct Catalog;
+    #[async_trait::async_trait]
+    impl RouteFacts for Catalog {
+        fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<ContextMeta> {
+            Some(ContextMeta {
+                context_window: json!(500_000),
+                raw_context_window: json!(500_000),
+                effective_context_window_percent: json!(95),
+                auto_compact_token_limit: Value::Null,
+                compact_boundary_tokens: json!(500_000),
+            })
+        }
+        fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
+            None
+        }
+    }
+
+    /// The window an agent reported for its session stays the session's across turns: a turn's start does not derive the
+    /// catalog's figure over it, while a session that reported none follows the catalog.
+    #[test]
+    fn a_turn_does_not_derive_the_catalogs_window_over_the_one_the_agent_reported() {
+        let change = RunHostRouteChange::new(Arc::new(Catalog), Arc::new(Fixed));
+        let header = |extra: Value| -> Header {
+            let mut header = json!({ "provider": "acp-agent", "model": "m", "contextWindow": 1_048_576, "rawContextWindow": 1_048_576 });
+            header.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            header.as_object().unwrap().clone().into_iter().collect()
+        };
+        let reported = change.turn_window(&header(json!({ "acpContextWindow": 1_048_576 })));
+        assert!(reported.set.is_empty() && reported.unset.is_empty(), "{reported:?}");
+        assert_eq!(change.turn_window(&header(json!({}))).set.get("contextWindow"), Some(&json!(500_000)));
+    }
+
     #[test]
     fn the_cache_key_names_the_provider_family() {
         assert_eq!(provider_cache_key("openai-oauth"), "mixdog-codex");
@@ -265,8 +298,12 @@ impl RouteChange for RunHostRouteChange {
     }
 
     fn turn_window(&self, header: &Header) -> HeaderChange {
-        let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
+        let mut change = HeaderChange::default();
         let (provider, model) = (text(header.get("provider")), text(header.get("model")));
+        // The window an agent reported for its session is the session's: the catalog's figure for the model is not derived over it.
+        if header.contains_key(mixdog_core_session::session::turn_ops::AGENT_WINDOW) {
+            return change;
+        }
         // The window is derived only while the route names a model the facts know; no row keeps what the session holds.
         if provider.is_empty() || model.is_empty() || self.facts.context_meta(provider, model, &Value::Null).is_none() {
             return change;
@@ -293,7 +330,7 @@ impl RouteChange for RunHostRouteChange {
         let none: SurfaceLookup = None;
         let lookup = lookups.downcast_ref::<SurfaceLookup>().unwrap_or(&none);
         let route_changed = route_changed(route, previous);
-        let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
+        let mut change = HeaderChange::default();
         self.context_window(header, route, route_changed, &mut change);
         if route_changed {
             self.reset(header, previous, lookup, &mut change);

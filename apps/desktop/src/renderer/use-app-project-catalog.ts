@@ -4,6 +4,7 @@ import type { Snapshot } from './desktop-types';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { createProjectCatalogRequests } from './project-catalog-requests';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
+import { windowSectionStore } from './section-store';
 import { subscribeSetupChanges } from './setup-change-refresh';
 import {
   acceptedProjectCatalog,
@@ -107,9 +108,12 @@ export function useAppProjectCatalog(snapshot: Snapshot) {
     window.addEventListener('mixdog:remote-state-gap', retry);
     window.addEventListener('mixdog:remote-reconnected', revalidate);
     const unsubscribeSetup = subscribeSetupChanges(revalidate);
+    // The core pushes its registry as the `projects` section: a reconnect, a restarted core or another client's change.
+    const unsubscribeSection = windowSectionStore()?.subscribe('projects', revalidate);
     return () => {
       unsubscribe();
       unsubscribeSetup();
+      unsubscribeSection?.();
       window.removeEventListener('mixdog:remote-state-gap', retry);
       window.removeEventListener('mixdog:remote-reconnected', revalidate);
     };

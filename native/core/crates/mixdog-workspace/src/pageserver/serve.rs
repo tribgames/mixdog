@@ -20,7 +20,9 @@ use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::{Body, Frame};
-use hyper::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HeaderValue, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS};
+use hyper::header::{
+    CACHE_CONTROL, CONTENT_LENGTH, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderMap, HeaderName, HeaderValue, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS,
+};
 use hyper::{Method, Response, StatusCode};
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
@@ -86,6 +88,8 @@ fn page_response(body: PageBody, content_type: HeaderValue, length: u64, sandbox
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    // Lets the embedding pane impose its own policy on the page (`<iframe csp>`): without this answer Chromium refuses to show the frame.
+    headers.insert(HeaderName::from_static("allow-csp-from"), HeaderValue::from_static("*"));
     if sandboxed {
         headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox allow-scripts"));
     }
@@ -402,7 +406,7 @@ mod tests {
             assert_eq!(fx.send("GET", &url, None, host).await.status, 403, "{host:?}");
         }
         // No Host header at all (hyper may refuse such a request before it gets here): the server's own answer is a refusal too.
-        assert_eq!(fx.server.respond(&Method::GET, None, &fx.path_of(&url), fx.port).await.status(), StatusCode::FORBIDDEN);
+        assert_eq!(fx.server.respond(&Method::GET, &HeaderMap::new(), &fx.path_of(&url), fx.port).await.status(), StatusCode::FORBIDDEN);
         let error = fx.server.lease_url(&fx.root.join("assets"), "../page.html", PageScope::Project, None).await.unwrap_err();
         assert!(error.message.contains("inside its folder"), "{}", error.message);
     }
@@ -437,6 +441,17 @@ mod tests {
         }
     }
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_service_worker_script_request_is_refused_while_the_same_file_is_a_plain_script() {
+        let fx = Fx::new().await;
+        std::fs::write(fx.root.join("sw.js"), "self.onfetch = () => {}").unwrap();
+        let path = fx.path_of(&fx.project().await).replace("page.html", "sw.js");
+        let mut headers = HeaderMap::new();
+        headers.insert(HOST, HeaderValue::from_str(&fx.host()).unwrap());
+        assert_eq!(fx.server.respond(&Method::GET, &headers, &path, fx.port).await.status(), StatusCode::OK);
+        headers.insert("service-worker", HeaderValue::from_static("script"));
+        assert_eq!(fx.server.respond(&Method::GET, &headers, &path, fx.port).await.status(), StatusCode::FORBIDDEN);
+    }
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_sandboxed_page_carries_the_storage_shim_first_with_a_matching_length() {
         let fx = Fx::new().await;
         std::fs::write(fx.root.join("tabs.html"), "<!doctype html><html><head><title>탭</title></head><body><script>run()</script></body></html>").unwrap();
@@ -444,6 +459,7 @@ mod tests {
         let page = fx.get(&url, None).await;
         assert_eq!(page.status, 200);
         assert_eq!(page.header("content-security-policy"), Some("sandbox allow-scripts"));
+        assert_eq!(page.header("allow-csp-from"), Some("*"));
         let text = page.text();
         assert!(text.find(SHIM_SOURCE).unwrap() < text.find("run()").unwrap());
         assert!(text.contains("<title>탭</title>"));
@@ -813,8 +829,13 @@ impl PageServer {
     }
 
     /// The answer to one request.
-    pub(super) async fn respond(&self, method: &Method, host: Option<&HeaderValue>, path: &str, port: u16) -> Response<PageBody> {
-        match self.serve(method, host, path, port).await {
+    pub(super) async fn respond(&self, method: &Method, headers: &HeaderMap, path: &str, port: u16) -> Response<PageBody> {
+        // A browser names a service worker's script fetch with this header (a page's own script cannot set it): no page served here may
+        // ever register one, whatever the tab's network policy, so nothing has to be cleared when the network is switched off.
+        if headers.contains_key("service-worker") {
+            return refuse(StatusCode::FORBIDDEN);
+        }
+        match self.serve(method, headers.get(HOST), path, port).await {
             Ok(response) => response,
             Err(status) => refuse(status),
         }

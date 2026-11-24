@@ -1,10 +1,6 @@
 import { stat } from 'node:fs/promises';
 
-import {
-  MAX_VISUALIZE_GONE_OPENS,
-  type VisualizeHostState,
-  type VisualizeSessionState,
-} from '../../shared/visualize';
+import { MAX_VISUALIZE_GONE_OPENS, type VisualizeHostState, type VisualizeSessionState } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import type { VisualizeServiceDeps } from './service';
 import { displayedPanes, type SessionState, shownLayout, type TabState, view } from './tab-state';
@@ -198,9 +194,11 @@ export function joinShown(
     const tab = from
       .filter((candidate) => candidate.id === tabId)
       .map((candidate) => (turn ? { ...candidate, turnWork: true as const } : candidate));
-    return tabs.some((shown) => shown.id === tabId)
-      ? tabs.flatMap((shown) => (shown.id === tabId ? tab : other(shown.id) ? [shown] : []))
-      : [...tabs.filter((shown) => other(shown.id)), ...tab];
+    if (!tabs.some((shown) => shown.id === tabId)) return [...tabs.filter((shown) => other(shown.id)), ...tab];
+    return tabs.flatMap((shown) => {
+      if (shown.id === tabId) return tab;
+      return other(shown.id) ? [shown] : [];
+    });
   };
   hold.shown = {
     state: { ...state, tabs: put(state.tabs, now.state.tabs), active: tabId },

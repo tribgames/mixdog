@@ -596,7 +596,7 @@ async fn compaction_of(runtime: &ExecRuntime, ctx: &ToolContext, command: &str, 
 async fn completed(
     runtime: &Arc<ExecRuntime>,
     ctx: &ToolContext,
-    job: &Job,
+    job: &Arc<Job>,
     command: &str,
     analysis_command: &str,
     tee_path: Option<&Path>,
@@ -612,7 +612,8 @@ async fn completed(
     let tee_tail = if let Some(tee) = tee_path {
         let lanes = runtime.config.lanes;
         let tail = spill::read_tee_tail(lanes.interactive, &ctx.cancel, tee, 16_384).await;
-        spill::remove_file(lanes.durability, &ctx.cancel, tee).await;
+        // A killed command whose exit was not confirmed may still hold the file: it goes when the job settles.
+        runtime.remove_when_settled(job, tee.to_owned()).await;
         tail
     } else {
         None
@@ -1159,8 +1160,8 @@ impl ShellTool {
         let job = match started {
             Ok(job) => job,
             Err(error) => {
-                if let Some(path) = &hoist_path {
-                    spill::remove_file(runtime.config.lanes.durability, &ctx.cancel, path).await;
+                for path in hoist_path.iter().chain(tee_path.iter()) {
+                    runtime.remove_unused(path.clone()).await;
                 }
                 return Err(spawn_failure(error));
             }
@@ -1180,7 +1181,7 @@ impl ShellTool {
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).
         if let Some(path) = hoist_path {
-            runtime.remove_when_settled(&job, path, ctx.cancel.clone());
+            runtime.remove_when_settled(&job, path).await;
         }
 
         let reason: PromotionReason;
@@ -1201,6 +1202,9 @@ impl ShellTool {
                     runtime.release(&job.id);
                     if ended_by_run_limit(&job) {
                         return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                    }
+                    if let Some(tee) = tee_path.clone() {
+                        runtime.remove_when_settled(&job, tee).await;
                     }
                     return Err(input_failure(error));
                 }
@@ -1231,6 +1235,9 @@ impl ShellTool {
                     let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                     runtime.release(&job.id);
                     if !ended_by_run_limit(&job) {
+                        if let Some(tee) = tee_path.clone() {
+                            runtime.remove_when_settled(&job, tee).await;
+                        }
                         return Err(input_failure(error));
                     }
                 }
@@ -1249,7 +1256,7 @@ impl ShellTool {
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {
-                runtime.remove_when_settled(&job, tee, ctx.cancel.clone());
+                runtime.remove_when_settled(&job, tee).await;
             }
             backgrounded(&job, &command, &guard_note, &background_message(reason, runtime.now_ms().saturating_sub(job.started_ms)))
         } else {

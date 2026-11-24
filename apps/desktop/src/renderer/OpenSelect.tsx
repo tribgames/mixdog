@@ -269,7 +269,7 @@ export function OpenSelect({
           'select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
       )
     ).filter((element) => !menu.current?.contains(element) && element.getClientRects().length > 0);
-    const index = focusable.indexOf(trigger.current!);
+    const index = trigger.current ? focusable.indexOf(trigger.current) : -1;
     const offset = backward ? -1 : 1;
     let origin = backward ? 0 : -1;
     if (index >= 0) origin = index;

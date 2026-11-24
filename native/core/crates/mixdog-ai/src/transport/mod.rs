@@ -38,6 +38,8 @@ mod model_driver_tests;
 #[cfg(test)]
 pub(crate) mod site_probe;
 #[cfg(test)]
+pub(crate) mod testing;
+#[cfg(test)]
 pub(crate) mod timeout_probe;
 
 pub use link::ABORTED;

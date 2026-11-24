@@ -362,7 +362,7 @@ impl DeferredToolArm for HeaderSkillArm {
             }
             Err(name) => {
                 let _ = told.send(Err(name));
-                HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
+                HeaderChange::default()
             }
         });
         self.updates.update_header(thread, update).await?;

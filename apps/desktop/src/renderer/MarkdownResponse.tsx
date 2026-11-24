@@ -5,7 +5,6 @@ import { createBlockParking, MarkdownBlockParkingContext } from './markdown-bloc
 import { finishDocument, LiveMarkdownDocument, type MarkdownPage } from './markdown-document';
 import type { StreamFadeTimeline } from './markdown-stream-fade';
 import {
-  isFailedMarkdownParse,
   parseSettledMarkdownAstNow,
   parseStreamingMarkdownAst,
   preloadSyncMarkdownParser,
@@ -63,6 +62,14 @@ export const MarkdownResponse = memo(function MarkdownResponse({
     parking.attach(markdownRef.current, true, growing);
   }, [parking, growing]);
   useEffect(() => () => parking.attach(null, false), [parking]);
+  // A reply that unmounts asks for no more of its live parses.
+  useEffect(() => {
+    const state = reply.current;
+    return () => {
+      state.live?.retire();
+      state.live = null;
+    };
+  }, []);
   if (streaming) workerPipeline.current = true;
   // Every reply loads the main-thread parser: a reply that arrives whole, or
   // the next settled row, then paints parsed in its first commit.
@@ -73,7 +80,8 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   const state = reply.current;
   let pages: MarkdownPage | null = null;
   let awaitingWhole = false;
-  // The parse of `text` that ended without a tree to keep (it failed on the worker and on the page): shown as it is.
+  // The parse of `text` this reply awaited: the cache may not keep it (a failed parse, a reply past the cache's entry
+  // bound, an eviction before this commit).
   const ended = useRef<{ text: string; root: MarkdownAstRoot } | null>(null);
   if (streaming) {
     state.finished = null;
@@ -106,7 +114,7 @@ export const MarkdownResponse = memo(function MarkdownResponse({
     // Every parse ends, settled or failed: either way the reply stops waiting and shows what the parse gave.
     void parseStreamingMarkdownAst(text).then((root) => {
       if (!current) return;
-      if (isFailedMarkdownParse(root)) ended.current = { text, root };
+      ended.current = { text, root };
       landed();
     });
     return () => {

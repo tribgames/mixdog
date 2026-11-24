@@ -2,6 +2,8 @@
 //! falls), the handoff summary run, the pressure state across a compaction, the commit record and images,
 //! each stated on a small transcript written in the test.
 
+use crate::compact_status_rules::NoImages;
+use crate::compact_status_rules::TextOnly;
 use crate::compact_support;
 
 use std::collections::HashSet;
@@ -14,6 +16,7 @@ use base64::engine::general_purpose::STANDARD;
 use compact_support::NoAttachments;
 use compact_support::NoBlobs;
 use compact_support::NoRedaction;
+use compact_support::NoVars;
 use compact_support::PreviewArchive;
 use compact_support::Rows;
 use compact_support::replay_owner;
@@ -23,9 +26,7 @@ use mixdog_agent::compact::compactor::FreshCompactor;
 use mixdog_agent::compact::compactor::FreshParts;
 use mixdog_agent::compact::compactor::Handoff;
 use mixdog_agent::compact::compactor::HandoffSource;
-use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::estimate::MessageMeter;
-use mixdog_agent::compact::estimate::PartMeter;
 use mixdog_agent::compact::execution_tail::TailContext;
 use mixdog_agent::compact::fresh::AttachmentSeam;
 use mixdog_agent::compact::fresh::FreshContext;
@@ -45,8 +46,6 @@ use mixdog_agent::compact::pressure::Archived;
 use mixdog_agent::compact::pressure::Books;
 use mixdog_agent::compact::pressure::CommitInput;
 use mixdog_agent::compact::pressure::Header;
-use mixdog_agent::compact::pressure::ImageDescriptor;
-use mixdog_agent::compact::pressure::ImageIdentities;
 use mixdog_agent::compact::pressure::Route;
 use mixdog_agent::compact::pressure::StatusInput;
 use mixdog_agent::compact::pressure::SummaryFacts;
@@ -60,6 +59,7 @@ use mixdog_agent::compact::pressure::usage_change;
 use mixdog_agent::compact::pressure::usage_totals;
 use mixdog_agent::compact::summary::COMPACTION_SYSTEM_PROMPT;
 use mixdog_agent::compact::summary::build_compaction_prompt;
+use mixdog_agent::compact::summary_run;
 use mixdog_agent::compact::summary_run::HandoffInput;
 use mixdog_agent::compact::summary_run::SummaryCall;
 use mixdog_agent::compact::summary_run::SummaryFailure;
@@ -77,19 +77,14 @@ use mixdog_agent::message::Source;
 use mixdog_agent::message::ToolKind;
 use mixdog_agent::offload::ImageCompactor;
 use mixdog_agent::offload::ImageOutcome;
+use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::MISSING_TOOL_RESULT;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::Usage;
 use serde_json::Value;
 use serde_json::json;
-
-struct TextOnly;
-impl MediaMeter for TextOnly {
-    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> PartMeter {
-        panic!("media part in a text-only transcript: {part:?}")
-    }
-}
 
 macro_rules! fresh {
     ($meter:ident, $ctx:ident, $attachments:expr) => {
@@ -271,7 +266,7 @@ async fn a_call_without_a_result_gets_a_stub_result_and_a_result_without_a_call_
     let result = fresh_context_compact_messages(&ctx, &messages, 50_000, &options(&valid_summary("go"))).await.unwrap();
     assert!(pairs_whole(&result.messages), "{:?}", texts(&result.messages));
     let stub = result.messages.iter().find(|m| m.tool_call_id() == Some("lost")).expect("the call stays paired");
-    assert_eq!(stub.text(), mixdog_core_api::domain::provider::MISSING_TOOL_RESULT);
+    assert_eq!(stub.text(), MISSING_TOOL_RESULT);
     assert!(!result_ids(&result.messages).contains(&"orphan".to_owned()));
 }
 
@@ -320,7 +315,7 @@ impl AttachmentSeam for Stored {
             return message.clone();
         }
         let mut out = message.clone();
-        out.message.content = mixdog_core_api::domain::provider::Content::Text("[attachment by reference]".into());
+        out.message.content = Content::Text("[attachment by reference]".into());
         out
     }
     fn has_referencable_media(&self, message: &AgentMessage) -> bool {
@@ -561,14 +556,14 @@ struct WarmFork {
 }
 
 #[async_trait]
-impl mixdog_agent::compact::summary_run::ForkSource for WarmFork {
+impl summary_run::ForkSource for WarmFork {
     fn warm(&self) -> bool {
         true
     }
-    fn request(&self) -> Option<mixdog_agent::compact::summary_run::ForkRequest> {
-        Some(mixdog_agent::compact::summary_run::ForkRequest { provider_name: "p".into(), model: "m".into(), prompt_tokens: 10, shared_prefix_messages: 1 })
+    fn request(&self) -> Option<summary_run::ForkRequest> {
+        Some(summary_run::ForkRequest { provider_name: "p".into(), model: "m".into(), prompt_tokens: 10, shared_prefix_messages: 1 })
     }
-    async fn send(&self, _: &mixdog_agent::compact::summary_run::SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
+    async fn send(&self, _: &summary_run::SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
         Ok(SummaryResponse {
             text: self.text.clone(),
             tool_call: false,
@@ -582,12 +577,9 @@ impl mixdog_agent::compact::summary_run::ForkSource for WarmFork {
 struct OwnRoute(Arc<Scripted>);
 
 #[async_trait]
-impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
-    async fn resolve(
-        &self,
-        step: mixdog_agent::compact::summary_run::RouteStep,
-    ) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, SummaryFailure> {
-        Ok(Some(mixdog_agent::compact::summary_run::SummaryRoute {
+impl summary_run::RouteResolver for OwnRoute {
+    async fn resolve(&self, step: summary_run::RouteStep) -> Result<Option<summary_run::SummaryRoute>, SummaryFailure> {
+        Ok(Some(summary_run::SummaryRoute {
             step,
             provider_name: "p".into(),
             model: "m".into(),
@@ -600,14 +592,11 @@ impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
     }
 }
 
-async fn plan_with_fork(
-    fork: WarmFork,
-    isolated: Arc<Scripted>,
-) -> Result<(mixdog_agent::compact::summary_run::RouteStep, mixdog_agent::compact::summary_run::Generated), CompactError> {
+async fn plan_with_fork(fork: WarmFork, isolated: Arc<Scripted>) -> Result<(summary_run::RouteStep, summary_run::Generated), CompactError> {
     fresh!(_meter, ctx, &NoAttachments);
     let messages = dialogue();
     let resolver = OwnRoute(isolated);
-    let cx = mixdog_agent::compact::summary_run::SummarizeContext {
+    let cx = summary_run::SummarizeContext {
         fresh: &ctx,
         fork: &fork,
         resolver: &resolver,
@@ -618,8 +607,8 @@ async fn plan_with_fork(
         conversation_input: &messages,
         timeout_ms: None,
     };
-    let plan = mixdog_agent::compact::summary_run::plan(mixdog_agent::compact::summary_run::SummaryMode::Session, true);
-    mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &plan).await
+    let plan = summary_run::plan(summary_run::SummaryMode::Session, true);
+    summary_run::summarize_on_plan(&cx, &plan).await
 }
 
 /// The conversation's own route and a lighter Maintainer, each with its own sender.
@@ -629,18 +618,15 @@ struct TwoRoutes {
 }
 
 #[async_trait]
-impl mixdog_agent::compact::summary_run::RouteResolver for TwoRoutes {
-    async fn resolve(
-        &self,
-        step: mixdog_agent::compact::summary_run::RouteStep,
-    ) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, SummaryFailure> {
+impl summary_run::RouteResolver for TwoRoutes {
+    async fn resolve(&self, step: summary_run::RouteStep) -> Result<Option<summary_run::SummaryRoute>, SummaryFailure> {
         use mixdog_agent::compact::summary_run::RouteStep;
         let (model, sender) = match step {
             RouteStep::Session => ("m", self.own.clone()),
             RouteStep::Maintainer => ("light", self.maintainer.clone()),
             RouteStep::Lighter => return Ok(None),
         };
-        Ok(Some(mixdog_agent::compact::summary_run::SummaryRoute {
+        Ok(Some(summary_run::SummaryRoute {
             step,
             provider_name: "p".into(),
             model: model.into(),
@@ -662,7 +648,7 @@ async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintai
     let routes =
         TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
     let fork = WarmFork { text: String::new(), stop: StopReason::EndTurn };
-    let cx = mixdog_agent::compact::summary_run::SummarizeContext {
+    let cx = summary_run::SummarizeContext {
         fresh: &ctx,
         fork: &fork,
         resolver: &routes,
@@ -673,8 +659,7 @@ async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintai
         conversation_input: &messages,
         timeout_ms: None,
     };
-    let (step, got) =
-        mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &mixdog_agent::compact::summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
+    let (step, got) = summary_run::summarize_on_plan(&cx, &summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
     assert_eq!((step, got.model.as_str(), got.summary), (RouteStep::Maintainer, "light", valid_summary("light")));
     assert_eq!((got.mode, got.shared_prefix_fallback), ("isolated", Some("empty")));
     assert_eq!((routes.maintainer.prompts().len(), routes.own.prompts().len()), (1, 0), "the uncached request never goes to the conversation's model");
@@ -685,9 +670,8 @@ async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintai
     let routes =
         TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
     let fork = WarmFork { text: valid_summary("fork"), stop: StopReason::EndTurn };
-    let cx = mixdog_agent::compact::summary_run::SummarizeContext { fork: &fork, resolver: &routes, ..cx };
-    let (step, got) =
-        mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &mixdog_agent::compact::summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
+    let cx = summary_run::SummarizeContext { fork: &fork, resolver: &routes, ..cx };
+    let (step, got) = summary_run::summarize_on_plan(&cx, &summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
     assert_eq!((step, got.mode, got.model.as_str()), (RouteStep::Session, "shared-prefix", "m"));
     assert_eq!((routes.maintainer.prompts().len(), routes.own.prompts().len()), (0, 0));
 }
@@ -696,14 +680,14 @@ async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintai
 struct CacheExcludingFork;
 
 #[async_trait]
-impl mixdog_agent::compact::summary_run::ForkSource for CacheExcludingFork {
+impl summary_run::ForkSource for CacheExcludingFork {
     fn warm(&self) -> bool {
         true
     }
-    fn request(&self) -> Option<mixdog_agent::compact::summary_run::ForkRequest> {
-        Some(mixdog_agent::compact::summary_run::ForkRequest { provider_name: "p".into(), model: "m".into(), prompt_tokens: 10, shared_prefix_messages: 1 })
+    fn request(&self) -> Option<summary_run::ForkRequest> {
+        Some(summary_run::ForkRequest { provider_name: "p".into(), model: "m".into(), prompt_tokens: 10, shared_prefix_messages: 1 })
     }
-    async fn send(&self, _: &mixdog_agent::compact::summary_run::SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
+    async fn send(&self, _: &summary_run::SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
         Ok(SummaryResponse {
             text: String::new(),
             tool_call: false,
@@ -722,7 +706,7 @@ async fn a_forks_usage_joins_the_writing_routes_in_that_routes_cache_convention(
     // The Maintainer's adapter (`Scripted`) counts the cache inside its input.
     let routes =
         TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
-    let cx = mixdog_agent::compact::summary_run::SummarizeContext {
+    let cx = summary_run::SummarizeContext {
         fresh: &ctx,
         fork: &CacheExcludingFork,
         resolver: &routes,
@@ -733,8 +717,7 @@ async fn a_forks_usage_joins_the_writing_routes_in_that_routes_cache_convention(
         conversation_input: &messages,
         timeout_ms: None,
     };
-    let (_, got) =
-        mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &mixdog_agent::compact::summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
+    let (_, got) = summary_run::summarize_on_plan(&cx, &summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
     let usage = got.usage.expect("usage");
     assert!(!got.input_excludes_cache);
     assert_eq!((usage.input_tokens, usage.cache_read_tokens, usage.output_tokens), (10 + 100 + 900, 1 + 900, 5 + 7), "the fork's cached read counts once");
@@ -1077,10 +1060,23 @@ async fn the_pipeline_time_spans_the_summary_request_and_the_summary_time_is_the
 
 // ---- the pressure state across a compaction -------------------------------------------------------------
 
-struct NoImages;
-impl ImageIdentities for NoImages {
-    fn images(&self, _: &AgentMessage) -> Vec<ImageDescriptor> {
-        Vec::new()
+static NULL: Value = Value::Null;
+
+fn status<'a>(session: &'a Header, messages: &'a [AgentMessage], meter: &'a MessageMeter<'a>, signer: &'a TranscriptSigner<'a>) -> StatusInput<'a> {
+    StatusInput {
+        session,
+        route: Route { provider: "openai", model: "m", context_window: Value::Null },
+        cwd: Value::Null,
+        mode: Value::Null,
+        messages,
+        active: true,
+        request_tools: RequestTools::default(),
+        session_tools: RequestTools::default(),
+        tool_breakdown: &NULL,
+        agent_mode: false,
+        meter,
+        signer,
+        env: &NoVars,
     }
 }
 
@@ -1093,7 +1089,7 @@ fn a_providers_reading_describes_only_the_prefix_it_was_taken_for_and_the_route_
     let owner = replay_owner();
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let signer = TranscriptSigner { meter: &meter, images: &NoImages, rows: &Rows };
-    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &compact_support::NoVars };
+    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &NoVars };
     let sent = [AgentMessage::user("the request")];
     let mut session = header(json!({ "provider": "openai", "model": "m", "contextWindow": 500_000, "compactBoundaryTokens": 500_000 }));
     let call =
@@ -1208,22 +1204,7 @@ fn a_committed_compaction_records_what_changed_and_what_it_cost_and_an_unchanged
         json!({ "id": "s1", "provider": "openai", "model": "m", "contextWindow": 100_000, "compaction": { "mainBufferTokens": 30_000, "compactCount": 2 } }),
     );
     let before = conversation();
-    let null = Value::Null;
-    let status = StatusInput {
-        session: &session,
-        route: Route { provider: "openai", model: "m", context_window: Value::Null },
-        cwd: Value::Null,
-        mode: Value::Null,
-        messages: &before,
-        active: true,
-        request_tools: RequestTools::default(),
-        session_tools: RequestTools::default(),
-        tool_breakdown: &null,
-        agent_mode: false,
-        meter: &meter,
-        signer: &signer,
-        env: &compact_support::NoVars,
-    };
+    let status = status(&session, &before, &meter, &signer);
     let plan = compaction_plan(&status, false, true).unwrap().unwrap();
     let after = vec![before[0].clone(), AgentMessage::user("summary"), before[7].clone()];
     let appended = [AgentMessage::assistant("late reply", Vec::new())];
@@ -1287,22 +1268,7 @@ fn a_failed_compaction_keeps_the_transcript_and_records_why_under_the_stage_of_i
     let signer = TranscriptSigner { meter: &meter, images: &NoImages, rows: &Rows };
     let session = header(json!({ "id": "s1", "provider": "openai", "model": "m", "contextWindow": 100_000 }));
     let messages = conversation();
-    let null = Value::Null;
-    let status = StatusInput {
-        session: &session,
-        route: Route { provider: "openai", model: "m", context_window: Value::Null },
-        cwd: Value::Null,
-        mode: Value::Null,
-        messages: &messages,
-        active: true,
-        request_tools: RequestTools::default(),
-        session_tools: RequestTools::default(),
-        tool_breakdown: &null,
-        agent_mode: false,
-        meter: &meter,
-        signer: &signer,
-        env: &compact_support::NoVars,
-    };
+    let status = status(&session, &messages, &meter, &signer);
     let plan = compaction_plan(&status, false, true).unwrap().unwrap();
     let manual = failed_compaction(&status, &plan, false, 500.0, "summary route unavailable", Some("fresh failed"));
     assert_eq!((manual.result["changed"].as_bool(), manual.result["error"].as_str()), (Some(false), Some("summary route unavailable")));

@@ -648,24 +648,21 @@ function cwdUnit(a) {
   });
 }
 
+const SESSION_EFFECT_VERBS = new Map([
+  ['create', ['Creating', 'Created']],
+  ['send', ['Sending to', 'Sent to']],
+  ['cancel', ['Cancelling', 'Cancelled']],
+  ['delete', ['Deleting', 'Deleted']],
+  ['close', ['Closing', 'Closed']],
+]);
+
 /** The `session` tool: its session actions are about sessions, not the legacy
  *  `cwd` tool's working directory (which cwdUnit's fallback names). */
 function sessionUnit(a) {
   const action = String(a.action || a.type || '').toLowerCase();
-  if (action === 'create') {
-    return unitDescriptor('Setup', { active: 'Creating', done: 'Created', noun: 'session', effect: true });
-  }
-  if (action === 'send') {
-    return unitDescriptor('Setup', { active: 'Sending to', done: 'Sent to', noun: 'session', effect: true });
-  }
-  if (action === 'cancel') {
-    return unitDescriptor('Setup', { active: 'Cancelling', done: 'Cancelled', noun: 'session', effect: true });
-  }
-  if (action === 'delete') {
-    return unitDescriptor('Setup', { active: 'Deleting', done: 'Deleted', noun: 'session', effect: true });
-  }
-  if (action === 'close') {
-    return unitDescriptor('Setup', { active: 'Closing', done: 'Closed', noun: 'session', effect: true });
+  const effect = SESSION_EFFECT_VERBS.get(action);
+  if (effect) {
+    return unitDescriptor('Setup', { active: effect[0], done: effect[1], noun: 'session', effect: true });
   }
   if (action === 'list-worktrees') {
     return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'worktree' });

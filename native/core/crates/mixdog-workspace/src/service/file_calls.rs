@@ -1,6 +1,30 @@
 use super::*;
 
 impl WorkspaceService {
+    /// The folders only whose secret subset [`crate::sensitive`] keeps from a paired device: this PC's home folder and the data folder.
+    pub(super) fn secret_folders(&self) -> Vec<PathBuf> {
+        vec![std::env::home_dir().unwrap_or_default(), self.user_data.clone()]
+    }
+
+    /// `stat`'s answer for a path that is not there.
+    pub(super) fn not_there(path: &Path) -> WsError {
+        crate::nodeerr::io_error(&std::io::Error::from(std::io::ErrorKind::NotFound), "stat", path)
+    }
+
+    /// A paired device is never handed a secret file ([`crate::sensitive`]) nor lets one change: the first of `paths` that is one
+    /// is answered as a path that is not there. The desktop and an SSH window are not judged.
+    pub(super) async fn hide_from_device(&self, req: &CoreRequest, paths: Vec<PathBuf>) -> WsResult<()> {
+        if req.ctx.origin != mixdog_protocol::Origin::Relay {
+            return Ok(());
+        }
+        let folders = self.secret_folders();
+        run_fallible(self.lanes.interactive, &req.ctx.cancel, move || {
+            let scopes = crate::sensitive::scopes(&folders);
+            paths.iter().find(|path| crate::sensitive::is_sensitive(path, &scopes)).map_or(Ok(()), |path| Err(Self::not_there(path)))
+        })
+        .await
+    }
+
     pub(super) async fn handle_project_fs_list_dir(self: &Arc<Self>, req: &CoreRequest) -> WsResult<Reply> {
         let params = &req.params;
         let cancel = req.ctx.cancel.clone();
@@ -115,7 +139,12 @@ impl WorkspaceService {
         let params = &req.params;
         let cancel = req.ctx.cancel.clone();
         let value = |v: Value| Ok(Reply::Value(v));
-        let path = s(params, "path")?.to_owned();
+        let mut path = s(params, "path")?.to_owned();
+        if req.ctx.origin == mixdog_protocol::Origin::Relay {
+            // A paired device reads a file of a registered project or one it holds a grant for, never any path of this PC.
+            let absolute = crate::pathguard::absolute_local_path(&path)?.to_string_lossy().into_owned();
+            path = self.relay_backup(req, absolute).await?;
+        }
         if params.get("paged").and_then(Value::as_bool) == Some(true) {
             // The checks of the whole read, then the file held open as a transfer of this connection to page through.
             let (owner, t) = (Self::owner(req), self.transfers.clone());
@@ -142,8 +171,20 @@ impl WorkspaceService {
             .iter()
             .filter_map(|p| p.as_str().map(str::to_owned))
             .collect();
+        let folders = (req.ctx.origin == mixdog_protocol::Origin::Relay).then(|| self.secret_folders());
         let entries = run_fallible(self.lanes.interactive, &cancel, move || {
-            Ok(paths.iter().map(|p| fsops::stat_local(p).map(|e| json!(e)).unwrap_or_else(|e| json!({ "error": e.message }))).collect::<Vec<_>>())
+            let scopes = folders.as_deref().map(crate::sensitive::scopes);
+            let hidden = |path: &str| {
+                let scopes = scopes.as_ref()?;
+                crate::pathguard::absolute_local_path(path).ok().filter(|absolute| crate::sensitive::is_sensitive(absolute, scopes))
+            };
+            Ok(paths
+                .iter()
+                .map(|p| match hidden(p) {
+                    Some(absolute) => json!({ "error": Self::not_there(&absolute).message }),
+                    None => fsops::stat_local(p).map(|e| json!(e)).unwrap_or_else(|e| json!({ "error": e.message })),
+                })
+                .collect::<Vec<_>>())
         })
         .await?;
         value(json!(entries))
@@ -171,6 +212,7 @@ impl WorkspaceService {
         let value = |v: Value| Ok(Reply::Value(v));
         let root = self.root(req.ctx.origin, params).await?;
         let files = Self::batch_files(req, params)?;
+        self.hide_from_device(req, files.iter().map(|f| root.join(&f.rel_path)).collect()).await?;
         let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
         let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
         let fs = self.fs.clone();
@@ -189,6 +231,7 @@ impl WorkspaceService {
         // Node names the segments invalid before it joins and claims the path.
         fsops::entry_segments(&name)?;
         let target = PathBuf::from(&dir).join(name.replace('\\', "/"));
+        self.hide_from_device(req, vec![root.join(&target)]).await?;
         let _claim = self.paths.acquire(Self::claim_keys(&root, &[&target.to_string_lossy()])?).await;
         let note_root = root.clone();
         run_fallible(self.lanes.durability, &cancel, move || fsops::create_entry(&root, &dir, &name, directory)).await?;
@@ -203,6 +246,7 @@ impl WorkspaceService {
         let root = self.root(req.ctx.origin, params).await?;
         let (rel, new_name) = (s(params, "rel")?.to_owned(), s(params, "newName")?.to_owned());
         let destination = fsops::rename_destination_rel(&rel, &new_name)?;
+        self.hide_from_device(req, vec![root.join(&rel), root.join(&destination)]).await?;
         let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
         let (note_root, note_rel) = (root.clone(), rel.clone());
         run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name)).await?;
@@ -216,9 +260,10 @@ impl WorkspaceService {
         let value = |v: Value| Ok(Reply::Value(v));
         let root = self.root(req.ctx.origin, params).await?;
         let (rel, target) = (s(params, "rel")?.to_owned(), s(params, "targetDirRel")?.to_owned());
+        let leaf = |rel: &str| rel.rsplit('/').next().unwrap_or_default().to_owned();
+        self.hide_from_device(req, vec![root.join(&rel), root.join(&target).join(leaf(&rel))]).await?;
         let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &target])?).await;
         let note_root = root.clone();
-        let leaf = |rel: &str| rel.rsplit('/').next().unwrap_or_default().to_owned();
         if req.method.as_str() == "projectFs/move" {
             let (from, to) = (rel.clone(), format!("{}/{}", target, leaf(&rel)));
             run_fallible(self.lanes.durability, &cancel, move || fsops::move_entry(&root, &rel, &target)).await?;
@@ -242,6 +287,7 @@ impl WorkspaceService {
         if target == crate::pathguard::lexical(&root) {
             return Err(WsError::invalid("Cannot trash the project root."));
         }
+        self.hide_from_device(req, vec![target.clone()]).await?;
         let _claim = self.paths.acquire(Self::claim_keys(&root, &[rel])?).await;
         let moved = target.clone();
         run_fallible(self.lanes.durability, &cancel, move || trash::delete(&moved).map_err(|e| WsError::new(Reason::Io, e.to_string()))).await?;
@@ -256,7 +302,19 @@ impl WorkspaceService {
         let root = self.root(req.ctx.origin, params).await?;
         let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::held_lone(req, "/options/query"))?;
         let token = cancel.clone();
-        let found = run_fallible(self.lanes.maintenance, &cancel, move || crate::textsearch::search(&root, &query, &|| token.is_cancelled())).await?;
+        let folders = (req.ctx.origin == mixdog_protocol::Origin::Relay).then(|| self.secret_folders());
+        let found = run_fallible(self.lanes.maintenance, &cancel, move || {
+            let mut found = crate::textsearch::search(&root, &query, &|| token.is_cancelled())?;
+            if let Some(folders) = folders {
+                let scopes = crate::sensitive::scopes(&folders);
+                let (secret, open): (Vec<_>, Vec<_>) =
+                    found.files.into_iter().partition(|file| crate::sensitive::is_sensitive(&root.join(&file.rel_path), &scopes));
+                found.match_count -= secret.iter().map(|file| file.matches.len()).sum::<usize>();
+                found.files = open;
+            }
+            Ok(found)
+        })
+        .await?;
         value(json!(found))
     }
 
@@ -278,13 +336,31 @@ impl WorkspaceService {
             .filter(|paths| !paths.is_empty());
         let token = cancel.clone();
         let plan_root = root.clone();
+        let folders = (req.ctx.origin == mixdog_protocol::Origin::Relay).then(|| self.secret_folders());
         let plan = run_fallible(self.lanes.maintenance, &cancel, move || {
-            crate::textsearch::plan_replace(&plan_root, &query, &replacement, rel_paths.as_deref(), &|| token.is_cancelled())
+            let stop = || token.is_cancelled();
+            // A paired device's replace names its files: the ones asked for, else every match, without the secret ones.
+            let rel_paths = match folders {
+                None => rel_paths,
+                Some(folders) => {
+                    let scopes = crate::sensitive::scopes(&folders);
+                    let named = match rel_paths {
+                        Some(paths) => paths,
+                        None => crate::textsearch::search(&plan_root, &query, &stop)?.files.into_iter().map(|file| file.rel_path).collect(),
+                    };
+                    let open: Vec<String> = named.into_iter().filter(|rel| !crate::sensitive::is_sensitive(&plan_root.join(rel), &scopes)).collect();
+                    if open.is_empty() {
+                        return Ok(None);
+                    }
+                    Some(open)
+                }
+            };
+            crate::textsearch::plan_replace(&plan_root, &query, &replacement, rel_paths.as_deref(), &stop).map(Some)
         })
         .await?;
-        if plan.writes.is_empty() {
+        let Some(plan) = plan.filter(|plan| !plan.writes.is_empty()) else {
             return value(json!({ "filesChanged": 0, "replacements": 0, "paths": [] }));
-        }
+        };
         let files: Vec<BatchFile> = plan
             .writes
             .iter()

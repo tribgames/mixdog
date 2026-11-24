@@ -496,12 +496,15 @@ const liveMergeable = (row: Obj): boolean => row.kind === 'tool' && row.aggregat
  * like the live turn's (restore.mjs `buildRestoredAggregateItem`), and drops the tool rows the transcript hides. A non-tool row ends
  * a run. */
 export function mergeToolRows(rows: readonly Obj[]): Obj[] {
-  const steps = mergeToolRowsSteps(rows);
+  return runToEnd(mergeToolRowsSteps(rows));
+}
+
+const runToEnd = (steps: Generator<void, Obj[], void>): Obj[] => {
   for (;;) {
     const r = steps.next();
     if (r.done) return r.value;
   }
-}
+};
 
 /** `mergeToolRows` in steps: yields every `ROWS_PER_STEP` rows so a long transcript merges in budgeted turns. */
 export const ROWS_PER_STEP = 16;
@@ -579,22 +582,22 @@ export function mergeToolRowsFrom(
     }
   }
   const end = stop < 0 ? rows.length : marks[stop]! + same!.moved;
-  const steps = mergeToolRowsSteps(rows, { rows: held.slice(0, kept), marks: marks.slice(0, at), from: marks[at - 2]!, end });
-  let merged: Obj[];
-  for (;;) {
-    const r = steps.next();
-    if (r.done) {
-      merged = r.value;
-      break;
-    }
-  }
+  const merged = runToEnd(
+    mergeToolRowsSteps(rows, {
+      rows: held.slice(0, kept),
+      marks: marks.slice(0, at),
+      from: marks[at - 2]!,
+      end,
+    })
+  );
   if (stop >= 0) {
     const made = mergeMarks.get(merged)!;
     // The merge ended on the mark the shared stretch has there: what follows is what `held` made after it.
     if (made.at(-2) === end && made.at(-1) === merged.length) {
       const resume = marks[stop + 1]!;
       const grew = merged.length - resume;
-      for (let next = stop + 2; next < marks.length; next += 2) made.push(marks[next]! + same!.moved, marks[next + 1]! + grew);
+      for (let next = stop + 2; next < marks.length; next += 2)
+        made.push(marks[next]! + same!.moved, marks[next + 1]! + grew);
       for (let index = resume; index < held.length; index += 1) merged.push(held[index]!);
     } else {
       return mergeToolRowsFrom(held, rows, from);
@@ -653,9 +656,9 @@ export function* mergeToolRowsSteps(
     if (live) liveCards.push({ at: merged.length, stopped: members.some((member) => stoppedRows.has(member.item)) });
     // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
     if (members.length >= 2 || live) {
-      const held = heldRunCard(members, live);
-      if (held) {
-        merged.push(held);
+      const reused = heldRunCard(members, live);
+      if (reused) {
+        merged.push(reused);
         return;
       }
       const card = yield* aggregateRowSteps(members, live);
@@ -716,7 +719,8 @@ export function* mergeToolRowsSteps(
   }
   yield* flush();
   let lastOther = merged.length - 1;
-  while (lastOther >= 0 && (merged[lastOther]!.kind === 'tool' || isLiveOnlyTranscriptRow(merged[lastOther]!))) lastOther--;
+  while (lastOther >= 0 && (merged[lastOther]!.kind === 'tool' || isLiveOnlyTranscriptRow(merged[lastOther]!)))
+    lastOther--;
   for (const { at, stopped } of liveCards) merged[at] = sealed(merged[at]!, stopped || at < lastOther);
   mergeMarks.set(merged, marks);
   return merged;

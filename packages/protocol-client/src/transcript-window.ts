@@ -1,7 +1,16 @@
 // What a reader of a positioned transcript asks the core to hold (`thread/window/set`): the followed tail, and the rows
 // around where the reader is. Rows the reader scrolled away from are let go; scrolling back asks for them again.
 import type { ProtocolClient } from './api.ts';
-import { placeInRun, rangeRows, runLayout, TAIL_RANGE, viewRuns, windowRuns, type HeldWindow, type WindowRun } from './positioned.ts';
+import {
+  placeInRun,
+  rangeRows,
+  runLayout,
+  TAIL_RANGE,
+  viewRuns,
+  windowRuns,
+  type HeldWindow,
+  type WindowRun,
+} from './positioned.ts';
 import type { SessionFold } from './session-state.ts';
 
 /** Where the reader is: on the live tail (`follow`), reading the rows `first`..`last` of the stretch that shows them
@@ -11,7 +20,13 @@ import type { SessionFold } from './session-state.ts';
  *  one for all its readers, and what one asks never lets go of the stretch another stands in. */
 export type TranscriptMove =
   | { readonly kind: 'follow'; readonly reader?: string }
-  | { readonly kind: 'read'; readonly first: string; readonly last: string; readonly end?: boolean; readonly reader?: string }
+  | {
+      readonly kind: 'read';
+      readonly first: string;
+      readonly last: string;
+      readonly end?: boolean;
+      readonly reader?: string;
+    }
   | { readonly kind: 'at'; readonly position: string; readonly reader?: string };
 
 /** Rows a page asks for past an end of the stretch shown. */
@@ -51,9 +66,6 @@ function rowsOfRanges(held: HeldWindow, ids: Iterable<string>): number {
   return rows;
 }
 
-/** The record of `run` that shows the row `id`, as its place in the run. */
-const placeOf = placeInRun;
-
 /** Where the reader's view lies in the run that shows it: the records of its first and last rows, and the rows of the run
  *  before and after them. A row no record holds (a pending prompt, the running turn's rows) stands at the newest end. */
 interface Reading {
@@ -69,9 +81,9 @@ interface Reading {
 /** The stretch that shows the rows `first`..`last`: readers of one window may each be in one. */
 function showing(held: HeldWindow, first: string, last: string): WindowRun | undefined {
   const shows = (candidate: WindowRun): boolean =>
-    placeOf(held, candidate, first) >= 0 || placeOf(held, candidate, last) >= 0;
+    placeInRun(held, candidate, first) >= 0 || placeInRun(held, candidate, last) >= 0;
   const tail = windowRuns(held).find((candidate) => candidate.tail);
-  return [...viewRuns(held)].reverse().find(shows) ??(tail && shows(tail) ? tail : undefined);
+  return [...viewRuns(held)].reverse().find(shows) ?? (tail && shows(tail) ? tail : undefined);
 }
 
 /** The stretch another reader stands in, as its last move said; undefined when the window holds none of it. */
@@ -90,7 +102,7 @@ function reading(held: HeldWindow, first: string, last: string, onEnd: boolean):
   if (!run) return null;
   const end = run.positions.length - 1;
   const at = (id: string): number => {
-    const place = placeOf(held, run, id);
+    const place = placeInRun(held, run, id);
     return place < 0 ? end : place;
   };
   const { upTo } = runLayout(held, run);
@@ -113,7 +125,9 @@ function keptNear(held: HeldWindow, run: WindowRun, at: Stand): Set<string> {
   const spans = new Map<string, { from: number; to: number }>();
   for (const id of run.ranges) {
     if (id === TAIL_RANGE) continue;
-    const places = (held.ranges.find((range) => range.id === id)?.positions ?? []).map((position) => place.get(position) ?? 0);
+    const places = (held.ranges.find((range) => range.id === id)?.positions ?? []).map(
+      (position) => place.get(position) ?? 0
+    );
     spans.set(id, { from: Math.min(...places), to: Math.max(...places) });
   }
   // Rows between the view and the nearest record of the range.
@@ -140,7 +154,7 @@ function standOf(held: HeldWindow, run: WindowRun, move: TranscriptMove): Stand 
     const at = run.positions.indexOf(move.position);
     return at < 0 ? null : { first: at, last: at };
   }
-  const places = [placeOf(held, run, move.first), placeOf(held, run, move.last)].filter((place) => place >= 0);
+  const places = [placeInRun(held, run, move.first), placeInRun(held, run, move.last)].filter((place) => place >= 0);
   return places.length ? { first: Math.min(...places), last: Math.max(...places) } : null;
 }
 
@@ -235,7 +249,8 @@ export function windowWant(
       // A reader that stood elsewhere holds that no more: what no other reader is near is let go.
       const want = within(atEnd());
       const kept = new Set(want.ranges.map((range) => (range as { id: string }).id));
-      const same = held.followTail && kept.size === held.ranges.length && held.ranges.every((range) => kept.has(range.id));
+      const same =
+        held.followTail && kept.size === held.ranges.length && held.ranges.every((range) => kept.has(range.id));
       return same ? null : want;
     }
     case 'read': {
@@ -262,7 +277,12 @@ export function windowWant(
     }
     case 'at': {
       if (runs.some((run) => run.positions.includes(move.position))) return null;
-      const here: WindowRangeWant = { at: 'around', position: move.position, before: WINDOW_PAGE_ROWS, after: WINDOW_PAGE_ROWS };
+      const here: WindowRangeWant = {
+        at: 'around',
+        position: move.position,
+        before: WINDOW_PAGE_ROWS,
+        after: WINDOW_PAGE_ROWS,
+      };
       return grown ? anew([], here) : within([], here);
     }
   }
@@ -441,7 +461,7 @@ function drive(client: ProtocolClient<SessionFold>, threadId: string, move: Step
   if (!threads) driving.set(client, (threads = new Map()));
   let d = threads.get(threadId);
   if (!d) threads.set(threadId, (d = { queue: [], running: false }));
-  const drive = d;
+  const lane = d;
   const owner = threads;
   return new Promise<boolean>((resolve) => {
     // A move still waiting gives way to a later one of the same reader, and to no other's: each reader's move is
@@ -450,26 +470,26 @@ function drive(client: ProtocolClient<SessionFold>, threadId: string, move: Step
     const waiting =
       reader === undefined
         ? undefined
-        : drive.queue.find(
+        : lane.queue.find(
             (asked) => asked.move.kind !== 'at' && asked.move.kind !== 'keep' && (asked.move.reader ?? '') === reader
           );
     if (waiting) {
       waiting.move = move;
       waiting.settle.push(resolve);
     } else {
-      drive.queue.push({ move, settle: [resolve] });
+      lane.queue.push({ move, settle: [resolve] });
     }
-    if (drive.running) return;
-    drive.running = true;
+    if (lane.running) return;
+    lane.running = true;
     void (async () => {
-      for (let next = drive.queue.shift(); next; next = drive.queue.shift()) {
-        drive.keeping = next.move.kind === 'keep';
+      for (let next = lane.queue.shift(); next; next = lane.queue.shift()) {
+        lane.keeping = next.move.kind === 'keep';
         const served = await step(client, threadId, next.move).catch(() => false);
-        drive.keeping = false;
+        lane.keeping = false;
         for (const settle of next.settle) settle(served);
       }
-      drive.running = false;
-      if (owner.get(threadId) === drive) owner.delete(threadId);
+      lane.running = false;
+      if (owner.get(threadId) === lane) owner.delete(threadId);
     })();
   });
 }

@@ -1,5 +1,11 @@
 //! A repair may change only a record's route and cost; a difference in anything else, hashed before and after the
 //! writes ([`integrity`]), aborts the transaction.
+//!
+//! A repair keeps no copy of what it replaces. The automatic repair (`only_unpriced`) touches only records that have no
+//! cost, under a route marked unpriced: the state it replaces is "not priced yet", which the record's own tokens, model
+//! and route let the next pass reproduce, so there is nothing to restore. (Only a provider correction by operator
+//! evidence, `provider_overrides`, replaces something the record cannot give back, the route's provider; its note
+//! names every `from → to / model` it moved, and nothing in the product calls it.)
 
 use std::collections::BTreeMap;
 
@@ -10,8 +16,6 @@ use sha2::Sha256;
 
 use crate::append::UsageRecord;
 use crate::append::index_event;
-use crate::backup::backup_beside;
-use crate::backup::database_path;
 use crate::db::Connection;
 use crate::db::OptionalExtension;
 use crate::db::Transaction;
@@ -64,8 +68,6 @@ pub struct RepairOptions {
     /// `from provider -> to provider`, on operator evidence only.
     pub provider_overrides: BTreeMap<String, String>,
     pub only_unpriced: bool,
-    /// Take a `VACUUM INTO` backup before the first write.
-    pub backup: bool,
 }
 
 impl RepairOptions {
@@ -142,20 +144,25 @@ pub struct RepairReport {
     pub still_unpriced: u64,
     pub changes: BTreeMap<String, u64>,
     pub integrity: Option<Integrity>,
-    pub backup_path: Option<String>,
     /// A planned row changed before the plan was applied; nothing was written.
     pub conflict: bool,
 }
 
-/// `mixdog-local` is free, `*-oauth` is a subscription, anything else bills by API.
+/// `mixdog-local` is free, `*-oauth` and an ACP agent's route (`acp-*`, run on the account its CLI signed in with) are
+/// subscriptions, anything else bills by API.
 pub fn route_kind(provider: &str) -> &'static str {
     if provider == "mixdog-local" {
         "local"
-    } else if provider.ends_with("-oauth") {
+    } else if provider.ends_with("-oauth") || is_agent_route(provider) {
         "oauth"
     } else {
         "api"
     }
+}
+
+/// A route of an ACP agent: its kind comes from the provider, whatever kind the record was written with.
+fn is_agent_route(provider: &str) -> bool {
+    provider.starts_with("acp-")
 }
 
 pub fn cost_source(kind: &str, cost: Option<f64>, subscription: bool) -> &'static str {
@@ -293,14 +300,16 @@ pub fn plan_repair(
         let original_provider = text_at(&signature, 0);
         let provider = options.provider_overrides.get(&original_provider).cloned().unwrap_or_else(|| original_provider.clone());
         let moved = provider != original_provider;
-        let kind = if moved { route_kind(&provider).to_string() } else { text_at(&signature, 2) };
+        let stored_kind = text_at(&signature, 2);
+        let kind = if moved || is_agent_route(&provider) { route_kind(&provider).to_string() } else { stored_kind.clone() };
+        let rekinded = kind != stored_kind;
         let model = text_at(&signature, 1);
         let mut cost = row.cost_usd;
         let old_rates: Option<Value> = match signature.get(5).and_then(Value::as_str) {
             Some(rates) => Some(serde_json::from_str(rates)?),
             None => None,
         };
-        if moved || text_at(&signature, 4) == "unpriced" {
+        if moved || rekinded || text_at(&signature, 4) == "unpriced" {
             cost = reprice_signature(&row, &mut signature, &provider, &kind, &model, old_rates.as_ref(), price)?;
             if row.cost_usd.is_none() && cost.is_some() {
                 report.repriced += 1;
@@ -371,9 +380,6 @@ fn apply_planned(tx: &Transaction, mut report: RepairReport, changes: &[Change],
         return Ok(report);
     }
     let before = integrity(tx)?;
-    if options.backup && database_path(tx)?.is_some() {
-        report.backup_path = Some(backup_beside(tx)?.to_string_lossy().into_owned());
-    }
     for change in changes {
         tx.prepare_cached("INSERT OR IGNORE INTO usage_routes(signature) VALUES (?1)")?.execute([&change.encoded])?;
         let route: i64 = tx.prepare_cached("SELECT id FROM usage_routes WHERE signature=?1")?.query_row([&change.encoded], |r| r.get(0))?;
@@ -392,7 +398,6 @@ fn apply_planned(tx: &Transaction, mut report: RepairReport, changes: &[Change],
         "repriced": report.repriced,
         "stillUnpriced": report.still_unpriced,
         "changes": report.changes,
-        "backupPath": report.backup_path,
         "integrity": after,
     });
     tx.prepare_cached("INSERT INTO metadata VALUES ('lastUsageRepair', ?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value")?

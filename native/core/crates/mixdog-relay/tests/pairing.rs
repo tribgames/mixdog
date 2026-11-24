@@ -14,7 +14,7 @@ use mixdog_relay::legs::watchdog::HandshakeTiming;
 use mixdog_relay::net::Server;
 use mixdog_relay::pairing::Pairing;
 use mixdog_relay::pairing::claims::{
-    APPROVED_CLAIM_RETAIN_MS, CLAIM_TTL_MS, Claim, ClaimStatus, Claims, EXPIRED_CLAIM_RETAIN_MS, MAX_PENDING_CLAIMS, MAX_PENDING_CLAIMS_PER_DEVICE,
+    APPROVED_CLAIM_RETAIN_MS, Approval, CLAIM_TTL_MS, Claim, ClaimStatus, Claims, EXPIRED_CLAIM_RETAIN_MS, MAX_PENDING_CLAIMS, MAX_PENDING_CLAIMS_PER_DEVICE,
     MAX_PENDING_CLAIMS_PER_SOURCE,
 };
 use mixdog_relay::rate_limit::RateLimiter;
@@ -42,6 +42,7 @@ fn claim_record(status: ClaimStatus, token: &str, expires_at: i64) -> Claim {
         token: token.to_owned(),
         sealed: json!({ "box": "opaque" }),
         expires_at,
+        replaces: None,
     }
 }
 
@@ -409,6 +410,67 @@ async fn a_denial_and_an_answer_from_another_desktop_are_told_apart() {
     assert_eq!(poll(&rig, &claim_id).await, json!({ "status": "denied" }));
     rig.finish().await;
 }
+#[tokio::test]
+async fn a_claim_cannot_take_over_the_slot_of_a_paired_browser_of_a_desktop_that_can_recover() {
+    let rig = boot(true).await;
+    rig.hub.store().record_desktop_version(DEVICE, &json!({ "appVersion": "1.5.0" }));
+    let paired = rig.hub.store().register_client(DEVICE, "bbbbbbbb", &Default::default()).await.expect("a paired browser");
+    let refused = claim(&rig, &claim_body("bbbbbbbb", "k")).await;
+    assert_eq!((refused.status, refused.json()), (409, json!({ "status": "paired" })));
+    assert!(rig.leg.frames_of("client-claim").is_empty());
+    assert_eq!(rig.hub.store().device_id_for_client_token(&paired.token).as_deref(), Some(DEVICE));
+    // A fresh id is an ordinary claim.
+    assert_eq!(claim(&rig, &claim_body("cccccccc", "k")).await.status, 202);
+    rig.finish().await;
+}
+
+#[tokio::test]
+async fn a_claim_of_a_paired_id_is_prompted_and_replaces_the_credential_for_a_desktop_before_1_5_0() {
+    for reported in [Some("1.4.9"), None] {
+        let rig = boot(true).await;
+        if let Some(version) = reported {
+            rig.hub.store().record_desktop_version(DEVICE, &json!({ "appVersion": version }));
+        }
+        let old = rig.hub.store().register_client(DEVICE, "bbbbbbbb", &Default::default()).await.expect("a paired browser");
+        let started = claim(&rig, &claim_body("bbbbbbbb", "k")).await;
+        assert_eq!(started.status, 202, "{reported:?}");
+        let claim_id = started.json()["claimId"].as_str().expect("a claim id").to_owned();
+        assert_eq!(rig.leg.frames_of("client-claim").len(), 1);
+        rig.frame(&json!({ "type": "claim-approve", "claimId": claim_id })).await;
+        let token = poll(&rig, &claim_id).await["token"].as_str().expect("a token").to_owned();
+        assert_eq!(rig.hub.store().device_id_for_client_token(&token).as_deref(), Some(DEVICE));
+        assert_eq!(rig.hub.store().device_id_for_client_token(&old.token), None);
+        rig.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn two_claims_of_a_paired_id_of_an_older_desktop_cannot_both_replace_it() {
+    let rig = boot(true).await;
+    rig.hub.store().record_desktop_version(DEVICE, &json!({ "appVersion": "1.4.9" }));
+    rig.hub.store().register_client(DEVICE, "bbbbbbbb", &Default::default()).await.expect("a paired browser");
+    let first = claim(&rig, &claim_body("bbbbbbbb", "k")).await.json()["claimId"].as_str().expect("a claim id").to_owned();
+    let second = claim(&rig, &claim_body("bbbbbbbb", "m")).await.json()["claimId"].as_str().expect("a claim id").to_owned();
+    rig.frame(&json!({ "type": "claim-approve", "claimId": first })).await;
+    let token = poll(&rig, &first).await["token"].as_str().expect("a token").to_owned();
+    rig.frame(&json!({ "type": "claim-approve", "claimId": second })).await;
+    assert_eq!(poll(&rig, &second).await, json!({ "status": "denied" }));
+    assert_eq!(rig.hub.store().device_id_for_client_token(&token).as_deref(), Some(DEVICE));
+    rig.finish().await;
+}
+
+#[test]
+fn a_claim_being_registered_cannot_be_denied_swept_or_approved_twice() {
+    let mut claims = Claims::new();
+    claims.insert(claim_record(ClaimStatus::Pending, "", 1_000));
+    assert!(matches!(claims.begin_approval("c1", "dev", 10), Approval::Register { .. }));
+    assert!(matches!(claims.begin_approval("c1", "dev", 10), Approval::Ignored));
+    claims.deny("c1", "dev");
+    claims.sweep(5_000);
+    claims.finish_approval("c1", Some("tok".to_owned()), Value::Null, 20);
+    assert_eq!(claims.poll("c1")["token"], json!("tok"));
+}
+
 #[tokio::test]
 async fn a_reopened_request_resumes_instead_of_prompting_the_desktop_again() {
     let rig = boot(true).await;

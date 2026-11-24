@@ -6,8 +6,8 @@ import type { Json } from '../src/api.ts';
 import type { Obj } from '../src/obj.ts';
 import { mergeToolRows, rowsHeldFrom } from '../src/rows.ts';
 import { desktopSessionState, sessionReducer, type SessionFold } from '../src/session-state.ts';
+import { at, end, pos } from './positioned-fixtures.ts';
 
-const pos = (id: string) => `h1:0:${id}`;
 const reply = (id: string) => ({ type: 'agentMessage', id, text: id, meta: { ext: { historyPosition: pos(id) } } });
 const tool = (id: string) => ({
   type: 'toolCall',
@@ -17,16 +17,14 @@ const tool = (id: string) => ({
   output: `out ${id}`,
   meta: { status: 'completed', ext: { historyPosition: pos(id) } },
 });
-const end = { kind: 'end' };
 const shown = (fold: SessionFold): Obj[] => desktopSessionState(fold, []).items as Obj[];
-const at = (s: SessionFold, method: string, params: Obj) =>
-  sessionReducer.apply(s, { method, params: { threadId: 't', ...params } } as never);
 
 function followed(turns: number): SessionFold {
   const units = [];
   for (let turn = 0; turn < turns; turn += 1) {
     units.push({ position: pos(`a${turn}`), items: [reply(`a${turn}`)] });
-    for (const call of ['x', 'y', 'z']) units.push({ position: pos(`t${turn}${call}`), items: [tool(`t${turn}${call}`)] });
+    for (const call of ['x', 'y', 'z'])
+      units.push({ position: pos(`t${turn}${call}`), items: [tool(`t${turn}${call}`)] });
   }
   // A row that is no tool's ends the last run: every card above it is settled.
   units.push({ position: pos('last'), items: [reply('last')] });
@@ -48,7 +46,10 @@ function followed(turns: number): SessionFold {
 test('a row that lands at the tail of a followed window leaves the reader every row above it', () => {
   let fold = followed(40);
   const held = shown(fold);
-  assert.ok(held.some((row) => row.aggregate === true), 'the window shows merged tool cards');
+  assert.ok(
+    held.some((row) => row.aggregate === true),
+    'the window shows merged tool cards'
+  );
 
   // The running turn's rows (no stored record holds them yet), then the first of them stored as its unit.
   fold = at(fold, 'item/completed', { item: { type: 'agentMessage', id: 'live1', text: 'live1', meta: {} } });

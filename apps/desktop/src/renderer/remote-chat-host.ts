@@ -138,13 +138,11 @@ function createTranscriptHistory(send: Send, shared: ChatHostShared) {
       const anchor = (history as { before?: string; after?: string })[older ? 'before' : 'after'];
       const boundary = older ? state.items?.[0] : state.items?.at(-1);
       // The core's own continuation first: it names an item, row or no row, where the row anchor may not have moved.
-      const cursor =
-        history.cursor ??
-        (history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
-          ? history.position
-          : boundary?.id === anchor
-            ? historyPositionOf(boundary, older ? 'before' : 'after')
-            : undefined);
+      const continuation = (): string | undefined => {
+        if (history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)) return history.position;
+        return boundary?.id === anchor ? historyPositionOf(boundary, older ? 'before' : 'after') : undefined;
+      };
+      const cursor = history.cursor ?? continuation();
       let page: {
         data?: unknown[];
         hasOlder?: boolean;

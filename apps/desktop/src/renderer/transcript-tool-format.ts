@@ -607,7 +607,9 @@ function recallSubject(args: Record<string, unknown>): string {
 function mediaSubject(args: Record<string, unknown>): string {
   const action = toolActivityFirstText(args, 'action').toLowerCase();
   const kind = toolActivityFirstText(args, 'kind').toLowerCase();
-  const kindLabel = kind === 'video' ? t('Video') : kind === 'image' ? t('Image') : kind;
+  let kindLabel = kind;
+  if (kind === 'video') kindLabel = t('Video');
+  else if (kind === 'image') kindLabel = t('Image');
   return toolActivityCompact([
     // A generation's verb already names its kind.
     /^generate/.test(action) ? '' : kindLabel,
@@ -652,12 +654,14 @@ function todoSubject(args: Record<string, unknown>): string {
   const op = toolActivityFirstText(args, 'op');
   const items = Array.isArray(args.items) ? args.items : [];
   const only = items.length === 1 ? asRecord(items[0]) : null;
-  const step = only ? toolActivityFirstText(only, 'content', 'text') : items.length === 1 ? String(items[0]) : '';
+  let step = '';
+  if (only) step = toolActivityFirstText(only, 'content', 'text');
+  else if (items.length === 1) step = String(items[0]);
   const target = toolActivityFirstText(args, 'item', 'note', 'reason') || step;
-  return toolActivityCompact([
-    op && op.toLowerCase() !== 'view' ? toolActivityActionLabel(op) : '',
-    target ? clippedText(toolActivityInline(target)) : items.length > 1 ? t('{{count}} steps', { count: items.length }) : '',
-  ]);
+  let named = '';
+  if (target) named = clippedText(toolActivityInline(target));
+  else if (items.length > 1) named = t('{{count}} steps', { count: items.length });
+  return toolActivityCompact([op && op.toLowerCase() !== 'view' ? toolActivityActionLabel(op) : '', named]);
 }
 
 /** "Sign in · GitHub Device Activation": what the user is asked to do, and where. */
@@ -881,7 +885,7 @@ function commandSubject(args: Record<string, unknown>): string {
 function questionsSubject(args: Record<string, unknown>): string {
   const questions = Array.isArray(args.questions) ? args.questions : [];
   const asked = questions
-    .map((entry) => (asRecord(entry) ? toolActivityFirstText(asRecord(entry) ?? {}, 'header', 'question') : ''))
+    .map((entry) => toolActivityFirstText(asRecord(entry) ?? {}, 'header', 'question'))
     .filter(Boolean);
   return clippedText(asked.join(', '));
 }
@@ -970,10 +974,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     ['visualize'],
     (args, _path, fallback) => visualizeRowSubject(toolActivityFirstText(args, 'action'), args, '') || fallback,
   ],
-  [
-    ['setup', 'office'],
-    (args, _path, fallback) => localizeActionSubject(args, fallback),
-  ],
+  [['setup', 'office'], (args, _path, fallback) => localizeActionSubject(args, fallback)],
 ]);
 
 /** "Rename session: Fix login", "Fork into new session", "Set project · C:\repo":

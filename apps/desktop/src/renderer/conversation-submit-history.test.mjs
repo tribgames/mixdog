@@ -12,7 +12,7 @@ test('a positioned pane following a tail grown long asks the core for nothing; a
   const { useTranscriptWindow } = await import('./use-transcript-history.ts');
   const moves = [];
   window.mixdogDesktop = {
-    moveTranscriptWindow: async (sessionId, move) => {
+    moveTranscriptWindow: async (_sessionId, move) => {
       moves.push(move.kind);
       return true;
     },
@@ -30,7 +30,8 @@ test('a positioned pane following a tail grown long asks the core for nothing; a
   const root = createRoot(document.querySelector('main'));
   try {
     // The tail grows as records arrive: each is another window version.
-    for (const version of [1, 2, 3]) await act(async () => root.render(React.createElement(Pane, { positioned: facts(version) })));
+    for (const version of [1, 2, 3])
+      await act(async () => root.render(React.createElement(Pane, { positioned: facts(version) })));
     assert.deepEqual(moves, [], 'no tail is read anew, whatever its length');
     assert.equal(shown.length, 400, 'every row followed stays shown');
     // A stretch opened apart from the tail (a search hit), with the reader following again.
@@ -53,7 +54,7 @@ test('a positioned pane tells the window where its reader is, and that the view 
   const { useTranscriptWindow } = await import('./use-transcript-history.ts');
   const moves = [];
   window.mixdogDesktop = {
-    moveTranscriptWindow: async (sessionId, move) => {
+    moveTranscriptWindow: async (_sessionId, move) => {
       moves.push(move);
       return true;
     },
@@ -72,7 +73,11 @@ test('a positioned pane tells the window where its reader is, and that the view 
     assert.deepEqual(moves, [{ kind: 'read', first: 'r10', last: 'r20', reader: '' }], 'a place to come back to');
     await act(async () => root.render(React.createElement(Pane, { following: true })));
     await act(async () => window_.readerAt('r280', 'r299'));
-    assert.deepEqual(moves.at(-1), { kind: 'read', first: 'r280', last: 'r299', end: true, reader: '' }, 'the end is none');
+    assert.deepEqual(
+      moves.at(-1),
+      { kind: 'read', first: 'r280', last: 'r299', end: true, reader: '' },
+      'the end is none'
+    );
   } finally {
     await act(async () => root.unmount());
     restore();
@@ -108,11 +113,19 @@ test('each move goes out as it is asked, for its own session; a pane that shows 
     await act(async () => window_.readerAt('r10', 'r20'));
     // The reader moves on while the page is out: the window is told where it is now, not when the page returns.
     await act(async () => window_.readerAt('r30', 'r40'));
-    assert.deepEqual(told(), [['A', 'r10'], ['A', 'r30']]);
+    assert.deepEqual(told(), [
+      ['A', 'r10'],
+      ['A', 'r30'],
+    ]);
     // The pane shows another session: it withdraws from A at once, and its move is B's own.
     await act(async () => root.render(React.createElement(Pane, { session: 'B' })));
     await act(async () => window_.readerAt('r50', 'r60'));
-    assert.deepEqual(told(), [['A', 'r10'], ['A', 'r30'], ['A', 'follow'], ['B', 'r50']]);
+    assert.deepEqual(told(), [
+      ['A', 'r10'],
+      ['A', 'r30'],
+      ['A', 'follow'],
+      ['B', 'r50'],
+    ]);
     // A's pages return: nothing of A is asked of B, and nothing more of A.
     await act(async () => sent[0].answer(true));
     await act(async () => sent[1].answer(true));

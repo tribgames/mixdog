@@ -447,7 +447,7 @@ mod tests {
     }
 
     /// A tool result whose only content is an image given by file id has no image on this wire; what stands for it is
-    /// kept in the result's text, so the model is told it was there (it used to vanish from the text altogether).
+    /// kept in the result's text, so the model is told it was there.
     #[test]
     fn a_file_id_image_in_a_tool_result_leaves_its_placeholder_in_the_text() {
         use mixdog_core_api::domain::provider::{Content, ContentPart, ImageSource};

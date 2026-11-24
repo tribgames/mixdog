@@ -1063,6 +1063,7 @@ mod tests {
         let row = listed["data"].as_array().expect("data").iter().find(|row| row["id"] == id.as_str()).expect("the row is listed");
         assert!(row.to_string().contains("after-the-write"), "{row}");
     }
+
     /// The seed answers, for every id the catalog pages list, what `summary` answers for it, with the same publications: the
     /// renamed room's log under its saved name, and neither the room member nor the log of a room that is gone. The rooms are
     /// read at most once a page, and the catalog stays unloaded.

@@ -87,6 +87,15 @@ fn parse_version(value: &str) -> Option<[f64; 3]> {
     suffix_ok.then_some(numbers)
 }
 
+/// Whether a reported release is `minimum` or later, compared as the registry compares releases (the three numbers, a suffix
+/// ignored). A version that is not one (a desktop too old to report) is not at least anything.
+pub fn version_at_least(version: &str, minimum: &str) -> bool {
+    match (parse_version(version), parse_version(minimum)) {
+        (Some(version), Some(minimum)) => compare_versions(&version, &minimum) != Ordering::Less,
+        _ => false,
+    }
+}
+
 fn compare_versions(left: &[f64; 3], right: &[f64; 3]) -> Ordering {
     for (a, b) in left.iter().zip(right) {
         if a != b {

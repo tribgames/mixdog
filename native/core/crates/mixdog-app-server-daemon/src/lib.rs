@@ -32,6 +32,7 @@ pub mod compose_core;
 mod compose_desktop_files;
 pub mod compose_domains;
 pub mod compose_flip;
+mod compose_legacy;
 pub mod compose_mcp;
 mod compose_media_lease;
 pub mod compose_screen;
@@ -138,8 +139,6 @@ pub enum ServeError {
     StoppedDuringStartup(&'static str),
     #[error("creating the startup interrupt: {0}")]
     Interrupt(#[source] std::io::Error),
-    #[error("the runtime root: {0}")]
-    RuntimeRoot(#[source] std::io::Error),
     #[error("the lifecycle refused: {0}")]
     Lifecycle(#[from] lifecycle::CommandError),
     #[error("waiting for the stop signal: {0}")]
@@ -157,9 +156,20 @@ pub fn boot_executors() -> Result<(Arc<Executors>, LaneTokens), ServeError> {
 pub fn run(desktop_confirmation_pipe: bool) -> Result<(), ServeError> {
     adopt_login_shell_environment(std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let (executors, tokens) = boot_executors()?;
-    match executors.handle(TaskClass::Work).block_on(serve(&executors, tokens, desktop_confirmation_pipe)) {
+    startup_end(executors.handle(TaskClass::Work).block_on(serve(&executors, tokens, desktop_confirmation_pipe)))
+}
+
+/// How the process records a start that ended before the core served: a lost claim yields (exit 0, recorded as the claim lost); a stop
+/// request is Node's `shutdown(<signal>)` from its signal handler, a stop with exit 0, not a fatal boot error; anything else is the error.
+fn startup_end(served: Result<(), ServeError>) -> Result<(), ServeError> {
+    match served {
         Err(ServeError::Startup(startup::StartupError::Ownership(ownership::AcquireError::AlreadyOwned))) => {
             crash_record::yield_ownership(discovery::running_core_pid());
+            Ok(())
+        }
+        Err(ServeError::StoppedDuringStartup(signal)) => {
+            tracing::info!(signal, "stopped during startup");
+            crash_record::settle_exit(signal, 0);
             Ok(())
         }
         served => served,
@@ -220,7 +230,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     // LR §3 steps 1 to 5 (`boot`): the data-directory lock `L` (every log writer revalidates it), the control listener, the prior-owner verdict, barrier `B` and the
     // migration, all before the core is composed. The release decision of a blocked verdict is bound on `Booting::release`. The idle sweep and the event pipeline
     // take the `Started` as their proof (`event_pipeline::run`, `session_sweep::run`); both start below, and so does Mixy's heartbeat.
-    let runtime_root = discovery::runtime_root().map_err(ServeError::RuntimeRoot)?;
+    let runtime_root = discovery::runtime_root();
     let begun = boot::boot(
         &tokens,
         &data_dir,
@@ -234,6 +244,16 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     .await?;
     let boot_begun = std::time::Instant::now();
     let boot::Begun { started, booting, watch, behind } = begun;
+    // Until the core serves, a start that fails gives back what the boot published and started (`boot::abandon`).
+    let published = booting.discovery.clone();
+    let catalog_http = match catalog::production_http() {
+        Ok(http) => http,
+        Err(error) => {
+            drop(booting);
+            boot::abandon(&tokens, Some(published), behind).await;
+            return Err(compose::ComposeError::Catalog(error).into());
+        }
+    };
     let ownership: std::sync::Arc<dyn mixdog_core_api::domain::ownership::Ownership> = started.ownership().clone();
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
@@ -257,7 +277,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         ownership,
         log,
         stop: stop.clone(),
-        catalog_http: catalog::production_http().map_err(compose::ComposeError::Catalog)?,
+        catalog_http,
         agent_presets: acp_tools::builtin_presets(),
         #[cfg(test)]
         pg_install: None,
@@ -271,13 +291,16 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     let core = match composed {
         Ok(core) => std::sync::Arc::new(core),
         Err(error) => {
-            return Err(match watch.requested() {
+            let error = match watch.requested() {
                 Some(signal) => {
                     tracing::warn!(%error, "the composition ended by the stop request");
                     ServeError::StoppedDuringStartup(signal.name())
                 }
                 None => error.into(),
-            });
+            };
+            drop(booting);
+            boot::abandon(&tokens, Some(published), behind).await;
+            return Err(error);
         }
     };
     tracing::info!("core composed");
@@ -326,6 +349,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         Ok(serving) => serving,
         Err(error) => {
             core.stop("fatal boot error").await;
+            boot::abandon(&tokens, Some(published), behind).await;
             return Err(error);
         }
     };
@@ -412,6 +436,17 @@ fn start_after_ready_tasks(
         )
     {
         tracing::error!(%error, "the thread that converts the earlier version's sessions could not start; the next start tries again");
+    }
+}
+
+#[cfg(test)]
+mod startup_end_tests {
+    use super::*;
+
+    /// A stop request that ends the start before the core serves is a stop, not a fatal boot error: the process exits 0.
+    #[test]
+    fn a_stop_during_startup_exits_as_a_stop() {
+        assert_eq!(crash_record::serve_recorded(|| startup_end(Err(ServeError::StoppedDuringStartup("SIGTERM")))), 0);
     }
 }
 

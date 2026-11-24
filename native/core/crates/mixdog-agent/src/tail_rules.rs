@@ -49,17 +49,8 @@ pub struct TailRule {
     pub text: &'static str,
 }
 
-/// Claude Opus 5.5 keeps answering Korean users in English in long agentic
-/// turns, where many English tool results sit between the user message and
-/// the final answer.
-pub const TAIL_REMINDER_RULES: &[TailRule] = &[TailRule {
-    id: "opus-5-5-korean",
-    provider: &[],
-    model: &["claude-opus-5-5"],
-    language: &["ko"],
-    role: &["lead", "bot"],
-    text: "Write all user-facing text in {language}.",
-}];
+/// The built-in rules every session's requests are matched against.
+pub const TAIL_REMINDER_RULES: &[TailRule] = &[];
 
 /// A provider id's family, for rules written against the family.
 fn provider_family(provider: &str) -> Option<&'static str> {
@@ -134,14 +125,15 @@ pub fn match_tail_reminder(context: &TailContext, model: &str, rules: &[TailRule
     (!texts.is_empty()).then(|| format!("<system-reminder>{}</system-reminder>", texts.join("\n")))
 }
 
-/// The session's tail reminder source: the built-in rules against the
-/// session's provider, language and role.
+/// The session's tail reminder source: `rules` ([`TAIL_REMINDER_RULES`] for a
+/// session) against the session's provider, language and role.
 pub struct RuleTailReminder {
     pub context: TailContext,
+    pub rules: &'static [TailRule],
 }
 
 impl TailReminder for RuleTailReminder {
     fn text(&self, model: &str) -> Option<String> {
-        match_tail_reminder(&self.context, model, TAIL_REMINDER_RULES)
+        match_tail_reminder(&self.context, model, self.rules)
     }
 }

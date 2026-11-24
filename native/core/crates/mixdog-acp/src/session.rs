@@ -14,6 +14,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::agents::lock;
 use crate::connection::Connection;
 use crate::connection::Fault;
 use crate::connection::Incoming;
@@ -24,9 +25,11 @@ use crate::files::read_text_file;
 use mixdog_tools::policy::GrantKey;
 
 use crate::mcp::Handover;
+use crate::mcp::SERVER_NAME;
 use crate::mcp::ToolAsk;
 use crate::mcp::ToolServer;
 use crate::preset::AgentPreset;
+use crate::preset::OwnToolsOff;
 use crate::preset::Reopen;
 use crate::rows::AgentTool;
 
@@ -50,29 +53,13 @@ pub struct Models {
 }
 
 impl Models {
-    /// From a `session/new` or `session/resume` answer: its `configOptions` entry of category `model`, else its `models`.
+    /// From a `session/new` or `session/resume` answer. The `models` list is the one that names what the agent runs: it
+    /// lists a model once per effort, under the agent's own id of that tier, and `session/set_model` sets model and
+    /// effort in one step. Only an answer without such a list is read from its `configOptions` entry of category
+    /// `model`, which is then set as an option.
     pub fn of(answer: &Value) -> Self {
-        let option = answer.get("configOptions").and_then(Value::as_array).and_then(|options| {
-            options.iter().find(|option| option.get("category").and_then(Value::as_str) == Some("model") && option.get("options").is_some_and(Value::is_array))
-        });
-        if let Some(option) = option {
-            let available = option["options"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|choice| {
-                    let id = choice.get("value").and_then(Value::as_str)?;
-                    Some(AgentModel { id: id.to_owned(), name: choice.get("name").and_then(Value::as_str).unwrap_or(id).to_owned() })
-                })
-                .collect();
-            return Self {
-                available,
-                current: option.get("currentValue").and_then(Value::as_str).map(str::to_owned),
-                config_option: option.get("id").and_then(Value::as_str).map(str::to_owned),
-            };
-        }
         let models = answer.get("models");
-        let available = models
+        let available: Vec<AgentModel> = models
             .and_then(|models| models.get("availableModels"))
             .and_then(Value::as_array)
             .into_iter()
@@ -82,7 +69,30 @@ impl Models {
                 Some(AgentModel { id: id.to_owned(), name: model.get("name").and_then(Value::as_str).unwrap_or(id).to_owned() })
             })
             .collect();
-        Self { available, current: models.and_then(|models| models.get("currentModelId")).and_then(Value::as_str).map(str::to_owned), config_option: None }
+        let option = answer.get("configOptions").and_then(Value::as_array).and_then(|options| {
+            options.iter().find(|option| option.get("category").and_then(Value::as_str) == Some("model") && option.get("options").is_some_and(Value::is_array))
+        });
+        let Some(option) = option.filter(|_| available.is_empty()) else {
+            return Self {
+                available,
+                current: models.and_then(|models| models.get("currentModelId")).and_then(Value::as_str).map(str::to_owned),
+                config_option: None,
+            };
+        };
+        let available = option["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|choice| {
+                let id = choice.get("value").and_then(Value::as_str)?;
+                Some(AgentModel { id: id.to_owned(), name: choice.get("name").and_then(Value::as_str).unwrap_or(id).to_owned() })
+            })
+            .collect();
+        Self {
+            available,
+            current: option.get("currentValue").and_then(Value::as_str).map(str::to_owned),
+            config_option: option.get("id").and_then(Value::as_str).map(str::to_owned),
+        }
     }
 }
 
@@ -186,10 +196,6 @@ pub struct AgentSession {
     wake: Wake,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 fn at<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
     path.iter().try_fold(value, |value, key| value.get(key))
 }
@@ -224,6 +230,30 @@ pub fn launch(preset: &AgentPreset, program: &str, cwd: AbsPath) -> Launch {
     Launch { program: program.to_owned(), args: preset.args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd }
 }
 
+/// As [`launch`], started in `home` with the agent that has none of the CLI's own tools: `home` holds the definition
+/// [`own_tools_off_home`] wrote.
+fn launch_without_own_tools(preset: &AgentPreset, program: &str, cwd: AbsPath, home: Option<(AbsPath, &OwnToolsOff)>) -> Launch {
+    let mut launch = launch(preset, program, cwd);
+    if let Some((home, off)) = home {
+        launch.args.extend(off.args.iter().cloned());
+        launch.cwd = home;
+    }
+    launch
+}
+
+/// The folder the CLI is started in for a session handed Mixdog's tools: it holds the agent definition without the
+/// CLI's own tools and with `tools`, the session's, declared to the model. Sessions handed other tools run side by
+/// side, so each definition has a folder of its own. A definition that cannot be written fails the open: the agent is
+/// not started with its own tools instead.
+async fn own_tools_off_home(files: &dyn TextFiles, preset_id: &str, off: &OwnToolsOff, tools: &[String]) -> Result<AbsPath, Fault> {
+    let place = |path: std::path::PathBuf| AbsPath::new(path).ok_or_else(|| Fault::Start("the temporary folder has no absolute place".into()));
+    let text = off.definition(SERVER_NAME, tools);
+    let home = place(std::env::temp_dir().join("mixdog-acp").join(preset_id).join(digest(&text)))?;
+    let file = place(home.as_path().join(&off.file))?;
+    files.create(file, text).await.map_err(|error| Fault::Start(format!("the agent definition without its own tools was not written: {error}")))?;
+    Ok(home)
+}
+
 fn is_update(incoming: &Incoming) -> Option<&str> {
     match incoming {
         Incoming::Notification { method, params } if method == "session/update" => {
@@ -254,31 +284,50 @@ impl AgentSession {
         wake: Wake,
         on_exit: Box<dyn FnOnce() + Send>,
     ) -> Result<Arc<Self>, Fault> {
-        let (connection, mut incoming) = Connection::start(processes, launch(open.preset, open.program, open.cwd.clone())).await?;
-        let capabilities = initialize(&connection).await?;
-        let cwd = open.cwd.as_path().to_string_lossy().into_owned();
-        let quirks = &open.preset.quirks;
         // The session's tools go to this process alone: a server of its own, named in the session it opens or reopens.
         // An agent that takes no HTTP server is given the bridge program; one that can be given neither gets no tools.
+        let started = match &open.handed {
+            Some(handed) => match ToolServer::start(handed.thread.clone(), handed.tools.clone()).await {
+                Ok(started) => Some(started),
+                Err(error) => {
+                    tracing::warn!("[acp] the session's tool server did not start: {error}");
+                    None
+                }
+            },
+            None => None,
+        };
+        // The CLI's own tools are off only where the agent is handed the session's: it starts so when the server is
+        // there, and starts again with its own tools when it turns out it cannot be given the server's entry.
+        let bare = match (&started, &open.preset.own_tools_off, &open.handed) {
+            (Some(_), Some(off), Some(handed)) => {
+                let tools = handed.listed().await.map_err(|error| Fault::Start(format!("the session's tools were not listed: {error}")))?;
+                Some((own_tools_off_home(files.as_ref(), open.preset.id.as_str(), off, &tools).await?, off))
+            }
+            _ => None,
+        };
+        let was_bare = bare.is_some();
+        let launched = launch_without_own_tools(open.preset, open.program, open.cwd.clone(), bare);
+        let (mut connection, mut incoming) = Connection::start(processes.clone(), launched).await?;
+        let mut capabilities = initialize(&connection).await?;
         let mut server = None;
         let mut servers = Vec::new();
-        if let Some(handed) = &open.handed {
-            match ToolServer::start(handed.thread.clone(), handed.tools.clone()).await {
-                Ok((started, calls)) => {
-                    let http = capabilities.pointer("/agentCapabilities/mcpCapabilities/http") == Some(&Value::Bool(true));
-                    if let Some(entry) = started.entry(http, handed.bridge.as_ref()) {
-                        servers.push(entry);
-                        server = Some((started, calls));
-                    }
-                }
-                Err(error) => tracing::warn!("[acp] the session's tool server did not start: {error}"),
+        if let (Some(handed), Some((started, calls))) = (&open.handed, started) {
+            let http = capabilities.pointer("/agentCapabilities/mcpCapabilities/http") == Some(&Value::Bool(true));
+            if let Some(entry) = started.entry(http, handed.bridge.as_ref()) {
+                servers.push(entry);
+                server = Some((started, calls));
             }
         }
+        if was_bare && server.is_none() {
+            (connection, incoming) = Connection::start(processes, launch(open.preset, open.program, open.cwd.clone())).await?;
+            capabilities = initialize(&connection).await?;
+        }
+        let cwd = open.cwd.as_path().to_string_lossy().into_owned();
+        let quirks = &open.preset.quirks;
         let handed = open.handed.filter(|_| server.is_some());
-        // Mixdog's prompt for the session, and, with the tools handed over, the word to prefer them: guidance only, the
-        // agent's own tools stay its to use. It goes with every open of the agent's session, a reopen included.
-        let appendix: Vec<&str> =
-            open.rules.as_deref().into_iter().chain(handed.is_some().then_some(crate::mcp::PREFERENCE)).filter(|text| !text.trim().is_empty()).collect();
+        // Mixdog's prompt for the session, and, with the tools handed over, the word to prefer them. It goes with every open of the agent's session, a reopen included.
+        let preference = handed.is_some().then(crate::mcp::preference);
+        let appendix: Vec<&str> = open.rules.as_deref().into_iter().chain(preference.as_deref()).filter(|text| !text.trim().is_empty()).collect();
         let appendix = (!appendix.is_empty()).then(|| appendix.join("\n\n"));
         let prompt = appendix.as_deref().map(digest);
         let appended = quirks.system_prompt_append.as_ref().filter(|path| {
@@ -648,4 +697,68 @@ async fn route(
         routing.ended = true;
     }
     on_exit();
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+
+    use super::*;
+
+    struct Writes(Mutex<Vec<(AbsPath, String)>>, bool);
+
+    #[async_trait]
+    impl TextFiles for Writes {
+        async fn read(&self, _path: AbsPath) -> Result<String, String> {
+            Err("no reads".to_owned())
+        }
+
+        async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+            Ok(path)
+        }
+
+        async fn create(&self, path: AbsPath, text: String) -> Result<(), String> {
+            self.0.lock().unwrap().push((path, text));
+            if self.1 { Ok(()) } else { Err("read-only".to_owned()) }
+        }
+    }
+
+    fn antigravity() -> AgentPreset {
+        crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset")
+    }
+
+    fn here() -> AbsPath {
+        AbsPath::new(std::env::temp_dir().join("work")).expect("absolute")
+    }
+
+    #[tokio::test]
+    async fn a_handed_session_starts_the_cli_with_the_agent_that_has_none_of_its_own_tools() {
+        let preset = antigravity();
+        let files = Writes(Mutex::default(), true);
+        let off = preset.own_tools_off.as_ref().expect("the definition");
+        let tools = ["read".to_owned(), "batch".to_owned()];
+        let home = own_tools_off_home(&files, &preset.id, off, &tools).await.expect("the home");
+        let started = launch_without_own_tools(&preset, "agy", here(), Some((home.clone(), off)));
+        assert_eq!(started.args, ["acp", "--disable-telemetry", "--agent", "mixdog"]);
+        assert_eq!(started.cwd, home);
+        let written = files.0.lock().unwrap().clone();
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0].0.as_path(), home.as_path().join(".agents/agents/mixdog/agent.md"));
+        let declared = "\ntools: []\nmcpServers:\n  - name: mixdog\n    tools:\n      \"read\":\n        eager: true\n      \"batch\":\n        eager: true\n";
+        assert!(written[0].1.contains("name: mixdog\n") && written[0].1.contains(declared), "{}", written[0].1);
+        // A session handed other tools starts from a folder of its own; one handed the same shares it.
+        assert_ne!(own_tools_off_home(&files, &preset.id, off, &tools[..1]).await.expect("the home"), home);
+        assert_eq!(own_tools_off_home(&files, &preset.id, off, &tools).await.expect("the home"), home);
+    }
+
+    #[tokio::test]
+    async fn a_definition_that_cannot_be_written_fails_the_open_and_a_session_without_one_keeps_the_clis_own_tools() {
+        let preset = antigravity();
+        let off = preset.own_tools_off.as_ref().expect("the definition");
+        let failed = own_tools_off_home(&Writes(Mutex::default(), false), &preset.id, off, &["read".to_owned()]).await;
+        assert!(matches!(failed, Err(Fault::Start(ref why)) if why.contains("read-only")), "{failed:?}");
+        let started = launch_without_own_tools(&preset, "agy", here(), None);
+        assert_eq!(started.args, ["acp", "--disable-telemetry"]);
+        assert_eq!(started.cwd, here());
+    }
 }

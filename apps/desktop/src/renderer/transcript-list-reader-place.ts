@@ -7,6 +7,7 @@ import { usePaneKey } from './pane-key-context';
 import { useSurfaceActive } from './surface-activity';
 import {
   coreScrollState,
+  firstRowEndingAfter,
   logicalScrollOffset,
   type ReadingAnchor,
   type TranscriptVirtualizer,
@@ -69,7 +70,10 @@ function keep(pane: string, session: string, entry: Kept | null): void {
     if (ofPane?.size === 0) places.delete(pane);
     return;
   }
-  if (!ofPane) places.set(pane, (ofPane = new Map()));
+  if (!ofPane) {
+    ofPane = new Map();
+    places.set(pane, ofPane);
+  }
   ofPane.set(session, entry);
 }
 
@@ -136,11 +140,15 @@ export function useReaderPlaceVersion(): number {
   return useSyncExternalStore(subscribe, readVersion, readVersion);
 }
 
+function itemsOf(row: TranscriptRowModel) {
+  if ('items' in row) return row.items;
+  return 'item' in row && row.item ? [row.item] : [];
+}
+
 /** The stored record `row` shows first. */
-export function rowPosition(row: TranscriptRowModel | undefined): string | undefined {
+function rowPosition(row: TranscriptRowModel | undefined): string | undefined {
   if (!row) return undefined;
-  const items = 'items' in row ? row.items : 'item' in row && row.item ? [row.item] : [];
-  for (const item of items) {
+  for (const item of itemsOf(row)) {
     const position = historyPositionOf(item);
     if (position !== undefined) return position;
   }
@@ -148,9 +156,10 @@ export function rowPosition(row: TranscriptRowModel | undefined): string | undef
 }
 
 /** Whether `row` shows the record at `position`. */
-export function rowShowsPosition(row: TranscriptRowModel, position: string): boolean {
-  const items = 'items' in row ? row.items : 'item' in row && row.item ? [row.item] : [];
-  return items.some((item) => historyPositionOf(item) === position || historyPositionOf(item, 'after') === position);
+function rowShowsPosition(row: TranscriptRowModel, position: string): boolean {
+  return itemsOf(row).some(
+    (item) => historyPositionOf(item) === position || historyPositionOf(item, 'after') === position
+  );
 }
 
 /** The row of `rows` the place names: by its key when that row still shows the record, else by the record, else the
@@ -186,7 +195,11 @@ export function noteReaderPlaced(instance: object, key: unknown): void {
 /** Whether `item` is the row the list put its reader on and still crosses the top of the view at `top`: its size
  *  settling (a body that was not ready when the reader was put there) then moves what is under it, never its top.
  *  Once the reader has moved off the row it is a row like any other. */
-export function holdsReaderTop(instance: object, item: { key: unknown; start: number; end: number }, top: number): boolean {
+export function holdsReaderTop(
+  instance: object,
+  item: { key: unknown; start: number; end: number },
+  top: number
+): boolean {
   if (placedRows.get(instance) !== item.key) return false;
   if (item.start <= top && item.end > top) return true;
   placedRows.delete(instance);
@@ -241,13 +254,7 @@ export function useReaderPlace({
       if (count === 0) return null;
       const top = reading();
       const visibleTop = top - scrollInset.current;
-      let low = 0;
-      let high = count - 1;
-      while (low < high) {
-        const middle = (low + high) >> 1;
-        if ((measurements[middle]?.end ?? 0) <= visibleTop) low = middle + 1;
-        else high = middle;
-      }
+      const low = firstRowEndingAfter(measurements, count, visibleTop);
       const bottom = visibleTop + viewportSize(instance);
       let to = low;
       while (to + 1 < count && (measurements[to + 1]?.start ?? 0) < bottom) to += 1;

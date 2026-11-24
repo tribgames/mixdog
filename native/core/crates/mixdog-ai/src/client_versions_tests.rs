@@ -12,27 +12,17 @@ use bytes::Bytes;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::TransportFault;
 use serde_json::Value;
 
 use super::*;
-use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
+use crate::transport::testing::Once;
 
 pub(crate) struct TestEnv(pub HashMap<String, String>);
 
 impl Environment for TestEnv {
     fn var(&self, name: &str) -> Option<String> {
         self.0.get(name).cloned()
-    }
-}
-
-struct Body(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Body {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
     }
 }
 
@@ -55,7 +45,7 @@ impl HttpSend for Net {
             Some(answer) if answer["fail"] != true => Ok(HttpResponse {
                 status: answer["status"].as_u64().unwrap() as u16,
                 headers: Vec::new(),
-                body: Box::new(Body(Some(Bytes::from(answer["body"].as_str().unwrap().to_owned())))),
+                body: Box::new(Once(Some(Bytes::from(answer["body"].as_str().unwrap().to_owned())))),
             }),
             _ => Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent)),
         }

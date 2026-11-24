@@ -1850,9 +1850,14 @@ impl ProviderBuilder for DefaultProviderBuilder {
     }
 
     async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
-        // An unreadable file counts as present: it is never a logout, so a credential read that
-        // never ran (`Probe::Unreadable`) already reads as present here and cannot be missing.
-        Ok(OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, &self.env.accounts.current_slot(name).await).await.unwrap_or(false))
+        // A sign-in by the provider's own rule (`oauthCredentialProbeState`). An unreadable file counts as present: it
+        // is never a logout, so a credential read that never ran (`Probe::Unreadable`) already reads as present here
+        // and cannot be missing.
+        Ok(OAUTH_PROVIDER_NAMES.contains(&name)
+            && matches!(
+                self.env.accounts.credential_state(name, &self.env.accounts.current_slot(name).await).await,
+                Ok(CredentialState::Present | CredentialState::Unreadable)
+            ))
     }
 
     async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
@@ -1908,4 +1913,81 @@ pub fn buildable_names() -> HashSet<&'static str> {
     ]
     .into_iter()
     .collect()
+}
+
+#[cfg(test)]
+mod credential_probe_tests {
+    #![allow(clippy::disallowed_methods, reason = "the credential fixtures are written directly")]
+
+    use super::*;
+    use crate::providers::google::traits::ThinkingControl;
+    use crate::providers::openai::config::NoFacts;
+    use crate::registry::keys::MemoryVault;
+    use crate::registry::keys::ProcessEnv;
+    use crate::transport::KeepaliveDialer;
+    use crate::transport::KeepaliveSchedule;
+    use crate::transport::ReqwestLink;
+
+    struct Traits;
+
+    impl ModelTraits for Traits {
+        fn is_gemini_family(&self, _: &str) -> bool {
+            true
+        }
+        fn thinking(&self, _: &str) -> ThinkingControl {
+            ThinkingControl::Unspecified
+        }
+    }
+
+    fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let env: Arc<dyn crate::registry::keys::Environment> = Arc::new(ProcessEnv);
+        let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
+        DefaultProviderBuilder::new(BuilderEnv {
+            http: link.clone(),
+            bidi: link,
+            dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
+            keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
+            accounts: AccountStore::new(dir.path().to_path_buf(), io),
+            anthropic_caps: Arc::new(|_| None),
+            google_traits: Arc::new(Traits),
+            route_traits: Arc::new(|_| None),
+            openai_facts: Arc::new(NoFacts),
+            openai_context: Arc::new(SessionContext::new()),
+            codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },
+            pace: Arc::new(crate::oauth::pace::FakePace::default()),
+            gzip_lane: tokens.cpu_bulk,
+            client_version: "1.0.0".into(),
+            client_versions: None,
+            grok_client_version: None,
+            cursor_client_version: None,
+            antigravity_client_version: "1.0.0".into(),
+            listing: ListingLookup::new(),
+            env,
+            home_dir: dir.path().to_path_buf(),
+            io,
+            gated_off: Arc::new(|_| false),
+            local: None,
+        })
+    }
+
+    /// `getProvider` registers an OAuth provider on the spot only for a stored sign-in its provider's rule accepts (or
+    /// a file it cannot read, which is never a logout): a document the rule rejects is no sign-in to build on.
+    #[tokio::test]
+    async fn only_a_sign_in_by_the_providers_rule_is_usable() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = builder(&dir);
+        let write = |name: &str, text: &str| std::fs::write(dir.path().join(name), text).unwrap();
+        write("cursor-oauth.json", r#"{"access_token":"a","refresh_token":"r","reauth_required":true}"#);
+        write("anthropic-oauth-credentials.json", r#"{"mcpOAuth":{"s":1}}"#);
+        write("openai-oauth.json", r#"{"access_token":"a","expires_at":1000000000000}"#);
+        write("grok-oauth.json", "{ half");
+        write("devin-oauth.json", r#"{"access_token":"a"}"#);
+        for name in ["cursor-oauth", "anthropic-oauth", "openai-oauth"] {
+            assert!(!b.oauth_credentials_usable(name).await.unwrap(), "{name}: a stored document its rule rejects");
+        }
+        assert!(b.oauth_credentials_usable("grok-oauth").await.unwrap(), "an unreadable file is never a logout");
+        assert!(b.oauth_credentials_usable("devin-oauth").await.unwrap(), "a sign-in by its provider's rule");
+    }
 }

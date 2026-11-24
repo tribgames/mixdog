@@ -192,6 +192,12 @@ impl Books {
         Some(book)
     }
 
+    /// The book of a session none is open for: the kept one ([`Self::opened`]), else the one `persisted` holds, else an unrecorded one.
+    fn open_book(&self, session_id: &str, persisted: Option<&Value>, now: i64, fresh: bool, last_send: Option<i64>) -> Book {
+        self.opened(session_id, persisted, now, last_send)
+            .unwrap_or_else(|| persisted.map_or_else(|| Book::unrecorded(fresh, last_send), |value| Book::from_json(value, now, last_send)))
+    }
+
     /// The gate of one turn of `session_id`, judging with that turn's `settings`. `persisted` is the session header's
     /// `cacheTailBook`, read only when no book of the session is open yet (with none, `settings.fresh` says whether the
     /// session is new); a later open of the session is the same book, and its settings stay its own.
@@ -201,9 +207,7 @@ impl Books {
             .entry(session_id.to_owned())
             .or_insert_with(|| {
                 let now = clock();
-                let book = self
-                    .opened(session_id, persisted, now, last_send_at)
-                    .unwrap_or_else(|| persisted.map_or_else(|| Book::unrecorded(fresh, last_send_at), |value| Book::from_json(value, now, last_send_at)));
+                let book = self.open_book(session_id, persisted, now, fresh, last_send_at);
                 Arc::new(Held { book: Mutex::new(book), decided: Notify::new(), retired: AtomicBool::new(false) })
             })
             .clone();
@@ -225,9 +229,7 @@ impl Books {
                 json
             }
             None => {
-                let mut book = self
-                    .opened(session_id, persisted, now, None)
-                    .unwrap_or_else(|| persisted.map_or_else(|| Book::unrecorded(false, None), |value| Book::from_json(value, now, None)));
+                let mut book = self.open_book(session_id, persisted, now, false, None);
                 book.rebuilt();
                 book.to_json()
             }

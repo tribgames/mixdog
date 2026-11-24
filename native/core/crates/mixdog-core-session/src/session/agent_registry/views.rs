@@ -255,10 +255,10 @@ impl Tags {
 
 // ---- the views ------------------------------------------------------------------------------
 
-/// A session's row and stored tombstone as readers see them in the views' window.
 /// A session whose derived row changed: its id, the row before and the row after.
 type Moved = (String, Option<Derived>, Option<Derived>);
 
+/// A session's row and stored tombstone as readers see them in the views' window.
 #[derive(Clone, PartialEq)]
 pub(super) struct Derived {
     /// The session's place in the index order.

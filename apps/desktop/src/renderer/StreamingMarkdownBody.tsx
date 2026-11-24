@@ -1,6 +1,7 @@
-import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { MarkdownAstRoot } from './markdown-ast';
+import type { MarkdownCopyControl } from './markdown-components';
 import {
   LatestMarkdownAstQueue,
   parseLiveMarkdownAst,
@@ -13,12 +14,6 @@ import {
 import MarkdownAstBody from './MarkdownAstBody';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 import { noteStreamSyncParse, noteStreamWorkerParse } from './transcript-stream-metrics';
-
-type MarkdownCopyControl = ComponentType<{
-  value: string;
-  label: string;
-  className: string;
-}>;
 
 interface RenderedMarkdownAst {
   text: string;
@@ -139,9 +134,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   useEffect(() => () => queue.current?.dispose(), []);
 
   if (usable) {
-    return (
-      <MarkdownAstBody root={usable.root} copyControl={copyControl} />
-    );
+    return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
   }
   if (showFencedSourceFallback) {
     // The projection only reserves geometry. Entry still waits for the parse:

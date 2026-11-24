@@ -89,7 +89,8 @@ export function usePaneTabNavigation({
     window.requestAnimationFrame(attempt);
   };
 
-  const navigateTab = (tab: WorkspaceTab) => {
+  /** `leafId`: the pane the tab is in, when a caller focused it this same event (not yet rendered). */
+  const navigateTab = (tab: WorkspaceTab, leafId = focusedLeafId) => {
     if (
       tab.selection.kind === 'file' ||
       tab.selection.kind === 'studio' ||
@@ -99,7 +100,7 @@ export function usePaneTabNavigation({
       tab.selection.kind === 'pull-request'
     ) {
       openSelectionInFocusedPane(tab.selection);
-      focusPaneTypingSurface(focusedLeafId, tab.selection);
+      focusPaneTypingSurface(leafId, tab.selection);
       return;
     }
     setComposerFocusRequest((value) => value + 1);

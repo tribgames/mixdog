@@ -55,10 +55,6 @@ import {
   paneDockOpenNow,
   paneDiffShowing,
   paneDockActiveRoot,
-  paneDiffStacks,
-  paneOverlayRoom,
-  paneSidePresentation,
-  paneSideRoom,
   readStoredWidth,
   readSharedDockWidth,
   type PaneSideDockDiff,
@@ -84,7 +80,8 @@ import { syncTranscriptWidths } from './transcript-list-resize-patch';
 import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { SessionRailCard } from './SessionRailCard';
 import { useSessionDiffStripHasTabs } from './use-session-diff-tabs';
-import { clampSessionRailWidth, type SessionRailFit, sessionRailFit, useSessionRailWidth } from './session-rail-layout';
+import { paneDockRailLayout } from './pane-side-dock-layout';
+import { useSessionRailWidth } from './session-rail-layout';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -123,6 +120,7 @@ export {
 } from './pane-side-dock-model';
 export type { PaneSideDockDiff, PaneSideDockFolder, PaneSideDockEntry } from './pane-side-dock-model';
 export type { PaneSideDockFile };
+export { paneDockRailLayout };
 
 const PANE_DOCK_DIFF_RETAIN_MS = 1_500;
 export function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff | null {
@@ -176,97 +174,6 @@ function useDockWidthPrefs() {
   );
   return { dockPref, setDockPref, diffPref, setDiffPref };
 }
-
-function resolveDockLayout({
-  cellWidth,
-  room,
-  openNow,
-  mobileSheet,
-  diffShowing,
-  sessionSurfaceShowing,
-  sessionMin,
-  sessionPref,
-  panelPref,
-  diffPref,
-}: {
-  cellWidth: number;
-  room: number;
-  openNow: boolean;
-  mobileSheet: boolean;
-  diffShowing: boolean;
-  sessionSurfaceShowing: boolean;
-  sessionMin: number;
-  sessionPref: number;
-  panelPref: number;
-  diffPref: number;
-}) {
-  const panelDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, PANE_SIDE_DOCK_MAX_WIDTH));
-  const diffDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffPref, PANE_SIDE_DOCK_MAX_WIDTH));
-  const pairMin = PANE_SIDE_DOCK_MIN_WIDTH * 2;
-  const twoDepth = paneDiffStacks(diffShowing, paneOverlayRoom(cellWidth), pairMin, mobileSheet);
-  const pairShowing = diffShowing && !twoDepth;
-  let columnMin = PANE_SIDE_DOCK_MIN_WIDTH;
-  if (sessionSurfaceShowing) columnMin = sessionMin;
-  else if (pairShowing) columnMin = pairMin;
-  // Overlay decision: the diff PAIR never shrinks inline — the moment panel+diff no longer fit beside the
-  // conversation floor, the whole unit floats over the pane. View/browser
-  // modes shrink toward their own minimum first.
-  let inlineFloor = columnMin;
-  if (pairShowing) inlineFloor = panelDesired + diffDesired;
-  else if (sessionSurfaceShowing) inlineFloor = sessionMin;
-  const ladder = paneSidePresentation({ cellWidth, room, columnMin, inlineFloor });
-  const fullTakeover = openNow && ladder.presentation === 'full';
-  const overlay = openNow && ladder.presentation !== 'beside';
-  const avail = openNow ? ladder.avail : room;
-  let asideTarget = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, avail));
-  if (fullTakeover) asideTarget = cellWidth;
-  else if (sessionSurfaceShowing) {
-    asideTarget = Math.max(sessionMin, Math.min(sessionPref, avail));
-  } else if (pairShowing) {
-    asideTarget = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelDesired, avail - PANE_SIDE_DOCK_MIN_WIDTH));
-  }
-  const baseAsideWidth = Math.round(asideTarget);
-  const diffWidth = pairShowing
-    ? Math.round(Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffDesired, avail - baseAsideWidth)))
-    : 0;
-  return { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth };
-}
-
-type DockLayoutInput = Omit<Parameters<typeof resolveDockLayout>[0], 'room' | 'cellWidth'>;
-
-/** The dock and the session panel decided together, from the pane cell's
- *  width: the dock as it lays out alone (resolveDockLayout), and the panel
- *  on the same ladder in the whole cell, with what the conversation gives up
- *  for it (sessionRailFit). A dock open at the pane's side, inline, floating
- *  or expanded, covers the panel: it is not shown (width 0), and the composer
- *  keeps its island and controls until the dock closes. A dock below the
- *  conversation covers nothing. Before the first measure (a render that is
- *  never painted: useDockCellWidth measures before paint) the panel has its
- *  preferred width, beside. */
-export function paneDockRailLayout({
-  cellWidth,
-  bottom,
-  sheetFrame,
-  rail,
-  dock,
-}: {
-  cellWidth: number;
-  bottom: boolean;
-  sheetFrame: number;
-  /** The panel's width preference; null while it is off. */
-  rail: number | null;
-  dock: DockLayoutInput;
-}) {
-  const roomFor = (cell: number) => (bottom && cell > 0 ? cell - 2 : paneSideRoom(cell, sheetFrame));
-  const alone = resolveDockLayout({ ...dock, cellWidth, room: roomFor(cellWidth) });
-  if (rail === null || (dock.openNow && !bottom)) return { dock: alone, rail: SESSION_RAIL_OFF };
-  if (cellWidth <= 0) {
-    return { dock: alone, rail: { width: clampSessionRailWidth(rail), reserve: 0, presentation: 'beside' as const } };
-  }
-  return { dock: alone, rail: sessionRailFit({ cellWidth, railPref: rail }) };
-}
-
-const SESSION_RAIL_OFF: SessionRailFit = { width: 0, reserve: 0, presentation: 'beside' };
 
 /** The desktop header row for the diff and the panel views. */
 function PaneDockChromeRow({
@@ -445,7 +352,6 @@ type PaneSideDockProps = {
   renderFileProblems?(file: PaneSideDockFile): ReactNode;
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
 };
-
 
 /** Which child of an open unit is showing; every flag is false while folded. */
 function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
@@ -1008,57 +914,59 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   return (
     <>
       <PaneDockExpandContext.Provider value={dockExpandValue}>
-      {dockExpanded && expandedRect && <div className="pane-side-dock-spacer" style={spacerStyle} aria-hidden="true" />}
-      <div
-        className="pane-side-dock"
-        ref={hostRef}
-        data-pane-id={leafId}
-        data-placement={placement}
-        data-open={openNow ? 'true' : 'false'}
-        data-overlay={overlay ? 'true' : 'false'}
-        data-expanded={dockExpanded ? 'true' : 'false'}
-        data-closing={closing ? 'true' : undefined}
-        // The sliding-out sheet is already closed: nothing on it is reachable.
-        inert={closing || undefined}
-        aria-hidden={closing || undefined}
-        style={
-          expandedHostStyle(dockExpanded, expandedRect) ?? (bottom && openNow ? { height: dockHeight } : undefined)
-        }
-        onPointerDownCapture={
-          focused
-            ? undefined
-            : (event) => {
-                if (event.button === 0) onFocusPane();
-              }
-        }
-      >
-        {bottom && openNow && !dockExpanded && (
-          // biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins.
-          <div
-            className="pane-side-dock-height-resize"
-            role="separator"
-            aria-orientation="horizontal"
-            {...heightDrag}
-          />
+        {dockExpanded && expandedRect && (
+          <div className="pane-side-dock-spacer" style={spacerStyle} aria-hidden="true" />
         )}
-        {chromeRow}
-        {phoneSwitch}
-        {panelMounted &&
-          renderPaneDockMain(bodyProps, {
-            openNow,
-            closing,
-            dockBodyMounted,
-            diffColumn,
-            surfaces,
-            surfacesActive: bodyShowing.sessionSurfaceShowing || twoDepth,
-            asideWidth,
-            panelWidthDrag,
-            widthRange: PANE_SIDE_DOCK_WIDTH_RANGE,
-            // Below the chat the panel fills the width; only the diff pair
-            // keeps its width edge (between the diff and the panel).
-            widthResizable: !bottom || pairShowing,
-          })}
-      </div>
+        <div
+          className="pane-side-dock"
+          ref={hostRef}
+          data-pane-id={leafId}
+          data-placement={placement}
+          data-open={openNow ? 'true' : 'false'}
+          data-overlay={overlay ? 'true' : 'false'}
+          data-expanded={dockExpanded ? 'true' : 'false'}
+          data-closing={closing ? 'true' : undefined}
+          // The sliding-out sheet is already closed: nothing on it is reachable.
+          inert={closing || undefined}
+          aria-hidden={closing || undefined}
+          style={
+            expandedHostStyle(dockExpanded, expandedRect) ?? (bottom && openNow ? { height: dockHeight } : undefined)
+          }
+          onPointerDownCapture={
+            focused
+              ? undefined
+              : (event) => {
+                  if (event.button === 0) onFocusPane();
+                }
+          }
+        >
+          {bottom && openNow && !dockExpanded && (
+            // biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins.
+            <div
+              className="pane-side-dock-height-resize"
+              role="separator"
+              aria-orientation="horizontal"
+              {...heightDrag}
+            />
+          )}
+          {chromeRow}
+          {phoneSwitch}
+          {panelMounted &&
+            renderPaneDockMain(bodyProps, {
+              openNow,
+              closing,
+              dockBodyMounted,
+              diffColumn,
+              surfaces,
+              surfacesActive: bodyShowing.sessionSurfaceShowing || twoDepth,
+              asideWidth,
+              panelWidthDrag,
+              widthRange: PANE_SIDE_DOCK_WIDTH_RANGE,
+              // Below the chat the panel fills the width; only the diff pair
+              // keeps its width edge (between the diff and the panel).
+              widthResizable: !bottom || pairShowing,
+            })}
+        </div>
       </PaneDockExpandContext.Provider>
       {railShown && (
         <SessionRailCard

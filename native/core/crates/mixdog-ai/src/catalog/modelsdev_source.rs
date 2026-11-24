@@ -267,8 +267,8 @@ mod tests {
     use crate::catalog::ModelTraits;
     use crate::catalog::ProviderCatalog;
     use crate::providers::compat::profile::Wire;
-    use crate::transport::http::BodyStream;
     use crate::transport::http::HttpResponse;
+    use crate::transport::testing::Once;
     use async_trait::async_trait;
     use bytes::Bytes;
     use mixdog_core_api::domain::provider::DeliveryState;
@@ -276,20 +276,11 @@ mod tests {
     use mixdog_core_api::domain::provider::ModelListing;
     use mixdog_core_api::domain::provider::ModelRecord as ListedRecord;
     use mixdog_core_api::domain::provider::ProviderError;
-    use mixdog_core_api::domain::provider::TransportFault;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     const API: &str =
         r#"{"anthropic":{"npm":"@ai-sdk/anthropic","models":{"claude-x":{"modalities":{"output":["text"]}},"tts-x":{"modalities":{"output":["audio"]}}}}}"#;
-
-    struct Body(Option<Bytes>);
-    #[async_trait]
-    impl BodyStream for Body {
-        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-            self.0.take().map(Ok)
-        }
-    }
 
     struct Fake {
         calls: AtomicUsize,
@@ -303,7 +294,7 @@ mod tests {
             let Some(body) = *self.body.lock().unwrap() else {
                 return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent));
             };
-            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Body(Some(Bytes::from_static(body.as_bytes())))) })
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from_static(body.as_bytes())))) })
         }
     }
 

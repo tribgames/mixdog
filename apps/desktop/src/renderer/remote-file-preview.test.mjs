@@ -534,10 +534,16 @@ test('the app opens only outside web links the framed page hands over, every tim
   globalThis.window = dom.window;
   const opened = [];
   dom.window.open = (...args) => opened.push(args);
+  const activation = { isActive: false };
+  Object.defineProperty(dom.window.navigator, 'userActivation', { configurable: true, value: activation });
   const close = openSandboxedPagePreview('<p>z</p>', 'index.html');
   const frameWindow = document.querySelector('iframe').contentWindow;
   const link = (href, source = frameWindow) =>
     dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { type: PREVIEW_LINK, href }, source }));
+  // A page posting the message with no click behind it opens nothing.
+  link('https://example.com/?leak=1');
+  assert.deepEqual(opened, []);
+  activation.isActive = true;
   for (let cycle = 0; cycle < 3; cycle += 1) link('https://example.com/');
   // The app's own origin (where a relative link lands), other schemes and
   // anything not from the frame are ignored.

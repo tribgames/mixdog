@@ -446,6 +446,8 @@ fn failed(code: &str, message: String) -> LoginFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oauth::pace::Parked;
+    use crate::transport::testing::Once;
 
     /// `raw.expires_at ?? raw.expiresAt`: both spellings present is read, with `expires_at` first.
     #[test]
@@ -552,45 +554,18 @@ mod tests {
         gate: tokio::sync::Semaphore,
     }
 
-    struct Body(Option<bytes::Bytes>);
-
-    #[async_trait]
-    impl crate::transport::BodyStream for Body {
-        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-            self.0.take().map(Ok)
-        }
-    }
-
     #[async_trait]
     impl HttpSend for Gated {
         async fn send(&self, request: WireRequest, _: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
             // The proxy origin is warmed before a turn; that is not a token request.
             if request.method != "POST" {
-                return Ok(crate::transport::HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Body(None)) });
+                return Ok(crate::transport::HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(None)) });
             }
             *self.seen.lock().unwrap() += 1;
             self.arrived.add_permits(1);
             self.gate.acquire().await.expect("an open gate").forget();
             let (status, body) = self.replies.lock().unwrap().pop_front().expect("a scripted reply");
-            Ok(crate::transport::HttpResponse { status, headers: Vec::new(), body: Box::new(Body(Some(bytes::Bytes::from(body)))) })
-        }
-    }
-
-    /// A contender for the lease whose every wait for it is announced and parks until the test lets it go.
-    struct Parked {
-        waiting: tokio::sync::Semaphore,
-        go: tokio::sync::Semaphore,
-    }
-
-    #[async_trait]
-    impl Pace for Parked {
-        fn now_ms(&self) -> u64 {
-            now_ms()
-        }
-
-        async fn wait(&self, _: std::time::Duration) {
-            self.waiting.add_permits(1);
-            self.go.acquire().await.expect("an open gate").forget();
+            Ok(crate::transport::HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(bytes::Bytes::from(body)))) })
         }
     }
 
@@ -626,7 +601,7 @@ mod tests {
             arrived: tokio::sync::Semaphore::new(0),
             gate: tokio::sync::Semaphore::new(0),
         });
-        let parked = Arc::new(Parked { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) });
+        let parked = Arc::new(Parked::new());
         let first = GrokCredential::new(endpoint.clone(), following);
         let mut contender = GrokCredential::new(endpoint.clone(), CredentialFile::new(slot, io)).with_pace(parked.clone());
         contender.process = Arc::new(RefreshProcess::new(Arc::new(LockProcess::new(mixdog_statefile::LockOwner::another_in_process()))));
@@ -818,7 +793,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (path, file) = signed_in(&dir, 3_600_000);
         let endpoint = gated(&[(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#)]);
-        let parked = Arc::new(Parked { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) });
+        let parked = Arc::new(Parked::new());
         let credential = Arc::new(GrokCredential::new(endpoint.clone(), file.clone()).with_pace(parked.clone()));
         let first = credential.attempt().await.unwrap();
 

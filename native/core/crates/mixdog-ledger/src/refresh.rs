@@ -9,6 +9,7 @@ use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use rusqlite::params;
 
+use crate::append::UNPRICED_APPENDED;
 use crate::db::Connection;
 use crate::error::LedgerError;
 use crate::error::Result;
@@ -101,6 +102,8 @@ struct Checked {
     revision: String,
     pending: Pending,
     stamp: String,
+    /// The [`UNPRICED_APPENDED`] counter when the check began.
+    appended: Option<String>,
 }
 
 #[derive(Default)]
@@ -109,7 +112,7 @@ struct State {
     /// The last check was read back from the ledger ([`CHECK_NOTE`]), or there was none to read.
     loaded: bool,
     /// What the ledger holds as the last check (its revision and pending), so an unchanged one is not written again.
-    noted: Option<(String, Pending)>,
+    noted: Option<(String, Pending, Option<String>)>,
     running: bool,
     waiters: Vec<ReplyTx<()>>,
 }
@@ -207,6 +210,8 @@ impl UsageRefresher {
         // Taken before anything is read: a commit landing later moves the stamp again, so the
         // next refresh can never skip it.
         let stamp = writer.commit_stamp().await?;
+        // Taken with the stamp, before the unpriced records are read, so an append landing later shows at the next refresh.
+        let appended = writer.note(UNPRICED_APPENDED).await?;
         let held = self.lock().checked.clone();
         let previous = match held {
             Some(checked) => Some(checked),
@@ -215,19 +220,17 @@ impl UsageRefresher {
         if previous.as_ref().is_some_and(|p| p.revision == revision && p.stamp == stamp) {
             return Ok(Refresh::Skipped);
         }
-        // Under the same table, records become unpriced only by being appended: when none appended since the last check is
-        // unpriced, nothing new is to be examined. Counting every unpriced record instead read about 20 MB of the ledger
-        // after each commit (each turn's usage), for an answer that had not moved.
-        if let Some(p) = previous.as_ref().filter(|p| p.revision == revision)
-            && let Some(latest) = p.pending.latest
-            && reader.unpriced_after(now, latest).await? == 0
-        {
-            self.keep(writer, Checked { revision, pending: p.pending, stamp }).await;
+        // Under the same table, records become unpriced only by being appended, and the ledger counts those in the order
+        // they come ([`UNPRICED_APPENDED`]), whatever their times: when the count has not moved nothing new is to be
+        // examined. Counting every unpriced record instead read about 20 MB of the ledger after each commit (each turn's
+        // usage), for an answer that had not moved.
+        if let Some(p) = previous.as_ref().filter(|p| p.revision == revision && p.appended == appended) {
+            self.keep(writer, Checked { revision, pending: p.pending, stamp, appended }).await;
             return Ok(Refresh::Skipped);
         }
         let pending = reader.unpriced_pending(now).await?;
         if pending.count == 0 || previous.as_ref().is_some_and(|p| p.revision == revision && p.pending == pending) {
-            self.keep(writer, Checked { revision, pending, stamp }).await;
+            self.keep(writer, Checked { revision, pending, stamp, appended }).await;
             return Ok(Refresh::Skipped);
         }
         let incremental_from = match &previous {
@@ -237,7 +240,7 @@ impl UsageRefresher {
             },
             _ => None,
         };
-        let options = RepairOptions { through_ts: now, since_ts: incremental_from, only_unpriced: true, backup: true, ..RepairOptions::default() };
+        let options = RepairOptions { through_ts: now, since_ts: incremental_from, only_unpriced: true, ..RepairOptions::default() };
         let candidates = reader.repair_candidates(options.clone()).await?;
         let (report, changes) = {
             let pricer = self.pricer.clone();
@@ -256,7 +259,7 @@ impl UsageRefresher {
         let settled_stamp = writer.commit_stamp().await?;
         // A pass that changed nothing left the unpriced records as they were counted.
         let settled = if result.changes.is_empty() { pending } else { reader.unpriced_pending(now).await? };
-        self.keep(writer, Checked { revision, pending: settled, stamp: settled_stamp }).await;
+        self.keep(writer, Checked { revision, pending: settled, stamp: settled_stamp, appended }).await;
         Ok(Refresh::Repaired(result))
     }
 
@@ -270,14 +273,15 @@ impl UsageRefresher {
         let value: serde_json::Value = serde_json::from_str(&text).ok()?;
         let revision = value.get("key")?.as_str()?.to_owned();
         let pending = Pending { count: value.get("count")?.as_i64()?, latest: value.get("latest").and_then(serde_json::Value::as_i64) };
-        self.lock().noted = Some((revision.clone(), pending));
-        Some(Checked { revision, pending, stamp: String::new() })
+        let appended = value.get("appended").and_then(serde_json::Value::as_str).map(str::to_owned);
+        self.lock().noted = Some((revision.clone(), pending, appended.clone()));
+        Some(Checked { revision, pending, stamp: String::new(), appended })
     }
 
     /// Records `checked` as the last check, and in the ledger when its revision or pending moved. A failed write only means
     /// the next start checks again.
     async fn keep(&self, writer: &Arc<UsageWriter>, checked: Checked) {
-        let note = (checked.revision.clone(), checked.pending);
+        let note = (checked.revision.clone(), checked.pending, checked.appended.clone());
         let changed = {
             let mut state = self.lock();
             state.checked = Some(checked);
@@ -285,7 +289,7 @@ impl UsageRefresher {
             state.noted.as_ref() != Some(&note)
         };
         if changed {
-            let text = serde_json::json!({ "key": note.0, "count": note.1.count, "latest": note.1.latest }).to_string();
+            let text = serde_json::json!({ "key": note.0, "count": note.1.count, "latest": note.1.latest, "appended": note.2 }).to_string();
             if writer.put_note(CHECK_NOTE, text).await.is_ok() {
                 self.lock().noted = Some(note);
             }

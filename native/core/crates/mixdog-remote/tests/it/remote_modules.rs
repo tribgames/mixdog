@@ -13,7 +13,7 @@ use mixdog_remote::leg::inbound::{Inbound, classify};
 use mixdog_remote::leg::redial::Redial;
 use mixdog_remote::media::crypto::*;
 use mixdog_remote::media::range::{Range, parse_range, window};
-use mixdog_remote::push::web::{WebPushTarget, encrypt_web_push_payload};
+use mixdog_remote::push::web::encrypt_web_push_payload;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::LaneToken;
 use serde_json::json;
@@ -111,7 +111,6 @@ fn web_push_payload_is_bounded_and_decryptable_shape() {
     assert_eq!(&body[16..20], &4096u32.to_be_bytes());
     assert_eq!(body.len(), 16 + 4 + 1 + 65 + 5 + 1 + 16);
     assert!(encrypt_web_push_payload(&keys, &[0u8; 4000], [1u8; 16], &local).is_err());
-    let _ = WebPushTarget { endpoint: String::new(), client_id: String::new(), p256dh: String::new(), auth: String::new() };
 }
 
 #[tokio::test]

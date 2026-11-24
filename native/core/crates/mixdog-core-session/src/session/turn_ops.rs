@@ -346,6 +346,11 @@ pub fn compact_in_turn() -> Value {
 /// session, which still holds what they removed, is never continued from them.
 pub const AGENT_SESSION: &str = "acpSession";
 
+/// The header key of the context window an external agent reported for its session (its size). While it is there the
+/// session's window is the agent's: the catalog's figure for the model no longer derives it anew at a turn's start. A
+/// route change derives the window from the catalog again and drops the key.
+pub const AGENT_WINDOW: &str = "acpContextWindow";
+
 /// `sideQuestionPrompt`.
 fn side_question_prompt(question: &str) -> String {
     [

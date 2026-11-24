@@ -1126,9 +1126,9 @@ impl WorkspaceService {
         Ok(keys)
     }
 
-    /// The folder and name an editor call works on. With an `accessToken` (a paired device's one-file grant) `root` and
-    /// `rel` are Node's `projectPath` and `relPath`, redeemed to the granted file (`remoteFileTarget`); without one, a root
-    /// by the connection's origin and `rel`.
+    /// The folder and name an editor call works on. With an `accessToken` (a paired device's one-file grant, which reads the
+    /// file and never saves it) `root` and `rel` are Node's `projectPath` and `relPath`, redeemed to the granted file
+    /// (`remoteFileTarget`); without one, a root by the connection's origin and `rel`.
     async fn file_target(&self, req: &CoreRequest, params: &Value) -> WsResult<(PathBuf, String)> {
         if let Some(token) = params.get("accessToken") {
             let token = token.as_str().ok_or_else(|| WsError::invalid("accessToken is invalid."))?;
@@ -1140,10 +1140,15 @@ impl WorkspaceService {
                 return Ok((granted.root, granted.rel));
             }
             let (grants, credential, connection) = self.phone_grants_for(req)?;
+            if req.method.as_str() == "projectFs/writeText" {
+                return Err(WsError::denied("A paired device's one-file permission does not save the file."));
+            }
             let granted = grants.redeem(&credential, connection, token, s(params, "root")?, s(params, "rel")?).await?;
             return Ok((granted.root, granted.rel));
         }
-        Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
+        let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
+        self.hide_from_device(req, vec![root.join(&rel)]).await?;
+        Ok((root, rel))
     }
 
     /// A preview reuses the original permission, not merely the path it resolved to.
@@ -1227,6 +1232,7 @@ impl WorkspaceService {
         }
         let project = self.catalog.resolve(root).await?;
         let absolute = project_entry_path(&project, rel).map_err(beyond_plain)?;
+        self.hide_from_device(req, vec![absolute.clone()]).await?;
         Ok(RelayTarget { root: project, rel: rel.to_owned(), absolute })
     }
 

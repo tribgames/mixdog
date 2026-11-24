@@ -198,7 +198,11 @@ function gateJobProblems(workflows, plan, fail) {
       for (const step of job.steps ?? [])
         if (step['continue-on-error'])
           fail(`job ${leg.job} step ${JSON.stringify(step.name ?? step.uses)} tolerates its own failure`);
-      if (!(job.steps ?? []).some((step) => /^rust-lists-/.test(step.with?.name ?? '') && /upload-artifact@/.test(step.uses ?? '')))
+      if (
+        !(job.steps ?? []).some(
+          (step) => /^rust-lists-/.test(step.with?.name ?? '') && /upload-artifact@/.test(step.uses ?? '')
+        )
+      )
         fail(`job ${leg.job} of the list leg ${leg.id} uploads no rust-lists artifact`);
       if (!needsOf(gate.jobs.complete).includes(leg.job))
         fail(`release-gate.yml complete does not need ${leg.job}, the job of a list leg`);
@@ -342,9 +346,7 @@ function legUploadProblems(gate, plan, fail) {
     // slots keeps the receipts of the ones that passed (the job still fails on the failed one).
     if (steps[upload].if !== undefined) {
       const ids = writers.map((index) => steps[index].id);
-      const ran = ids
-        .map((id) => `steps.${id}.outcome == 'success' || steps.${id}.outcome == 'failure'`)
-        .join(' || ');
+      const ran = ids.map((id) => `steps.${id}.outcome == 'success' || steps.${id}.outcome == 'failure'`).join(' || ');
       if (ids.some((id) => !id) || steps[upload].if !== `\${{ !cancelled() && (${ran}) }}`)
         fail(`job ${name}: its evidence upload has the condition ${JSON.stringify(steps[upload].if)}`);
     }

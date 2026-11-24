@@ -828,7 +828,7 @@ test('submission hook refuses to send while an attachment is still loading and k
   }
 });
 
-async function mountKeyboardComposer() {
+async function mountKeyboardComposer({ mentionMatch = { start: 0, end: 0, query: '' } } = {}) {
   let current;
   const sent = { count: 0 };
   function Harness() {
@@ -862,7 +862,7 @@ async function mountKeyboardComposer() {
           setDismissed() {},
         },
         mention: {
-          match: { start: 0, end: 0, query: '' },
+          match: mentionMatch,
           open: false,
           signature: '',
           results: [],
@@ -968,6 +968,19 @@ test('keyboard hook: selecting a mention inserts it into the draft', async () =>
   try {
     await act(async () => composer.view().selectMention('src/App.tsx'));
     assert.equal(composer.view().draft, '@src/App.tsx ');
+  } finally {
+    await composer.cleanup();
+  }
+});
+
+test('keyboard hook: a mention accepted before a space leaves the caret past it, out of the mention', async () => {
+  const composer = await mountKeyboardComposer({ mentionMatch: { start: 0, end: 3, query: 'sr' } });
+  try {
+    await act(async () => composer.view().setDraft('@sr please'));
+    await act(async () => composer.view().selectMention('src/App.tsx'));
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+    assert.equal(composer.view().draft, '@src/App.tsx please');
+    assert.equal(composer.textarea.selectionStart, '@src/App.tsx '.length);
   } finally {
     await composer.cleanup();
   }

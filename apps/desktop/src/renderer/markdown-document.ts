@@ -303,14 +303,12 @@ export class LiveMarkdownDocument {
       const end = start + blockText.length;
       // Until its parse lands, a block shows what the open block showed of it.
       const shown = root ? [] : this.tailUnits.filter((unit) => unit.node && unit.from >= start && unit.from < end);
+      let units = shown.length > 0 ? shown : [waitingUnit(start, blockText, true)];
+      if (root) units = unitsOf(root, start, start, end);
       this.waiting.push({
         start,
         text: blockText,
-        units: root
-          ? unitsOf(root, start, start, end)
-          : shown.length > 0
-            ? shown
-            : [waitingUnit(start, blockText, true)],
+        units,
         parsed: Boolean(root),
         requested: false,
       });
@@ -384,14 +382,16 @@ export class LiveMarkdownDocument {
     return copy;
   }
 
-  private publish(): MarkdownPage {
-    const tail = this.tailText
-      ? this.tailShown
-        ? this.tailUnits
-        : this.tailParse || containsFencedCodeMarkdown(this.tailText)
-          ? [waitingUnit(this.tailStart, this.tailText, this.tailParse)]
-          : []
+  private tailRows(): readonly MarkdownUnit[] {
+    if (!this.tailText) return [];
+    if (this.tailShown) return this.tailUnits;
+    return this.tailParse || containsFencedCodeMarkdown(this.tailText)
+      ? [waitingUnit(this.tailStart, this.tailText, this.tailParse)]
       : [];
+  }
+
+  private publish(): MarkdownPage {
+    const tail = this.tailRows();
     const shown = this.waiting.flatMap((block) => block.units);
     let at = this.count;
     if (tail.length > 0) {

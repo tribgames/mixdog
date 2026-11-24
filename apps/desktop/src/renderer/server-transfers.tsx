@@ -113,11 +113,13 @@ function downloadApi(api: DesktopApi | undefined): ServerDownloadApi {
 }
 
 /** Uploads this PC's files into the server's staging folder for `scope`, one
- *  after another. A cancelled file is simply left out; failures come back as
- *  messages. */
+ *  after another, until `signal` aborts: the file in flight is aborted on the
+ *  server and the rest are not sent. A cancelled file is simply left out;
+ *  failures come back as messages. */
 export async function uploadFilesToServer(
   files: readonly File[],
-  scope: string
+  scope: string,
+  signal: AbortSignal
 ): Promise<{ uploaded: Map<File, DesktopLocalPathEntry>; errors: string[] }> {
   const uploaded = new Map<File, DesktopLocalPathEntry>();
   const errors: string[] = [];
@@ -128,13 +130,14 @@ export async function uploadFilesToServer(
     return { uploaded, errors: [errorMessageText(error)] };
   }
   for (const file of files) {
+    if (signal.aborted) break;
     const name = file.name || t('Pasted file');
     const transfer = trackTransfer('upload', name, file.size);
     try {
       uploaded.set(
         file,
         await uploadFileToServer(api, file, scope, {
-          signal: transfer.signal,
+          signal: AbortSignal.any([transfer.signal, signal]),
           onProgress: (sent, total) => transfer.progress(sent, total),
         })
       );

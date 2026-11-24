@@ -594,8 +594,23 @@ test('period arrows update cards and models, block future navigation, and need n
   assert.deepEqual(calls.at(-1), { view: 'year' });
   assert.equal(document.querySelector('.stats-period-arrow'), null);
   await act(async () => button('Last 24 hours').click());
-  assert.deepEqual(calls.at(-1), { view: 'hour' });
+  assert.deepEqual(calls.at(-1), { view: 'year' }, 'the last 24 hours is the live figure, not read again');
   assert.equal(document.querySelector('.stats-period-arrow'), null);
+});
+
+test('returning to the last 24 hours follows the live figures again', async (context) => {
+  const render = harness(context);
+  const request = async (_capability, [selection]) => snapshot(selection.view, 700);
+  const tokensCard = () => document.querySelectorAll('.stats-card > b')[2].textContent;
+  await render({ data: { getUsageStats: snapshot('hour', 400) }, request });
+  await act(async () => button('Last 30 days').click());
+  assert.equal(tokensCard(), '700');
+  await act(async () => button('Last 24 hours').click());
+  assert.equal(button('Last 24 hours').getAttribute('aria-pressed'), 'true');
+  assert.equal(tokensCard(), '400');
+  // A usage change hands the surface new live figures.
+  await render({ data: { getUsageStats: snapshot('hour', 500) }, request });
+  assert.equal(tokensCard(), '500');
 });
 
 test('all-history chart groups by year and labels the actual retained date range', async (context) => {

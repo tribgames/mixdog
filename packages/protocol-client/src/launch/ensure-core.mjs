@@ -32,7 +32,7 @@ export function launchCore({
     // `coreSpawnFailed`: no process was started (a missing or unrunnable binary), so there is no exit to wait for or compare.
     const notStarted = (error) =>
       Object.assign(new Error(`cannot start ${bin}: ${error.message}`), {
-        coreSpawnFailed: { bin, code: error?.code ?? null },
+        coreSpawnFailed: { bin, code: error.code ?? null },
       });
     let child;
     try {

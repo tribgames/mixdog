@@ -13,7 +13,7 @@ import type {
 import { confirmAction, promptAction } from './app-confirm';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
-import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal } from './source-control-support';
+import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal, pathsFor } from './source-control-support';
 import { errorMessage } from './editor-pane-session-errors';
 import type { GitActionRunner } from './use-source-control-runner';
 import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
@@ -107,19 +107,24 @@ export async function copyText(ctx: SourceControlActionContext, text: string, wh
   }
 }
 
+/** A discard removes the row's whole change, its staged part included. A
+ *  rename's deleted source comes back with it; a copy's source is a row of its own. */
 export async function discardFiles(ctx: SourceControlActionContext, files: DesktopGitFile[]) {
   for (const file of files) {
-    await ctx.api?.gitRevert?.(ctx.projectPath, file.path, file.untracked, 'worktree');
+    const renamed = file.index === 'R' || file.worktree === 'R';
+    for (const path of renamed ? pathsFor(file) : [file.path]) {
+      await ctx.api?.gitRevert?.(ctx.projectPath, path, file.untracked, 'all');
+    }
   }
 }
 
 export function discardPrompt(file: DesktopGitFile, count: number): string {
   if (count !== 1) {
-    return t('Discard {{count}} selected working tree changes? This cannot be undone.', { count });
+    return t('Discard {{count}} selected changes, staged and unstaged? This cannot be undone.', { count });
   }
   return file.untracked
     ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: file.path })
-    : t('Discard changes to "{{file}}"? This cannot be undone.', { file: file.path });
+    : t('Discard all changes to "{{file}}", staged and unstaged? This cannot be undone.', { file: file.path });
 }
 
 export function stashActions(ctx: SourceControlActionContext) {

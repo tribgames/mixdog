@@ -14,6 +14,7 @@ use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::ids::{Method, OpId, ThreadId};
 use mixdog_core_api::{Reply, ThreadDirectory};
 use mixdog_core_config::config::Settings;
+use mixdog_core_ports::ports::route_facts::RouteSender;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_protocol::{ThreadItem, TurnId};
 use mixdog_services::bots::beat::digest::{SessionReader, TranscriptItem, TranscriptPage};
@@ -119,8 +120,8 @@ impl LiveSurface for DirectoryLiveSurface {
     }
 }
 
-/// The Maintainer's route from the saved config, and its one-shot sends through the provider
-/// registry (`heartbeat-completion.mjs` `createMaintainerCall`).
+/// The Maintainer's route from the saved config, and its one-shot sends on that route: through the provider registry,
+/// or to the agent that serves the route (`heartbeat-completion.mjs` `createMaintainerCall`).
 pub struct HeartbeatMaintainer {
     deps: Arc<SummaryDeps>,
 }
@@ -145,9 +146,10 @@ impl MaintainerModel for HeartbeatMaintainer {
     async fn send(&self, route: &MaintainerRoute, system: &str, user: &str, max_output_tokens: u32) -> Result<String, String> {
         let deps = &self.deps;
         let providers = (deps.config)().get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-        deps.registry.init_providers(&providers).await.map_err(|error| error.message)?;
-        let Some(provider) = deps.registry.get(&route.provider).await else {
-            return Err(format!("Heartbeat provider is unavailable: {}", route.provider));
+        let provider = match deps.facts.sender(Some(&providers), &route.provider).await? {
+            Some(RouteSender::Provider(provider)) => provider,
+            Some(RouteSender::Agent(agent)) => return agent.ask(&route.model, system, user).await.map(|answer| answer.text),
+            None => return Err(format!("Heartbeat provider is unavailable: {}", route.provider)),
         };
         let tool_env = ToolEnv {
             thread_id: ThreadId::from("heartbeat"),
@@ -269,6 +271,21 @@ mod tests {
         assert!(!off.is_enabled().await.unwrap());
         assert_eq!(off.interval_ms().await.unwrap(), 60 * 60_000, "an unlisted interval is the default hour");
         assert!(!off.mixy_exists().await.unwrap());
+    }
+
+    /// A Maintainer whose route an agent outside the loop serves is asked its heartbeat by that agent, as its summaries
+    /// and titles are, with no provider of that name in the registry.
+    #[tokio::test]
+    async fn a_maintainer_on_an_agents_route_has_its_heartbeat_asked_of_that_agent() {
+        use crate::run_host::compaction_world::tests::{registry, services_over};
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = json!({ "enabledAgents": ["maintainer"], "agents": { "maintainer": { "provider": "acp-agent", "model": "m" } } });
+        let saved = Arc::new(crate::run_host::side_question_store::SideQuestionStore::new());
+        let services = services_over(dir.path(), json!({}), Arc::default(), saved, registry().await, snapshot.as_object().unwrap().clone()).await;
+        let maintainer = services.summaries.heartbeat_maintainer();
+        let route = maintainer.route().await.unwrap().expect("the Maintainer's route");
+        assert_eq!((route.provider.as_str(), route.model.as_str()), ("acp-agent", "m"));
+        assert_eq!(maintainer.send(&route, "SYSTEM", "PROMPT", 256).await.as_deref(), Ok("acp-agent|m|SYSTEM|PROMPT"));
     }
 
     /// The reader answers the newest rows oldest first with the user's text; a missing session

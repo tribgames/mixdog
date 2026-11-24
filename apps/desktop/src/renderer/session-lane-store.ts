@@ -709,30 +709,28 @@ export function createSessionLaneStore({
       const subscribed = (listeners.get(sessionId)?.size || 0) > 0;
       const refreshEstimate = !prior || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
       const bytes = refreshEstimate ? estimateSessionSnapshotBytes(snapshot) : prior.bytes;
+      // What the next frame is carried on from: the list handed over, only when the rows shown from `rawOffset` on are
+      // its rows one for one under their own ids. A generation's own rows are not, and neither are rows shown under
+      // other ids (`decorated.items !== raw`): which rows adopt which ids is decided over the whole of both lists and
+      // is not carried, so the frame after is reconciled whole.
+      let rawFields: Partial<Pick<NonNullable<typeof prior>, 'rawItems' | 'rawOffset'>> = {};
+      if (!decision.accept) rawFields = { rawItems: prior?.rawItems, rawOffset: prior?.rawOffset };
+      else if (raw && stood) rawFields = { rawItems: new WeakRef(raw), rawOffset: above };
+      else if (raw && under >= 0 && decorated.items === raw)
+        rawFields = { rawItems: new WeakRef(raw), rawOffset: under };
+      // Whether the window shown is anchored (`windowAnchored`): a frame decided from its held rows leaves it so, the
+      // same rows again leave it as it was read, and after any other frame it is read when next asked.
+      let anchorFields: Partial<Pick<NonNullable<typeof prior>, 'anchored'>> = {};
+      if (!decision.accept || stood || (unchangedRows && under === above)) anchorFields = { anchored: prior?.anchored };
+      else if (mergedOn && under === above) anchorFields = { anchored: true };
       snapshots.set(sessionId, {
         snapshot,
         bytes,
         estimatedAt: refreshEstimate ? now : prior.estimatedAt,
         revision: decision.accept ? decision.revision : (prior?.revision ?? null),
         incoming: decision.accept ? new WeakRef(update.snapshot) : prior?.incoming,
-        // What the next frame is carried on from: the list handed over, only when the rows shown from `rawOffset` on are
-        // its rows one for one under their own ids. A generation's own rows are not, and neither are rows shown under
-        // other ids (`decorated.items !== raw`): which rows adopt which ids is decided over the whole of both lists and
-        // is not carried, so the frame after is reconciled whole.
-        ...(!decision.accept
-          ? { rawItems: prior?.rawItems, rawOffset: prior?.rawOffset }
-          : raw && stood
-            ? { rawItems: new WeakRef(raw), rawOffset: above }
-            : raw && under >= 0 && decorated.items === raw
-              ? { rawItems: new WeakRef(raw), rawOffset: under }
-              : {}),
-        // Whether the window shown is anchored (`windowAnchored`): a frame decided from its held rows leaves it so, the
-        // same rows again leave it as it was read, and after any other frame it is read when next asked.
-        ...(!decision.accept || stood || (unchangedRows && under === above)
-          ? { anchored: prior?.anchored }
-          : mergedOn && under === above
-            ? { anchored: true }
-            : {}),
+        ...rawFields,
+        ...anchorFields,
       });
       if (decision.accept && update.streamPosition) notifiedAt.set(sessionId, update.streamPosition);
     }

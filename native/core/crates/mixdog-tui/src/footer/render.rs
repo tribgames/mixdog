@@ -179,7 +179,8 @@ fn normalize_provider_id(provider: &str) -> String {
 /// `providerKindForQuota(provider)`.
 fn provider_kind_for_quota(provider: &str) -> &'static str {
     let provider = js_to_lowercase(provider);
-    if provider.contains("oauth") {
+    // An agent route runs on the account its CLI is signed in with.
+    if provider.contains("oauth") || provider.starts_with("acp-") {
         "oauth"
     } else if provider == "mixdog-local" {
         "local"

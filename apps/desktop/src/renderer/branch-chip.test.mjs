@@ -897,6 +897,78 @@ test('a "New worktree" click while the default is still loading stays the user\'
   assert.deepEqual(sent, [{}], 'the late default did not relabel the explicit choice');
 });
 
+test('every New Task without a draft id takes the worktree default, not only the first', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  projectMenuReply = draftMenu();
+  const settings = { getWorktreeSettings: () => ({ newTaskDefault: 'worktree' }) };
+  await mount(
+    t,
+    { sessionId: '' },
+    {
+      handlers: {
+        getWorktreeSettings: () => {
+          throw new Error('The core connection is not open.');
+        },
+      },
+    }
+  );
+  await settle();
+  assert.equal(model.getWorktreeIntent('default'), false);
+  await mount(t, { sessionId: '' }, { handlers: settings, keepCache: true });
+  await settle();
+  assert.equal(model.getWorktreeIntent('default'), true, 'a read that failed applied nothing');
+  await act(async () => {
+    await model.sendDraftWithWorktreeIntent('default', async () => ({ accepted: true, sessionId: 's-first' }));
+  });
+  assert.equal(model.getWorktreeIntent('default'), false);
+  await mount(t, { sessionId: '' }, { handlers: settings, keepCache: true });
+  await settle();
+  assert.equal(model.getWorktreeIntent('default'), true, 'the draft became its task: the next one is a new draft');
+});
+
+test('idle reclaim lets go of the menu reads no host shows and keeps the shown ones', async (t) => {
+  const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor();
+  handlers = {};
+  clearBranchMenuCache();
+  const render = async (sessionId) => {
+    const host = document.createElement('main');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(React.createElement(BranchChip, { sessionId, draftId: '', projectPath: '/p' })));
+    return {
+      host,
+      unmount: async () => {
+        await act(async () => root.unmount());
+        host.remove();
+      },
+    };
+  };
+  const gone = await render('s-gone');
+  assert.ok(gone.host.querySelector('.branch-chip-trigger'));
+  await gone.unmount();
+  const kept = await render('s-kept');
+  _runIdleReclaimForTest();
+  const gate = Promise.withResolvers();
+  handlers = {
+    getBranchMenu: async () => {
+      await gate.promise;
+      return menuReply;
+    },
+  };
+  const again = await render('s-gone');
+  const second = await render('s-kept');
+  t.after(async () => {
+    await act(async () => gate.resolve());
+    for (const view of [again, second, kept]) await view.unmount();
+  });
+  assert.equal(again.host.querySelector('.branch-chip-trigger'), null, 'a read no host showed was let go');
+  assert.ok(second.host.querySelector('.branch-chip-trigger'), 'a shown read stays');
+});
+
 test('large repository confirms once and resends with confirmLarge', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();

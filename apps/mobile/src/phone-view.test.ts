@@ -135,19 +135,17 @@ test('a reconnect whose re-attachment was refused keeps the gate shut and retrie
   assert.equal(events.synced, 2);
 });
 
-test('a thread followed outside the view is let go once it stayed unwanted, and one a pane names or the client holds is kept', async () => {
+test('a thread followed outside the view is let go once it stayed unwanted, and one a pane names or the client holds is kept', async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   const { calls, client, manager } = rig();
+  t.after(() => {
+    manager.stop();
+    mock.timers.reset();
+  });
   mock.timers.tick(0);
   await manager.synced();
   // What the client follows: the pane's thread, two the list prefetched, and the control thread it holds.
-  const folds = new Set(['t1', 'hovered', 'opened', 'control']);
-  const library = client as unknown as {
-    store: { threads: { keys(): Iterable<string> } };
-    threadSubscription(id: string): { followed: boolean; held: boolean };
-  };
-  library.store.threads = { keys: () => folds.keys() };
-  library.threadSubscription = (id) => ({ followed: folds.has(id), held: id === 'control' });
+  following(client, new Set(['t1', 'hovered', 'opened', 'control']), new Set(), new Set(['control']));
   const drops = () => calls.filter((call) => call.startsWith('drop:'));
   mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
   assert.deepEqual(drops(), [], 'a thread just prefetched is not let go');
@@ -155,23 +153,29 @@ test('a thread followed outside the view is let go once it stayed unwanted, and 
   mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
   mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
   assert.deepEqual(drops(), ['drop:hovered']);
-  manager.stop();
-  mock.timers.reset();
 });
 
-/** The rig's client, following `folds` outside the view; `restoring` names the threads whose resume after a reconnect is out. */
-function following(client: ViewClient, folds: Set<string>, restoring = new Set<string>()) {
+/** The rig's client, following `folds` outside the view; `restoring` names the threads whose resume after a reconnect is out, `held` the control threads. */
+function following(client: ViewClient, folds: Set<string>, restoring = new Set<string>(), held = new Set<string>()) {
   const library = client as unknown as {
     store: { threads: { keys(): Iterable<string> } };
     threadSubscription(id: string): { followed: boolean; held: boolean; restoring: boolean };
   };
   library.store.threads = { keys: () => folds.keys() };
-  library.threadSubscription = (id) => ({ followed: folds.has(id), held: false, restoring: restoring.has(id) });
+  library.threadSubscription = (id) => ({
+    followed: folds.has(id),
+    held: held.has(id),
+    restoring: restoring.has(id),
+  });
 }
 
-test('a stray whose restore after a reconnect is still out is not let go until that restore has ended', async () => {
+test('a stray whose restore after a reconnect is still out is not let go until that restore has ended', async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   const { calls, client, manager } = rig();
+  t.after(() => {
+    manager.stop();
+    mock.timers.reset();
+  });
   mock.timers.tick(0);
   await manager.synced();
   const restoring = new Set<string>();
@@ -186,13 +190,15 @@ test('a stray whose restore after a reconnect is still out is not let go until t
   restoring.clear();
   mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
   assert.deepEqual(drops(), ['drop:hovered']);
-  manager.stop();
-  mock.timers.reset();
 });
 
-test("a stray's age is its follow's: a thread a pane showed in between starts over when it is followed outside the view again", async () => {
+test("a stray's age is its follow's: a thread a pane showed in between starts over when it is followed outside the view again", async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   const { calls, client, manager } = rig();
+  t.after(() => {
+    manager.stop();
+    mock.timers.reset();
+  });
   mock.timers.tick(0);
   await manager.synced();
   const folds = new Set(['t1', 'T']);
@@ -211,8 +217,6 @@ test("a stray's age is its follow's: a thread a pane showed in between starts ov
   assert.equal(drops(), 1, 'the new follow is not let go on the age of the one before it');
   mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
   assert.equal(drops(), 2);
-  manager.stop();
-  mock.timers.reset();
 });
 
 test('a refused re-attachment three times in a row recycles the connection and rejects the waiting call', async () => {
@@ -352,18 +356,44 @@ test('a remembered thread deleted on the PC is dropped and the first sync still 
   assert.equal(calls.filter((call) => call === 'resume:gone').length, 1, 'the deleted id is not asked for again');
 });
 
-test('a thread the page itself asked for still reports its refusal', async () => {
-  const { client, manager, events } = rig();
-  client.resumeThread = async () => {
-    throw { kind: 'rpc', code: -32000, message: 'no thread', reason: 'threadNotFound' };
+const THREAD_GONE = { kind: 'rpc', code: -32000, message: 'no thread', reason: 'threadNotFound', data: undefined };
+
+test('a thread the page names that the PC does not have is no failed sync, and is asked for again only when named anew', async (t) => {
+  const { client, calls, manager, events } = rig();
+  t.after(() => manager.stop());
+  client.resumeThread = async (id: string) => {
+    calls.push(`resume:${id}`);
+    throw THREAD_GONE;
   };
-  void manager.synced().catch(() => undefined);
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    assert.ok(events.errors >= 1, 'an explicit request is not silently dropped');
-  } finally {
-    manager.stop();
-  }
+  await manager.synced();
+  assert.equal(events.errors, 0);
+  assert.equal(events.recycled, 0);
+  const asked = () => calls.filter((call) => call === 'resume:t1').length;
+  await manager.set(['t1']);
+  assert.equal(asked(), 1, 'still named, it is not asked for again');
+  await manager.set([]);
+  await manager.set(['t1']);
+  assert.equal(asked(), 2, 'named anew, it is asked for again');
+});
+
+test('a shown thread deleted on the PC while the phone was away ends with the reconnect: the sync completes, the connection is kept', async (t) => {
+  const { client, calls, status, store, manager, events } = rig();
+  t.after(() => manager.stop());
+  await manager.synced();
+  client.resumeThread = async (id: string) => {
+    calls.push(`resume:${id}`);
+    throw THREAD_GONE;
+  };
+  status(RECONNECTING);
+  status(READY);
+  // The library's restores on the new connection: the app feed comes back, the deleted thread's resume is refused.
+  store({ type: 'subscription', feedId: 'app', state: 'restored' });
+  store({ type: 'subscription', feedId: 't1', state: 'lost', error: THREAD_GONE });
+  assert.equal(await settled(manager.synced()), 'open', 'the calls gated on the view go on');
+  assert.equal(events.errors, 0);
+  assert.equal(events.recycled, 0);
+  await manager.set(['t1']);
+  assert.equal(calls.filter((call) => call === 'resume:t1').length, 1, 'only the first connection asked for it');
 });
 
 test('a healthy wake costs one question to the core and no re-attach', async () => {

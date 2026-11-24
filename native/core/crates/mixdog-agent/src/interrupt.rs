@@ -118,11 +118,14 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
     let user_cancelled = reason.user_cancel();
     let provisional = provisional_user_turn(&messages, &current_user_text);
     // A turn cancelled while the model was only thinking produced no
-    // model-visible message. Anything the model said or did keeps the turn.
+    // model-visible message. Anything the model said or did keeps the turn;
+    // what the run wrote after the prompt before sending it (a skill
+    // selection with its call turn, a skill-update notice, a hook) is none of it.
     let produced_output = !mixdog_js::js_trim(&partial_assistant).is_empty()
         || !observed_tool_calls.is_empty()
         || !observed_tool_results.is_empty()
-        || provisional.is_some_and(|index| index + 1 < messages.len());
+        || provisional
+            .is_some_and(|index| messages[index + 1..].iter().any(|m| m.role() == Role::Assistant && m.source != Some(crate::message::Source::SkillSelection)));
     let preserve_response = response_started && (produced_output || !user_cancelled);
     if !preserve_response {
         if !user_cancelled || reason == AbortReason::UserCancelKeepPrompt {
@@ -306,6 +309,30 @@ mod tests {
         turn.partial_reasoning = "hmm".into();
         let done = finalize_interrupted_turn(turn);
         assert_eq!(done.transcript.len(), 1);
+        assert!(!done.user_turn_preserved && !done.response_preserved);
+    }
+
+    /// The rows the run commits after the prompt before its first send are no answer: a stop while the model only thought still
+    /// hands the prompt back, and those rows leave with it.
+    #[test]
+    fn thinking_only_cancel_after_the_runs_own_rows_rewinds_the_prompt() {
+        let selected = ToolCall { id: "skill-selection-1".into(), name: "Skill".into(), arguments: JsonValue::Null, native_type: None };
+        let mut selection = AgentMessage::assistant("", vec![selected]);
+        selection.source = Some(crate::message::Source::SkillSelection);
+        let mut turn = input(vec![
+            AgentMessage::user("earlier"),
+            AgentMessage::user("go"),
+            AgentMessage::sourced(
+                crate::message::Source::SkillContext,
+                "<system-reminder>\nExplicit skill selection result:\nLoaded skill: a\n</system-reminder>",
+            ),
+            selection,
+            AgentMessage::tool_text("skill-selection-1", "Loaded skill: b", ToolKind::Normal),
+            AgentMessage::sourced(crate::message::Source::SkillUpdateNotice, "<system-reminder>skill c changed</system-reminder>"),
+        ]);
+        turn.partial_reasoning = "hmm".into();
+        let done = finalize_interrupted_turn(turn);
+        assert_eq!(done.transcript.iter().map(AgentMessage::text).collect::<Vec<_>>(), ["earlier"]);
         assert!(!done.user_turn_preserved && !done.response_preserved);
     }
 

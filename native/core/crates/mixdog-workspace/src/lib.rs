@@ -34,6 +34,7 @@ pub mod release;
 #[cfg(feature = "replay-controls")]
 pub mod replay_controls;
 pub mod search;
+pub mod sensitive;
 pub mod serverdownload;
 pub mod servertrash;
 pub mod service;

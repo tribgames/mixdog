@@ -78,11 +78,35 @@ pub struct Lifecycle {
     hold_timer: Mutex<Option<Box<dyn Send>>>,
 }
 
+/// The backstop's wait taken over by a test: `armed` is told the deadline the release armed, and the backstop fires when `expire` is sent to.
 #[cfg(test)]
 pub(super) struct TestBackstop {
+    pub armed: std::sync::mpsc::Sender<Duration>,
     pub expire: std::sync::mpsc::Receiver<()>,
-    pub recorded: std::sync::mpsc::Sender<()>,
 }
+
+/// The longest [`Lifecycle::release`] waits on its steps, each given its whole budget: the final barriers, the stop steps, the withdrawal, the
+/// connections and the extension host once each, and the exit record three times at most (after the stop steps, again after a later step
+/// that is stuck, and the log flush, which runs under the same budget). The backstop is due only past it, so it never ends a step that is
+/// inside its own budget: Node's 15 s whole-shutdown ceiling (`SHUTDOWN_BUDGET_MS`) is shorter than the budgets the durable steps here have.
+fn release_bound(budgets: &ReleaseBudgets) -> Duration {
+    [
+        budgets.final_barriers,
+        budgets.close_data_handles,
+        budgets.withdraw_discovery,
+        budgets.close_connections,
+        budgets.close_ext_host,
+        budgets.record_exit,
+        budgets.record_exit,
+        budgets.record_exit,
+    ]
+    .into_iter()
+    .fold(Duration::ZERO, Duration::saturating_add)
+}
+
+/// The exit status of a core the stall watchdog ended: a failure, as a launcher reads every status but 0 (`ensure-core.mjs`
+/// `endedBeforeServing`).
+const STALLED_EXIT_CODE: i32 = 1;
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -284,8 +308,23 @@ impl Lifecycle {
     /// consistency is the crash case of the store invariants.
     pub fn terminate(&self, confirm_token: &str, acknowledge: impl FnOnce()) -> Result<(), CommandError> {
         locked(&self.machine).check_terminate(confirm_token)?;
-        let record =
-            LastExit { reason: "userTerminated".to_owned(), instance_id: self.cfg.instance_id.clone(), stalled_ms: Some(self.stalled_ms()), stuck_step: None };
+        self.leave_stalled("userTerminated");
+        acknowledge();
+        self.ports.exiter.exit(0);
+        Ok(())
+    }
+
+    /// The stall monitor's end of a core whose runtime answered nothing for the stall limit (LR §5.4): the stalled-core exit of
+    /// [`Self::terminate`], recorded as the watchdog's and ending with a failure status, since nobody asked for it.
+    pub fn end_stalled(&self) {
+        self.leave_stalled("watchdogTerminated");
+        self.ports.exiter.exit(crate::crash_record::settle_exit("the stall watchdog ended a runtime that answered nothing", STALLED_EXIT_CODE));
+    }
+
+    /// What the stalled-core exit does before the process ends, touching nothing the runtime owns: `last-exit.json` names `reason` and the
+    /// stall, and the discovery file no longer names this core.
+    fn leave_stalled(&self, reason: &str) {
+        let record = LastExit { reason: reason.to_owned(), instance_id: self.cfg.instance_id.clone(), stalled_ms: Some(self.stalled_ms()), stuck_step: None };
         if let Err(error) = write_last_exit(&self.cfg.runtime_root, &record) {
             tracing::error!(%error, "last-exit.json was not written");
         }
@@ -294,9 +333,6 @@ impl Lifecycle {
         if let Err(error) = crate::discovery::withdraw(&self.cfg.runtime_root, &self.cfg.instance_id) {
             tracing::error!(%error, "discovery was not withdrawn");
         }
-        acknowledge();
-        self.ports.exiter.exit(0);
-        Ok(())
     }
 
     // ---- internals --------------------------------------------------------------------
@@ -360,6 +396,7 @@ impl Lifecycle {
             Effect::DrainNotice(notice) => self.ports.core.drain_notice(&notice),
             Effect::CancelRunning(running) => self.ports.core.cancel_running(&running),
             Effect::CutNewTasks => self.ports.core.cut_new_tasks(),
+            Effect::ReopenNewTasks => self.ports.core.reopen_new_tasks(),
             Effect::ReleaseDecision { pid } => self.ports.core.release_decision(pid),
             Effect::NodeTrigger(text) => self.note_trigger(text),
             Effect::ArmGrace { generation, delay } => {
@@ -460,31 +497,26 @@ impl Lifecycle {
         let lifecycle = Arc::clone(self);
         let node_reason = node_reason.to_owned();
         let drain = Arc::clone(drain);
+        let deadline = release_bound(&self.budgets);
         #[cfg(test)]
         let test_backstop = locked(&self.test_backstop).take();
         let spawned = std::thread::Builder::new().name("mixdog-release-backstop".into()).spawn(move || {
-            let wait_for_budget = || backstop.recv_timeout(super::supervisor::SHUTDOWN_BUDGET) == Err(std::sync::mpsc::RecvTimeoutError::Timeout);
+            let wait_for_budget = || backstop.recv_timeout(deadline) == Err(std::sync::mpsc::RecvTimeoutError::Timeout);
             #[cfg(not(test))]
             let expired = wait_for_budget();
             #[cfg(test)]
             let expired = match &test_backstop {
-                Some(test) => test.expire.recv().is_ok(),
+                Some(test) => {
+                    let _ = test.armed.send(deadline);
+                    test.expire.recv().is_ok()
+                }
                 None => wait_for_budget(),
             };
             if expired {
                 tracing::error!("shutdown budget exceeded, forcing exit");
-                // The budget is the exit: the record is written beside it, never ahead of it, since a write that stalls would extend the budget by
-                // its own.
-                let recorder = Arc::clone(&lifecycle);
                 let (detail, code) = drain_exit(&drain, cause);
-                let reason = format!("{}{detail}", cause.text());
-                let _ = std::thread::Builder::new().name("mixdog-release-record".into()).spawn(move || {
-                    recorder.record_exit(&reason, Some("shutdownBudget"));
-                    #[cfg(test)]
-                    if let Some(test) = test_backstop {
-                        let _ = test.recorded.send(());
-                    }
-                });
+                // On disk before the process ends: the write is bounded by its own budget.
+                lifecycle.record_exit(&format!("{}{detail}", cause.text()), Some("shutdownBudget"));
                 let reason = format!("{node_reason}{detail} (budget exceeded, forced exit)");
                 lifecycle.ports.exiter.exit(crate::crash_record::settle_exit(&reason, code));
             }

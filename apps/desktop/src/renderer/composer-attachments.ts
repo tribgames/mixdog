@@ -229,7 +229,7 @@ const isStoredRef = (value: unknown): value is string => typeof value === 'strin
  *  resized attachment is the original. Best effort: an original this link
  *  cannot carry (past the relay's learned ceiling, a refused or failed call)
  *  returns null and the attachment keeps the resized copy, as before. */
-export async function stageOriginalImage(raw: string, file: File, displayName: string): Promise<string | null> {
+async function stageOriginalImage(raw: string, file: File, displayName: string): Promise<string | null> {
   if (remoteAttachmentSizeError(displayName, file.size)) return null;
   const invoke = window.mixdogDesktop?.invokeCapability;
   if (typeof invoke !== 'function') return null;

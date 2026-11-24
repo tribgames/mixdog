@@ -104,8 +104,14 @@ export function createUpdaterController(input: {
     running(): Promise<number>;
     hold(): Promise<number>;
     release(): Promise<void>;
-    stop(options: { abort: boolean }): Promise<void>;
+    stop(options: { abort: boolean; version: string }): Promise<void>;
   };
+  /** Settles once every window has written its editors' pending backups (or is gone): those writes need the core, so the
+   *  install waits for them before it stops the core. */
+  flushEditorBackups?: () => Promise<void>;
+  /** Runs when the install fails after the core was stopped and the app's own resources were disposed: neither can
+   *  serve again in this process, so the app starts over (its next launch starts the core). */
+  restartApp?: () => void;
   scheduleInstall?: (install: () => void) => void;
   log?: (message: string, data?: object) => void;
 }) {
@@ -288,8 +294,11 @@ export function createUpdaterController(input: {
         }
       }
       transition({ status: 'installing', version });
+      let coreStopped = false;
       try {
-        await input.core?.stop({ abort: options.confirmed === true });
+        await input.flushEditorBackups?.();
+        await input.core?.stop({ abort: options.confirmed === true, version });
+        coreStopped = true;
         await input.stop();
         // ipcRenderer.invoke() must receive its acknowledgement before
         // electron-updater destroys the renderer during quitAndInstall().
@@ -301,16 +310,18 @@ export function createUpdaterController(input: {
           } catch (error) {
             installing = false;
             transition({ status: 'ready', version });
-            void releaseBarrier();
             input.log?.('updater install launch failed', {
               message: error instanceof Error ? error.message : String(error),
             });
+            if (input.restartApp) input.restartApp();
+            else void releaseBarrier();
           }
         });
       } catch (error) {
         installing = false;
         transition({ status: 'ready', version });
-        await releaseBarrier();
+        if (coreStopped && input.restartApp) input.restartApp();
+        else await releaseBarrier();
         throw error;
       }
     },

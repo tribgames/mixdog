@@ -283,14 +283,14 @@ test('without a cryptographic random source, regenerating a signing secret repor
   assert.ok(document.querySelector('.schedules-dialog .error-notice'));
 });
 
-/** Mount the pane with an api that records testWebhook calls and answers with `reply`. */
-async function mountForTest(t, reply) {
+/** Mount the pane with an api that records testWebhook calls and answers with `reply`; `answer` serves the rest. */
+async function mountForTest(t, reply, answer = () => ({ value: undefined })) {
   const calls = [];
   const api = {
     async invokeCapability(request) {
       calls.push(request);
       if (request.capability === 'testWebhook') return { value: reply };
-      return { value: undefined };
+      return answer(request);
     },
   };
   resetSidebarReferenceCache();
@@ -413,6 +413,43 @@ test('Send test is disabled once a secret has been regenerated', async (t) => {
     [...document.querySelectorAll('.webhook-connection small')].some(
       (s) => s.textContent === 'Save first to test the new secret.'
     )
+  );
+});
+
+test('a refused Enabled switch in the editor flips back, so Save keeps the stored value', async (t) => {
+  const { host, calls } = await mountForTest(t, null, (request) => {
+    if (request.capability === 'setWebhookEnabled') throw new Error('toggle refused');
+    return { value: undefined };
+  });
+  await act(async () => host.querySelector('.routines-open').click());
+  const enabled = document.querySelector('.webhooks-editor-dialog [aria-label="Enabled"]');
+  await act(async () => enabled.click());
+  assert.deepEqual(calls.find((call) => call.capability === 'setWebhookEnabled').args, ['legacy', false]);
+  assert.equal(enabled.checked, true);
+  document.querySelector('textarea[name="webhook-instructions"]').value = 'Triage';
+  await act(async () => document.querySelector('.webhooks-editor-dialog form').requestSubmit());
+  assert.equal(calls.findLast((call) => call.capability === 'saveWebhook').args[0].enabled, true);
+});
+
+test('a save that fails after its editor closed is reported as a toast', async (t) => {
+  const write = Promise.withResolvers();
+  const { host } = await mountForTest(t, null, (request) =>
+    request.capability === 'saveWebhook' ? write.promise : { value: undefined }
+  );
+  const { DESKTOP_TOAST_EVENT } = await import('./desktop-toasts.tsx');
+  const toasts = [];
+  const receive = (event) => toasts.push(event.detail);
+  window.addEventListener(DESKTOP_TOAST_EVENT, receive);
+  t.after(() => window.removeEventListener(DESKTOP_TOAST_EVENT, receive));
+  await act(async () => host.querySelector('.routines-open').click());
+  document.querySelector('textarea[name="webhook-instructions"]').value = 'Triage';
+  await act(async () => document.querySelector('.webhooks-editor-dialog form').requestSubmit());
+  await act(async () => document.querySelector('[aria-label="Close webhook editor"]').click());
+  assert.equal(document.querySelector('.webhooks-editor-dialog'), null);
+  await act(async () => write.reject(new Error('save refused')));
+  assert.deepEqual(
+    toasts.map(({ tone, text }) => [tone, text]),
+    [['error', 'save refused']]
   );
 });
 

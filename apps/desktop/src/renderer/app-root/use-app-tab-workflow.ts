@@ -109,6 +109,7 @@ export function useAppTabWorkflow(
     unsavedCloseError,
   } = usePaneTabClose({
     paneWorkspace,
+    paneSideDocks,
     dirtyFileKeys,
     editorSaveHandles,
     handleFileDirty,

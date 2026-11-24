@@ -332,7 +332,14 @@ export function registerDesktopIpc(
   registerComputerIpc({ handle, shell, computer, invokeDesktopOperation });
   registerVisualizeIpc({ handle, visualize });
   const confirmAllowAllActions = createAllowAllActionsConfirm({ window, nativeT });
-  registerWindowSettingsIpc({ window, app, handle, invokeDesktopOperation, settingsStore, previewNotificationSound });
+  const disposeWindowSettingsIpc = registerWindowSettingsIpc({
+    window,
+    app,
+    handle,
+    invokeDesktopOperation,
+    settingsStore,
+    previewNotificationSound,
+  });
   const disposeHostExtrasIpc = registerHostExtrasIpc({
     handle,
     removeHandler: (channel) => ipcMain.removeHandler(channel),
@@ -424,6 +431,7 @@ export function registerDesktopIpc(
     disposeProjectFileIpc();
     files.releaseStagingOwner();
     disposeHostExtrasIpc();
+    disposeWindowSettingsIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     disposeRendererProbe();
     disposeScreenSessions();

@@ -62,8 +62,7 @@ export function turnFailuresOf(
       : transcriptTurnKeys(transcript)
   ) as string[];
   // A turn's end renames the items it holds: they are folded again under the new key.
-  const sameKeys =
-    previous && prior ? sharedPrefix(turnKeys, previous.turnKeys, turnKeysTakenOver(turnKeys)) : 0;
+  const sameKeys = previous && prior ? sharedPrefix(turnKeys, previous.turnKeys, turnKeysTakenOver(turnKeys)) : 0;
   const from = Math.min(keptItems, sameKeys);
   // What a pane reads of the keys is carried on from the keys left in place.
   if (previous && prior) noteCarried(turnKeys, previous.turnKeys, sameKeys);

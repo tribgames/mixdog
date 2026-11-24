@@ -44,30 +44,36 @@ function reset(settings) {
   nextCheck = { ok: true, ms: 182, origin: 'https://api.openai.com', status: 401, route: route() };
 }
 reset({});
+// Every answer the host gave; `settle` waits for them.
+const answers = [];
 window.mixdogDesktop = {
-  invokeCapability: async ({ capability, args }) => {
-    calls.push([capability, args]);
-    if (capability === 'getNetworkProxy') return { value: structuredClone(host) };
-    if (capability === 'testNetworkProxy') return { value: nextCheck };
-    // The runtime refuses an address without a scheme and stores nothing.
-    const patch = args[0];
-    if (patch.url !== undefined && !/^https?:\/\/[^\s]+$/.test(patch.url)) {
-      throw new Error(
-        "Error invoking remote method 'invokeCapability': Error: networkProxy.url is not a proxy address."
-      );
-    }
-    host = {
-      ...host,
-      ...patch,
-      route: patch.mode === 'manual' ? route({ via: 'manual', proxy: 'proxy.company.com:8080' }) : host.route,
-    };
-    return { value: structuredClone(host) };
+  invokeCapability: (request) => {
+    const answer = answerCapability(request);
+    answers.push(answer);
+    return answer;
   },
 };
+async function answerCapability({ capability, args }) {
+  calls.push([capability, args]);
+  if (capability === 'getNetworkProxy') return { value: structuredClone(host) };
+  if (capability === 'testNetworkProxy') return { value: nextCheck };
+  // The runtime refuses an address without a scheme and stores nothing.
+  const patch = args[0];
+  if (patch.url !== undefined && !/^https?:\/\/[^\s]+$/.test(patch.url)) {
+    throw new Error("Error invoking remote method 'invokeCapability': Error: networkProxy.url is not a proxy address.");
+  }
+  host = {
+    ...host,
+    ...patch,
+    route: patch.mode === 'manual' ? route({ via: 'manual', proxy: 'proxy.company.com:8080' }) : host.route,
+  };
+  return { value: structuredClone(host) };
+}
 const { createRoot } = await import('react-dom/client');
 const { NetworkProxyGroup, routeDescription } = await import('./network-proxy-settings.tsx');
 
-const settle = () => act(() => new Promise((resolve) => setImmediate(resolve)));
+// The act commits what the answered reads and saves set.
+const settle = () => act(async () => void (await Promise.allSettled(answers.splice(0))));
 const select = () => document.querySelector('.network-proxy-select');
 const row = (title) =>
   [...document.querySelectorAll('.network-proxy-row')].find(
@@ -143,6 +149,21 @@ test('manual mode shows the address and exception rows; a bad address is refused
     await blur(input('Exceptions'));
     await settle();
     assert.deepEqual(calls.at(-1), ['setNetworkProxy', [{ exceptions: 'localhost, *.company.local' }]]);
+  });
+});
+
+test('exceptions saved before any address keep the chosen Manual rows open', async () => {
+  reset({});
+  await mounted(async () => {
+    await choose('manual');
+    await type(input('Exceptions'), 'localhost, *.corp.local');
+    await blur(input('Exceptions'));
+    await settle();
+    assert.deepEqual(calls.at(-1), ['setNetworkProxy', [{ exceptions: 'localhost, *.corp.local' }]]);
+    assert.equal(host.mode, 'system', 'the saved mode is unchanged until an address is saved');
+    assert.equal(select().value, 'manual');
+    assert.ok(input('Proxy address'), 'the address row is still there to fill in');
+    assert.equal(input('Exceptions').value, 'localhost, *.corp.local');
   });
 });
 

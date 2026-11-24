@@ -238,13 +238,20 @@ fn compile_globs(patterns: &[String]) -> Result<OrderedGlobs, ToolError> {
 
 /// The mtime in ms (0 when the file service has none); `None` when the stat failed.
 async fn mtime_millis(ctx: &ToolContext, path: &AbsPath) -> Option<u128> {
+    if !super::common::followable(ctx, path).await {
+        return None;
+    }
     let stat = ctx.files.stat(ctx.io.interactive, path.clone()).await.ok()?;
     Some(epoch_millis(stat.modified))
 }
 
-async fn locator_mtime(ctx: &ToolContext, path: &AbsPath) -> Option<u128> {
-    let stat = ctx.files.stat_for_locator(ctx.io.interactive, path.clone()).await.ok()?;
-    Some(epoch_millis(stat.modified))
+/// The mtime of an entry the walk found; the outer `None` is an entry the guard refuses to follow.
+async fn locator_mtime(ctx: &ToolContext, path: &AbsPath) -> Option<Option<u128>> {
+    if !super::common::followable(ctx, path).await {
+        return None;
+    }
+    let stat = ctx.files.stat_for_locator(ctx.io.interactive, path.clone()).await.ok();
+    Some(stat.map(|stat| epoch_millis(stat.modified)))
 }
 
 fn epoch_millis(modified: Option<std::time::SystemTime>) -> u128 {
@@ -491,7 +498,7 @@ pub(super) fn glob_scope(path: Option<&str>, mut patterns: Vec<String>) -> (Stri
 /// `globBaseEntry`: the walk root and pattern prefix of a `path` carrying glob magic, unless it literally names a directory.
 async fn wildcard_scope(ctx: &ToolContext, raw: &str) -> (String, String) {
     let literal = async {
-        let abs = resolve_path(&ctx.cwd, raw).ok()?;
+        let abs = super::read::guarded_target(ctx, raw).await.ok()?.ok()?;
         ctx.files.stat(ctx.io.interactive, abs).await.ok().filter(|stat| stat.kind == EntryKind::Dir)
     };
     if !has_glob_magic(raw) || literal.await.is_some() {
@@ -567,18 +574,24 @@ fn glob_unc_refusal(ctx: &ToolContext, raw: &str, patterns: &[String]) -> Option
             serde_json::to_string(&super::patch_guard::normalize_output_path(shown)).unwrap_or_default()
         )
     };
-    if is_unc_or_smb(raw) {
+    // A project root may itself be a share or an extended-length path: what lies inside it is not a share.
+    let roots = super::path_admit::roots_of(ctx.cwd.as_path());
+    let leaves = |p: &str| !super::path_admit::inside(&roots, p);
+    if leaves(raw) && is_unc_or_smb(raw) {
         return Some(refuse(raw));
     }
-    if let Some(resolved) = win32_unc_resolution(raw) {
+    if leaves(raw)
+        && let Some(resolved) = win32_unc_resolution(raw)
+    {
         return Some(refuse(&resolved));
     }
-    if let Ok(resolved) = resolve_path(&ctx.cwd, raw)
+    if let Ok(resolved) = super::common::lexical_path(&ctx.cwd, raw)
+        && leaves(&resolved.as_path().to_string_lossy())
         && is_unc_or_smb(&resolved.as_path().to_string_lossy())
     {
         return Some(refuse(&resolved.as_path().to_string_lossy()));
     }
-    patterns.iter().find(|p| is_absolute_pattern(p) && is_unc_or_smb(p)).map(|p| refuse(p))
+    patterns.iter().find(|p| is_absolute_pattern(p) && leaves(p) && is_unc_or_smb(p)).map(|p| refuse(p))
 }
 
 /// The byte length of Node's `path.parse(raw).root` (win32 on Windows, posix elsewhere) of a `/`-spelled path:
@@ -676,7 +689,7 @@ async fn expand_absolute_glob(ctx: &ToolContext, pattern: &str, limit: usize) ->
         return None;
     }
     let root = if cfg!(windows) { raw[..root_len].replace('/', "\\") } else { raw[..root_len].to_owned() };
-    let mut current = vec![resolve_path(&ctx.cwd, &root).ok()?];
+    let mut current = vec![super::read::guarded_target(ctx, &root).await.ok()?.ok()?];
     for segment in segments {
         if Instant::now() >= stop {
             return None;
@@ -690,6 +703,9 @@ async fn expand_absolute_glob(ctx: &ToolContext, pattern: &str, limit: usize) ->
         for dir in &current {
             if next.len() >= EXPAND_CANDIDATE_CAP || Instant::now() >= stop {
                 break;
+            }
+            if !super::common::followable(ctx, dir).await {
+                continue;
             }
             let Ok(entries) = ctx.files.list_dir(ctx.io.interactive, dir.clone()).await else { continue };
             for entry in entries {
@@ -713,7 +729,8 @@ async fn expand_absolute_glob(ctx: &ToolContext, pattern: &str, limit: usize) ->
         if found.len() >= limit || Instant::now() >= stop {
             break;
         }
-        if let Ok(stat) = ctx.files.stat(ctx.io.interactive, candidate.clone()).await
+        if super::common::followable(ctx, &candidate).await
+            && let Ok(stat) = ctx.files.stat(ctx.io.interactive, candidate.clone()).await
             && matches!(stat.kind, EntryKind::File | EntryKind::Dir)
         {
             found.push(fwd(candidate.as_path()));
@@ -1488,9 +1505,6 @@ fn bare_content(page: &[(String, Hit)], single: bool) -> String {
     out.join("\n")
 }
 
-#[allow(dead_code)]
-fn _unused(_: ToolError, _: ToolErrorCode) {}
-
 #[cfg(test)]
 mod count_rows {
     use super::*;
@@ -1949,6 +1963,7 @@ async fn rank_glob_group(
                 if ctx.cancel.is_cancelled() {
                     return Err(cancelled());
                 }
+                let Some(mtime) = mtime else { continue };
                 total += 1;
                 missing_stat |= mtime.is_none();
                 top.push(ranking.rank(number, path, mtime));
@@ -2008,7 +2023,10 @@ async fn glob_groups(
     for pattern in absolute {
         let (base, rest) = extract_glob_base_directory(pattern);
         let (group_root, label) = match base {
-            Some(base) => (resolve_path(&ctx.cwd, &base)?, base.replace('\\', "/")),
+            Some(base) => match super::read::guarded_target(ctx, &base).await? {
+                Ok(abs) => (abs, base.replace('\\', "/")),
+                Err(refusal) => return Ok(Err(refusal)),
+            },
             None => (root.clone(), raw.replace('\\', "/")),
         };
         let rest = format!("/{rest}");
@@ -2046,7 +2064,14 @@ impl GlobTool {
         // `globBaseEntry`: a `path` that names a set of directories walks from its static base, its wildcard part
         // folded into each relative pattern.
         // A UNC or device spelling (`\\?\…`) is refused whole below, never read as a glob.
-        let (scoped, prefix) = if glob_unc_refusal(ctx, &raw, &patterns).is_some() { (raw.clone(), String::new()) } else { wildcard_scope(ctx, &raw).await };
+        let refuse = |text: String| fail(ToolErrorCode::Failed { reason: text.clone() }, text);
+        if let Some(text) = glob_unc_refusal(ctx, &raw, &patterns) {
+            return Err(refuse(text));
+        }
+        if let Err(text) = super::read::guarded_target(ctx, &raw).await? {
+            return Err(refuse(text));
+        }
+        let (scoped, prefix) = wildcard_scope(ctx, &raw).await;
         raw = scoped;
         if !prefix.is_empty() {
             for pattern in patterns.iter_mut().filter(|p| !is_absolute_pattern(p.trim_start_matches('!'))) {
@@ -2065,9 +2090,12 @@ impl GlobTool {
         };
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
         if let Some(text) = glob_unc_refusal(ctx, raw, &patterns) {
-            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+            return Err(refuse(text));
         }
-        let root = resolve_path(&ctx.cwd, raw)?;
+        let root = match super::read::guarded_target(ctx, raw).await? {
+            Ok(root) => root,
+            Err(text) => return Err(refuse(text)),
+        };
         let groups = match glob_groups(ctx, raw, &root, &patterns).await? {
             Ok(groups) => groups,
             Err(missing) => return Ok(text_output(missing)),
@@ -2267,7 +2295,10 @@ impl FindTool {
             // `Math.max(parseInt(args.depth, 10) || 1, 1)`: "2levels" is 2, "1e2" is 1.
             Some(value) => Some(super::list::js_parse_int(value).filter(|n| *n != 0).unwrap_or(1).max(1) as usize),
         };
-        let root = resolve_path(&ctx.cwd, raw)?;
+        let root = match super::read::guarded_target(ctx, raw).await? {
+            Ok(root) => root,
+            Err(refusal) => return Ok(text_output(refusal)),
+        };
         if let Some(missing) = require_dir(ctx, raw, &root).await? {
             return Ok(text_output(missing));
         }
@@ -2370,7 +2401,20 @@ impl GrepTool {
         class: SearchClass,
         budget_ms: u64,
     ) -> Result<Scanned, ToolError> {
-        let abs = resolve_path(&ctx.cwd, raw)?;
+        let abs = match super::read::guarded_target(ctx, raw).await? {
+            Ok(abs) => abs,
+            Err(refusal) => {
+                return Ok(Scanned {
+                    hits: Vec::new(),
+                    complete: true,
+                    timed_out: false,
+                    scan_errors: 0,
+                    error: refusal,
+                    single_file: false,
+                    bad_pattern: false,
+                });
+            }
+        };
         let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
             Err(e) if super::not_found::missing_code(&e.kind).is_some() => {
@@ -2597,6 +2641,20 @@ impl GrepTool {
             output.meta = Some(serde_json::json!({ "complete": complete }));
             output
         };
+        // Every scope is admitted before the first stat of any of the scans below (fan-out, prefilter, combined pass).
+        // The scopes are normalised first, as the call does; one the arg guard refuses is answered by that guard.
+        let mut scoped = args.clone();
+        if guard_scope_args(&mut scoped).is_ok() {
+            let mut scopes = arg_strings(&scoped, "path");
+            if scopes.is_empty() {
+                scopes.push(".".to_owned());
+            }
+            for raw in &scopes {
+                if let Err(refusal) = super::read::guarded_target(ctx, raw).await? {
+                    return Ok(output(refusal, true));
+                }
+            }
+        }
         // A resumed fan-out (`section`) goes straight to the sections it names.
         if args.get("section").is_some() {
             return match self.fanout_paged((ctx, &mut sources), &args, cap, &mut complete).await? {
@@ -3153,7 +3211,7 @@ impl GrepTool {
 
     /// Whether `raw` names an existing file (a missing path or a stat failure is left to the scan to answer).
     async fn names_a_file(&self, ctx: &ToolContext, raw: &str) -> bool {
-        let Ok(abs) = resolve_path(&ctx.cwd, raw) else { return false };
+        let Ok(Ok(abs)) = super::read::guarded_target(ctx, raw).await else { return false };
         matches!(guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs)).await, Ok(Ok(stat)) if stat.kind == EntryKind::File)
     }
 
@@ -3267,7 +3325,9 @@ impl GrepTool {
             if has_glob_magic(raw) || is_unc_or_smb(raw) {
                 return Ok(None);
             }
-            let abs = resolve_path(&ctx.cwd, raw)?;
+            let Ok(abs) = super::read::guarded_target(ctx, raw).await? else {
+                return Ok(None);
+            };
             let Ok(stat) = guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? else {
                 return Ok(None);
             };

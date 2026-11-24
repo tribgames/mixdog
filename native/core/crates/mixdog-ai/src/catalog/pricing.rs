@@ -302,16 +302,24 @@ impl PricingCatalog {
                 Value::Object(alias)
             })
             .collect();
-        let text = stringify(&json!([2, litellm_at, models_dev_at, aliases]));
+        let shared = self.service.shared_quotas.load();
+        let text = if shared.is_empty() {
+            stringify(&json!([2, litellm_at, models_dev_at, aliases]))
+        } else {
+            stringify(&json!([2, litellm_at, models_dev_at, aliases, &**shared]))
+        };
         Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// `priceUsage(args)`.
+    /// `priceUsage(args)`. The usage of a provider bound to a shared quota ([`CatalogService::bind_shared_quotas`]) is priced
+    /// as that quota's provider's.
     pub fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
+        let shared = self.service.shared_quotas.load();
+        let provider = shared.get(&args.provider).map_or(args.provider.as_str(), String::as_str);
         let cached = n(args.cache_read_tokens);
         let written = n(args.cache_write_tokens);
         let written_1h = n(args.cache_write_1h_tokens).min(written);
-        let inclusive = args.input_tokens_inclusive.unwrap_or_else(|| is_inclusive_provider(&args.provider));
+        let inclusive = args.input_tokens_inclusive.unwrap_or_else(|| is_inclusive_provider(provider));
         let input = if args.input_tokens_known == Some(false) {
             0.0
         } else if let Some(uncached) = args.uncached_input_tokens {
@@ -324,15 +332,15 @@ impl PricingCatalog {
         // `resolveModelPricingIdentity`: the transport's explicit SKU wins, then
         // Grok's requested SKU, then the model.
         let requested = non_empty(&args.requested_model);
-        let selected = non_empty(&args.pricing_model).or_else(|| requested.filter(|_| args.provider == "grok-oauth")).unwrap_or(&args.model);
-        let pricing_model = self.service.with_lookup(|lookup| lookup.pricing_model(&args.provider, selected));
-        let meta = self.service.sync_meta(&pricing_model, &args.provider);
+        let selected = non_empty(&args.pricing_model).or_else(|| requested.filter(|_| provider == "grok-oauth")).unwrap_or(&args.model);
+        let pricing_model = self.service.with_lookup(|lookup| lookup.pricing_model(provider, selected));
+        let meta = self.service.sync_meta(&pricing_model, provider);
 
         let mut provenance = Obj::new();
         provenance.insert("requestedModel".into(), requested.map_or(Value::Null, Value::from));
         provenance.insert("pricingModel".into(), Value::from(pricing_model.clone()));
         let from_meta = |key: &str| meta.as_ref().and_then(|m| m.get(key)).filter(|v| truthy(Some(v))).cloned();
-        provenance.insert("pricingProvider".into(), from_meta("pricingProvider").unwrap_or_else(|| Value::from(args.provider.clone())));
+        provenance.insert("pricingProvider".into(), from_meta("pricingProvider").unwrap_or_else(|| Value::from(provider)));
         provenance.insert("pricingSource".into(), from_meta("pricingSource").unwrap_or(Value::Null));
         if args.input_tokens_known == Some(false) {
             provenance.insert("inputTokensKnown".into(), Value::Bool(false));

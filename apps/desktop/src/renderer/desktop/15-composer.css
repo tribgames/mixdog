@@ -330,7 +330,8 @@
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 7px;
+  /* A glyph 8px from its words, as a left sidebar row's (its 16px slot and 6px). */
+  gap: 8px;
   padding: 0 10px;
   border: 0;
   border-radius: var(--mx-radius-pill);
@@ -407,12 +408,12 @@
    and wash as branch and files): the action's icon and label, then a 13px
    chevron. The two buttons fill the segment, so the chevron's area alone
    toggles the tab and the rest runs; together they draw the segment's
-   0 8px 0 10px padding and 6px gaps. */
+   0 8px 0 10px padding and 8px gaps. */
 .composer-island-pill > .composer-island-seg.composer-island-git {
   gap: 0;
   padding: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-label);
   cursor: default;
 }
 .composer-island-git[data-open] {
@@ -434,11 +435,13 @@
   outline: 1px solid var(--mx-accent);
   outline-offset: -1px;
 }
+/* The segment's glyph in the other segments' muted ink (.composer-island-seg-icon). */
 .composer-island-git > button > svg {
   flex: none;
+  color: var(--mx-text-muted);
 }
 .composer-island-git-main {
-  gap: 6px;
+  gap: 8px;
   padding: 0 10px;
 }
 .composer-island:is([data-fit~="git-word"]:where(:not([data-measuring])), [data-measuring~="git-word"])
@@ -488,19 +491,27 @@
 .composer-island-git-row:hover {
   background: var(--composer-island-wash);
 }
+/* The label on the left sidebar's row rule: a 14px glyph in the 16px mark column and 6px to the name (a session
+   row's slot), the name in the row ink at rest and full ink pointed at or focused. */
 .composer-island-git-label {
   min-width: 0;
   min-height: 32px;
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   padding: 0 6px;
-  color: var(--mx-text);
+  color: var(--mx-row-title-ink);
   font-weight: var(--mx-weight-regular);
+}
+.composer-island-git-row:is(:hover, :focus-within) > .composer-island-git-label {
+  color: var(--mx-row-title-ink-active);
 }
 .composer-island-git-label > svg {
   flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
   color: var(--mx-icon-muted);
 }
 .composer-island-git-label > span {
@@ -510,15 +521,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Run on the button tier, its mark as a foot button's: 14px, 8px from its label, the icon ink at rest. */
 .composer-island-git-row > .composer-island-git-run {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 .composer-island-git-run > svg {
   flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--mx-icon-muted);
+}
+.composer-island-git-run:hover:not(:disabled) > svg {
+  color: inherit;
 }
 /* Only text that can ellipsize gives way on a narrow island: the Goal while
    it still shows its title. Counts never shrink. */
@@ -1003,6 +1023,7 @@ ul.composer-island-jobs > .composer-island-row {
 /* A command reads at the code size in the row name's weight, as an agent's
    name does: bold mono at the UI size outweighed the agent rows beside it. */
 .composer-island-row .composer-island-shell-command {
+  color: var(--mx-row-title-ink);
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-code);
   font-weight: var(--mx-weight-regular);
@@ -1101,6 +1122,8 @@ ul.composer-island-jobs > .composer-island-row {
   --island-row-bleed: calc(var(--island-panel-inset) - var(--mx-scrollbar-size, 8px));
   --island-row-bleed-end: var(--island-row-bleed);
   grid-template-columns: var(--mx-icon-md) minmax(0, 1fr) auto auto;
+  /* The rows' 6px (the left sidebar's slot-to-name gap), over the list's own. */
+  column-gap: 6px;
   row-gap: 0;
   /* Rows keep their height when the body is given more room than they fill. */
   align-content: start;
@@ -1119,6 +1142,9 @@ ul.composer-island-jobs > .composer-island-row {
 }
 .composer-island-agents :is(.composer-island-agent-fold, .agent-pool-row:not(:disabled)):hover {
   background: var(--mx-hover);
+}
+.composer-island-agents .agent-pool-row:is(:not(:disabled):hover, :focus-visible) {
+  color: var(--mx-row-title-ink-active);
 }
 .composer-island-agents :is(.composer-island-agent-fold, .agent-pool-row):focus-visible {
   outline: none;
@@ -1193,16 +1219,16 @@ ul.composer-island-jobs > .composer-island-row {
   min-height: var(--island-agent-row);
   box-sizing: border-box;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border: 0;
   background: none;
   box-shadow: none;
-  /* Every agent's name in the full ink and the label weight, at work or finished: its ring and its state say
-     which. A wash is a row pointed at, never a state that stays. */
-  color: var(--mx-row-title-ink-active);
+  /* Every agent's name is a row name, as a left sidebar session row's: the regular weight, the row ink at rest and
+     the full ink pointed at, at work or finished: its ring and its state say which. */
+  color: var(--mx-row-title-ink);
   font: inherit;
   font-size: var(--mx-font-item);
-  font-weight: var(--mx-weight-label);
+  font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
   text-align: start;
   cursor: pointer;
@@ -1488,17 +1514,22 @@ ul.composer-island-jobs > .composer-island-row {
   gap: 6px;
   margin-inline-start: auto;
 }
-/* A foot's buttons on the button tier, as the session panel's foot reads. */
+/* A foot's buttons on the button tier, as the session panel's foot reads: the mark 8px from its label (a left
+   sidebar row's), resting in the icon ink as the sidebar's action icons do and taking the label's ink pointed at. */
 .composer-island-panel-foot .composer-island-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
 .composer-island-panel-foot .composer-island-button > svg {
   flex: none;
+  color: var(--mx-icon-muted);
+}
+.composer-island-panel-foot .composer-island-button:hover:not(:disabled, [aria-disabled="true"]) > svg {
+  color: inherit;
 }
 .composer-island-panel-foot .composer-island-button[aria-disabled="true"] {
   opacity: var(--mx-op-disabled);

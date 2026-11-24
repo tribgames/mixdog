@@ -6,6 +6,7 @@ import { agentStateWords } from './agent-row-meta';
 import {
   AgentGroupList,
   agentsHeadMark,
+  agentsInProgress,
   islandAgentCounts,
   widestAgentClocks,
   AgentsSummary,
@@ -54,8 +55,8 @@ function StateColumnSizer({
 }
 
 /** The Agents category: the island's agent list (AgentGroupList), one fold a
- *  kind and one line an agent. Its head ends with the mark while any works or
- *  waits, then how many it lists. Its foot
+ *  kind and one line an agent. Its head ends with the mark and how many are in
+ *  progress, neither with none in progress. Its foot
  *  is the agents' own usage and Clean up, the Lead's usage being Info's row. */
 export function AgentsSection({
   sessionId,
@@ -80,6 +81,7 @@ export function AgentsSection({
   const shown = open && agents.length > 0;
   const usage = useAgentsUsage({ sessionId, agentRows: agents, poolRows, busy, open: shown });
   const { running } = islandAgentCounts(agents);
+  const inProgress = agentsInProgress(agents);
   // Only an agent at work has a clock that moves.
   const clock = useClock(shown && running > 0);
   if (agents.length === 0) return null;
@@ -87,12 +89,14 @@ export function AgentsSection({
     <RailSection
       category="agents"
       title={t('Agents')}
-      // At the head's end, as To-do writes its own: the mark while any works or waits, then how many.
+      // At the head's end, as To-do writes its own: the mark, then how many are in progress.
       count={
-        <span className="session-rail-todo-figure">
-          {agentsHeadMark(agents)}
-          <span>{agents.length}</span>
-        </span>
+        inProgress > 0 ? (
+          <span className="session-rail-todo-figure">
+            {agentsHeadMark(agents)}
+            <span>{inProgress}</span>
+          </span>
+        ) : undefined
       }
       open={open}
       onToggle={onToggle}
@@ -141,11 +145,14 @@ export function ShellsSection({
     <RailSection
       category="shells"
       title={t('Shell')}
+      // How many still run, with the mark; neither once none runs.
       count={
-        <span className="session-rail-todo-figure">
-          {running > 0 && jobsTabMark('shell', [], running)}
-          <span>{shells.length}</span>
-        </span>
+        running > 0 ? (
+          <span className="session-rail-todo-figure">
+            {jobsTabMark('shell', [], running)}
+            <span>{running}</span>
+          </span>
+        ) : undefined
       }
       open={open}
       onToggle={onToggle}

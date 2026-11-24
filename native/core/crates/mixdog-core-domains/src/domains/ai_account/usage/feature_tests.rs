@@ -96,7 +96,7 @@ struct Quotas;
 #[async_trait::async_trait]
 impl super::dashboard::UsageSources for Quotas {
     async fn cached_oauth(&self, provider: &str, _: bool) -> Option<Value> {
-        (provider == "grok-oauth").then(|| json!({ "quotaWindows": [{ "label": "5h", "usedPct": 50 }] }))
+        (provider == "grok-oauth").then(|| json!({ "credentialStamp": "0123456789abcdef", "quotaWindows": [{ "label": "5h", "usedPct": 50 }] }))
     }
     fn oauth_provider_ready(&self, _: &str) -> bool {
         false
@@ -141,6 +141,10 @@ async fn a_dashboard_row_says_what_its_provider_could_be_asked() {
     assert_eq!(shown(&dashboard, "deepseek"), ["hidden", "provider-hidden", "unavailable", "-", "DeepSeek balance unavailable", "warn"]);
     assert_eq!(shown(&dashboard, "grok-oauth"), ["partial", "provider-api", "API window", "5H 50%", "subscription quota", "warn"]);
     assert_eq!(shown(&dashboard, "mimo-oauth"), ["hidden", "usage-disabled", "disabled", "", "No current usage query result", "warn"]);
+
+    let row = |id: &str| dashboard["rows"].as_array().unwrap().iter().find(|row| row["id"] == id).unwrap().clone();
+    assert_eq!(row("grok-oauth")["credentialStamp"], "0123456789abcdef", "a row names the account its reading was measured for");
+    assert!(row("mimo-oauth").get("credentialStamp").is_none(), "a reading with no stamp names no account");
 
     let preview = read(true).await;
     assert_eq!(shown(&preview, "grok-oauth"), ["checking", "checking", "checking", "", "Checking provider usage", "ok"]);

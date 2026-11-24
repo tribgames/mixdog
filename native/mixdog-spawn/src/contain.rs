@@ -463,6 +463,14 @@ mod imp {
             }
         }
 
+        /// The root has exited and its reaper has not reaped it yet: what its group holds is what the command leaves
+        /// behind, kept for the shutdown ([`Tree::keep_private_group`]).
+        pub(crate) fn root_exited(&self) {
+            if let Some(tree) = self.tree.get() {
+                tree.keep_private_group();
+            }
+        }
+
         /// The caller holds the lock that excludes reaping the root.
         pub(crate) fn shutdown_signal(&self) {
             if let Some(tree) = self.tree.get() {

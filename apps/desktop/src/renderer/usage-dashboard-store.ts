@@ -73,6 +73,9 @@ const latestAccountChanges = new Map<string, { accountId: string; at: number }>(
 let accountSwitchListeners = new Set<(provider: string) => void>();
 let retirementQueued = false;
 const timers = new Set<number>();
+/** Providers whose shown row is a timed reading this document accepted live. A credential change drops the provider:
+ *  another account's reading is not ordered against the one shown. */
+const orderedReadings = new Set<string>();
 
 function scalarValue(value: unknown): unknown {
   if (value === null) return null;
@@ -242,6 +245,7 @@ function ensureHost(): Window | null {
   cadenceHolders = 0;
   cadenceApi = undefined;
   latestAccountChanges.clear();
+  orderedReadings.clear();
   listeners = new Set();
   accountSwitchListeners = new Set();
   host = active;
@@ -323,6 +327,7 @@ export function publishUsageDashboard(dashboard: unknown): boolean {
   retire();
   writeCache(win, sanitized);
   publish({ dashboard: sanitized, refreshedAt: Date.now(), loading: false, status: 'ready' });
+  noteReadings(sanitized);
   return true;
 }
 
@@ -432,6 +437,52 @@ function failRefresh(win: Window, timedOut: boolean): void {
   publishStatus(retryable && snapshot.refreshedAt === 0 ? 'loading' : settledStatus());
 }
 
+function dashboardRows(dashboard: UsageRecord): UsageRecord[] {
+  return Array.isArray(dashboard.rows) ? (dashboard.rows as UsageRecord[]) : [];
+}
+
+function readingTime(row: UsageRecord): number | null {
+  return typeof row.updatedAt === 'number' ? row.updatedAt : null;
+}
+
+function noteReadings(dashboard: UsageRecord): void {
+  orderedReadings.clear();
+  for (const row of dashboardRows(dashboard)) {
+    if (row.id && readingTime(row) !== null) orderedReadings.add(String(row.id));
+  }
+}
+
+function accountOf(row: UsageRecord): string | null {
+  return typeof row.credentialStamp === 'string' && row.credentialStamp ? row.credentialStamp : null;
+}
+
+/** Two readings are ordered only when they belong to one account: by the stamp both rows carry (so a restart compares
+ *  the stored row correctly and another account's row is never ordered against the shown one), else, for a core that
+ *  sends none, when the shown row is a reading this document accepted live since the last credential change. */
+function sameAccountReadings(current: UsageRecord, incoming: UsageRecord, id: string): boolean {
+  const shown = accountOf(current);
+  const sent = accountOf(incoming);
+  return shown && sent ? shown === sent : orderedReadings.has(id);
+}
+
+/** A provider's reading taken before the one it shows was overtaken on its way (a refresh answered from the read
+ *  already running, a section snapshot older than a push): the shown row stays. A row with no reading time is the
+ *  core withdrawing the reading and is taken. */
+function keepNewerReadings(incoming: UsageRecord): UsageRecord {
+  const shown = new Map(dashboardRows(snapshot.dashboard).map((row) => [String(row.id || ''), row]));
+  let kept = false;
+  const rows = dashboardRows(incoming).map((row) => {
+    const id = String(row.id || '');
+    const current = shown.get(id);
+    const at = readingTime(row);
+    const newer = current && sameAccountReadings(current, row, id) ? readingTime(current) : null;
+    if (!current || at === null || newer === null || at >= newer) return row;
+    kept = true;
+    return current;
+  });
+  return kept ? { ...incoming, rows } : incoming;
+}
+
 function acceptRefresh(win: Window, value: unknown): void {
   const sanitized = sanitizeUsageDashboard(value);
   const stale = rowCount(snapshot.dashboard) > 0;
@@ -444,14 +495,16 @@ function acceptRefresh(win: Window, value: unknown): void {
   if (retryTimer !== null) clearTracked(win, retryTimer);
   retryTimer = null;
   retryUsed = false;
-  writeCache(win, sanitized);
+  const dashboard = keepNewerReadings(sanitized);
+  writeCache(win, dashboard);
   publish({
-    dashboard: sanitized,
+    dashboard,
     refreshedAt: Date.now(),
     loading: false,
     // A well-formed but empty dashboard is a FINAL answer, not a load state.
-    status: rowCount(sanitized) > 0 ? 'ready' : 'unavailable',
+    status: rowCount(dashboard) > 0 ? 'ready' : 'unavailable',
   });
+  noteReadings(dashboard);
 }
 
 /** Takes the pushed `usage/dashboard` aggregate as a live result. Returns the unfollow. */
@@ -521,6 +574,8 @@ export function refreshUsageDashboardAfterAuth(
 ): Promise<void> {
   ensureHost();
   retire();
+  if (providers?.length) for (const provider of providers) orderedReadings.delete(provider);
+  else orderedReadings.clear();
   return refreshUsageDashboard(api, { force: true, providers });
 }
 

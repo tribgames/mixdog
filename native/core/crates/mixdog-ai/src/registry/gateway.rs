@@ -7,7 +7,7 @@
 //! sending the same request once more on the next wire the model is served on (`sendOnRoute`), and reports the
 //! session's new route ([`StreamEvent::WireRerouted`]).
 
-// Private names for existing callback/result shapes; representations are unchanged.
+// Names for existing callback/result shapes; representations are unchanged.
 pub(super) type MessagesCeilingLookup = dyn Fn(&str) -> Option<u32> + Send + Sync;
 
 use std::collections::VecDeque;

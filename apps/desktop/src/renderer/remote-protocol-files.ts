@@ -24,6 +24,7 @@ import {
 } from '../shared/remote-files-arguments';
 import { projectSummaries } from '../main/protocol/service-route';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+import { remoteConnectionInterruptedError } from './remote-connection-state';
 import { phoneTransferCall } from './remote-transfer-call';
 
 type Client = ProtocolClient<SessionFold>;
@@ -68,7 +69,7 @@ export function failure(error: unknown): unknown {
   return rebuilt;
 }
 
-const rpcClient = async (client: Client, method: string, params: Params): Promise<any> => {
+const rpcClient = async (client: Client, method: string, params: Params): Promise<unknown> => {
   try {
     // `nodeErrors` (projectFs calls only; the other methods' params are closed): this is the phone's call, so an entry beyond its project is
     // answered as Node's plain `Error`, not the core's permission refusal.
@@ -82,7 +83,7 @@ const rpcClient = async (client: Client, method: string, params: Params): Promis
   }
 };
 
-export const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> =>
+export const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<unknown> =>
   rpcClient(host.client(), method, params);
 
 /** `remoteFileTarget`: a one-file permission names the file by its token (the core redeems it), else a project and a path in it. */
@@ -103,9 +104,12 @@ const void_ = async (promise: Promise<unknown>): Promise<null> => {
   return null;
 };
 
+const entryPath = async (host: PhoneProtocolHost, target: Params): Promise<string> =>
+  ((await rpc(host, 'projectFs/entryPath', target)) as { path: string }).path;
+
 /** The folder and name of a granted file (Node's `remoteFileTarget`: `root` is the granted file's folder, `rel` its name). */
 async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ root: string; rel: string }> {
-  const { path } = (await rpc(host, 'projectFs/entryPath', target)) as { path: string };
+  const path = await entryPath(host, target);
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return { root: path.slice(0, cut), rel: path.slice(cut + 1) };
 }
@@ -255,14 +259,15 @@ async function readDownloadRange(
   request: ReturnType<typeof downloadRange>
 ): Promise<FileDownloadChunk> {
   const client = host.client();
-  if (request.length <= DOWNLOAD_RPC_PAGE_BYTES) return rpcClient(client, 'transfer/readRange', request);
+  if (request.length <= DOWNLOAD_RPC_PAGE_BYTES)
+    return (await rpcClient(client, 'transfer/readRange', request)) as FileDownloadChunk;
   const parts: string[] = [];
   let read = 0;
   let eof = false;
   while (read < request.length && !eof) {
     const offset = request.offset + read;
     const length = Math.min(DOWNLOAD_RPC_PAGE_BYTES, request.length - read);
-    const page: FileDownloadChunk = await rpcClient(client, 'transfer/readRange', { ...request, offset, length });
+    const page = (await rpcClient(client, 'transfer/readRange', { ...request, offset, length })) as FileDownloadChunk;
     if (
       page.transferId !== request.transferId ||
       page.offset !== offset ||
@@ -296,10 +301,17 @@ async function searchFiles(
   const sessionId = `phone-search-${nextSearch++}`;
   let files: string[] = [];
   let finish!: () => void;
-  const completed = new Promise<void>((resolve) => (finish = resolve));
+  let interrupt!: (error: Error) => void;
+  const completed = new Promise<void>((resolve, reject) => {
+    finish = resolve;
+    interrupt = reject;
+  });
+  completed.catch(() => undefined);
   // The core echoes the query with each unpaired surrogate read as U+FFFD (decisions.md "frame-lone-surrogate" (a)).
   const echoed = query.replace(/[\ud800-\udfff]/gu, '\ufffd');
   const off = client.on((event) => {
+    // The search's frames are this connection's: once it ends, no completion arrives (a restarted core has no such search).
+    if (event.type === 'status' && event.status.state !== 'ready') interrupt(remoteConnectionInterruptedError());
     if (event.type !== 'notification') return;
     const { method, params } = event.notification as {
       method: string;
@@ -453,7 +465,7 @@ export const adapter: PhoneProtocolAdapter = {
       rpc(host, 'transfer/finishRead', { transferId: downloadId(transferId, 'transfer id') }),
     fileDownloadAbort: ([id], host) =>
       rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then(
-        (answer: { ended: boolean }) => answer.ended
+        (answer) => (answer as { ended: boolean }).ended
       ),
     // ── the editor's own storage ──
     readEditorSettings: ([projectPath, relPath, workspaceFile], host) => {
@@ -469,7 +481,7 @@ export const adapter: PhoneProtocolAdapter = {
     readEditorBackup: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
       return (async () => {
-        const { path } = await rpc(host, 'projectFs/entryPath', target);
+        const path = await entryPath(host, target);
         return rpc(host, 'projectFs/backup/read', { sourcePath: path });
       })();
     },
@@ -478,14 +490,14 @@ export const adapter: PhoneProtocolAdapter = {
       const text = textFileContent(content, 'file content');
       const expected = textFileContent(expectedContent, 'expected file content');
       return (async () => {
-        const { path } = await rpc(host, 'projectFs/entryPath', target);
+        const path = await entryPath(host, target);
         return rpc(host, 'projectFs/backup/write', { sourcePath: path, content: text, expectedContent: expected });
       })();
     },
     deleteEditorBackup: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
       return (async () => {
-        const { path } = await rpc(host, 'projectFs/entryPath', target);
+        const path = await entryPath(host, target);
         await rpc(host, 'projectFs/backup/delete', { sourcePath: path });
         return null;
       })();

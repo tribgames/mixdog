@@ -24,6 +24,7 @@ import {
   withPaneDockFileActivated,
   withPaneDockFileKept,
   withPaneDockFileClosed,
+  withPaneDockFilesRetargeted,
   withPaneDockFolderOpened,
   withPaneDockFolderClosed,
   withPaneDockDiffOpened,
@@ -35,7 +36,7 @@ import {
 import type { WorkbenchSideViewGroup, WorkbenchSideViewId } from './workbench-side-view-layout';
 import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode } from './side-panel-preferences';
 import { getLinkPreview, subscribeLinkPreview } from './link-preview-preference';
-import { sameSideFiles, sideFileTabDirtyKey } from './side-file-tabs';
+import { sameSideFiles, sideFileTabDirtyKey, type PaneSideDockFile } from './side-file-tabs';
 import { takeLandedDraftPromotions } from './composer-draft';
 
 function readStoredPaneSideDocks(): unknown {
@@ -516,6 +517,18 @@ export function usePaneSideDocks({
   usePaneSideDockStorage(docks);
   useLinkPreviewKeep(setDocks);
   const entryFor = useCallback((leafId: string): PaneSideDockEntry => docks[leafId] ?? CLOSED_ENTRY, [docks]);
+  /** Moves every dock's file tabs `retarget` gives a new path (an Explorer rename) there. */
+  const retargetFiles = useCallback((retarget: (file: PaneSideDockFile) => string | null) => {
+    setDocks((current) => {
+      let changed = false;
+      const next: Record<string, PaneSideDockEntry> = {};
+      for (const [leafId, entry] of Object.entries(current)) {
+        next[leafId] = withPaneDockFilesRetargeted(entry, retarget);
+        if (next[leafId] !== entry) changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, []);
   const {
     select,
     open,
@@ -549,6 +562,7 @@ export function usePaneSideDocks({
     closeFile,
     activateFile,
     keepFile,
+    retargetFiles,
     openFolder,
     closeFolder,
   };

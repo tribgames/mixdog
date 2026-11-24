@@ -32,6 +32,8 @@ async function fakeCore(initial = {}) {
       if (req.url === '/mgmt/status') return answer(200, state);
       if (req.url === '/mgmt/hold') state.hold = body.on;
       if (req.url === '/mgmt/stop') {
+        if (!body.replacement)
+          return answer(400, { error: { code: 'badRequest', message: 'a replacement stop names the build' } });
         state.state = 'draining';
         state.drain = { drainId: 'd1', reason: 'update', confirmToken: 'tok', releasing: false };
       }
@@ -65,6 +67,7 @@ async function fakeCore(initial = {}) {
   return { state, requests, refuse, discoveryPath };
 }
 
+const build = { revision: '1.5.1', version: '1.5.1' };
 const work = (title) => ({ kind: 'turn', threadId: 't', turnId: 'u', title });
 
 test('the control client sends the discovery token and reads the status', async () => {
@@ -77,10 +80,15 @@ test('the control client sends the discovery token and reads the status', async 
     core.requests.map((r) => [r.method, r.path, r.auth]),
     [['GET', '/mgmt/status', 'Bearer secret']]
   );
-  await control.stop('whenIdle');
-  assert.deepEqual(core.requests.at(-1).body, { mode: 'whenIdle', reason: 'update' });
-  await control.stop('abortConfirmed', 'tok');
-  assert.deepEqual(core.requests.at(-1).body, { mode: 'abortConfirmed', reason: 'update', confirmToken: 'tok' });
+  await control.stop('whenIdle', build);
+  assert.deepEqual(core.requests.at(-1).body, { mode: 'whenIdle', reason: 'update', replacement: build });
+  await control.stop('abortConfirmed', build, 'tok');
+  assert.deepEqual(core.requests.at(-1).body, {
+    mode: 'abortConfirmed',
+    reason: 'update',
+    confirmToken: 'tok',
+    replacement: build,
+  });
 });
 
 test('no discovery file, or nothing listening, is no core; a refusal is an error with its code', async () => {
@@ -91,7 +99,7 @@ test('no discovery file, or nothing listening, is no core; a refusal is an error
   core.refuse['/mgmt/stop'] = { code: 'confirmationInvalid', message: 'the token is stale' };
   const control = createCoreControl({ discoveryPath: core.discoveryPath });
   await assert.rejects(
-    control.stop('abortConfirmed', 'x'),
+    control.stop('abortConfirmed', build, 'x'),
     (error) => error instanceof CoreControlError && error.code === 'confirmationInvalid' && error.status === 409
   );
 });
@@ -123,7 +131,7 @@ test('stop winds down, aborts only after confirmation, and returns once the OS r
       waited.push(identity);
     },
   });
-  await gate.stop({ abort: false });
+  await gate.stop({ abort: false, version: '1.5.1' });
   assert.deepEqual(
     core.requests.filter((r) => r.path === '/mgmt/stop').map((r) => r.body.mode),
     ['whenIdle']
@@ -139,11 +147,11 @@ test('stop winds down, aborts only after confirmation, and returns once the OS r
     control: createCoreControl({ discoveryPath: confirmed.discoveryPath }),
     waitExit: async () => {},
   });
-  await confirmedGate.stop({ abort: true });
+  await confirmedGate.stop({ abort: true, version: '1.5.1' });
   const stops = confirmed.requests.filter((r) => r.path === '/mgmt/stop').map((r) => r.body);
   assert.deepEqual(stops, [
-    { mode: 'whenIdle', reason: 'update' },
-    { mode: 'abortConfirmed', reason: 'update', confirmToken: 'tok' },
+    { mode: 'whenIdle', reason: 'update', replacement: build },
+    { mode: 'abortConfirmed', reason: 'update', confirmToken: 'tok', replacement: build },
   ]);
 });
 
@@ -153,11 +161,11 @@ test('stop with no core running does nothing; release cancels a drain that has n
     control: createCoreControl({ discoveryPath: join(makeTempDirSync('updater-core-none2'), 'daemon.json') }),
     waitExit,
   });
-  await none.stop({ abort: true });
+  await none.stop({ abort: true, version: '1.5.1' });
   const core = await fakeCore();
   const gate = createCoreUpdateGate({ control: createCoreControl({ discoveryPath: core.discoveryPath }), waitExit });
   await gate.hold();
-  await gate.stop({ abort: false });
+  await gate.stop({ abort: false, version: '1.5.1' });
   assert.equal(core.state.state, 'draining');
   await gate.release();
   assert.equal(core.state.state, 'serving');
@@ -230,7 +238,7 @@ test('a live core that does not answer, or an unreadable record, is unknown, not
   );
   const gate = createCoreUpdateGate({ control: createCoreControl({ discoveryPath }), waitExit: async () => {} });
   await assert.rejects(gate.running());
-  await assert.rejects(gate.stop({ abort: false }));
+  await assert.rejects(gate.stop({ abort: false, version: '1.5.1' }));
   writeFileSync(discoveryPath, '{not json');
   await assert.rejects(gate.running());
 });

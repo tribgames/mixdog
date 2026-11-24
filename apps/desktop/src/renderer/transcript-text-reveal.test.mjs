@@ -138,6 +138,20 @@ test('coding: the part ending shows the rest at once as one last phrase from the
   await view.cleanup();
 });
 
+test('coding: a still-streaming reply drops its fade wrappers even when the timer for the fade end runs early', async (t) => {
+  const { view, tick } = await pane(t, 'early');
+  await view.render([prompt('u1'), live('early', 'e1', 'Hi there')]);
+  assert.equal(fading(view.host).length, 1, 'its words fade in');
+  // The timer set for the fade's end (400 ms) runs while the clock still reads just short of it, as Chromium may run a
+  // long timer early and setTimeout drops the fraction of its delay.
+  tick(399.5);
+  await act(async () => sleep(500));
+  tick(1000);
+  await act(async () => sleep(50));
+  assert.deepEqual(fading(view.host), [], 'no wrapper outlives its fade');
+  await view.cleanup();
+});
+
 test('coding: a reply that showed unfaded settles the moment it ends, with no fade to wait for', async (t) => {
   const { view } = await pane(t, 'unfaded');
   const article = () => view.host.querySelector('.message.assistant');

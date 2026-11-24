@@ -122,6 +122,28 @@ pub(super) struct PortSink {
     pub(super) drafted: Mutex<DraftClock>,
     /// The job of the last rewrite handed over (`replace`); 0 before any.
     pub(super) rewrite: AtomicU64,
+    /// The model context the turn's messages follow, which a stop closes the turn on.
+    pub(super) base: Mutex<Base>,
+}
+
+/// The model context ahead of the turn's latest messages: the history the turn began on, then the context its last rewrite
+/// (`replace`) or reload of the stored history restarted at.
+#[derive(Default)]
+pub(super) struct Base {
+    /// Each row with its item.
+    pub(super) rows: Vec<(ItemId, HistoryRow)>,
+    /// How many of the turn's messages ([`PortSink::turn`]) the rows already hold.
+    pub(super) held: usize,
+}
+
+impl Base {
+    /// The row of `row` the context holds.
+    pub(super) fn body(row: &HistoryRow) -> Value {
+        match row {
+            HistoryRow::Stored(stored) => Value::Object(stored.to_map()),
+            HistoryRow::Message(message) => row_of(message),
+        }
+    }
 }
 
 /// The run's jobs in order, and the draft they take from: what a draft takes from `observed`, and an assistant commit
@@ -274,7 +296,14 @@ impl PortSink {
             applied,
             drafted: Mutex::new(DraftClock::default()),
             rewrite: AtomicU64::new(0),
+            base: Mutex::default(),
         })
+    }
+
+    /// The model context restarts at `rows`, which hold every message the turn has committed so far.
+    pub(super) fn restart(&self, rows: Vec<(ItemId, HistoryRow)>) {
+        let held = lock(&self.turn).len();
+        *lock(&self.base) = Base { rows, held };
     }
 
     /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
@@ -484,7 +513,21 @@ impl TranscriptSink for PortSink {
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
         // The run's leading system messages are the header's prompt (`system_messages`, put before the stored rows by `drive`),
         // not context rows: the next turn's request carries one system set, as `adoptCompactedTranscript` leaves one.
-        let replacement: Vec<(ItemId, Value)> = messages.iter().skip_while(|m| m.role() == Role::System).map(|m| (self.iid_of(m), row_of(m))).collect();
+        let mut base = Vec::new();
+        let replacement: Vec<(ItemId, Value)> = messages
+            .iter()
+            .skip_while(|m| m.role() == Role::System)
+            .map(|m| {
+                let (iid, row) = (self.iid_of(m), row_of(m));
+                let held = match &row {
+                    Value::Object(map) => HistoryRow::Stored(Arc::new(mixdog_agent::message::StoredRow::new(map.clone()))),
+                    _ => HistoryRow::Message(Box::new(m.clone())),
+                };
+                base.push((iid.clone(), held));
+                (iid, row)
+            })
+            .collect();
+        self.restart(base);
         // Only a compaction pass writes a compaction record (and its divider, which an agent-mode session never shows).
         // Node splices any other rewrite into `state.messages` in place (`route-fallback.mjs:161` for a route's replay
         // strip): the context restarts silently.

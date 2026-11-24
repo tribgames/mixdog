@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { flushEditorBackups } from './editor-backup-flush.ts';
+import { backupWindow } from './test-support/editor-backup-window.mjs';
 import { createUpdaterController, startUnattendedInstall } from './updater-controller.ts';
 import { normalizeUpdaterDevFeed } from './updater-feed.ts';
 
@@ -244,9 +246,17 @@ test('the busy check is the last step before teardown: busy at commit never call
   assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0', busyTasks: 1 });
 });
 
-async function withBarrier(closeAnswer, { stopFails = false, coreStopFails = false } = {}) {
+async function withBarrier(closeAnswer, { stopFails = false, coreStopFails = false, flush } = {}) {
   const calls = [];
   const controller = createUpdaterController({
+    ...(flush
+      ? {
+          flushEditorBackups: async () => {
+            calls.push('flush');
+            await flush();
+          },
+        }
+      : {}),
     enabled: true,
     currentVersion: '1.0.0',
     service: {
@@ -296,6 +306,33 @@ test('barrier idle: the old core is gone before the app tears down and the insta
   const { calls, controller } = await withBarrier(0);
   await controller.install();
   assert.deepEqual(calls, ['barrier-close', 'core-stop', 'stop', 'install']);
+});
+
+test('an install has the windows write their editor backups before the old core stops', async () => {
+  const { calls, controller } = await withBarrier(0, { flush: async () => {} });
+  await controller.install();
+  assert.deepEqual(calls, ['barrier-close', 'flush', 'core-stop', 'stop', 'install']);
+});
+
+test('an install goes on past windows that cannot answer: not loaded, navigating away, or reported unresponsive', async () => {
+  const loading = backupWindow();
+  const navigating = backupWindow();
+  const hung = backupWindow();
+  try {
+    navigating.contents.emit('did-finish-load');
+    hung.contents.emit('did-finish-load');
+    const { calls, controller } = await withBarrier(0, { flush: flushEditorBackups });
+    const install = controller.install();
+    await Promise.all([navigating.asked, hung.asked]);
+    navigating.contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    hung.contents.emit('unresponsive');
+    await install;
+    assert.deepEqual(calls, ['barrier-close', 'flush', 'core-stop', 'stop', 'install']);
+  } finally {
+    loading.leave();
+    navigating.leave();
+    hung.leave();
+  }
 });
 
 test('an abandoned install releases the barrier so the daemon takes work again', async () => {
@@ -465,6 +502,41 @@ test('updater returns to ready when application shutdown cannot complete', async
   await controller.start();
   await assert.rejects(controller.install(), /shutdown failed/);
   assert.deepEqual(calls, []);
+  assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('an install launch that fails after the core stopped and the app was disposed restarts the app', async () => {
+  const calls = [];
+  const controller = createUpdaterController({
+    enabled: true,
+    currentVersion: '1.0.0',
+    service: {
+      checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '2.0.0' } }),
+      downloadUpdate: async () => {},
+      quitAndInstall: () => {
+        throw new Error('installer missing');
+      },
+    },
+    persistence: { get: () => undefined, set() {}, clear() {} },
+    core: {
+      running: async () => 0,
+      hold: async () => 0,
+      release: async () => {
+        calls.push('release');
+      },
+      stop: async (options) => {
+        calls.push(['core-stop', options.version]);
+      },
+    },
+    stop: async () => {
+      calls.push('dispose');
+    },
+    restartApp: () => calls.push('restart'),
+    scheduleInstall: (install) => install(),
+  });
+  await controller.start();
+  await controller.install();
+  assert.deepEqual(calls, [['core-stop', '2.0.0'], 'dispose', 'restart']);
   assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0' });
 });
 

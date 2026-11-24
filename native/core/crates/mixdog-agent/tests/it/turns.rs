@@ -16,47 +16,14 @@ use mixdog_agent::agent_tool::flow::turn::TurnRunner;
 use mixdog_agent::agent_tool::flow::worker_turns::Claim;
 use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
 use mixdog_agent::env::Clock;
-use mixdog_agent::response::Termination;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-const START: i64 = 1_772_359_200_000;
-
-struct FixedClock;
-impl Clock for FixedClock {
-    fn now_ms(&self) -> i64 {
-        START
-    }
-}
-
-/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
-/// run on its own runtime's clock, paused or not, and nothing outlives the test.
-fn backend() {
-    mixdog_rt::testing::tokens();
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-// ---- the runner -----------------------------------------------------------------------------
-
-fn turn_result(v: &Value) -> TurnResult {
-    TurnResult {
-        content: v["content"].as_str().unwrap_or_default().to_owned(),
-        report_content: v.get("reportContent").and_then(Value::as_str).map(str::to_owned),
-        termination: v.get("termination").and_then(Value::as_str).map(|t| match t {
-            "truncated" => Termination::Truncated,
-            "empty" => Termination::Empty,
-            "refusal" => Termination::Refusal,
-            other => panic!("termination {other}"),
-        }),
-        iterations: v.get("iterations").and_then(Value::as_u64).unwrap_or(1) as u32,
-        tool_calls_total: v.get("toolCallsTotal").and_then(Value::as_u64).unwrap_or(0),
-        stop_reason: v.get("stopReason").and_then(Value::as_str).map(str::to_owned),
-    }
-}
+use crate::flow_scenarios::FixedClock;
+use crate::flow_scenarios::backend;
+use crate::flow_scenarios::lock;
+use crate::flow_scenarios::turn_result;
 
 #[derive(Default)]
 struct World {
@@ -180,21 +147,7 @@ async fn a_workers_prompt_leaves_its_owner_redacted_and_marks_carry_both_ways() 
         Arc::new(NoInbox),
         early,
     );
-    let plan = TurnPlan {
-        kind: TurnKind::Send,
-        session_id: "sess_w1".into(),
-        parent_session_id: Some("lead".into()),
-        session_owner_id: None,
-        tag: "scout".into(),
-        agent: "worker".into(),
-        identity: identity(false, "worker"),
-        prompt: "enter 482913".into(),
-        attachments: Vec::new(),
-        context: None,
-        cwd: "/work".into(),
-        skill_selection: None,
-        canonical: false,
-    };
+    let plan = TurnPlan { prompt: "enter 482913".into(), ..send_plan() };
     runner.run(plan, None, None).await.ok();
     assert!(lock(&world.calls).contains(&json!("ask:enter [redacted]@/work")), "{:?}", lock(&world.calls));
     assert_eq!(*lock(&world.carried), [("sess_w1".to_owned(), "lead".to_owned()), ("lead".to_owned(), "sess_w1".to_owned())]);
@@ -351,7 +304,3 @@ fn identity(spawn: bool, agent: &str) -> Map<String, Value> {
     }
     value.as_object().unwrap().clone()
 }
-
-// ---- worker turns ---------------------------------------------------------------------------
-
-// 2026-03-01T10:00:00.000Z

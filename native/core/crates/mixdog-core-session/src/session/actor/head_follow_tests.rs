@@ -15,6 +15,7 @@ use mixdog_rt::CancellationToken;
 use serde_json::Value;
 use serde_json::json;
 
+use crate::eventually_on;
 use crate::session::SessionDirectory;
 use crate::session::testing::Rig;
 use crate::session::worktree::LiveWorkspace;
@@ -37,51 +38,45 @@ struct HeldRead {
     started: AtomicUsize,
     answered: AtomicUsize,
     answer: CancellationToken,
+    /// Woken as a read starts and as it answers.
+    moved: tokio::sync::Notify,
 }
 
 #[async_trait]
 impl LiveWorkspace for HeldRead {
     async fn live(&self, _session: &str) -> Option<Value> {
         self.started.fetch_add(1, SeqCst);
+        self.moved.notify_waiters();
         self.answer.cancelled().await;
         self.answered.fetch_add(1, SeqCst);
+        self.moved.notify_waiters();
         Some(json!({ "branch": "main", "revision": 0, "transition": { "state": "provisioning" } }))
     }
-}
-
-async fn until(what: impl Fn() -> bool) -> bool {
-    for _ in 0..160 {
-        if what() {
-            return true;
-        }
-        mixdog_rt::time::sleep(Duration::from_millis(25)).await;
-    }
-    false
 }
 
 #[tokio::test]
 async fn a_workspace_read_held_across_a_producer_publish_does_not_replace_it() {
     let rig = Rig::new();
-    let held = Arc::new(HeldRead { started: AtomicUsize::new(0), answered: AtomicUsize::new(0), answer: CancellationToken::new() });
+    let held =
+        Arc::new(HeldRead { started: AtomicUsize::new(0), answered: AtomicUsize::new(0), answer: CancellationToken::new(), moved: tokio::sync::Notify::new() });
     let mut deps = rig.deps_parts(rig.store.clone());
     deps.live_workspace = held.clone();
     let directory = SessionDirectory::new(Arc::new(deps));
     // No `cwd`: the load's read is the only one, and no HEAD is followed.
     directory.create_with_id(ThreadId::from("sess_held_read"), Default::default(), json!({})).await.expect("create");
     let handle = directory.open_handle(&ThreadId::from("sess_held_read"), &mixdog_core_api::call::CallContext::internal("test")).await.expect("opened");
-    assert!(until(|| held.started.load(SeqCst) == 1).await, "the load's read is open");
+    eventually_on!(&[&held.moved], || (held.started.load(SeqCst) == 1).then_some(())).await;
 
     let settled = json!({ "branch": "topic", "worktreeId": "wt_1", "revision": 1 });
     handle.set_section(Section::Workspace(Some(settled.clone()))).await.expect("published");
     let shown = || serde_json::to_value(&handle.cell.view.load_full().state).unwrap()["workspace"].clone();
-    assert!(until(|| shown() == settled).await, "the published workspace shows");
+    eventually_on!(&[&handle.cell.stepped], || (shown() == settled).then_some(())).await;
 
     held.answer.cancel();
-    assert!(until(|| held.answered.load(SeqCst) == 1).await, "the held read answered");
-    for _ in 0..20 {
-        assert_eq!(shown(), settled, "the read begun before the publish does not replace it");
-        mixdog_rt::time::sleep(Duration::from_millis(25)).await;
-    }
+    // The read's answer has been taken by the actor once the read ended and the actor holds no job's answer untaken.
+    let taken = || held.answered.load(SeqCst) == 1 && handle.cell.jobs_settled.load(SeqCst);
+    eventually_on!(&[&held.moved, &handle.cell.stepped], || taken().then_some(())).await;
+    assert_eq!(shown(), settled, "the read begun before the publish does not replace it");
     assert_eq!(held.started.load(SeqCst), 1, "nothing read the workspace again");
 }
 

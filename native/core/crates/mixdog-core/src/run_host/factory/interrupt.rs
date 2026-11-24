@@ -51,12 +51,13 @@ pub(super) fn stopped_prompt(input: &AgentMessage, reason: mixdog_agent::interru
 /// leaves it for the stop's reason: the partial reply, every unanswered call closed as cancelled, the interruption
 /// line, and `sentRequestTail` on the message the request ended with; a user cancel that produced nothing hands the
 /// prompt back (it leaves the context), a kept prompt or a non-user stop keeps it. The new rows are committed and the
-/// model context restarts on the finalized transcript, which also drops the provider's continuation.
+/// model context restarts on the finalized transcript, which also drops the provider's continuation. The transcript is
+/// the context as the turn last left it ([`Base`]: a compaction or another rewrite of it included) and the turn's
+/// messages after it.
 pub(super) async fn close_cancelled(
     port: &RunPort,
     sink: &PortSink,
     rows: &StoredRows,
-    history: &[(ItemId, HistoryRow)],
     input: (&ItemId, &str),
     observed: &Mutex<Observed>,
     reason: mixdog_agent::interrupt::AbortReason,
@@ -65,8 +66,9 @@ pub(super) async fn close_cancelled(
     use mixdog_agent::interrupt::{Interrupted, Phase, finalize_interrupted_turn};
     let (input_item, input_text) = input;
     let seen = std::mem::take(&mut *lock(observed));
-    let mut known: Vec<(ItemId, AgentMessage)> = history.iter().map(|(iid, row)| (iid.clone(), row.message())).collect();
-    for (index, message) in lock(&sink.turn).iter().enumerate() {
+    let base = std::mem::take(&mut *lock(&sink.base));
+    let mut known: Vec<(ItemId, AgentMessage)> = base.rows.iter().map(|(iid, row)| (iid.clone(), row.message())).collect();
+    for (index, message) in lock(&sink.turn).iter().enumerate().skip(base.held) {
         known.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, AgentMessage::clone(message)));
     }
     let finalized = finalize_interrupted_turn(Interrupted {
@@ -93,7 +95,10 @@ pub(super) async fn close_cancelled(
         let iid;
         if let Some((known_iid, _)) = known.get(index).filter(|(_, was)| was == message) {
             iid = known_iid.clone();
-            body = rows.row(message);
+            body = match base.rows.get(index) {
+                Some((_, row)) => Base::body(row),
+                None => rows.row(message),
+            };
         } else {
             // The shown reply is the item of the partial text it ends as, with the segments it was shown as.
             let shown = if message.role() == Role::Assistant { lock(&sink.streaming).take() } else { None };

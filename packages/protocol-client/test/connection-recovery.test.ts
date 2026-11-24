@@ -210,6 +210,20 @@ test("a resume that joins an unanswered restore ends at the joiner's own bound",
   await client.close();
 });
 
+/** Opens `t1` against an older core (a replay with no live boundary) up to the fallback snapshot resume it needs; returns that request. */
+const openToFallback = async (client: Awaited<ReturnType<typeof connect>>, conn: MockConn, signal?: AbortSignal) => {
+  const opening = client.resumeThread('t1', { lastItems: 5 }, { join: true, follow: true, signal });
+  const resume = JSON.parse(await conn.nextSent());
+  conn.serverSend({ id: resume.id, result: { subscription: { epoch: 'e1', startSeq: 1, mode: 'replay' } } });
+  const heads = JSON.parse(await conn.nextSent());
+  assert.equal(heads.method, 'feed/heads');
+  conn.serverSend({ id: heads.id, result: { feedIds: ['t1'], positions: [{ epoch: 'e2', seq: 4 }] } });
+  const fallback = JSON.parse(await conn.nextSent());
+  assert.equal(fallback.method, 'thread/resume');
+  return { opening, fallback };
+};
+const snapshotAt = { subscription: { epoch: 'e2', startSeq: 5, liveSeq: 5, mode: 'snapshot' } };
+
 test('a legacy replay whose fallback snapshot is never answered ends as a lost thread when its watch ends the wait', async () => {
   const r = rig();
   const conn = await r.handshake();
@@ -217,40 +231,15 @@ test('a legacy replay whose fallback snapshot is never answered ends as a lost t
   const watch = new AbortController();
   const lost: unknown[] = [];
   client.on((event) => event.type === 'subscriptionLost' && lost.push(event.threadId));
-  const opening = client.resumeThread('t1', { lastItems: 5 }, { signal: watch.signal });
-  const resume = JSON.parse(await conn.nextSent());
-  // An older core: a replay with no live boundary.
-  conn.serverSend({ id: resume.id, result: { subscription: { epoch: 'e1', startSeq: 1, mode: 'replay' } } });
-  const heads = JSON.parse(await conn.nextSent());
-  assert.equal(heads.method, 'feed/heads');
-  conn.serverSend({ id: heads.id, result: { feedIds: ['t1'], positions: [{ epoch: 'e2', seq: 4 }] } });
-  const fallback = JSON.parse(await conn.nextSent());
-  assert.equal(fallback.method, 'thread/resume');
+  const { opening } = await openToFallback(client, conn, watch.signal);
   assert.equal(client.threadSubscription('t1').replayPending, true);
   watch.abort();
   await assert.rejects(opening, (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout');
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(lost, ['t1'],'the user is told the thread was lost and can retry');
+  assert.deepEqual(lost, ['t1'], 'the user is told the thread was lost and can retry');
   assert.equal(client.threadSubscription('t1').replayPending, false);
   await client.close();
 });
-
-/** Opens `t1` against an older core up to the fallback snapshot resume its unbounded replay needs; returns that request. */
-const openToFallback = async (
-  client: Awaited<ReturnType<typeof connect>>,
-  conn: MockConn,
-  signal?: AbortSignal
-) => {
-  const opening = client.resumeThread('t1', { lastItems: 5 }, { join: true, follow: true, signal });
-  const resume = JSON.parse(await conn.nextSent());
-  conn.serverSend({ id: resume.id, result: { subscription: { epoch: 'e1', startSeq: 1, mode: 'replay' } } });
-  const heads = JSON.parse(await conn.nextSent());
-  conn.serverSend({ id: heads.id, result: { feedIds: ['t1'], positions: [{ epoch: 'e2', seq: 4 }] } });
-  const fallback = JSON.parse(await conn.nextSent());
-  assert.equal(fallback.method, 'thread/resume');
-  return { opening, fallback };
-};
-const snapshotAt = { subscription: { epoch: 'e2', startSeq: 5, liveSeq: 5, mode: 'snapshot' } };
 
 test('a retry after an abandoned legacy fallback sends its own request, and the late answer to the abandoned one changes nothing', async () => {
   const r = rig();

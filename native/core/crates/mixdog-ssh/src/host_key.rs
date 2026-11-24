@@ -84,6 +84,8 @@ pub struct ResolvedHost {
     pub global_known_hosts_files: Vec<String>,
     /// Key types in the order ssh will try them.
     pub host_key_algorithms: Vec<String>,
+    /// The signature algorithms of the effective `hostkeyalgorithms` line, as `ssh -G` printed them.
+    pub host_key_signatures: Vec<String>,
     pub proxy_jump: Option<String>,
     pub proxy_command: bool,
     pub proxied: bool,
@@ -171,6 +173,7 @@ pub fn parse_ssh_config_dump(stdout: &str, env: &SshEnv) -> Option<ResolvedHost>
             .collect(),
         global_known_hosts_files: global,
         host_key_algorithms: normalize_algorithms(&algorithms),
+        host_key_signatures: algorithms.iter().map(|name| (*name).to_owned()).collect(),
         proxied: proxy_jump.is_some() || proxy_command,
         proxy_jump,
         proxy_command,
@@ -302,8 +305,20 @@ pub struct ScanScope {
     pub open: String,
     /// known_hosts lines of the hops already trusted, so a changed key on the way stops the read.
     pub trusted: Option<String>,
+    /// The effective `HostKeyAlgorithms` of the server with the algorithms of the key types the user trusts moved first, as
+    /// OpenSSH itself orders them from known hosts, so the key read is one that can be compared. The same set, never widened.
+    pub algorithms: Option<String>,
 }
 
+/// The server's own effective algorithm list (`ssh -G`) reordered so the key types the user trusts for it come first.
+fn trusted_algorithms(endpoint: &Endpoint) -> Option<String> {
+    let trusted: Vec<&str> =
+        endpoint.trust.entries.iter().filter(|held| held.entry.marker == KnownHostMarker::None).map(|held| held.entry.key_type.as_str()).collect();
+    let (first, rest): (Vec<&String>, Vec<&String>) =
+        endpoint.host.host_key_signatures.iter().partition(|name| normalize_algorithms(&[name.as_str()]).iter().any(|kind| trusted.contains(&kind.as_str())));
+    let list = first.into_iter().chain(rest).map(String::as_str).collect::<Vec<_>>().join(",");
+    (!trusted.is_empty() && !list.is_empty()).then_some(list)
+}
 /// What a through-the-proxy read found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScanOutput {
@@ -378,6 +393,9 @@ async fn scan_in(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, scope: 
     if let Some(via) = &scope.via {
         args.extend(["-o".to_owned(), format!("ProxyJump={}", if via.is_empty() { "none".to_owned() } else { via.join(",") })]);
     }
+    if let Some(algorithms) = &scope.algorithms {
+        args.extend(["-o".to_owned(), format!("HostKeyAlgorithms={algorithms}")]);
+    }
     args.push("-T".to_owned());
     if let Some(port) = target.port {
         args.extend(["-p".to_owned(), port.to_string()]);
@@ -418,6 +436,8 @@ fn judge(endpoint: &Endpoint, scanned: &[HostKeyLine]) -> Verdict {
     let matching = &endpoint.trust.entries;
     let plain: Vec<&KnownEntry> = matching.iter().filter(|candidate| candidate.entry.marker == KnownHostMarker::None).collect();
     let Some(first) = by_rank.first().copied() else {
+        // The inspection's scan cannot authenticate to a jump host (no askpass, batch mode), so an unread host is not a refusal: with
+        // trusted entries the connect itself goes on, and ssh enforces them there (StrictHostKeyChecking yes on every hop).
         return if plain.is_empty() { Verdict::Unreadable } else { Verdict::Trusted { authority: None } };
     };
     // ssh refuses a revoked key whatever else it knows about the server.
@@ -428,17 +448,19 @@ fn judge(endpoint: &Endpoint, scanned: &[HostKeyLine]) -> Verdict {
     {
         return Verdict::Revoked { fingerprint: key_fingerprint(&revoked.key), key_type: key_type_label(&revoked.key_type) };
     }
-    if by_rank.iter().any(|line| plain.iter().any(|candidate| candidate.entry.key_type == line.key_type && candidate.entry.key == line.key)) {
-        return Verdict::Trusted { authority: None };
-    }
-    for line in by_rank.iter().copied() {
-        if let Some(old) = plain.iter().copied().find(|candidate| candidate.entry.key_type == line.key_type) {
-            return Verdict::Changed { old: old.clone(), current: line.clone() };
+    // ssh asks for the key types it knows first, in its preference order, and judges the key it is given: that one decides.
+    if let Some(line) = by_rank.iter().copied().find(|line| plain.iter().any(|candidate| candidate.entry.key_type == line.key_type)) {
+        let same_type = || plain.iter().copied().filter(|candidate| candidate.entry.key_type == line.key_type);
+        if same_type().any(|candidate| candidate.entry.key == line.key) {
+            return Verdict::Trusted { authority: None };
         }
+        let old = same_type().next().expect("a known entry of this type");
+        return Verdict::Changed { old: old.clone(), current: line.clone() };
     }
-    if plain.is_empty()
-        && let Some(authority) = matching.iter().find(|candidate| candidate.entry.marker == KnownHostMarker::CertAuthority)
-    {
+    if let Some(known) = plain.first() {
+        return Verdict::Changed { old: (*known).clone(), current: first.clone() };
+    }
+    if let Some(authority) = matching.iter().find(|candidate| candidate.entry.marker == KnownHostMarker::CertAuthority) {
         return Verdict::Trusted { authority: Some(key_fingerprint(&authority.entry.key)) };
     }
     Verdict::Unknown { best: first.clone() }
@@ -565,7 +587,9 @@ async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, scanner: &m
         scanned.insert(endpoints[0].spec.clone(), lines);
     } else if host.proxy_jump.is_none() {
         // ProxyCommand: the whole route is the target's, and nothing logs in to it.
-        let lines = scanner.read_through(&endpoints[0], &ScanScope { via: None, open: "*".to_owned(), trusted: None }).await;
+        let lines = scanner
+            .read_through(&endpoints[0], &ScanScope { via: None, open: "*".to_owned(), trusted: None, algorithms: trusted_algorithms(&endpoints[0]) })
+            .await;
         scanned.insert(endpoints[0].spec.clone(), lines);
     } else {
         // ProxyJump, hop by hop: a server is read through the hops before it only once they are trusted (their keys
@@ -587,6 +611,7 @@ async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, scanner: &m
                     open: endpoint.host.hostname.clone(),
                     via: (index > 0).then(|| endpoints[..index].iter().map(|earlier| earlier.part.clone()).collect()),
                     trusted: Some(trusted).filter(|lines| !lines.is_empty()),
+                    algorithms: trusted_algorithms(endpoint),
                 };
                 scanner.read_through(endpoint, &scope).await
             };
@@ -726,7 +751,7 @@ fn changed_inspection(
     let spec = &endpoint.spec;
     let file_option = if old.file == Path::new(&default_known_hosts(env)) { String::new() } else { format!(" -f \"{}\"", old.file.display()) };
     let held = if own_file == Some(old.file.as_path()) { env.files.read_text(&old.file) } else { None };
-    let editable = held.as_deref().is_some_and(|text| can_rotate(text.as_bytes(), spec, &current.key_type));
+    let editable = held.as_deref().is_some_and(|text| can_rotate(text.as_bytes(), spec, &old.entry.key_type));
     let check = HostKeyCheck::Changed {
         previous: key_fingerprint(&old.entry.key),
         current: key_fingerprint(&current.key),

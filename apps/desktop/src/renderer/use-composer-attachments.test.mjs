@@ -54,49 +54,65 @@ after(() => {
   }
 });
 
-async function mountComposer(t, { api = {}, draft: initialDraft = '' } = {}) {
-  window.mixdogDesktop = api;
-  let current;
-  function Harness() {
-    const [draft, setDraft] = useState(initialDraft);
-    const draftRef = useRef(draft);
-    draftRef.current = draft;
-    const textarea = useRef(null);
-    const historyNavigation = useRef({ index: 2, seed: 'history' });
-    const transitioningRef = useRef(false);
-    const dropTargetRef = useRef(null);
-    current = {
-      draft,
+/** One conversation's composer: its draft, textarea and drop target around the attachments hook. */
+function ComposerHarness({ initialDraft = '', hidden = false, expose }) {
+  const [draft, setDraft] = useState(initialDraft);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const textarea = useRef(null);
+  const historyNavigation = useRef({ index: 2, seed: 'history' });
+  const transitioningRef = useRef(false);
+  const dropTargetRef = useRef(null);
+  expose({
+    draft,
+    draftRef,
+    textarea,
+    historyNavigation,
+    transitioningRef,
+    ...useComposerAttachments({
       draftRef,
+      setDraft,
       textarea,
       historyNavigation,
       transitioningRef,
-      ...useComposerAttachments({
-        draftRef,
-        setDraft,
-        textarea,
-        historyNavigation,
-        transitioningRef,
-        projectScope: 'C:/Project/demo',
-        recoveryScope: 'attachment-fallback',
-        submissionRecoveryVersion: 0,
-        dropTargetRef,
-      }),
-    };
-    return React.createElement(
-      'div',
-      { ref: dropTargetRef },
-      React.createElement('textarea', { ref: textarea, value: draft, readOnly: true })
-    );
-  }
+      projectScope: 'C:/Project/demo',
+      recoveryScope: 'attachment-fallback',
+      submissionRecoveryVersion: 0,
+      dropTargetRef,
+    }),
+  });
+  return React.createElement(
+    'div',
+    { ref: dropTargetRef, hidden },
+    React.createElement('textarea', { ref: textarea, value: draft, readOnly: true })
+  );
+}
+
+function mountHost(t) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(React.createElement(Harness)));
   t.after(async () => {
     await act(async () => root.unmount());
     host.remove();
   });
+  return { host, root };
+}
+
+async function mountComposer(t, { api = {}, draft: initialDraft = '' } = {}) {
+  window.mixdogDesktop = api;
+  let current;
+  const { host, root } = mountHost(t);
+  await act(async () =>
+    root.render(
+      React.createElement(ComposerHarness, {
+        initialDraft,
+        expose: (value) => {
+          current = value;
+        },
+      })
+    )
+  );
   return {
     get current() {
       return current;
@@ -591,6 +607,145 @@ test('a slow IPC read of dropped paths is reported when the conversation switche
   assert.equal(harness.current.attachments.length, 0);
   assert.match(harness.current.attachmentError, /photo\.png: not attached/);
   assert.equal(harness.current.pendingLoads.current, 0);
+});
+
+/** A server window's upload bridge. `one.txt`'s chunk waits at the server until `answerFirstChunk()`;
+ *  `firstChunkEntered` settles once that chunk has reached it. */
+function stagingServer() {
+  const calls = [];
+  let enterFirstChunk;
+  let answerFirstChunk;
+  const firstChunkEntered = new Promise((resolve) => {
+    enterFirstChunk = resolve;
+  });
+  const firstChunkAnswered = new Promise((resolve) => {
+    answerFirstChunk = resolve;
+  });
+  const api = {
+    connection: { kind: 'ssh' },
+    serverUploadBegin: async (name) => {
+      calls.push(['begin', name]);
+      return { uploadId: name, chunkBytes: 64, inFlightChunks: 1 };
+    },
+    serverUploadChunk: async (id, offset, bytes) => {
+      calls.push(['chunk', id]);
+      if (id === 'one.txt') {
+        enterFirstChunk();
+        await firstChunkAnswered;
+      }
+      return { received: offset + bytes.length };
+    },
+    serverUploadCommit: async (id) => {
+      calls.push(['commit', id]);
+      return { absolutePath: `/srv/staging/${id}`, name: id, dir: false, size: 3, accessToken: 't' };
+    },
+    serverUploadAbort: async (id) => {
+      calls.push(['abort', id]);
+      return true;
+    },
+  };
+  return { api, calls, firstChunkEntered, answerFirstChunk };
+}
+
+const twoTextFiles = () => [
+  new File(['one'], 'one.txt', { type: 'text/plain' }),
+  new File(['two'], 'two.txt', { type: 'text/plain' }),
+];
+const abortedAtFirstChunk = [
+  ['begin', 'one.txt'],
+  ['chunk', 'one.txt'],
+  ['abort', 'one.txt'],
+];
+
+/** Conversations each with its own composer, as the desktop keeps them: `show(mounted, shown)` keeps the `mounted`
+ *  ones (the shown one, and those retained hidden until evicted) and unmounts the rest. */
+function mountConversations(t, api) {
+  window.mixdogDesktop = api;
+  const composers = {};
+  const { root } = mountHost(t);
+  const show = (mounted, shown) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          ...mounted.map((id) =>
+            React.createElement(ComposerHarness, {
+              key: id,
+              hidden: id !== shown,
+              expose: (value) => {
+                composers[id] = value;
+              },
+            })
+          )
+        )
+      )
+    );
+  return { composers, show };
+}
+
+test('a server window that switches conversations mid-upload aborts that upload and sends none of the rest', async (t) => {
+  const server = stagingServer();
+  const harness = await mountComposer(t, { api: server.api });
+  let load;
+  await act(async () => {
+    load = harness.current.attachFiles(twoTextFiles());
+    await server.firstChunkEntered;
+  });
+  await act(async () => harness.current.resetAttachments());
+  await act(async () => {
+    server.answerFirstChunk();
+    await load;
+  });
+  assert.deepEqual(server.calls, abortedAtFirstChunk);
+  assert.equal(harness.current.attachments.length, 0);
+  assert.match(harness.current.attachmentError, /one\.txt, two\.txt: not attached/);
+});
+
+test('a composer unmounted mid-upload (a draft left, a conversation evicted) aborts that upload and sends none of the rest', async (t) => {
+  const server = stagingServer();
+  const panes = mountConversations(t, server.api);
+  await panes.show(['draft'], 'draft');
+  let load;
+  await act(async () => {
+    load = panes.composers.draft.attachFiles(twoTextFiles());
+    await server.firstChunkEntered;
+  });
+  await panes.show(['b'], 'b');
+  await act(async () => {
+    server.answerFirstChunk();
+    await load;
+  });
+  assert.deepEqual(server.calls, abortedAtFirstChunk);
+});
+
+test('a composer retained while another conversation shows keeps its upload and lands it on the way back', async (t) => {
+  const server = stagingServer();
+  const panes = mountConversations(t, server.api);
+  await panes.show(['a'], 'a');
+  let load;
+  await act(async () => {
+    load = panes.composers.a.attachFiles(twoTextFiles());
+    await server.firstChunkEntered;
+  });
+  await panes.show(['a', 'b'], 'b');
+  await panes.show(['a', 'b'], 'a');
+  await act(async () => {
+    server.answerFirstChunk();
+    await load;
+  });
+  assert.deepEqual(server.calls, [
+    ['begin', 'one.txt'],
+    ['chunk', 'one.txt'],
+    ['commit', 'one.txt'],
+    ['begin', 'two.txt'],
+    ['chunk', 'two.txt'],
+    ['commit', 'two.txt'],
+  ]);
+  assert.deepEqual(
+    panes.composers.a.attachments.map(({ name }) => name),
+    ['one.txt', 'two.txt']
+  );
 });
 
 test('a transition during a slow read reports the dropped file', async (t) => {

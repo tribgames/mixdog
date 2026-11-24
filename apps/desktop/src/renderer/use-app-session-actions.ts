@@ -1,5 +1,6 @@
-import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract';
+import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { forgetComposerScope } from './composer-draft';
@@ -28,6 +29,12 @@ export function useAppSessionActions({
   openSession,
   navigationEpoch,
   setRequestedSessionId,
+  subscribeSessionsRemoved,
+  selectionRef,
+  viewedSessionRef,
+  unreadViewedSessionRef,
+  setSelection,
+  lastSessionStorageKey,
 }: {
   sessions: DesktopSessionSummary[];
   setSessions: Dispatch<SetStateAction<DesktopSessionSummary[]>>;
@@ -48,6 +55,13 @@ export function useAppSessionActions({
   openSession(sessionId: string): void | Promise<void>;
   navigationEpoch: MutableRefObject<number>;
   setRequestedSessionId: Dispatch<SetStateAction<string>>;
+  /** Sessions a host catalog no longer lists: deleted on another device, in another window, or by a sweep. */
+  subscribeSessionsRemoved(listener: (sessionIds: string[]) => void): () => void;
+  selectionRef: MutableRefObject<NavigationSelection>;
+  viewedSessionRef: MutableRefObject<string>;
+  unreadViewedSessionRef: MutableRefObject<string>;
+  setSelection: Dispatch<SetStateAction<NavigationSelection>>;
+  lastSessionStorageKey: string;
 }) {
   const renameSession = useCallback(
     async (sessionId: string, rawTitle: string) => {
@@ -98,29 +112,84 @@ export function useAppSessionActions({
     [invalidateSessionListings, pendingRenames, refreshSessions, sessions, setError, setSessions, setTabs, tabs]
   );
 
+  /** The selection leaves a session that no longer exists, opening no tab:
+   *  the panes keep showing what they show. */
+  const leaveDeletedSelection = useCallback(() => {
+    selectionRef.current = { kind: 'new' };
+    viewedSessionRef.current = '';
+    unreadViewedSessionRef.current = '';
+    setSelection({ kind: 'new' });
+    setRequestedSessionId('');
+    try {
+      window.localStorage.removeItem(lastSessionStorageKey);
+    } catch {
+      /* best-effort */
+    }
+  }, [
+    lastSessionStorageKey,
+    selectionRef,
+    setRequestedSessionId,
+    setSelection,
+    unreadViewedSessionRef,
+    viewedSessionRef,
+  ]);
+
   /** Closes every tab of a deleted or archived session, exactly like closing
    *  it by hand: whether to move on is read from the focused pane as it is
-   *  now, never from a selection captured when the request started. */
+   *  now, never from a selection captured when the request started. A
+   *  `deleted` session is never left selected: behind a file tab the pane
+   *  shows, in an unfocused pane, or with no conversation to move to. */
   const closeTabsAndFollow = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, deleted = false) => {
       const { shown, fallback } = closeSessionTabs(sessionId);
-      if (!shown) return;
-      navigationEpoch.current += 1;
-      if (fallback?.selection.kind === 'session') {
-        void openSession(fallback.selection.id);
-      } else if (fallback?.selection.kind === 'new' || fallback?.selection.kind === 'project') {
-        activateSelection(fallback.selection, fallback.title);
-        setRequestedSessionId('');
-      } else if (fallback) {
-        // The pane already activated its neighbouring file/terminal/... tab.
-        setRequestedSessionId('');
-      } else {
-        activateSelection({ kind: 'new' }, t('New task'));
-        setRequestedSessionId('');
+      if (shown) {
+        navigationEpoch.current += 1;
+        if (fallback?.selection.kind === 'session') {
+          void openSession(fallback.selection.id);
+        } else if (fallback?.selection.kind === 'new' || fallback?.selection.kind === 'project') {
+          activateSelection(fallback.selection, fallback.title);
+          setRequestedSessionId('');
+        } else if (fallback) {
+          // The pane already activated its neighbouring file/terminal/... tab.
+          setRequestedSessionId('');
+        } else {
+          activateSelection({ kind: 'new' }, t('New task'));
+          setRequestedSessionId('');
+        }
       }
+      const selected = selectionRef.current;
+      if (deleted && selected.kind === 'session' && selected.id === sessionId) leaveDeletedSelection();
     },
-    [activateSelection, closeSessionTabs, navigationEpoch, openSession, setRequestedSessionId]
+    [
+      activateSelection,
+      closeSessionTabs,
+      leaveDeletedSelection,
+      navigationEpoch,
+      openSession,
+      selectionRef,
+      setRequestedSessionId,
+    ]
   );
+
+  /** What a deleted session leaves in this window, wherever it was deleted:
+   *  its surfaces, composer draft, image previews, pending rename and tabs. */
+  const forgetDeletedSession = useCallback(
+    (sessionId: string) => {
+      onSessionDeleted(sessionId);
+      forgetComposerScope(sessionId);
+      deleteSessionImagePreviews(sessionId);
+      pendingRenames.current.delete(sessionId);
+      closeTabsAndFollow(sessionId, true);
+    },
+    [closeTabsAndFollow, onSessionDeleted, pendingRenames]
+  );
+
+  const forgetRemovedSessions = useStableEvent((sessionIds: string[]) => {
+    // An agent's home keeps its fixed id for good: after 대화 초기화 it is
+    // empty, so the catalog leaves it out, yet its chat stays open.
+    for (const sessionId of sessionIds) if (!isAgentHomeSessionId(sessionId)) forgetDeletedSession(sessionId);
+  });
+  useEffect(() => subscribeSessionsRemoved(forgetRemovedSessions), [subscribeSessionsRemoved, forgetRemovedSessions]);
 
   const archiveSession = useCallback(
     async (sessionId: string, archived: boolean) => {
@@ -216,14 +285,10 @@ export function useAppSessionActions({
         setError(errorMessage(reason));
         throw reason;
       }
-      onSessionDeleted(sessionId);
-      forgetComposerScope(sessionId);
-      deleteSessionImagePreviews(sessionId);
       invalidateSessionListings();
-      pendingRenames.current.delete(sessionId);
       applySnapshot(next);
       setSessions((current) => current.filter((session) => session.id !== sessionId));
-      closeTabsAndFollow(sessionId);
+      forgetDeletedSession(sessionId);
       try {
         await refreshSessions();
       } catch {
@@ -234,11 +299,9 @@ export function useAppSessionActions({
     },
     [
       applySnapshot,
-      closeTabsAndFollow,
+      forgetDeletedSession,
       invalidateSessionListings,
-      onSessionDeleted,
       pendingDeletes,
-      pendingRenames,
       refreshSessions,
       sessions,
       setError,

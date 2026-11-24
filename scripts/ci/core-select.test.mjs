@@ -149,7 +149,10 @@ test('outside the full gate the core runs on Linux: the crates a change can affe
     assert.deepEqual(JSON.parse(result.core_systems), ['linux']);
     assert.deepEqual([result.core_macos, result.core_windows], [false, false]);
     assert.deepEqual(JSON.parse(result.build_matrix_linux).include, [{ os: 'linux', runner: 'ubuntu-22.04' }]);
-    assert.deepEqual(JSON.parse(result.core_real_matrix).include.map((entry) => entry.os), ['linux']);
+    assert.deepEqual(
+      JSON.parse(result.core_real_matrix).include.map((entry) => entry.os),
+      ['linux']
+    );
   }
   assert.deepEqual(packages(select(['native/core/crates/delta/src/lib.rs'])), ['delta']);
 });
@@ -161,8 +164,13 @@ test('clippy and the plain compile run where the archive is built; doctests only
   assert.deepEqual(lint(select(['native/core/crates/delta/src/lib.rs'], { metadata: withDoc })), ['linux']);
   assert.deepEqual(lint(select([], { all: true, metadata: withDoc })), ['linux', 'macos', 'windows']);
   assert.deepEqual(lint(select(['docs/notes.md'], { metadata: withDoc })), []);
-  assert.deepEqual(JSON.parse(select(['native/core/crates/delta/src/lib.rs'], { metadata: withDoc }).core_doctests), []);
-  assert.deepEqual(JSON.parse(select(['native/core/crates/alpha/src/lib.rs'], { metadata: withDoc }).core_doctests), ['mixdog-core-api']);
+  assert.deepEqual(
+    JSON.parse(select(['native/core/crates/delta/src/lib.rs'], { metadata: withDoc }).core_doctests),
+    []
+  );
+  assert.deepEqual(JSON.parse(select(['native/core/crates/alpha/src/lib.rs'], { metadata: withDoc }).core_doctests), [
+    'mixdog-core-api',
+  ]);
   assert.deepEqual(JSON.parse(select([], { all: true, metadata: withDoc }).core_doctests), ['mixdog-core-api']);
   rmSync(join(root, 'native/core/crates/mixdog-core-api'), { recursive: true });
 });
@@ -190,7 +198,8 @@ test("a stored program's key moves with the inputs its build compiles, and with 
       const dir = join(where, 'native/core/crates', crate.name, 'src');
       mkdirSync(dir, { recursive: true });
       // a real reach into `named`; `zeta` only named in a comment and a string
-      const cli = '// like native/core/crates/zeta\nconst PAGE: &str = include_str!("../../named/page.html");\nconst NAME: &str = "crates/zeta";\n';
+      const cli =
+        '// like native/core/crates/zeta\nconst PAGE: &str = include_str!("../../named/page.html");\nconst NAME: &str = "crates/zeta";\n';
       writeFileSync(join(dir, 'lib.rs'), crate.name === 'mixdog-cli' ? cli : '');
     }
     // a reach from a test file the program's build does not compile
@@ -234,7 +243,10 @@ test('the full gate (a call, the nightly run, a manual full run) selects every c
   assert.deepEqual([result.core_macos, result.core_windows], [true, true]);
   // each system's archive is one build on one runner
   for (const os of ['linux', 'macos', 'windows'])
-    assert.deepEqual(JSON.parse(result[`build_matrix_${os}`]).include.map((entry) => entry.os), [os]);
+    assert.deepEqual(
+      JSON.parse(result[`build_matrix_${os}`]).include.map((entry) => entry.os),
+      [os]
+    );
   assert.deepEqual(
     JSON.parse(result.core_real_matrix).include.map((entry) => `${entry.os}:${entry.target}`),
     ['linux:x86_64-unknown-linux-gnu', 'macos:aarch64-apple-darwin', 'windows:x86_64-pc-windows-msvc']
@@ -286,7 +298,11 @@ test('every system the product ships on gets its own test matrix with as many le
   assert.equal(small.core_build, true);
   // a pull request tests on Linux
   assert.deepEqual(legsOf(small), { linux: ['linux:1/1'], macos: [], windows: [] });
-  assert.deepEqual(legsOf(select([], { all: true })), { linux: ['linux:1/1'], macos: ['macos:1/1'], windows: ['windows:1/1'] });
+  assert.deepEqual(legsOf(select([], { all: true })), {
+    linux: ['linux:1/1'],
+    macos: ['macos:1/1'],
+    windows: ['windows:1/1'],
+  });
 
   // Enough tests for three legs on every system (Linux and Windows take 3,000 a leg, macOS 4,000), and for more than the most a
   // run has: macOS stops at three, Linux and Windows at six.

@@ -447,7 +447,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (InventoryList::Remote, "readEditorBackup", Target::Method("projectFs/backup/read")),
     (InventoryList::Remote, "writeEditorBackup", Target::Method("projectFs/backup/write")),
     (InventoryList::Remote, "deleteEditorBackup", Target::Method("projectFs/backup/delete")),
-    (InventoryList::Remote, "saveWorkspace", Target::Method("projectFs/workspaceFile/write")),
+    (InventoryList::Remote, "saveWorkspace", Target::ByDesign("a workspace file is written on the desktop only; a paired device has no workspace picker")),
     (InventoryList::Remote, "codeGraphQuery", Target::Method("project/codeGraph")),
     (InventoryList::Remote, "searchWorkspaceText", Target::Method("projectFs/searchText")),
     (InventoryList::Remote, "replaceWorkspaceText", Target::Method("projectFs/replaceText")),

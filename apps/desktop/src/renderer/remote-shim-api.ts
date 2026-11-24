@@ -68,6 +68,11 @@ const listenOn = <T>(listeners: Set<T>, listener: T): (() => void) => {
   };
 };
 
+const prefetchTrailing = (readTraceId: string | undefined, retry: boolean): unknown[] => {
+  if (retry) return [readTraceId, { retry: true }];
+  return readTraceId ? [readTraceId] : [];
+};
+
 export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   const {
     stateListeners,
@@ -128,6 +133,10 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       downloadCall<FileDownloadChunk>(FILE_DOWNLOAD_REMOTE_METHODS.range, [transferId, offset, length, version]),
     finish: (transferId) => downloadCall<FileDownloadFinished>(FILE_DOWNLOAD_REMOTE_METHODS.finish, [transferId]),
     abort: (id) => downloadCall<boolean>(FILE_DOWNLOAD_REMOTE_METHODS.abort, [id]),
+  };
+  const visualizeServed = async (): Promise<void> => {
+    await ctx.connect();
+    if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
   };
   let visualizePanels: string[] = [];
   const reportVisualizePanels = (): void => {
@@ -266,7 +275,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
         sessionId,
         transcriptItemLimit,
         // The user's Retry keeps its place as the fourth argument, trace or not.
-        ...(options?.retry === true ? [readTraceId, { retry: true }] : readTraceId ? [readTraceId] : []),
+        ...prefetchTrailing(readTraceId, options?.retry === true),
       ]),
     // A refused approval answer: the phone publishes its own client's current projection (not a resume from its cursor).
     resyncSessionState: (sessionId, options) =>
@@ -490,31 +499,26 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       return ctx.peerVisualize ? call<VisualizeSessionState[]>('visualizeState', [{ deferInline: true }]) : [];
     },
     visualizePaneInline: async (sessionId, tabId, index) => {
-      await ctx.connect();
-      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      await visualizeServed();
       return call('visualizePaneInline', [sessionId, tabId, index]);
     },
+    // Refused like the pane reads, so an open (a chat link) can fall back to
+    // the route an older host still serves instead of doing nothing.
     visualizeCommand: async (command) => {
-      await ctx.connect();
-      // Refused like the pane reads, so an open (a chat link) can fall back to
-      // the route an older host still serves instead of doing nothing.
-      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      await visualizeServed();
       return (await call<VisualizeCommandResult | null>('visualizeCommand', [command])) ?? undefined;
     },
     visualizePaneText: async (sessionId, tabId, index) => {
-      await ctx.connect();
-      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      await visualizeServed();
       return readRemoteVisualizePaneText(call, sessionId, tabId, index);
     },
     visualizePaneSource: async (sessionId, tabId, index) => {
-      await ctx.connect();
-      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      await visualizeServed();
       // Media panes stream on the encrypted media lane when it answers.
       return readRemoteVisualizePane(call, sessionId, tabId, index, laneUrl, ctx.visualizePages);
     },
     visualizePanePages: async (sessionId, tabId, index, options) => {
-      await ctx.connect();
-      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      await visualizeServed();
       return call('visualizePanePages', [sessionId, tabId, index, options]);
     },
     visualizeExport: async (sessionId, tabId, format, pane) => {
@@ -581,8 +585,10 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   for (const key of Object.keys(webrtc) as Array<keyof RemoteWebrtcBridge>) {
     Object.defineProperty(api, key, {
       enumerable: true,
-      get: () =>
-        ctx.peerBrowserWebrtc === REMOTE_WEBRTC_VERSION ? webrtc[key] : key === 'remoteBrowserWebrtc' ? 0 : undefined,
+      get: () => {
+        if (ctx.peerBrowserWebrtc === REMOTE_WEBRTC_VERSION) return webrtc[key];
+        return key === 'remoteBrowserWebrtc' ? 0 : undefined;
+      },
     });
   }
   // Read per access: a reconnect may reach a host without conversation tab controls.

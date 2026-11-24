@@ -47,3 +47,36 @@ test('maximize-transition resize events never overwrite the stored normal bounds
   assert.deepEqual(state, { bounds: normal, maximized: true });
   persisted.dispose();
 });
+
+test('a window closed right after a resize still saves its final bounds, and later flushes stay usable', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mx-winstate-'));
+  const file = join(dir, 'state.json');
+  const final = { x: 30, y: 40, width: 1100, height: 700 };
+  const window = Object.assign(new EventEmitter(), {
+    destroyed: false,
+    bounds: { x: 10, y: 10, width: 1200, height: 760 },
+    getNormalBounds() {
+      return this.bounds;
+    },
+    getBounds() {
+      return this.bounds;
+    },
+    isMaximized() {
+      if (this.destroyed) throw new Error('Object has been destroyed');
+      return false;
+    },
+    isMinimized: () => false,
+    isFullScreen: () => false,
+    isDestroyed() {
+      return this.destroyed;
+    },
+  });
+  const persisted = persistWindowState(window, file);
+  window.bounds = final;
+  window.emit('resize');
+  window.emit('close');
+  window.destroyed = true;
+  await persisted.flush();
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { bounds: final, maximized: false });
+  persisted.dispose();
+});

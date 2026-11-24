@@ -449,6 +449,7 @@ fn openssh_reads_the_annotated_pins_and_the_generated_blocks() {
         known_hosts_files: Vec::new(),
         global_known_hosts_files: Vec::new(),
         host_key_algorithms: Vec::new(),
+        host_key_signatures: Vec::new(),
         proxy_jump: None,
         proxy_command: false,
         proxied: false,

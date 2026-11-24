@@ -1023,6 +1023,7 @@ async fn compose_inner(
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
+    catalog.service().bind_shared_quotas(crate::acp_tools::shared_quotas(&agent_presets));
     log.boot_mark("catalog-built");
     let shell_path = crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
     // The one `ConfiguredShell`: every spawn reads it, and the flip hands `exec.configured_shell` to
@@ -1396,6 +1397,11 @@ impl ComposedCore {
     /// A stop was requested: the new-task attempts in flight end now (`SessionDirectory::cut_new_tasks`), before the drain.
     pub fn cut_new_tasks(&self) {
         self.real.directory.cut_new_tasks();
+    }
+
+    /// The drain of the stop request that cut them was cancelled: the new-task attempts start again (`SessionDirectory::reopen_new_tasks`).
+    pub fn reopen_new_tasks(&self) {
+        self.real.directory.reopen_new_tasks();
     }
 
     /// Records Node's text of this stop (`daemon.mjs:272` `shutdown(reason)`) for the stop steps; the first one wins, so the release and a

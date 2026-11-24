@@ -10,6 +10,7 @@ import {
   type AutoUpdatePreference,
   type UpdaterReadyRecord,
 } from './updater-controller';
+import { flushEditorBackups } from './editor-backup-flush';
 import { createCoreUpdateGate, ctlWaitExit } from './updater-core';
 import { normalizeUpdaterDevFeed } from './updater-feed';
 
@@ -130,6 +131,11 @@ export function startAutoUpdater(
       service: autoUpdater,
       persistence: readyPersistence(join(app.getPath('userData'), 'updater-ready.json')),
       stop,
+      flushEditorBackups,
+      restartApp() {
+        app.relaunch();
+        app.exit(0);
+      },
       automaticAllowed,
       // The packaged app's own core (extraResources `core/`) reports the old core's exit.
       core: createCoreUpdateGate({

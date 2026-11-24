@@ -151,7 +151,8 @@ import { BootReports } from './core-port/boot-progress';
 import { watchRecovery } from './core-port/failure-recovery';
 import { CorePortRelay } from './core-port/relay';
 import { windowIdFor } from './core-port/window-ids';
-import { createLinkLog } from '../../../../packages/protocol-client/src/link-log.mjs';import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
+import { createLinkLog } from '../../../../packages/protocol-client/src/link-log.mjs';
+import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
@@ -286,9 +287,23 @@ if (desktopWindowHeldHidden) {
 app.setName(desktopBrand.name);
 app.setPath('userData', desktopUserData);
 
+// Decided before anything touches the core: a second launch does nothing to it and exits without the quit sequence.
+const holdsSingleInstanceLock = app.requestSingleInstanceLock();
+if (!holdsSingleInstanceLock) {
+  // The dev shell now shares the installed app's profile, so a running
+  // Mixdog holds the lock. Say so instead of exiting silently.
+  if (!app.isPackaged) {
+    console.error(
+      'Mixdog desktop: another instance already owns the shared user profile. ' +
+        'Close the running app, or set MIXDOG_DESKTOP_USER_DATA to run an isolated profile.'
+    );
+  }
+  app.exit(0);
+}
+
 let crashReporterStatus = process.platform === 'win32' ? 'start-failed' : 'not-required';
 let crashReporterErrorName = '';
-if (process.platform === 'win32') {
+if (holdsSingleInstanceLock && process.platform === 'win32') {
   try {
     // Keep reports local: the handler must exist before any renderer starts,
     // but Mixdog never uploads a user's dump without an explicit future policy.
@@ -955,7 +970,7 @@ computerBridge = createComputerBridge({
 });
 applyComputerBridge();
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
-if (bundledNativeToolKinds.length > 0) {
+if (holdsSingleInstanceLock && bundledNativeToolKinds.length > 0) {
   void localProtocol
     .call('desktop/nativeToolCache/gc', { bundledKinds: bundledNativeToolKinds })
     .then((result) => {
@@ -1169,7 +1184,9 @@ localProtocol.onEvent((event) => {
   if (event.type !== 'notification') return;
   const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
   if (method !== 'thread/started' && method !== 'thread/summary/updated') return;
-  void visualize.observeTurnEdge((params as { thread?: { id?: unknown; leadWorking?: unknown } } | undefined)?.thread ?? {});
+  void visualize.observeTurnEdge(
+    (params as { thread?: { id?: unknown; leadWorking?: unknown } } | undefined)?.thread ?? {}
+  );
 });
 // The core owns a takeover card as a server request: it starts the takeover here, and its resolution - an answer, or the
 // card's own 15-minute expiry - ends it and the page it handed over.
@@ -2367,6 +2384,8 @@ function attachLocalWindowLifecycle(
     // This window's host dies with it (macOS 'activate' builds a new one);
     // dispose is idempotent, so a later quit-time dispose is a no-op.
     if (browserHost === windowBrowserHost) browserHost = null;
+    // The partition's guards go with the host: a sign-in popup on that partition must not outlive them.
+    browserLogin.dispose();
     browserHostDisposal = Promise.all([browserHostDisposal, windowBrowserHost.dispose()]).then(() => undefined);
     mainWindow = null;
     turnAttention = null;
@@ -2423,14 +2442,16 @@ const serverWindows = createServerWindows({
   },
 });
 // The saved hosts changed in another window or on the core: every window is told, and the settings the quota rules read are read again.
-const stopHostListsFeed = watchHostListsFeed(
-  localProtocol,
-  () => {
-    notifyHostListsChanged();
-    void serverHostSettings.refresh().catch(() => undefined);
-  },
-  (message) => console.error(`[mixdog] ${message}`)
-);
+const stopHostListsFeed = holdsSingleInstanceLock
+  ? watchHostListsFeed(
+      localProtocol,
+      () => {
+        notifyHostListsChanged();
+        void serverHostSettings.refresh().catch(() => undefined);
+      },
+      (message) => console.error(`[mixdog] ${message}`)
+    )
+  : () => undefined;
 
 function reportWindowFocusChanges(window: BrowserWindow): void {
   window.on('show', publishWindowFocus);
@@ -2707,7 +2728,10 @@ function installWindowCloseCleanup(
     ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
     windowStates.delete(window);
     windowStateFlush = Promise.all([windowStateFlush, windowState.flush().finally(() => windowState.dispose())]).then(
-      () => undefined
+      () => undefined,
+      (error: unknown) => {
+        console.error('Failed to flush desktop window state:', error);
+      }
     );
     windowIpcDisposers.get(window)?.();
     windowIpcDisposers.delete(window);
@@ -2829,19 +2853,7 @@ function watchPowerAndNetwork(): void {
   diagnosticsMemoryTimer.unref();
 }
 
-if (!app.requestSingleInstanceLock()) {
-  // The dev shell now shares the installed app's profile, so a running
-  // Mixdog holds the lock. Say so instead of exiting silently.
-  if (!app.isPackaged) {
-    console.error(
-      'Mixdog desktop: another instance already owns the shared user profile. ' +
-        'Close the running app, or set MIXDOG_DESKTOP_USER_DATA to run an isolated profile.'
-    );
-  }
-  noteQuitCause('second-instance-lock');
-  quitApproved = true;
-  app.quit();
-} else {
+if (holdsSingleInstanceLock) {
   app.on('second-instance', () => {
     // During a quit's teardown this instance still holds the lock: the new
     // launch exits, and this one relaunches the app on its way out.

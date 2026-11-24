@@ -16,6 +16,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::AUTH_REQUIRED;
+use crate::agents::AccountEvent;
 use crate::agents::Agents;
 use crate::agents::Readiness;
 use crate::agents::lock;
@@ -292,13 +293,26 @@ impl Agents {
                 found = agents.examine(&preset, plan, id) => Some(found),
             };
             // A check the feature's switch ended finds its slot gone.
+            let mut event = None;
             if let Some(slot) = lock(&agents.slots).get_mut(&preset.id)
                 && slot.running.as_ref().is_some_and(|running| running.id == id)
             {
                 slot.running = None;
+                event = match &found {
+                    Some(Readiness::Ready { .. }) => Some(AccountEvent::Askable),
+                    Some(Readiness::SignedOut { .. }) => Some(AccountEvent::Left),
+                    _ => None,
+                };
                 slot.readiness = found;
             }
             (agents.parts.changed)();
+            // The quota can be asked of a CLI found ready now (a read that met the check ended with nothing, and one
+            // before the first check never started); one found signed out has no account to keep a reading of.
+            match event {
+                Some(AccountEvent::Left) => agents.account_left(&preset.id, AccountEvent::Left),
+                Some(event) => agents.tell(&preset.id, event),
+                None => {}
+            }
             let _ = finished.send(true);
         }));
         done
@@ -423,12 +437,7 @@ impl Agents {
         };
         asked.await.map_err(|fault: Fault| fault.to_string())?;
         drop(starting);
-        // A quota read of the account signed out of has nothing left to report.
-        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
-            for (_, read) in slot.usage_reads.drain(..) {
-                read.cancel();
-            }
-        }
+        self.account_left(&preset.id, AccountEvent::Left);
         // The agents that ran under the account hold a session of it no longer.
         let ran: Vec<ThreadId> = lock(&self.sessions).iter().filter(|(_, session)| session.preset.id == preset.id).map(|(thread, _)| thread.clone()).collect();
         for thread in &ran {
@@ -437,8 +446,28 @@ impl Agents {
         // Whoever signs in next is not the account the agent refused.
         self.answered(preset).await;
         self.look(preset).await;
+        // The CLI still read ready while it was looked at: a quota read begun then is of the account just left, and a
+        // check that finds it ready only tells `Askable`, which ends no read.
+        self.account_left(&preset.id, AccountEvent::Left);
         (self.parts.changed)();
         Ok(())
+    }
+
+    /// The account `preset`'s CLI is signed in with is not the one a quota was read of: the reads running end, and
+    /// whoever keeps a reading is told (`Left`, or `SignedIn` to take the next one now).
+    pub(crate) fn account_left(&self, preset_id: &str, event: AccountEvent) {
+        if let Some(slot) = lock(&self.slots).get_mut(preset_id) {
+            for (_, read) in slot.usage_reads.drain(..) {
+                read.cancel();
+            }
+        }
+        self.tell(preset_id, event);
+    }
+
+    fn tell(&self, preset_id: &str, event: AccountEvent) {
+        if let Some(told) = self.account_changed.get() {
+            told(preset_id, event);
+        }
     }
 
     /// Whether `preset`'s CLI has a quota to report now: the feature is on, the agent reports one, and its CLI was
@@ -503,14 +532,15 @@ impl Agents {
 
     /// Ends every check and quota read and forgets what they found: the feature was turned off.
     pub(crate) fn forget_checks(&self) {
-        let slots: Vec<Slot> = lock(&self.slots).drain().map(|(_, slot)| slot).collect();
-        for slot in slots {
+        let slots: Vec<(String, Slot)> = lock(&self.slots).drain().collect();
+        for (id, slot) in slots {
             if let Some(running) = slot.running {
                 running.cancel.cancel();
             }
             for (_, read) in slot.usage_reads {
                 read.cancel();
             }
+            self.tell(&id, AccountEvent::Left);
         }
     }
 }

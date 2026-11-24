@@ -239,10 +239,6 @@ pub fn entry_key(entry: &str) -> String {
     js_trim(entry).to_lowercase()
 }
 
-fn name_key(name: &str) -> String {
-    entry_key(name)
-}
-
 fn required_features(frontmatter: &Value) -> Vec<String> {
     let raw = frontmatter.get("metadata").and_then(|m| m.get("requires"));
     let items: Vec<String> = match raw {
@@ -360,10 +356,6 @@ impl SkillGate {
         entries.into_iter().map(entry_key).filter(|entry| !entry.is_empty()).collect()
     }
 
-    fn follows_feature(skill: &Skill) -> bool {
-        skill.follows_feature()
-    }
-
     pub fn refusal(&self, skill: &Skill) -> Option<SkillRefusal> {
         self.refusal_named(skill, &skill.name)
     }
@@ -377,12 +369,12 @@ impl SkillGate {
     }
 
     fn turned_off(&self, skill: &Skill) -> bool {
-        !Self::follows_feature(skill) && (self.disabled.contains(&entry_key(&skill.key())) || self.disabled.contains(&name_key(&skill.name)))
+        !skill.follows_feature() && (self.disabled.contains(&entry_key(&skill.key())) || self.disabled.contains(&entry_key(&skill.name)))
     }
 
     /// Whether a bare entry turns off the whole group (the first of the name decides, as it did when it alone was kept).
     fn name_off(&self, first: &Skill) -> bool {
-        !Self::follows_feature(first) && self.disabled.contains(&name_key(&first.name))
+        !first.follows_feature() && self.disabled.contains(&entry_key(&first.name))
     }
 
     /// Indexes of `skills` by name, in order of each name's first appearance.
@@ -390,7 +382,7 @@ impl SkillGate {
         let mut at: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         let mut groups: Vec<Vec<usize>> = Vec::new();
         for (index, skill) in skills.iter().enumerate() {
-            let slot = *at.entry(name_key(&skill.name)).or_insert_with(|| {
+            let slot = *at.entry(entry_key(&skill.name)).or_insert_with(|| {
                 groups.push(Vec::new());
                 groups.len() - 1
             });
@@ -450,7 +442,7 @@ impl SkillGate {
     /// `"feature"` when a required feature is missing, else `"scope"` (the caller's project scope excludes it).
     pub fn off_by(&self, skills: &[Skill], index: usize) -> &'static str {
         let skill = &skills[index];
-        let first = skills.iter().find(|s| name_key(&s.name) == name_key(&skill.name)).unwrap_or(skill);
+        let first = skills.iter().find(|s| entry_key(&s.name) == entry_key(&skill.name)).unwrap_or(skill);
         if self.name_off(first) {
             "name"
         } else if self.turned_off(skill) {

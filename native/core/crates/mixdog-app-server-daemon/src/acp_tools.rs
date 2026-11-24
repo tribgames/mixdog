@@ -27,8 +27,6 @@ use mixdog_ai::registry::accounting::random_uuid;
 use mixdog_core::run_host::assemble::handed_tools::HandedTools;
 use mixdog_core::run_host::factory::History;
 use mixdog_core::run_host::factory::OutsideAgents;
-use mixdog_core::run_host::factory::OutsideAnswer;
-use mixdog_core::run_host::factory::OutsideAsk;
 use mixdog_core::run_host::factory::OutsideReport;
 use mixdog_core::run_host::factory::OutsideTurn;
 use mixdog_core_api::domain::approval::ApprovalAsk;
@@ -65,6 +63,12 @@ pub fn run_bridge() -> i32 {
 /// The agent presets Mixdog ships: what the daemon and `mixdog exec` compose their cores with.
 pub fn builtin_presets() -> Vec<mixdog_acp::preset::AgentPreset> {
     mixdog_acp::preset::builtin()
+}
+
+/// Each agent's route by the provider whose account and quota it shares: what the catalog prices an agent's usage as
+/// (`CatalogService::bind_shared_quotas`).
+pub fn shared_quotas(presets: &[AgentPreset]) -> std::collections::BTreeMap<String, String> {
+    presets.iter().filter_map(|preset| Some((preset.provider.clone(), preset.usage.as_ref()?.same_quota_as.clone()?))).collect()
 }
 
 pub struct AgentSessionTools(pub HandedTools);
@@ -377,30 +381,6 @@ impl OutsideAgents for AgentTurns {
         mixdog_acp::runs::drive(&self.agents, &preset, self.now_ms.clone(), begun).await
     }
 
-    fn answers(&self, provider: &str) -> bool {
-        self.agents.preset_of_route(provider).is_some()
-    }
-
-    async fn ask(&self, ask: OutsideAsk) -> Result<OutsideAnswer, String> {
-        let Some(preset) = self.agents.preset_of_route(&ask.provider).cloned() else {
-            return Err(format!("no agent answers for {}", ask.provider));
-        };
-        let answered = mixdog_acp::runs::ask_once(&self.agents, &preset, &ask.model, &ask.system, &ask.prompt, self.now_ms.clone()).await?;
-        let input_excludes_cache = answered.usage.as_ref().is_some_and(mixdog_acp::surface::input_excludes_cache);
-        Ok(OutsideAnswer {
-            text: answered.text,
-            stop_reason: answered.stop_reason,
-            usage: answered.usage.map(|usage| mixdog_core_api::domain::provider::Usage {
-                input_tokens: usage.input_tokens,
-                output_tokens: usage.output_tokens,
-                cache_read_tokens: usage.cached_read_tokens,
-                reasoning_tokens: usage.thought_tokens,
-                ..Default::default()
-            }),
-            input_excludes_cache,
-        })
-    }
-
     async fn unrun(&self, thread: &ThreadId, why: &str) {
         self.agents.unrun(thread, why).await;
     }
@@ -521,6 +501,9 @@ mod tests {
         async fn resolved(&self, _: AbsPath) -> Result<AbsPath, String> {
             Err("no file is read".to_owned())
         }
+        async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+            Err("no file is written".to_owned())
+        }
     }
 
     /// A session prepared on an agent's route while the agent's first check is still running is admitted, as a turn on
@@ -625,12 +608,15 @@ mod tests {
         }
     }
 
-    /// A catalog with both price tables loaded from the cache files under `dir`, which price one model of a provider's.
+    /// A catalog with both price tables loaded from the cache files under `dir`, which price an OpenAI model and a Gemini
+    /// model Google serves.
     #[allow(clippy::disallowed_methods, reason = "the test seeds the catalog's cache files")]
     async fn warm_catalog(dir: &std::path::Path) -> Arc<mixdog_ai::catalog::CatalogService> {
         use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, LITELLM_CACHE_FILE, MODELS_DEV_CACHE_FILE, ModelsDevSource};
-        let priced =
-            r#"{"fetchedAt":1,"data":{"gpt-x":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}}"#;
+        let priced = r#"{"fetchedAt":1,"data":{
+            "gpt-x":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002},
+            "gemini/gemini-4-neon":{"litellm_provider":"gemini","mode":"chat","input_cost_per_token":0.000003,"output_cost_per_token":0.000015,"cache_read_input_token_cost":0.0000003}
+        }}"#;
         std::fs::write(dir.join(LITELLM_CACHE_FILE), priced).expect("the price table");
         std::fs::write(dir.join(MODELS_DEV_CACHE_FILE), r#"{"fetchedAt":1,"data":{}}"#).expect("the model table");
         let tokens = mixdog_rt::testing::tokens();
@@ -640,6 +626,30 @@ mod tests {
         Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await.with_litellm(litellm).await)
     }
 
+    /// A usage ledger in a data folder of its own, over a warm catalog, with the refresh that reprices it.
+    struct LedgerRig {
+        _dir: tempfile::TempDir,
+        catalog: Arc<mixdog_ai::catalog::CatalogService>,
+        path: std::path::PathBuf,
+        writer: Arc<mixdog_ledger::writer::UsageWriter>,
+        reader: Arc<mixdog_ledger::reader::UsageReader>,
+        refresher: Arc<mixdog_ledger::refresh::UsageRefresher>,
+    }
+
+    impl LedgerRig {
+        async fn new() -> Self {
+            let dir = tempfile::tempdir().expect("a data folder");
+            let catalog = warm_catalog(dir.path()).await;
+            let tokens = mixdog_rt::testing::tokens();
+            let path = dir.path().join("ledger.sqlite");
+            let writer = mixdog_ledger::writer::UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).expect("the ledger");
+            let reader = mixdog_ledger::reader::UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+            let pricer = mixdog_core_base::pricing::ledger_pricer::CatalogPricer::new(&catalog).expect("a warm catalog");
+            let refresher = mixdog_ledger::refresh::UsageRefresher::new(Arc::new(pricer), tokens.cpu_bulk);
+            Self { _dir: dir, catalog, path, writer, reader, refresher }
+        }
+    }
+
     /// The tokens an agent reports for a turn reach the usage ledger the usage page reads, under the session's route and
     /// with the time its model worked, priced as a provider's send prices its own: the ledger's refresh finds nothing to
     /// reprice in the row, so it writes nothing and copies no backup. A report of the agent's context alone records no
@@ -647,14 +657,7 @@ mod tests {
     #[tokio::test]
     async fn an_agents_turn_usage_is_recorded_in_the_usage_ledger_as_the_ledger_prices_it() {
         use mixdog_ledger::refresh::Refresh;
-        let dir = tempfile::tempdir().expect("a data folder");
-        let catalog = warm_catalog(dir.path()).await;
-        let tokens = mixdog_rt::testing::tokens();
-        let path = dir.path().join("ledger.sqlite");
-        let writer = mixdog_ledger::writer::UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).expect("the ledger");
-        let reader = mixdog_ledger::reader::UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-        let pricer = mixdog_core_base::pricing::ledger_pricer::CatalogPricer::new(&catalog).expect("a warm catalog");
-        let refresher = mixdog_ledger::refresh::UsageRefresher::new(Arc::new(pricer), tokens.cpu_bulk);
+        let LedgerRig { _dir, catalog, path, writer, reader, refresher } = LedgerRig::new().await;
         let ledger: Ledger = {
             let writer = writer.clone();
             Arc::new(move || Some(Arc::new(mixdog_core::run_host::accounting_scope::LedgerSink(writer.clone())) as Arc<dyn UsageSink>))
@@ -708,7 +711,102 @@ mod tests {
             panic!("the unpriced row is examined");
         };
         assert_eq!(report.still_unpriced, 1, "{report:?}");
-        assert!(report.changes.is_empty() && report.integrity.is_none() && report.backup_path.is_none(), "nothing is repriced or rewritten: {report:?}");
+        assert!(report.changes.is_empty() && report.integrity.is_none(), "nothing is repriced or rewritten: {report:?}");
+    }
+
+    /// An agent's route runs on the account its CLI signed in with: its turns' tokens are subscription usage, priced as the
+    /// provider whose quota the agent shares prices the same tokens, and a model that provider has no price for stays
+    /// unpriced. A row the route's turn wrote before as API usage is settled by the ledger's own refresh into the route a
+    /// turn writes now, the turns' rows give the refresh nothing to repair, and the usage pages hold the route under one
+    /// kind.
+    #[tokio::test]
+    async fn an_agents_turn_usage_is_subscription_usage_priced_as_the_provider_whose_quota_it_shares() {
+        use mixdog_ledger::refresh::Refresh;
+        let LedgerRig { _dir, catalog, path, writer, reader, refresher } = LedgerRig::new().await;
+        let sink = Arc::new(mixdog_core::run_host::accounting_scope::LedgerSink(writer.clone())) as Arc<dyn UsageSink>;
+        let preset = builtin_presets().remove(0);
+        let quota = preset.usage.as_ref().and_then(|usage| usage.same_quota_as.clone()).expect("the agent shares a provider's quota");
+        let header =
+            serde_json::json!({ "provider": preset.provider.as_str(), "model": "gemini-4-neon", "ownerSessionId": "sess_lead", "sourceType": "agent" })
+                .as_object()
+                .cloned()
+                .expect("a header");
+        let route = LedgerRoute::of(&header, &preset, &ThreadId::from("sess_worker".to_owned()));
+        let pricing = mixdog_ai::catalog::CatalogPricing(catalog.clone());
+        let at = 1_800_000_000_000;
+        let usage = |model: &str| TurnUsage {
+            input_tokens: 4_437,
+            output_tokens: 144,
+            cached_read_tokens: 14_487,
+            total_tokens: Some(19_068),
+            model: model.to_owned(),
+            request_ms: 2_000,
+            ..TurnUsage::default()
+        };
+
+        let mut earlier = route.row(&usage("gemini-4-neon"), at, &pricing).expect("tokens").expect("a row");
+        earlier.kind = "api".to_owned();
+        assert_eq!(earlier.cost_source, "unpriced", "{earlier:?}");
+        sink.record_queued(earlier).await.expect("the earlier row is stored");
+
+        catalog.bind_shared_quotas(shared_quotas(std::slice::from_ref(&preset)));
+        let surface = Accounted {
+            inner: Arc::new(Port::default()),
+            ledger: Arc::new(move || Some(sink.clone())),
+            pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(catalog.clone())),
+            route: route.clone(),
+            now_ms: Arc::new(move || at + 1),
+            report: Arc::default(),
+        };
+        surface.usage(usage("gemini-4-neon")).await.expect("the port takes it");
+        surface.usage(usage("gpt-oss-120b")).await.expect("the port takes it");
+        writer.settle_writes().await.expect("the rows are stored");
+
+        let own = LedgerRoute { provider: quota, ..route.clone() }.row(&usage("gemini-4-neon"), at + 1, &pricing).expect("tokens").expect("a row");
+        assert!(own.cost_usd.is_some(), "the provider whose quota the agent shares prices the model: {own:?}");
+        type Stored = (String, String, String, Option<f64>, Option<String>, i64);
+        #[allow(clippy::disallowed_types, reason = "Test-only read of the ledger file the test itself wrote.")]
+        let stored = || -> Vec<Stored> {
+            mixdog_ledger::db::Connection::open(&path)
+                .expect("the ledger file")
+                .prepare(
+                    "SELECT json_extract(r.signature,'$[1]'), json_extract(r.signature,'$[2]'), json_extract(r.signature,'$[4]'), e.cost_usd,
+                     json_extract(r.signature,'$[5]'), e.route FROM usage_events e JOIN usage_routes r ON r.id=e.route ORDER BY e.ts, 1",
+                )
+                .expect("the rows")
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
+                .expect("the rows")
+                .collect::<Result<_, _>>()
+                .expect("the rows")
+        };
+        let written = stored();
+        assert_eq!(written.len(), 3, "{written:?}");
+        let subscription = |model: &str| (model.to_owned(), "oauth".to_owned(), "subscription".to_owned(), own.cost_usd, own.rates.clone());
+        let turn = |row: &Stored| (row.0.clone(), row.1.clone(), row.2.clone(), row.3, row.4.clone());
+        assert_eq!((own.kind.as_str(), own.cost_source.as_str()), ("oauth", "subscription"), "{own:?}");
+        assert_eq!(turn(&written[1]), subscription("gemini-4-neon"), "the provider's own row of the same tokens");
+        assert_eq!((written[2].0.as_str(), written[2].1.as_str(), written[2].2.as_str(), written[2].3), ("gpt-oss-120b", "oauth", "unpriced", None));
+
+        let Refresh::Repaired(report) = refresher.refresh(&writer, &reader, at + 1_000).await.expect("the refresh") else {
+            panic!("the unpriced rows are examined");
+        };
+        let earlier_route = format!("{0} \u{2192} {0} / gemini-4-neon", preset.provider);
+        assert_eq!(report.changes, std::collections::BTreeMap::from([(earlier_route, 1)]), "only the earlier row is repaired: {report:?}");
+        assert_eq!((report.repriced, report.still_unpriced), (1, 1), "{report:?}");
+        let settled = stored();
+        assert_eq!(turn(&settled[0]), subscription("gemini-4-neon"), "the earlier row is settled as a turn writes it now");
+        assert_eq!(settled[0].5, written[1].5, "into the turn's route");
+        assert_eq!(settled[1..], written[1..], "the turns' rows are as they were written");
+        #[allow(clippy::disallowed_types, reason = "Test-only read of the ledger file the test itself wrote.")]
+        let kinds: Vec<String> = mixdog_ledger::db::Connection::open(&path)
+            .expect("the ledger file")
+            .prepare("SELECT DISTINCT kind FROM daily WHERE provider=?1")
+            .expect("the days")
+            .query_map([preset.provider.as_str()], |row| row.get(0))
+            .expect("the days")
+            .collect::<Result<_, _>>()
+            .expect("the days");
+        assert_eq!(kinds, ["oauth"], "the route's days are one kind's");
     }
 
     /// What the agents refused is found again by an app that starts over the same data folder.

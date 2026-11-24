@@ -467,7 +467,9 @@ export function listedTurnChanges(
  *  write publishes no patch, so the card does not carry what it wrote. */
 function editsOf(item: TranscriptItem): TranscriptItem[] {
   if (item.aggregate !== true) return [item];
-  const writes = flattenedToolActivityItems([item]).filter((member) => String(member.name || '').toLowerCase() === 'write');
+  const writes = flattenedToolActivityItems([item]).filter(
+    (member) => String(member.name || '').toLowerCase() === 'write'
+  );
   return [...writes.reverse(), item];
 }
 
@@ -488,12 +490,16 @@ export function recordedTurnChanges(
   if (end < 0) return null;
   // The card's own turn: the rows before it that the transcript gives its turn's key, whatever its checkpoint is
   // named after (its prompt, or the end's own id).
-  const { turnKey } = rows[end]!;
+  const turnKey = rows[end]?.turnKey;
   const items: TranscriptItem[] = [];
-  for (let at = end; at >= 0 && rows[at]!.turnKey === turnKey; at -= 1) {
-    const row = rows[at]!;
-    if (at < end && names(row) !== undefined) break;
-    if (row._tag === 'ToolActivity') for (let k = row.items.length - 1; k >= 0; k -= 1) items.push(...editsOf(row.items[k]!));
+  for (let at = end; at >= 0; at -= 1) {
+    const row = rows[at];
+    if (row?.turnKey !== turnKey || (at < end && names(row) !== undefined)) break;
+    if (row._tag !== 'ToolActivity') continue;
+    for (let k = row.items.length - 1; k >= 0; k -= 1) {
+      const member = row.items[k];
+      if (member) items.push(...editsOf(member));
+    }
   }
   if (items.length === 0) return null;
   items.reverse();
@@ -548,7 +554,10 @@ export function turnRecordOf(
       }
     });
     records = new Map(
-      [...checkpoints].map(([key, checkpointId]) => [key, { checkpointId, boundary: boundaries.get(checkpointId) ?? '' }])
+      [...checkpoints].map(([key, checkpointId]) => [
+        key,
+        { checkpointId, boundary: boundaries.get(checkpointId) ?? '' },
+      ])
     );
     turnRecordMaps.set(turnKeys, records);
   }

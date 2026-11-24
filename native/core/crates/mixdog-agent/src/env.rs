@@ -325,7 +325,7 @@ pub struct UsageDelta {
     /// The usage convention of the adapter that produced this call's usage (`providerInputExcludesCache`).
     pub input_excludes_cache: bool,
     /// `sendTools`: the tools the request carried.
-    pub send_tools: std::sync::Arc<[mixdog_core_api::domain::provider::ToolDefinition]>,
+    pub send_tools: Arc<[mixdog_core_api::domain::provider::ToolDefinition]>,
     /// `reasoningUsage(usage)`: `None` when the provider reported none (missing is not zero).
     pub reasoning_tokens: Option<u64>,
     pub reasoning_tokens_complete: bool,
@@ -532,8 +532,9 @@ pub trait RunObserver: Send + Sync {
     }
 
     /// The result to keep for the call `call_id` until its row is committed is the one of its last execution: `None`
-    /// as that execution starts (what an earlier one told is taken back), its result when it ends. Told only for a call
-    /// run again; it is no settlement to show.
+    /// as that execution starts (what an earlier one told is taken back), its result when it ends; or, for a call the
+    /// batch answers without the run the stream started for it, the batch's answer in place of what that run told. Told
+    /// only for a call run again or so answered; it is no settlement to show.
     fn early_result_replaced(&self, _generation: u64, _call_id: &str, _result: Option<AgentMessage>) {}
 
     /// Whether the owner offers any way to withdraw shown text. Without one, a

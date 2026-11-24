@@ -2,6 +2,26 @@
 
 use super::*;
 
+/// The waiter of a retry with an op of its own that joins a pending send ([`Submissions::join`]): the answer the send gets
+/// settles the retry's op on the actor before it reaches the retry.
+fn joined_waiter(jobs: mpsc::UnboundedSender<JobDone>, req: CoreRequest, tx: Waiter) -> Waiter {
+    let (joined, answered) = oneshot::channel();
+    tokio::spawn(async move {
+        let answer = match answered.await {
+            Ok(Ok(Reply::Value(value))) => Some(Ok(value)),
+            Ok(Err(error)) => Some(Err(error)),
+            Ok(Ok(_)) | Err(_) => None,
+        };
+        // An actor that is gone answers nothing more: the retry hears the send's answer itself.
+        if let Err(mpsc::error::SendError(JobDone::SubmissionJoined { tx, answer: Some(answer), .. })) =
+            jobs.send(JobDone::SubmissionJoined { req, tx, answer })
+        {
+            let _ = tx.send(answer.map(Reply::Value));
+        }
+    });
+    joined
+}
+
 /// When a plan's request is answered.
 #[derive(Clone, Copy)]
 enum Answered {
@@ -344,7 +364,7 @@ impl SessionActor {
         if req.method.as_str() == "thread/queue/delete"
             && let Some(reply) = self.restore_miss(&req)
         {
-            let _ = tx.send(Ok(Reply::Value(reply)));
+            self.answer_op(&req, tx, reply);
             return Ok(());
         }
         // A retried submission joins the original (`drain-enqueue.mjs:37`): an idempotent success, not a second prompt. Its
@@ -356,10 +376,12 @@ impl SessionActor {
             && let Some(id) = submission_id(&params.input).map(str::to_owned)
         {
             if let Some(answer) = self.submissions.answers.get(&id).cloned() {
-                let _ = tx.send(Ok(Reply::Value(answer)));
+                self.answer_op(&req, tx, answer);
                 return Ok(());
             }
-            let Some(tx) = self.submissions.join(&id, tx) else { return Ok(()) };
+            let jobs = &self.jobs_tx;
+            let joined = |waiter: Waiter| if req.op.is_some() { joined_waiter(jobs.clone(), req.clone(), waiter) } else { waiter };
+            let Some(tx) = self.submissions.join(&id, tx, joined) else { return Ok(()) };
             if self.submission_looked.as_deref() != Some(id.as_str()) {
                 self.look_up_submission(id, req, tx);
                 return Ok(());
@@ -427,6 +449,43 @@ impl SessionActor {
         }
     }
 
+    /// A request answered here rather than by a plan of its own (a hand-back that found nothing queued, a send a receipt
+    /// answers): its receipt is stored under its operation as a plan's is, so the op settles with the answer its caller gets
+    /// and a repeat or `op/status` reads it back, in this process or after a restart. A request without an op is answered at once.
+    pub(super) fn answer_op(&mut self, req: &CoreRequest, tx: Waiter, value: Value) {
+        use mixdog_store::schema::record::OpRecord;
+        use mixdog_store::schema::record::OpState;
+        match self.op_ref(req, Some(&value)) {
+            Ok(None) => drop(tx.send(Ok(Reply::Value(value)))),
+            Ok(Some(op_ref)) => {
+                let record = Record::Op(OpRecord { op: op_ref, state: OpState::Applied, at: self.deps.clock.now_ms(), detail: None });
+                self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::Reply { op: req.op.clone(), tx: Some(tx), value }]);
+            }
+            Err(error) => self.fail_op(req, tx, error),
+        }
+    }
+
+    fn fail_op(&mut self, req: &CoreRequest, tx: Waiter, error: CoreError) {
+        if let Some(op) = &req.op {
+            self.ops.failed(op, &error);
+        }
+        let _ = tx.send(Err(error));
+    }
+
+    /// The answer of the pending send a retry with an op of its own joined ([`JobDone::SubmissionJoined`]).
+    pub(super) fn submission_joined(&mut self, req: CoreRequest, tx: Waiter, answer: Option<Result<Value, CoreError>>) {
+        match answer {
+            Some(Ok(value)) => self.answer_op(&req, tx, value),
+            Some(Err(error)) => self.fail_op(&req, tx, error),
+            // The send's waiter was dropped: the retry hears the drop, as the send's caller does.
+            None => {
+                if let Some(op) = &req.op {
+                    self.ops.failed(op, &CoreError::ThreadClosing { thread_id: self.id.clone() });
+                }
+            }
+        }
+    }
+
     fn apply_plan(&mut self, plan: Plan, op: Option<OpId>, tx: Waiter) {
         self.apply_plan_answered(plan, op, tx, Answered::Released);
     }
@@ -472,8 +531,9 @@ impl SessionActor {
             return Err(coded("session", TURN_STOPPED, "This message was stopped; send it again to run it."));
         }
         let user_prompt = matches!(req.ctx.caller, Caller::Connection(_)).then(|| display_text(&params.input));
-        if user_prompt.is_some() && params.input.options.as_ref().is_some_and(|o| o.context.is_some() || o.attachment_sizes.is_some()) {
-            return Err(invalid("input.options", "context and attachmentSizes are host-only options"));
+        if user_prompt.is_some() && params.input.options.as_ref().is_some_and(|o| o.context.is_some() || o.attachment_sizes.is_some() || o.queue_only.is_some())
+        {
+            return Err(invalid("input.options", "context, attachmentSizes and queueOnly are host-only options"));
         }
         // `submission` (`submission.mjs:10`): a prompt that shows nothing is not a submission. Node answers `false`
         // before the session is touched; the wire answers a refusal with this code.
@@ -524,7 +584,10 @@ impl SessionActor {
         let missing = super::super::staged_originals::missing_of(&req.params);
         // The message of an accepted takeover is the next turn: a submission arriving before it started queues behind it.
         let reserved = self.reserved_successor().is_some();
-        if !self.turn_busy() && !self.compaction_held() && self.compactions == 0 && self.clear_holds == 0 && !self.move_held() && !reserved {
+        if !self.turn_busy() && !self.compaction_held() && !self.compacting() && self.clear_holds == 0 && !self.move_held() && !reserved {
+            if params.input.options.as_ref().is_some_and(|options| options.queue_only == Some(true)) {
+                return Err(coded("session", mixdog_protocol::thread::QUEUE_ONLY_IDLE, "The session has no running turn to queue behind."));
+            }
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -586,6 +649,7 @@ impl SessionActor {
             // The entry's priority is its own top-level field, as Node's queue entries carry it
             // (`within_priority`); the options keep the rest.
             let mut options = options.clone();
+            options.queue_only = None;
             if let Some(priority) = options.priority.take() {
                 entry["priority"] = serde_json::to_value(priority).expect("protocol types serialize");
             }
@@ -666,8 +730,7 @@ impl SessionActor {
     /// One `meta` record setting the keys of `set` that differ from the header, or `None` when all agree.
     fn header_set_change(&self, set: serde_json::Map<String, Value>) -> Option<Record> {
         let set: serde_json::Map<String, Value> = set.into_iter().filter(|(key, value)| self.projected.header.get(key) != Some(value)).collect();
-        (!set.is_empty())
-            .then(|| Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) }))
+        (!set.is_empty()).then(|| Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) }))
     }
 
     /// `stampTurnHop` / `raiseTurnHop` set `session.turnHop` and `session.turnBotChain`, which the session's
@@ -689,7 +752,7 @@ impl SessionActor {
         if self.projected.header.get(PROVIDER_STATE) == state.as_ref() {
             return None;
         }
-        let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() };
+        let mut change = HeaderChange::default();
         match state {
             Some(state) => {
                 change.set.insert(PROVIDER_STATE.into(), state);
@@ -702,12 +765,10 @@ impl SessionActor {
     /// The `meta` record that takes the external agent's session out of the header, or `None` when it holds none.
     fn agent_session_reset(&self) -> Option<Record> {
         let key = crate::session::turn_ops::AGENT_SESSION;
-        self.projected.header.contains_key(key).then(|| {
-            Record::Meta(MetaRecord {
-                op: None,
-                change: Slot::Inline(HeaderChange { set: serde_json::Map::new(), unset: vec![key.into()], patch: Default::default() }),
-            })
-        })
+        self.projected
+            .header
+            .contains_key(key)
+            .then(|| Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { unset: vec![key.into()], ..Default::default() }) }))
     }
 
     /// What [`Inbox::ForkPlan`] answers.
@@ -873,10 +934,7 @@ impl SessionActor {
         set.insert("titleLocked".into(), Value::Bool(true));
         set.insert("titleSource".into(), Value::String("user".to_owned()));
         set.insert("titleUpdatedAt".into(), json!(self.deps.clock.now_ms()));
-        let record = Record::Meta(MetaRecord {
-            op: self.op_ref(req, Some(&value))?,
-            change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }),
-        });
+        let record = Record::Meta(MetaRecord { op: self.op_ref(req, Some(&value))?, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
         Ok(Plan { kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()), value, after: None, prompt: None })
     }
 
@@ -928,8 +986,7 @@ impl SessionActor {
             Some(value) => serde_json::from_value(value.clone()).map_err(|_| invalid("unset", "a list of header keys"))?,
         };
         let value = json!({});
-        let record =
-            Record::Meta(MetaRecord { op: self.op_ref(req, Some(&value))?, change: Slot::Inline(HeaderChange { set, unset, patch: Default::default() }) });
+        let record = Record::Meta(MetaRecord { op: self.op_ref(req, Some(&value))?, change: Slot::Inline(HeaderChange { set, unset, ..Default::default() }) });
         Ok(Plan { kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()), value, after: None, prompt: None })
     }
 
@@ -1010,6 +1067,14 @@ impl SessionActor {
         if matches!(req.ctx.caller, Caller::Connection(_)) {
             return Err(invalid("method", "an internal method"));
         }
+        // An inheritance is decided on an heir that is empty and idle, and its rows are fitted (a compactor pass of seconds)
+        // before they come here: a heir that runs a turn now, or took a conversation row since (the user's send, another
+        // carry), takes none of them, and the carry hears why.
+        if let Some(seen) = req.params.get("conversationRows").and_then(Value::as_u64)
+            && (self.turn_busy() || self.conversation_rows != seen)
+        {
+            return Err(mixdog_core_base::support::failed("inheritance", super::super::inheritance::HELD_CONVERSATION));
+        }
         // Each row as the handle read its facts: `{body, visible, prompt}`.
         let rows = req.params.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
         let mut records = Vec::with_capacity(rows.len() + 1);
@@ -1055,7 +1120,7 @@ impl SessionActor {
             None | Some(Value::Null) => Vec::new(),
             Some(value) => serde_json::from_value(value.clone()).map_err(|_| invalid("unset", "a list of header keys"))?,
         };
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset, patch: Default::default() }) });
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset, ..Default::default() }) });
         records.push((meta, Class::Normal, Display::None, Vec::new()));
         // The room's activity as it stands with these rows rides the same plan: released behind the last of them, so the
         // pass publishes them as one revision (`fold_room_view`).

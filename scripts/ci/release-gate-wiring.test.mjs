@@ -151,7 +151,8 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
     const own = gate.jobs[`core-tests-${os}`];
     // a system's legs wait for its own archive alone, and every system's jobs run the same steps
     assert.deepEqual(needsOf(own), ['changes', `core-build-${os}`]);
-    if (os !== 'linux') assert.match(own.if, new RegExp(`core_${os} == 'true'`), `${os} tests only where the selection runs ${os}`);
+    if (os !== 'linux')
+      assert.match(own.if, new RegExp(`core_${os} == 'true'`), `${os} tests only where the selection runs ${os}`);
     assert.equal(
       gate.jobs[`core-build-${os}`].strategy.matrix,
       `\${{ fromJSON(needs.changes.outputs.build_matrix_${os}) }}`
@@ -170,10 +171,14 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   for (const os of ['linux', 'windows']) {
     assert.deepEqual(needsOf(gate.jobs[`mixdogd-${os}`]), ['changes']);
     assert.equal(gate.jobs[`mixdogd-${os}`].if, `needs.changes.outputs.mixdogd_${os} == 'true'`);
-    assert.deepEqual(gate.jobs[`mixdogd-${os}`].strategy.matrix.include.map((entry) => entry.os), [os]);
+    assert.deepEqual(
+      gate.jobs[`mixdogd-${os}`].strategy.matrix.include.map((entry) => entry.os),
+      [os]
+    );
   }
   assert.deepEqual(needsOf(gate.jobs['core-entry']), ['changes', 'core-build-linux', 'mixdogd-linux']);
-  for (const name of ['desktop-slow', 'runtime-slow']) assert.deepEqual(needsOf(gate.jobs[name]), ['changes', 'mixdogd-linux'], name);
+  for (const name of ['desktop-slow', 'runtime-slow'])
+    assert.deepEqual(needsOf(gate.jobs[name]), ['changes', 'mixdogd-linux'], name);
   for (const [name, job] of Object.entries(gate.jobs))
     assert.ok(!needsOf(job).includes('mixdogd'), `${name} waits for a daemon matrix`);
   assert.doesNotMatch(JSON.stringify(tests), /mixdogd-dev|MIXDOGD_BIN/);
@@ -414,7 +419,10 @@ test('release-gate.yml: every lane filter is checked against the compiled test l
   );
   const download = stepsOf(lists).findIndex((step) => step.uses?.startsWith('actions/download-artifact@'));
   const listing = stepsOf(lists).findIndex((step) => step.id === 'ignored-audit');
-  assert.ok(download >= 0 && listing > download && index > listing, 'the check reads the listing of the downloaded archive');
+  assert.ok(
+    download >= 0 && listing > download && index > listing,
+    'the check reads the listing of the downloaded archive'
+  );
   assert.ok(
     index < stepsOf(lists).findIndex((step) => step.uses?.startsWith('actions/upload-artifact@')),
     'a failed check uploads no listing'
@@ -639,7 +647,14 @@ test('release-gate.yml: a failed shard discovery fails changes, and no one-shard
 test('release-gate.yml: the build is a clean checkout and no tracked script reads a file a clean checkout lacks', () => {
   const runs = (name) => stepsOf(gate.jobs[name]).map((step) => step.run ?? '');
   assert.ok(runs('changes').includes('node scripts/ci/check-clean-checkout.mjs --readers'));
-  for (const name of ['core-build-linux', 'core-build-macos', 'core-build-windows', 'mixdogd-linux', 'mixdogd-windows', 'core-lint']) {
+  for (const name of [
+    'core-build-linux',
+    'core-build-macos',
+    'core-build-windows',
+    'mixdogd-linux',
+    'mixdogd-windows',
+    'core-lint',
+  ]) {
     const index = runs(name).indexOf('node scripts/ci/check-clean-checkout.mjs --build');
     assert.ok(index >= 0, `${name} checks its checkout`);
     assert.ok(stepsOf(gate.jobs[name]).findIndex((step) => step.uses?.startsWith('actions/checkout@')) < index);
@@ -772,7 +787,12 @@ test('release-gate.yml: nextest inputs and the computer helper select their PR c
   for (const paths of [inputs, ...inputs.map((path) => [path])]) {
     assert.deepEqual(selected(paths), standalone, paths.join(', '));
   }
-  assert.deepEqual(selected(['native/mixdog-computer/Cargo.toml']), ['computer', 'desktop_computer', 'runtime', 'rustfmt']);
+  assert.deepEqual(selected(['native/mixdog-computer/Cargo.toml']), [
+    'computer',
+    'desktop_computer',
+    'runtime',
+    'rustfmt',
+  ]);
   // A helper-only PR runs the Windows job alone; any desktop test change runs the three Linux shards and the Windows job.
   assert.equal(
     gate.jobs['desktop-computer'].if,
@@ -874,7 +894,10 @@ test('release-gate.yml: every system lists its archive unfiltered for the reconc
     const list = gate.jobs[`core-list-${os}`];
     assert.deepEqual(needsOf(list), ['changes', `core-build-${os}`]);
     assert.equal(list.if, gate.jobs[`core-tests-${os}`].if);
-    assert.deepEqual(list.strategy.matrix.include.map((entry) => entry.os), [os]);
+    assert.deepEqual(
+      list.strategy.matrix.include.map((entry) => entry.os),
+      [os]
+    );
     assert.deepEqual(list.steps, gate.jobs['core-list-linux'].steps);
     assert.ok(needsOf(gate.jobs.complete).includes(`core-list-${os}`));
   }
@@ -977,17 +1000,36 @@ test('the core inputs cover every path outside native/core that a tracked core s
       'const Q: &str = include_bytes![P];\n',
   };
   const problems = inputProblems(Object.keys(sources), (path) => sources[path]);
-  for (const wanted of [/reads apps\/web\/a\.txt/, /reads docs\/b\.md/, /tests\/b\.rs:2 reads design,/, /reads vendor\/d\.rs/, /reads LICENSE/, /tests\/b\.rs:5 reaches the repository root/,
-    /catalog\.rs:1 reads apps\/web\/catalog\.json/, /catalog\.rs:2 reads apps\/web\/split\.json/, /catalog\.rs:8 reads apps\/web\/win\.rs/,
-    /catalog\.rs:10 reads apps\/web\/run\.bin/, /catalog\.rs:12 reaches an include path the scan cannot resolve/,
-    /catalog\.rs:15 reads apps\/web\/bracket\.txt/, /catalog\.rs:16 reads apps\/web\/brace\.txt/, /catalog\.rs:17 reads apps\/web\/spread\.rs/,
-    /catalog\.rs:22 reaches an include path the scan cannot resolve/])
-    assert.ok(problems.some((problem) => wanted.test(problem)), `${wanted} in ${problems.join('; ')}`);
+  for (const wanted of [
+    /reads apps\/web\/a\.txt/,
+    /reads docs\/b\.md/,
+    /tests\/b\.rs:2 reads design,/,
+    /reads vendor\/d\.rs/,
+    /reads LICENSE/,
+    /tests\/b\.rs:5 reaches the repository root/,
+    /catalog\.rs:1 reads apps\/web\/catalog\.json/,
+    /catalog\.rs:2 reads apps\/web\/split\.json/,
+    /catalog\.rs:8 reads apps\/web\/win\.rs/,
+    /catalog\.rs:10 reads apps\/web\/run\.bin/,
+    /catalog\.rs:12 reaches an include path the scan cannot resolve/,
+    /catalog\.rs:15 reads apps\/web\/bracket\.txt/,
+    /catalog\.rs:16 reads apps\/web\/brace\.txt/,
+    /catalog\.rs:17 reads apps\/web\/spread\.rs/,
+    /catalog\.rs:22 reaches an include path the scan cannot resolve/,
+  ])
+    assert.ok(
+      problems.some((problem) => wanted.test(problem)),
+      `${wanted} in ${problems.join('; ')}`
+    );
   assert.ok(!problems.some((problem) => /comment\.txt|string\.txt/.test(problem)), problems.join('; '));
   // the daemon's embedded catalogs are a core input
   assert.ok(isCoreInput('apps/desktop/src/shared/native-ui-catalogs.json'));
   // and a reach to the repository root is accepted only with what it reads reviewed, inside the declared set
-  assert.ok(isCoreInput('src/runtime/agent/x.json') && isCoreInput('native/core/Cargo.lock') && !isCoreInput('apps/desktop/src/x.ts'));
+  assert.ok(
+    isCoreInput('src/runtime/agent/x.json') &&
+      isCoreInput('native/core/Cargo.lock') &&
+      !isCoreInput('apps/desktop/src/x.ts')
+  );
 });
 
 test('release-gate.yml: the core runs on Linux for a push and a pull request, on three systems in the full gate, which every call is', () => {
@@ -1008,16 +1050,38 @@ test('release-gate.yml: the core runs on Linux for a push and a pull request, on
   assert.equal(runGate('false', 'skipped'), true);
   const script = stepsOf(gate.jobs.complete)[0].run;
   assert.match(script, /if \[\[ "\$FULL" == true \|\| "\$2" == true \]\]; then\s+\[\[ "\$3" == success \]\]/);
-  for (const job of ['core-build-macos', 'core-build-windows', 'core-tests-macos', 'core-tests-windows', 'core-real', 'core-lint'])
+  for (const job of [
+    'core-build-macos',
+    'core-build-windows',
+    'core-tests-macos',
+    'core-tests-windows',
+    'core-real',
+    'core-lint',
+  ])
     assert.match(script, new RegExp(`gate ${job} `), job);
 });
 
 test('release-gate.yml: a program of unchanged inputs is taken from a store keyed by them and built only on a miss', () => {
   const outputs = gate.jobs.changes.outputs;
   for (const [job, store, keyed, builds] of [
-    ['mixdogd-linux', 'store_key_mixdogd_dev', /^mixdogd-dev-\$\{\{ matrix\.os \}\}-/, /Build the mixdogd the desktop replays drive/],
-    ['mixdogd-windows', 'store_key_mixdogd_dev', /^mixdogd-dev-\$\{\{ matrix\.os \}\}-/, /Build the mixdogd the desktop replays drive/],
-    ['core-real', 'store_key_mixdogd', /^mixdogd-release-\$\{\{ matrix\.os \}\}-.*'shipping' \|\| 'nolto'/, /Build mixdogd as it ships/],
+    [
+      'mixdogd-linux',
+      'store_key_mixdogd_dev',
+      /^mixdogd-dev-\$\{\{ matrix\.os \}\}-/,
+      /Build the mixdogd the desktop replays drive/,
+    ],
+    [
+      'mixdogd-windows',
+      'store_key_mixdogd_dev',
+      /^mixdogd-dev-\$\{\{ matrix\.os \}\}-/,
+      /Build the mixdogd the desktop replays drive/,
+    ],
+    [
+      'core-real',
+      'store_key_mixdogd',
+      /^mixdogd-release-\$\{\{ matrix\.os \}\}-.*'shipping' \|\| 'nolto'/,
+      /Build mixdogd as it ships/,
+    ],
     ['relay-rust', 'store_key_relay', /^relay-release-linux-/, /Build the relay/],
   ]) {
     assert.equal(outputs[store], `\${{ steps.core.outputs.${store} }}`, store);
@@ -1033,12 +1097,17 @@ test('release-gate.yml: a program of unchanged inputs is taken from a store keye
       assert.ok(steps.indexOf(step) > restore, `${job}: ${step.name}`);
       assert.match(step.if, /steps\.store\.outputs\.cache-hit != 'true'/, `${job}: ${step.name}`);
     }
-    const save = steps.find((step) => step.uses?.startsWith('actions/cache/save@') && step.with.key === '${{ steps.store.outputs.cache-primary-key }}');
+    const save = steps.find(
+      (step) =>
+        step.uses?.startsWith('actions/cache/save@') && step.with.key === '${{ steps.store.outputs.cache-primary-key }}'
+    );
     assert.match(save.if, /steps\.store\.outputs\.cache-hit != 'true'/, job);
     assert.equal(save.with.path, steps[restore].with.path, job);
   }
   // the dependency entry is written by a build of every crate only, never by a push's selection
-  for (const step of stepsOf(gate.jobs['core-build-linux']).filter((s) => /in the cache|Save the compiled dependencies/.test(s.name ?? '')))
+  for (const step of stepsOf(gate.jobs['core-build-linux']).filter((s) =>
+    /in the cache|Save the compiled dependencies/.test(s.name ?? '')
+  ))
     assert.match(step.if, /needs\.changes\.outputs\.core_scope == 'all'/, step.name);
 });
 
@@ -1050,7 +1119,8 @@ test('release-gate.yml: the core builds compile the workspace crates with the pa
   assert.ok(toolchain < wrapper && wrapper < compile && steps[wrapper].if === undefined);
   // the test archive alone: no program a job boots or a release ships goes through it, in this gate or any other workflow
   for (const [name, job] of Object.entries(gate.jobs))
-    if (!/^core-build-/.test(name)) assert.doesNotMatch(JSON.stringify(job), /rustc-threads|RUSTC_WORKSPACE_WRAPPER|RUSTC_BOOTSTRAP/, name);
+    if (!/^core-build-/.test(name))
+      assert.doesNotMatch(JSON.stringify(job), /rustc-threads|RUSTC_WORKSPACE_WRAPPER|RUSTC_BOOTSTRAP/, name);
   for (const file of readdirSync(new URL('.github/workflows/', ROOT)).filter((name) => name !== 'release-gate.yml'))
     assert.doesNotMatch(read(`.github/workflows/${file}`), /rustc-threads|RUSTC_BOOTSTRAP/, file);
   // every run that builds an archive compiles the same selection on plain stable, on each system the archive is for
@@ -1058,7 +1128,10 @@ test('release-gate.yml: the core builds compile the workspace crates with the pa
   assert.equal(lint.if, gate.jobs['core-build-linux'].if.replace('core_build', 'core'));
   assert.equal(lint.strategy.matrix, '${{ fromJSON(needs.changes.outputs.lint_matrix) }}');
   const plain = stepsOf(lint).find((step) => step.name === "Compile the archive's crates on plain stable");
-  assert.match(plain.run, /cargo check --manifest-path Cargo\.toml --locked --all-targets \$ARCHIVE_ARGS "\$\{features\[@\]\}"/);
+  assert.match(
+    plain.run,
+    /cargo check --manifest-path Cargo\.toml --locked --all-targets \$ARCHIVE_ARGS "\$\{features\[@\]\}"/
+  );
   // the one selection `changes` resolved, which the archive builds too
   const archive = steps[compile];
   for (const env of [plain.env, archive.env])
@@ -1092,12 +1165,19 @@ test('release-gate.yml: a push selects against the last commit the gate passed o
   // no answer is no base, which selects every file
   assert.match(paths.run, /\|\| BASE=""/);
   const changed = [];
-  selected([], { renames: [['native/core/crates/a/tests/moved.rs', 'native/core/crates/b/tests/moved.rs']], changedOut: changed });
+  selected([], {
+    renames: [['native/core/crates/a/tests/moved.rs', 'native/core/crates/b/tests/moved.rs']],
+    changedOut: changed,
+  });
   assert.deepEqual(changed.sort(), ['native/core/crates/a/tests/moved.rs', 'native/core/crates/b/tests/moved.rs']);
 });
 
 test('release-gate.yml: the format check is selected by the files it formats, the standalone tools included', () => {
-  for (const path of ['native/mixdog-browser-import/src/main.rs', 'native/mixdog-window/src/lib.rs', 'native/rustfmt.toml'])
+  for (const path of [
+    'native/mixdog-browser-import/src/main.rs',
+    'native/mixdog-window/src/lib.rs',
+    'native/rustfmt.toml',
+  ])
     assert.ok(selected([path]).includes('rustfmt'), path);
   assert.ok(!selected(['docs/notes.md']).includes('rustfmt'));
   assert.equal(gate.jobs.rustfmt.if, "needs.changes.outputs.rustfmt == 'true'");
@@ -1129,8 +1209,11 @@ test('release-gate.yml: the doctests are a leg of their own beside the build, no
       `${pkg} runs when the selection holds it`
     );
   assert.equal(doc.env.MIXDOG_LEG, 'linux/core-doctests/1of1');
-  const runs = stepsOf(doc).map((step) => step.run ?? '').join('\n');
-  for (const pkg of ['mixdog-core-api', 'mixdog-image-egress']) assert.match(runs, new RegExp(`run-doctest\\.mjs -p ${pkg} `));
+  const runs = stepsOf(doc)
+    .map((step) => step.run ?? '')
+    .join('\n');
+  for (const pkg of ['mixdog-core-api', 'mixdog-image-egress'])
+    assert.match(runs, new RegExp(`run-doctest\\.mjs -p ${pkg} `));
   assert.doesNotMatch(JSON.stringify(gate.jobs['core-tests-linux']), /run-doctest/);
   assert.match(stepsOf(gate.jobs.complete)[0].run, /gate core-doctests "\$SEL_CORE_DOCTESTS" "\$CORE_DOCTESTS"/);
 });
@@ -1140,13 +1223,19 @@ test('release-gate.yml: `changes` resolves a partial selection against the whole
   const align = steps.find((step) => step.id === 'align');
   assert.ok(steps.indexOf(align) > steps.findIndex((step) => step.id === 'core'));
   // a whole selection passes; a partial one is widened
-  assert.match(align.run, /if \[\[ "\$SCOPE" != packages \]\]; then\s+printf 'packages=%s\\nfeatures=%s\\n' "\$SELECTION" "\$FEATURES"/);
+  assert.match(
+    align.run,
+    /if \[\[ "\$SCOPE" != packages \]\]; then\s+printf 'packages=%s\\nfeatures=%s\\n' "\$SELECTION" "\$FEATURES"/
+  );
   // the indented tree, which tells host builds from target builds, and rounds to a fixed point rather than a count
   assert.match(align.run, /cargo tree --locked --charset utf8 -f '\{p\} \{f\}' --workspace/);
   assert.doesNotMatch(align.run, /--prefix none|\$round/);
   assert.match(align.run, /while true; do/);
   assert.match(align.run, /if \[\[ "\$packages\|\$selection_features" == "\$last" \]\]; then[\s\S]*?exit 1/);
-  assert.match(align.run, /if node \.\.\/\.\.\/scripts\/ci\/core-align\.mjs check --whole "\$RUNNER_TEMP\/tree-whole\.txt" --tree "\$RUNNER_TEMP\/tree-selection\.txt"; then break; fi/);
+  assert.match(
+    align.run,
+    /if node \.\.\/\.\.\/scripts\/ci\/core-align\.mjs check --whole "\$RUNNER_TEMP\/tree-whole\.txt" --tree "\$RUNNER_TEMP\/tree-selection\.txt"; then break; fi/
+  );
   assert.equal(gate.jobs.changes.outputs.core_build_args, '${{ steps.align.outputs.packages }}');
   assert.equal(gate.jobs.changes.outputs.core_build_features, '${{ steps.align.outputs.features }}');
   // no job builds part of an archive or merges one

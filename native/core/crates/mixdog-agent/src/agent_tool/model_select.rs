@@ -203,7 +203,10 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
     let note = match (clean(routed.get("provider")), clean(routed.get("model"))) {
         (p, m) if !m.is_empty() && !p.is_empty() => {
             let runs = format!("runs on {p}/{m}");
-            note.map_or(runs.clone(), |n| format!("{n}; {runs} instead"))
+            match note {
+                Some(n) => format!("{n}; {runs} instead"),
+                None => runs,
+            }
         }
         _ => String::new(),
     };

@@ -21,7 +21,7 @@ import { CompactSwitch } from './settings/capability-controls';
 import { emptyStateHost } from './empty-state-host';
 
 export type ConnectorSwitchApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
-export interface ConnectorSwitch {
+interface ConnectorSwitch {
   id: string;
   enabled: boolean;
 }

@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesktopBranchMenu } from '../shared/contract';
+import { registerIdleReclaim } from './idle-reclaim';
 import {
-  applyDefaultWorktreeIntent,
   getBranchIntent,
   invokeWorktree,
+  readNewTaskDefault,
   worktreeFailure,
   worktreeFailureText,
 } from './worktree-branch-model';
-
-const defaultApplied = new Set<string>();
 
 /** A failed eager read retries after this, doubling until it passes the cap. */
 const MENU_RETRY_FIRST_MS = 800;
@@ -32,6 +31,24 @@ const menuReadsInFlight = new Map<string, Promise<DesktopBranchMenu | null>>();
  *  another host's read adopts that answer instead of asking again. */
 const menuReadAnsweredAt = new Map<string, number>();
 const MENU_MOUNT_REUSE_MS = 2_000;
+
+/** How many mounted hosts read each key: their reads stand in for a failed read, so idle reclaim keeps them. */
+const mountedReadKeys = new Map<string, number>();
+registerIdleReclaim(() => {
+  for (const key of [...lastMenuReads.keys()]) if (!mountedReadKeys.has(key)) lastMenuReads.delete(key);
+  for (const key of [...menuReadAnsweredAt.keys()]) if (!mountedReadKeys.has(key)) menuReadAnsweredAt.delete(key);
+});
+
+function useMountedReadKey(readKey: string): void {
+  useEffect(() => {
+    mountedReadKeys.set(readKey, (mountedReadKeys.get(readKey) ?? 0) + 1);
+    return () => {
+      const left = (mountedReadKeys.get(readKey) ?? 1) - 1;
+      if (left > 0) mountedReadKeys.set(readKey, left);
+      else mountedReadKeys.delete(readKey);
+    };
+  }, [readKey]);
+}
 
 function sharedMenuRead(key: string, read: () => Promise<DesktopBranchMenu | null>) {
   const running = menuReadsInFlight.get(key);
@@ -80,11 +97,10 @@ export function useBranchMenuData({
   const [answered, setAnswered] = useState<(MenuRead & { key: string }) | null>(null);
   const shown = answered?.key === readKey ? answered : (lastMenuReads.get(readKey) ?? null);
   const selected = draft ? getBranchIntent(intentKey) : undefined;
-  const menu = shown?.menu
-    ? selected
+  const menu =
+    shown?.menu && selected
       ? { ...shown.menu, workspace: { ...shown.menu.workspace, branch: selected.branch } }
-      : shown.menu
-    : null;
+      : (shown?.menu ?? null);
   const recovery = shown?.recovery ?? false;
   const [notice, setNotice] = useState('');
   const loadId = useRef(0);
@@ -136,6 +152,7 @@ export function useBranchMenuData({
     return true;
   }, [draft, projectMenu, projectPath, readKey, sessionId, setRead]);
 
+  useMountedReadKey(readKey);
   useEagerMenuRead({ eager, readKey, refreshKey, load });
   useDefaultWorktreeIntent(draft && Boolean(menu?.workspace.repoCommonDir), intentKey);
 
@@ -186,12 +203,7 @@ function useEagerMenuRead({
 
 function useDefaultWorktreeIntent(draftInRepository: boolean, intentKey: string): void {
   useEffect(() => {
-    if (!draftInRepository || defaultApplied.has(intentKey)) return;
-    defaultApplied.add(intentKey);
-    void invokeWorktree<{ newTaskDefault?: string }>('getWorktreeSettings')
-      .then((settings) => {
-        if (settings?.newTaskDefault === 'worktree') applyDefaultWorktreeIntent(intentKey);
-      })
-      .catch(() => {});
+    if (draftInRepository)
+      readNewTaskDefault(intentKey, () => invokeWorktree<{ newTaskDefault?: string }>('getWorktreeSettings'));
   }, [draftInRepository, intentKey]);
 }

@@ -154,30 +154,43 @@ function estimatedCategories(semantic: Row, schema: Row, request: Row): Estimate
   ];
 }
 
+/** `total` divided among the categories in their estimated proportions, in whole tokens that add up to it. */
+function dividedAmong(estimated: EstimatedCategory[], total: number, categorized: number): EstimatedCategory[] {
+  const exact = estimated.map((category) => (category.tokens / categorized) * total);
+  const whole = exact.map(Math.floor);
+  let left = Math.round(total) - whole.reduce((sum, tokens) => sum + tokens, 0);
+  const byFraction = exact.map((tokens, index) => ({ index, fraction: tokens - whole[index] }));
+  for (const { index } of byFraction.sort((a, b) => b.fraction - a.fraction)) {
+    if (left <= 0) break;
+    whole[index] += 1;
+    left -= 1;
+  }
+  return estimated.map((category, index) => ({ ...category, tokens: whole[index] }));
+}
+
 /** The estimated composition of a context status: each category's tokens,
  *  their sum, the free space left in a window of `windowTokens`, and the
  *  window the shares are of (never less than what is held). With the
- *  window's measured total (`used`) the free space is what the measurement
- *  leaves, and `unattributed` is what it holds beyond the categories'
- *  estimates: the estimates stay as they are, and the parts still add up to
- *  the reading beside them. */
+ *  window's measured total (`used`) the estimates say only how the
+ *  measurement divides: each category takes its estimated share of it, so
+ *  the parts add up to the reading beside them, and the free space is what
+ *  the measurement leaves. */
 export function contextMix(status: unknown, windowTokens: number, used: number | null = null) {
   const context = record(status);
   const request = record(context.request);
-  const categories = estimatedCategories(
+  const estimated = estimatedCategories(
     record(record(context.messages).semantic),
     record(request.toolSchemaBreakdown),
     request
   );
-  const categorized = categories.reduce((sum, category) => sum + category.tokens, 0);
+  const categorized = estimated.reduce((sum, category) => sum + category.tokens, 0);
   const held = used ?? categorized;
   return {
-    categories,
+    categories: used !== null && categorized > 0 ? dividedAmong(estimated, used, categorized) : estimated,
     categorized,
     held,
-    unattributed: Math.max(0, held - categorized),
     free: Math.max(0, windowTokens - held),
-    windowTokens: Math.max(windowTokens, held, categorized),
+    windowTokens: Math.max(windowTokens, held),
   };
 }
 

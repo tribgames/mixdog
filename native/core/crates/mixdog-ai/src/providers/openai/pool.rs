@@ -278,18 +278,10 @@ impl WsPool {
         }
     }
 
-    /// Drops a session's sockets and transport state (the session ended).
-    pub fn release_session(&self, key: &str) {
-        let gone = {
-            let mut state = self.state();
-            state.fresh.remove(key);
-            state.http.remove(key);
-            state.idle.remove(key)
-        };
-        drop(gone);
-        if let Some(events) = &self.events {
-            events.session_closed(key);
-        }
+    /// Closes a session's sockets and drops its transport state (the session ended): its ownership and the sockets in
+    /// use go as a disposed scope's do, so a checkout dialing or finishing never parks a socket under the dead key.
+    pub fn release_session(self: &Arc<Self>, key: &str) {
+        self.release_scope(key, "session_closed");
     }
 
     #[cfg(test)]
@@ -464,5 +456,24 @@ mod tests {
         dialing.finish(Chain::default());
         assert_eq!(pool.parked("scope-a"), 0);
         assert!(pool.state().leases.is_empty(), "no lease was taken for it");
+    }
+
+    // A session closed while its checkout is dialing or in use: the socket the dial brings is refused, and the one in use
+    // is never parked under the dead session's key.
+    #[tokio::test]
+    async fn a_closed_session_parks_no_socket_dialed_or_in_use() {
+        mixdog_rt::testing::tokens();
+        let pool = Arc::new(WsPool::default());
+        let compat = Compat::new("route", "identity", "cache");
+        let (dialed, _far_dialed) = tokio::io::duplex(1 << 12);
+        let (used, _far_used) = tokio::io::duplex(1 << 12);
+        let mut dialing = pool.checkout("session-a", &compat, false, false).await;
+        pool.release_session("session-a");
+        assert!(!dialing.attach(Box::new(WsConnection::client_over(dialed).await)), "the session's ownership left this checkout");
+        let mut held = pool.checkout("session-a", &compat, false, false).await;
+        assert!(held.attach(Box::new(WsConnection::client_over(used).await)));
+        pool.release_session("session-a");
+        held.finish(Chain::default());
+        assert_eq!(pool.parked("session-a"), 0);
     }
 }

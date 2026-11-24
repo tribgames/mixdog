@@ -26,6 +26,7 @@ use sha2::Sha256;
 use crate::providers::compat::schema::Rule;
 use crate::providers::compat::schema::SchemaMemo;
 use crate::providers::compat::schema::report_exclusion;
+use crate::providers::connect::pb::Writer;
 use crate::providers::flat_schema::merge_flat_schema_property;
 use crate::providers::js_value::entries;
 use crate::providers::js_value::js_ordered_map;
@@ -457,7 +458,6 @@ struct TurnRecord {
 
 /// The step of `call` made as a call of the `mixdog` MCP server, with `result` when the transcript holds it.
 fn tool_step(call: &mixdog_core_api::domain::provider::ToolCall, result: Option<&Message>) -> Vec<u8> {
-    use crate::providers::connect::pb::Writer;
     let mut args = Writer::new();
     args.string(1, &format!("mixdog-{}", call.name));
     // Arguments that are no object (a tool that takes one free text) are the one argument `input`.
@@ -491,7 +491,6 @@ fn tool_step(call: &mixdog_core_api::domain::provider::ToolCall, result: Option<
 }
 
 fn turn_records(messages: &[Message]) -> Vec<TurnRecord> {
-    use crate::providers::connect::pb::Writer;
     let messages = crate::providers::own_call_ids::own_call_ids(messages);
     let messages = crate::providers::file_text::files_as_text(&messages);
     let mut turns: Vec<TurnRecord> = Vec::new();
@@ -543,6 +542,40 @@ pub fn build_run(request: &ModelRequest, selection: &ModelSelection, conversatio
     build_prepared(prepare(request)?, selection, conversation_id, message_id)
 }
 
+/// The conversation state that names the transcript's entries `ids` and its `turns`, the open one last with its steps
+/// and their results; each turn's records are held in `blobs`.
+fn resumed_state(ids: &[Vec<u8>], turns: &[TurnRecord], conversation_id: &str, blobs: &mut BlobStore) -> Result<Vec<u8>, ProviderError> {
+    let mut state = Writer::new();
+    for id in ids {
+        state.bytes(1, id);
+    }
+    // A turn's message id is of this conversation, of what was said and of the first thing done about it (and of
+    // the nth time both were the same), so it is the same id on every request that still holds the turn: another
+    // turn that says the same does not take it over when the turns before are compacted away.
+    let mut times: HashMap<Vec<u8>, usize> = HashMap::new();
+    for turn in turns {
+        let mut keyed = Sha256::new();
+        keyed.update((turn.said.len() as u64).to_be_bytes());
+        keyed.update(turn.said.as_bytes());
+        keyed.update(turn.steps.first().map_or(&[][..], Vec::as_slice));
+        let digest = keyed.finalize().to_vec();
+        let nth = times.entry(digest.clone()).or_default();
+        *nth += 1;
+        let mut user = Writer::new();
+        user.string(1, &turn.said);
+        user.string(2, &deterministic_uuid(&format!("cursor-turn:{conversation_id}:{}:{nth}", hex(&digest))));
+        let mut agent = Writer::new();
+        agent.bytes(1, &blobs.put_content(user.finish())?);
+        for step in &turn.steps {
+            agent.bytes(2, &blobs.put_content(step.clone())?);
+        }
+        let mut record = Writer::new();
+        record.message(1, agent);
+        state.bytes(8, &blobs.put_content(record.finish())?);
+    }
+    Ok(state.finish())
+}
+
 /// The run request that asks for `prepared`.
 pub fn build_prepared(prepared: Prepared, selection: &ModelSelection, conversation_id: &str, message_id: &str) -> Result<RunBuild, ProviderError> {
     let Prepared { parsed, tools, cloud_rule, turns } = prepared;
@@ -561,39 +594,7 @@ pub fn build_prepared(prepared: Prepared, selection: &ModelSelection, conversati
     // empty without recording it as a turn. It goes on with the open turn instead: the state names the transcript's
     // turns, the open one last with its steps and their results, and the action resumes it.
     let resumes = parsed.user_text.is_empty() && parsed.user_images.is_empty();
-    let conversation_state = if resumes {
-        let mut state = crate::providers::connect::pb::Writer::new();
-        for id in &ids {
-            state.bytes(1, id);
-        }
-        // A turn's message id is of this conversation, of what was said and of the first thing done about it (and of
-        // the nth time both were the same), so it is the same id on every request that still holds the turn: another
-        // turn that says the same does not take it over when the turns before are compacted away.
-        let mut times: HashMap<Vec<u8>, usize> = HashMap::new();
-        for turn in &turns {
-            let mut keyed = Sha256::new();
-            keyed.update((turn.said.len() as u64).to_be_bytes());
-            keyed.update(turn.said.as_bytes());
-            keyed.update(turn.steps.first().map_or(&[][..], Vec::as_slice));
-            let digest = keyed.finalize().to_vec();
-            let nth = times.entry(digest.clone()).or_default();
-            *nth += 1;
-            let mut user = crate::providers::connect::pb::Writer::new();
-            user.string(1, &turn.said);
-            user.string(2, &deterministic_uuid(&format!("cursor-turn:{conversation_id}:{}:{nth}", hex(&digest))));
-            let mut agent = crate::providers::connect::pb::Writer::new();
-            agent.bytes(1, &blobs.put_content(user.finish())?);
-            for step in &turn.steps {
-                agent.bytes(2, &blobs.put_content(step.clone())?);
-            }
-            let mut record = crate::providers::connect::pb::Writer::new();
-            record.message(1, agent);
-            state.bytes(8, &blobs.put_content(record.finish())?);
-        }
-        state.finish()
-    } else {
-        conversation_state(&ids)
-    };
+    let conversation_state = if resumes { resumed_state(&ids, &turns, conversation_id, &mut blobs)? } else { conversation_state(&ids) };
     let action = if resumes {
         Action::Resume { context }
     } else {

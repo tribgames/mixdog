@@ -73,14 +73,20 @@ const { desktopComposerSlashCommands, slashCommandNotApplicable } = await import
 
 const route = { provider: 'acp-antigravity', model: 'default' };
 
-test("an agent session names its agent's default model and leaves its model controls out when the agent is not listed", async (t) => {
+function mountHost(t, afterUnmount = () => {}) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   t.after(async () => {
     await act(async () => root.unmount());
     host.remove();
+    afterUnmount();
   });
+  return { host, root };
+}
+
+test("an agent session names its agent's default model and leaves its model controls out when the agent is not listed", async (t) => {
+  const { host, root } = mountHost(t);
   await act(async () =>
     root.render(
       React.createElement(ModelSelector, {
@@ -134,12 +140,7 @@ test("the composer's trigger and the session panel's Info row name an agent's mo
       effortOptions: [{ value: 'medium', label: 'Medium' }],
     }));
   invalidateSharedModelCatalogRequest();
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
+  const { host, root } = mountHost(t, () => {
     window.mixdogDesktop.listProviderModels = listProviderModels;
     window.localStorage.clear();
   });
@@ -176,14 +177,7 @@ test("the composer's trigger and the session panel's Info row name an agent's mo
 test("with no row of the agent's listed, its model keeps the agent's own name from the first render, never one built from its id", async (t) => {
   window.localStorage.clear();
   invalidateSharedModelCatalogRequest();
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-    window.localStorage.clear();
-  });
+  const { host, root } = mountHost(t, () => window.localStorage.clear());
   const firstRender = async (key) => {
     await act(async () =>
       root.render(
@@ -262,18 +256,17 @@ test("a route saved under the agent's own id of one tier reads as the model at t
   assert.equal(cachedAgentTierRoute('acp-antigravity', 'gemini-3.8-pro'), undefined);
   assert.equal(cachedAgentTierRoute('openai', 'gpt-5-high'), undefined);
 
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-    window.localStorage.clear();
-  });
+  const { host, root } = mountHost(t, () => window.localStorage.clear());
   await act(async () =>
     root.render(
       React.createElement(AgentRouteSummary, {
-        agent: { provider: 'acp-antigravity', model: 'gemini-3.8-pro-high', effort: '', fast: false, status: 'running' },
+        agent: {
+          provider: 'acp-antigravity',
+          model: 'gemini-3.8-pro-high',
+          effort: '',
+          fast: false,
+          status: 'running',
+        },
       })
     )
   );

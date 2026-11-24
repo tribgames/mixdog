@@ -192,7 +192,12 @@ test('a compaction divider takes the working band’s seat, under a prompt and u
 
 test('the row under a divider stands a full step away, and a turn gap under a divider grows to that step', async () => {
   await withList(async ({ render, marks }) => {
-    const statusRow = (id, item) => ({ _tag: 'AssistantPart', key: `s:${id}`, turnKey: 't', item: { kind: 'statusdone', id, ...item } });
+    const statusRow = (id, item) => ({
+      _tag: 'AssistantPart',
+      key: `s:${id}`,
+      turnKey: 't',
+      item: { kind: 'statusdone', id, ...item },
+    });
     const compacted = statusRow('compacted', { status: 'compacted', label: 'Conversation compacted' });
     const switched = statusRow('switched', { status: 'model-switched', modelId: 'm', provider: 'p' });
     const gap = (id) => ({ _tag: 'TurnGap', key: `s:gap:${id}`, turnKey: 't2' });

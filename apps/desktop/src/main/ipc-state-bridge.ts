@@ -123,11 +123,12 @@ class LegacyDesktopStateBridge {
     handle(DESKTOP_IPC.setVisibleSessions, (_event, sessionIds) => this.setVisibleSessions(sessionIds));
     // Reads live beside the visibility filter: the frame a read publishes
     // must pass it even when no pane shows the session yet.
-    handle(DESKTOP_IPC.prefetchSession, (_event, sessionId, itemLimit, readTraceId, options) => {
+    handle(DESKTOP_IPC.prefetchSession, (_event, sessionId, itemLimit, readTraceId, readOptions) => {
       const id = requiredSessionId(sessionId);
       const limit = requiredTranscriptItemLimit(itemLimit);
       const traceId = typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined;
-      const retry = (options as { retry?: unknown } | null | undefined)?.retry === true ? { retry: true } : undefined;
+      const retry =
+        (readOptions as { retry?: unknown } | null | undefined)?.retry === true ? { retry: true } : undefined;
       if (traceId) this.rememberRequestedReadTrace(traceId, id);
       return this.requestedReads.run(id, () => host.prefetchSession(id, limit, traceId, retry));
     });

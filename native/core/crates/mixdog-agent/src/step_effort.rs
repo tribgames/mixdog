@@ -212,6 +212,13 @@ impl Run {
         }
     }
 
+    /// The run moves to another route: the judge rates steps on the ladder of the route being left, which the destination
+    /// does not share, so it leaves with that route, and so does the judgment it has under way.
+    pub(crate) fn leave_step_judge(&mut self) {
+        self.env.step_judge = None;
+        self.step_effort = None;
+    }
+
     /// After a tool batch: starts judging the next step (not awaited here).
     pub(crate) fn mark_step_effort(&mut self, calls: &[ToolCall], results_from: usize) {
         let (Some(auto), Some(judge)) = (self.config.step_auto_effort.clone(), self.env.step_judge.clone()) else {

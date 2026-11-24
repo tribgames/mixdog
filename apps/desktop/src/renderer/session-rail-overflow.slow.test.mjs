@@ -625,7 +625,6 @@ const HARNESS = `
       glyph: inkLeft(todoRows[0].querySelector(':scope > svg')),
       glyphWidth: box(todoRows[0].querySelector(':scope > svg')).right - box(todoRows[0].querySelector(':scope > svg')).left,
       text: box(todoRows[0].querySelector('.session-rail-cut')).left,
-      active: rowLook(todoRow('in_progress')),
       resting: rowLook(todoRow('pending')),
     };
     const agentRows = {
@@ -1057,9 +1056,12 @@ test('the panel at 400px and at its 300px minimum with a busy session: nothing o
       near(gap, 0, `kind ${index}: its count on the line's right edge`);
     }
     // A row is a to-do row: its ring where the to-do's state circle stands, at its size, with a step list or none;
-    // its name on the to-do's text line; its height, radius and wash the resting to-do's (a wash is a row pointed
-    // at, never a state), its weight the to-do's in progress, at work or finished.
-    assert.ok(agents.rows.every((row) => row.ring), 'a ring on every row');
+    // its name on the to-do's text line; its height, radius, wash and weight the resting to-do's (a wash is a row
+    // pointed at, never a state), at work or finished.
+    assert.ok(
+      agents.rows.every((row) => row.ring),
+      'a ring on every row'
+    );
     for (const [index, row] of agents.rows.entries()) {
       const what = `agent ${index}${row.working ? ' (at work)' : ''}`;
       if (row.ring) {
@@ -1068,11 +1070,7 @@ test('the panel at 400px and at its 300px minimum with a busy session: nothing o
           inkOff.push(`${width}px, ${what}: its ring at ${row.ring.ink}`);
       }
       near(row.name, agents.todo.text, `${what}: its name on the to-do's text line`);
-      assert.deepEqual(
-        row.look,
-        [...agents.todo.resting.slice(0, 3), agents.todo.active[3]],
-        `${width}px, ${what}: the to-do's row`
-      );
+      assert.deepEqual(row.look, agents.todo.resting, `${width}px, ${what}: the to-do's row`);
     }
     // The step figures and the states each end on one right line down the list, the figures before the states.
     const stepsRight = agents.rows[0].steps[1];
@@ -1111,7 +1109,8 @@ test('the panel at 400px and at its 300px minimum with a busy session: nothing o
       ['pr', 'commit-push', 'commit']
     );
     for (const row of lines.git) {
-      near(row.mark, lines.reference.mark, `Git ${row.action}: its mark`);
+      // Commit · push's narrow arrow is drawn a pixel left of the column, so its ink meets the heads' left line.
+      near(row.mark, lines.reference.mark - (row.action === 'commit-push' ? 1 : 0), `Git ${row.action}: its mark`);
       near(row.text, lines.reference.text, `Git ${row.action}: its label`);
       assert.equal(row.picked, row.action === 'commit', `Git ${row.action}: Commit is the pick until another is`);
       if (row.picked) near(row.check, lines.reference.lineEnd, `Git ${row.action}: its check`);
@@ -1580,8 +1579,10 @@ test("a shell row's Stop and Dismiss at the panel's least and widest width: a 16
           for (const [index, mark] of marks.marks.entries()) {
             const label = `${what}, ${mark.icon} ${index}`;
             icons.add(mark.icon);
-            near(mark.size[0], 16, `${label}: the mark's width`);
-            near(mark.size[1], 16, `${label}: the mark's height`);
+            // Stop's filled square at the 12px state marks' size, the X at the 16px mark size.
+            const size = mark.icon === 'stop' ? 12 : 16;
+            near(mark.size[0], size, `${label}: the mark's width`);
+            near(mark.size[1], size, `${label}: the mark's height`);
             assert.ok(mark.press[0] >= 24 && mark.press[1] >= 24, `${label}: a press area of 24px: ${mark.press}`);
             assert.ok(
               mark.right <= marks.clip + 0.5,
@@ -1618,7 +1619,7 @@ test("a shell row's Stop and Dismiss at the panel's least and widest width: a 16
   assert.deepEqual(errors, []);
 });
 
-test("the panel's type on the island panels' tiers: each role (title, head figures, kind line, row name, command, state and clock, foot, button) one size, line height and weight token", async () => {
+test("the panel's type on the island panels' tiers: each role (title, head figures, kind line, row at rest and its figures, agent name, command, state and clock, foot, button) one size, line height and weight token", async () => {
   const { page, errors } = await openFixture();
   await page.evaluate((width) => window.mountFixture(width), SESSION_RAIL_MIN_WIDTH);
   await page.waitForSelector('[data-category="changes"] .session-rail-ft .composer-island-button');
@@ -1628,8 +1629,13 @@ test("the panel's type on the island panels' tiers: each role (title, head figur
     kind: '.session-rail .composer-island-agent-fold',
     name: '.session-rail .agent-pool-row:not([data-working]) .agent-pool-name',
     working: '.session-rail .agent-pool-row[data-working] .agent-pool-name',
+    row:
+      '.session-rail-group > .session-rail-row:not([data-status="in_progress"]) > .session-rail-cut, ' +
+      '.session-rail-part > .session-rail-cut, [data-category="changes"] .session-rail-row .turn-review-files-name',
+    rowFigures:
+      '.session-rail-part > .session-rail-num, .session-rail-row > .diff-stats, .session-rail .agent-row-steps',
     command: '.session-rail .composer-island-shell-command',
-    state: '.session-rail .composer-island-jobs .agent-activity-elapsed',
+    state: '.session-rail .composer-island-jobs .agent-activity-elapsed, .session-rail-goal-line',
     foot: '.session-rail-ft',
     button: '.session-rail-ft .composer-island-button',
   });

@@ -190,10 +190,10 @@ async function railCard(t, props) {
   const { document, root } = await mount(t, null);
   const proto = window.HTMLElement.prototype;
   const captured = new Set();
-  proto.setPointerCapture ??= function (id) {
+  proto.setPointerCapture ??= (id) => {
     captured.add(id);
   };
-  proto.releasePointerCapture ??= function (id) {
+  proto.releasePointerCapture ??= (id) => {
     captured.delete(id);
   };
   proto.hasPointerCapture ??= (id) => captured.has(id);
@@ -421,11 +421,16 @@ test('a category is absent when it has nothing, and its body and Clean up show o
   assert.equal(section.querySelector('[data-kind="close-all"]'), null, 'no Clean up while closed');
   assert.equal(section.querySelector('.session-rail-bd'), null);
   assert.equal(section.querySelector('.session-rail-ft'), null);
-  // The head's figures stand at its end: the mark while one runs, then how many it lists; the chevron right after
-  // the name.
-  const figures = () => [...document.querySelector('[data-category="shells"] .session-rail-ct > .session-rail-todo-figure').children];
+  // The head's figures stand at its end: the mark, then how many still run; the chevron right after the name.
+  const figures = () => [
+    ...document.querySelector('[data-category="shells"] .session-rail-ct > .session-rail-todo-figure').children,
+  ];
   const read = () => figures().map((part) => [part.className, part.textContent]);
-  assert.deepEqual(read(), [['', '1']], 'only an ended shell: its count, no mark');
+  assert.equal(
+    document.querySelector('[data-category="shells"] .session-rail-ct'),
+    null,
+    'only an ended shell: neither the mark nor a count'
+  );
   assert.equal(document.querySelector('[data-category="shells"] .session-rail-sm').textContent, '');
   assert.ok(
     document.querySelector('[data-category="shells"] .session-rail-tt + .session-rail-cv'),
@@ -448,9 +453,9 @@ test('a category is absent when it has nothing, and its body and Clean up show o
     read(),
     [
       ['composer-island-mark-slot', ''],
-      ['', '3'],
+      ['', '2'],
     ],
-    'two running of three: the mark, then the count'
+    'two running of three: the mark, then the running count'
   );
   assert.equal(figures()[0].querySelector('.composer-island-dot-idle'), null, 'a running shell: the mark pulses');
 });
@@ -507,7 +512,7 @@ test("each foot's Clean up: Shells' only while an ended shell is listed, Agents'
   );
 });
 
-test("the Agents head reads as the island's segment after its name: how many it lists, then the mark while any works or waits; no state words, no total", async (t) => {
+test("the Agents head reads as the island's segment after its name: the mark and how many are in progress, neither while none is; no state words, no total", async (t) => {
   const { AgentsSection } = await import('./session-rail-jobs.tsx');
   const section = (pool) =>
     React.createElement(AgentsSection, {
@@ -520,22 +525,24 @@ test("the Agents head reads as the island's segment after its name: how many it 
       onToggle() {},
     });
   const head = () =>
-    [...document.querySelectorAll('[data-category="agents"] .session-rail-ct > .session-rail-todo-figure > *')].map((part) => [
-      part.className.baseVal ?? part.className,
-      part.textContent,
-    ]);
+    [...document.querySelectorAll('[data-category="agents"] .session-rail-ct > .session-rail-todo-figure > *')].map(
+      (part) => [part.className.baseVal ?? part.className, part.textContent]
+    );
   const mark = () =>
-    document.querySelector('[data-category="agents"] .session-rail-ct > .session-rail-todo-figure > .composer-island-mark-slot');
+    document.querySelector(
+      '[data-category="agents"] .session-rail-ct > .session-rail-todo-figure > .composer-island-mark-slot'
+    );
   const idle = { ...agent('idle', 'completed'), settledAt: Date.now() - 1_000 };
   const { document, root } = await mount(t, section([idle]));
-  assert.deepEqual(head(), [['', '1']], 'an agent at rest: its count, no mark');
+  assert.deepEqual(head(), [], 'an agent at rest: neither the mark nor a count');
+  assert.equal(document.querySelector('[data-category="agents"] .session-rail-ct'), null);
   assert.equal(
     document.querySelector('[data-category="agents"] .session-rail-sm').textContent,
     '',
     'nothing at the end'
   );
   await act(async () => root.render(section([agent('stopped', 'cancelled')])));
-  assert.deepEqual(head(), [['', '1']], 'a cancelled agent');
+  assert.deepEqual(head(), [], 'a cancelled agent');
   await act(async () =>
     root.render(section([idle, agent('stopped', 'cancelled'), agent('queued', 'running', 'resource_wait')]))
   );
@@ -543,9 +550,9 @@ test("the Agents head reads as the island's segment after its name: how many it 
     head(),
     [
       ['composer-island-mark-slot', ''],
-      ['', '3'],
+      ['', '1'],
     ],
-    'a queued agent waits: the mark, then the count'
+    'a queued agent waits: the mark, then the one in progress'
   );
   assert.ok(mark().querySelector('.composer-island-dot-idle'), 'only waiting: the mark rests');
   await act(async () =>
@@ -553,20 +560,22 @@ test("the Agents head reads as the island's segment after its name: how many it 
   );
   assert.deepEqual(head(), [
     ['composer-island-mark-slot', ''],
-    ['', '3'],
+    ['', '2'],
   ]);
   assert.equal(mark().querySelector('.composer-island-dot-idle'), null, 'an agent at work: the mark pulses');
   // An agent waiting on the user: the attention mark in the mark's place, after the count.
   const asking = { ...agent('ask', 'running', 'tool_running'), awaitingUser: 'approval' };
   await act(async () => root.render(section([idle, agent('a', 'running', 'streaming'), asking])));
-  const parts = [...document.querySelectorAll('[data-category="agents"] .session-rail-ct > .session-rail-todo-figure > *')];
+  const parts = [
+    ...document.querySelectorAll('[data-category="agents"] .session-rail-ct > .session-rail-todo-figure > *'),
+  ];
   assert.deepEqual(
     parts.map((part) => [part.classList.contains('composer-island-attention'), part.textContent]),
     [
       [true, ''],
-      [false, '3'],
+      [false, '2'],
     ],
-    'the attention mark, then the count'
+    'the attention mark, then the count: the agent waiting on the user is in progress'
   );
 });
 
@@ -691,10 +700,10 @@ test("the Agents section is the island's list: a fold a kind, a line an agent wi
   ]);
   assert.equal(folds()[2].querySelector('.composer-island-agent-fold-model').textContent, ' · claude-fable');
   const review = list.querySelector('[data-agent-tag="review"]');
+  // Its one agent finished: nothing in progress, so neither the mark nor a count; the row is still listed.
   assert.deepEqual(parts(fold('Reviewer')), [
     ['composer-island-agent-fold-name', 'Reviewer'],
     ['svg', 'lucide-chevron-down'],
-    ['composer-island-agent-fold-count', '1'],
   ]);
   assert.equal(fold('Reviewer').title, review.title.split('\n')[0], "the route is the kind line's tooltip");
   assert.deepEqual(
@@ -1788,7 +1797,7 @@ test("Context is a category of its own: the share, a bar and the two actions; ab
   assert.deepEqual(opened, ['context']);
 });
 
-test("Context's rows, bar and free space add up to the head's reading when the kinds' estimates fall short of it or overrun it", async (t) => {
+test("Context's kinds divide the head's reading in their estimated proportions, whether the estimates fall short of it or overrun it", async (t) => {
   const { ContextSection } = await import('./session-rail-info.tsx');
   const element = (used) =>
     React.createElement(ContextSection, {
@@ -1801,11 +1810,11 @@ test("Context's rows, bar and free space add up to the head's reading when the k
       },
       onViewDetails() {},
     });
-  // The kinds are estimated at 290k together.
-  const { document, root } = await mount(t, element(470000), {
+  // The kinds are estimated at 240k together.
+  const { document, root } = await mount(t, element(480000), {
     invokeCapability: async () => ({
       value: {
-        messages: { semantic: { system: { tokens: 10000 }, chat: { tokens: 270000 } } },
+        messages: { semantic: { system: { tokens: 10000 }, chat: { tokens: 220000 } } },
         request: { toolSchemaBreakdown: { code: { tokens: 10000 } } },
       },
     }),
@@ -1818,32 +1827,67 @@ test("Context's rows, bar and free space add up to the head's reading when the k
       row.querySelector('.session-rail-share').textContent,
     ]);
   const filled = () =>
-    [...section().querySelectorAll('[role="meter"] > b')].reduce((sum, part) => sum + Number.parseFloat(part.style.width), 0);
-  assert.equal(section().querySelector('.session-rail-sm').textContent, '470k / 500k · 94.0%');
-  // The estimates stand as estimated; the 180k the reading holds beyond them is a row of its own, and the free space
-  // is what the reading leaves, not what the estimates leave.
+    [...section().querySelectorAll('[role="meter"] > b')].reduce(
+      (sum, part) => sum + Number.parseFloat(part.style.width),
+      0
+    );
+  assert.equal(section().querySelector('.session-rail-sm').textContent, '480k / 500k · 96.0%');
+  // A reading twice the estimates: every kind's figure and segment doubles, the rows add up to the reading, and the
+  // free space is what the reading leaves.
   assert.deepEqual(rows(), [
-    ['messages', '270k', '54.0%'],
-    ['system', '10k', '2.0%'],
-    ['tools', '10k', '2.0%'],
+    ['messages', '440k', '88.0%'],
+    ['system', '20k', '4.0%'],
+    ['tools', '20k', '4.0%'],
     ['mcp', '0', '0.0%'],
-    ['other', '180k', '36.0%'],
-    ['free', '30k', '6.0%'],
+    ['free', '20k', '4.0%'],
   ]);
-  assert.ok(Math.abs(filled() - 94) < 0.01, `the bar is filled to the reading: ${filled()}`);
-  // Estimates that overrun the reading keep their figures, name no remainder, and share the reading's length.
-  await act(async () => root.render(element(145000)));
   assert.deepEqual(
-    rows().map(([key, tokens]) => [key, tokens]),
-    [
-      ['messages', '270k'],
-      ['system', '10k'],
-      ['tools', '10k'],
-      ['mcp', '0'],
-      ['free', '355k'],
-    ]
+    [...section().querySelectorAll('[role="meter"] > b')].map((part) => part.dataset.contextKey),
+    ['messages', 'system', 'tools']
   );
-  assert.ok(Math.abs(filled() - 29) < 0.01, `the bar is filled to the reading: ${filled()}`);
+  assert.ok(Math.abs(filled() - 96) < 0.01, `the bar is filled to the reading: ${filled()}`);
+  // A reading half the estimates: the same proportions of the smaller figure.
+  await act(async () => root.render(element(120000)));
+  assert.deepEqual(rows(), [
+    ['messages', '110k', '22.0%'],
+    ['system', '5.0k', '1.0%'],
+    ['tools', '5.0k', '1.0%'],
+    ['mcp', '0', '0.0%'],
+    ['free', '380k', '76.0%'],
+  ]);
+  assert.ok(Math.abs(filled() - 24) < 0.01, `the bar is filled to the reading: ${filled()}`);
+});
+
+test('Context divides a reading into whole tokens that add up to it, and shows no rows for one it cannot divide', async (t) => {
+  const { contextMix } = await import('./ContextBody.tsx');
+  const thirds = {
+    messages: { semantic: { system: { tokens: 1 }, chat: { tokens: 1 } } },
+    request: { toolSchemaBreakdown: { code: { tokens: 1 } } },
+  };
+  assert.equal(
+    contextMix(thirds, 1000, 500).categories.reduce((sum, category) => sum + category.tokens, 0),
+    500,
+    'the rounding remainder is shared out'
+  );
+  const { ContextSection } = await import('./session-rail-info.tsx');
+  const { document } = await mount(
+    t,
+    React.createElement(ContextSection, {
+      open: true,
+      onToggle() {},
+      snapshot: {
+        sessionId: 'sess_no_estimates',
+        contextTokens: 500000,
+        stats: { currentContextTokens: 120000, currentContextSource: 'last_api_request' },
+      },
+      onViewDetails() {},
+    }),
+    { invokeCapability: async () => ({ value: {} }) }
+  );
+  const section = document.querySelector('[data-category="context"]');
+  assert.equal(section.querySelector('.session-rail-sm').textContent, '120k / 500k · 24.0%');
+  assert.equal(section.querySelectorAll('.session-rail-part').length, 0, 'no row claims the window is free');
+  assert.equal(section.querySelector('[role="meter"] > i').style.width, '24%');
 });
 
 test('Context reads its rows again with each reading of a running turn, and keeps them through a compaction', async (t) => {
@@ -1882,7 +1926,7 @@ test('Context reads its rows again with each reading of a running turn, and keep
   assert.equal(messages().textContent, '4.0k');
 });
 
-test("Context mounted on an unmeasured window shows its rows and their estimated sum in the head", async (t) => {
+test('Context mounted on an unmeasured window shows its rows and their estimated sum in the head', async (t) => {
   const { ContextSection } = await import('./session-rail-info.tsx');
   const asked = [];
   const pending = { currentContextTokens: null, currentContextSource: 'pending' };

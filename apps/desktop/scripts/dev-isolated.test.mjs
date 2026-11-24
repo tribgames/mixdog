@@ -170,6 +170,20 @@ test('the instance environment never names the real data, userData or the shared
     /MIXDOG_DATA_DIR/
   );
   assert.throws(() => assertIsolation({ ...env, MIXDOG_RELAY_URL: '' }, ports), /relay/);
+  // A provider's credential file named by its variable may not be one of the shared locations' files.
+  for (const shared of [join(homedir(), '.mixdog', 'data'), persistentDevProfileDir('default', parent)]) {
+    assert.throws(
+      () => assertIsolation({ ...env, CURSOR_OAUTH_CREDENTIALS_PATH: join(shared, 'cursor-oauth.json') }, ports),
+      /CURSOR_OAUTH_CREDENTIALS_PATH/
+    );
+  }
+  assert.throws(
+    () => assertIsolation({ ...env, OPENAI_OAUTH_CREDENTIALS_PATH: join(homedir(), '.mixdog') }, ports),
+    /OPENAI_OAUTH_CREDENTIALS_PATH/
+  );
+  assert.doesNotThrow(() =>
+    assertIsolation({ ...env, CURSOR_OAUTH_CREDENTIALS_PATH: join(instanceDir, 'cursor-oauth.json') }, ports)
+  );
   assert.throws(() => assertIsolation(env, { ...ports, cdpPort: DEV_DEBUG_PORT }), /9342/);
   assert.throws(() => assertIsolation(env, { ...ports, rendererPort: devRendererPortFor(DEV_DEBUG_PORT) }), /9342/);
   // An instance root placed inside a shared location is refused too.
@@ -425,27 +439,38 @@ test('a start with --copy-auth is refused, and cleaned up, when the GPT access t
 test('the core an instance would start is found as the app finds it: MIXDOGD_BIN, else mixdogd on PATH', () => {
   const bin = join(fixtureBase, 'core', 'mixdogd.exe');
   const onPath = join(fixtureBase, 'tools', 'mixdogd.exe');
-  const only = (...files) => ({ platform: 'win32', cwd: join(fixtureBase, 'cwd'), canRun: (path) => files.includes(path) });
+  const only = (...files) => ({
+    platform: 'win32',
+    cwd: join(fixtureBase, 'cwd'),
+    canRun: (path) => files.includes(path),
+  });
   assert.equal(assertCoreBinary({ MIXDOGD_BIN: bin }, only(bin)), bin);
-  assert.equal(assertCoreBinary({ Path: [join(fixtureBase, 'empty'), join(fixtureBase, 'tools')].join(delimiter) }, only(onPath)), onPath);
-  assert.throws(() => assertCoreBinary({ MIXDOGD_BIN: bin, Path: join(fixtureBase, 'tools') }, only(onPath)), /MIXDOGD_BIN names no file that can be run/);
-  assert.throws(() => assertCoreBinary({ Path: join(fixtureBase, 'empty') }, only(bin)), /MIXDOGD_BIN is not set and PATH has no mixdogd that can be run/);
+  assert.equal(
+    assertCoreBinary({ Path: [join(fixtureBase, 'empty'), join(fixtureBase, 'tools')].join(delimiter) }, only(onPath)),
+    onPath
+  );
+  assert.throws(
+    () => assertCoreBinary({ MIXDOGD_BIN: bin, Path: join(fixtureBase, 'tools') }, only(onPath)),
+    /MIXDOGD_BIN names no file that can be run/
+  );
+  assert.throws(
+    () => assertCoreBinary({ Path: join(fixtureBase, 'empty') }, only(bin)),
+    /MIXDOGD_BIN is not set and PATH has no mixdogd that can be run/
+  );
 });
 
-test(
-  'a core without execute permission is refused like a missing one',
-  { skip: process.platform === 'win32' && 'Windows has no execute bit' },
-  async (t) => {
-    const root = await tempRoot(t);
-    const bin = join(root, 'mixdogd');
-    await writeFile(bin, '', { mode: 0o644 });
-    assert.throws(() => assertCoreBinary({ MIXDOGD_BIN: bin }), /MIXDOGD_BIN names no file that can be run/);
-    assert.throws(() => assertCoreBinary({ PATH: root }), /PATH has no mixdogd that can be run/);
-    await chmod(bin, 0o755);
-    assert.equal(assertCoreBinary({ MIXDOGD_BIN: bin }), bin);
-    assert.equal(assertCoreBinary({ PATH: root }), bin);
-  }
-);
+test('a core without execute permission is refused like a missing one', {
+  skip: process.platform === 'win32' && 'Windows has no execute bit',
+}, async (t) => {
+  const root = await tempRoot(t);
+  const bin = join(root, 'mixdogd');
+  await writeFile(bin, '', { mode: 0o644 });
+  assert.throws(() => assertCoreBinary({ MIXDOGD_BIN: bin }), /MIXDOGD_BIN names no file that can be run/);
+  assert.throws(() => assertCoreBinary({ PATH: root }), /PATH has no mixdogd that can be run/);
+  await chmod(bin, 0o755);
+  assert.equal(assertCoreBinary({ MIXDOGD_BIN: bin }), bin);
+  assert.equal(assertCoreBinary({ PATH: root }), bin);
+});
 
 test('a start with no core to run is refused before anything is built, and cleaned up', async (t) => {
   const root = await tempRoot(t);
@@ -766,7 +791,6 @@ async function signInToXai(dataDir, refreshToken) {
 const readJsonFile = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const readCredential = (dataDir, name = 'grok-oauth.json') => readJsonFile(join(dataDir, name));
 
-
 test('an xAI sign-in made in an instance reaches the next start, with no flag, with its refresh token', async (t) => {
   const root = await tempRoot(t);
   const { profile } = await devProfile(root, { secrets: false });
@@ -824,7 +848,15 @@ test('a start while a live instance, or one whose lease cannot be read, holds th
   await writeFile(record, 'null');
   await heldOut('nameless', /names no instance/);
   // The holder's own stop finds its record under the root however a shell spelled it.
-  await writeFile(record, process.platform === 'win32' ? written.replace(/"root":"([a-z])/i, (_, drive) => `"root":"${drive === drive.toUpperCase() ? drive.toLowerCase() : drive.toUpperCase()}`) : written);
+  await writeFile(
+    record,
+    process.platform === 'win32'
+      ? written.replace(
+          /"root":"([a-z])/i,
+          (_, drive) => `"root":"${drive === drive.toUpperCase() ? drive.toLowerCase() : drive.toUpperCase()}`
+        )
+      : written
+  );
 
   assert.deepEqual((await holder.stop()).carried, ['grok-oauth']);
   const next = await keepAuthInstance(root, profile, 'next');
@@ -951,7 +983,9 @@ test('the roster an instance gets is version 1 and keeps the kept and the carrie
 const OAUTH_SIGN_INS = {
   'cursor-oauth.json': { access_token: 'cursor-access', refresh_token: 'cursor-refresh' },
   'openai-oauth.json': { access_token: 'gpt-access', refresh_token: 'gpt-refresh', account_id: 'acct' },
-  'anthropic-oauth-credentials.json': { claudeAiOauth: { accessToken: 'claude-access', refreshToken: 'claude-refresh' } },
+  'anthropic-oauth-credentials.json': {
+    claudeAiOauth: { accessToken: 'claude-access', refreshToken: 'claude-refresh' },
+  },
   'antigravity-oauth.json': { access_token: 'ag-access', refresh_token: 'ag-refresh', project_id: 'proj' },
   'provider-accounts/cursor-oauth/0b0f1c3e-2a4d-4e6f-8a1b-2c3d4e5f6a7b.json': {
     access_token: 'cursor-2-access',
@@ -985,11 +1019,17 @@ test('every OAuth sign-in survives a stop and the reclaim of an instance whose o
   await writeFile(join(second.dataDir, 'cursor-oauth.json'), JSON.stringify(rotated));
   await writeFile(join(root, 'leases', 'second.json'), JSON.stringify({ ...second.lease, pid: await deadPid() }));
   const swept = await sweep(root, { list: () => [], devProfileDir: profile });
-  assert.deepEqual(swept.map((result) => [result.name, result.removed]), [['second', true]]);
+  assert.deepEqual(
+    swept.map((result) => [result.name, result.removed]),
+    [['second', true]]
+  );
 
   const third = await keepAuthInstance(root, profile, 'third');
   assert.deepEqual(await readCredential(third.dataDir, 'cursor-oauth.json'), rotated);
-  assert.deepEqual(await readCredential(third.dataDir, 'antigravity-oauth.json'), OAUTH_SIGN_INS['antigravity-oauth.json']);
+  assert.deepEqual(
+    await readCredential(third.dataDir, 'antigravity-oauth.json'),
+    OAUTH_SIGN_INS['antigravity-oauth.json']
+  );
 });
 
 test('an instance started before sign-ins were kept saves its own at stop, unless another instance holds them', async (t) => {
@@ -1033,7 +1073,11 @@ test('an instance started before sign-ins were kept saves its own at stop, unles
 /** The instance config as startInstance leaves it: the ready config, then the kept providers' config. */
 async function seedConfigAsStart(instance, profile, { copyAuth, skipOnboarding }) {
   if (copyAuth || skipOnboarding) {
-    await seedReadyConfig(instance.dataDir, { withRoutes: copyAuth, skipOnboarding, devDataDir: join(profile, 'data') });
+    await seedReadyConfig(instance.dataDir, {
+      withRoutes: copyAuth,
+      skipOnboarding,
+      devDataDir: join(profile, 'data'),
+    });
   }
   await restoreProviderConfig(instance.dataDir, instance.providerConfigs, instance.developerOptions);
   // A first start with nothing kept and onboarding left to run writes no config.

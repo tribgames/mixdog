@@ -54,6 +54,7 @@ use super::redirect;
 use super::serving::Tier;
 use super::serving::VertexAccount;
 use crate::catalog::ListingLookup;
+use crate::providers::connect::stream::decode_read;
 use crate::providers::first_byte::FirstBytePolicy;
 use crate::providers::first_byte::FirstByteSettings;
 use crate::providers::first_byte::attempt_budget;
@@ -1600,10 +1601,15 @@ impl ModelStream for GoogleStream {
             }
             match self.body.next().await {
                 Some(Ok(chunk)) => {
-                    let decoded = self.decoder.wire().feed(&chunk);
+                    let decoded = decode_read(self.decoder.wire(), Some(&chunk));
                     self.publish_usage();
                     match decoded {
-                        Ok(events) => self.push(events),
+                        Ok((events, held)) => {
+                            self.push(events);
+                            if let Some(err) = held {
+                                self.failed(err).await;
+                            }
+                        }
                         Err(err) => self.failed(err).await,
                     }
                 }
@@ -1637,12 +1643,16 @@ impl ModelStream for GoogleStream {
                             Ok((events, None)) => self.push(events),
                         }
                     }
-                    let decoded = self.decoder.wire().finish();
+                    let decoded = decode_read(self.decoder.wire(), None);
                     self.publish_usage();
                     match decoded {
-                        Ok(events) => {
+                        Ok((events, None)) => {
                             self.ended = true;
                             self.push(events);
+                        }
+                        Ok((events, Some(err))) => {
+                            self.push(events);
+                            self.failed(err).await;
                         }
                         Err(err) => self.failed(err).await,
                     }
@@ -1662,3 +1672,60 @@ impl ModelStream for GoogleStream {
 #[cfg(test)]
 #[path = "continuation_tests.rs"]
 mod continuation_tests;
+
+#[cfg(test)]
+mod held_failure_tests {
+    use mixdog_core_api::domain::provider::Content;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::ToolDefinition;
+
+    use super::super::decode::DecodeDialect;
+    use super::super::decode::UsageStyle;
+    use super::super::error::ErrorDialect;
+    use super::super::serving::Wire;
+    use super::*;
+    use crate::providers::connect::stream::tests::Scripted;
+    use crate::providers::connect::stream::tests::read_out;
+
+    /// A failure a Google route's decoder holds back behind events ends the turn as itself: a Gemini refusal behind text
+    /// of the same read, though the body stays open until the stall deadline ends it, and the filter that stopped an open
+    /// model's turn, behind the held-back text the body's end flushes.
+    #[tokio::test]
+    async fn a_failure_held_behind_events_ends_the_turn_as_itself() {
+        let gemini = GeminiDecoder::new(DecodeDialect {
+            owner: ProviderId::from("gemini"),
+            envelope: false,
+            usage: UsageStyle::Inclusive,
+            errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
+        });
+        let body = Scripted::stalling(&[concat!(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hi\"}]}}]}\n\n",
+            "data: {\"error\":{\"code\":403,\"message\":\"denied\",\"status\":\"PERMISSION_DENIED\"}}\n\n",
+        )]);
+        let mut stream = GoogleStream::with_decoder(Box::new(body), Decoder::Gemini(Box::new(gemini)));
+        let (events, failure) = read_out(&mut stream).await;
+        assert!(events.contains(&StreamEvent::TextDelta("Hi".into())));
+        let failure = failure.expect("the refusal");
+        assert_eq!((failure.status, failure.timed_out), (Some(403), false));
+
+        let request = ModelRequest {
+            model: "deepseek-ai/deepseek-v3".into(),
+            messages: vec![Message::new(Role::User, Content::Text("Look it up.".into()))],
+            tools: vec![ToolDefinition {
+                name: "lookup".into(),
+                description: "Read a value".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+                defer_loading: false,
+                freeform: None,
+            }],
+            options: Default::default(),
+        };
+        let model = VertexModel { publisher: "deepseek-ai".into(), id: "deepseek-v3".into(), wire: Wire::Maas };
+        let body = Scripted::ending(&["data: {\"choices\":[{\"delta\":{\"content\":\"Hi <invo\"},\"finish_reason\":\"content_filter\"}]}\n\n"]);
+        let mut stream = GoogleStream::consume(Box::new(body), Box::new(super::super::maas::decoder(&request, &model)));
+        let (events, failure) = read_out(&mut stream).await;
+        let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+        assert_eq!(text, "Hi <invo");
+        assert_eq!(failure.expect("the filter").code.as_deref(), Some("PROVIDER_INCOMPLETE"));
+    }
+}

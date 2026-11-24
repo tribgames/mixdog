@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_ai::catalog::ListingLookup;
+use mixdog_ai::providers::openai::adapter::Attempt;
 use mixdog_ai::providers::openai::adapter::Credential;
 use mixdog_ai::providers::openai::adapter::CredentialSource;
 use mixdog_ai::providers::openai::codec::OpenAiCodec;
@@ -74,13 +75,10 @@ struct Creds(Credential);
 
 #[async_trait]
 impl CredentialSource for Creds {
-    async fn current(&self) -> Result<mixdog_ai::providers::openai::adapter::Attempt, ProviderError> {
+    async fn current(&self) -> Result<Attempt, ProviderError> {
         Ok(self.0.clone().into())
     }
-    async fn after_rejection(
-        &self,
-        _: &mixdog_ai::providers::openai::adapter::Attempt,
-    ) -> Result<Option<mixdog_ai::providers::openai::adapter::Attempt>, ProviderError> {
+    async fn after_rejection(&self, _: &Attempt) -> Result<Option<Attempt>, ProviderError> {
         Ok(None)
     }
 }

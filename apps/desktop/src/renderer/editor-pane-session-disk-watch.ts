@@ -5,7 +5,9 @@ import { fileAccessError } from './editor-pane-session-errors';
 
 /** While the tab is active, a newer mtime on disk reloads a clean buffer and
  *  flags a dirty one as changed on disk. Binary and oversized files are
- *  skipped. Changes are pushed by the core's file watch. */
+ *  skipped. Changes are pushed by the core's file watch; the file is also
+ *  checked once when the watch starts, for a change made while the tab was
+ *  inactive. */
 export function useEditorDiskWatch({
   api,
   projectPath,
@@ -40,22 +42,28 @@ export function useEditorDiskWatch({
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge restarts the watch.
   useEffect(() => {
     if (!active || !load || load.binary || load.tooLarge) return undefined;
-    return startEditorDiskWatch(api, projectPath, relPath, () => {
-      if (document.body.dataset.tabDragging) return;
-      void api
-        ?.statProjectFile?.(projectPath, relPath, accessToken)
-        .then((info) => {
-          if (!info || info.mtimeMs <= savedMtime.current) return;
-          const model = readModel();
-          const isDirty = Boolean(held?.current) || (model ? model.getValue() !== savedText.current : false);
-          if (isDirty) setDiskChanged(true);
-          else reload();
-        })
-        .catch((reason) => {
-          if (!readModel()) return;
-          setDiskChanged(true);
-          setSaveError(fileAccessError(reason));
-        });
-    });
+    return startEditorDiskWatch(
+      api,
+      projectPath,
+      relPath,
+      () => {
+        if (document.body.dataset.tabDragging) return;
+        void api
+          ?.statProjectFile?.(projectPath, relPath, accessToken)
+          .then((info) => {
+            if (!info || info.mtimeMs <= savedMtime.current) return;
+            const model = readModel();
+            const isDirty = Boolean(held?.current) || (model ? model.getValue() !== savedText.current : false);
+            if (isDirty) setDiskChanged(true);
+            else reload();
+          })
+          .catch((reason) => {
+            if (!readModel()) return;
+            setDiskChanged(true);
+            setSaveError(fileAccessError(reason));
+          });
+      },
+      { checkOnStart: true }
+    );
   }, [accessToken, active, api, readModel, load, projectPath, relPath, reload]);
 }

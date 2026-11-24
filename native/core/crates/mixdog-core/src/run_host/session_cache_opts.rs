@@ -147,18 +147,20 @@ fn opts_with(route: &CacheRoute<'_>, agent: Option<&str>, auto_clear: &Value, en
 /// `provider`'s `model`, sent on `wire` (the adapter's resolution for the call; `None` for a provider of one wire);
 /// `auto_clear` is the config's `autoClear` section. `None` when the route and the agent state no policy.
 pub fn call_cache_opts(provider: &str, model: &str, wire: Option<&str>, agent: Option<&str>, auto_clear: &Value) -> Option<Value> {
-    let agent = agent.filter(|a| !a.is_empty());
-    let env = std::env::var("MIXDOG_CACHE_MESSAGES_TTL").unwrap_or_default();
     let pin = wire.map(|wire| json!({ "provider": provider, "model": model, "wire": wire }));
-    opts_with(&CacheRoute { provider, model, wire_route: pin.as_ref() }, agent, auto_clear, env.trim())
+    opts_in_env(&CacheRoute { provider, model, wire_route: pin.as_ref() }, agent, auto_clear)
 }
 
-/// [`session_provider_cache_opts`] for the route `header` names: its model and pinned wire decide whether a gateway's
+/// `buildSessionProviderCacheOpts` for the route `header` names: its model and pinned wire decide whether a gateway's
 /// requests are Anthropic Messages bodies.
 pub fn route_cache_opts(header: &Header, agent: Option<&str>, auto_clear: &Value) -> Option<Value> {
+    opts_in_env(&CacheRoute::of(header), agent, auto_clear)
+}
+
+fn opts_in_env(route: &CacheRoute<'_>, agent: Option<&str>, auto_clear: &Value) -> Option<Value> {
     let agent = agent.filter(|a| !a.is_empty());
     let env = std::env::var("MIXDOG_CACHE_MESSAGES_TTL").unwrap_or_default();
-    opts_with(&CacheRoute::of(header), agent, auto_clear, env.trim())
+    opts_with(route, agent, auto_clear, env.trim())
 }
 
 pub fn stamp_cache_opts(header: &mut Header, auto_clear: &Value) {

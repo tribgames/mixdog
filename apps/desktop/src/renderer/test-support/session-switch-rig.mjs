@@ -63,7 +63,14 @@ export async function openSwitchPage(browser, { width = 1180, height = 820 } = {
   const profile = await browser.createBrowserContext();
   const page = await profile.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(String(error.stack ?? error).split('\n').slice(0, 4).join(' <- ')));
+  page.on('pageerror', (error) =>
+    errors.push(
+      String(error.stack ?? error)
+        .split('\n')
+        .slice(0, 4)
+        .join(' <- ')
+    )
+  );
   await page.setViewport({ width, height });
   // A real origin: stores that persist (font settings, panel state) refuse an opaque one.
   await page.setRequestInterception(true);

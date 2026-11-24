@@ -30,7 +30,10 @@ test('an aggregate card with a stopped member is stopped, and its members read a
 });
 
 test('a stored call with a result is done, an empty one too; a call still open is running', () => {
-  assert.deepEqual(toolCallOutcome(rowOf(stored('completed', { result: 'a.txt' }))), { state: 'done', tone: 'neutral' });
+  assert.deepEqual(toolCallOutcome(rowOf(stored('completed', { result: 'a.txt' }))), {
+    state: 'done',
+    tone: 'neutral',
+  });
   assert.deepEqual(toolCallOutcome(rowOf(stored('completed', { result: '' }))), { state: 'done', tone: 'neutral' });
   assert.deepEqual(toolCallOutcome(rowOf({ ...stored(undefined, { completedCount: 0 }), meta: { at: 1000 } })), {
     state: 'running',

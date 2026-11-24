@@ -387,6 +387,9 @@ pub(crate) struct ControlCell {
     /// No draft file write is queued or running and none owed (a removal or sweep to try again), after the last step.
     #[cfg(any(test, feature = "test-support"))]
     pub drafts_settled: std::sync::atomic::AtomicBool,
+    /// Every job the actor started has reported and its report was taken, after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub jobs_settled: std::sync::atomic::AtomicBool,
     /// How many times the scheduled compaction held work back (a request it parked, or a queue it
     /// kept from draining), counted in the step that held it: a test that shows nothing started
     /// waits on this, so the gate was consulted before it asserts.

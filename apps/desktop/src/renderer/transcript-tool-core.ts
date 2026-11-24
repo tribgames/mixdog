@@ -12,6 +12,7 @@ import { parseMcpToolName, titleCaseMcpServer, toolCallDisplayIdentity } from '.
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { bridgeDescribeResult, deriveToolOutcomeTone, resultTerminalStatus } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { cancelledCallWasStopped, toolResultControlStatus } from '../../../../packages/protocol-client/src/rows/tool-status.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -910,7 +911,8 @@ function toolActivitySummaryPhrase(unit: SummaryUnit, count: number, past: boole
       if (count === 1) return past ? t('Cancelled task') : t('Cancel task');
       return past ? t('Cancelled {{count}} tasks', { count }) : t('Cancel {{count}} tasks', { count });
     default:
-      return count > 1 ? countedUnitLabel(unit.label, count, past) : past ? unit.pastLabel : unit.label;
+      if (count > 1) return countedUnitLabel(unit.label, count, past);
+      return past ? unit.pastLabel : unit.label;
   }
 }
 
@@ -1004,9 +1006,7 @@ function changedFiles(name: unknown, args: unknown): string[] {
     .filter((section) => section.startsWith('diff --git '))
     .map(
       (section) =>
-        section.match(/^diff --git a\/(.+) b\/\1[ \t]*$/m)?.[1] ??
-        section.match(/^\+\+\+ b\/(.+?)[ \t]*$/m)?.[1] ??
-        ''
+        section.match(/^diff --git a\/(.+) b\/\1[ \t]*$/m)?.[1] ?? section.match(/^\+\+\+ b\/(.+?)[ \t]*$/m)?.[1] ?? ''
     );
 }
 

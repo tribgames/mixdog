@@ -674,3 +674,48 @@ async fn a_route_move_whose_status_read_fails_is_still_written() {
     assert!(status.answers.lock().unwrap().is_empty(), "the move read its status once");
     assert_answers_as_node(&shown(&handle), failed, "the move with a failed read");
 }
+/// The header writes that waited behind a route move are taken as the inbox takes them: a stored patch whose replay reads the
+/// journal holds the write sent after it until that read answers, so the two land in the order they were sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn writes_queued_behind_a_route_move_wait_for_a_stored_patchs_journal_read() {
+    use mixdog_core_api::ThreadHandle;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+    let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");
+    let rig = Rig::new();
+    let status = GatedStatus::new();
+    let (_directory, handle) = gated_thread(&rig, &status, &recorded.before).await;
+    let switch = tokio::spawn({
+        let (handle, after) = (handle.clone(), recorded.after.clone());
+        async move { move_to(&handle, &after).await }
+    });
+    held(&handle, &status, 1).await;
+    let ctx = || mixdog_core_api::call::CallContext::internal("test");
+    let method = mixdog_core_api::ids::Method("thread/header/patch");
+    let replay = mixdog_core_api::CoreRequest {
+        method,
+        params: json!({ "threadId": handle.id, "set": { "first": 1 }, "unset": [], "incarnation": &*handle.log_id }),
+        op: Some(mixdog_core_api::ids::OpId::from("stored-1")),
+        ctx: ctx(),
+    };
+    let stored = handle.stored_patch(replay, mixdog_core_ports::ports::threads::Attempt::Replay);
+    tokio::pin!(stored);
+    assert!(futures::poll!(stored.as_mut()).is_pending(), "the stored patch waits behind the move");
+    let next = mixdog_core_api::CoreRequest { method, params: json!({ "threadId": handle.id, "set": { "second": 2 }, "unset": [] }), op: None, ctx: ctx() };
+    let written = handle.request(next);
+    tokio::pin!(written);
+    assert!(futures::poll!(written.as_mut()).is_pending(), "the write waits behind the move");
+    // Taken in after both: once it is answered, both wait in the move's queue.
+    awaiting(|| "the unsaved rows".to_owned(), handle.model_messages(None)).await.expect("unsaved rows");
+    status.let_through(recorded.read.clone());
+    awaiting(|| "the stored patch to answer".to_owned(), stored).await.expect("the replay found no record and applied the change");
+    awaiting(|| "the write to answer".to_owned(), written).await.expect("written");
+    awaiting(|| "the move to answer".to_owned(), switch).await.expect("joined").expect("moved");
+    let at = |key: &str| {
+        rig.store
+            .records(&handle.id)
+            .iter()
+            .position(|(_, record)| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key(key))))
+    };
+    assert!(at("first").expect("the stored patch") < at("second").expect("the write after it"), "the write waited for the stored patch's read");
+}

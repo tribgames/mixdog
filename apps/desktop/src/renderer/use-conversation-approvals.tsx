@@ -18,12 +18,13 @@ import { useViewerDevice } from './use-viewer-device';
 
 /** A refusal the core did not confirm as a decision: the card clears its resolving state and can be answered again. */
 export const UNCONFIRMED = 'unconfirmed';
+/** `device`: the device the core says answered the request ('' when it names none). */
 type AnsweredElsewhere = { id: string; device: string };
 
 const NO_ITEMS: readonly TranscriptItem[] = [];
-/** Whether a transcript's prompts name more than one device (shared/session-devices.ts `sessionUsesMultipleDevices`):
- *  each device's first prompt is noted with its place, so a list carried on is read from the rows it did not keep. */
-const usesMultipleDevices = carriedFold<TranscriptItem, CarriedFacts<string, number>, boolean>({
+/** Whether a transcript's prompts name more than one device: each device's first prompt is noted with its place, so a
+ *  list carried on is read from the rows it did not keep. */
+export const usesMultipleDevices = carriedFold<TranscriptItem, CarriedFacts<string, number>, boolean>({
   make: () => new CarriedFacts(),
   rewind: (devices, from) => devices.rewind(from),
   read(devices, items, from) {
@@ -47,9 +48,11 @@ type LocalDecidedApproval = RetiredApproval & { sessionId: string; resultBefore:
  *  the server's resolved approval at the time of the answer. */
 function useLocalDecidedApproval(snapshot: Snapshot, decidedSessionId: string) {
   const [localDecided, setLocalDecided] = useState<LocalDecidedApproval | null>(null);
-  const resolvedId = String(snapshot.toolApprovalResult?.id ?? '');
-  const resolvedIdRef = useRef(resolvedId);
-  resolvedIdRef.current = resolvedId;
+  const resolved = snapshot.toolApprovalResult;
+  const resolvedId = String(resolved?.id ?? '');
+  // The latest resolved approval, for an answer whose reply comes back after later snapshots.
+  const resolvedRef = useRef(resolved);
+  resolvedRef.current = resolved;
   // Retired on the server's update: the resolved state moving on to another
   // approval means this one's trace has been taken (the island shows each
   // trace once, for its own duration, so the entry only has to outlive that).
@@ -66,7 +69,7 @@ function useLocalDecidedApproval(snapshot: Snapshot, decidedSessionId: string) {
     const timer = window.setTimeout(() => setLocalDecided(null), RETIRED_APPROVAL_MS);
     return () => window.clearTimeout(timer);
   }, [localDecided]);
-  return { localDecided, setLocalDecided, resolvedIdRef };
+  return { localDecided, setLocalDecided, resolvedRef };
 }
 
 export function useConversationApprovals(
@@ -85,7 +88,7 @@ export function useConversationApprovals(
     for (const id of decidedLocally.current.ids) if (!relevant.has(id)) decidedLocally.current.ids.delete(id);
   }
   const otherDeviceApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
-  const { localDecided, setLocalDecided, resolvedIdRef } = useLocalDecidedApproval(snapshot, decidedSessionId);
+  const { localDecided, setLocalDecided, resolvedRef } = useLocalDecidedApproval(snapshot, decidedSessionId);
   const retiredApproval =
     otherDeviceApproval ??
     (localDecided &&
@@ -93,8 +96,17 @@ export function useConversationApprovals(
     String(snapshot.toolApproval?.id ?? '') !== String(localDecided.approval.id ?? '')
       ? localDecided
       : null);
-  // The approval this device tried to answer after another device already had.
-  const [answeredElsewhere, setAnsweredElsewhere] = useState<AnsweredElsewhere | null>(null);
+  // The approval this device tried to answer after another device already had: it belongs to the chat it was refused
+  // in, and ends once the snapshot no longer holds that request (the island keeps a shown flash for its own time).
+  const [refusedElsewhere, setRefusedElsewhere] = useState<(AnsweredElsewhere & { sessionId: string }) | null>(null);
+  const pendingApprovalId = String(snapshot.toolApproval?.id ?? '');
+  useEffect(() => {
+    if (!refusedElsewhere) return;
+    if (refusedElsewhere.sessionId !== decidedSessionId || refusedElsewhere.id !== pendingApprovalId) {
+      setRefusedElsewhere(null);
+    }
+  }, [refusedElsewhere, decidedSessionId, pendingApprovalId]);
+  const answeredElsewhere = refusedElsewhere?.sessionId === decidedSessionId ? refusedElsewhere : null;
   const multiDevice = useMemo(() => usesMultipleDevices(snapshot.items ?? NO_ITEMS), [snapshot.items]);
   const viewerDevice = useViewerDevice();
   // Agent mode (agent-chat-mode.ts) narrows both cards to the bubble column together.
@@ -140,7 +152,7 @@ export function useConversationApprovals(
           setLocalDecided({
             sessionId: decidedSessionId,
             approval: pendingApproval,
-            resultBefore: resolvedIdRef.current,
+            resultBefore: String(resolvedRef.current?.id ?? ''),
             outcome: { approved: decision.approved === true, device: '' },
           });
         }
@@ -149,14 +161,12 @@ export function useConversationApprovals(
         // "Another device" is claimed only when the core published this request as decided. A refusal without that (this
         // connection does not hold the request, or the pane's state lags the core's) is not evidence of another device: the
         // pane reads its state again instead, and the card stays answerable until the refreshed state says otherwise.
-        if (resolvedIdRef.current === approvalId) {
-          const result = snapshot.toolApprovalResult;
-          setAnsweredElsewhere({
+        const result = resolvedRef.current;
+        if (result && String(result.id ?? '') === approvalId) {
+          setRefusedElsewhere({
+            sessionId: decidedSessionId,
             id: approvalId,
-            device:
-              multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice)
-                ? result.device
-                : '',
+            device: result.device,
           });
         } else {
           // Reproject from the client's current pending list (not the cached frame). Never awaited: the card is answerable
@@ -281,9 +291,10 @@ export function conversationIslandFlash(
     };
   }
   if (answeredElsewhere) {
+    // Named like a retired approval: whenever another device than this one answered (prompt rows never say who did).
     return {
       key: `elsewhere:${answeredElsewhere.id}`,
-      text: answeredElsewhere.device
+      text: isOtherDevice(answeredElsewhere.device, viewerDevice)
         ? `${t('Resolved on another device')} · ${t('from {{device}}', { device: answeredElsewhere.device })}`
         : t('Resolved on another device'),
     };

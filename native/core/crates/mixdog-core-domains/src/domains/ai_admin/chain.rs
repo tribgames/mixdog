@@ -4,13 +4,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::{CatalogService, ProviderReadiness, is_known_provider};
-use mixdog_ai::service::admin_models::{model_proxy_client_mode, provider_available};
-use mixdog_ai::service::admin_route::{Obj, clean, ensure_provider_enabled, finish_chain_entry, resolve_route, start_chain_entry, window_meta_of};
+use mixdog_ai::service::admin_route::{Obj, clean, finish_chain_entry, resolve_route, start_chain_entry};
 
 use serde_json::Value;
 
 use mixdog_core_config::config::Config;
+pub use mixdog_core_ports::ports::route_facts::{CatalogFacts, RouteFacts, RouteSender};
 
 /// `resolveRoute(config, {})` and `resolveChainEntry` of one runtime.
 #[async_trait]
@@ -19,83 +18,10 @@ pub trait RouteContext: Send + Sync {
     fn resolve_main(&self) -> Result<Obj, String>;
     /// `resolveChainEntry(requested, stored)`.
     async fn resolve_chain_entry(&self, requested: &Obj, stored: &Obj) -> Result<Obj, String>;
-}
-
-/// What the route services ask of the provider catalog and readiness (Node's `lookupModelMeta`,
-/// `ensureProvidersReady`, `isKnownProvider` and the capability checks).
-#[async_trait]
-pub trait RouteFacts: Send + Sync {
-    /// `isKnownProvider(provider, config)`.
-    fn is_known(&self, provider: &str, config: &Obj) -> bool;
-    /// `ensureProvidersReady(ensureProviderEnabled(config, provider))`.
-    async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String>;
-    /// `lookupModelMeta(provider, model)`.
-    fn model_meta(&self, provider: &str, model: &str) -> Value;
-    /// `lookupModelMeta(provider, model, { allowFetch: true })`: a placeholder answer is replaced by what the
-    /// provider lists now. Facts with nothing to list answer [`Self::model_meta`].
-    async fn model_meta_fetching(&self, provider: &str, model: &str) -> Value {
-        self.model_meta(provider, model)
-    }
-    /// The row whose windows size a route (`window_meta_of` over the cached provider row).
-    fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value>;
-    /// `getModelMetadataSync(model, provider)` is non-null.
-    fn catalog_knows(&self, model: &str, provider: &str) -> bool;
-    /// `fastCapableFor(provider, meta, effort, params)`.
-    fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool;
-    /// `ultrafastCapableFor(provider, meta)`.
-    fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool;
-}
-
-/// [`RouteFacts`] over the PC's catalog and provider readiness.
-pub struct CatalogFacts {
-    pub catalog: Arc<CatalogService>,
-    pub readiness: Arc<ProviderReadiness>,
-    /// The provider entries a custom provider's own model rows come from.
-    pub config: Config,
-}
-
-#[async_trait]
-impl RouteFacts for CatalogFacts {
-    /// `isKnownProvider(provider, config)` with the Developer-option gate of `providerAvailable`.
-    fn is_known(&self, provider: &str, config: &Obj) -> bool {
-        let developer = config.get("developer").cloned().unwrap_or(Value::Null);
-        let client = model_proxy_client_mode(&|name| std::env::var(name).ok());
-        is_known_provider(provider, &Value::Object(config.clone()), &|name| provider_available(name, client, &developer))
-    }
-
-    async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String> {
-        self.readiness
-            .ensure_providers_ready(Some(ensure_provider_enabled(config, provider)))
-            .await
-            .map(|_| ())
-            .map_err(|e| mixdog_ai::service::error_text::route_ready_error_text(e.message))
-    }
-
-    fn model_meta(&self, provider: &str, model: &str) -> Value {
-        self.catalog.model_meta_in(provider, model, self.config.agent().get("providers").and_then(|providers| providers.get(provider)))
-    }
-
-    async fn model_meta_fetching(&self, provider: &str, model: &str) -> Value {
-        let agent = self.config.agent();
-        self.catalog.model_meta_fetching(provider, model, agent.get("providers").and_then(|providers| providers.get(provider))).await
-    }
-
-    fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
-        let cached = self.catalog.cached_windows(provider, model).and_then(|w| serde_json::to_value(w).ok());
-        window_meta_of(Some(meta), cached.as_ref()).cloned()
-    }
-
-    fn catalog_knows(&self, model: &str, provider: &str) -> bool {
-        self.catalog.catalog_knows(model, provider)
-    }
-
-    fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
-        self.catalog.fast_capable(provider, meta, effort, params)
-    }
-
-    fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
-        self.catalog.ultrafast_capable(provider, meta)
-    }
+    /// [`RouteFacts::ensure_ready`] of `provider` against the runtime's config.
+    async fn ensure_ready(&self, provider: &str) -> Result<(), String>;
+    /// [`RouteFacts::sender`] of `provider` as it is now, nothing initialized first.
+    async fn sender(&self, provider: &str) -> Result<Option<RouteSender>, String>;
 }
 
 /// `resolveChainEntry(requested, stored)` against `config`.
@@ -127,5 +53,13 @@ impl RouteContext for CatalogRouteContext {
 
     async fn resolve_chain_entry(&self, requested: &Obj, stored: &Obj) -> Result<Obj, String> {
         resolve_chain_entry(self.facts.as_ref(), &self.config.agent(), requested, stored).await
+    }
+
+    async fn ensure_ready(&self, provider: &str) -> Result<(), String> {
+        self.facts.ensure_ready(&self.config.agent(), provider).await
+    }
+
+    async fn sender(&self, provider: &str) -> Result<Option<RouteSender>, String> {
+        self.facts.sender(None, provider).await
     }
 }

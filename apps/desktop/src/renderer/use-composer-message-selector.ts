@@ -54,8 +54,11 @@ export function useComposerMessageSelector({
   const [stored, setStored] = useState<{ sessionId: string; rows: Array<{ id: string; text: string }> } | null>(null);
   const opening = useRef(0);
   // Rewindable prompts, oldest → newest (the newest row is preselected).
-  const messages =
-    stored && stored.sessionId === sessionId ? stored.rows : Array.isArray(userMessages) ? userMessages : [];
+  const listed = Array.isArray(userMessages) ? userMessages : [];
+  const messages = stored && stored.sessionId === sessionId ? stored.rows : listed;
+  // The stored history is asked each time the selector opens: the rows held, or an earlier answer, may hold no
+  // prompt while it does.
+  const hasTargets = Boolean(sessionId && window.mixdogDesktop?.listRewindTargets) || messages.length > 0;
   useMobileBack(open, () => setOpen(false));
   // biome-ignore lint/correctness/useExhaustiveDependencies: index is the trigger that re-scrolls the selected option into view
   useEffect(() => {
@@ -123,5 +126,5 @@ export function useComposerMessageSelector({
     setOpen(false);
     setIndex(0);
   }, []);
-  return { open, setOpen, index, setIndex, messages, palette, openSelector, rewindToMessage, reset };
+  return { open, setOpen, index, setIndex, messages, hasTargets, palette, openSelector, rewindToMessage, reset };
 }

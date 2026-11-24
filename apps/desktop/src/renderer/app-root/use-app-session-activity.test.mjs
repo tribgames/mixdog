@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
-import React, { act, useState } from 'react';
+import React, { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { retitleSessionTabs, useAppSessionActivity } from './use-app-session-activity.ts';
 import { useSessionCatalog } from '../app-session-catalog.ts';
+import { closeSessionPaneTabs } from '../session-tab-cleanup.ts';
+import { useAppSessionActions } from '../use-app-session-actions.ts';
 import { markPartialCatalog } from '../../shared/session-catalog.ts';
 import { writeCachedSessionCatalog } from '../session-catalog-cache.ts';
 import { restorableSessionIds } from '../use-pane-workspace-restore.ts';
@@ -22,7 +24,8 @@ const tab = (selection) => ({
   selection,
 });
 
-/** The real catalog hook feeds the real activity hook. `cached` seeds the
+/** The real catalog hook feeds the real activity hook, and its removal
+ *  notices the real session actions (no pane is focused). `cached` seeds the
  *  startup cache; `listed` is what the host's first listSessions() returns
  *  (a function may reject); `push` delivers a host store push. */
 async function fixture(t, { cached = [], listed, tabs }) {
@@ -50,13 +53,38 @@ async function fixture(t, { cached = [], listed, tabs }) {
   function Harness() {
     const catalog = useSessionCatalog(reconcileUnread);
     const [workspaceTabs, setTabs] = useState(tabs);
+    const closePaneTab = (key) => closedPaneKeys.push(key);
     useAppSessionActivity({
       sessions: catalog.sessions,
       setTabs,
       refreshSessions: catalog.refreshSessions,
       setSessionCatalogReady,
+      closePaneTab,
+    });
+    useAppSessionActions({
+      sessions: catalog.sessions,
+      setSessions: catalog.setSessions,
+      tabs: workspaceTabs,
+      setTabs,
+      setError() {},
+      refreshSessions: catalog.refreshSessions,
+      pendingRenames: catalog.pendingRenames,
+      pendingArchives: catalog.pendingArchives,
+      pendingDeletes: catalog.pendingDeletes,
+      invalidateSessionListings: catalog.invalidateInFlight,
+      applySnapshot() {},
+      activateSelection() {},
+      onSessionDeleted() {},
+      closeSessionTabs: (id) => closeSessionPaneTabs(id, [], '', workspaceTabs, setTabs, closePaneTab),
+      openSession() {},
+      navigationEpoch: useRef(0),
+      setRequestedSessionId() {},
       subscribeSessionsRemoved: catalog.subscribeRemoved,
-      closePaneTab: (key) => closedPaneKeys.push(key),
+      selectionRef: useRef({ kind: 'new' }),
+      viewedSessionRef: useRef(''),
+      unreadViewedSessionRef: useRef(''),
+      setSelection() {},
+      lastSessionStorageKey: 'test:last-session',
     });
     current = { catalog, tabs: workspaceTabs };
     return null;

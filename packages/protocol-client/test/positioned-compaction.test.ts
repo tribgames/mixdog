@@ -5,10 +5,10 @@ import { test } from 'node:test';
 import type { Json } from '../src/api.ts';
 import { sessionReducer } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
+import { at, cont, end, pos } from './positioned-fixtures.ts';
 
 type O = Record<string, any>;
 
-const pos = (id: string) => `h1:0:${id}`;
 const ext = (id: string, more: O = {}) => ({ historyPosition: pos(id), ...more });
 const prompt = (id: string, more: O = {}) => ({
   type: 'userMessage',
@@ -30,12 +30,9 @@ const divider = (cid: string, detail?: string) => ({
   meta: { at: 9_000, label: 'Conversation compacted', ...(detail ? { detail } : {}) },
 });
 const unit = (...items: O[]) => ({ position: pos(items[0]!.id), items });
-const cont = (position: string) => ({ kind: 'continuation', position });
-const end = { kind: 'end' };
 const ids = (s: SessionFold) => s.items.map((row) => row.id);
-const at = (s: SessionFold, method: string, params: O) =>
-  sessionReducer.apply(s, { method, params: { threadId: 't', ...params } } as never);
-const replace = (s: SessionFold, u: O) => at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: u } });
+const replace = (s: SessionFold, u: O) =>
+  at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: u } });
 const snapshot = (units: O[], loose: O[] = [], older: string | null = null) =>
   sessionReducer.initial({
     thread: { id: 't' },
@@ -79,7 +76,17 @@ test('a window that starts below the divider shows none until the record it foll
       { id: 'q:up:0', older: end, newer: cont(pos('c3')) },
     ],
     removed: [],
-    added: [{ range: 'q:up:0', units: [unit(prompt('u2')), unit(call('c1')), unit(call('c2', { dividersAfter: [divider('k1')] })), unit(call('c3'))] }],
+    added: [
+      {
+        range: 'q:up:0',
+        units: [
+          unit(prompt('u2')),
+          unit(call('c1')),
+          unit(call('c2', { dividersAfter: [divider('k1')] })),
+          unit(call('c3')),
+        ],
+      },
+    ],
     followTail: true,
   });
   assert.deepEqual(ids(s), ['u2', 'c1', 'c2', 'divider:k1', 'c3', 'c4'], 'once, after its record');
@@ -100,8 +107,15 @@ test('a window that starts below the divider shows none until the record it foll
 
 // A compaction's divider as the core tells it live: a unit of its own, at its own ordinal (`divider:{cid}`).
 const numbered = (ordinal: number, ...items: O[]) => ({ position: pos(items[0]!.id), ordinal, items });
-const told = (s: SessionFold, u: O) => at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'insert', unit: u } });
-const failedEnd = (of: string) => ({ type: 'turnEnd', id: `${of}:2`, status: 'failed', elapsedMs: 1_000, meta: { at: 3_000, ext: ext(of) } });
+const told = (s: SessionFold, u: O) =>
+  at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'insert', unit: u } });
+const failedEnd = (of: string) => ({
+  type: 'turnEnd',
+  id: `${of}:2`,
+  status: 'failed',
+  elapsedMs: 1_000,
+  meta: { at: 3_000, ext: ext(of) },
+});
 
 test('a divider is a unit of its own: it stands at its ordinal, between the records stored before and after it', () => {
   let s = snapshot([numbered(10, prompt('u1')), numbered(20, call('c1'))]);
@@ -124,7 +138,11 @@ test('two compactions in a row stand in their order, whichever divider is told f
 
 test('a turn that fails after a compaction ran in it ends below the divider, in either order of arrival', () => {
   // The failed turn's settled text is a record, and its end rides that record.
-  const failure = numbered(40, { type: 'agentMessage', id: 'f1', text: 'stopped here', meta: { ext: ext('f1') } }, failedEnd('f1'));
+  const failure = numbered(
+    40,
+    { type: 'agentMessage', id: 'f1', text: 'stopped here', meta: { ext: ext('f1') } },
+    failedEnd('f1')
+  );
   const base = () => snapshot([numbered(10, prompt('u1')), numbered(20, call('c1'))]);
   const dividerFirst = told(told(base(), numbered(30, divider('k1'))), failure);
   const failureFirst = told(told(base(), failure), numbered(30, divider('k1')));

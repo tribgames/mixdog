@@ -235,10 +235,7 @@ test("a call waiting for a held thread's unanswered resume ends at the caller's 
     rig.client as unknown as { whenHeldSettled(id: string, options?: { timeoutMs?: number }): Promise<void> }
   ).whenHeldSettled('ctl-1', { timeoutMs: 30 });
   assert.equal((await parse(second)).method, 'thread/resume');
-  await assert.rejects(
-    waited,
-    (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout'
-  );
+  await assert.rejects(waited, (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout');
   await rig.client.close();
 });
 
@@ -248,10 +245,12 @@ test("a wait for a held thread's resume that names no bound has none: the defaul
   rig.conn().serverClose(1006);
   const second = await rig.redial();
   let outcome: string | undefined;
-  const waited = (rig.client as unknown as { whenHeldSettled(id: string): Promise<void> }).whenHeldSettled('ctl-1').then(
-    () => (outcome = 'settled'),
-    () => (outcome = 'failed')
-  );
+  const waited = (rig.client as unknown as { whenHeldSettled(id: string): Promise<void> })
+    .whenHeldSettled('ctl-1')
+    .then(
+      () => (outcome = 'settled'),
+      () => (outcome = 'failed')
+    );
   const resume = await parse(second);
   assert.equal(resume.method, 'thread/resume');
   await new Promise((resolve) => setTimeout(resolve, 80));

@@ -425,17 +425,56 @@ async fn read_head<S: AsyncRead + Unpin>(io: &mut S, buf: &mut Vec<u8>) -> Resul
     }
 }
 
-/// Reads what follows a refusal's head into `rest`: its `content-length` bytes, or what arrives until the connection ends.
+/// The body of a `Transfer-Encoding: chunked` message read so far, and whether its last chunk has arrived. A chunk cut
+/// short contributes the bytes that came.
+fn dechunk(raw: &[u8]) -> (Vec<u8>, bool) {
+    let mut body = Vec::new();
+    let mut at = 0;
+    loop {
+        let Some(line_end) = raw[at..].windows(2).position(|w| w == b"\r\n").map(|i| at + i) else { return (body, false) };
+        let size = String::from_utf8_lossy(&raw[at..line_end]);
+        let Ok(size) = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16) else { return (body, true) };
+        if size == 0 {
+            return (body, true);
+        }
+        let start = line_end + 2;
+        let end = start.saturating_add(size);
+        if raw.len() < end.saturating_add(2) {
+            body.extend_from_slice(&raw[start.min(raw.len())..raw.len().min(end)]);
+            return (body, false);
+        }
+        body.extend_from_slice(&raw[start..end]);
+        at = end + 2;
+    }
+}
+
+/// Reads what follows a refusal's head into `rest`: its `content-length` bytes, its chunks up to the last one (decoded), or
+/// what arrives until the connection ends.
 async fn read_rejected_body<S: AsyncRead + Unpin>(io: &mut S, rest: &mut Vec<u8>, headers: &ResponseHeaders) {
     let length =
         headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("content-length")).and_then(|(_, v)| String::from_utf8_lossy(v).trim().parse::<usize>().ok());
-    while length.is_none_or(|n| rest.len() < n) && rest.len() < RESPONSE_LIMIT {
+    let chunked = length.is_none()
+        && headers.iter().any(|(n, v)| {
+            n.eq_ignore_ascii_case("transfer-encoding") && String::from_utf8_lossy(v).split(',').any(|t| t.trim().eq_ignore_ascii_case("chunked"))
+        });
+    let mut raw = std::mem::take(rest);
+    loop {
+        if chunked {
+            let (body, complete) = dechunk(&raw);
+            if complete || raw.len() >= RESPONSE_LIMIT {
+                *rest = body;
+                return;
+            }
+        } else if !length.is_none_or(|n| raw.len() < n) || raw.len() >= RESPONSE_LIMIT {
+            break;
+        }
         let mut chunk = [0u8; 8192];
         match io.read(&mut chunk).await {
             Ok(0) | Err(_) => break,
-            Ok(n) => rest.extend_from_slice(&chunk[..n]),
+            Ok(n) => raw.extend_from_slice(&chunk[..n]),
         }
     }
+    *rest = if chunked { dechunk(&raw).0 } else { raw };
 }
 
 /// What the server accepted of the compression offer, once its 101 answers `key` and names no subprotocol.
@@ -757,6 +796,17 @@ async fn close_after_violation<S: AsyncRead + AsyncWrite + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A chunked refusal on a connection the server keeps open ends at its last chunk, and its body is the decoded one.
+    #[tokio::test]
+    async fn a_chunked_refusal_is_read_to_its_last_chunk_and_decoded() {
+        let (mut near, mut far) = tokio::io::duplex(1 << 10);
+        let headers: ResponseHeaders = vec![("Transfer-Encoding".into(), b"chunked".to_vec())];
+        let mut rest = b"8\r\n{\"error\"\r\n".to_vec();
+        far.write_all(b"9\r\n:\"quota\"}\r\n0\r\n\r\n").await.unwrap();
+        read_rejected_body(&mut near, &mut rest, &headers).await;
+        assert_eq!(rest, br#"{"error":"quota"}"#);
+    }
 
     /// Runs [`upgrade`] against a server that answers with `answer(key)` (the lines after the status line).
     async fn upgrade_against(answer: impl Fn(&str) -> String + Send + 'static) -> Result<Option<Extension>, ConnectError> {

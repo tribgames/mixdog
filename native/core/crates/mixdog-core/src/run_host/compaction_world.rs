@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use mixdog_agent::compact::compactor::{Handoff, HandoffSource, PlannedHandoff};
 use mixdog_agent::env::{Clock, CompactError, SeatedRoute};
 use mixdog_agent::message::AgentMessage;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::ids::ThreadId;
@@ -27,28 +26,29 @@ use super::side_question_store::{NoSavedRequest, SideQuestionStore};
 use super::summary_host::SummaryServices;
 use super::summary_routes::{ForkSender, SavedRequest, SessionFork, SummaryRoutes};
 use mixdog_core_config::config::Config;
+use mixdog_core_ports::ports::route_facts::RouteFacts;
 
 /// What a registered provider declares of its wire (Node reads `provider.nativePdf` and
 /// `provider.nativeDocuments` off the provider object the registry holds; here they are the
-/// registered adapter's own declarations).
+/// registered adapter's own declarations). A route an agent serves has no adapter, and declares nothing.
 pub struct RegisteredRouteTraits {
-    registry: Arc<ProviderRegistry>,
+    facts: Arc<dyn RouteFacts>,
 }
 
 impl RegisteredRouteTraits {
-    pub fn new(registry: Arc<ProviderRegistry>) -> Self {
-        Self { registry }
+    pub fn new(facts: Arc<dyn RouteFacts>) -> Self {
+        Self { facts }
     }
 
     /// Like route admission, follows retired provider IDs without building a new adapter.
     pub fn native_pdf(&self, provider: &str) -> bool {
-        self.registry.registered_for_route(&provider.to_lowercase()).is_none_or(|adapter| adapter.native_pdf())
+        self.facts.registered(&provider.to_lowercase()).is_none_or(|adapter| adapter.native_pdf())
     }
 
     /// `provider.nativeDocuments === false`: the registered provider takes no document block of any
     /// kind. A name nothing registered declares nothing.
     pub fn no_documents(&self, provider: &str) -> bool {
-        self.registry.registered_for_route(&provider.to_lowercase()).is_some_and(|adapter| adapter.native_documents() == Some(false))
+        self.facts.registered(&provider.to_lowercase()).is_some_and(|adapter| adapter.native_documents() == Some(false))
     }
 }
 
@@ -101,7 +101,7 @@ pub(crate) mod tests {
     use mixdog_agent::offload::{Artifact, ArtifactStore};
     use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
     use mixdog_ai::oauth::CredentialIo;
-    use mixdog_ai::registry::providers::ProviderBuilder;
+    use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
     use mixdog_ai::service::model_proxy_inline::ReadError;
     use mixdog_ai::transport::http::{HttpResponse, HttpSend};
     use mixdog_core_api::domain::common::AbsPath;
@@ -124,6 +124,7 @@ pub(crate) mod tests {
     use crate::run_host::summary_host::SummaryDeps;
     use crate::run_host::summary_routes::SessionRoute;
     use mixdog_core_config::config::ConfigLanes;
+    use mixdog_core_ports::ports::route_facts::{AgentAnswer, AgentAsk, CatalogFacts, RouteSender};
     use mixdog_core_session::session::StoredRows;
 
     const NOW: i64 = 1_800_000_000_000;
@@ -261,7 +262,7 @@ pub(crate) mod tests {
     }
 
     /// `anthropic` and `openai` take a PDF; `groq` declares it does not.
-    async fn registry() -> Arc<ProviderRegistry> {
+    pub(crate) async fn registry() -> Arc<ProviderRegistry> {
         registry_of(json!({ "anthropic": { "enabled": true }, "openai": { "enabled": true }, "groq": { "enabled": true, "nativePdf": false }, "opencode-go-oauth": { "enabled": true, "nativePdf": false } })).await
     }
 
@@ -278,7 +279,8 @@ pub(crate) mod tests {
     /// unregistered name is native, and the name is lower-cased before the lookup.
     #[tokio::test]
     async fn a_route_takes_a_pdf_natively_as_its_registered_adapter_declares() {
-        let routes = RegisteredRouteTraits::new(registry().await);
+        let dir = tempfile::tempdir().unwrap();
+        let routes = RegisteredRouteTraits::new(facts_in(dir.path(), registry().await).await);
         for (provider, native) in
             [("anthropic", true), ("Anthropic", true), ("openai", true), ("groq", false), ("opencode-go", false), ("never-registered", true), ("", true)]
         {
@@ -286,7 +288,11 @@ pub(crate) mod tests {
         }
         // A model-proxy reports the traits of the machine's real instance: neither list of names holds.
         let proxied = RegisteredRouteTraits::new(
-            registry_of(json!({ "anthropic": { "enabled": true, "nativePdf": false }, "groq": { "enabled": true, "nativePdf": true } })).await,
+            facts_in(
+                dir.path(),
+                registry_of(json!({ "anthropic": { "enabled": true, "nativePdf": false }, "groq": { "enabled": true, "nativePdf": true } })).await,
+            )
+            .await,
         );
         assert!(!proxied.native_pdf("anthropic"));
         assert!(proxied.native_pdf("groq"));
@@ -295,12 +301,17 @@ pub(crate) mod tests {
     /// `provider.nativeDocuments === false` lowers every document; unset or true does not.
     #[tokio::test]
     async fn a_route_takes_no_documents_only_when_its_adapter_declares_so() {
+        let dir = tempfile::tempdir().unwrap();
         let routes = RegisteredRouteTraits::new(
-            registry_of(json!({
-                "deepseek": { "enabled": true, "nativePdf": false, "nativeDocuments": false },
-                "gateway": { "enabled": true, "nativeDocuments": true },
-                "anthropic": { "enabled": true }
-            }))
+            facts_in(
+                dir.path(),
+                registry_of(json!({
+                    "deepseek": { "enabled": true, "nativePdf": false, "nativeDocuments": false },
+                    "gateway": { "enabled": true, "nativeDocuments": true },
+                    "anthropic": { "enabled": true }
+                }))
+                .await,
+            )
             .await,
         );
         for (provider, none) in [("deepseek", true), ("DeepSeek", true), ("gateway", false), ("anthropic", false), ("never-registered", false)] {
@@ -353,10 +364,10 @@ pub(crate) mod tests {
         crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        let catalog = cold_catalog(dir).await;
+        let facts = route_facts(registry, catalog.clone(), config.clone());
         let summaries = SummaryServices::new(SummaryDeps {
-            registry: registry.clone(),
+            facts: facts.clone(),
             catalog,
             config: Arc::new(move || snapshot.clone()),
             env: Arc::new(|_| None),
@@ -374,7 +385,7 @@ pub(crate) mod tests {
             reader: Arc::new(Store),
             attachment_facts: Arc::new(Recorded),
             files: Arc::new(Files),
-            routes: RegisteredRouteTraits::new(registry),
+            routes: RegisteredRouteTraits::new(facts),
             requests: ProcessSessionRequests::new(saved),
             summaries: Arc::new(summaries),
         }
@@ -386,39 +397,75 @@ pub(crate) mod tests {
     async fn world(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> ProcessCompactionWorld {
         ProcessCompactionWorld::new(services(dir, agent, sensitive).await)
     }
-    /// An agent outside the loop that answers for the route provider `acp-agent`, and says what it was asked.
-    struct Agent;
+    /// A catalog with nothing listed, over the models.dev file of `dir` (none).
+    pub(crate) async fn cold_catalog(dir: &std::path::Path) -> Arc<CatalogService> {
+        let tokens = mixdog_rt::testing::tokens();
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+        Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await)
+    }
+
+    /// The process's route facts over `registry`, with an agent outside the loop serving the route provider
+    /// `acp-agent`, as the composition wraps them.
+    pub(crate) fn route_facts(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>, config: Config) -> Arc<dyn RouteFacts> {
+        let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), catalog.clone());
+        Arc::new(OutsideAgent(Arc::new(CatalogFacts { catalog, readiness, registry, config })))
+    }
+
+    /// [`route_facts`] over `registry`, with a cold catalog and an empty config, both in `dir`.
+    pub(crate) async fn facts_in(dir: &std::path::Path, registry: Arc<ProviderRegistry>) -> Arc<dyn RouteFacts> {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(dir.join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        route_facts(registry, cold_catalog(dir).await, config)
+    }
+
+    /// Route facts that answer the route provider `acp-agent` with an agent that says what it was asked.
+    struct OutsideAgent(Arc<dyn RouteFacts>);
+    const AGENT: &str = "acp-agent";
     #[async_trait]
-    impl crate::run_host::factory::OutsideAgents for Agent {
-        fn serves(&self, _: &Header) -> bool {
-            false
+    impl RouteFacts for OutsideAgent {
+        fn is_known(&self, provider: &str, config: &Map<String, Value>) -> bool {
+            provider == AGENT || self.0.is_known(provider, config)
         }
-        fn prompts(&self, _: &Value) -> bool {
-            true
+        async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
+            if provider == AGENT { Ok(()) } else { self.0.ensure_ready(config, provider).await }
         }
-        async fn run(&self, _: crate::run_host::factory::OutsideTurn) -> mixdog_core_session::session::RunOutcome {
-            mixdog_core_session::session::RunOutcome::Interrupted
+        fn model_meta(&self, provider: &str, model: &str) -> Value {
+            self.0.model_meta(provider, model)
         }
-        async fn unrun(&self, _: &ThreadId, _: &str) {}
-        fn loop_turn(&self, _: &ThreadId, _: &Header) -> Option<mixdog_store::schema::record::HeaderChange> {
-            None
+        fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+            self.0.window_meta(provider, model, meta)
         }
-        fn answers(&self, provider: &str) -> bool {
-            provider == "acp-agent"
+        fn catalog_knows(&self, model: &str, provider: &str) -> bool {
+            self.0.catalog_knows(model, provider)
         }
-        async fn ask(&self, ask: crate::run_host::factory::OutsideAsk) -> Result<crate::run_host::factory::OutsideAnswer, String> {
-            Ok(crate::run_host::factory::OutsideAnswer {
-                text: format!("{}|{}|{}|{}", ask.provider, ask.model, ask.system, ask.prompt),
-                stop_reason: Some("end_turn".to_owned()),
-                ..Default::default()
-            })
+        fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
+            self.0.fast_capable(provider, meta, effort, params)
+        }
+        fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
+            self.0.ultrafast_capable(provider, meta)
+        }
+        async fn sender(&self, providers: Option<&Map<String, Value>>, provider: &str) -> Result<Option<RouteSender>, String> {
+            if provider == AGENT { Ok(Some(RouteSender::Agent(Arc::new(Asked)))) } else { self.0.sender(providers, provider).await }
+        }
+        fn registered(&self, provider: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
+            (provider != AGENT).then(|| self.0.registered(provider)).flatten()
+        }
+        fn init_error(&self, provider: &str) -> Option<String> {
+            (provider != AGENT).then(|| self.0.init_error(provider)).flatten()
+        }
+    }
+    struct Asked;
+    #[async_trait]
+    impl AgentAsk for Asked {
+        async fn ask(&self, model: &str, system: &str, prompt: &str) -> Result<AgentAnswer, String> {
+            Ok(AgentAnswer { text: format!("{AGENT}|{model}|{system}|{prompt}"), stop_reason: Some("end_turn".to_owned()), ..Default::default() })
         }
     }
 
     /// With no Maintainer route the summary is the session's own model's to write, and a session on an agent outside
     /// the loop has that agent for its model: the session step resolves to it with no provider of that name in the
-    /// registry, and its request is asked of the agent. Before the agents are bound, and for a provider no agent
-    /// answers for, the route is unavailable as it was.
+    /// registry, and its request is asked of the agent. For a provider nobody serves, the route is unavailable as it was.
     #[tokio::test]
     async fn a_session_on_an_outside_agent_has_its_summary_written_by_that_agent() {
         use mixdog_agent::compact::summary_run::{RouteResolver, RouteStep, SummaryCall, SummaryFailure};
@@ -426,10 +473,6 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let services = services(dir.path(), json!({}), Arc::default()).await;
         let routes = |provider: &str| SummaryRoutes::new(services.summaries.host(&thread(), &header(provider)));
-        let Err(SummaryFailure::Failed(unbound)) = routes("acp-agent").resolve(RouteStep::Session).await else { panic!("no agent is bound yet") };
-        assert_eq!(unbound, "compact summary route unavailable: acp-agent/m");
-
-        services.summaries.bind_outside(Arc::new(Agent));
         assert!(routes("acp-agent").resolve(RouteStep::Maintainer).await.unwrap().is_none(), "no Maintainer route is configured");
         let route = routes("acp-agent").resolve(RouteStep::Session).await.unwrap().expect("the session's own route");
         assert_eq!((route.step, route.provider_name.as_str(), route.model.as_str()), (RouteStep::Session, "acp-agent", "m"));
@@ -441,6 +484,21 @@ pub(crate) mod tests {
 
         let Err(SummaryFailure::Failed(other)) = routes("never-registered").resolve(RouteStep::Session).await else { panic!("nobody answers for it") };
         assert_eq!(other, "compact summary route unavailable: never-registered/m");
+    }
+
+    /// With the default route on an agent outside the loop and a Maintainer that has no route of its own, a session's
+    /// title is written by that agent, as a summary on that route is, instead of failing on a provider the registry
+    /// never held.
+    #[tokio::test]
+    async fn a_title_on_an_outside_agents_route_is_written_by_that_agent() {
+        use mixdog_core_session::session::session_title::TitleModel;
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = json!({ "enabledAgents": ["maintainer"], "default": { "provider": "acp-agent", "model": "m" } }).as_object().unwrap().clone();
+        let services = services_over(dir.path(), json!({}), Arc::default(), Arc::new(SideQuestionStore::new()), registry().await, snapshot).await;
+        let titles = services.summaries.title_completion();
+        assert!(titles.routed());
+        let title = titles.generate("fix the parser", "sess_a", "", &mixdog_rt::CancellationToken::new()).await.expect("the agent's title");
+        assert!(title.starts_with("acp-agent|m|") && title.ends_with("|fix the parser"), "{title}");
     }
 
     #[tokio::test]
@@ -729,9 +787,5 @@ impl CompactionWorld for ProcessCompactionWorld {
 
     fn retire_fork(&self, thread: &ThreadId) {
         self.services.requests.saved.retire_compaction_fork(thread);
-    }
-
-    fn bind_outside(&self, agents: Arc<dyn super::factory::OutsideAgents>) {
-        self.services.summaries.bind_outside(agents);
     }
 }

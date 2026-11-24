@@ -70,10 +70,12 @@ function context(value, { run = async () => ({}), invoke = async () => ({ value:
     acpAgents: value,
   };
   modules.publish(toolModules);
-  const read = (capability) =>
-    capability === 'getTidyEngineStatus'
-      ? { ok: true, value: { toolsDir: '/tools', core: [], engines: [], installing: null } }
-      : { ok: true, value: capability === 'getToolModuleSettings' ? toolModules : null };
+  const read = (capability) => {
+    if (capability === 'getTidyEngineStatus') {
+      return { ok: true, value: { toolsDir: '/tools', core: [], engines: [], installing: null } };
+    }
+    return { ok: true, value: capability === 'getToolModuleSettings' ? toolModules : null };
+  };
   return {
     api: {
       readCapabilities: async (requests) => requests.map(({ capability }) => read(capability)),
@@ -134,7 +136,14 @@ const card = (row) => ({
   ]),
   actions: [...row.querySelectorAll('.settings-resource-actions button')].map((node) => node.textContent),
 });
-const signedIn = { title: 'Antigravity', account: 'Account 1', renamed: false, marks: ['In use'], usage: [], actions: [] };
+const signedIn = {
+  title: 'Antigravity',
+  account: 'Account 1',
+  renamed: false,
+  marks: ['In use'],
+  usage: [],
+  actions: [],
+};
 const fault = (row) =>
   row.querySelector('.extensions-item-fault')?.textContent ??
   row.querySelector('.error-notice-copy span')?.textContent ??
@@ -491,4 +500,63 @@ test('the + of a signed-in agent runs its sign-in again, which replaces the one 
   assert.equal(agentRow().getAttribute('data-acp-state'), 'signingIn');
   assert.equal(add().disabled, true);
   assert.ok(document.querySelector('.settings-oauth-dialog'));
+});
+
+test("the agent's card shows its reading also when a provider's row lists the same quota", async (t) => {
+  const { publishUsageDashboard } = await import('../usage-dashboard-store.ts');
+  publishUsageDashboard({
+    rows: [
+      { id: 'antigravity-oauth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 20 }] },
+      {
+        id: 'acp-antigravity',
+        label: 'Antigravity ACP',
+        status: 'partial',
+        sameQuotaAs: 'antigravity-oauth',
+        updatedAt: Date.now(),
+        windows: [{ label: '7D', usedPct: 20 }],
+      },
+    ],
+  });
+  await mount(t, acpAgents(true, agent('ready', { version: '1.5.15' })));
+  await open();
+  assert.deepEqual(card(agentRow()).usage, [['7D', '20%']]);
+});
+
+test('a reading the core withdrew is no longer painted, and a sign-in from the card reads usage again', async (t) => {
+  const { publishUsageDashboard } = await import('../usage-dashboard-store.ts');
+  const reading = (usedPct) => ({
+    id: 'acp-antigravity',
+    label: 'Antigravity ACP',
+    status: 'partial',
+    updatedAt: Date.now(),
+    windows: [{ label: 'Pro', usedPct }],
+  });
+  publishUsageDashboard({ rows: [reading(40)] });
+  const run = async (capability) =>
+    capability === 'beginOAuthProviderLogin'
+      ? { flowId: 'f-usage', provider: 'acp-antigravity', url: null, state: 'pending' }
+      : {};
+  await mount(t, acpAgents(true, agent('ready', { version: '1.5.15', canSignIn: true })), { run });
+  await open();
+  assert.deepEqual(card(agentRow()).usage, [['PRO', '40%']]);
+
+  // Signed out, or another account signed in: the core's dashboard holds no reading of the agent any more.
+  await act(async () => publishUsageDashboard({ rows: [{ id: 'openai-oauth', authenticated: true }] }));
+  assert.deepEqual(card(agentRow()).usage, []);
+
+  const reads = [];
+  window.mixdogDesktop.readCapabilities = async (requests) => {
+    reads.push(...requests);
+    return requests.map(() => ({ ok: true, value: { rows: [reading(7)] } }));
+  };
+  t.after(() => delete window.mixdogDesktop.readCapabilities);
+  await act(async () => agentRow().querySelector('button[aria-label="Sign in with another account"]').click());
+  await act(async () => pushLogin('f-usage', { flowId: 'f-usage', state: 'complete' }));
+  assert.deepEqual(reads, [
+    {
+      capability: 'getUsageDashboard',
+      args: [{ refresh: true, refreshSetup: false, refreshProviders: ['acp-antigravity'] }],
+    },
+  ]);
+  assert.deepEqual(card(agentRow()).usage, [['PRO', '7%']]);
 });

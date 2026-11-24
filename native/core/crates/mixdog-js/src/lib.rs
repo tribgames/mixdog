@@ -16,6 +16,7 @@ pub mod nodepath;
 mod number;
 mod regex;
 mod regex_error;
+pub mod ssrf_guard;
 mod text;
 pub mod time;
 pub mod token_estimate;

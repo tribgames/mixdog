@@ -73,12 +73,9 @@ export function transcriptTurnKeys(items, held) {
     }
     keys.push(activeTurn);
     if (item?.kind === 'turndone') {
-      const named =
-        typeof item.attemptId === 'string' && item.attemptId
-          ? `attempt:${item.attemptId}`
-          : typeof item.checkpointId === 'string' && item.checkpointId
-            ? `checkpoint:${item.checkpointId}`
-            : null;
+      let named = null;
+      if (typeof item.attemptId === 'string' && item.attemptId) named = `attempt:${item.attemptId}`;
+      else if (typeof item.checkpointId === 'string' && item.checkpointId) named = `checkpoint:${item.checkpointId}`;
       if (named !== null) {
         for (let row = start; row <= index; row += 1) keys[row] = named;
         // The turn's items held before are renamed with it.

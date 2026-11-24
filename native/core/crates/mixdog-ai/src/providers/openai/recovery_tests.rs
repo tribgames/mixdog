@@ -10,6 +10,7 @@ use crate::providers::openai::scripted::{Dialed, ScriptedDial, Wire as SocketWir
 use crate::registry::accounted::{AccountedAdapter, AccountingDeps};
 use crate::registry::accounting::{UsagePricing, UsageRow, UsageSink};
 use crate::transport::link::{Exchange, HttpResponse};
+use crate::transport::testing::Once;
 
 #[derive(Default)]
 struct Keys(AtomicUsize);
@@ -35,15 +36,6 @@ impl ModelFactsSource for Facts {
     }
 }
 
-struct Body(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Body {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
-
 #[derive(Default)]
 struct Http {
     replies: Mutex<VecDeque<(u16, String)>>,
@@ -54,11 +46,11 @@ struct Http {
 impl HttpSend for Http {
     async fn send(&self, wire: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
         if wire.method == "HEAD" {
-            return Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Body(None)) });
+            return Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(None)) });
         }
         self.requests.lock().unwrap().push(serde_json::from_slice(&wire.body).unwrap());
         let (status, body) = self.replies.lock().unwrap().pop_front().expect("scripted HTTP reply");
-        Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Body(Some(Bytes::from(body)))) })
+        Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
     }
 }
 

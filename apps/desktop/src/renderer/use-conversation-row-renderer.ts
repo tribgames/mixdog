@@ -106,7 +106,8 @@ function turnCards(
   const rounds = endsTurn ? turn.toolItems() : NO_TOOL_ITEMS;
   // A turn that changed files gets the card too, tool rounds or not: its
   // previews (the changed files the panel can show) fill it at its end.
-  const tools = rounds.length ? rounds : changesRef && endsTurn ? NO_TOOL_ITEMS : null;
+  const bareCard = changesRef && endsTurn ? NO_TOOL_ITEMS : null;
+  const tools = rounds.length ? rounds : bareCard;
   const turnEnd =
     tools && turn && changesRef
       ? {
@@ -290,6 +291,7 @@ export function useConversationRowRenderer({
   onOpenSettings,
   settledItems,
   settledTurnKeys,
+  liveItems = settledItems,
   optimisticActivityStartedAt,
   submit,
   questionCard,
@@ -303,27 +305,30 @@ export function useConversationRowRenderer({
   transitioning: boolean;
   renderAssistantRow: ConversationProps['renderAssistantRow'];
   onOpenSettings: ConversationProps['onOpenSettings'];
+  /** The rows shown (a history window's while the reader is in one), and their own turn keys: a row's retry, turn
+   *  record and end are read from them. */
   settledItems: TranscriptItem[];
   settledTurnKeys: string[];
+  /** The live rows, when the rows shown are a history window: the latest completion, the pending question's call and
+   *  a room's typing row are among them. */
+  liveItems?: TranscriptItem[];
   optimisticActivityStartedAt: number;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
   /** The pending ask_user card; it renders in place of its tool call. */
   questionCard: ReactNode;
 }) {
   const { retryTurn } = useConversationRetry(settledItems, settledTurnKeys, submit);
-  const latestCompletion = settledItems[lastTurnEnd(settledItems)];
+  const latestCompletion = liveItems[lastTurnEnd(liveItems)];
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
   const { label } = useRoomContacts(agentMode);
   // Sessions waiting for the user now: a wait report shows only for them.
   const waiting = useSessionAttentionIndex().needsUser;
   // The one call the live card sits at; every placement decision shares it.
-  const cardKey = questionCard
-    ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
-    : undefined;
+  const cardKey = questionCard ? askUserCardKey(liveItems, String(snapshot.toolApproval?.toolCallId ?? '')) : undefined;
   const homeAgent = agentIdOfHomeSession(disclosureScope) || MIXY_AGENT_ID;
   // A room's members type through its own typing rows.
   const inRoom = Boolean(roomIdOfSession(disclosureScope));
-  const roomTyping = useMemo(() => roomTypingOf(inRoom, settledItems), [inRoom, settledItems]);
+  const roomTyping = useMemo(() => roomTypingOf(inRoom, liveItems), [inRoom, liveItems]);
   // A room's members whose handed-off sessions ask the user something now.
   const handoffQuestions = useContext(HandoffQuestionsContext);
   const asking = useMemo(
@@ -350,6 +355,7 @@ export function useConversationRowRenderer({
       retryDisabled,
       settledItems,
       settledTurnKeys,
+      liveItems,
       latestCompletion,
       snapshot,
       onRetryTurn: retryTurn,

@@ -124,6 +124,8 @@ interface RemotePairingScreenDeps {
   serverBase: () => string;
   /** This container's id, which a re-registration may have rotated. */
   clientId: () => string;
+  /** Replaces this container's id with a fresh one (stored): the relay pairs an id once. */
+  renewClientId: () => void;
   /** Store and adopt an approval. False is a refused approval — a credential
    *  that cannot be stored is never a half pairing. */
   acceptApproval: (credential: string, material: RelayE2EEPairingMaterial) => Promise<boolean> | boolean;
@@ -193,10 +195,13 @@ const runSignal = (run: AbortSignal, ms: number): AbortSignal => {
 
 /** The relay answered the claim with a refusal (not a network failure). */
 class ClaimRefusedError extends Error {
-  constructor(status: number) {
+  constructor(readonly status: number) {
     super(`claim refused (${status})`);
   }
 }
+
+/** The relay's refusal of a claim naming an id it already holds a pairing for (`status: "paired"`). */
+const CLAIM_ID_PAIRED = 409;
 
 const wait = (ms: number): Promise<void> =>
   new Promise((done) => {
@@ -295,11 +300,20 @@ const requestApproval = async (
     const body = (await response.json()) as { claimId?: unknown };
     return typeof body.claimId === 'string' ? body.claimId : '';
   };
+  // Whether the id claimed with was made by this run: an id made just now holds no pairing anywhere.
+  let renewed = false;
   for (;;) {
     if (!claimId) {
       try {
         claimId = await open();
       } catch (error) {
+        // This device lost the credential of its id, which stays paired on the relay: it asks again as a new device.
+        if (error instanceof ClaimRefusedError && error.status === CLAIM_ID_PAIRED && !renewed) {
+          if (stale()) return;
+          deps.renewClientId();
+          renewed = true;
+          continue;
+        }
         // Only a refusal means "scan again"; an unreachable relay is a network error.
         const refused = error instanceof ClaimRefusedError;
         report(
@@ -316,7 +330,6 @@ const requestApproval = async (
         if (stale()) return;
         continue;
       }
-      if (stale()) return;
       await savePendingClaim(deps.claimStorageKey, claimId, keyPair);
       // A cancel during the save must not leave a claim behind.
       if (stale()) {

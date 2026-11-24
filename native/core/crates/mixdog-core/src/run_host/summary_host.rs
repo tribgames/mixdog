@@ -2,12 +2,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummarySender, route_failure};
+use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummarySender};
 use mixdog_agent::env::Clock;
 use mixdog_agent::one_shot::OneShot;
 use mixdog_agent::tools::ToolEnv;
 use mixdog_ai::catalog::CatalogService;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalGate};
 use mixdog_core_api::domain::common::AbsPath;
@@ -28,6 +27,7 @@ use crate::run_host::run_seams::token_calibration;
 use crate::run_host::summary_routes::{MaintainerRoute, SessionRoute, SummaryHost, maintainer_effort};
 use mixdog_core_base::support::on_lane;
 use mixdog_core_config::config::agent_disabled;
+use mixdog_core_ports::ports::route_facts::{RouteFacts, RouteSender};
 use mixdog_core_run::run_host::hop_host::ConfigSnapshot;
 use mixdog_core_run::run_host::session_context_meta::session_context_meta_with;
 
@@ -46,7 +46,8 @@ impl ProgressSink for DroppedProgress {
 /// What the process supplies. `config` is the agent config (`loadConfig()`: providers, agents,
 /// disabled agents); `data_dir` holds the providers' saved catalogs.
 pub struct SummaryDeps {
-    pub registry: Arc<ProviderRegistry>,
+    /// Who sends a one-shot request on a route: a provider of the registry, or the agent that serves the route.
+    pub facts: Arc<dyn RouteFacts>,
     pub catalog: Arc<CatalogService>,
     pub config: ConfigSnapshot,
     pub env: EnvReader,
@@ -60,24 +61,13 @@ pub struct SummaryDeps {
     pub io: ToolIo,
 }
 
-/// The agents that run turns outside the loop, once the composition has them: a session on one has that agent for
-/// its own model.
-type OutsideSlot = Arc<std::sync::OnceLock<Arc<dyn crate::run_host::factory::OutsideAgents>>>;
-
 pub struct SummaryServices {
     deps: Arc<SummaryDeps>,
-    outside: OutsideSlot,
 }
 
 impl SummaryServices {
     pub fn new(deps: SummaryDeps) -> Self {
-        Self { deps: Arc::new(deps), outside: Arc::default() }
-    }
-
-    /// Binds the agents that run turns outside the loop: the summary a session on one writes with its own model is
-    /// that agent's to write. Bound once, by the composition of the turn path.
-    pub fn bind_outside(&self, agents: Arc<dyn crate::run_host::factory::OutsideAgents>) {
-        let _ = self.outside.set(agents);
+        Self { deps: Arc::new(deps) }
     }
 
     /// The heartbeat's Maintainer model over the same providers (`createMaintainerCall`).
@@ -97,7 +87,6 @@ impl SummaryServices {
         let window = mixdog_agent::agent_tool::scope::positive_int(header.get("contextWindow"));
         Arc::new(ProcessSummaryHost {
             deps: self.deps.clone(),
-            outside: self.outside.clone(),
             thread: thread.clone(),
             attributed: true,
             session: SessionRoute {
@@ -115,7 +104,6 @@ impl SummaryServices {
     pub fn sessionless_host(&self, label: &str) -> Arc<dyn SummaryHost> {
         Arc::new(ProcessSummaryHost {
             deps: self.deps.clone(),
-            outside: self.outside.clone(),
             thread: ThreadId::from(label),
             attributed: false,
             session: SessionRoute { provider: String::new(), model: String::new(), context_window: None, summary_model: None },
@@ -125,7 +113,6 @@ impl SummaryServices {
 
 struct ProcessSummaryHost {
     deps: Arc<SummaryDeps>,
-    outside: OutsideSlot,
     thread: ThreadId,
     /// The summary's usage is the session's (`<thread>:compact`); false for a session-less step.
     attributed: bool,
@@ -177,20 +164,6 @@ pub(crate) fn maintainer_of(config: &Map<String, Value>) -> Option<MaintainerRou
     })
 }
 
-impl ProcessSummaryHost {
-    /// The agents outside the loop, when `provider` is one of their routes.
-    fn outside_agent(&self, provider: &str) -> Option<Arc<dyn crate::run_host::factory::OutsideAgents>> {
-        self.outside.get().filter(|agents| agents.answers(provider)).cloned()
-    }
-}
-
-/// Sends a summary request to the agent a session's route names: the session's own model is that agent, which
-/// writes the summary in a session of its own that holds nothing of the conversation but the request.
-struct AgentSender {
-    agents: Arc<dyn crate::run_host::factory::OutsideAgents>,
-    provider: String,
-}
-
 /// The protocol's word for why an agent stopped, as a provider's stop.
 fn agent_stop(reason: &str) -> mixdog_core_api::domain::provider::StopReason {
     use mixdog_core_api::domain::provider::StopReason;
@@ -199,26 +172,6 @@ fn agent_stop(reason: &str) -> mixdog_core_api::domain::provider::StopReason {
         "max_tokens" => StopReason::MaxTokens,
         "refusal" => StopReason::Refusal,
         other => StopReason::Other(other.to_owned()),
-    }
-}
-
-#[async_trait]
-impl SummarySender for AgentSender {
-    async fn send(&self, system: &str, prompt: &str, call: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
-        let ask = crate::run_host::factory::OutsideAsk {
-            provider: self.provider.clone(),
-            model: call.model.clone(),
-            system: system.to_owned(),
-            prompt: prompt.to_owned(),
-        };
-        let answer = self.agents.ask(ask).await.map_err(SummaryFailure::Failed)?;
-        Ok(SummaryResponse {
-            text: answer.text,
-            tool_call: false,
-            stop: answer.stop_reason.as_deref().map(agent_stop),
-            usage: answer.usage,
-            input_excludes_cache: answer.input_excludes_cache,
-        })
     }
 }
 
@@ -235,20 +188,12 @@ impl SummaryHost for ProcessSummaryHost {
         maintainer_of(&(self.deps.config)())
     }
 
-    /// `await initProviders(config.providers || {})` (when `init`) then `getProvider(provider)`: an
-    /// init failure is the step's own failure, moving to the next route when `fallsToNextRoute`
-    /// says so; a provider that is not there is not ready.
+    /// `await initProviders(config.providers || {})` (when `init`) then `getProvider(provider)`: a failure of either is
+    /// the step's own failure (no readiness failure is one `fallsToNextRoute` passes on); a route with nobody to send
+    /// on it is not ready.
     async fn provider_ready(&self, provider: &str, init: bool) -> Result<bool, SummaryFailure> {
-        // An agent outside the loop is no provider of the registry: it is there for as long as its route is.
-        if self.outside_agent(provider).is_some() {
-            return Ok(true);
-        }
-        if init {
-            let config = (self.deps.config)();
-            let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-            self.deps.registry.init_providers(&providers).await.map_err(|error| route_failure(error.message, error.code, None, false))?;
-        }
-        Ok(self.deps.registry.try_get(provider).await.map_err(|error| SummaryFailure::Failed(error.message))?.is_some())
+        let providers = init.then(|| (self.deps.config)().get("providers").and_then(Value::as_object).cloned().unwrap_or_default());
+        Ok(self.deps.facts.sender(providers.as_ref(), provider).await.map_err(SummaryFailure::Failed)?.is_some())
     }
 
     fn whole_window(&self, provider: &str, model: &str) -> u64 {
@@ -262,10 +207,7 @@ impl SummaryHost for ProcessSummaryHost {
     }
 
     fn sender(&self, provider: &str) -> Arc<dyn SummarySender> {
-        if let Some(agents) = self.outside_agent(provider) {
-            return Arc::new(AgentSender { agents, provider: provider.to_owned() });
-        }
-        Arc::new(RegistrySender { deps: self.deps.clone(), thread: self.thread.clone(), attributed: self.attributed, provider: provider.to_owned() })
+        Arc::new(RouteSummarySender { deps: self.deps.clone(), thread: self.thread.clone(), attributed: self.attributed, provider: provider.to_owned() })
     }
 
     /// `loadAnthropicCatalogCache()` / `loadSavedCodexCatalog()`: the provider's saved catalog
@@ -399,9 +341,10 @@ impl ApprovalGate for NoApprovals {
     }
 }
 
-/// Sends a summary request on `provider` through the one-shot path, the provider taken from the
-/// registry at send time.
-struct RegistrySender {
+/// Sends a summary request on the route of `provider`, its sender taken at send time: a provider's through the one-shot
+/// path, or the agent that serves the route, which writes the summary in a session of its own that holds nothing of
+/// the conversation but the request.
+struct RouteSummarySender {
     deps: Arc<SummaryDeps>,
     thread: ThreadId,
     attributed: bool,
@@ -409,11 +352,22 @@ struct RegistrySender {
 }
 
 #[async_trait]
-impl SummarySender for RegistrySender {
+impl SummarySender for RouteSummarySender {
     async fn send(&self, system: &str, prompt: &str, call: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
         let deps = &self.deps;
-        let Some(provider) = deps.registry.get(&self.provider).await else {
-            return Err(SummaryFailure::Failed(format!("compact summary route unavailable: {}/{}", self.provider, call.model)));
+        let provider = match deps.facts.sender(None, &self.provider).await {
+            Ok(Some(RouteSender::Provider(provider))) => provider,
+            Ok(Some(RouteSender::Agent(agent))) => {
+                let answer = agent.ask(&call.model, system, prompt).await.map_err(SummaryFailure::Failed)?;
+                return Ok(SummaryResponse {
+                    text: answer.text,
+                    tool_call: false,
+                    stop: answer.stop_reason.as_deref().map(agent_stop),
+                    usage: answer.usage,
+                    input_excludes_cache: answer.input_excludes_cache,
+                });
+            }
+            Ok(None) | Err(_) => return Err(SummaryFailure::Failed(format!("compact summary route unavailable: {}/{}", self.provider, call.model))),
         };
         let tool_env = ToolEnv {
             thread_id: self.thread.clone(),

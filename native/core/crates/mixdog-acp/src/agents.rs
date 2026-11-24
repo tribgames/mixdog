@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-
 use std::sync::atomic::AtomicU64;
 
 use mixdog_ai::accounts::Account;
@@ -36,6 +35,20 @@ pub(crate) const AUTH_REQUIRED: i64 = -32000;
 
 /// The model id of a preset's own picker entry: the agent's default model.
 pub const DEFAULT_MODEL: &str = "default";
+
+/// What happened to the account an agent's CLI is signed in with, as the core is told of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccountEvent {
+    /// The account was signed out of, or the feature turned off: nothing read of it stands.
+    Left,
+    /// A sign-in settled: what was read stands no longer, and the quota is to be read again now.
+    SignedIn,
+    /// A check found the CLI ready: its quota can be asked now.
+    Askable,
+}
+
+/// Told (preset id, what happened) of an agent's account.
+pub type AccountTold = dyn Fn(&str, AccountEvent) + Send + Sync;
 
 /// Whether an agent's CLI can run a session, each state one the Settings row words.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,9 +134,7 @@ impl Refusal {
             Self::Fault(fault) => format!("{label}: {fault}"),
         }
     }
-}
 
-impl Refusal {
     /// Whether the agent is refused to the user for want of a sign-in.
     pub fn signed_out(&self) -> bool {
         matches!(self, Self::NotReady(Readiness::SignedOut { .. })) || matches!(self, Self::Fault(Fault::Rpc(error)) if error.code == AUTH_REQUIRED)
@@ -204,6 +215,7 @@ impl Agents {
         }
     }
 }
+
 /// Where an agent's refusal of the signed-in account is kept, so it stands across a restart of the app.
 #[async_trait::async_trait]
 pub trait Refusals: Send + Sync {
@@ -251,6 +263,9 @@ pub struct Agents {
     refused: Mutex<Option<HashMap<String, String>>>,
     /// The running sign-in of each preset.
     pub(crate) logins: Mutex<HashMap<String, CancellationToken>>,
+    /// Told when the account a preset's CLI is signed in with may no longer be the one a quota was read of, and
+    /// when the CLI becomes askable for it.
+    pub(crate) account_changed: OnceLock<Arc<AccountTold>>,
     /// Starts the turn of a reply the agent began on its own; bound once the sessions exist.
     wake: OnceLock<Arc<Wake>>,
     /// The sessions' tools, handed to every agent started once they are bound; unbound, an agent is handed none.
@@ -294,6 +309,7 @@ impl Agents {
             grants: Mutex::default(),
             refused: Mutex::default(),
             logins: Mutex::default(),
+            account_changed: OnceLock::new(),
             wake: OnceLock::new(),
             tools: OnceLock::new(),
         })
@@ -302,6 +318,11 @@ impl Agents {
     /// Binds the sessions' tools: every agent started from here on is handed its session's tool surface.
     pub fn bind_tools(&self, tools: Arc<dyn crate::mcp::SessionTools>) {
         let _ = self.tools.set(tools);
+    }
+
+    /// Binds what is told when an agent's account may have changed: a sign-in, a sign-out, the feature turned off.
+    pub fn bind_account_change(&self, told: Arc<AccountTold>) {
+        let _ = self.account_changed.set(told);
     }
 
     /// Binds what starts a turn on a thread whose agent began a reply on its own.
@@ -488,9 +509,7 @@ impl Agents {
         let found = lock(&self.slots).get(&preset.id).and_then(|slot| slot.readiness.clone());
         let listed = match &found {
             // A route saved under the agent's own id of one tier is that model's.
-            Some(Readiness::Ready { models, .. }) => {
-                crate::tiers::offered(models, &preset.quirks).into_iter().find(|listed| listed.id == model || listed.efforts.iter().any(|(_, id)| id == model))
-            }
+            Some(Readiness::Ready { models, .. }) => crate::tiers::find(models, &preset.quirks, model),
             _ => None,
         };
         listed.map_or_else(|| Self::plain_row(preset, model, &preset.label), |listed| Self::listed_row(preset, &listed))
@@ -603,11 +622,17 @@ impl Agents {
     /// A turn found `preset`'s agent unable to serve: its state is `state` of the version last found, until a check or
     /// a sign-in finds it ready again.
     pub(crate) fn not_ready(&self, preset: &AgentPreset, state: impl FnOnce(String) -> Readiness) {
+        let mut signed_out = false;
         if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
             let version = slot.readiness.as_ref().and_then(|known| known.version().map(str::to_owned)).unwrap_or_default();
-            slot.readiness = Some(state(version));
+            let found = state(version);
+            signed_out = matches!(found, Readiness::SignedOut { .. });
+            slot.readiness = Some(found);
         }
         (self.parts.changed)();
+        if signed_out {
+            self.account_left(&preset.id, AccountEvent::Left);
+        }
     }
 
     /// A turn of `thread` that began on its agent's route ended before it was the agent's: what the agent queued for

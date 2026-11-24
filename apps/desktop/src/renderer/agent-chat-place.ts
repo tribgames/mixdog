@@ -266,8 +266,7 @@ type HandoffWalk = Pick<HandoffIndex, 'hiddenReports' | 'waits'> & {
 
 /** `places`: the rows that hand work off or report on a task, oldest first. No other row is read. */
 function walkHandoffs(rows: readonly TranscriptRowModel[], places: readonly number[]): HandoffWalk {
-  const taskReport = (row: TranscriptRowModel) =>
-    row._tag === 'AssistantPart' ? asRecord(row.item.routine) : null;
+  const taskReport = (row: TranscriptRowModel) => (row._tag === 'AssistantPart' ? asRecord(row.item.routine) : null);
   const answered = new Map<string, SessionEnds>();
   for (const at of places) {
     const ends = reportEnds(taskReport(rows[at]));

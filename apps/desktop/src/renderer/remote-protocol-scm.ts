@@ -37,8 +37,7 @@ interface ScmClient {
 }
 
 /** The PC's platform, which decides what an absolute path is (Node checked on the PC). */
-const platformFamily = (host: PhoneProtocolHost): string | undefined =>
-  (host.client() as unknown as ScmClient).server?.platformFamily;
+const platformFamily = (host: PhoneProtocolHost): string | undefined => host.client().server?.platformFamily;
 
 /** The string `code`s Node's source-control errors carried onto the relay frame (remote-methods.ts `errorCode`): the contract
  *  code of a reset that needs the user's confirmation (git-mutations.ts GIT_RESET_DIRTY_CODE), the git runner's own deadline and
@@ -87,7 +86,7 @@ export function phoneCallError(error: unknown): unknown {
 
 /** One desktop operation over the connection, answered as the relay's result frame carried it. */
 async function operate(host: PhoneProtocolHost, name: string, args: unknown[]): Promise<unknown> {
-  const client = host.client() as unknown as ScmClient;
+  const client: ScmClient = host.client();
   const call = (method: string, params: unknown): Promise<unknown> => client.call(method, params);
   try {
     const route = SCM_OPERATION_ROUTES[name](args);

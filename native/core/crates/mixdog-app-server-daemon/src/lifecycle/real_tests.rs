@@ -271,6 +271,7 @@ fn fixture() -> Fixture {
         runtime: runtime.handle().clone(),
         cancel: cancel.clone(),
         cut_new_tasks: Arc::new(|| {}),
+        reopen_new_tasks: Arc::new(|| {}),
         final_barriers: counter(&barriers),
         release_decision: {
             let released = Arc::clone(&released);

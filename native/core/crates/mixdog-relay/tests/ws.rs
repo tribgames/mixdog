@@ -373,6 +373,40 @@ async fn stalled_until_released(prepare: impl FnOnce(&WebSocket), partial: impl 
     wait_for_count(&count, 1).await;
 }
 
+struct ByteCount(Arc<AtomicUsize>);
+
+impl RawTap for ByteCount {
+    fn chunk(&mut self, bytes: &[u8], _gate: &Gate) {
+        self.0.fetch_add(bytes.len(), Ordering::SeqCst);
+    }
+}
+
+/// A reader that takes bytes only while its owner has finished with the events of the last chunk. On a single thread the peer
+/// fills the socket without the reader running at all, so what the reader has taken when the owner holds its first event is
+/// decided by the reader's own gating, not by timing: one read, however much the peer has queued.
+#[tokio::test(flavor = "current_thread")]
+async fn a_slow_owner_stops_the_socket_being_read() {
+    const READ_CHUNK: usize = 64 * 1024;
+    let session = open_session(ServerOptions::new(128 * 1024 * 1024), upgrade(), |_| {}).await;
+    let Session { client, ws, mut events, server: _server, .. } = session;
+    let taken = Arc::new(AtomicUsize::new(0));
+    ws.set_raw_tap(Box::new(ByteCount(Arc::clone(&taken))));
+    let (_read, write) = client.into_split();
+    let one = frame_masked(0x82, &vec![7u8; 1024], Some([0; 4]));
+    let mut queued = 0;
+    while queued < BIG_FRAME_BYTES {
+        match write.try_write(&one) {
+            Ok(count) => queued += count,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("write: {error}"),
+        }
+    }
+    // Whatever the platform's buffers took: more than one read of the reader is all that tells a gated reader from a draining one.
+    assert!(queued > READ_CHUNK, "the peer queued only {queued} bytes: not more than one read");
+    assert!(matches!(events.next().await, Some(WsEvent::Message { .. })));
+    assert!(taken.load(Ordering::SeqCst) <= READ_CHUNK, "the reader took {} bytes ahead of its owner", taken.load(Ordering::SeqCst));
+}
+
 #[tokio::test]
 async fn pause_stops_reading_and_resume_continues() {
     stalled_until_released(|ws| ws.pause(), |_| {}, |ws| ws.resume()).await;

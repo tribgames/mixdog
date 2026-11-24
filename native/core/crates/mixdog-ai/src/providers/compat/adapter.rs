@@ -25,6 +25,7 @@ use super::chat::CompatChatCodec;
 use super::profile::{CompatProfile, CredentialKind, Wire, WireInputs};
 use super::wire_route::{WireFacts, route_for};
 use crate::catalog::{ListingLookup, ModelTraits};
+use crate::providers::connect::stream::decode_read;
 use arc_swap::ArcSwap;
 use mixdog_core_api::domain::provider::{ModelListing, WireRoute, WireRouteContext, WireRouting};
 
@@ -278,15 +279,13 @@ impl ModelStream for CompatStream {
                 return None;
             }
             match body.next().await {
-                Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
-                    Ok(events) => {
+                Some(Ok(chunk)) => match decode_read(self.decoder.as_mut(), Some(&chunk)) {
+                    Ok((events, held)) => {
                         self.report(&events);
                         self.queue.extend(events);
-                        // A failure the decoder holds behind this read's events surfaces after them, not after the next read: a
-                        // timeout must not replace a refusal that was already decoded.
-                        if let Err(err) = self.decoder.feed(&[]) {
+                        if held.is_some() {
                             self.body = None;
-                            self.failed = Some(err);
+                            self.failed = held;
                         }
                     }
                     Err(err) => {
@@ -313,8 +312,11 @@ impl ModelStream for CompatStream {
                 }
                 None => {
                     self.body = None;
-                    match self.decoder.finish() {
-                        Ok(events) => self.queue.extend(events),
+                    match decode_read(self.decoder.as_mut(), None) {
+                        Ok((events, held)) => {
+                            self.queue.extend(events);
+                            self.failed = held;
+                        }
                         Err(err) => self.failed = Some(err),
                     }
                 }
@@ -379,6 +381,22 @@ mod site_tests {
             let message = fetch(profile, "https://x.test/v1/models").await;
             assert!(message.contains("Unexpected token '<', \"<html>no</html>\" is not valid JSON"), "{message}");
         }
+    }
+
+    /// A turn a content filter stopped, whose body ends without `[DONE]` while the leak guard holds back the tail of its
+    /// text, ends with the filter's failure after that text, never as a cut stream.
+    #[tokio::test]
+    async fn a_filtered_turn_ends_with_its_failure_after_the_flushed_text() {
+        use crate::providers::connect::stream::tests::Scripted;
+        use crate::providers::connect::stream::tests::read_out;
+        let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let decoder = crate::providers::compat::chat::ChatDecoder::new(profile, ProviderId::from("groq")).with_known_tools(["lookup".to_owned()].into());
+        let body = Scripted::ending(&["data: {\"choices\":[{\"delta\":{\"content\":\"Hi <invo\"},\"finish_reason\":\"content_filter\"}]}\n\n"]);
+        let mut stream = CompatStream::new(Box::new(body), Box::new(decoder));
+        let (events, failure) = read_out(&mut stream).await;
+        let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+        assert_eq!(text, "Hi <invo");
+        assert_eq!(failure.expect("the filter").code.as_deref(), Some("PROVIDER_INCOMPLETE"));
     }
 }
 

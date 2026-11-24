@@ -194,8 +194,9 @@ test("the composer island's head reads as its segment, a failure is its row's st
   await act(async () => segment().click());
   const row = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
   assert.equal(row('stalled').textContent, 'Failed');
-  // "Agents 3 ●": the name, how many, the mark; no state counts beside it.
-  assert.equal(document.querySelector('.composer-island-phead').textContent, 'Agents3');
+  // "Agents 1 ●": the name, how many are in progress (the failed and the rested one are not), the mark; no state
+  // counts beside it.
+  assert.equal(document.querySelector('.composer-island-phead').textContent, 'Agents1');
   assert.ok(document.querySelector('.composer-island-phead .composer-island-head-count + .composer-island-mark-slot'));
   // The footer's right-end "Clean up", what it clears in its tooltip and
   // description; the header keeps only the close button.

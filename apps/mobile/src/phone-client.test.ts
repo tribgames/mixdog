@@ -84,14 +84,14 @@ function foldedThrough(client: ProtocolClient<SessionFold>, threadId: string, se
   });
 }
 
-/** `hear` passed as a callback; `happened` resolves at its first call whose arguments pass `test`. */
-function signal<A extends unknown[]>(test: (...args: A) => boolean = () => true) {
+/** `hear` passed as a callback; `happened` resolves at its first call whose arguments pass `passes`. */
+function signal<A extends unknown[]>(passes: (...args: A) => boolean = () => true) {
   let resolve!: () => void;
   const happened = new Promise<void>((r) => (resolve = r));
   return {
     happened,
     hear: (...args: A) => {
-      if (test(...args)) resolve();
+      if (passes(...args)) resolve();
     },
   };
 }

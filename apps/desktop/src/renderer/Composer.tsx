@@ -43,6 +43,7 @@ import {
   composerAttachmentsCarryOver,
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
+  dropComposerDraft,
   noteComposerContent,
   persistComposerDrafts,
   stashComposerAttachments,
@@ -166,12 +167,13 @@ function handleComposerPaste(
 }
 
 /** Identity-scope transition: park the text of the pane being left, then open
- *  the incoming one clean, restored, or with the in-flight text carried over.
- *  Every transient surface (palettes, selector, notice, drag) resets with it. */
+ *  the incoming one with what it parked, or, when the draft left became this
+ *  session, with the text it holds. Every transient surface (palettes,
+ *  selector, notice, drag) resets with it. Returns whether the draft left
+ *  became the incoming session. */
 function switchComposerIdentity({
   identityScope,
   previousScope,
-  switchingSessions,
   textarea,
   draftRef,
   composingRef,
@@ -189,7 +191,6 @@ function switchComposerIdentity({
 }: {
   identityScope: string;
   previousScope: string;
-  switchingSessions: boolean;
   textarea: { current: HTMLTextAreaElement | null };
   draftRef: { current: string };
   composingRef: { current: boolean };
@@ -204,20 +205,25 @@ function switchComposerIdentity({
   clearNotice(): void;
   setComposerFocused(focused: boolean): void;
   setDraggingFiles(dragging: boolean): void;
-}) {
+}): boolean {
   // Park the text the user typed in the tab being left, so returning to
-  // that tab hands it back instead of opening empty.
+  // that tab hands it back instead of opening empty. A draft that became
+  // this session is never shown again: nothing is parked under it.
+  const promotingDraft = takeDraftPromotion(previousScope, identityScope);
   const leavingElement = textarea.current;
-  stashComposerDraft(
-    previousScope,
-    document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
-  );
+  if (promotingDraft) {
+    dropComposerDraft(previousScope);
+  } else {
+    stashComposerDraft(
+      previousScope,
+      document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
+    );
+  }
   const typingElement = textarea.current;
   const typingLive = document.activeElement === typingElement;
   // A fresh New Task pane is the exception: it ALWAYS opens clean.
   const freshDraft = composerScopeOpensFreshDraft(identityScope);
   const parkedAttachments = takeStashedComposerAttachments(identityScope);
-  const promotingDraft = takeDraftPromotion(previousScope, identityScope);
   if (composerAttachmentsCarryOver({ freshDraft, promotingDraft, parkedCount: parkedAttachments.length })) {
     stashComposerAttachments(previousScope, []);
   } else {
@@ -232,10 +238,9 @@ function switchComposerIdentity({
     const next = composerDraftAfterScopeChange({
       currentDraft: current,
       liveDomDraft: typingElement?.value ?? current,
-      freshDraft,
       typingLive,
       stashedDraft: stashedComposerDraft(identityScope),
-      switchingSessions,
+      sameConversation: promotingDraft,
     });
     draftRef.current = next;
     return next;
@@ -246,6 +251,7 @@ function switchComposerIdentity({
   setDraggingFiles(false);
   selector.reset();
   historyNavigation.current = { index: -1, seed: '' };
+  return promotingDraft;
 }
 
 export type ComposerProps = {
@@ -372,6 +378,7 @@ function useComposerSteerHandoff({
   historyNavigation,
   textarea,
   showNotice,
+  keepSubmissionId,
 }: {
   activeIdentityScope: { current: string };
   recoveryScopeRef: { current: string };
@@ -384,6 +391,7 @@ function useComposerSteerHandoff({
   historyNavigation: { current: { index: number; seed: string } };
   textarea: { current: HTMLTextAreaElement | null };
   showNotice: (notice: string) => void;
+  keepSubmissionId: (submissionId: string) => void;
 }) {
   const steer = useContext(SteerContext);
   useEffect(() => {
@@ -391,7 +399,8 @@ function useComposerSteerHandoff({
     const handoff: typeof steer.draft.current = {
       scope: () => activeIdentityScope.current,
       recoveryScope: () => recoveryScopeRef.current,
-      restore(value, { ifEmpty = false, replace = false, notice } = {}) {
+      restore(value, { ifEmpty = false, replace = false, notice, submissionId } = {}) {
+        const holdsNothing = !draftRef.current.trim() && attachmentsRef.current.length === 0;
         if (
           !restoreDraftHandoff(
             { draftRef, attachmentsRef, replaceAttachments, restoredAttachments, mergeRestoredAttachments, setDraft },
@@ -400,6 +409,8 @@ function useComposerSteerHandoff({
           )
         )
           return false;
+        // Only a draft that is that message alone resends it; one joined to typed text is a new message.
+        if (submissionId && (holdsNothing || replace)) keepSubmissionId(submissionId);
         historyNavigation.current = { index: -1, seed: '' };
         if (notice) showNotice(notice);
         window.setTimeout(() => textarea.current?.focus(), 0);
@@ -423,6 +434,7 @@ function useComposerSteerHandoff({
     showNotice,
     historyNavigation,
     textarea,
+    keepSubmissionId,
   ]);
 }
 
@@ -492,9 +504,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   }, []);
   const [composerFocused, setComposerFocused] = useState(false);
   const activeIdentityScope = useRef(identityScope);
-  // The session the current identity belongs to ('' for a New Task or a
-  // session not resolved yet), read when the identity next moves.
-  const activeSessionId = useRef(sessionId || '');
   const recoveryScopeRef = useRef(recoveryScope);
   recoveryScopeRef.current = recoveryScope;
   const skillSelection = useComposerSkill(identityScope);
@@ -514,6 +523,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const voiceSubmitPending = useRef(false);
   const dictation = useComposerDictation({
     keysActive: paneActive,
+    identityScope,
     transitioningRef,
     textarea,
     setDraft,
@@ -525,6 +535,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     }, []),
   });
   const history = useComposerHistory({ historyScope, promptHistoryList });
+  // Recoveries parked for a conversation join its draft once the identity switch below has opened that draft:
+  // drained first, the switch would park them with the conversation being left.
+  const [recoveryDrainScope, setRecoveryDrainScope] = useState(recoveryScope);
   const {
     attachments,
     attachmentsRef,
@@ -552,7 +565,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     historyNavigation: history.navigation,
     transitioningRef,
     projectScope,
-    recoveryScope,
+    recoveryScope: recoveryDrainScope,
     submissionRecoveryVersion,
     dropTargetRef,
   });
@@ -603,19 +616,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     !draftMode && Array.isArray(pendingSubmissionIds)
       ? String(pendingSubmissionIds[pendingSubmissionIds.length - 1] || '').trim()
       : '';
-  useComposerSteerHandoff({
-    activeIdentityScope,
-    recoveryScopeRef,
-    draftRef,
-    attachmentsRef,
-    replaceAttachments,
-    restoredAttachments,
-    mergeRestoredAttachments,
-    setDraft,
-    historyNavigation: history.navigation,
-    textarea,
-    showNotice: showComposerNotice,
-  });
   useComposerPromptRestore({
     promptRestore,
     sessionId: sessionId || '',
@@ -704,12 +704,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (activeIdentityScope.current === identityScope) return;
     const previousScope = activeIdentityScope.current;
     activeIdentityScope.current = identityScope;
-    const leavingSessionId = activeSessionId.current;
-    activeSessionId.current = sessionId || '';
-    switchComposerIdentity({
+    const promoted = switchComposerIdentity({
       identityScope,
       previousScope,
-      switchingSessions: Boolean(leavingSessionId && sessionId && leavingSessionId !== sessionId),
       textarea,
       draftRef,
       composingRef,
@@ -725,7 +722,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       setComposerFocused,
       setDraggingFiles,
     });
+    dictation.moveTo(identityScope, promoted);
   }, [identityScope, resetAttachments, clearNotice, palettes.reset, palettes.invalidateSearch, selector.reset]);
+  useLayoutEffect(() => setRecoveryDrainScope(recoveryScope), [recoveryScope]);
   const placeholder =
     placeholderOverride ||
     composerPlaceholder({
@@ -744,6 +743,15 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     noteComposerContent(identityScope, holdsContent);
     return () => noteComposerContent(identityScope, false);
   }, [identityScope, holdsContent]);
+  // Text sent or cleared is parked nowhere. A scope change first commits with
+  // the previous scope's text, so only an emptying within one scope counts.
+  const draftEmpty = !draft.trim();
+  const emptiedScope = useRef(identityScope);
+  useEffect(() => {
+    const sameScope = emptiedScope.current === identityScope;
+    emptiedScope.current = identityScope;
+    if (sameScope && draftEmpty) dropComposerDraft(identityScope);
+  }, [identityScope, draftEmpty]);
   // Leaving the screen (home button, app switch) is the last moment the page
   // is sure to run: the OS may kill it or a deploy may reload it afterwards.
   usePersistDraftOnHide(identityScope, textarea, draftRef);
@@ -804,7 +812,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     void backfillAgentChatRoute(sessionId, { provider, model, ...(effort ? { effort } : {}) }).catch(() => {});
   }, [agentMode, sessionId, provider, model, effort]);
 
-  const { send, stop } = useComposerSubmission({
+  const { send, stop, keepSubmissionId } = useComposerSubmission({
     turnBusy,
     commandBusy,
     draftMode,
@@ -840,6 +848,20 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     sessionId,
     plainText: agentMode,
     modelMissing: !(provider && model),
+  });
+  useComposerSteerHandoff({
+    activeIdentityScope,
+    recoveryScopeRef,
+    draftRef,
+    attachmentsRef,
+    replaceAttachments,
+    restoredAttachments,
+    mergeRestoredAttachments,
+    setDraft,
+    historyNavigation: history.navigation,
+    textarea,
+    showNotice: showComposerNotice,
+    keepSubmissionId,
   });
   // Pins and picks queued from the session's visualize panel make a message
   // sendable on their own.

@@ -214,7 +214,13 @@ export function useTranscriptWindow<T extends { readonly id?: unknown }>(
     liveWindowStart,
     liveGeneration
   );
-  const held = usePositionedTranscriptWindow(positioned ? sessionId : '', liveItems, liveHasOlder, following, positioned);
+  const held = usePositionedTranscriptWindow(
+    positioned ? sessionId : '',
+    liveItems,
+    liveHasOlder,
+    following,
+    positioned
+  );
   return positioned ? held : legacy;
 }
 
@@ -384,12 +390,13 @@ const NO_TURNS: ReadonlySet<string> = new Set();
 function usePlaceCards(sessionId: string, items: readonly unknown[] | null, place: ReaderPlace | null): void {
   const projector = useRef<ReturnType<typeof createSettledProjector> | null>(null);
   projector.current ??= createSettledProjector();
+  const settled = projector.current;
   const position = place?.position ?? '';
   const asked = useRef<{ items: readonly unknown[] | null; position: string }>({ items: null, position: '' });
   useEffect(() => {
     if (!items || !place || (asked.current.items === items && asked.current.position === position)) return;
     asked.current = { items, position };
-    for (const card of cardsAround(projector.current!.project, sessionId, items, place))
+    for (const card of cardsAround(settled.project, sessionId, items, place))
       prefetchTurnChanges(sessionId, card.checkpointId, card.boundary);
   });
 }
@@ -449,31 +456,35 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   }, [active, move, sessionId]);
   const views = facts?.views ?? (NO_STRETCHES as readonly PositionedStretch<T>[]);
   const opening = sessionId ? pendingReaderPlace(pane, sessionId) : null;
-  const reader = following && !opening ? null : (opening ?? (sessionId ? readerPlace(pane, sessionId) : null));
+  const placeOf = () => opening ?? (sessionId ? readerPlace(pane, sessionId) : null);
+  const reader = following && !opening ? null : placeOf();
   // The rows this pane showed last: what it keeps when the state holds no stretch of its reader's.
   const shown = useRef<{ sessionId: string; items: readonly T[] | null }>({ sessionId, items: null });
   if (shown.current.sessionId !== sessionId) shown.current = { sessionId, items: null };
   let items: readonly T[];
   // The stretch that holds the reader's record, or the record under it when that one is gone from the history.
   const holds = (stretch: readonly T[] | null): boolean =>
-    reader !== null &&
-    (shows(stretch, reader.position) || (reader.next !== undefined && shows(stretch, reader.next)));
+    reader !== null && (shows(stretch, reader.position) || (reader.next !== undefined && shows(stretch, reader.next)));
   // Of the stretches apart, the one asked for last is looked at first.
   const apart = (has: (stretch: readonly T[]) => boolean): readonly T[] | undefined => {
-    for (let at = views.length - 1; at >= 0; at -= 1) if (has(views[at]!.items)) return views[at]!.items;
+    for (let at = views.length - 1; at >= 0; at -= 1) {
+      const stretch = views[at]?.items;
+      if (stretch && has(stretch)) return stretch;
+    }
     return undefined;
   };
   const on = (stretch: readonly T[]): boolean => reader !== null && shows(stretch, reader.position);
-  let held: readonly T[] | null = null;
-  if (!reader) held = liveItems;
-  else held = apart(on) ?? (on(liveItems) ? liveItems : (apart(holds) ?? (holds(liveItems) ? liveItems : null)));
+  const inLive = (has: (stretch: readonly T[]) => boolean): readonly T[] | undefined =>
+    has(liveItems) ? liveItems : undefined;
+  const held: readonly T[] | null = reader
+    ? (apart(on) ?? inLive(on) ?? apart(holds) ?? inLive(holds) ?? null)
+    : liveItems;
   const detached = held === null;
   // Rows the pane is to open at are shown once the replies its view will mount are parsed: mounted before, a reply is
   // laid out at the size the list holds for it and takes its own a frame later, under the reader.
   const arriving = held !== null && held !== shown.current.items ? held : null;
-  const parsed = usePlaceBodies(sessionId, arriving, opening);
+  const bodies = usePlaceBodies(sessionId, arriving, opening);
   usePlaceCards(sessionId, arriving, opening);
-  const bodies = parsed;
   if (held === null || !bodies) items = shown.current.items ?? (EMPTY_ITEMS as readonly T[]);
   else items = held;
   if (held !== null && bodies) shown.current.items = items;
@@ -482,6 +493,7 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   // stand in (protocol-client `windowWant`). The tail itself is kept as it grows: following asks for nothing while
   // the tail's run is what is held.
   const loose = following && !opening && views.length > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each new window version lets go of the stretch again.
   useEffect(() => {
     if (loose) move({ kind: 'follow' });
   }, [loose, move, facts?.version]);
@@ -529,7 +541,7 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   );
   const resetToLive = useCallback(() => move({ kind: 'follow' }), [move]);
   const historyActive = items !== liveItems;
-  const hasOlder = inView ? inView.older : historyActive ? false : liveHasOlder;
+  const hasOlder = inView ? inView.older : !historyActive && liveHasOlder;
   return {
     items,
     hasOlder,
@@ -629,7 +641,8 @@ function useLegacyTranscriptWindow<T extends { readonly id?: unknown }>(
   const held = pager.window;
   const tail = pager.tail();
   const items = held ? held.items : tail.items;
-  const hasOlder = held ? held.hasOlder : tail.items === liveItems ? liveHasOlder : tail.hasOlder;
+  const tailHasOlder = tail.items === liveItems ? liveHasOlder : tail.hasOlder;
+  const hasOlder = held ? held.hasOlder : tailHasOlder;
   return {
     items,
     hasOlder,

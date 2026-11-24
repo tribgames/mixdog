@@ -268,60 +268,58 @@ fn main() {
             let listed = mixdog_migrate::session::listed::rows(&roots.data);
             mark("listed-rows:end");
             eprintln!("{} home histories, {} listed rows, {} sessions to convert", homes.len(), listed.len(), back.sessions());
-            {
-                // The core composes after the front and opens its index, an empty one, before the sessions convert.
-                let tokens = mixdog_rt::testing::tokens();
-                let data = roots.data.clone();
-                let index = runtime
-                    .block_on(
-                        mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-                            mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
-                        })
-                        .expect("lane"),
-                    )
-                    .expect("job ran")
-                    .expect("the core's index");
-                let index = Arc::new(index);
-                let _ = projector.index.set(index.clone());
-                mark("core-index-open:end");
-                // The archive authority as the core composes it (`compose.rs` `open_core_state`): the state database the front
-                // left, set aside and marked lost when it is not usable.
-                if let Some(rule) = &rule {
-                    let state_dir = roots.data.join("state");
-                    std::fs::create_dir_all(&state_dir).expect("the state dir");
-                    let existed = state_dir.join("core.sqlite").is_file();
-                    let (state, _, set_aside) =
-                        mixdog_store::state::CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
-                            .expect("the core's state");
-                    if set_aside.file.is_some() {
-                        runtime.block_on(mixdog_store::archive_state::ArchiveStates::mark_lost(&state)).expect("the lost mark");
-                    }
-                    let archive = runtime.block_on(mixdog_store::archive_state::ArchiveStates::open(state)).expect("the archive authority");
-                    eprintln!(
-                        "archive authority: state/core.sqlite existed after the front: {existed}; set aside: {:?}; entries lost: {}",
-                        set_aside.file.as_ref().map(|(kept, why)| format!("{} ({why})", kept.display())),
-                        archive.snapshot().lost()
-                    );
-                    let _ = rule.archive.set(archive);
-                }
-                // `Behind::list` (boot.rs): every session still to convert listed by the row the earlier version kept of it.
-                let waiting: std::collections::BTreeSet<String> = back.waiting().pending().into_iter().collect();
-                let rows: Vec<_> = listed.into_iter().filter(|(session, _)| waiting.contains(session)).collect();
-                let ids: Vec<String> = rows.iter().map(|(session, _)| session.clone()).collect();
-                let kept = back.listed_meta(&ids);
-                let sessions = rows
-                    .into_iter()
-                    .zip(kept)
-                    .map(|((session, mut row), kept)| {
-                        if let Some(kept) = mixdog_migrate::session::without_outranked_title(&row, kept) {
-                            row.extend(kept);
-                        }
-                        pending_row(session, row)
+            // The core composes after the front and opens its index, an empty one, before the sessions convert.
+            let tokens = mixdog_rt::testing::tokens();
+            let data = roots.data.clone();
+            let index = runtime
+                .block_on(
+                    mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
                     })
-                    .collect();
-                runtime.block_on(index.list_pending(sessions)).expect("the pending rows");
-                mark("pending-rows-listed:end");
+                    .expect("lane"),
+                )
+                .expect("job ran")
+                .expect("the core's index");
+            let index = Arc::new(index);
+            let _ = projector.index.set(index.clone());
+            mark("core-index-open:end");
+            // The archive authority as the core composes it (`compose.rs` `open_core_state`): the state database the front
+            // left, set aside and marked lost when it is not usable.
+            if let Some(rule) = &rule {
+                let state_dir = roots.data.join("state");
+                std::fs::create_dir_all(&state_dir).expect("the state dir");
+                let existed = state_dir.join("core.sqlite").is_file();
+                let (state, _, set_aside) =
+                    mixdog_store::state::CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
+                        .expect("the core's state");
+                if set_aside.file.is_some() {
+                    runtime.block_on(mixdog_store::archive_state::ArchiveStates::mark_lost(&state)).expect("the lost mark");
+                }
+                let archive = runtime.block_on(mixdog_store::archive_state::ArchiveStates::open(state)).expect("the archive authority");
+                eprintln!(
+                    "archive authority: state/core.sqlite existed after the front: {existed}; set aside: {:?}; entries lost: {}",
+                    set_aside.file.as_ref().map(|(kept, why)| format!("{} ({why})", kept.display())),
+                    archive.snapshot().lost()
+                );
+                let _ = rule.archive.set(archive);
             }
+            // `Behind::list` (boot.rs): every session still to convert listed by the row the earlier version kept of it.
+            let waiting: std::collections::BTreeSet<String> = back.waiting().pending().into_iter().collect();
+            let rows: Vec<_> = listed.into_iter().filter(|(session, _)| waiting.contains(session)).collect();
+            let ids: Vec<String> = rows.iter().map(|(session, _)| session.clone()).collect();
+            let kept = back.listed_meta(&ids);
+            let sessions = rows
+                .into_iter()
+                .zip(kept)
+                .map(|((session, mut row), kept)| {
+                    if let Some(kept) = mixdog_migrate::session::without_outranked_title(&row, kept) {
+                        row.extend(kept);
+                    }
+                    pending_row(session, row)
+                })
+                .collect();
+            runtime.block_on(index.list_pending(sessions)).expect("the pending rows");
+            mark("pending-rows-listed:end");
             let _entered = runtime.enter();
             let complete = back.run().expect("the rest");
             mark("back:end");

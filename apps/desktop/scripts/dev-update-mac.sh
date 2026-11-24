@@ -117,20 +117,37 @@ stop_app() {
 	fail "Mixdog is still running: $(app_pids | join_pids)"
 }
 
-# The installed core stops itself once it is idle (`ctl stop --when-idle`, as the Windows script does); nothing
-# here kills it, so running work finishes first.
+# The running core stops itself once it is idle (`ctl stop --when-idle`, as the Windows script does); nothing
+# here kills it, so running work finishes first. The stop is sent by the mixdogd this deploy installs (checked by
+# assert_artifact): it names the build that replaces the core, which the core requires and an installed mixdogd may
+# not know how to.
 stop_daemon() {
-	local pid core="$install_app/Contents/Resources/core/mixdogd"
+	local pid installed="$install_app/Contents/Resources/core/mixdogd" core="$dist_app/Contents/Resources/core/mixdogd"
 	pid="$(daemon_field pid)"
 	[ -n "$pid" ] || {
 		echo "    no core running"
 		return
 	}
-	[ -x "$core" ] || {
-		echo "    the installed build has no mixdogd ($core); nothing to stop"
+	# An install without mixdogd runs 1.4.5's daemon, which no `ctl` reaches.
+	[ -x "$installed" ] || {
+		echo "    the installed build has no mixdogd ($installed); nothing to stop"
 		return
 	}
-	"$core" ctl stop --when-idle --reason fastDeploy --json >/dev/null || fail "mixdogd ctl stop failed"
+	local version
+	version="$(node -p 'require(process.argv[1]).version' "$repo_root/apps/desktop/package.json")"
+	# The ctl finds the core through the root this script read (it may be the legacy tmp/mixdog), as the app's does.
+	if ! MIXDOG_RUNTIME_ROOT="$runtime_root" "$core" ctl stop --when-idle --reason fastDeploy --revision "$version" --version "$version" --json >/dev/null; then
+		# A core that ended by itself (noClients: the app just quit was its last client) between the look above
+		# and the ask is still leaving: give its process the time to finish.
+		for _ in $(seq 1 75); do
+			kill -0 "$pid" 2>/dev/null || {
+				echo "    core ended by itself before the stop was asked"
+				return
+			}
+			sleep_s 0.2
+		done
+		fail "mixdogd ctl stop failed and core pid=$pid is still running"
+	fi
 	echo "    asked core pid=$pid to stop when idle"
 	while kill -0 "$pid" 2>/dev/null; do
 		echo "    waiting for the core to become idle"

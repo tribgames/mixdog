@@ -140,6 +140,16 @@ impl From<ToolError> for Stop {
 
 type R<T> = Result<T, Stop>;
 
+/// The entry of a patch path: `raw`, against `base`, is admitted for a write before the OS sees it.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn admit_write(ctx: &ToolContext, base: &AbsPath, raw: &str) -> Result<AbsPath, ToolError> {
+    let refuse = |text: String| crate::orch::util::refused("write-path-guard", text);
+    if url_as_path(raw) {
+        return Err(refuse(URL_AS_PATH.to_owned()));
+    }
+    admit(ctx, base, raw, Access::Write).await?.map_err(refuse)
+}
+
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn text_err<T>(message: impl Into<String>) -> R<T> {
     Err(Stop::Text(message.into()))
@@ -1472,20 +1482,39 @@ impl Tool for ApplyPatchTool {
         let reject_partial = args.get("reject_partial").and_then(JsonValue::as_bool) != Some(false);
         let ordered = arg_bool(&args, "sequence") || matches!(arg_str(&args, "mode").map(str::to_lowercase).as_deref(), Some("ordered" | "sequence"));
         let base = match arg_str(&args, "base_path").filter(|b| !js_trim(b).is_empty()) {
-            Some(b) => resolve_path(&ctx.cwd, b)?,
+            Some(b) => admit_write(ctx, &ctx.cwd, b).await?,
             None => ctx.cwd.clone(),
         };
         let opts = Options { fuzzy, reject_partial, dry: dry_run, state: self.state.clone() };
         let (sections, coalesce_sections) = match parse_request(patch, &requested)? {
-            Parsed::Unified(files) => return self.call_unified(ctx, &base, files, &opts, ordered).await,
-            Parsed::Sections(sections, coalesce) => (sections, coalesce),
+            Parsed::Unified(files) => {
+                let names: Vec<&str> = files
+                    .iter()
+                    .flat_map(|f| [f.old_name.as_deref(), f.new_name.as_deref()])
+                    .flatten()
+                    .filter(|n| *n != "/dev/null" && !n.is_empty())
+                    .map(strip_diff_prefix)
+                    .collect();
+                for name in names {
+                    admit_write(ctx, &base, name).await?;
+                }
+                return self.call_unified(ctx, &base, files, &opts, ordered).await;
+            }
+            Parsed::Sections(sections, coalesce) => {
+                let names: Vec<&str> =
+                    sections.iter().flat_map(|s| [Some(s.path.as_str()), s.move_path.as_deref()]).flatten().filter(|n| !n.is_empty()).collect();
+                for name in names {
+                    admit_write(ctx, &base, name).await?;
+                }
+                (sections, coalesce)
+            }
         };
         let sections = redirect_sections(ctx, &base, sections).await?;
         let mut touched: Vec<AbsPath> = Vec::new();
         for s in &sections {
-            touched.push(resolve_path(&base, &s.path)?);
+            touched.push(admit_write(ctx, &base, &s.path).await?);
             if let Some(dest) = &s.move_path {
-                touched.push(resolve_path(&base, dest)?);
+                touched.push(admit_write(ctx, &base, dest).await?);
             }
         }
         let _locked = lock_patch_targets(ctx, &touched).await?;
@@ -1785,6 +1814,9 @@ impl ApplyPatchTool {
         let files = redirect_files(ctx, base, files).await?;
         let mut touched: Vec<AbsPath> = Vec::new();
         for file in &files {
+            for name in [file.old_name.as_deref(), file.new_name.as_deref()].into_iter().flatten().filter(|n| *n != "/dev/null" && !n.is_empty()) {
+                admit_write(ctx, base, strip_diff_prefix(name)).await?;
+            }
             if let Some(name) = target_name(file) {
                 touched.push(resolve_path(base, strip_diff_prefix(name))?);
             }

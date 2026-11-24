@@ -17,6 +17,7 @@ use mixdog_agent::agent_tool::scope::clean_str;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::truthy;
 use mixdog_core_api::CallContext;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
@@ -37,6 +38,7 @@ use mixdog_core_session::session::delegation::rebind_patch;
 use mixdog_core_session::session::delete::is_session_id;
 use mixdog_core_session::session::run_stamps::Records;
 use mixdog_core_session::session::runtime_facts::RuntimeFacts;
+use mixdog_protocol::thread::QUEUE_ONLY_IDLE;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InteractiveIo;
 use mixdog_store::blobs::BlobStore;
@@ -128,11 +130,20 @@ impl HeaderWrites for ThreadHeaders {
     }
 }
 
+/// What the runtime did with a follow-up that may only join a running turn's queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Submitted {
+    Queued,
+    /// No turn was running when the runtime took the prompt: nothing was started or queued.
+    Idle,
+    Refused,
+}
+
 /// `runtime.submitAsync(content, { priority: 'next' })` of a loaded session, and the queue it
 /// leaves.
 #[async_trait]
 pub trait TurnQueue: Send + Sync {
-    /// Whether the runtime took the prompt (`content` is the text, or the text with the forwarded
+    /// What the runtime did with the prompt (`content` is the text, or the text with the forwarded
     /// attachment parts; `context` the follow-up's own; `sizes` the stored files' sizes by
     /// `attachmentRef`, for the message's attachment records).
     async fn submit_next(
@@ -142,7 +153,7 @@ pub trait TurnQueue: Send + Sync {
         submission: &str,
         context: Option<String>,
         sizes: BTreeMap<String, u32>,
-    ) -> Result<bool, SendWorldError>;
+    ) -> Result<Submitted, SendWorldError>;
 }
 
 /// `runtime.getState()` of a session this process hosts, as the agent tree reads it.
@@ -197,13 +208,13 @@ impl TurnQueue for DirectoryQueue {
         submission: &str,
         context: Option<String>,
         sizes: BTreeMap<String, u32>,
-    ) -> Result<bool, SendWorldError> {
+    ) -> Result<Submitted, SendWorldError> {
         let thread = ThreadId::from(session);
         let Some(handle) = self.directory.handle(&thread) else {
             return Err(SendWorldError::Submit(format!("agent session {session} is not loaded")));
         };
         let op = OpId::from(submission.to_owned());
-        let mut options = json!({ "clientSubmissionId": submission, "priority": "next" });
+        let mut options = json!({ "clientSubmissionId": submission, "priority": "next", "queueOnly": true });
         if let Some(context) = context {
             options["context"] = Value::String(context);
         }
@@ -213,8 +224,9 @@ impl TurnQueue for DirectoryQueue {
         let params = json!({ "threadId": thread, "opId": op, "input": { "prompt": content, "options": options } });
         let ctx = CallContext::internal("agent-message");
         match handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx }).await {
-            Ok(Reply::Value(value)) => Ok(matches!(value["kind"].as_str(), Some("started" | "queued"))),
-            Ok(_) => Ok(false),
+            Ok(Reply::Value(value)) => Ok(if value["kind"] == "queued" { Submitted::Queued } else { Submitted::Refused }),
+            Ok(_) => Ok(Submitted::Refused),
+            Err(CoreError::DomainError { code: Some(code), .. }) if &*code == QUEUE_ONLY_IDLE => Ok(Submitted::Idle),
             Err(error) => Err(SendWorldError::Submit(format!("{error:?}"))),
         }
     }
@@ -389,9 +401,10 @@ impl SendWorld for AgentSendWorld {
                 sizes.insert(reference.to_owned(), u32::try_from(size).map_err(|_| format!("attachment {reference} is too large"))?);
             }
         }
-        let accepted = self.queue.submit_next(&id, content, &submission, context, sizes).await.map_err(|e| e.to_string())?;
-        if !accepted {
-            return Err(SendWorldError::NotAccepted.to_string());
+        match self.queue.submit_next(&id, content, &submission, context, sizes).await.map_err(|e| e.to_string())? {
+            Submitted::Queued => {}
+            Submitted::Idle => return Ok(None),
+            Submitted::Refused => return Err(SendWorldError::NotAccepted.to_string()),
         }
         self.sessions.assert_admission(&id, Some(epoch))?;
         let depth = self.runtime.facts(&id).map(|facts| facts.queued);
@@ -536,6 +549,8 @@ mod tests {
 
     struct Queue {
         accept: bool,
+        /// The worker's turn ended after the busy check: the runtime has none to join.
+        ended: bool,
         submitted: Mutex<Vec<(String, Value, Option<String>)>>,
         sizes: Mutex<Vec<BTreeMap<String, u32>>>,
     }
@@ -548,11 +563,15 @@ mod tests {
             submission: &str,
             context: Option<String>,
             sizes: BTreeMap<String, u32>,
-        ) -> Result<bool, SendWorldError> {
+        ) -> Result<Submitted, SendWorldError> {
             self.sizes.lock().unwrap().push(sizes);
             assert!(submission.starts_with("agent-message-"));
             self.submitted.lock().unwrap().push((session.to_owned(), content, context));
-            Ok(self.accept)
+            Ok(match (self.ended, self.accept) {
+                (true, _) => Submitted::Idle,
+                (false, true) => Submitted::Queued,
+                (false, false) => Submitted::Refused,
+            })
         }
     }
 
@@ -591,7 +610,7 @@ mod tests {
 
     fn rig(rows: Vec<Row>, live: Live, accept: bool, records: Vec<(String, Header)>) -> Rig {
         let (routes, written) = (Arc::new(Routes::default()), Arc::new(Written::default()));
-        let queue = Arc::new(Queue { accept, submitted: Mutex::default(), sizes: Mutex::default() });
+        let queue = Arc::new(Queue { accept, ended: false, submitted: Mutex::default(), sizes: Mutex::default() });
         let live = Arc::new(live);
         let world = AgentSendWorld {
             sessions: Arc::new(Rows(rows, false)),
@@ -648,6 +667,15 @@ mod tests {
 
         let idle = self::rig(vec![child("sess_c")], Live::default(), true, vec![]);
         assert_eq!(idle.world.enqueue_turn(&session, "x", &[], None).await.unwrap(), None, "an idle session runs a job instead");
+    }
+
+    #[tokio::test]
+    async fn a_turn_that_ends_after_the_busy_check_is_left_to_the_caller_to_run_as_a_job() {
+        let live = Live { work: vec!["sess_c".into()], ..Live::default() };
+        let mut rig = rig(vec![child("sess_c")], live, true, vec![]);
+        rig.world.queue = Arc::new(Queue { accept: true, ended: true, submitted: Mutex::default(), sizes: Mutex::default() });
+        let session = rig.world.session("sess_c").await.unwrap();
+        assert_eq!(rig.world.enqueue_turn(&session, "next", &[], None).await.unwrap(), None);
     }
 
     #[tokio::test]

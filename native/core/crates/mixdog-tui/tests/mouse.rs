@@ -173,9 +173,6 @@ impl ScrollHost for Tracked<'_> {
     fn restore_newer(&mut self) -> bool {
         self.selection.restore_newer()
     }
-    fn selection_before_scroll(&mut self, target_before: f64) {
-        self.selection.selection_before_scroll(target_before);
-    }
     fn selection_after_scroll(&mut self, applied_delta: f64, target: f64) {
         self.target.set(target);
         self.selection.selection_after_scroll(applied_delta, target);

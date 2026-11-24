@@ -14,6 +14,7 @@ import { useAppSessionActions } from '../use-app-session-actions';
 import { closeSessionPaneTabs } from '../session-tab-cleanup';
 import { beginProjectNavigation, useAppSessionOpen } from '../app-shell-session-open';
 import { useAppSettingsRouter } from './use-app-settings-router';
+import { LAST_SESSION_KEY } from './use-app-task-lifecycle';
 import type { AppWorkspaceShell } from './use-app-workspace-shell';
 import type { AppNavigationShell } from './use-app-navigation-shell';
 import type { AppSessionLifecycle } from './use-app-session-lifecycle';
@@ -65,6 +66,11 @@ export function useAppSessionCommands(
     invalidateSessionListings,
     setRequestedSessionId,
     openSessionRef,
+    subscribeSessionsRemoved,
+    selectionRef,
+    viewedSessionRef,
+    unreadViewedSessionRef,
+    setSelection,
   } = nav;
   const { tabs, setTabs, activateSelection, synchronizeActualHost, finishPendingConversationHandoff } =
     lifecycle.taskLifecycle;
@@ -108,6 +114,12 @@ export function useAppSessionCommands(
     openSession: (sessionId) => openSessionRef.current(sessionId),
     navigationEpoch,
     setRequestedSessionId,
+    subscribeSessionsRemoved,
+    selectionRef,
+    viewedSessionRef,
+    unreadViewedSessionRef,
+    setSelection,
+    lastSessionStorageKey: LAST_SESSION_KEY,
   });
 
   const { openSession } = useAppSessionOpen({

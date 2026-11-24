@@ -206,7 +206,10 @@ test('a file with no text difference lists as a folded row; its notice shows onl
         ],
       }),
       gitReviewDiffs: async (_cwd, files) => ({
-        patches: files.map((file) => ({ path: file.path, patch: file.path === 'scripts/load.mjs' ? patchFor(file.path) : '' })),
+        patches: files.map((file) => ({
+          path: file.path,
+          patch: file.path === 'scripts/load.mjs' ? patchFor(file.path) : '',
+        })),
         omitted: [],
       }),
       invokeCapability: async () => ({ value: null }),

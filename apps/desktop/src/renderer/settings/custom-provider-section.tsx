@@ -111,6 +111,7 @@ function friendlyMessage(raw: string): string {
   if (/^(?:Error:\s*)?(?:Connection error\.?|fetch failed|connect ECONNREFUSED.*)$/i.test(message)) {
     return t('Could not connect to the server. Check the URL and that the server is running.');
   }
+  if (/\bunknown custom provider\b/i.test(message)) return t('This custom provider was deleted.');
   return message;
 }
 
@@ -835,8 +836,12 @@ export function CustomProvidersSection({
 }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  // The provider as it was when its editor opened: deleted elsewhere meanwhile,
+  // the form still edits it (Save sends its id) instead of turning into an add.
+  const openedRef = useRef<RecordValue | undefined>(undefined);
   const openEditor = (id: string) => {
     triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openedRef.current = providers.find((provider) => String(provider.id) === id);
     setEditing(id);
   };
   useEffect(() => {
@@ -914,7 +919,11 @@ export function CustomProvidersSection({
       {editing !== null && (
         <CustomProviderForm
           key={editing}
-          provider={editing === 'new' ? undefined : providers.find((provider) => String(provider.id) === editing)}
+          provider={
+            editing === 'new'
+              ? undefined
+              : (providers.find((provider) => String(provider.id) === editing) ?? openedRef.current)
+          }
           run={run}
           busy={busy}
           onClose={() => setEditing(null)}

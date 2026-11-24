@@ -115,12 +115,12 @@ pub fn signed_in_until(doc: &Map<String, Value>) -> f64 {
     if stored != 0.0 { stored } else { expiry_from_access_token(&doc.get("access_token").map(value_to_string).unwrap_or_default()) }
 }
 
-/// Anthropic: an access token with the `user:inference` scope, valid until its expiry unless a
-/// refresh token renews it.
+/// Anthropic: an access token with the `user:inference` scope that is not marked for re-login, valid
+/// until its expiry unless a refresh token renews it.
 fn anthropic_until(doc: &Map<String, Value>) -> f64 {
     let Some(oauth) = doc.get("claudeAiOauth").and_then(Value::as_object) else { return 0.0 };
     let inference = oauth.get("scopes").and_then(Value::as_array).is_some_and(|scopes| scopes.iter().any(|scope| scope.as_str() == Some("user:inference")));
-    if !truthy(oauth.get("accessToken")) || !inference {
+    if !truthy(oauth.get("accessToken")) || !inference || oauth.get("reauthRequired") == Some(&Value::Bool(true)) {
         return 0.0;
     }
     let expires_at = number_or_zero(non_null(oauth.get("expiresAt")).or(oauth.get("expires_at")));
@@ -170,4 +170,22 @@ pub fn credential_until(provider: &str, doc: &Map<String, Value>) -> f64 {
 /// Whether `doc`, the document of `provider`'s credential file, is a sign-in at `now_ms`.
 pub fn credential_valid(provider: &str, doc: &Map<String, Value>, now_ms: f64) -> bool {
     credential_until(provider, doc) > now_ms
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+    use serde_json::json;
+
+    use super::credential_valid;
+
+    /// A refresh Anthropic refused for good marks the sign-in beside its tokens: from then on it is no sign-in, though
+    /// its refresh token is still stored.
+    #[test]
+    fn an_anthropic_login_marked_for_re_login_is_no_sign_in() {
+        let doc =
+            |reauth: Value| json!({ "claudeAiOauth": { "accessToken": "a", "refreshToken": "r", "scopes": ["user:inference"], "reauthRequired": reauth } });
+        assert!(credential_valid("anthropic-oauth", doc(json!(false)).as_object().unwrap(), 0.0));
+        assert!(!credential_valid("anthropic-oauth", doc(json!(true)).as_object().unwrap(), 0.0));
+    }
 }

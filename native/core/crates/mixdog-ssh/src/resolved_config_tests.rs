@@ -197,6 +197,7 @@ fn the_generated_block_carries_every_resolved_option_except_forwarding_ones_with
         known_hosts_files: vec!["/h/.ssh/known_hosts".to_owned()],
         global_known_hosts_files: vec!["/etc/ssh/ssh_known_hosts".to_owned()],
         host_key_algorithms: Vec::new(),
+        host_key_signatures: Vec::new(),
         proxy_jump: None,
         proxy_command: false,
         proxied: false,

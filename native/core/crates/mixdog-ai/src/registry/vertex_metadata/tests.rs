@@ -1,20 +1,10 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
-use mixdog_core_api::domain::provider::TransportFault;
 
 use super::*;
-use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
-
-struct Once(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Once {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
+use crate::transport::testing::Once;
 
 /// Answers the scripted `(status, headers, body)` rows in order.
 struct Server {

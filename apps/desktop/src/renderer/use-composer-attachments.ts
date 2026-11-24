@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -74,12 +75,14 @@ interface IngestContext {
 
 /** Turns picked, pasted or dropped files into chips; a file that cannot be
  *  attached falls back to inserting its path, and one the composer left
- *  behind (`abandoned`) is reported as dropped. */
+ *  behind (`abandoned`) is reported as dropped. `signal` aborts when the
+ *  composer is reset: a server upload stops there. */
 async function ingestComposerFiles(
   ctx: IngestContext,
   files: File[],
   sourcePaths: ReadonlyMap<File, string> | undefined,
-  abandoned: () => boolean
+  abandoned: () => boolean,
+  signal: AbortSignal
 ): Promise<void> {
   const { attachmentsRef, attachmentSequence, setAttachmentError, insertAttachment, reportDroppedFiles } = ctx;
   if (abandoned()) {
@@ -96,7 +99,7 @@ async function ingestComposerFiles(
   if (serverWindow) {
     const fromThisPc = list.filter((file) => !sourcePaths?.has(file));
     if (fromThisPc.length) {
-      const { uploaded, errors } = await uploadFilesToServer(fromThisPc, serverUploadScope(ctx.recoveryScope));
+      const { uploaded, errors } = await uploadFilesToServer(fromThisPc, serverUploadScope(ctx.recoveryScope), signal);
       if (abandoned()) {
         reportDroppedFiles(list);
         return;
@@ -201,21 +204,25 @@ export function useComposerAttachments({
   const fileInput = useRef<HTMLInputElement>(null);
   const insertTokenAtCaret = useCaretTokenInsert({ draftRef, setDraft, textarea, historyNavigation });
   // Loads (file read, downscale, IPC read, server upload) still in flight for
-  // the current composer. `loadEpoch` changes whenever the composer is reset
-  // for another conversation, so a late completion can tell it is stale.
-  const loadEpoch = useRef(0);
+  // the current composer. `loads` is aborted and replaced whenever the
+  // composer is reset for another conversation, and aborted when it unmounts
+  // (its conversation evicted or closed, a draft left), so a late completion
+  // can tell it is stale and a server upload stops. A composer kept mounted
+  // while another conversation shows keeps its loads.
+  const loads = useRef(new AbortController());
+  useEffect(() => () => loads.current.abort(), []);
   const pendingLoads = useRef(0);
   const [pendingLoadCount, setPendingLoadCount] = useState(0);
 
   const trackPending = useCallback(
-    async (count: number, run: (abandoned: () => boolean) => Promise<void>) => {
-      const epoch = loadEpoch.current;
+    async (count: number, run: (abandoned: () => boolean, signal: AbortSignal) => Promise<void>) => {
+      const { signal } = loads.current;
       pendingLoads.current += count;
       setPendingLoadCount(pendingLoads.current);
       try {
-        await run(() => epoch !== loadEpoch.current || transitioningRef.current);
+        await run(() => signal.aborted || transitioningRef.current, signal);
       } finally {
-        if (epoch === loadEpoch.current) {
+        if (!signal.aborted) {
           pendingLoads.current -= count;
           setPendingLoadCount(pendingLoads.current);
         }
@@ -347,7 +354,12 @@ export function useComposerAttachments({
   );
 
   const ingestFiles = useCallback(
-    (files: File[], sourcePaths: ReadonlyMap<File, string> | undefined, abandoned: () => boolean) =>
+    (
+      files: File[],
+      sourcePaths: ReadonlyMap<File, string> | undefined,
+      abandoned: () => boolean,
+      signal: AbortSignal
+    ) =>
       ingestComposerFiles(
         {
           attachmentsRef,
@@ -360,7 +372,8 @@ export function useComposerAttachments({
         },
         files,
         sourcePaths,
-        abandoned
+        abandoned,
+        signal
       ),
     [insertAbsolutePaths, insertAttachment, recoveryScope, reportDroppedFiles]
   );
@@ -368,7 +381,7 @@ export function useComposerAttachments({
   const attachFiles = useCallback(
     (files: FileList | File[], sourcePaths?: ReadonlyMap<File, string>) => {
       const list = Array.from(files);
-      return trackPending(list.length, (abandoned) => ingestFiles(list, sourcePaths, abandoned));
+      return trackPending(list.length, (abandoned, signal) => ingestFiles(list, sourcePaths, abandoned, signal));
     },
     [ingestFiles, trackPending]
   );
@@ -495,9 +508,10 @@ export function useComposerAttachments({
   }, [draftRef, historyNavigation, mergeRestoredAttachments, recoveryScope, setDraft, submissionRecoveryVersion]);
 
   const resetAttachments = useCallback(() => {
-    // Loads still running belong to the composer being left: bumping the epoch
-    // makes them report themselves dropped instead of landing in the new one.
-    loadEpoch.current += 1;
+    // Loads still running belong to the composer being left: the abort makes
+    // them report themselves dropped instead of landing in the new one.
+    loads.current.abort();
+    loads.current = new AbortController();
     pendingLoads.current = 0;
     setPendingLoadCount(0);
     replaceAttachments([]);

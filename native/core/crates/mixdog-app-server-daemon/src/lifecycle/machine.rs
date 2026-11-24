@@ -107,8 +107,10 @@ pub struct Machine {
     /// and the release's `closeConnections` ends their requests, as Node's `shutdown` closes the lanes. A cancelled drain clears it.
     calls_cut: bool,
     new_tasks: usize,
-    /// The new-task attempts were cut ([`Effect::CutNewTasks`] is sent once).
+    /// The new-task attempts were cut ([`Effect::CutNewTasks`] is sent once). A cancelled drain clears it.
     new_tasks_cut: bool,
+    /// [`Effect::CutNewTasks`] was sent in this drain: a cancelled drain sends [`Effect::ReopenNewTasks`].
+    new_tasks_reopen: bool,
     next_id: u64,
     activities: BTreeMap<u64, Running>,
     /// Node's self-shutdown text for the work that ends last, by activity id (absent: [`BUSY_WORK_SETTLED`]).
@@ -137,6 +139,7 @@ impl Machine {
             calls_cut: false,
             new_tasks: 0,
             new_tasks_cut: false,
+            new_tasks_reopen: false,
             next_id: 1,
             activities: BTreeMap::new(),
             settle_texts: BTreeMap::new(),
@@ -261,6 +264,7 @@ impl Machine {
             return false;
         }
         self.seq += 1;
+        self.new_tasks_reopen = true;
         self.effects.push(Effect::CutNewTasks);
         true
     }
@@ -462,9 +466,13 @@ impl Machine {
             return Err(CommandError::PastIdleWait);
         }
         self.phase = Phase::Serving;
-        // What the commit closed opens again, and the calls the drain stopped waiting for count again.
+        // What the commit closed opens again, and the calls and new tasks the drain stopped waiting for count again.
         self.starts_closed = None;
         self.calls_cut = false;
+        self.new_tasks_cut = false;
+        if std::mem::take(&mut self.new_tasks_reopen) {
+            self.effects.push(Effect::ReopenNewTasks);
+        }
         self.seq += 1;
         let discovery = self.discovery();
         self.effects.push(Effect::Discovery(discovery));
@@ -1008,6 +1016,26 @@ mod tests {
         m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
         let effects = m.take_effects();
         assert!(effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
+        assert_eq!(releases(&effects), 1);
+    }
+    /// A cancelled drain withdraws the cut of the stop request: the attempts it cut are reopened, a quit waits for a new task again, and the
+    /// next stop request cuts them again.
+    #[test]
+    fn a_cancelled_drain_reopens_the_new_tasks_its_stop_cut() {
+        let mut m = machine();
+        m.new_task_started();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        assert!(m.take_effects().iter().any(|e| matches!(e, Effect::CutNewTasks)));
+        let id = m.status().drain.unwrap().drain_id;
+        m.cancel_drain(&id).unwrap();
+        assert!(m.take_effects().contains(&Effect::ReopenNewTasks), "the cut attempts start again");
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        m.end_activity(turn);
+        assert_eq!(releases(&m.take_effects()), 0, "the new task holds the quit again");
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        let effects = m.take_effects();
+        assert!(effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "the next stop request cuts it again: {effects:?}");
         assert_eq!(releases(&effects), 1);
     }
     #[test]

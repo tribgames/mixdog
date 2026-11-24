@@ -269,7 +269,8 @@ function ScheduleEditor({
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
-  onToggle?(enabled: boolean): void;
+  /** Resolves whether the stored routine took the new value. */
+  onToggle?(enabled: boolean): Promise<boolean>;
   onRun?(): void;
   onDelete?(): void;
 }) {
@@ -300,7 +301,11 @@ function ScheduleEditor({
               disabled={busy}
               onChange={(next) => {
                 setEnabled(next);
-                if (editing) onToggle?.(next);
+                if (!editing || !onToggle) return;
+                // A refused toggle left the stored value, so Save must not write the flipped one.
+                void onToggle(next).then((applied) => {
+                  if (!applied) setEnabled(!next);
+                });
               }}
             />
             <button type="button" aria-label={t('Close schedule editor')} onClick={onCancel}>
@@ -684,7 +689,9 @@ export function SchedulesPane({
                 : undefined
             }
             onSave={(entry) => void saveSchedule(entry)}
-            onToggle={(enabled) => void run('setScheduleEnabled', [editor.name, enabled], 'toast')}
+            onToggle={async (enabled) =>
+              (await run('setScheduleEnabled', [editor.name, enabled], 'toast')) !== undefined
+            }
           />
         )}
         {/* Reserve the first-read list, without claiming it is empty. Cached

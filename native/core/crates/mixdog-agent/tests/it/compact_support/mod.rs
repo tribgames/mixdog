@@ -1,8 +1,6 @@
 //! Test support: stored transcript rows (JSON objects with role, content, tool calls and `meta`)
 //! converted into agent messages, and back.
 
-#![allow(dead_code)]
-
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::Source;
 use mixdog_agent::message::ToolKind;
@@ -49,20 +47,6 @@ impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
         work(self);
         Ok(())
     }
-}
-
-pub fn without_prompt_total(got: &mut serde_json::Map<String, Value>, before: &serde_json::Map<String, Value>, want: &Value, input_excludes_cache: bool) {
-    const KEY: &str = "lastPromptTokens";
-    if got.get(KEY) == before.get(KEY) {
-        return;
-    }
-    let cache = |key: &str| if input_excludes_cache { want[key].as_f64().unwrap_or(0.0) } else { 0.0 };
-    let prompt = want["lastInputTokens"].as_f64().map(|input| input + cache("lastCachedReadTokens") + cache("lastCacheWriteTokens"));
-    assert_eq!(got.get(KEY).and_then(Value::as_f64), prompt, "{KEY}");
-    match before.get(KEY) {
-        Some(value) => got.insert(KEY.into(), value.clone()),
-        None => got.remove(KEY),
-    };
 }
 
 pub fn replay_owner() -> ProviderId {

@@ -11394,6 +11394,13 @@
             }
           ]
         },
+        "queueOnly": {
+          "description": "A follow-up that only joins a running turn's queue; an idle session refuses it instead of starting a turn. Host-only.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "retryAttemptId": {
           "description": "The failed attempt of that message (`retryAttemptId`).",
           "type": [

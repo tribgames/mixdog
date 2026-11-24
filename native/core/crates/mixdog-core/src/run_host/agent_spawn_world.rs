@@ -189,9 +189,6 @@ impl DirectorySpawnWorld {
         if let Some(mode) = nonempty(text(spec.get("permissionMode"))) {
             header.insert("permissionMode".into(), json!(mode));
         }
-        if let Some(fallbacks) = preset.get("fallbacks") {
-            header.insert("routeFallbacks".into(), fallbacks.clone());
-        }
         if let Some(source) = preset.get("fallbackSource").filter(|s| mixdog_ai::service::admin_route::truthy(Some(s))) {
             header.insert("routeFallbackSource".into(), source.clone());
         }

@@ -3248,7 +3248,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C2,
         mutation: op(ProjectFs),
-        origins: [Local, Ssh, Relay],
+        origins: [Local, Ssh],
     },
     /// Scoped editor settings.
     ProjectFsReadEditorSettings => "projectFs/readEditorSettings" {

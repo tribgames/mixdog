@@ -99,7 +99,6 @@ function PluginInstallDialog({
   );
 }
 
-
 const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
 
 function useRemovalTombstones(snapshot: unknown) {
@@ -264,9 +263,10 @@ export function McpPanel({ data, pending, run, confirm, refreshExtensions, creat
           onDisconnect={(serverName) => void oauthLogin.disconnect(serverName)}
           // No "Applies to" here: a connector is on in every project unless
           // Project settings switches it off (사용할 커넥터).
-          onSave={(payload) => {
+          onSave={async (payload) => {
+            const saved = await run('saveMcpServer', [payload], 'saveMcpServer', true, false, 'throw');
+            if (saved === undefined) return;
             closeEditor();
-            void run('saveMcpServer', [payload]);
           }}
           onToggle={() => {
             const enabled = openServer.enabled !== false;
@@ -409,9 +409,7 @@ export function SkillsPanel({
   const [switching, setSwitching] = useState<Readonly<Record<string, boolean>>>({});
   const toggle = (row: SkillSourceRow, on: boolean) => {
     setSwitching((current) => ({ ...current, [row.key]: on }));
-    void run('setSkillEnabled', [row.key, on]).finally(() =>
-      setSwitching(({ [row.key]: _done, ...rest }) => rest)
-    );
+    void run('setSkillEnabled', [row.key, on]).finally(() => setSwitching(({ [row.key]: _done, ...rest }) => rest));
   };
   const shownOn = (row: SkillSourceRow) => switching[row.key] ?? row.state !== 'off';
   const open = detail ? all.find((row) => row.key === detail.key) : undefined;
@@ -430,14 +428,13 @@ export function SkillsPanel({
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const openMenu = (row: SkillSourceRow, point: { x: number; y: number }) => {
     const off = !shownOn(row);
+    const toggleLabel = off ? t('Enable') : t('Disable');
     setMenu({
       label: row.name,
       ...point,
       items: [
         { id: 'open', label: t('Open'), onSelect: () => window.setTimeout(() => openDetail(row), 0) },
-        ...(row.switchable
-          ? [{ id: 'toggle', label: off ? t('Enable') : t('Disable'), onSelect: () => toggle(row, off) }]
-          : []),
+        ...(row.switchable ? [{ id: 'toggle', label: toggleLabel, onSelect: () => toggle(row, off) }] : []),
         ...(row.editable
           ? [
               {
@@ -469,7 +466,9 @@ export function SkillsPanel({
     if (value === undefined) return;
     setDetail(null);
     closeCreate?.();
-    showDesktopToast(t('Saved "{{name}}".', { name: String(payload.name || '') }), 'success');
+    // A required-tools save of a read-only skill sends no name: the open row has it.
+    const name = String(payload.name || detail?.name || '');
+    showDesktopToast(t('Saved "{{name}}".', { name }), 'success');
   };
   return (
     <Group>
@@ -489,6 +488,7 @@ export function SkillsPanel({
       ) : (
         <>
           {shared.size > 0 && (
+            // biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the segmented control; only the group role is wanted
             <div className="skills-filter" role="group" aria-label={t('Skill filter')}>
               <button type="button" aria-pressed={!filtering} onClick={() => setSameNamesOnly(false)}>
                 {t('All')}

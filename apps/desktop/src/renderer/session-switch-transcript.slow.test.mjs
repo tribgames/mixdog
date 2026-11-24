@@ -34,7 +34,9 @@ const describe = (view) =>
 
 /** Every frame paints rows. */
 function assertPainted(frames, label) {
-  frames.forEach((view, index) => assert.ok(view.shown !== null, `${label}: frame ${index + 1} paints ${describe(view)}`));
+  for (const [index, view] of frames.entries()) {
+    assert.ok(view.shown !== null, `${label}: frame ${index + 1} paints ${describe(view)}`);
+  }
 }
 
 /** Every frame shows the rows `expected` shows, each at the same offset. */
@@ -75,7 +77,8 @@ function assertRowsStayPut(frames, expected, label) {
   frames.forEach((view, index) => {
     const shared = view.shown.map((entry) => entry.split('@')).filter(([key]) => offsets.has(key));
     assert.ok(shared.length > 0, `${label}: frame ${index + 1} shows none of the rows that were on screen`);
-    for (const [key, offset] of shared) assert.equal(offset, offsets.get(key), `${label}: frame ${index + 1} moved ${key}`);
+    for (const [key, offset] of shared)
+      assert.equal(offset, offsets.get(key), `${label}: frame ${index + 1} moved ${key}`);
   });
 }
 
@@ -237,7 +240,9 @@ test('a conversation the pane keeps mounted: the scroll made just before leaving
   assert.equal((await one(p)).session, 'B');
   const frames = paneFrames(await p.frames(open('A'), { count: 12 }));
   assertPainted(frames, 'kept, last scroll');
-  const moved = new Map(earlier.shown.map((entry) => entry.split('@')).map(([key, offset]) => [key, Number(offset) + 700]));
+  const moved = new Map(
+    earlier.shown.map((entry) => entry.split('@')).map(([key, offset]) => [key, Number(offset) + 700])
+  );
   for (const view of frames) {
     assert.equal(view.session, 'A', `the kept session is shown from the frame of the switch (${describe(view)})`);
     assert.equal(view.following, false, 'its reader is off the end');
@@ -346,7 +351,10 @@ for (const then of [['B'], COLD]) {
     for (const view of frames.slice(arrived)) {
       assert.ok(view.busy, 'the turn reads as running');
       assert.ok(Math.abs(view.gap) <= 1, `on the end (off by ${view.gap})`);
-      assert.ok(view.shown.some((entry) => entry.startsWith('S:S-n31.2@')), 'the rows that ran while away are shown');
+      assert.ok(
+        view.shown.some((entry) => entry.startsWith('S:S-n31.2@')),
+        'the rows that ran while away are shown'
+      );
     }
   });
 }
@@ -370,7 +378,8 @@ test('more turns ran while away than the tail holds, the reader scrolled up: the
   const frames = await switchTo(p, 'S');
   const arrived = assertHandover(frames, before, 'S', 'a tail longer than held');
   assertAtEnd(frames.slice(arrived), 'S:S-r50', 'a tail longer than held');
-  for (const view of frames.slice(arrived)) assertRowsOf(view, seededKeys('S', 50, { tools: 1 }), 'a tail longer than held');
+  for (const view of frames.slice(arrived))
+    assertRowsOf(view, seededKeys('S', 50, { tools: 1 }), 'a tail longer than held');
 });
 
 test('a reply streaming when the session was left and finished while away: one reply row under the key it streamed with, then its end', async (t) => {
@@ -395,7 +404,11 @@ test('a reply streaming when the session was left and finished while away: one r
   assert.equal(rested.liveBand, false, 'no activity band under a finished turn');
   assert.equal(rested.last.key, 'S:S-r31', 'the reply keeps its row');
   assert.ok(Math.abs(rested.gap) <= 1);
-  assertRowsOf(rested, [...seededKeys('S', 30, { tools: 1 }), 'S:gap:S-u31', 'S:S-u31', 'S:S-r31'], 'finished while away');
+  assertRowsOf(
+    rested,
+    [...seededKeys('S', 30, { tools: 1 }), 'S:gap:S-u31', 'S:S-u31', 'S:S-r31'],
+    'finished while away'
+  );
 });
 
 for (const kind of ['question', 'approval']) {
@@ -472,16 +485,20 @@ test('a session followed for a thousand turns: the rows held stay within the tai
     window.rig.ws.open(window.rig.ws.session('A'));
   });
   const BOUND = 2_048;
-  const turns = (n) => p.act((count) => {
-    for (let k = 0; k < count; k += 1) window.rig.core.turn('A', { tools: 1 });
-  }, n);
+  const turns = (n) =>
+    p.act((count) => {
+      for (let k = 0; k < count; k += 1) window.rig.core.turn('A', { tools: 1 });
+    }, n);
   const rows = () => p.run(() => window.rig.laneRows('A'));
   // The reader at the end as turns run, twenty-five between looks, up to the bound.
   let most = 0;
   let total = 12;
   for (; (await rows()) < BOUND - 60; total += 25) {
     const [view] = await turns(25);
-    assert.ok(view.shown !== null && Math.abs(view.gap) <= 1, `at the end after ${total + 25} turns (${describe(view)})`);
+    assert.ok(
+      view.shown !== null && Math.abs(view.gap) <= 1,
+      `at the end after ${total + 25} turns (${describe(view)})`
+    );
     most = Math.max(most, await rows());
   }
   // Across the bound a turn a frame: every frame is the end of the session, whatever the window lets go.
@@ -515,7 +532,9 @@ test('a session followed for a thousand turns: the rows held stay within the tai
     held.push(await p.run(() => window.rig.laneRows('A')));
   }
   assert.equal(view.first.key, keys[0], 'the first row of the session is reached');
-  t.diagnostic(`a session of ${keys.length} rows followed as it grew: ${held[0]} rows held at the end, at most ${Math.max(...held)} on the way back`);
+  t.diagnostic(
+    `a session of ${keys.length} rows followed as it grew: ${held[0]} rows held at the end, at most ${Math.max(...held)} on the way back`
+  );
   assert.ok(Math.max(...held) <= 2 * 2_048 + 96 + 400, `the window holds ${Math.max(...held)} rows`);
 });
 
@@ -538,7 +557,10 @@ test('the window let go under a reader far above the end (the core reads the tai
   });
   await p.act(() => window.rig.openAt('A', 'A-u40'));
   const before = await one(p);
-  assert.ok(before.shown.some((entry) => entry.startsWith('A:A-u40@')), `the record is on screen (${describe(before)})`);
+  assert.ok(
+    before.shown.some((entry) => entry.startsWith('A:A-u40@')),
+    `the record is on screen (${describe(before)})`
+  );
   const frames = paneFrames(await p.frames(({ core }) => core.reread('A'), { count: 10 }));
   assertStill(frames, before, 'window let go');
   const [after] = await p.act(() => window.rig.wheel('pane-1', -300));
@@ -568,11 +590,17 @@ test('a search hit in old history of a session not shown: the pane shows what it
   const [rested] = await p.act(() => window.rig.core.release());
   const arrived = assertHandover([...frames, rested], before, 'A', 'search hit');
   for (const view of [...frames, rested].slice(arrived)) {
-    assert.ok(view.shown.some((entry) => entry.startsWith('A:A-u40@')), `the hit is on screen (${describe(view)})`);
+    assert.ok(
+      view.shown.some((entry) => entry.startsWith('A:A-u40@')),
+      `the hit is on screen (${describe(view)})`
+    );
     assert.equal(view.following, false);
     assertRowsOf(view, longKeys, 'search hit');
   }
-  assert.ok(await p.run(() => window.rig.laneRows('A')) < 700, 'the rows around the hit and the tail are held, not the session');
+  assert.ok(
+    (await p.run(() => window.rig.laneRows('A'))) < 700,
+    'the rows around the hit and the tail are held, not the session'
+  );
 });
 
 test('a search hit in old history of the session on screen: its rows stay until the hit is shown, and a later return is to the end, followed', async (t) => {
@@ -698,9 +726,13 @@ test('the session is deleted with its read out on a return: the pane says it can
   const p = await rig(t);
   const { away, frames } = await returnEndedBy(p, ({ core }) => core.delete('A'));
   const arrived = frames.findIndex((view) => view.session !== away.session || view.unavailable);
-  assert.ok(arrived >= 1, `the outgoing view stands until the session is gone (frame ${arrived + 1}: ${frames.map((view) => `${view.session}${view.unavailable ? '!' : ''}${view.preparing ? '>' + view.preparing : ''}`).join(' ')})`);
+  assert.ok(
+    arrived >= 1,
+    `the outgoing view stands until the session is gone (frame ${arrived + 1}: ${frames.map((view) => `${view.session}${view.unavailable ? '!' : ''}${view.preparing ? `>${view.preparing}` : ''}`).join(' ')})`
+  );
   assertStill(frames.slice(0, arrived), away, 'deleted, before the handover');
-  for (const view of frames.slice(arrived)) assert.equal(view.unavailable, true, `the notice stays (${describe(view)})`);
+  for (const view of frames.slice(arrived))
+    assert.equal(view.unavailable, true, `the notice stays (${describe(view)})`);
   assert.equal(await p.run(() => document.querySelectorAll('.persistent-pane-surface[data-preparing]').length), 0);
 });
 
@@ -945,7 +977,10 @@ test('a pane narrowed by a split beside it, its reader in old history: the row a
   assert.ok(frames.at(-1).viewport.width < before.viewport.width, 'the pane is narrower');
   frames.forEach((view, index) => {
     assert.equal(view.first.key, before.first.key, `frame ${index + 1}: the row at the top (${describe(view)})`);
-    assert.ok(Math.abs(view.first.offset - before.first.offset) <= 1, `frame ${index + 1}: its offset (${describe(view)})`);
+    assert.ok(
+      Math.abs(view.first.offset - before.first.offset) <= 1,
+      `frame ${index + 1}: its offset (${describe(view)})`
+    );
   });
 });
 
@@ -1000,7 +1035,9 @@ test('a session followed while turns run: every frame mounts the rows in view an
   assertPainted(frames, 'followed');
   assert.ok(frames.at(-1).far <= 2, `at rest ${frames.at(-1).far} rows are mounted more than a viewport from the view`);
   const most = Math.max(...frames.map((view) => view.mounted.length));
-  t.diagnostic(`a session followed over ${frames.length} frames of running turns: at most ${most} rows mounted, ${Math.max(...frames.map((view) => view.shown.length))} in view`);
+  t.diagnostic(
+    `a session followed over ${frames.length} frames of running turns: at most ${most} rows mounted, ${Math.max(...frames.map((view) => view.shown.length))} in view`
+  );
   frames.forEach((view, index) => {
     assertMountedWithinMargin(view, `frame ${index + 1}`);
     assert.ok(Math.abs(view.gap) <= 1, `frame ${index + 1} is ${view.gap}px from the end`);
@@ -1035,7 +1072,9 @@ test('a session followed from its first turn through forty turns of streamed tex
   assertPainted(frames, 'followed from the start');
   const mounted = frames.map((view) => view.mounted.length);
   const all = await p.run(() => document.querySelectorAll('.transcript-virtual-row').length);
-  t.diagnostic(`forty turns followed: ${Math.max(...mounted)} rows mounted at most, ${mounted.at(-1)} at rest (${all} in the document), ${frames.at(-1).shown.length} in view`);
+  t.diagnostic(
+    `forty turns followed: ${Math.max(...mounted)} rows mounted at most, ${mounted.at(-1)} at rest (${all} in the document), ${frames.at(-1).shown.length} in view`
+  );
   frames.forEach((view, index) => {
     assertMountedWithinMargin(view, `frame ${index + 1}`);
   });
@@ -1051,7 +1090,9 @@ test('what is held: a long session by the window around its reader, many session
   const atEnd = await p.run(() => window.rig.memory());
   await p.run(() => window.rig.wheel('pane-1', -4000));
   const reading = await p.run(() => window.rig.memory());
-  t.diagnostic(`a session of 11,999 rows: ${atEnd.windowRows.A} rows held at its end, ${reading.windowRows.A} read from above; ${reading.mountedRows} rows mounted`);
+  t.diagnostic(
+    `a session of 11,999 rows: ${atEnd.windowRows.A} rows held at its end, ${reading.windowRows.A} read from above; ${reading.mountedRows} rows mounted`
+  );
   assert.ok(atEnd.windowRows.A <= 400, `${atEnd.windowRows.A} rows at the end`);
   assert.ok(reading.windowRows.A <= 2_048 + 96 + 400, `${reading.windowRows.A} rows read from above`);
   assert.ok(reading.mountedRows <= 120, `${reading.mountedRows} rows mounted`);
@@ -1076,7 +1117,10 @@ test('what is held: a long session by the window around its reader, many session
   assert.ok(many.mountedRows <= 120);
   assert.equal(many.places, 41, 'one place per tab read from above');
   assert.ok(many.measuredRows.sessions <= 16);
-  assert.ok(swept.hiddenRows <= (swept.lanes - 3) * 512, `${swept.hiddenRows} rows of ${swept.lanes - 3} sessions not shown`);
+  assert.ok(
+    swept.hiddenRows <= (swept.lanes - 3) * 512,
+    `${swept.hiddenRows} rows of ${swept.lanes - 3} sessions not shown`
+  );
   // The first session comes back at its end.
   const before = await one(p);
   const frames = await switchTo(p, 'A');
@@ -1114,7 +1158,17 @@ test('a cold return after forty sessions whose rows parse late, a minute and mor
     await p.frames(open('A'), {
       count: 34,
       rest: false,
-      at: { 3: step, 6: step, 9: step, 12: step, 14: later, 17: later, 20: later, 23: ({ core }) => (window.heldAt = core.heldParses()), 24: ({ core }) => core.releaseParses() },
+      at: {
+        3: step,
+        6: step,
+        9: step,
+        12: step,
+        14: later,
+        17: later,
+        20: later,
+        23: ({ core }) => (window.heldAt = core.heldParses()),
+        24: ({ core }) => core.releaseParses(),
+      },
     })
   );
   heldAt = await p.run(() => window.heldAt);
@@ -1122,7 +1176,10 @@ test('a cold return after forty sessions whose rows parse late, a minute and mor
   assert.ok(heldAt > 0, 'replies of the return were waiting to be parsed');
   const all = [...frames, rested];
   const arrived = all.findIndex((view) => view.session === 'A');
-  assert.ok(arrived >= 24, `the return is presented once its rows are parsed (frame ${arrived}, ${heldAt} parses held)`);
+  assert.ok(
+    arrived >= 24,
+    `the return is presented once its rows are parsed (frame ${arrived}, ${heldAt} parses held)`
+  );
   assertHandover(all, before, 'A', 'after forty sessions, parsed late');
   assertAtEnd(all.slice(arrived), 'A:A-r300', 'after forty sessions, parsed late');
 });
@@ -1148,7 +1205,7 @@ const cards = (p) =>
   });
 const cardRows = (view) => view.shown.filter((entry) => /A:A-r(38|39|40|41|42)@/.test(entry));
 
-test('a search hit on turns whose changed files are never read: each card is drawn in the first frame from its turn\'s own records, and the read answered later moves nothing', async (t) => {
+test("a search hit on turns whose changed files are never read: each card is drawn in the first frame from its turn's own records, and the read answered later moves nothing", async (t) => {
   const p = await rig(t);
   await p.act(withChanges);
   await p.act(() => window.rig.ws.open(window.rig.ws.session('A')));
@@ -1170,7 +1227,10 @@ test('a search hit on turns whose changed files are never read: each card is dra
   assertStill(frames.slice(arrived), presented, 'once the hit is shown');
   assert.ok(cardRows(presented).length > 0, 'a turn that changed a file is in view');
   const drawn = await cards(p);
-  assert.ok(drawn.count > 0 && drawn.recorded === drawn.count, `the cards are drawn from the records (${JSON.stringify(drawn)})`);
+  assert.ok(
+    drawn.count > 0 && drawn.recorded === drawn.count,
+    `the cards are drawn from the records (${JSON.stringify(drawn)})`
+  );
   // The reads are answered with the files the records named: the cards are filled in, at the size they had.
   const after = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
   assertStill(after, presented, 'the changes read answered after the hit is shown');
@@ -1199,12 +1259,18 @@ test('a cold return to a session whose changed files are no longer held and neve
   });
   const before = await one(p);
   const frames = paneFrames(
-    await p.frames(open('A'), { count: 24, at: { 8: ({ advance }) => advance(90_000), 14: ({ advance }) => advance(90_000) } })
+    await p.frames(open('A'), {
+      count: 24,
+      at: { 8: ({ advance }) => advance(90_000), 14: ({ advance }) => advance(90_000) },
+    })
   );
   const arrived = assertHandover(frames, before, 'A', 'cold return, changes unread');
   assertAtEnd(frames.slice(arrived), 'A:A-r300', 'cold return, changes unread');
   const drawn = await cards(p);
-  assert.ok(drawn.count > 0 && drawn.recorded === drawn.count, `the cards are drawn from the records (${JSON.stringify(drawn)})`);
+  assert.ok(
+    drawn.count > 0 && drawn.recorded === drawn.count,
+    `the cards are drawn from the records (${JSON.stringify(drawn)})`
+  );
   const presented = frames.at(-1);
   const after = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
   assertStill(after, presented, 'the changes read answered after the return');
@@ -1212,7 +1278,13 @@ test('a cold return to a session whose changed files are no longer held and neve
 
 // A read whose card would change the row's height: what the turn's records named and what the core lists differ.
 for (const [what, written, listed, before, after] of [
-  ['a file the records did not name (changed by a shell command): the card grows', ['src/app.ts'], ['src/app.ts', 'build/out.js'], 1, 2],
+  [
+    'a file the records did not name (changed by a shell command): the card grows',
+    ['src/app.ts'],
+    ['src/app.ts', 'build/out.js'],
+    1,
+    2,
+  ],
   ['files where the records named none: a card appears', [], ['build/out.js'], 0, 1],
   ['no file where the records named one: the card goes', ['src/app.ts'], [], 1, 0],
 ]) {
@@ -1231,22 +1303,29 @@ for (const [what, written, listed, before, after] of [
     await p.act(() => window.rig.openAt('A', 'A-u40'));
     const presented = await one(p);
     const drawn = await cards(p);
-    assert.ok(drawn.files.every((count) => count === before), `from the records: ${before} file (${JSON.stringify(drawn)})`);
+    assert.ok(
+      drawn.files.every((count) => count === before),
+      `from the records: ${before} file (${JSON.stringify(drawn)})`
+    );
     if (before === 0) assert.equal(drawn.count, 0);
     else assert.ok(drawn.count > 0);
     // The read answers with another card than the rows were presented with.
     const answered = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
     assertStill(answered, presented, 'the read answered while its rows are in view');
     const inView = () =>
-      p.run(
-        () =>
-          [...document.querySelectorAll('.pane-cell .transcript-virtual-row')]
-            .filter((row) => {
-              const box = row.getBoundingClientRect();
-              const view = row.closest('.transcript').getBoundingClientRect();
-              return box.bottom > view.top && box.top < view.bottom;
-            })
-            .flatMap((row) => [...row.querySelectorAll('.turn-changes-card')].map((card) => [Number(card.dataset.fileCount), card.dataset.read ?? '']))
+      p.run(() =>
+        [...document.querySelectorAll('.pane-cell .transcript-virtual-row')]
+          .filter((row) => {
+            const box = row.getBoundingClientRect();
+            const view = row.closest('.transcript').getBoundingClientRect();
+            return box.bottom > view.top && box.top < view.bottom;
+          })
+          .flatMap((row) =>
+            [...row.querySelectorAll('.turn-changes-card')].map((card) => [
+              Number(card.dataset.fileCount),
+              card.dataset.read ?? '',
+            ])
+          )
       );
     for (const [count, read] of await inView()) {
       assert.equal(count, before, 'a card in view is the one presented');
@@ -1275,7 +1354,10 @@ const cardsInView = (p) =>
       })
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
       .flatMap((row) =>
-        [...row.querySelectorAll('.turn-changes-card')].map((card) => [Number(card.dataset.fileCount), card.dataset.read ?? ''])
+        [...row.querySelectorAll('.turn-changes-card')].map((card) => [
+          Number(card.dataset.fileCount),
+          card.dataset.read ?? '',
+        ])
       )
   );
 /** Session A, whose last turn wrote one file where the core lists two, opened at its end with the reads held. */
@@ -1288,11 +1370,11 @@ async function lastTurnReadDiffers(p) {
   });
   const view = await one(p);
   assert.equal(view.following, true);
-  assert.deepEqual((await cardsInView(p)).at(-1), [1, ''], 'the last turn\'s card, from its records');
+  assert.deepEqual((await cardsInView(p)).at(-1), [1, ''], "the last turn's card, from its records");
   return view;
 }
 
-test('the last turn\'s card while the list follows the end takes a read of another height at once, and the view stays on the end', async (t) => {
+test("the last turn's card while the list follows the end takes a read of another height at once, and the view stays on the end", async (t) => {
   const p = await rig(t);
   await lastTurnReadDiffers(p);
   const frames = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
@@ -1302,9 +1384,11 @@ test('the last turn\'s card while the list follows the end takes a read of anoth
   assert.equal(view.following, true);
   assert.ok(Math.abs(view.gap) <= 1, `the view is on the end (${view.gap})`);
   assert.equal(
-    await p.run(() => document.querySelector('.pane-cell .turn-changes-card .turn-changes-action').matches(':disabled, [aria-disabled]')),
+    await p.run(() =>
+      document.querySelector('.pane-cell .turn-changes-card .turn-changes-action').matches(':disabled, [aria-disabled]')
+    ),
     false,
-    'Undo is the reader\'s'
+    "Undo is the reader's"
   );
 });
 
@@ -1319,14 +1403,15 @@ test('the same card with the reader scrolled up from the end keeps what it shows
   assertStill(frames, presented, 'the read answered under a reader off the end');
   assert.deepEqual((await cardsInView(p)).at(-1), [1, 'updating']);
   // The reader goes back to the end: the list follows it again, and the card is the read's.
-  for (let step = 0; step < 4 && !(await one(p)).following; step += 1) await p.act(() => window.rig.wheel('pane-1', 400));
+  for (let step = 0; step < 4 && !(await one(p)).following; step += 1)
+    await p.act(() => window.rig.wheel('pane-1', 400));
   const back = await one(p);
   assert.equal(back.following, true);
   assert.deepEqual((await cardsInView(p)).at(-1), [2, '']);
   assert.ok(Math.abs(back.gap) <= 1, `the view is on the end (${back.gap})`);
 });
 
-test('a press on Undo of a card kept back gives the read\'s card and does nothing else: no undo, no diff pane', async (t) => {
+test("a press on Undo of a card kept back gives the read's card and does nothing else: no undo, no diff pane", async (t) => {
   const p = await rig(t);
   await lastTurnReadDiffers(p);
   await p.act(() => window.rig.wheel('pane-1', -40));
@@ -1352,14 +1437,21 @@ test('a press on Undo of a card kept back gives the read\'s card and does nothin
   await p.act(() => document.querySelector('.pane-cell .turn-changes-card .turn-changes-action').click());
   const acted = await state();
   const asked = acted.calls.slice(before.calls.length);
-  assert.equal(asked.filter((name) => /revert/i.test(name)).length, 1, `Undo on the read's card asks the core (${asked})`);
+  assert.equal(
+    asked.filter((name) => /revert/i.test(name)).length,
+    1,
+    `Undo on the read's card asks the core (${asked})`
+  );
 });
 
 test('a turn that wrote several files in a row (one card of calls in the transcript): its changes card lists them from the first frame, the read unanswered', async (t) => {
   const p = await rig(t);
   await p.act(() => {
     const turns = [38, 39, 40, 41, 42];
-    window.rig.core.seed('A', 300, { tools: 1, writes: Object.fromEntries(turns.map((n) => [n, ['src/app.ts', 'src/list.ts', 'src/row.ts']])) });
+    window.rig.core.seed('A', 300, {
+      tools: 1,
+      writes: Object.fromEntries(turns.map((n) => [n, ['src/app.ts', 'src/list.ts', 'src/row.ts']])),
+    });
     for (const n of turns) window.rig.core.changes(`A-u${n}`, ['src/app.ts', 'src/list.ts', 'src/row.ts']);
     window.rig.ws.open(window.rig.ws.session('A'));
   });
@@ -1371,7 +1463,10 @@ test('a turn that wrote several files in a row (one card of calls in the transcr
   assertStill(frames.slice(arrived), presented, 'once the hit is shown');
   const drawn = await cards(p);
   assert.ok(drawn.count > 0 && drawn.recorded === drawn.count, `from the records (${JSON.stringify(drawn)})`);
-  assert.ok(drawn.files.every((count) => count === 3), `each card lists the three files (${JSON.stringify(drawn)})`);
+  assert.ok(
+    drawn.files.every((count) => count === 3),
+    `each card lists the three files (${JSON.stringify(drawn)})`
+  );
   const after = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
   assertStill(after, presented, 'the read answered with the same files');
 });
@@ -1431,7 +1526,11 @@ test('a cold return whose replies fail to parse on the worker and on the page: p
   assert.ok(arrived >= 0, 'the session is presented');
   const text = await p.run(() => {
     const rows = [...document.querySelectorAll('.pane-cell .transcript-virtual-row .markdown')];
-    return { rows: rows.length, pending: document.querySelectorAll('.pane-cell [data-transcript-pending]').length, shown: rows.filter((row) => row.textContent.includes('Reply')).length };
+    return {
+      rows: rows.length,
+      pending: document.querySelectorAll('.pane-cell [data-transcript-pending]').length,
+      shown: rows.filter((row) => row.textContent.includes('Reply')).length,
+    };
   });
   assert.equal(text.pending, 0, 'no reply is left waiting');
   assert.ok(text.shown > 0 && text.shown === text.rows, `each reply shows its text (${text.shown} of ${text.rows})`);
@@ -1486,7 +1585,11 @@ test('a pane that sits a screen above the end and does not move, beside one that
   assert.ok(end < most, 'the tail was read anew under the reader who stands still');
   for (const [n, panes] of views.entries()) {
     const still = panes.find((view) => view.pane === 'pane-1');
-    assert.deepEqual(still.shown, reader.shown, `after ${(n + 1) * 20} turns the standing reader's rows are where they were`);
+    assert.deepEqual(
+      still.shown,
+      reader.shown,
+      `after ${(n + 1) * 20} turns the standing reader's rows are where they were`
+    );
     const following = panes.find((view) => view.pane === 'pane-2');
     assert.ok(Math.abs(following.gap) <= 1, 'the other pane is at the end');
   }

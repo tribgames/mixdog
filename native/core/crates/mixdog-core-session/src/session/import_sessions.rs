@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::ProviderReadiness;
 use mixdog_core_domains::domains::ai_admin::chain::RouteContext;
 use mixdog_rt::CancellationToken;
 use mixdog_services::import::ImportSessions;
@@ -42,22 +41,19 @@ pub struct DirectoryImportSessions {
     routes: Arc<dyn RouteContext>,
     clock: Arc<dyn Clock>,
     ingest: Arc<dyn TurnIngest>,
-    providers: Arc<ProviderReadiness>,
 }
 
 impl DirectoryImportSessions {
-    /// `routes`: the runtime's route context (`resolveRoute(config, {})`); `ingest`: the session
-    /// search ingest a finished turn gets (`ingestSessionTurn`); `providers`: what
-    /// `prepareLeadOptions` awaits after it reads the route.
+    /// `routes`: the runtime's route context (`resolveRoute(config, {})` and the readiness of the route's provider);
+    /// `ingest`: the session search ingest a finished turn gets (`ingestSessionTurn`).
     pub fn new(
         directory: Arc<SessionDirectory>,
         catalog: Arc<SqliteStore>,
         routes: Arc<dyn RouteContext>,
         clock: Arc<dyn Clock>,
         ingest: Arc<dyn TurnIngest>,
-        providers: Arc<ProviderReadiness>,
     ) -> Self {
-        Self { directory, catalog, routes, clock, ingest, providers }
+        Self { directory, catalog, routes, clock, ingest }
     }
 }
 
@@ -73,6 +69,14 @@ impl DirectoryImportSessions {
             tracing::warn!(session = %id, "a half-imported session was not deleted: {error:?}");
         }
     }
+}
+
+/// `prepareLeadOptions`: the Lead route a new session starts on names a provider and a model, and its provider is
+/// readied; either failing is `noModelRoute`.
+pub async fn prepare_lead_route(routes: &dyn RouteContext) -> Result<(), String> {
+    let route = main_route(routes)?;
+    let provider = route.get("provider").and_then(Value::as_str).unwrap_or_default();
+    routes.ensure_ready(provider).await.map_err(|_| "noModelRoute".to_owned())
 }
 
 /// `prepareLeadOptions` fails with `noModelRoute` when no provider and model resolve.
@@ -164,8 +168,7 @@ impl ImportSessions for DirectoryImportSessions {
     }
 
     async fn prepare_lead(&self) -> Result<(), String> {
-        main_route(self.routes.as_ref())?;
-        self.providers.ensure_providers_ready(None).await.map(|_| ()).map_err(|_| "noModelRoute".to_owned())
+        prepare_lead_route(self.routes.as_ref()).await
     }
 
     async fn create_imported_session(&self, session: ImportedSession) -> Result<String, String> {

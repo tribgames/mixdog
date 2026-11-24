@@ -191,7 +191,13 @@ function positionedItems(
       final = Math.max(final, at);
     }
   const sameEnds = (to: number): boolean => to === 0 || (positions[0] === old[0] && positions[to - 1] === old[to - 1]);
-  if (layout && prior && positions.length === count && sameEnds(count) && (final < 0 || positions[final] === old[final])) {
+  if (
+    layout &&
+    prior &&
+    positions.length === count &&
+    sameEnds(count) &&
+    (final < 0 || positions[final] === old[final])
+  ) {
     // The run holds the records it held: the changed stretch is placed again between the rows before and after it.
     const { starts } = layout;
     const lastFrom = starts[count]!;
@@ -574,8 +580,8 @@ function transcriptOf(items: readonly Obj[]): Obj[] {
   }
   return rows;
 }
-/** `next` holds the rows of `prior` before `from`: its transcript is owed from the one `prior` has, or is owed from. */
-/** `same`: from `until` to its end `next` holds the rows `prior` held `moved` places earlier (a change inside the list);
+/** `next` holds the rows of `prior` before `from`: its transcript is owed from the one `prior` has, or is owed from.
+ *  `same`: from `until` to its end `next` holds the rows `prior` held `moved` places earlier (a change inside the list);
  *  it serves a merge made from `prior`'s own transcript, not one owed across several changes. */
 function oweTranscript(
   prior: readonly Obj[],
@@ -904,12 +910,11 @@ function approvalCard(r: ServerRequest): Obj {
   };
 }
 
-const surfaceOf = (r: ServerRequest): string => {
+/** The thread whose approval card a server request belongs to. */
+export const approvalSurface = (r: ServerRequest): string => {
   const p = r.params as unknown as { surfaceThreadId?: string; threadId: string };
   return p.surfaceThreadId ?? p.threadId;
 };
-/** The thread whose approval card a server request belongs to. */
-export const approvalSurface = surfaceOf;
 
 /**
  * The `DesktopSessionState` of one thread. Pure: a caller that renders often memoizes on the identity of `fold`, `requests` and
@@ -1018,7 +1023,7 @@ function positionedFields(fold: SessionFold, held: HeldWindow): Obj {
 
 function nextApproval(requests: readonly ServerRequest[], sessionId: string): { card: Obj; waiting: number } | null {
   const pending = requests
-    .filter((r) => surfaceOf(r) === sessionId)
+    .filter((r) => approvalSurface(r) === sessionId)
     .map((r, arrival) => ({ r, arrival, order: (r.params as { order: number }).order }))
     .sort((a, b) => a.order - b.order || a.arrival - b.arrival);
   const first = pending[0];

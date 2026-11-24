@@ -7,14 +7,19 @@ import * as state from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
 import { countFoldWork } from '../src/positioned.ts';
 import { windowWant } from '../src/transcript-window.ts';
+import { at, cont, end, pos } from './positioned-fixtures.ts';
 
 const { sessionReducer, desktopSessionState } = state;
 
 type O = Record<string, any>;
 
-const pos = (id: string) => `h1:0:${id}`;
 const ext = (id: string, more: O = {}) => ({ historyPosition: pos(id), ...more });
-const prompt = (id: string) => ({ type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { ext: ext(id) } });
+const prompt = (id: string) => ({
+  type: 'userMessage',
+  id,
+  content: [{ type: 'text', text: id }],
+  meta: { ext: ext(id) },
+});
 const call = (id: string, more: O = {}) => ({
   type: 'toolCall',
   id,
@@ -39,14 +44,11 @@ const storedEnd = (of: string) => ({
 });
 const unit = (...items: O[]) => ({ position: pos(items[0]!.id), items });
 const finished = (of: string) => unit(reply(of), storedEnd(of));
-const cont = (position: string) => ({ kind: 'continuation', position });
-const end = { kind: 'end' };
 const ids = (s: SessionFold) => s.items.map((row) => row.id);
-const at = (s: SessionFold, method: string, params: O) =>
-  sessionReducer.apply(s, { method, params: { threadId: 't', ...params } } as never);
 const insert = (s: SessionFold, after: string, u: O) =>
   at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'insert', after: pos(after), unit: u } });
-const replace = (s: SessionFold, u: O) => at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: u } });
+const replace = (s: SessionFold, u: O) =>
+  at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: u } });
 const windowed = (s: SessionFold, version: number, ranges: O[], added: O[], removed: string[] = []) =>
   at(s, 'thread/window/changed', {
     subscriptionId: 'sub',
@@ -116,7 +118,13 @@ test("a history range apart from the tail shows the divider with its figures, as
   );
   assert.deepEqual(
     s.items.map((row) => [row.id, row.detail]),
-    [['c1', undefined], ['c2', undefined], ['divider:k1', figures], ['c3', undefined], ['c4', undefined]]
+    [
+      ['c1', undefined],
+      ['c2', undefined],
+      ['divider:k1', figures],
+      ['c3', undefined],
+      ['c4', undefined],
+    ]
   );
   // Scrolled farther: the range that connected it to the tail is released, the carrier stays in a range apart.
   s = windowed(
@@ -155,11 +163,21 @@ test('a frame at the tail places what it changed: the rows laid out do not grow 
       spent.merged.push(work.merged);
     };
     // The running turn: a call in progress, a record stored at the tail, that record read again, the turn's end.
-    frame(() => at(s, 'item/started', { turnId: 'turn', item: { type: 'toolCall', id: 'live', name: 'read', input: {}, meta: {} } }));
+    frame(() =>
+      at(s, 'item/started', {
+        turnId: 'turn',
+        item: { type: 'toolCall', id: 'live', name: 'read', input: {}, meta: {} },
+      })
+    );
     frame(() => insert(s, last, unit(call('live'))));
     frame(() => replace(s, unit(call('live', { archived: true }))));
     frame(() => insert(s, 'live', finished('fin')));
-    frame(() => at(s, 'item/started', { turnId: 'next', item: { type: 'toolCall', id: 'more', name: 'read', input: {}, meta: {} } }));
+    frame(() =>
+      at(s, 'item/started', {
+        turnId: 'next',
+        item: { type: 'toolCall', id: 'more', name: 'read', input: {}, meta: {} },
+      })
+    );
     assert.deepEqual(ids(s).slice(-4), ['live', 'fin', 'fin:2', 'more']);
     assert.equal(s.items.length, records + 4);
     // A record far from the end read again (a compaction reads every one): the same rows, told anew.
@@ -170,16 +188,31 @@ test('a frame at the tail places what it changed: the rows laid out do not grow 
   const small = cost(100);
   const large = cost(1_600);
   assert.deepEqual(large.placed, small.placed);
-  assert.ok(small.placed.every((rows) => rows > 0 && rows < 16), `${small.placed}`);
+  assert.ok(
+    small.placed.every((rows) => rows > 0 && rows < 16),
+    `${small.placed}`
+  );
   // The merge reads the rows that changed and those up to the marks around them, wherever in the window they are: a
   // record read again in the middle costs what one at the end does, at any size.
   assert.deepEqual(large.merged, small.merged);
-  assert.ok(small.merged.every((rows) => rows < 16), `${small.merged}`);
+  assert.ok(
+    small.merged.every((rows) => rows < 16),
+    `${small.merged}`
+  );
   // What stays linear in the rows held are whole-array copies (the row list, the merged list, the tail's positions on
   // an insert, the id index when first read): counted, at most four of them a frame, and two for a record read again.
-  assert.ok(large.copied.every((entries) => entries <= 4 * 1_606 + 128), `${large.copied}`);
-  assert.ok(small.copied.every((entries) => entries <= 4 * 106 + 128), `${small.copied}`);
-  assert.ok(large.copied.slice(-2).every((entries) => entries <= 2 * 1_606 + 128), `${large.copied.slice(-2)}`);
+  assert.ok(
+    large.copied.every((entries) => entries <= 4 * 1_606 + 128),
+    `${large.copied}`
+  );
+  assert.ok(
+    small.copied.every((entries) => entries <= 4 * 106 + 128),
+    `${small.copied}`
+  );
+  assert.ok(
+    large.copied.slice(-2).every((entries) => entries <= 2 * 1_606 + 128),
+    `${large.copied.slice(-2)}`
+  );
 });
 
 test('the time of a frame at a full window with two readers: one arriving record, and a compaction of the whole window', (t) => {
@@ -188,7 +221,8 @@ test('the time of a frame at a full window with two readers: one arriving record
   const APART = 2_048;
   const tail: O[] = [];
   const apart: O[] = [];
-  for (let n = 0; n < TAIL; n += 1) tail.push({ ...unit(n % 4 === 0 ? reply(`a${n}`) : call(`t${n}`)), ordinal: 100_000 + n });
+  for (let n = 0; n < TAIL; n += 1)
+    tail.push({ ...unit(n % 4 === 0 ? reply(`a${n}`) : call(`t${n}`)), ordinal: 100_000 + n });
   for (let n = 0; n < APART; n += 1) apart.push({ ...unit(n % 4 === 0 ? reply(`b${n}`) : call(`s${n}`)), ordinal: n });
   let s = snapshot(tail, [], tail[0]!.items[0].id);
   s = windowed(
@@ -206,7 +240,12 @@ test('the time of a frame at a full window with two readers: one arriving record
   ] as const;
   const shown = (fold: SessionFold) => {
     desktopSessionState(fold, []);
-    for (const reader of readers) windowWant(fold.held!, reader, readers.filter((other) => other !== reader));
+    for (const reader of readers)
+      windowWant(
+        fold.held!,
+        reader,
+        readers.filter((other) => other !== reader)
+      );
     windowWant(fold.held!, { kind: 'keep' }, readers);
   };
   shown(s);
@@ -234,7 +273,10 @@ test('the time of a frame at a full window with two readers: one arriving record
   for (const told of all) {
     const one = performance.now();
     const [item] = told.items;
-    s = replace(s, { ...told, items: [{ ...item, meta: { ...item.meta, ext: { ...item.meta.ext, archived: true } } }] });
+    s = replace(s, {
+      ...told,
+      items: [{ ...item, meta: { ...item.meta, ext: { ...item.meta.ext, archived: true } } }],
+    });
     shown(s);
     slowest = Math.max(slowest, performance.now() - one);
   }

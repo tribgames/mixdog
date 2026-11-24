@@ -107,9 +107,8 @@ export function useFollowScrollJudge({
       lastNativeTop.current = nativeTop;
       lastTop.current = top;
       const told = scrollEvent ? takeScrollWrite(element) : undefined;
-      const write = scrollEvent
-        ? attributeScroll(nativeTop, told && !told.reader ? told : undefined)
-        : { recent: false, exact: false };
+      const own = told && !told.reader ? told : undefined;
+      const write = scrollEvent ? attributeScroll(nativeTop, own) : { recent: false, exact: false };
       // A focus a reader's key moved (own-scroll-writes.ts `readerKeyFocus`) vouches for this move as a scroll key does.
       const toldByKey = told?.reader === true && attributeKeyFocus(told, nativeTop, now);
       let distance = distanceFromBottom(metrics);

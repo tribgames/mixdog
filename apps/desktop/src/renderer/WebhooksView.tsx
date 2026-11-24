@@ -1,5 +1,5 @@
 import { Check, Copy, Plus, Search, X } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
@@ -278,7 +278,8 @@ function WebhookEditor({
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
-  onToggle?(enabled: boolean): void;
+  /** Resolves whether the stored webhook took the new value. */
+  onToggle?(enabled: boolean): Promise<boolean>;
   onDelete?(): void;
   onTest?(): Promise<WebhookTestResult>;
 }) {
@@ -336,7 +337,11 @@ function WebhookEditor({
               disabled={busy}
               onChange={(next) => {
                 setEnabled(next);
-                if (editing) onToggle?.(next);
+                if (!editing || !onToggle) return;
+                // A refused toggle left the stored value, so Save must not write the flipped one.
+                void onToggle(next).then((applied) => {
+                  if (!applied) setEnabled(!next);
+                });
               }}
             />
             <button type="button" aria-label={t('Close webhook editor')} onClick={onCancel}>
@@ -569,6 +574,14 @@ export function WebhooksPane({
   });
   const [query, setQuery] = useState('');
   const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft; secret: string } | null>(null);
+  // The committed editor, read when a save settles after it closed (or the pane unmounted).
+  const shownEditor = useRef(editor);
+  useLayoutEffect(() => {
+    shownEditor.current = editor;
+    return () => {
+      shownEditor.current = null;
+    };
+  }, [editor]);
   // The editor portals to document.body: a hidden panel must never leave that
   // layer interactive above the workspace (search state stays).
   useSidebarPanelDismiss(active, () => {
@@ -612,7 +625,10 @@ export function WebhooksPane({
       .includes(text);
   });
   const saveWebhook = async (entry: RecordValue) => {
-    const result = await run('saveWebhook', [entry]);
+    const submitted = editor;
+    const result = await run('saveWebhook', [entry], {
+      showErrorInline: () => submitted !== null && shownEditor.current === submitted,
+    });
     if (result === undefined) return;
     setEditor(null);
   };
@@ -706,7 +722,9 @@ export function WebhooksPane({
                 : undefined
             }
             onSave={(entry) => void saveWebhook(entry)}
-            onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')}
+            onToggle={async (enabled) =>
+              (await run('setWebhookEnabled', [editor.name, enabled], 'toast')) !== undefined
+            }
           />
         )}
         {/* No loading flash: the list area stays empty until the first snapshot

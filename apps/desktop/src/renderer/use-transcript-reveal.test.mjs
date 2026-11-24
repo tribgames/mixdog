@@ -179,7 +179,7 @@ test('the same timeline put up again by its pane is a visit of its own, revealed
   entry.tick(32);
   assert.equal(entry.revealed(), true);
   entry.again();
-  assert.equal(entry.revealed(), false, 'an earlier reveal is not this visit\'s');
+  assert.equal(entry.revealed(), false, "an earlier reveal is not this visit's");
   await act(async () => {});
   assert.equal(entry.revealed(), true);
 });

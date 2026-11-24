@@ -7,6 +7,7 @@ import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopPullRequestEntry } from '../shared/contract';
+import { promptAction } from './app-confirm';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { OpenSelect } from './OpenSelect';
@@ -132,15 +133,17 @@ export function PullRequestsPane({
     if (pullRequest.url) void api?.openExternal?.(pullRequest.url);
   };
   const checkoutByNumber = () => {
-    const raw = window.prompt(t('Pull request number'), '');
-    if (raw === null) return;
-    const match = /^#?(\d+)$/.exec(raw.trim());
-    if (!match) {
-      setActionError(t('Enter a valid pull request number.'));
-      return;
-    }
-    const number = Number(match[1]);
-    void run(`checkout:${number}`, () => api?.ghPrCheckout?.(projectPath, number));
+    const title = t('Pull request number');
+    void promptAction(title, { value: '', label: title, key: `pr-checkout:${projectPath}` }).then((raw) => {
+      if (raw === null) return;
+      const match = /^#?(\d+)$/.exec(raw.trim());
+      if (!match) {
+        setActionError(t('Enter a valid pull request number.'));
+        return;
+      }
+      const number = Number(match[1]);
+      void run(`checkout:${number}`, () => api?.ghPrCheckout?.(projectPath, number));
+    });
   };
   const renderHeaderActions = () => {
     let createButtonTitle = t('Create pull request');

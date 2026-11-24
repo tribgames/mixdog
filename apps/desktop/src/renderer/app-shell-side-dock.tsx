@@ -253,7 +253,9 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
 export function sideFileEditorKept(paneSideDocks: PaneDockContext['paneSideDocks'], fileKey: string): boolean {
   if (!paneSideDocks.dirtyKeysRef.current.has(sideFileTabDirtyKey(fileKey))) return false;
   return Object.values(paneSideDocks.docks).some((entry) =>
-    [entry, ...Object.values(entry.held ?? {})].some((part) => part.files?.some((file) => sideFileKey(file) === fileKey))
+    [entry, ...Object.values(entry.held ?? {})].some((part) =>
+      part.files?.some((file) => sideFileKey(file) === fileKey)
+    )
   );
 }
 
@@ -315,9 +317,7 @@ function renderSideFileSurface(
             // An edit makes a preview tab a normal one.
             if (dirty) context.paneSideDocks.keepFile(leafId, sideFileKey(file));
           }}
-          onSaveHandle={(save, released) =>
-            context.registerEditorSaveHandle(sideFileDirtyKey(file), save, released)
-          }
+          onSaveHandle={(save, released) => context.registerEditorSaveHandle(sideFileDirtyKey(file), save, released)}
           reveal={reveal}
           onOpenAt={onOpenAt}
           // A link followed inside this tab opens in the dock, remembering

@@ -135,7 +135,11 @@ export function useAgentRoute(provider: string, model: string, row?: DesktopMode
   const acpAgents = useSyncExternalStore(subscribe, read, read);
   // A caller with no row of its own reads the cached catalog's, which also reads a route under an agent's tier id
   // as its model.
-  const catalog = useSyncExternalStore(subscribeCachedModelCatalog, cachedModelCatalogRevision, cachedModelCatalogRevision);
+  const catalog = useSyncExternalStore(
+    subscribeCachedModelCatalog,
+    cachedModelCatalogRevision,
+    cachedModelCatalogRevision
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: `catalog` counts the cached catalog's writes, which is what the cached row follows.
   return useMemo(
     () => agentRouteOf(acpAgents, provider, model, row ?? cachedModelRow(provider, model)),

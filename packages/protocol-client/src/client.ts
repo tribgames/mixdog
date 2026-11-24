@@ -1547,7 +1547,12 @@ class Engine implements ProtocolClient<Json> {
           if (limit.expired) throw fail({ kind: 'requestTimeout', method: 'thread/resume', sent: false });
           const left = new AbortController();
           void abandoned.then(() => left.abort());
-          return this.requestResume(threadId, asked, { ...options, timeoutMs: undefined, signal: left.signal }, restoring);
+          return this.requestResume(
+            threadId,
+            asked,
+            { ...options, timeoutMs: undefined, signal: left.signal },
+            restoring
+          );
         },
         options?.signal,
         current.limit
@@ -1558,11 +1563,7 @@ class Engine implements ProtocolClient<Json> {
     if (answered && windowCovers(answered.window, window) && (options?.join || windowCovers(window, answered.window)))
       return this.awaitAttach(answered, options, false);
 
-    const params = this.resumeParams(
-      threadId,
-      window,
-      options?.force === true && this.awaitingSnapshot.has(threadId)
-    );
+    const params = this.resumeParams(threadId, window, options?.force === true && this.awaitingSnapshot.has(threadId));
     let departed!: (sent: Promise<void>) => void;
     const sent = new Promise<void>((resolve) => (departed = resolve));
     void sent.catch(() => undefined);
@@ -1954,9 +1955,7 @@ class Engine implements ProtocolClient<Json> {
         limit.expired = true;
         const cause: ClientErrorDetail = { kind: 'requestTimeout', method, sent: out() };
         abandon(cause);
-        reject(
-          fail(opId !== null && out() ? { kind: 'opOutcomeUnknown', opId, state: 'statusFailed', cause } : cause)
-        );
+        reject(fail(opId !== null && out() ? { kind: 'opOutcomeUnknown', opId, state: 'statusFailed', cause } : cause));
       };
       const timer = setTimeout(() => {
         if (out() && !explicit) return;
@@ -2213,10 +2212,21 @@ class Engine implements ProtocolClient<Json> {
     };
     // The core holds a chunk only at the next byte after those it has, so an acknowledged chunk proves every byte before it is held.
     let stored = 0;
+    // The core that acknowledged them: its staging lives only as long as that core instance.
+    let heldBy = this.server.serverInstanceId;
     let failure = undefined as { error: unknown } | undefined;
     let reordered = false as boolean;
+    const offsetRefused = (e: unknown): boolean => {
+      const d = detailOf(e);
+      return (
+        d.kind === 'rpc' &&
+        d.reason === 'invalidParams' &&
+        (d.data as { path?: unknown } | undefined)?.path === 'offset'
+      );
+    };
     const accepted = (end: number): void => {
       stored = Math.max(stored, end);
+      heldBy = this.server.serverInstanceId;
       try {
         options?.onChunkAccepted?.();
       } catch (e) {
@@ -2237,10 +2247,8 @@ class Engine implements ProtocolClient<Json> {
         inFlight += size;
         const settled: Promise<void> = put(offset)
           .then(accepted, (e) => {
-            const d = detailOf(e);
-            if (d.kind === 'rpc' && d.reason === 'invalidParams' && (d.data as { path?: unknown } | undefined)?.path === 'offset') {
-              reordered = true;
-            } else failure ??= { error: e };
+            if (offsetRefused(e)) reordered = true;
+            else failure ??= { error: e };
           })
           .then(() => {
             inFlight -= size;
@@ -2256,7 +2264,19 @@ class Engine implements ProtocolClient<Json> {
     const early = failure as { error: unknown } | undefined;
     if (early) throw early.error;
     for (let offset = reordered ? stored : bytes.length; offset < bytes.length; ) {
-      const end = await put(offset);
+      let end: number;
+      try {
+        end = await put(offset);
+      } catch (e) {
+        // Every byte before `offset` was acknowledged and nothing else is out, so the core refusing this offset no longer holds
+        // them. A core started since began with no staging: the upload starts again from the first byte. The core that
+        // acknowledged them dropped them to stage other uploads, which a new attempt would meet again: its refusal stands.
+        if (offset > 0 && offsetRefused(e) && this.server.serverInstanceId !== heldBy) {
+          offset = 0;
+          continue;
+        }
+        throw e;
+      }
       accepted(end);
       const late = failure as { error: unknown } | undefined;
       if (late) throw late.error;

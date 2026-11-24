@@ -8,24 +8,56 @@ use serde::Deserialize;
 /// `<runtime root>/daemon.json`.
 pub const DISCOVERY_FILE: &str = "daemon.json";
 
-/// The runtime root 1.4.5 clients resolve: `MIXDOG_RUNTIME_ROOT`, else `<tmp>/mixdog` on Windows and `<tmp>/mixdog-<uid>` elsewhere.
-pub fn runtime_root() -> PathBuf {
-    if let Some(root) = std::env::var_os("MIXDOG_RUNTIME_ROOT").filter(|v| !v.is_empty()) {
-        return PathBuf::from(root);
-    }
-    let tmp = std::env::temp_dir();
+type Var<'a> = &'a dyn Fn(&str) -> Option<std::ffi::OsString>;
+
+/// Node's `os.tmpdir()`, which 1.4.5 roots the runtime directory in.
+fn node_tmpdir(var: Var) -> PathBuf {
+    let var = |name: &str| var(name).filter(|value| !value.is_empty());
     #[cfg(windows)]
     {
-        tmp.join("mixdog")
+        let path = var("TEMP").or_else(|| var("TMP")).unwrap_or_else(|| {
+            let mut root = var("SystemRoot").or_else(|| var("windir")).unwrap_or_default();
+            root.push("\\temp");
+            root
+        });
+        let text = path.to_string_lossy();
+        if text.len() > 1 && text.ends_with('\\') && !text.ends_with(":\\") {
+            return PathBuf::from(&text[..text.len() - 1]);
+        }
+        PathBuf::from(path)
     }
     #[cfg(unix)]
     {
-        // SAFETY: `getuid` has no preconditions and cannot fail.
-        let uid = unsafe { libc::getuid() };
-        tmp.join(format!("mixdog-{uid}"))
+        let path = var("TMPDIR").or_else(|| var("TMP")).or_else(|| var("TEMP")).unwrap_or_else(|| "/tmp".into());
+        let text = path.to_string_lossy();
+        if text.len() > 1 && text.ends_with('/') {
+            return PathBuf::from(&text[..text.len() - 1]);
+        }
+        PathBuf::from(path)
     }
 }
 
+fn root_from(var: Var) -> PathBuf {
+    if let Some(configured) = var("MIXDOG_RUNTIME_ROOT") {
+        let text = configured.to_string_lossy();
+        let text = text.trim();
+        if !text.is_empty() {
+            return std::path::absolute(text).unwrap_or_else(|_| PathBuf::from(text));
+        }
+    }
+    #[cfg(windows)]
+    let name = String::from("mixdog");
+    #[cfg(unix)]
+    // SAFETY: `getuid` has no preconditions and cannot fail.
+    let name = format!("mixdog-{}", unsafe { libc::getuid() });
+    node_tmpdir(var).join(name)
+}
+
+/// The runtime root 1.4.5 clients resolve (`runtime-root.mjs`): `MIXDOG_RUNTIME_ROOT` (trimmed, made absolute), else
+/// `tmpdir()/mixdog` on Windows and `tmpdir()/mixdog-<uid>` elsewhere. The core and every launcher share this one definition.
+pub fn runtime_root() -> PathBuf {
+    root_from(&|name| std::env::var_os(name))
+}
 pub fn discovery_path() -> PathBuf {
     runtime_root().join(DISCOVERY_FILE)
 }
@@ -114,5 +146,35 @@ impl Discovery {
     /// The control listener and the token that opens it.
     pub fn control_endpoint(&self) -> Endpoint {
         Endpoint { port: self.core.control.port, token: self.endpoints.session.token.clone() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> + 'a {
+        move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).into())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_roots_in_temp_before_tmp_as_node_does() {
+        let root = root_from(&env(&[("TEMP", "C:\\a"), ("TMP", "C:\\b")]));
+        assert_eq!(root, PathBuf::from("C:\\a\\mixdog"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_roots_in_tmp_when_tmpdir_is_unset() {
+        let root = root_from(&env(&[("TMP", "/x/")]));
+        assert_eq!(root.parent().unwrap(), std::path::Path::new("/x"));
+    }
+
+    #[test]
+    fn a_configured_root_is_trimmed_and_made_absolute() {
+        let root = root_from(&env(&[("MIXDOG_RUNTIME_ROOT", "  rel/dir ")]));
+        assert!(root.is_absolute());
+        assert!(root.ends_with("rel/dir"));
     }
 }

@@ -115,6 +115,53 @@ pub(super) fn provider_timeout_or_stall(error: &mixdog_core_api::domain::provide
         || (matches!(error.transport, Some(TransportFault::TruncatedStream)) && error.exposure.text_emitted)
 }
 
+/// What the progress watchdog of an unattended turn judges by.
+pub(super) struct Watched<'a> {
+    pub(super) parts: &'a Arc<dyn RunParts>,
+    pub(super) thread: &'a ThreadId,
+    /// The header the turn runs on: its agent's deadlines.
+    pub(super) header: &'a mixdog_store::schema::record::Header,
+    pub(super) hidden_agent: bool,
+    /// The routed model's first-response budget; none for a turn no provider of Mixdog's answers.
+    pub(super) budget: Option<mixdog_core_api::domain::provider::FirstResponseBudget>,
+    pub(super) signal: &'a mixdog_agent::cancel::Cancel,
+    pub(super) clock: &'a Arc<dyn Clock>,
+    pub(super) failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
+    /// When the ask started: the shells started from then on are the turn's.
+    pub(super) asked_at: i64,
+}
+
+/// Arms the progress watchdog of an unattended turn, whoever answers it, over `snapshot`, the turn's progress as whoever does
+/// its work marks it: a stall stops the turn with its shells reaped and the stop recorded.
+pub(super) async fn arm_watchdog(watched: Watched<'_>, snapshot: impl Fn(i64) -> Option<Snapshot> + Send + 'static) -> Option<Watchdog> {
+    let Watched { parts, thread, header, hidden_agent, budget, signal, clock, failures, asked_at } = watched;
+    let agent = header.get("agent").and_then(Value::as_str).filter(|name| !name.is_empty());
+    // `agentWatchdogOverrides`: the agent definition's first-response deadline and the routed
+    // model's first-response budget.
+    let overrides = Overrides {
+        first_transport_timeout_ms: match agent {
+            Some(name) => parts.first_response_timeout_ms(name).await,
+            None => None,
+        },
+        provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
+        provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
+        ..Overrides::default()
+    };
+    let kind = AgentKind { name: agent, hidden: hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
+    let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
+    let (reaper, reaped_thread) = (parts.clone(), thread.clone());
+    // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
+    // recorded with what the sweep judged, then the abort.
+    let (stall_agent, site) = (agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
+    let anchor_ts = clock.now_ms();
+    Watchdog::arm(true, policy, signal.clone(), clock.clone(), snapshot, move |snapshot: &Snapshot, message: &str, now: i64| {
+        reaper.reap_turn_shells(&reaped_thread, asked_at);
+        if let Some(log) = failures {
+            log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+        }
+    })
+}
+
 pub(super) async fn drive_turn(
     parts: Arc<dyn RunParts>,
     liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
@@ -419,7 +466,9 @@ async fn drive(
     {
         return failed(LEAVE_FAILED, Value::Null);
     }
+    // From here the turn is on the header it was assembled on: a preflight fallback landed it on another route.
     let Assembled {
+        header,
         provider,
         tools,
         tool_env,
@@ -505,7 +554,7 @@ async fn drive(
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with: each
     // message as its stored row (shared with the message), read back into the message only if the turn is cancelled, so
-    // the turn holds no second copy of the conversation.
+    // the turn holds no second copy of the conversation. The sink keeps it, and a rewrite of the context replaces it.
     let mut history: Vec<(ItemId, HistoryRow)> = Vec::new();
     let mut leading = true;
     for (iid, body) in stored_ids.into_iter().zip(prior) {
@@ -522,14 +571,11 @@ async fn drive(
         if let Some(id) = &message.message_id {
             lock(&sink.iids).insert(id.clone(), iid.clone());
         }
-        let row = match &message.stored {
-            Some(stored) => HistoryRow::Stored(stored.clone()),
-            None => HistoryRow::Message(Box::new(message.clone())),
-        };
-        history.push((iid, row));
+        history.push((iid, HistoryRow::held(&message)));
         rows.record_stored(&message);
         messages.push(message);
     }
+    sink.restart(history);
     let input_text = input.text();
     rows.record(&input, input_body);
     sink.seed(&input);
@@ -541,41 +587,21 @@ async fn drive(
     // The progress watchdog judges the model work from the ask on, and only a run no person is
     // attached to (Node arms it per worker turn once the ask has started).
     let watchdog = if unattended {
-        let agent = header.get("agent").and_then(Value::as_str).filter(|name| !name.is_empty());
         // The assembled route's model and parameters: the provider is the one the assembly chose, which a preflight fallback
         // moved off the header this turn started from.
         let budget = provider.first_response_budget(&config.model, config.options.model_parameters.as_ref().filter(|parameters| parameters.is_object()));
-        // `agentWatchdogOverrides`: the agent definition's first-response deadline and the routed
-        // model's first-response budget.
-        let overrides = Overrides {
-            first_transport_timeout_ms: match agent {
-                Some(name) => parts.first_response_timeout_ms(name).await,
-                None => None,
-            },
-            provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
-            provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
-            ..Overrides::default()
+        let watched_turn = Watched {
+            parts: &parts,
+            thread: &thread,
+            header: &header,
+            hidden_agent: config.hidden_agent,
+            budget,
+            signal: &signal,
+            clock: &clock,
+            failures: failures.clone(),
+            asked_at,
         };
-        let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
-        let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
-        let (reaper, reaped_thread) = (parts.clone(), thread.clone());
-        // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
-        // recorded with what the sweep judged, then the abort.
-        let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
-        let anchor_ts = clock.now_ms();
-        Watchdog::arm(
-            true,
-            policy,
-            signal.clone(),
-            clock.clone(),
-            move |now| watched.borrow().snapshot(now),
-            move |snapshot: &Snapshot, message: &str, now: i64| {
-                reaper.reap_turn_shells(&reaped_thread, asked_at);
-                if let Some(log) = stall_log {
-                    log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
-                }
-            },
-        )
+        arm_watchdog(watched_turn, move |now| watched.borrow().snapshot(now)).await
     } else {
         None
     };
@@ -664,7 +690,6 @@ async fn drive(
     asked.store(true, Ordering::SeqCst);
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
-    let provider_id = provider.id().as_str().to_owned();
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
     progress.model_loop(false);
     // `releaseWebSearchUsage?.()` after `askSession`.
@@ -678,8 +703,9 @@ async fn drive(
         quiet_watch.finish().await;
     }
     // The guard state that outlives one ask lives on the session record (`session.todoCheck`, `session._repeat*`).
-    // A cancelled run's token has fired, but Node saves after the abort (`finalizeCancelledTurn`).
-    let end_port = if cancel.is_cancelled() { port.closing() } else { port.clone() };
+    // The run is over: what it leaves is saved whenever its token fires, before or after now (Node saves after the abort,
+    // `finalizeCancelledTurn`, and settles a finished ask whatever a later stop does).
+    let end_port = port.closing();
     {
         let carry = match &result {
             Ok(output) => &output.carry,
@@ -693,17 +719,17 @@ async fn drive(
         // A turn that did not finish leaves none, so they fall back to its rows.
         let mut unset = Vec::new();
         match &result {
-            Ok(output) if !cancel.is_cancelled() => {
+            Ok(output) => {
                 let report = output.response.report_content.as_deref().unwrap_or(&output.response.content);
                 set.insert("lastHandoff".into(), Value::String(context.redact_text(report)));
                 set.insert("lastHandoffTurn".into(), Value::String(turn.as_str().to_owned()));
             }
-            _ => unset.extend(["lastHandoff".to_owned(), "lastHandoffTurn".to_owned()]),
+            Err(_) => unset.extend(["lastHandoff".to_owned(), "lastHandoffTurn".to_owned()]),
         }
         let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset, patch: Default::default() }).await;
         let kept = match &result {
-            Ok(output) if !cancel.is_cancelled() => output.carry.prefix_guard.clone(),
-            _ => None,
+            Ok(output) => output.carry.prefix_guard.clone(),
+            Err(_) => None,
         };
         prefix_guard.keep(kept);
     }
@@ -744,7 +770,7 @@ async fn drive(
                 asked_at_ms: asked_at,
                 input_excludes_cache: output.input_excludes_cache,
             };
-            let _ = port.settled(settled).await;
+            let _ = end_port.settled(settled).await;
             // `transcript.appendFinalAssistant(result)` (`turn-settle.mjs:44`): `historyContent ?? content`.
             if let Some(turn_transcript) = &turn_transcript {
                 turn_transcript.final_text(output.response.history_content.as_deref().unwrap_or(&output.response.content));
@@ -754,7 +780,7 @@ async fn drive(
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());
             if let Some(state) = output.provider_state.clone() {
-                let _ = port.save_provider_state(Some(state)).await;
+                let _ = end_port.save_provider_state(Some(state)).await;
             }
             RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult {
                 content: output.response.content.clone(),
@@ -782,7 +808,7 @@ async fn drive(
             }
             if matches!(failure.error, AgentError::Aborted) || cancel.is_cancelled() {
                 progress.cancelling();
-                close_cancelled(&end_port, &sink, &rows, &history, (&input_item, &input_text), &observed, signal.close_reason()).await;
+                close_cancelled(&end_port, &sink, &rows, (&input_item, &input_text), &observed, signal.close_reason()).await;
                 return RunOutcome::Interrupted;
             }
             // The turn's terminal error: a provider timeout or stall that ended it (a retry the turn recovered from never
@@ -794,9 +820,9 @@ async fn drive(
             progress.error();
             let data = if failure.carried_report.is_empty() { Value::Null } else { json!({ "carriedReport": failure.carried_report }) };
             // A provider's refusal keeps what `turnFailureRecord` reads off it: kind, status, code, retry advice and
-            // reset (`provider_turn_error`); any other failure is its message.
+            // reset (`provider_turn_error`), named for the provider the run ended on; any other failure is its message.
             if let AgentError::Provider(error) = &failure.error {
-                return RunOutcome::Failed(provider_turn_error(error, &provider_id, data));
+                return RunOutcome::Failed(provider_turn_error(error, &failure.provider, data));
             }
             // The guard's refusal reads as `Session state changed unexpectedly.` (`err-text.mjs:274`, by its code).
             if matches!(failure.error, AgentError::PrefixMutation(_)) {

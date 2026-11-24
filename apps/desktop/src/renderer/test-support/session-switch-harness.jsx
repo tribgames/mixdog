@@ -32,7 +32,10 @@ const pos = (id) => `h1:0:${id}`;
 const cont = (position) => ({ kind: 'continuation', position });
 const END = { kind: 'end' };
 const WORDS = 'transcript rows wrap differently at every width so a row that moved is visible ';
-const stored = (item, record) => ({ ...item, meta: { ...item.meta, ext: { ...item.meta?.ext, historyPosition: pos(record) } } });
+const stored = (item, record) => ({
+  ...item,
+  meta: { ...item.meta, ext: { ...item.meta?.ext, historyPosition: pos(record) } },
+});
 
 // ───────────────────────────── the core stand-in ─────────────────────────────
 
@@ -52,7 +55,17 @@ let stamp = 0;
 function thread(id) {
   let t = threads.get(id);
   if (!t) {
-    t = { id, records: [], loose: [], live: null, runtime: { busy: false }, requests: [], sub: null, turn: 0, resumes: 0 };
+    t = {
+      id,
+      records: [],
+      loose: [],
+      live: null,
+      runtime: { busy: false },
+      requests: [],
+      sub: null,
+      turn: 0,
+      resumes: 0,
+    };
     threads.set(id, t);
   }
   return t;
@@ -67,7 +80,12 @@ function publish(t) {
   const snapshot = desktopSessionState(t.sub.fold, t.requests);
   if (t.sub.published?.fold === t.sub.fold && t.sub.published.requests === t.requests.length) return;
   t.sub.published = { fold: t.sub.fold, requests: t.requests.length };
-  emit({ sessionId: t.id, snapshot, frameSource: 'live', streamPosition: { epoch: `e${t.resumes}`, seq: ++stamp, order: stamp } });
+  emit({
+    sessionId: t.id,
+    snapshot,
+    frameSource: 'live',
+    streamPosition: { epoch: `e${t.resumes}`, seq: ++stamp, order: stamp },
+  });
 }
 
 /** Folds notifications of a followed thread and publishes the state they leave, as one frame does. */
@@ -113,7 +131,12 @@ function resume(t) {
       followTail: true,
     },
   });
-  t.sub = { fold, ranges: new Map([['tail', { older: from > 0 ? pos(tail[0]?.id) : null }]]), pages: 0, published: null };
+  t.sub = {
+    fold,
+    ranges: new Map([['tail', { older: from > 0 ? pos(tail[0]?.id) : null }]]),
+    pages: 0,
+    published: null,
+  };
   publish(t);
 }
 
@@ -248,20 +271,26 @@ function move(id, to) {
     if (!sub.moving) return run();
     // A record asked for while a move is out is read after it; any other move is served by the one that is out.
     if (to.kind !== 'at') return resolve(true);
-    (sub.queue ??= []).push(run);
+    sub.queue ??= [];
+    sub.queue.push(run);
   });
 }
 
 const text = (seed, lines) => WORDS.repeat(1 + ((seed * 7) % lines));
 const PICTURE =
   'data:image/svg+xml;utf8,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="420" height="180"><rect width="420" height="180" fill="#888"/></svg>');
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="420" height="180"><rect width="420" height="180" fill="#888"/></svg>'
+  );
 /** A reply whose box is not known from its text: a code block, a table and a picture. */
 const richText = (seed) =>
   [
     `Reply ${seed}: ${text(seed + 3, 3)}`,
-    '```ts\n' + Array.from({ length: 3 + (seed % 5) }, (_, n) => `const value${n} = compute(${n}, "${seed}");`).join('\n') + '\n```',
-    '| name | value |\n| --- | --- |\n' + Array.from({ length: 2 + (seed % 3) }, (_, n) => `| row ${n} | ${seed * n} |`).join('\n'),
+    '```ts\n' +
+      Array.from({ length: 3 + (seed % 5) }, (_, n) => `const value${n} = compute(${n}, "${seed}");`).join('\n') +
+      '\n```',
+    '| name | value |\n| --- | --- |\n' +
+      Array.from({ length: 2 + (seed % 3) }, (_, n) => `| row ${n} | ${seed * n} |`).join('\n'),
     `![chart](${PICTURE})`,
   ].join('\n\n');
 
@@ -315,10 +344,20 @@ const core = {
     const n = core.prompt(id);
     for (let k = 0; k < tools; k += 1) core.tool(id, `${id}-t${n}.${k}`);
     // Several files are several calls in a row: the transcript shows them as one card.
-    [writes[n] ?? []].flat().forEach((path, k) =>
-      core.tool(id, `${id}-w${n}${k ? `.${k}` : ''}`, { name: 'write', input: { path, content: 'one\ntwo\nthree\n' } })
+    for (const [k, path] of [writes[n] ?? []].flat().entries()) {
+      core.tool(id, `${id}-w${n}${k ? `.${k}` : ''}`, {
+        name: 'write',
+        input: { path, content: 'one\ntwo\nthree\n' },
+      });
+    }
+    core.reply(
+      id,
+      long
+        ? { body: `**Reply ${n}:** ${WORDS.repeat(1 + Math.ceil(4200 / WORDS.length))}\n\n- one\n- two` }
+        : rich
+          ? { body: richText(n) }
+          : {}
     );
-    core.reply(id, long ? { body: `**Reply ${n}:** ${WORDS.repeat(1 + Math.ceil(4200 / WORDS.length))}\n\n- one\n- two` } : rich ? { body: richText(n) } : {});
     core.end(id);
     return n;
   },
@@ -368,7 +407,10 @@ const core = {
     const t = thread(id);
     const n = ++t.turn;
     const record = `${id}-u${n}`;
-    const item = stored({ type: 'userMessage', id: record, content: [{ type: 'text', text: `Prompt ${n}: ${text(n, 2)}` }] }, record);
+    const item = stored(
+      { type: 'userMessage', id: record, content: [{ type: 'text', text: `Prompt ${n}: ${text(n, 2)}` }] },
+      record
+    );
     store(t, { id: record, items: [item] });
     t.runtime = { ...t.runtime, busy: true };
     tell(
@@ -400,7 +442,10 @@ const core = {
       t.live = { id: `${id}-r${t.turn}`, text: '' };
       tell(t, [
         'item/started',
-        { turnId: `turn${t.turn}`, item: { type: 'agentMessage', id: t.live.id, text: '', meta: { status: 'inProgress' } } },
+        {
+          turnId: `turn${t.turn}`,
+          item: { type: 'agentMessage', id: t.live.id, text: '', meta: { status: 'inProgress' } },
+        },
       ]);
     }
     if (delta) {
@@ -500,7 +545,9 @@ window.mixdogDesktop = {
     const checkpointId = args?.[0]?.checkpointId ?? '';
     const files = changedFiles.get(checkpointId);
     if (!files) return NO_CHANGES(args);
-    return { value: { status: 'ready', checkpointId, revision: 1, root: 'C:/repo', files, canUndo: true, canReapply: false } };
+    return {
+      value: { status: 'ready', checkpointId, revision: 1, root: 'C:/repo', files, canUndo: true, canReapply: false },
+    };
   },
   perfLog() {},
 };
@@ -518,7 +565,8 @@ let parsesHeld = false;
 const heldParses = [];
 window.Worker = class extends EventTarget {
   postMessage({ id, text: source }) {
-    const answer = () => this.dispatchEvent(new MessageEvent('message', { data: { id, root: parseMarkdownToHast(source) } }));
+    const answer = () =>
+      this.dispatchEvent(new MessageEvent('message', { data: { id, root: parseMarkdownToHast(source) } }));
     if (parsesHeld) heldParses.push(answer);
     else queueMicrotask(answer);
   }
@@ -570,19 +618,18 @@ Object.assign(core, {
 });
 
 const NO_CHANGES = (args) => ({
-    value: {
-      status: 'none',
-      checkpointId: args?.[0]?.checkpointId ?? '',
-      supported: true,
-      authoritative: true,
-      complete: true,
-      snapshotKind: 'worktree',
-      checkpointId: 'prompt',
-      patch: '',
-      files: [],
-      agents: [],
-    },
-  });
+  value: {
+    status: 'none',
+    supported: true,
+    authoritative: true,
+    complete: true,
+    snapshotKind: 'worktree',
+    checkpointId: 'prompt',
+    patch: '',
+    files: [],
+    agents: [],
+  },
+});
 
 // ───────────────────────────── the workspace ─────────────────────────────
 
@@ -667,13 +714,17 @@ function Workspace() {
 const ws = {
   session,
   draft,
-  leaves: () => paneLeaves(layoutNow).map((leaf) => ({ id: leaf.id, active: leaf.activeKey, tabs: leaf.tabs.map(navigationKey) })),
+  leaves: () =>
+    paneLeaves(layoutNow).map((leaf) => ({ id: leaf.id, active: leaf.activeKey, tabs: leaf.tabs.map(navigationKey) })),
   /** A tab click, or a session-list click on a session that has a tab: the tab is opened if absent and activated. */
   open(selection, leafId = focusedNow) {
     setLayout((current) => ({ ...current, layout: openTabInPaneLeaf(current.layout, leafId, selection) }));
   },
   activate(selection, leafId = focusedNow) {
-    setLayout((current) => ({ ...current, layout: activateTabInPaneLeaf(current.layout, leafId, navigationKey(selection)) }));
+    setLayout((current) => ({
+      ...current,
+      layout: activateTabInPaneLeaf(current.layout, leafId, navigationKey(selection)),
+    }));
   },
   /** A session-list click that takes the active tab's place (the tab shows another session from now on). */
   replace(selection, leafId = focusedNow) {
@@ -725,9 +776,16 @@ function paneView(cell) {
   const hidden = getComputedStyle(view).visibility !== 'visible';
   const cover = Boolean(surface.querySelector('.pane-surface-cover'));
   const rows = [...view.querySelectorAll('.transcript-virtual-row')]
-    .map((row) => ({ row, index: Number(row.dataset.index), key: row.dataset.timelineKey, box: row.getBoundingClientRect() }))
+    .map((row) => ({
+      row,
+      index: Number(row.dataset.index),
+      key: row.dataset.timelineKey,
+      box: row.getBoundingClientRect(),
+    }))
     .sort((a, b) => a.index - b.index);
-  const visible = rows.filter(({ box: row }) => row.bottom > box.top + 0.5 && row.top < box.bottom - 0.5 && row.height > 0);
+  const visible = rows.filter(
+    ({ box: row }) => row.bottom > box.top + 0.5 && row.top < box.bottom - 0.5 && row.height > 0
+  );
   const composer = surface.querySelector('form.composer')?.getBoundingClientRect();
   const rail = cell.querySelector('.session-rail')?.getBoundingClientRect();
   return {
@@ -824,7 +882,8 @@ async function settle() {
       continue;
     }
     before = now;
-    if (frameClock() - started > 10_000) throw new Error(`the panes did not come to rest: ${waiting || 'the view keeps changing'}`);
+    if (frameClock() - started > 10_000)
+      throw new Error(`the panes did not come to rest: ${waiting || 'the view keeps changing'}`);
   }
 }
 

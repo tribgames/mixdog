@@ -47,10 +47,10 @@ export interface BlockParking extends ParkedBlocks {
   /** The blocks inside one block of this reply, each its own body (the
    *  stretches of lines of a code block): they park against the reply's
    *  scroller while the reply's own may, and while it grows the last two
-   *  stay. `place` names their holder in the reply (`${body}/…`, null: no
+   *  stay. `place` names their holder in the reply (`${block}/…`, null: no
    *  place is known): a holder that left the DOM with the block around it
    *  takes up, back at its place, what was parked of it, so it never returns
-   *  whole. A body's new blocks drop what was kept for its places (release). */
+   *  whole. A block's new content drops what was kept for its places (release). */
   inner(place: string | null): InnerBlockParking;
 }
 
@@ -288,7 +288,7 @@ function createParking(beforePark?: (element: HTMLElement) => void, lastTwo = fa
     const selection = selectionOver();
     const basis = basisOf(container);
     const returning: string[] = [];
-    const parking: Array<[string, ParkedBlock, HTMLElement]> = [];
+    const toPark: Array<[string, ParkedBlock, HTMLElement]> = [];
     const latest = new Map<Element, IntersectionObserverEntry>();
     for (const entry of entries) latest.set(entry.target, entry);
     // Every block is measured before any of them changes.
@@ -319,10 +319,10 @@ function createParking(beforePark?: (element: HTMLElement) => void, lastTwo = fa
       }
       if (element.contains(document.activeElement) || element.querySelector(HELD_CONTENT)) continue;
       const box = measureBlock(element, rect, basis);
-      if (box) parking.push([id, box, element]);
+      if (box) toPark.push([id, box, element]);
     }
     for (const id of returning) set(id, null);
-    for (const [id, box, element] of parking) {
+    for (const [id, box, element] of toPark) {
       beforePark?.(element);
       set(id, box);
     }
@@ -454,14 +454,14 @@ function createParking(beforePark?: (element: HTMLElement) => void, lastTwo = fa
     parkAll() {
       if (!container || !observer) return;
       const basis = basisOf(container);
-      const parking: Array<[string, ParkedBlock]> = [];
+      const toPark: Array<[string, ParkedBlock]> = [];
       for (const element of container.children) {
         const id = element.getAttribute(UNIT_ATTRIBUTE);
         if (id === null) continue;
         const box = measureBlock(element as HTMLElement, element.getBoundingClientRect(), basis);
-        if (box) parking.push([id, box]);
+        if (box) toPark.push([id, box]);
       }
-      for (const [id, box] of parking) set(id, box);
+      for (const [id, box] of toPark) set(id, box);
     },
     sync() {
       if (!observer || syncQueued) return;

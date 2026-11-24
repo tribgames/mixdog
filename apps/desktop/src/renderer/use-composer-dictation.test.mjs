@@ -5,6 +5,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useComposerDictation } from './use-composer-dictation.ts';
 import { SurfaceActiveContext } from './surface-activity.ts';
+import { stashedComposerDraft } from './composer-draft.ts';
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -51,6 +52,13 @@ async function withDictation({ muted = false } = {}, run) {
     calls: [],
     notices: [],
     uploaded: undefined,
+    failStart: false,
+    transcriptGate: Promise.resolve(),
+    holdTranscript() {
+      this.transcriptGate = new Promise((resolve) => {
+        this.releaseTranscript = resolve;
+      });
+    },
     track,
     stream: { getTracks: () => [track], getAudioTracks: () => [track] },
     resolveMic: null,
@@ -92,6 +100,7 @@ async function withDictation({ muted = false } = {}, run) {
       ctx.recorders.push(this);
     }
     start() {
+      if (ctx.failStart) throw new DOMException('The stream cannot be recorded.', 'NotSupportedError');
       this.state = 'recording';
       this.ondataavailable({ data: new dom.window.Blob(['first words']) });
     }
@@ -135,6 +144,7 @@ async function withDictation({ muted = false } = {}, run) {
       }
       assert.equal(capability, 'transcribeAudio');
       ctx.uploaded = args[0];
+      await ctx.transcriptGate;
       return { value: 'first words' };
     },
   };
@@ -145,6 +155,7 @@ async function withDictation({ muted = false } = {}, run) {
   function Harness() {
     ctx.hook = useComposerDictation({
       keysActive: ctx.keysActive,
+      identityScope: 'session-a',
       transitioningRef: { current: false },
       textarea: { current: dom.window.document.querySelector('textarea') },
       setDraft: (update) => {
@@ -415,5 +426,49 @@ test('cancelling before the mic opens releases the stream when it arrives', asyn
     assert.equal(ctx.recorders.length, 0);
     assert.equal(ctx.hook.dictationState, 'idle');
     assert.deepEqual(ctx.notices, []);
+  });
+});
+
+test('a recorder that fails to start releases the mic, and the next tap starts a new take', async () => {
+  await withDictation({}, async (ctx) => {
+    ctx.failStart = true;
+    await ctx.openMic();
+    assert.equal(ctx.track.stopped, 1, 'the mic is released');
+    assert.equal(ctx.hook.dictationState, 'idle');
+    assert.equal(ctx.notices.length, 1, 'the failure is said');
+    ctx.failStart = false;
+    await ctx.openMic();
+    assert.equal(ctx.micRequests, 2, 'the next tap opens the mic again');
+    assert.equal(ctx.recorder.state, 'recording');
+  });
+});
+
+test('words of a take whose conversation the composer left wait in that draft and are never sent', async () => {
+  await withDictation({}, async (ctx) => {
+    await ctx.openMic();
+    await ctx.fireStart();
+    ctx.holdTranscript();
+    await act(async () => ctx.hook.stopDictationAndSend());
+    // The composer shows session B while A's words are transcribed.
+    await act(async () => ctx.hook.moveTo('session-b', false));
+    await act(async () => {
+      ctx.releaseTranscript();
+      await tick();
+    });
+    assert.equal(ctx.draft, '', "B's draft is not written");
+    assert.equal(ctx.submissions, 0, 'nothing is sent');
+    assert.equal(stashedComposerDraft('session-a'), 'first words', 'A gets its words back when shown again');
+
+    // A take in B, whose draft then becomes session C: the same conversation keeps recording and gets its words.
+    await ctx.openMic();
+    await ctx.fireStart();
+    await act(async () => ctx.hook.moveTo('session-c', true));
+    assert.equal(ctx.recorder.state, 'recording');
+    await act(async () => {
+      await ctx.hook.toggleDictation();
+      await ctx.transcriptReady;
+    });
+    assert.equal(ctx.draft, 'first words');
+    assert.equal(stashedComposerDraft('session-b'), '');
   });
 });

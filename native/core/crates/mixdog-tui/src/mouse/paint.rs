@@ -69,7 +69,7 @@ impl Mouse {
 
     /// `paintSelectionRect`: publishes a clipped rect (or the clear) now.
     pub fn paint_selection_rect<S: SelectionIo + ?Sized>(&mut self, store: &mut S, clipped: Option<SelectionRect>, now_ms: u64) {
-        if let Some(publish) = self.paint.queue.publish(clipped, false, now_ms) {
+        if let Some(publish) = self.paint.queue.publish(clipped, now_ms) {
             self.apply_publish(store, publish);
         }
     }

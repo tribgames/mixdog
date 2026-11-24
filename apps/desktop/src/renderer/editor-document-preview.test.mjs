@@ -267,13 +267,14 @@ test('a page result of another revision replaces the preview instead of mixing w
   }
 });
 
-test('an edited document refreshes after the change is seen twice, keeping the viewer mounted', async (t) => {
+test('an edited document refreshes on its first change event, keeping the viewer mounted', async (t) => {
   surface(t, true);
   // The core's file watch pushes `fs/changed` for the editor's own watch id; there is no stat poll.
   const watches = [];
   const listeners = new Set();
   let disk = { mtimeMs: 1, size: 10 };
   const requests = [];
+  let pageGate = Promise.resolve();
   const api = {
     sections: {
       call: async (method, params) => void watches.push([method, params]),
@@ -285,7 +286,9 @@ test('an edited document refreshes after the change is seen twice, keeping the v
     statProjectFile: async () => ({ ...disk }),
     previewDocumentPages: async (_p, _r, _a, options) => {
       requests.push([...options.pages]);
-      return revisionOf(disk.mtimeMs, disk.size)(options);
+      const served = revisionOf(disk.mtimeMs, disk.size)(options);
+      await pageGate;
+      return served;
     },
   };
   const { root, session } = await mountSession(api, 'docs/report.docx');
@@ -301,13 +304,25 @@ test('an edited document refreshes after the change is seen twice, keeping the v
     assert.deepEqual(requests, [[1]], 'an unchanged file costs no page request');
     disk = { mtimeMs: 2, size: 12 };
     await poll();
-    assert.deepEqual(requests, [[1]], 'the first sighting only waits (the file may still be written)');
-    await poll();
-    assert.deepEqual(requests, [[1], [1]]);
+    assert.deepEqual(requests, [[1], [1]], 'one write sends one event, and it refreshes the preview');
     assert.equal(session.current.documentPreview.mtimeMs, 2);
     assert.equal(session.current.documentPreview.size, 12);
     await poll();
     assert.equal(requests.length, 2, 'settled: no further requests');
+    // A change seen while a page batch is loading is loaded when the batch ends.
+    let openGate;
+    pageGate = new Promise((resolve) => (openGate = resolve));
+    await act(async () => session.current.loadDocumentPages([2]));
+    disk = { mtimeMs: 3, size: 14 };
+    await poll();
+    assert.deepEqual(requests.slice(2), [[2]], 'one batch at a time');
+    pageGate = Promise.resolve();
+    await act(async () => {
+      openGate();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(requests.slice(2), [[2], [1]]);
+    assert.equal(session.current.documentPreview.mtimeMs, 3);
   } finally {
     await act(async () => root.unmount());
   }

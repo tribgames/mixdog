@@ -68,12 +68,16 @@ function useBodyFade(
   fadeFrom: number
 ) {
   // Once the last fade it shows ended the body renders again, unwrapped: no
-  // wrapper outlives its fade.
-  const [faded, fadeEnded] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `faded` marks the render after a fade ended.
+  // wrapper outlives its fade. That render reads the fade as ended even when
+  // its timer ran early (setTimeout drops the fraction of its delay, and
+  // Chromium may run a long timer early): nothing else renders it again.
+  const [endedAt, fadeEnded] = useState(0);
   const fresh = useMemo(
-    () => (fadeTimeline ? applyStreamFade(body, fadeOffset, fadeTimeline, performance.now(), fadeEnd, fadeFrom) : null),
-    [body, fadeTimeline, fadeOffset, fadeEnd, fadeFrom, faded]
+    () =>
+      fadeTimeline
+        ? applyStreamFade(body, fadeOffset, fadeTimeline, Math.max(performance.now(), endedAt), fadeEnd, fadeFrom)
+        : null,
+    [body, fadeTimeline, fadeOffset, fadeEnd, fadeFrom, endedAt]
   );
   const until = fresh?.until ?? 0;
   // What this tree brings on screen starts fading as it commits; the row
@@ -91,7 +95,7 @@ function useBodyFade(
   }, [fadeTimeline, until]);
   useEffect(() => {
     if (!until) return;
-    const timer = setTimeout(() => fadeEnded((count) => count + 1), Math.max(0, until - performance.now()));
+    const timer = setTimeout(() => fadeEnded(until), Math.max(0, until - performance.now()));
     return () => clearTimeout(timer);
   }, [until]);
   return fresh && fresh.until > 0 ? fresh : null;

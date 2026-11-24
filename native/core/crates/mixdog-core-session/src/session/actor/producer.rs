@@ -216,7 +216,7 @@ impl SessionActor {
                     drop(ack.send(Ok(())));
                     return;
                 }
-                let record = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset, patch: Default::default() }) });
+                let record = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset, ..Default::default() }) });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
             ProducerMsg::Compacted { turn, compaction, header, ack } => {
@@ -275,8 +275,7 @@ impl SessionActor {
                     folds.then(|| -> super::super::run::DeferredHeader {
                         Box::new(|_| HeaderChange {
                             set: [("compactionFoldPending".to_owned(), Value::Bool(true))].into_iter().collect(),
-                            unset: Vec::new(),
-                            patch: Default::default(),
+                            ..Default::default()
                         })
                     })
                 });
@@ -380,6 +379,21 @@ impl SessionActor {
             return;
         }
         let max_priority = request.max_priority;
+        // The Goal reads come before anything is taken: a drain that waits for them has claimed, raised and dequeued nothing, and
+        // decides what it takes when it comes back. Only a terminal boundary takes a Goal entry (one is no notification, so the
+        // rest it sits in never holds only notifications), and no steered or host prompt is one.
+        if request.stage == DrainStage::Terminal && !self.route_held() {
+            let unchecked: Vec<(String, Value)> = self
+                .durable_rest(&self.drain_rest(&[], max_priority))
+                .into_iter()
+                .filter(|(qid, entry)| super::super::goal_lane::is_goal_entry(entry) && !checked.contains_key(qid.as_str()))
+                .map(|(qid, entry)| (qid.as_str().to_owned(), entry))
+                .collect();
+            if !unchecked.is_empty() {
+                self.check_steer_goals(turn, request, reply, checked, unchecked);
+                return;
+            }
+        }
         let mut taken: Vec<QueuedId> = Vec::new();
         let mut dropped: Vec<QueuedId> = Vec::new();
         let mut out: Vec<SteerInput> = Vec::new();
@@ -440,39 +454,11 @@ impl SessionActor {
         self.sync_turn_chain();
         // `if (turn.session?.heldRoute) return out;` (`ask-turn-steering-drain.mjs:48`).
         if !self.route_held() {
-            // The rest of the queue: not steered, not claimed by a wake, within the
-            // drain's priority (entries beyond it wait for the turn to end).
-            let rest: Vec<&super::super::state::Queued> = self
-                .projected
-                .queue
-                .iter()
-                .filter(|q| {
-                    !taken.iter().any(|t| t.as_str() == q.qid)
-                        && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
-                        && within_priority(&q.entry, max_priority)
-                        && !self.queued_stopped(q)
-                        && !pending::is_slash_entry(&q.entry)
-                })
-                .collect();
-            let mut rest = rest;
-            rest.sort_by_key(|q| priority_rank(&q.entry));
+            let rest = self.drain_rest(&taken, max_priority);
             // `stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)`.
             let only_notifications = !rest.is_empty() && rest.iter().all(|q| completions::is_notification(&q.entry));
             if request.stage == DrainStage::Terminal || only_notifications {
-                // Durable entries only: memory never runs ahead of disk.
-                let durable: Vec<(QueuedId, Value)> = rest
-                    .iter()
-                    .filter_map(|q| self.acked.queue.iter().find(|a| a.qid == q.qid).map(|a| (QueuedId::from(a.qid.as_str()), a.entry.clone())))
-                    .collect();
-                let unchecked: Vec<(String, Value)> = durable
-                    .iter()
-                    .filter(|(qid, entry)| super::super::goal_lane::is_goal_entry(entry) && !checked.contains_key(qid.as_str()))
-                    .map(|(qid, entry)| (qid.as_str().to_owned(), entry.clone()))
-                    .collect();
-                if !unchecked.is_empty() {
-                    self.check_steer_goals(turn, request, reply, checked, unchecked);
-                    return;
-                }
+                let durable = self.durable_rest(&rest);
                 // A Goal entry its Goal no longer wants is dequeued and never delivered.
                 let (deliver, gone): (Vec<_>, Vec<_>) =
                     durable.into_iter().partition(|(qid, entry)| !super::super::goal_lane::is_goal_entry(entry) || checked.get(qid.as_str()) == Some(&true));
@@ -563,5 +549,29 @@ impl SessionActor {
             .then_some(None);
         self.deps.wakes.boundary(&self.id, user_pending, notice_pending);
         let _ = reply.send(out);
+    }
+
+    /// The queue a drain leaves past what it took (`taken`): not steered, not claimed by a wake, within the drain's priority
+    /// (entries beyond it wait for the turn to end), most urgent first.
+    fn drain_rest(&self, taken: &[QueuedId], max_priority: Priority) -> Vec<&super::super::state::Queued> {
+        let mut rest: Vec<&super::super::state::Queued> = self
+            .projected
+            .queue
+            .iter()
+            .filter(|q| {
+                !taken.iter().any(|t| t.as_str() == q.qid)
+                    && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
+                    && within_priority(&q.entry, max_priority)
+                    && !self.queued_stopped(q)
+                    && !pending::is_slash_entry(&q.entry)
+            })
+            .collect();
+        rest.sort_by_key(|q| priority_rank(&q.entry));
+        rest
+    }
+
+    /// The durable entries of `rest`, as the acknowledged queue holds them: memory never runs ahead of disk.
+    fn durable_rest(&self, rest: &[&super::super::state::Queued]) -> Vec<(QueuedId, Value)> {
+        rest.iter().filter_map(|q| self.acked.queue.iter().find(|a| a.qid == q.qid).map(|a| (QueuedId::from(a.qid.as_str()), a.entry.clone()))).collect()
     }
 }

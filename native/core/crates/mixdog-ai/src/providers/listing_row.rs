@@ -53,21 +53,11 @@ pub(crate) mod testing {
     use async_trait::async_trait;
     use bytes::Bytes;
     use mixdog_core_api::domain::provider::ProviderError;
-    use mixdog_core_api::domain::provider::TransportFault;
     use mixdog_core_api::domain::provider::WireRequest;
 
-    use crate::transport::http::BodyStream;
     use crate::transport::http::HttpResponse;
     use crate::transport::http::HttpSend;
-
-    struct Once(Option<Bytes>);
-
-    #[async_trait]
-    impl BodyStream for Once {
-        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-            self.0.take().map(Ok)
-        }
-    }
+    use crate::transport::testing::Once;
 
     pub(crate) struct Replay {
         pub requests: Mutex<Vec<WireRequest>>,

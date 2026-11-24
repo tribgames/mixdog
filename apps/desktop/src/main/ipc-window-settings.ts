@@ -6,6 +6,7 @@ import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
 import { requiredString, requiredZoomFactor } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
+import { joinEditorBackupFlush } from './editor-backup-flush';
 
 interface WindowSettingsIpcOptions {
   window: BrowserWindow;
@@ -24,7 +25,7 @@ export function registerWindowSettingsIpc({
   invokeDesktopOperation,
   settingsStore,
   previewNotificationSound,
-}: WindowSettingsIpcOptions): void {
+}: WindowSettingsIpcOptions): () => void {
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
     setDesktopTitleBarZoom(window, factor);
@@ -78,4 +79,6 @@ export function registerWindowSettingsIpc({
   handle(DESKTOP_IPC.quit, () => {
     app.quit();
   });
+  // This window runs the desktop preload, which answers a quit's backup flush.
+  return joinEditorBackupFlush(window);
 }

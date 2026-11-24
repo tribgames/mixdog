@@ -292,7 +292,14 @@ function heldBackupHarness(api, { active = false } = {}) {
   let text = 'saved';
   const model = { getValue: () => text, setValue: (value) => (text = value) };
   const dirty = [];
-  const state = { session: null, dirty, setText: (value) => (text = value) };
+  let loaded = () => {};
+  const state = {
+    session: null,
+    dirty,
+    setText: (value) => (text = value),
+    // The first dirty report is the load's.
+    loaded: new Promise((resolve) => (loaded = resolve)),
+  };
   window.mixdogDesktop = {
     readProjectFile: async () => ({ content: 'saved', mtimeMs: 1, binary: false, tooLarge: false }),
     writeProjectFile: async () => ({ mtimeMs: 2 }),
@@ -311,7 +318,10 @@ function heldBackupHarness(api, { active = false } = {}) {
       active,
       editorSettings: { formatOnSave: false },
       notifyReady() {},
-      onDirty: (value) => dirty.push(value),
+      onDirty: (value) => {
+        dirty.push(value);
+        loaded();
+      },
       onSaveHandle: (handle) => {
         if (handle) state.handle = handle;
       },
@@ -501,6 +511,330 @@ test('reverting while an edit is held keeps the held backup', async () => {
     assert.equal(state.dirty.at(-1), true);
     assert.ok(!log.includes('delete'), `the held backup is never deleted: ${log.join(', ')}`);
     assert.equal(log.at(-1), 'write:held');
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
+
+test('an edit typed just before the page is hidden is backed up without waiting for the debounce', async () => {
+  const log = [];
+  let deleted = () => {};
+  const deletion = new Promise((resolve) => (deleted = resolve));
+  const { state, Harness } = heldBackupHarness({
+    writeEditorBackup: async (...args) => log.push(`write:${args[2]}`),
+    deleteEditorBackup: async () => {
+      log.push('delete');
+      deleted();
+    },
+  });
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(() => state.loaded);
+    state.setText('typed before quit');
+    await act(async () => state.session.onEditorChange('typed before quit'));
+    await act(async () => window.dispatchEvent(new window.Event('pagehide')));
+    // Discarding cancels a write still waiting for the debounce and queues
+    // behind one already started: the order shows which the hide did.
+    await act(async () => {
+      state.session.discardPendingBackup();
+      await deletion;
+    });
+    assert.deepEqual(log, ['write:typed before quit', 'delete']);
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
+
+test("a quit's flush settles when the window's core link is not open instead of waiting on the write", async () => {
+  const { watchLocalCoreLink } = await import('./local-core-link.ts');
+  const { flushEditorBackups } = await import('./use-editor-backup.ts');
+  // The store follows a window with a port bridge; the first use creates it.
+  window.mixdogCorePort = {};
+  const linkListeners = new Set();
+  const connection = { status: 'ready', onState: (listener) => linkListeners.add(listener) };
+  watchLocalCoreLink(connection);
+  let writeStarted = () => {};
+  const started = new Promise((resolve) => (writeStarted = resolve));
+  const { state, Harness } = heldBackupHarness({
+    // A server that died: the write never comes back.
+    writeEditorBackup: () => {
+      writeStarted();
+      return new Promise(() => {});
+    },
+    deleteEditorBackup: async () => undefined,
+  });
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(() => state.loaded);
+    state.setText('typed');
+    await act(async () => state.session.onEditorChange('typed'));
+    const flushed = flushEditorBackups();
+    await act(() => started);
+    connection.status = 'reconnecting';
+    for (const listener of linkListeners) listener();
+    await flushed;
+  } finally {
+    connection.status = 'ready';
+    for (const listener of linkListeners) listener();
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+    delete window.mixdogCorePort;
+  }
+});
+
+test('keeping the edits of a file deleted on disk saves them to its path again', async () => {
+  let gone = false;
+  const created = [];
+  const writes = [];
+  const { state, Harness } = heldBackupHarness({
+    readProjectFile: async () => {
+      if (gone) throw new Error("ENOENT: no such file or directory, open 'C:\\Project\\demo\\held.md'");
+      return { content: 'saved', mtimeMs: 1, binary: false, tooLarge: false };
+    },
+    createProjectEntry: async (...args) => void created.push(args),
+    statProjectFile: async () => ({ mtimeMs: 6, size: 0 }),
+    writeProjectFile: async (...args) => {
+      writes.push(args.slice(1, 4));
+      return { mtimeMs: 7 };
+    },
+    writeEditorBackup: async () => undefined,
+    deleteEditorBackup: async () => undefined,
+  });
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(() => state.loaded);
+    state.setText('edited');
+    await act(async () => state.session.onEditorChange('edited'));
+    gone = true;
+    await act(async () => state.session.keepEdits());
+    assert.deepEqual(created, [['C:/Project/demo', '', 'held.md', false]]);
+    assert.deepEqual(writes, [['held.md', 'edited', '']]);
+    assert.equal(state.session.diskChanged, false);
+    assert.equal(state.session.saveError, '');
+    assert.equal(state.dirty.at(-1), false);
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
+
+/** A buffer of `held.md`, loaded as 'saved', whose file is deleted when `state.gone` is set. */
+function goneFileHarness(log) {
+  const gone = { value: false };
+  const harness = heldBackupHarness({
+    readProjectFile: async () => {
+      if (gone.value) throw new Error("ENOENT: no such file or directory, open 'C:\\Project\\demo\\held.md'");
+      return { content: 'saved', mtimeMs: 1, binary: false, tooLarge: false };
+    },
+    createProjectEntry: async () => void log.push('create'),
+    statProjectFile: async () => {
+      log.push('stat');
+      return { mtimeMs: 9, size: 0 };
+    },
+    writeProjectFile: async (_project, _rel, content) => {
+      log.push(`write:${content}`);
+      return { mtimeMs: 9 };
+    },
+    writeEditorBackup: async (_project, _rel, content) => void log.push(`backup:${content}`),
+    deleteEditorBackup: async () => void log.push('delete-backup'),
+  });
+  return { ...harness, gone };
+}
+
+test('a deleted file is not recreated while its save cannot happen, and its saved state stays', async () => {
+  const log = [];
+  const { state, Harness, gone } = goneFileHarness(log);
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(() => state.loaded);
+    state.setText('edited');
+    await act(async () => state.session.onEditorChange('edited'));
+    await act(async () => state.session.setRichHeld(true, () => 'edited and held'));
+    gone.value = true;
+    log.length = 0;
+    await act(() => state.session.keepEdits());
+    assert.ok(!log.includes('create'), `nothing is created: ${log.join(', ')}`);
+    assert.equal(state.session.savedText.current, 'saved');
+    assert.equal(state.session.diskChanged, true);
+    assert.match(state.session.saveError, /Rich/);
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
+
+test('an emptied buffer of a deleted file is saved by creating the file, settled as after any save', async () => {
+  const log = [];
+  const { state, Harness, gone } = goneFileHarness(log);
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(() => state.loaded);
+    state.setText('');
+    await act(async () => state.session.onEditorChange(''));
+    gone.value = true;
+    log.length = 0;
+    await act(() => state.session.keepEdits());
+    assert.deepEqual(log, ['create', 'stat', 'delete-backup'], 'no write after the create; the backup goes');
+    assert.equal(state.session.savedText.current, '');
+    assert.equal(state.session.diskChanged, false);
+    assert.equal(state.session.saveError, '');
+    assert.equal(state.dirty.at(-1), false);
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
+
+function diskWatchHarness(api, { active = true } = {}) {
+  let text = 'v1';
+  let replaced = () => {};
+  const model = {
+    getValue: () => text,
+    setValue: (value) => {
+      text = value;
+      replaced();
+    },
+  };
+  const watches = [];
+  const listeners = new Set();
+  let loaded = () => {};
+  const state = {
+    session: null,
+    setActive: null,
+    text: () => text,
+    type: (value) => (text = value),
+    // The first dirty report is the load's.
+    loaded: new Promise((resolve) => (loaded = resolve)),
+    /** Settles when a reload next replaces the model text. */
+    nextReplace: () => new Promise((resolve) => (replaced = resolve)),
+    // One pushed `fs/changed` for the live watch.
+    changed: () =>
+      act(async () => {
+        const watchId = watches.filter(([method]) => method === 'fs/watch').at(-1)?.[1].watchId;
+        for (const listener of [...listeners]) listener({ watchId, changedPaths: [] });
+      }),
+  };
+  window.mixdogDesktop = {
+    sections: {
+      call: async (method, params) => void watches.push([method, params]),
+      subscribeFsChanged: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+    },
+    writeEditorBackup: async () => undefined,
+    deleteEditorBackup: async () => undefined,
+    ...api,
+  };
+  function Harness() {
+    const [isActive, setActive] = React.useState(active);
+    state.setActive = setActive;
+    const editorRef = useRef(null);
+    const modelRef = useRef(model);
+    const syncLspRef = useRef(async () => true);
+    state.session = useEditorFileSession({
+      editorRef,
+      modelRef,
+      syncLspRef,
+      projectPath: 'C:/Project/demo',
+      relPath: 'watched.md',
+      active: isActive,
+      editorSettings: { formatOnSave: false },
+      notifyReady() {},
+      onDirty: () => loaded(),
+    });
+    return null;
+  }
+  return { state, Harness };
+}
+
+const textFile = (content, mtimeMs) => ({ content, mtimeMs, binary: false, tooLarge: false, encoding: 'utf8' });
+
+test('a reload from disk neither lets an older read win nor overwrites an edit typed while it reads', async () => {
+  const reads = [];
+  let mtime = 1;
+  let readStarted = () => {};
+  let statted = () => {};
+  const nextRead = () => new Promise((resolve) => (readStarted = resolve));
+  const nextStat = () => new Promise((resolve) => (statted = resolve));
+  const { state, Harness } = diskWatchHarness({
+    readProjectFile: () =>
+      new Promise((resolve) => {
+        reads.push(resolve);
+        readStarted();
+      }),
+    statProjectFile: async () => {
+      const info = { mtimeMs: mtime };
+      statted();
+      return info;
+    },
+  });
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    // The watch that starts with the load checks the file once.
+    let checked = nextStat();
+    await act(async () => reads.shift()(textFile('v1', 1)));
+    await act(() => Promise.all([state.loaded, checked]));
+    // Two quick writes: two reloads in flight, and the newer read answers first.
+    for (const written of [2, 3]) {
+      mtime = written;
+      const started = nextRead();
+      await state.changed();
+      await act(() => started);
+    }
+    assert.equal(reads.length, 2);
+    const [older, newer] = reads.splice(0);
+    const replaced = state.nextReplace();
+    checked = nextStat();
+    await act(async () => newer(textFile('v3', 3)));
+    await act(() => Promise.all([replaced, checked]));
+    await act(async () => older(textFile('v2', 2)));
+    assert.equal(state.text(), 'v3');
+    // Another write, and the user types while its read is in flight.
+    mtime = 4;
+    const started = nextRead();
+    await state.changed();
+    await act(() => started);
+    assert.equal(reads.length, 1);
+    state.type('v3 typed');
+    await act(async () => state.session.onEditorChange('v3 typed'));
+    await act(async () => reads.shift()(textFile('v4', 4)));
+    assert.equal(state.text(), 'v3 typed');
+    assert.equal(state.session.dirty, true);
+    assert.equal(state.session.diskChanged, true);
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
+
+test('a tab made active again reloads a change made on disk while it was inactive', async () => {
+  let disk = textFile('v1', 1);
+  const { state, Harness } = diskWatchHarness(
+    {
+      readProjectFile: async () => disk,
+      statProjectFile: async () => ({ mtimeMs: disk.mtimeMs }),
+    },
+    { active: false }
+  );
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(() => state.loaded);
+    disk = textFile('v2', 2);
+    const replaced = state.nextReplace();
+    await act(async () => state.setActive(true));
+    await act(() => replaced);
+    assert.equal(state.text(), 'v2');
+    assert.equal(state.session.dirty, false);
   } finally {
     await act(async () => root.unmount());
     delete window.mixdogDesktop;

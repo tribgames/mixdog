@@ -137,7 +137,9 @@ async function swap(t, draft, attachments, cards) {
   const { pending, content, options } = await sendThroughComposer(draft, attachments);
   const stored = rowOf(storedItem(options.id, content));
   assert.equal(stored.id, pending.id, 'the stored row stands under the submission id');
-  const pictures = content.filter((part) => part.type === 'image').map((part) => `data:${part.mimeType};base64,${part.data}`);
+  const pictures = content
+    .filter((part) => part.type === 'image')
+    .map((part) => `data:${part.mimeType};base64,${part.data}`);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -145,7 +147,11 @@ async function swap(t, draft, attachments, cards) {
   const render = (item) =>
     act(async () =>
       root.render(
-        React.createElement(MarkdownSessionContext.Provider, { value: 's1' }, React.createElement(TranscriptRow, { item }))
+        React.createElement(
+          MarkdownSessionContext.Provider,
+          { value: 's1' },
+          React.createElement(TranscriptRow, { item })
+        )
       )
     );
   const thumbnails = () => [...host.querySelectorAll('.message-attachments img')];
@@ -180,33 +186,53 @@ for (const count of [1, 3]) {
 }
 
 test('images whose chips are not in id order keep their cards in the order they were sent', async (t) => {
-  await swap(t, 'what is this?', [image(3), image(1), image(2)], [
-    ['shot-3.png', 0],
-    ['shot-1.png', 1],
-    ['shot-2.png', 2],
-  ]);
+  await swap(
+    t,
+    'what is this?',
+    [image(3), image(1), image(2)],
+    [
+      ['shot-3.png', 0],
+      ['shot-1.png', 1],
+      ['shot-2.png', 2],
+    ]
+  );
 });
 
 test('images with and without a metadata line each keep their own picture', async (t) => {
-  await swap(t, 'what is this?', [image(1), image(2, false), image(3), image(4, false)], [
-    ['shot-1.png', 0],
-    ['[Image: image/png]', 1],
-    ['shot-3.png', 2],
-    ['[Image: image/png]', 3],
-  ]);
+  await swap(
+    t,
+    'what is this?',
+    [image(1), image(2, false), image(3), image(4, false)],
+    [
+      ['shot-1.png', 0],
+      ['[Image: image/png]', 1],
+      ['shot-3.png', 2],
+      ['[Image: image/png]', 3],
+    ]
+  );
 });
 
 test('an [Image: …] line the user typed takes no picture; each sent image keeps its own', async (t) => {
-  await swap(t, 'see\n[Image: source: notes.png, 5x5]\nwhat is this?', [image(1), image(2)], [
-    ['notes.png', null],
-    ['shot-1.png', 0],
-    ['shot-2.png', 1],
-  ]);
+  await swap(
+    t,
+    'see\n[Image: source: notes.png, 5x5]\nwhat is this?',
+    [image(1), image(2)],
+    [
+      ['notes.png', null],
+      ['shot-1.png', 0],
+      ['shot-2.png', 1],
+    ]
+  );
 });
 
 test('a typed line that ends the text draws the image sent without one, as the core takes it', async (t) => {
-  await swap(t, 'what is this?\n[Image: source: typed.png, 5x5]', [image(1, false), image(2)], [
-    ['typed.png', 0],
-    ['shot-2.png', 1],
-  ]);
+  await swap(
+    t,
+    'what is this?\n[Image: source: typed.png, 5x5]',
+    [image(1, false), image(2)],
+    [
+      ['typed.png', 0],
+      ['shot-2.png', 1],
+    ]
+  );
 });

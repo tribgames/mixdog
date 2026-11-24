@@ -417,6 +417,7 @@ impl DeleteSeams for SessionDeletion {
         let cancel =
             CancelAll { reason: reason.to_owned(), execution_session_id: Some(session_id.to_owned()), notice: CancelNotice::Never, ..CancelAll::default() };
         self.board.cancel_all(&cancel);
+        self.board.forget_session(session_id);
         self.gateway_routes.clear(session_id).await;
     }
 

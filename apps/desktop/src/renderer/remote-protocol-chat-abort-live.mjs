@@ -33,7 +33,7 @@ const REPO_ROOT = new URL('../../../../', import.meta.url);
  * read): a binary older than any of them, or one built from another checkout, is not the code under test and is refused.
  */
 export function builtFrom(bin) {
-  const depInfo = bin.replace(/\.exe$/i, '') + '.d';
+  const depInfo = `${bin.replace(/\.exe$/i, '')}.d`;
   if (!existsSync(depInfo))
     throw new Error(
       `${bin} has no dep-info ${depInfo}: build it with cargo (cargo-gate build -p mixdog-app-server-daemon --bin mixdogd)`

@@ -382,13 +382,15 @@ test('an MCP row names its tool in words', () => {
   assert.equal(row.subject, 'Search emails · from:boss');
 });
 
+const spoken = (name, args) => {
+  const presentation = present({ id: name, name, args, result: '{"ok":true}' });
+  return [presentation.verb, presentation.subject].filter(Boolean).join(' ');
+};
+
 test(
   'a row never says its action twice',
   inLanguage('ko', () => {
-    const row = (name, args) => {
-      const presentation = present({ id: name, name, args, result: '{"ok":true}' });
-      return [presentation.verb, presentation.subject].filter(Boolean).join(' ');
-    };
+    const row = spoken;
     assert.equal(row('ask_user', { questions: [{ header: '범위', question: 'Scope?' }] }), '질문 범위');
     assert.equal(row('agent', { type: 'list' }), '에이전트 목록');
     assert.equal(row('session', { action: 'status' }), '세션 상태');
@@ -406,12 +408,8 @@ test(
 );
 
 test('a row never says its action twice in English either', () => {
-  const row = (name, args) => {
-    const presentation = present({ id: name, name, args, result: '{"ok":true}' });
-    return [presentation.verb, presentation.subject].filter(Boolean).join(' ');
-  };
-  assert.equal(row('tidy', { action: 'scan', paths: ['.'] }), 'Tidy scan .');
-  assert.equal(row('todo', { op: 'view' }), 'Plan view');
+  assert.equal(spoken('tidy', { action: 'scan', paths: ['.'] }), 'Tidy scan .');
+  assert.equal(spoken('todo', { op: 'view' }), 'Plan view');
 });
 
 test(
@@ -428,7 +426,8 @@ test(
 );
 
 test('a lookup row counts a file whose name opens like an empty-result message', () => {
-  const glob = (result) => toolActivityOutcomeText(present({ id: 'g', name: 'glob', args: { pattern: '*.md' }, result }));
+  const glob = (result) =>
+    toolActivityOutcomeText(present({ id: 'g', name: 'glob', args: { pattern: '*.md' }, result }));
   assert.equal(glob('No files.md'), '1 file');
   assert.equal(glob('(no files found) pattern="*.md" path=.; .: path exists (dir)'), '0 files');
 });
@@ -440,7 +439,10 @@ test(
     assert.equal(row('recall', { query: ['a', 'b'], limit: 8 }).subject, '검색어 2개');
     assert.equal(row('load_tool', { names: 'github' }, 'Already active: github').subject, 'github');
     assert.equal(row('media', { action: 'list', kind: 'video' }).subject, '영상');
-    assert.equal(row('task', { action: 'wait', task_id: 'task-toolu_01GhcuCTMDNAR4Dy3qeW1Sk2' }).subject, '대기 · eW1Sk2');
+    assert.equal(
+      row('task', { action: 'wait', task_id: 'task-toolu_01GhcuCTMDNAR4Dy3qeW1Sk2' }).subject,
+      '대기 · eW1Sk2'
+    );
   })
 );
 

@@ -136,6 +136,34 @@ test('late save outcomes preserve a newer same-name row and report rejection out
   await act(async () => refresh.resolve({ value: { schedules: [newer, unrelated] } }));
 });
 
+test('a refused Enabled switch in the editor flips back, so Save keeps the stored value', async (t) => {
+  const stored = { name: 'daily-report', whenCron: '0 9 * * *', instructions: 'Report', owner: 'lead', enabled: true };
+  const toggles = [];
+  const saves = [];
+  const { document, submit } = await mountSchedules(t, ({ capability, args }) => {
+    if (capability === 'getChannelSetup') return { value: { schedules: [stored] } };
+    if (capability === 'setScheduleEnabled') {
+      toggles.push(args);
+      throw new Error('toggle refused');
+    }
+    if (capability === 'saveSchedule') {
+      saves.push(args[0]);
+      return { value: args[0] };
+    }
+    return { value: null };
+  });
+  await act(async () => document.querySelector('.routines-open').click());
+  const enabled = document.querySelector('.schedules-editor-dialog [aria-label="Enabled"]');
+  await act(async () => enabled.click());
+  assert.deepEqual(toggles, [['daily-report', false]]);
+  assert.equal(enabled.checked, true);
+  await act(async () => submit());
+  assert.deepEqual(
+    saves.map((entry) => entry.enabled),
+    [true]
+  );
+});
+
 test('a delayed create receipt cannot resurrect a schedule after a published deletion', async (t) => {
   const empty = { schedules: [] };
   const saved = { name: 'daily-report', whenCron: '0 9 * * *', instructions: 'Summarize the report', owner: 'lead' };

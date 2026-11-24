@@ -90,7 +90,8 @@ pub(crate) fn provider_kind(provider: Option<&Value>) -> &'static str {
     let name = if truthy(provider) { mixdog_js::js_to_lowercase(&value_to_string(provider.unwrap_or(&Value::Null))) } else { String::new() };
     if name.is_empty() {
         "unknown"
-    } else if name.contains("oauth") {
+    } else if name.contains("oauth") || name.starts_with("acp-") {
+        // An agent route runs on the account its CLI is signed in with.
         "oauth"
     } else if name == "mixdog-local" {
         "local"
@@ -423,6 +424,13 @@ mod tests {
         let many: serde_json::Map<String, serde_json::Value> = (0..10).map(|i| (format!("k{i}"), json!("v"))).collect();
         let kept = strategy_of(json!({ "cacheStrategy": many }));
         assert_eq!(kept.as_object().unwrap().len(), 8);
+    }
+
+    #[test]
+    fn an_agent_route_is_a_subscription_as_an_oauth_provider_is() {
+        let kind = |provider: &str| super::provider_kind(Some(&json!(provider)));
+        assert_eq!([kind("acp-antigravity"), kind("antigravity-oauth")], ["oauth", "oauth"]);
+        assert_eq!([kind("openai"), kind("mixdog-local"), kind("")], ["api", "local", "unknown"]);
     }
 
     #[test]

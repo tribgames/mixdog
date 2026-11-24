@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import type { Json } from '../src/api.ts';
 import type { Obj } from '../src/obj.ts';
 import { desktopSessionState, sessionReducer, type SessionFold } from '../src/session-state.ts';
+import { end, pos } from './positioned-fixtures.ts';
 
 v8.setFlagsFromString('--expose-gc');
 const collect = vm.runInNewContext('gc') as () => void;
@@ -22,10 +23,8 @@ const heldBytes = async (): Promise<number> => {
 
 const TOOLS = 40;
 const TEXT_BYTES = 256 * 1024;
-const pos = (id: string) => `h1:0:${id}`;
-const end = { kind: 'end' };
 /** As a frame arrives: parsed, every string its own. */
-const frame = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const frame = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const output = (index: number): string => `${String(index).padStart(8, '0')}:`.repeat(TEXT_BYTES / 9);
 const tool = (index: number, stored: boolean): Obj => ({
   type: 'toolCall',
@@ -62,7 +61,7 @@ test('a tool output shown and then stored as its record is held once, beside the
     fold = at(fold, 'item/completed', { item: tool(index, false) });
     read = shown(fold);
   }
-  const once = await heldBytes() - before;
+  const once = (await heldBytes()) - before;
   assert.ok(once > TOOLS * TEXT_BYTES * 0.9, `the outputs are held: ${once} bytes`);
 
   // Each record is stored: the core tells the output again, in a frame of its own.
@@ -76,10 +75,13 @@ test('a tool output shown and then stored as its record is held once, beside the
   }
   assert.equal(fold.loose?.length ?? 0, 0, 'every row shown gave way to its record');
   const stored = shown(fold);
-  const both = await heldBytes() - before;
+  const both = (await heldBytes()) - before;
   // The reader's rows (`read`) and the fold's are both alive here.
   assert.ok(read.length > 0 && stored.length > 0);
-  assert.ok(both < once * 1.3, `the stored records brought no second copy of the outputs: ${once} bytes shown, ${both} with the records stored`);
+  assert.ok(
+    both < once * 1.3,
+    `the stored records brought no second copy of the outputs: ${once} bytes shown, ${both} with the records stored`
+  );
 
   // A window that reads the records again tells them once more.
   fold = at(fold, 'thread/window/changed', {
@@ -102,7 +104,10 @@ test('a tool output shown and then stored as its record is held once, beside the
     followTail: true,
   });
   const again = shown(fold);
-  const reread = await heldBytes() - before;
+  const reread = (await heldBytes()) - before;
   assert.ok(read.length > 0 && stored.length > 0 && again.length > 0);
-  assert.ok(reread < once * 1.3, `records read again brought no further copy: ${once} bytes shown, ${reread} after the window read them again`);
+  assert.ok(
+    reread < once * 1.3,
+    `records read again brought no further copy: ${once} bytes shown, ${reread} after the window read them again`
+  );
 });

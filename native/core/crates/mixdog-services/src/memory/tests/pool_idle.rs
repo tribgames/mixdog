@@ -14,11 +14,9 @@ async fn connections_nobody_used_are_closed_with_their_backends_and_the_next_que
     assert!(held.iter().all(Result::is_ok));
     drop(held);
     assert_eq!(db.open_connections(), 3);
-    let warm = Instant::now();
     db.query("SELECT 1", &[]).await.expect("a query on a held connection");
-    let warm = warm.elapsed();
     // Queries one after another use one connection: the other two are left alone and reach the limit.
-    std::thread::sleep(Duration::from_millis(300));
+    mixdog_rt::time::sleep(Duration::from_millis(300)).await;
     for _ in 0..4 {
         db.query("SELECT 1", &[]).await.expect("a repeated query");
     }
@@ -31,10 +29,7 @@ async fn connections_nobody_used_are_closed_with_their_backends_and_the_next_que
     assert_eq!(db.close_idle(Duration::ZERO), 3);
     assert_eq!(db.open_connections(), 0);
 
-    let cold = Instant::now();
     db.query("SELECT 1", &[]).await.expect("the next query opens a connection");
-    let cold = cold.elapsed();
-    println!("first query after idle: {cold:?} (on a held connection: {warm:?})");
     assert_eq!(db.open_connections(), 1);
     // The closed connections' backends exit by themselves: only this pool's one connection is left in the database.
     let deadline = Instant::now() + Duration::from_secs(10);

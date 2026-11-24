@@ -1240,7 +1240,7 @@ fn history_row(instance: &Instance, events: &[Event]) -> Value {
     out.insert("startMs".into(), js_number(instance.start_ms));
     out.insert("endMs".into(), js_number(instance.end_ms));
     out.insert("resetAt".into(), instance.reset_at.map_or(Value::Null, js_number));
-    out.insert("peak".into(), js_number(round_to(instance.peak, 1)));
+    out.insert("peak".into(), js_number(instance.peak));
     out.insert("peakAt".into(), js_number(instance.peak_at));
     out.insert("exhaustedAt".into(), instance.exhausted_at.map_or(Value::Null, js_number));
     out.insert("current".into(), instance.current.into());
@@ -1303,8 +1303,8 @@ fn slot_value(slot: &Slot, points: &[Point], last_point: f64, shown: &[&Instance
     o.insert("fromMs".into(), js_number(slot.from_ms));
     o.insert("toMs".into(), js_number(slot.to_ms));
     o.insert("future".into(), slot.future.into());
-    o.insert("startPct".into(), js_number(round_to(value_at(points, slot.from_ms), 1)));
-    o.insert("endPct".into(), js_number(round_to(value_at(points, min(slot.to_ms, last_point)), 1)));
+    o.insert("startPct".into(), js_number(value_at(points, slot.from_ms)));
+    o.insert("endPct".into(), js_number(value_at(points, min(slot.to_ms, last_point))));
     o.insert("consumed".into(), js_number(round_to(slot.usage.consumed + slot.outside, 2)));
     o.insert("outside".into(), js_number(round_to(slot.outside, 2)));
     o.insert("tokens".into(), js_number(slot.usage.tokens()));
@@ -1508,7 +1508,7 @@ fn peak_values(peaks: &[&Instance]) -> Vec<Value> {
         .map(|i| {
             let mut o = Map::new();
             o.insert("key".into(), i.key.clone().into());
-            o.insert("peak".into(), js_number(round_to(i.peak, 1)));
+            o.insert("peak".into(), js_number(i.peak));
             o.insert("peakAt".into(), js_number(i.peak_at));
             Value::Object(o)
         })

@@ -56,6 +56,7 @@ use mixdog_agent::tools::ToolSet;
 use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
+use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::mock::MockApprovalGate;
 use mixdog_core_api::domain::mock::MockCodec;
@@ -67,6 +68,7 @@ use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::MessageSource;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -76,6 +78,7 @@ use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::TransportFault;
+use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::tool::SurfaceKind;
@@ -198,9 +201,6 @@ async fn awaiting_for<T>(limit: Duration, what: impl FnOnce() -> String, wait: i
     }
 }
 
-/// One step a script controls (a hook, an executor, an approval card, the file work of an approval): it takes one turn of the
-/// scheduler, as it takes one macrotask in the recording, so that the calls of a batch advance step by step; a scenario can hold
-/// the n-th occurrence of a step (`gates`) until an entry of the timeline appears.
 /// The scheduler's turn is the recording's macrotask. Node runs one macrotask callback at a time and drains every microtask it
 /// started before the next callback; a task asks for its turn here and a driver, which runs only once every other task has run to its
 /// next wait (tokio wakes a yielded task last, after the ready ones), hands the turns out one at a time in the order asked.
@@ -261,6 +261,9 @@ impl Stages {
         })
     }
 
+    /// One step a script controls (a hook, an executor, an approval card, the file work of an approval): it takes one turn of the
+    /// scheduler, as it takes one macrotask in the recording, so that the calls of a batch advance step by step; a scenario can hold
+    /// the n-th occurrence of a step (`gates`) until an entry of the timeline appears.
     async fn step(&self, stage: &str, name: &str, args: &Value) {
         for (index, gate) in self.gates.iter().enumerate() {
             if gate["stage"] != stage || gate.get("name").is_some_and(|wanted| wanted != name) || gate.get("args").is_some_and(|wanted| wanted != args) {
@@ -677,7 +680,7 @@ struct Reply {
 fn replies(script: &Value, streamed: bool) -> Vec<Reply> {
     // The recorder's `send` answers every reply it completes with `usage: { inputTokens: 1, outputTokens: 1, promptTokens: 1 }` (an
     // input of the recording; the core's prompt figure is the input plus the cache); a cut stream answers nothing.
-    let answered = || StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 1, output_tokens: 1, ..Default::default() });
+    let answered = || StreamEvent::Usage(Usage { input_tokens: 1, output_tokens: 1, ..Default::default() });
     script
         .as_array()
         .expect("script")
@@ -849,8 +852,8 @@ fn wire_view(message: &Message) -> Value {
     }
     if let Some(source) = message.source {
         let name = match source {
-            mixdog_core_api::domain::provider::MessageSource::Steering => "steering",
-            mixdog_core_api::domain::provider::MessageSource::StreamCutRecovery => "stream-cut-recovery",
+            MessageSource::Steering => "steering",
+            MessageSource::StreamCutRecovery => "stream-cut-recovery",
             other => panic!("a wire message source the recording never shows: {other:?}"),
         };
         shown["meta"] = json!({ "source": name });
@@ -1090,12 +1093,14 @@ impl RunObserver for Events {
         Retracted::Refused
     }
 }
+
 /// The replay of one scenario, as a boxed future. In a debug build the replay's future is about a quarter of a megabyte, and a test
 /// that awaited it inline kept that much in its own poll frame for every call site; with the loop's own debug frames under it, that
 /// passed the test thread's 2 MiB stack.
 fn observed<'a>(scenario: &'a Value, defined: &'a [Value]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + 'a>> {
     Box::pin(replay_scenario(scenario, defined))
 }
+
 async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     let (run, harness) = build_harness(scenario, defined);
     let driven = drive(scenario, run, &harness).await;
@@ -1223,15 +1228,8 @@ fn build_harness(scenario: &Value, defined: &[Value]) -> (Run, Harness) {
         });
     }
     let hook = Arc::new(ScriptHook { scenario: scenario.clone(), seen: Mutex::default(), timeline: timeline.clone(), stages: stages.clone() });
-    struct SharedHook(Arc<ScriptHook>);
-    #[async_trait]
-    impl PreToolHook for SharedHook {
-        async fn pre_tool(&self, call: &HookCall<'_>) -> Result<Option<HookDecision>, HookFailure> {
-            self.0.pre_tool(call).await
-        }
-    }
     let grant_store = Arc::new(MemoryGrantStore::default());
-    let policy = ToolPolicy::new(grant_store.clone(), Arc::new(Connectors)).with_hook(Arc::new(SharedHook(hook.clone())));
+    let policy = ToolPolicy::new(grant_store.clone(), Arc::new(Connectors)).with_hook(hook.clone());
     // The thread is the recorded session: the texts that name it (a card, an abort) name the same one.
     let thread = ThreadId::from(scenario["sessionId"].as_str().expect("sessionId"));
     let gate = PolicyGate::new(PolicyGateParts {
@@ -1287,7 +1285,7 @@ fn build_harness(scenario: &Value, defined: &[Value]) -> (Run, Harness) {
     let tool_env = ToolEnv {
         thread_id: thread.clone(),
         turn_id: TurnId::from("r"),
-        cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).expect("absolute"),
+        cwd: AbsPath::new(std::env::temp_dir()).expect("absolute"),
         surface: SurfaceKind::Lead,
         io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
         approvals: approvals.clone(),
@@ -1456,6 +1454,7 @@ fn project(scenario: &Value, harness: &Harness, driven: Driven) -> Value {
     sandboxed(&mut seen);
     seen
 }
+
 /// The recording's sandbox, in the core's terms: the run's working directory is the machine's temp directory, which stands where the
 /// recorder's work folder stood.
 fn sandboxed(value: &mut Value) {

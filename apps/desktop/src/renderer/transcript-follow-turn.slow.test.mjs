@@ -26,12 +26,17 @@ function longTurn(id) {
   const steps = [new Function('rig', `rig.core.prompt('${id}')`)];
   for (let round = 0; round < 6; round += 1) {
     for (let chunk = 0; chunk < 4; chunk += 1) {
-      const words = `Paragraph ${round}.${chunk} with enough words to wrap across the column a few times over. `.repeat(3);
+      const words = `Paragraph ${round}.${chunk} with enough words to wrap across the column a few times over. `.repeat(
+        3
+      );
       steps.push(new Function('rig', `rig.core.stream('${id}', ${JSON.stringify(`${words}\n\n`)})`));
     }
     steps.push(new Function('rig', `rig.core.reply('${id}', { storedId: '${id}-x${round}' })`));
     for (let k = 0; k < 5; k += 1) {
-      const call = JSON.stringify({ name: ['grep', 'read', 'apply_patch'][k % 3], input: { path: `src/f${k}.ts`, pattern: `p${k}` } });
+      const call = JSON.stringify({
+        name: ['grep', 'read', 'apply_patch'][k % 3],
+        input: { path: `src/f${k}.ts`, pattern: `p${k}` },
+      });
       steps.push(new Function('rig', `rig.core.tool('${id}', '${id}-run${round}.${k}', { ...${call}, done: false })`));
       steps.push(new Function('rig', `rig.core.tool('${id}', '${id}-run${round}.${k}', ${call})`));
     }

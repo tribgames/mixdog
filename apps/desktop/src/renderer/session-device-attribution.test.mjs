@@ -4,7 +4,8 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices.ts';
+import { isOtherDevice } from '../shared/session-devices.ts';
+import { usesMultipleDevices } from './use-conversation-approvals.tsx';
 import { TranscriptDevicesContext, TranscriptRow, TranscriptViewerDeviceContext } from './transcript-row.tsx';
 import { retiredApprovalFor } from './use-retired-approval.ts';
 import { applyPromptRestore } from './use-composer-prompt-restore.ts';
@@ -13,10 +14,9 @@ import { nextComposerSubmissionId, draftWithRestoredPrompt } from './composer-dr
 const user = (id, device) => ({ id, kind: 'user', device });
 
 test('a device is named only when more than one device sent prompts', () => {
-  assert.equal(sessionUsesMultipleDevices([user('1', 'Main PC'), user('2', 'Main PC')]), false);
-  assert.equal(sessionUsesMultipleDevices([user('1', 'Main PC'), user('2', 'Pixel')]), true);
-  assert.equal(sessionUsesMultipleDevices([user('1', 'Main PC')], ['Pixel']), true);
-  assert.equal(sessionUsesMultipleDevices([{ id: 'a', kind: 'assistant', device: 'x' }, user('1', 'Main PC')]), false);
+  assert.equal(usesMultipleDevices([user('1', 'Main PC'), user('2', 'Main PC')]), false);
+  assert.equal(usesMultipleDevices([user('1', 'Main PC'), user('2', 'Pixel')]), true);
+  assert.equal(usesMultipleDevices([{ id: 'a', kind: 'assistant', device: 'x' }, user('1', 'Main PC')]), false);
 });
 
 const rowMarkup = (device, viewer) =>

@@ -156,6 +156,11 @@ impl Attempt {
         Self { access_token: stored.access_token.clone(), refresh_token: stored.refresh_token.clone(), owner: stored.identity.clone() }
     }
 
+    /// The account the login was made for (its stored `identity`), when it names one.
+    pub fn owner(&self) -> Option<&Value> {
+        self.owner.as_ref()
+    }
+
     /// Whether `stored` is still the login the attempt was made on: the same refresh grant, of the same account. An
     /// account that is not known is the same only as another that is not known.
     fn made_on(&self, stored: &StoredOAuth) -> bool {
@@ -219,10 +224,13 @@ async fn publish(file: &CredentialFile, from: &StoredOAuth, next: &StoredOAuth) 
 
 /// Marks the stored grant dead; tokens stay intact.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-async fn mark_reauth_required(file: &CredentialFile, stored: &StoredOAuth) -> Result<(), ProviderError> {
+async fn mark_reauth_required(file: &CredentialFile, stored: &StoredOAuth, status: u16) -> Result<(), ProviderError> {
     let mut dead = stored.clone();
     dead.reauth_required = Some(true);
-    publish(file, stored, &dead).await.map(drop)
+    if publish(file, stored, &dead).await? {
+        file.note_marked_reauth("anthropic-oauth", status).await;
+    }
+    Ok(())
 }
 
 pub fn now_ms() -> u64 {
@@ -292,7 +300,7 @@ pub fn authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> String
 #[allow(clippy::large_enum_variant, reason = "Forward canonical ProviderError from the token endpoint without a second allocation for this private classifier")]
 enum TokenFailure {
     /// The grant is dead: the user must sign in again. Carries the message the sign-in prompt shows.
-    Dead(String),
+    Dead(String, u16),
     /// Try again later, or a rejection that states no reason.
     Failed(ProviderError),
 }
@@ -408,7 +416,7 @@ fn endpoint_message(operation: &str, status: u16, body: &[u8], secrets: &[&str],
 /// The login's reading of a refused code exchange: only a coded dead grant is a denial.
 fn token_failure(status: u16, body: &[u8]) -> TokenFailure {
     let kind = match classify_refresh_failure(Some(status), body) {
-        RefreshFailure::Definitive => return TokenFailure::Dead(String::new()),
+        RefreshFailure::Definitive => return TokenFailure::Dead(String::new(), status),
         RefreshFailure::Transient => ErrorKind::Transient,
         RefreshFailure::Unknown => ErrorKind::Auth,
     };
@@ -423,7 +431,7 @@ fn token_failure(status: u16, body: &[u8]) -> TokenFailure {
 fn refresh_failure(status: u16, body: &[u8], previous: &StoredOAuth, cli_version: &str) -> TokenFailure {
     let message = endpoint_message("token refresh", status, body, &[previous.refresh_token.as_str(), previous.access_token.as_str()], cli_version);
     if is_definitive_oauth_failure(&String::from_utf8_lossy(body), status) {
-        return TokenFailure::Dead(format!("{SIGN_IN_EXPIRED_PREFIX} {message}"));
+        return TokenFailure::Dead(format!("{SIGN_IN_EXPIRED_PREFIX} {message}"), status);
     }
     let kind = if matches!(status, 403 | 429 | 500..) { ErrorKind::Transient } else { ErrorKind::Auth };
     let mut err = ProviderError::new(kind, DeliveryState::Accepted);
@@ -495,11 +503,11 @@ impl RefreshParts {
     /// The refresh grant is single-use: the exchange runs holding the cross-process lease beside the credential file,
     /// from the read of the stored pair to its replacement, so another process (or another handle in this one) that
     /// refreshes first has stored its pair before this one reads the file, and this one never spends the old grant. The
-    /// file is the one read and written now, held for the whole refresh: a handle that follows the selected account
-    /// and one bound to that account's file take the same lease.
+    /// file is the one the flight was pinned to (`file`), held for the whole refresh: a handle that follows the
+    /// selected account and one bound to that account's file take the same lease.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn refresh(mut self, held: Attempt, rejected: bool, lease_ms: Option<u64>) -> Result<Attempt, ProviderError> {
-        self.file = self.file.pinned().await;
+    async fn refresh(mut self, file: CredentialFile, held: Attempt, rejected: bool, lease_ms: Option<u64>) -> Result<Attempt, ProviderError> {
+        self.file = file;
         let lock = refresh_lock_path(self.file.path());
         self.file.lease(&lock, &self.process, &*self.pace, REFRESH_LEASE, self.exchange(held, rejected, lease_ms)).await.map_err(lease_error)?
     }
@@ -536,13 +544,13 @@ impl RefreshParts {
                 }
                 Ok(Attempt::of(&next))
             }
-            Err(TokenFailure::Dead(message)) => {
+            Err(TokenFailure::Dead(message, status)) => {
                 // A writer outside the lease (a sign-in) may have replaced the pair.
                 let latest = self.stored().await?;
                 if !held.made_on(&latest) {
                     return Ok(Attempt::of(&latest));
                 }
-                mark_reauth_required(&self.file, &stored).await?;
+                mark_reauth_required(&self.file, &stored, status).await?;
                 Err(auth_error(&message, true))
             }
             Err(TokenFailure::Failed(err)) => Err(err),
@@ -640,7 +648,7 @@ impl OAuthSession {
         let grant = held.refresh_token.clone();
         self.parts
             .file
-            .refresh_once(&grant, async move { parts.refresh(held, rejected, lease_ms).await })
+            .refresh_once(&grant, move |file| parts.refresh(file, held, rejected, lease_ms))
             .await
             .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
     }
@@ -725,7 +733,7 @@ impl AnthropicLogin {
         let status = reply.status.unwrap_or(0);
         if !(200..300).contains(&status) {
             let failure = match token_failure(status, &reply.body) {
-                TokenFailure::Dead(_) => LoginFailure::Denied,
+                TokenFailure::Dead(..) => LoginFailure::Denied,
                 TokenFailure::Failed(err) => failed(err.into_message()),
             };
             let detail = endpoint_message(OPERATION, status, &reply.body, secrets, version);
@@ -934,10 +942,11 @@ mod hosted_paste_tests {
 mod grant_tests {
     use super::*;
     use crate::oauth::CredentialIo;
+    use crate::oauth::pace::Parked;
+    use crate::transport::testing::Once;
     use mixdog_statefile::LockOwner;
     use std::collections::VecDeque;
     use std::path::Path;
-    use std::time::Duration;
 
     /// A token endpoint that counts the refreshes it is sent and answers one per permit, in script order.
     struct Endpoint {
@@ -963,33 +972,6 @@ mod grant_tests {
         }
     }
 
-    /// A contender for the lease whose every wait for it is announced and parks until the test lets it go.
-    struct Parked {
-        waiting: tokio::sync::Semaphore,
-        go: tokio::sync::Semaphore,
-    }
-
-    #[async_trait]
-    impl Pace for Parked {
-        fn now_ms(&self) -> u64 {
-            now_ms()
-        }
-
-        async fn wait(&self, _: Duration) {
-            self.waiting.add_permits(1);
-            self.go.acquire().await.expect("an open gate").forget();
-        }
-    }
-
-    struct Body(Option<bytes::Bytes>);
-
-    #[async_trait]
-    impl crate::transport::BodyStream for Body {
-        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-            self.0.take().map(Ok)
-        }
-    }
-
     #[async_trait]
     impl HttpSend for Endpoint {
         async fn send(&self, _: WireRequest, _: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
@@ -997,7 +979,7 @@ mod grant_tests {
             self.arrived.add_permits(1);
             self.gate.acquire().await.expect("an open gate").forget();
             let (status, body) = self.replies.lock().unwrap().pop_front().expect("a scripted reply");
-            Ok(crate::transport::HttpResponse { status, headers: Vec::new(), body: Box::new(Body(Some(bytes::Bytes::from(body)))) })
+            Ok(crate::transport::HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(bytes::Bytes::from(body)))) })
         }
     }
 
@@ -1060,14 +1042,18 @@ mod grant_tests {
         store(bound.path(), "a", "r1", now_ms() + 1_000, None);
         let endpoint = Endpoint::new(0, &[(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#), DEAD]);
         let held = Attempt::of(&load_stored(&bound).await.unwrap().unwrap());
-        let parked = Arc::new(Parked { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) });
+        let parked = Arc::new(Parked::new());
 
-        let first = tokio::spawn(OAuthSession::new(following, endpoint.clone()).parts.refresh(held.clone(), false, None));
+        let session = OAuthSession::new(following, endpoint.clone());
+        let first = tokio::spawn({
+            let held = held.clone();
+            async move { session.refresh_for(held, false, None).await }
+        });
         endpoint.arrived.acquire().await.unwrap().forget();
         let mut contender = OAuthSession::new(bound.clone(), endpoint.clone()).parts;
         contender.process = Arc::new(LockProcess::new(LockOwner::another_in_process()));
         contender.pace = parked.clone();
-        let second = tokio::spawn(contender.refresh(held, false, None));
+        let second = tokio::spawn(contender.refresh(bound.clone(), held, false, None));
         // Whichever comes first: the contender waiting for the lease, or its own exchange reaching the endpoint.
         let waited = tokio::select! {
             _ = parked.waiting.acquire() => true,

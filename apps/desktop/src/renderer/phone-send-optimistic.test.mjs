@@ -86,12 +86,17 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
     const { useComposerSubmission } = await import('./use-composer-submission.ts');
     const { useAppInvocation } = await import('./app-root/use-app-invocation.ts');
     const { takeRejectedComposerSubmissionRecoveries } = await import('./composer-draft.ts');
+    const { useConversationComposerActions } = await import('./conversation-support.tsx');
+    const stale = 'This conversation changed on another device. Review the latest messages, then send again.';
+    const expectedError = {
+      refused: 'The message was not sent. It has been kept for retry.',
+      thrown: 'PC offline',
+      stale,
+    };
     for (const outcome of ['refused', 'thrown', 'stale']) {
-      const { useConversationComposerActions } = await import('./conversation-support.tsx');
       const errors = [];
       const drafts = [];
       const state = { send: null, prompts: [], versions: 0, actions: null };
-      const stale = 'This conversation changed on another device. Review the latest messages, then send again.';
       const submitHost = () =>
         outcome === 'refused'
           ? Promise.resolve(false)
@@ -162,14 +167,7 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
       assert.equal(state.prompts.length, 0, `${outcome}: the optimistic row is withdrawn`);
       assert.equal(state.versions, 1, `${outcome}: the composer is told to restore`);
       assert.equal(errors.length, 1, `${outcome}: the failure is surfaced as an error`);
-      assert.equal(
-        errors[0],
-        outcome === 'refused'
-          ? 'The message was not sent. It has been kept for retry.'
-          : outcome === 'stale'
-            ? stale
-            : 'PC offline'
-      );
+      assert.equal(errors[0], expectedError[outcome]);
       const recovered = takeRejectedComposerSubmissionRecoveries(`scope-${outcome}`);
       assert.deepEqual(
         recovered.map((entry) => entry.text),

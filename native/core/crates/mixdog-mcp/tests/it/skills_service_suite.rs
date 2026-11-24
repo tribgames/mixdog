@@ -305,7 +305,7 @@ impl SkillSettingsSource for ConfigGate {
 }
 
 struct Sources {
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
     cwd: PathBuf,
     config: Arc<Config>,
     catalog: Arc<SkillCatalog>,
@@ -341,7 +341,7 @@ fn sources(own: &[(&str, &str)], plugin: &[(&str, &str)], builtin: &[(&str, &str
     let catalog = SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move |_| roots.clone()), Arc::clone(&settings), &SkillsWatch::new());
     let service =
         SkillsService::new(Arc::clone(&catalog), settings, config.clone(), host, Arc::new(Projects), tokens.maintenance_io, tokens.durability_io, data);
-    Sources { _dir: dir, cwd, config, catalog, service }
+    Sources { dir, cwd, config, catalog, service }
 }
 
 impl Sources {
@@ -476,7 +476,7 @@ impl Sources {
 
     /// Writes `SKILL.md` of `name` under `folder` (relative to the fixture's folder) with extra frontmatter.
     fn write(&self, folder: &str, name: &str, description: &str, extra: &str) {
-        let dir = self._dir.path().join(folder).join(name);
+        let dir = self.dir.path().join(folder).join(name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("SKILL.md"), format!("---\nname: {name}\ndescription: {description}\n{extra}---\n\nBody of {description}\n")).unwrap();
     }
@@ -565,7 +565,7 @@ async fn a_skill_missing_its_feature_gives_way_to_the_next_source() {
 impl Sources {
     /// Scopes plugin `acme` to a project folder other than the session's, and answers that folder.
     fn scope_plugin_elsewhere(&self) -> String {
-        let project = self._dir.path().join("project");
+        let project = self.dir.path().join("project");
         std::fs::create_dir_all(&project).unwrap();
         let project = project.to_string_lossy().into_owned();
         self.config.agent.lock().unwrap().insert("extensionScopes".to_owned(), json!({"plugins": {"acme": [project]}}));

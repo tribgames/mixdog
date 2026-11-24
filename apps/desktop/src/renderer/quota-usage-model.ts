@@ -3,6 +3,7 @@
 import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 import { usageMoney } from './usage-format';
+import { roundUsagePercent } from './usage-percent';
 import { localDayKey, statsNumber, type Row } from './usage-stats-model';
 
 /** A limit window is valued at Mixdog's own rate over the whole limit at every
@@ -23,12 +24,11 @@ export function quotaValueCaution(): string {
   );
 }
 
-/** A meter reading or a share of the limit, rounded to a whole percent. */
+/** A meter reading or a share of the limit, rounded as the meters round it. */
 export function quotaPercent(value: unknown): string {
   const amount = Number(value);
   if (value === null || value === undefined || value === '' || !Number.isFinite(amount)) return '—';
-  const rounded = Math.round(amount);
-  return `${rounded.toLocaleString(uiFormatLocale())}%`;
+  return `${roundUsagePercent(amount).toLocaleString(uiFormatLocale())}%`;
 }
 
 /** A clock time, dated once it is not today. */

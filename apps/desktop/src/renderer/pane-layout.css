@@ -879,8 +879,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
   height: auto;
   min-height: 0;
 }
-/* One mounted editor per file tab (unsaved edits survive a tab switch); only
-   the active tab's editor shows. */
+/* One slot per file tab; the editor in it follows its file (side-file-editor-portals)
+   and only the active tab's slot shows. */
 .pane-side-file-tab {
   flex: 1 1 0;
   min-width: 0;

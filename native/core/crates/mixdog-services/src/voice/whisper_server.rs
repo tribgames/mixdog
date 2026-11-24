@@ -488,6 +488,7 @@ mod tests {
         }
         panic!("the abandoned start's child (seen: {seen}) was never released");
     }
+
     /// Ready is reported only once the warm-up inference has reached the server.
     #[tokio::test]
     async fn ready_is_reported_only_after_one_warm_up_inference() {
@@ -519,12 +520,13 @@ mod tests {
             async move { server.ensure_ready(&contract).await }
         });
         manager.inference_seen.notified().await;
-        let request = tokio::spawn({
+        let mut request = Box::pin({
             let server = server.clone();
             async move { server.transcribe(&wav, None).await }
         });
-        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-        assert!(!request.is_finished());
+        // Polled once, the request has queued its command behind the start.
+        assert!(futures::poll!(request.as_mut()).is_pending());
+        let request = tokio::spawn(request);
         manager.release_inference.notify_one();
         start.await.unwrap().unwrap();
         assert_eq!(request.await.unwrap().unwrap(), " hello world ");
@@ -550,12 +552,13 @@ mod tests {
         manager.inference_seen.notified().await;
         let request = |wav: PathBuf| {
             let server = server.clone();
-            tokio::spawn(async move { server.transcribe(&wav, None).await })
+            Box::pin(async move { server.transcribe(&wav, None).await })
         };
-        let (leaving, staying) = (request(wav.clone()), request(wav));
-        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-        leaving.abort();
-        let _ = leaving.await;
+        let (mut leaving, mut staying) = (request(wav.clone()), request(wav));
+        // Polled once, each request has queued its command behind the start.
+        assert!(futures::poll!(leaving.as_mut()).is_pending() && futures::poll!(staying.as_mut()).is_pending());
+        drop(leaving);
+        let staying = tokio::spawn(staying);
         manager.release_inference.notify_one();
         start.await.unwrap().unwrap();
         assert_eq!(staying.await.unwrap().unwrap(), " hello world ");

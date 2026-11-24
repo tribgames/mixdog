@@ -1044,6 +1044,7 @@ impl RunParts for Parts {
             config.step_auto_effort = effort.step_auto.clone();
         }
         Ok(Assembled {
+            header: input.header.clone(),
             provider: self.provider.clone(),
             tools: ToolSet::new(std::iter::once(Arc::new(Echo(spec)) as Arc<dyn Tool>).chain(self.more.iter().cloned()).collect()),
             tool_env: ToolEnv {
@@ -2089,11 +2090,12 @@ async fn turn_world_routed(
     let thread_store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
     let rig_deps = rig.deps_parts(thread_store);
     let gateway = rig_deps.gateway_usage.clone();
+    let route_facts = super::super::compaction_world::tests::facts_in(workspace.path(), registry.clone()).await;
     let parts = super::super::turn_path::TurnPathParts {
         tokens: tokens.clone(),
         clock: clock.clone(),
         paths: mixdog_store::paths::Paths { plugin_root: workspace.path().join("plugin"), data_dir: data },
-        registry,
+        facts: route_facts,
         effort_judge: judge,
         side: super::super::side_requests::SideRequests {
             store: kept,
@@ -2179,7 +2181,7 @@ async fn turn_world_routed(
         compactors,
         hops: Box::new({
             let registry_dir = workspace.path().join("catalog");
-            move |directory, registry| {
+            move |directory, route_facts| {
                 let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
                 let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), registry_dir, io);
                 let catalog = futures::executor::block_on(mixdog_ai::catalog::CatalogService::cold_start(
@@ -2218,7 +2220,7 @@ async fn turn_world_routed(
                     };
                 mixdog_core_run::run_host::hop_host::HopFactory::new(
                     mixdog_core_run::run_host::hop_host::HopDeps {
-                        registry: registry.clone(),
+                        facts: route_facts.clone(),
                         catalog: Arc::new(catalog),
                         config,
                         bots: Arc::new(NoBots),
@@ -2232,7 +2234,7 @@ async fn turn_world_routed(
     };
     let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
     // No provider is registered ahead: as after a restart, the turn's first request readies the thread's provider.
-    assert!(path.registry.get("scripted").await.is_none());
+    assert!(registry.get("scripted").await.is_none());
     let directory = path.directory.clone();
     late.bind(&directory);
     // The settings host the composition binds: here one whose live settings are one key, `responseLanguage`, that a

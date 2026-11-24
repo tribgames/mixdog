@@ -21,6 +21,9 @@ pub trait TextFiles: Send + Sync {
     async fn read(&self, path: AbsPath) -> Result<String, String>;
     /// `path` with every link on it followed: the place a read of it reaches.
     async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String>;
+    /// Puts `text` in a new file at `path`, its folders made: the file appears with all of its text at once, and one
+    /// already there is kept. The agent definitions Mixdog starts a CLI with, each at a place its text names.
+    async fn create(&self, path: AbsPath, text: String) -> Result<(), String>;
 }
 
 /// [`TextFiles`] over the core's file service.
@@ -44,6 +47,27 @@ impl TextFiles for ServiceFiles {
             Err(_) => return Err("the file could not be looked at".to_owned()),
         };
         resolved.map_err(|error| error.to_string()).and_then(|path| AbsPath::new(path).ok_or_else(|| "the file has no absolute place".to_owned()))
+    }
+
+    async fn create(&self, path: AbsPath, text: String) -> Result<(), String> {
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| {
+            let folder = path.as_path().parent().ok_or_else(|| std::io::Error::other("the file has no folder"))?;
+            std::fs::create_dir_all(folder)?;
+            // Written whole beside its place, then linked into it: a CLI starting meanwhile reads all of it or nothing.
+            let staged = folder.join(format!(".{}.staged", uuid::Uuid::new_v4().simple()));
+            std::fs::write(&staged, text)?;
+            let linked = std::fs::hard_link(&staged, path.as_path());
+            std::fs::remove_file(&staged)?;
+            match linked {
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+                linked => linked,
+            }
+        });
+        match job {
+            Ok(job) => job.await.map_err(|_| "the file could not be written".to_owned())?.map_err(|error| error.to_string()),
+            Err(_) => Err("the file could not be written".to_owned()),
+        }
     }
 }
 

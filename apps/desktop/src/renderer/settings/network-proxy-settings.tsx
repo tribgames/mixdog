@@ -278,8 +278,8 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
         latestLoad.current();
       }
       setErrors({});
-      if (next.mode !== 'manual') setDraftManual(false);
-      else if (patch.url !== undefined) setDraftManual(false);
+      // Only a saved mode ends the draft: exceptions saved first keep the manual rows open.
+      if (patch.mode !== undefined) setDraftManual(false);
     } catch (reason) {
       if (field) setErrors({ [field]: saveError(reason, field) });
       else setModeError(t('Could not save the proxy mode.'));

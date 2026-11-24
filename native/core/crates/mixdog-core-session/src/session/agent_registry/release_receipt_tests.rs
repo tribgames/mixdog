@@ -17,6 +17,7 @@ use mixdog_store::fsio::AppendStep;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::MetaRecord;
 use mixdog_store::schema::record::Record;
+use serde_json::Map;
 
 use super::*;
 

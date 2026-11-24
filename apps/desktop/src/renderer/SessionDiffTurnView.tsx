@@ -222,8 +222,7 @@ export function SessionDiffTurnView({
   // again (a newer end may list it) has not said so yet.
   else if (!body && focus && !focusRow) {
     body = turn.fresh ? note(t('No diff was recorded for this file.')) : <InitialSurface />;
-  }
-  else if (!body && turn.patchError) body = <ErrorNotice error={turn.patchError} onRetry={turn.refresh} />;
+  } else if (!body && turn.patchError) body = <ErrorNotice error={turn.patchError} onRetry={turn.refresh} />;
   else if (!body && visibleRows.length === 0) body = note(t('No changes'));
   body ??= (
     <SessionDiffStack

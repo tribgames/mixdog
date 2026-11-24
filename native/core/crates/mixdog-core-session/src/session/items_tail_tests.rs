@@ -564,8 +564,9 @@ fn restart(n: usize, entries: usize) -> CommitRecord {
 /// The oldest page of a long thread and the page after it (by the first page's `nextCursor`) read rows in proportion to
 /// the page, and every statement those pages run on the index, counted by its connection (their revision and anchor,
 /// their rows, the copies later compactions kept of them, the compactions that decide them and each one's probe, their
-/// model switches and dividers), runs about as many steps however many context restarts the thread wrote after those rows: a thread that restarts its context every turn holds the messages each restart kept, far more of
-/// them than it has rows. Not exactly as many: the restarts after a row are still passed over, once per index page.
+/// model switches and dividers), runs about as many steps however many context restarts the thread wrote after those rows:
+/// a thread that restarts its context every turn holds the messages each restart kept, far more of them than it has rows.
+/// Not exactly as many: the restarts after a row are still passed over, once per index page.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_newer_page_costs_its_rows_whatever_the_thread_wrote_after_them() {
     const LIMIT: usize = 50;
@@ -817,7 +818,7 @@ async fn a_page_that_met_a_rewind_whose_sync_failed_answers_after_its_rollback()
     assert_eq!(got["data"].as_array().map(Vec::len), Some(10));
 }
 
-/// [`create`] with `rows` committed 100 at a time, as a running session writes them.
+/// [`create`] with `rows` committed 100 at a time, as a running session writes them, so the log carries its checkpoints.
 async fn create_batched(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, rows: Vec<CommitRecord>) -> Log {
     let (threads, thread) = (threads.clone(), ThreadId::from(thread));
     let session = commit(json!({"k":"session","v":2,"id":thread.as_str(),"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
@@ -880,23 +881,6 @@ async fn the_flag_of_a_turn_after_a_long_run_costs_the_turn() {
     drop(live);
 }
 
-/// [`create`] with the rows committed 100 at a time, as a running session writes them, so the log carries its checkpoints.
-async fn create_long(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, total: usize) -> Log {
-    let (threads, thread) = (threads.clone(), ThreadId::from(thread));
-    let session = commit(json!({"k":"session","v":2,"id":thread.as_str(),"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
-    LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
-        let (mut log, _) = threads.create_log(lane, &thread, &session).expect("created");
-        for first in (0..total).step_by(100) {
-            let batch: Vec<CommitRecord> = (first..(first + 100).min(total)).map(long_row).collect();
-            log.commit(lane, &batch).expect("appended");
-        }
-        Arc::new(Mutex::new(log))
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-}
-
 /// A row of a long session: about 300 bytes of text; every 25th row a user prompt, a new turn every 20 rows.
 fn long_row(i: usize) -> CommitRecord {
     let turn = format!("t{}", i / 20);
@@ -925,7 +909,7 @@ async fn opening_and_paging_a_long_history_reads_rows_in_proportion_to_the_page(
     let mut over = Vec::new();
     for total in [1_000usize, 14_000] {
         let name = format!("long{total}");
-        live.push(create_long(&threads, tokens, &name, total).await);
+        live.push(create_batched(&threads, tokens, &name, (0..total).map(long_row).collect()).await);
         let id = ThreadId::from(name.as_str());
         let mut cursor: Option<String> = None;
         for call in 0..4 {

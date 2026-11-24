@@ -70,7 +70,9 @@ export function sandboxedPageDocument(html: string): string {
   return withSandboxStorageShim(withHeadScript(html, PREVIEW_LINK_SCRIPT));
 }
 
+/** Only a link the person just clicked: the page's script can post the same message unprompted, and an address it chose carries its data out. */
 function openPageLink(href: unknown): void {
+  if (!window.navigator.userActivation?.isActive) return;
   if (typeof href !== 'string' || href.length > MAX_LINK_LENGTH) return;
   let url: URL;
   try {

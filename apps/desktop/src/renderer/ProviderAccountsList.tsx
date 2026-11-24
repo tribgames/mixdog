@@ -32,11 +32,12 @@ import { ProviderIcon } from './provider-display';
 import { PROVIDER_ACCOUNTS_CHANGED, readAll as readAllUsageAccountPools } from './usage-account-pools';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 import { invokeOrHeld } from './section-capabilities';
+import { windowSectionStore } from './section-store';
 import { emptyStateHost } from './empty-state-host';
 import './provider-accounts.css';
 
 export { PROVIDER_ACCOUNTS_CHANGED };
-export type ProviderAccount = {
+type ProviderAccount = {
   id: string;
   label: string;
   authenticated: boolean;
@@ -118,7 +119,10 @@ function resolveAccountUsage(account: ProviderAccount): {
     }
     return { windows: own, checkedAt: account.usage?.checkedAt, rows: own.length };
   }
-  const known = account.reauthRequired ? undefined : rememberedUsage.get(account.id);
+  // A reading without windows is the core's answer, not one still on its way: what an earlier reading showed is
+  // gone. Only an account with no reading (`usage` null, its read still running) keeps its last meters.
+  if (account.usage) rememberedUsage.delete(account.id);
+  const known = account.reauthRequired || account.usage ? undefined : rememberedUsage.get(account.id);
   if (known) return { ...known, rows: known.windows.length };
   return { windows: [], rows: account.reauthRequired ? 1 : Math.max(1, counts[account.id] || USAGE_ROWS_FALLBACK) };
 }
@@ -337,11 +341,14 @@ export function useProvidersWithoutAccounts(api: UsageApi | undefined, providers
         providers.filter((provider) => lastPools.get(provider)?.accounts.length === 0)
       );
     window.addEventListener(PROVIDER_ACCOUNTS_CHANGED, reread);
+    // A sign-in from another window reaches this one only as the core's roster push.
+    const stopPushes = windowSectionStore()?.subscribe('providerAccounts', reread);
     // Accounts may have changed while this page was not mounted.
     reread();
     return () => {
       poolListeners.delete(rerender);
       window.removeEventListener(PROVIDER_ACCOUNTS_CHANGED, reread);
+      stopPushes?.();
     };
   }, [api, key]);
   return empty;
@@ -675,7 +682,12 @@ export function ProviderAccountsList({
   headerAction?: ReactNode;
   onChange?(): void;
 }) {
-  const { pool, pending, refreshing, error, change, refreshUsage } = useProviderAccountPool(api, provider, onChange, source);
+  const { pool, pending, refreshing, error, change, refreshUsage } = useProviderAccountPool(
+    api,
+    provider,
+    onChange,
+    source
+  );
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [drag, setDrag] = useState<DragState | null>(null);

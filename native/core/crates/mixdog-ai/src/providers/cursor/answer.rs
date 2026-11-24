@@ -100,37 +100,10 @@ pub fn answer(exec: &ExecServer, result: &Message) -> Vec<Vec<u8>> {
         return vec![exec_message(exec, 7, read_result(&args.path, args.offset != 0 || args.limit != 0, rows, &outcome))];
     }
     if let Some(args) = &exec.write {
-        let written = if args.file_bytes.is_empty() { args.file_text.clone() } else { String::from_utf8_lossy(&args.file_bytes).into_owned() };
-        let result = if outcome.ok {
-            let mut success = Writer::new();
-            success.string(1, &args.path);
-            success.varint(2, if written.is_empty() { 0 } else { written.split('\n').count() as u64 });
-            // The bytes the tool says it wrote (`nativeWrittenBytes`), which line endings or an encoding can make
-            // other than the bytes asked for.
-            let reported = text.lines().next().and_then(|line| WRITTEN.captures(line)).and_then(|caps| caps[1].parse().ok());
-            success.varint(3, reported.unwrap_or(written.len() as u64));
-            // Under the bound every result text is held to; content past it is not echoed in part.
-            if args.return_content && written.len() <= MAX_TOOL_TEXT_BYTES {
-                success.string(4, &written);
-            }
-            case(1, success)
-        } else {
-            case(5, path_reason(&args.path, or(text, "Write failed")))
-        };
-        return vec![exec_message(exec, 3, result)];
+        return vec![exec_message(exec, 3, write_result(args, &outcome))];
     }
     if let Some(args) = &exec.fetch {
-        let result = if outcome.ok {
-            let mut success = Writer::new();
-            success.string(1, &args.url);
-            success.string(2, text);
-            success.varint(3, 200);
-            success.string(4, "text/markdown");
-            case(1, success)
-        } else {
-            case(2, path_reason(&args.url, or(text, "Fetch failed")))
-        };
-        return vec![exec_message(exec, 20, result)];
+        return vec![exec_message(exec, 20, fetch_result(args, &outcome))];
     }
     if let Some(args) = &exec.shell_stream {
         // The stream's events, then the whole result, then the close: the service reads the outcome off the result.
@@ -169,6 +142,37 @@ pub fn answer(exec: &ExecServer, result: &Message) -> Vec<Vec<u8>> {
         return vec![exec_message(exec, 5, result)];
     }
     vec![exec_message(exec, 11, mcp_outcome(&outcome))]
+}
+
+fn write_result(args: &super::schema::WriteArgs, outcome: &Outcome) -> Writer {
+    if !outcome.ok {
+        return case(5, path_reason(&args.path, or(&outcome.text, "Write failed")));
+    }
+    let written = if args.file_bytes.is_empty() { args.file_text.clone() } else { String::from_utf8_lossy(&args.file_bytes).into_owned() };
+    let mut success = Writer::new();
+    success.string(1, &args.path);
+    success.varint(2, if written.is_empty() { 0 } else { written.split('\n').count() as u64 });
+    // The bytes the tool says it wrote (`nativeWrittenBytes`), which line endings or an encoding can make
+    // other than the bytes asked for.
+    let reported = outcome.text.lines().next().and_then(|line| WRITTEN.captures(line)).and_then(|caps| caps[1].parse().ok());
+    success.varint(3, reported.unwrap_or(written.len() as u64));
+    // Under the bound every result text is held to; content past it is not echoed in part.
+    if args.return_content && written.len() <= MAX_TOOL_TEXT_BYTES {
+        success.string(4, &written);
+    }
+    case(1, success)
+}
+
+fn fetch_result(args: &super::schema::FetchArgs, outcome: &Outcome) -> Writer {
+    if !outcome.ok {
+        return case(2, path_reason(&args.url, or(&outcome.text, "Fetch failed")));
+    }
+    let mut success = Writer::new();
+    success.string(1, &args.url);
+    success.string(2, &outcome.text);
+    success.varint(3, 200);
+    success.string(4, "text/markdown");
+    case(1, success)
 }
 
 /// The result of an MCP call: its text and images, or its failure.
@@ -285,6 +289,7 @@ static CLIP_MARK: LazyLock<regex::Regex> =
 fn clipped(row: &str) -> bool {
     CLIP_MARK.find_iter(row).any(|mark| row[..mark.start()].chars().count() == 1_500 && row[mark.end()..].chars().count() == 300)
 }
+
 /// What the edit tool answers a write with: `Created <path> (<n> bytes)`.
 static WRITTEN: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^(?:Created|Updated) .* \((\d+) bytes\)$").expect("constant pattern"));
 

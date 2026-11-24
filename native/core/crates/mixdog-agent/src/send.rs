@@ -601,12 +601,7 @@ impl Run {
         let provider = self.provider.id().as_str().to_owned();
         let next = crate::prefix_guard::snapshot(messages, &request.tools, &request.options.hosted_tools, &provider, &self.model);
         let intent = self.cache_break_intent.clone();
-        let options = crate::prefix_guard::GuardOptions {
-            provider: &provider,
-            model: &self.model,
-            intent: intent.as_deref(),
-            mutation_source: (intent.as_deref() == Some("transcript_rebuild")).then_some("transcript_rebuild"),
-        };
+        let options = crate::prefix_guard::GuardOptions { provider: &provider, model: &self.model, intent: intent.as_deref(), mutation_source: None };
         let mut refused = None;
         if let Some(details) = crate::prefix_guard::compare(self.carry.prefix_guard.as_ref(), &next, &options) {
             if details.get("classification").and_then(serde_json::Value::as_str) == Some("unexpected") {
@@ -1033,7 +1028,9 @@ impl Run {
                 let started_in = self.live_cwd();
                 // Starting the call is this run's own work while the response stays unread: not the provider's silence.
                 let _local = identity.local_work();
-                self.try_eager(&call, &started_in).await;
+                let streamed = &builder.so_far().tool_calls;
+                let step = self.step_calls(streamed);
+                self.try_eager(&call, &started_in, &step, streamed.len() - 1, crate::batch::Decided::default()).await;
             }
         }
         if !builder.completed() {
@@ -1470,6 +1467,10 @@ impl Run {
     fn seat_route(&mut self, switch: RouteSwitch) {
         // The new provider takes no other provider's replay state.
         self.strip_replay_for_new_route();
+        // A switch onto the route the run already stands on (a preflight one, which the run was assembled on) keeps the judge.
+        if self.provider.id() != switch.provider.id() || self.model != switch.model {
+            self.leave_step_judge();
+        }
         if let Some(system) = switch.request.system {
             let leading = self.messages.iter().take_while(|m| m.message.role == mixdog_core_api::domain::provider::Role::System).count();
             self.messages.splice(..leading, system);
@@ -1525,10 +1526,11 @@ impl Run {
         self.model = switch.model;
         self.retry = RetryStates::new(&self.model);
         self.context_overflow_retry_used = false;
-        // The one-shot recoveries the left model spent belong to its requests; the next model's first request gets its
-        // own, and the left provider's continuation state is not the next one's.
+        // The one-shot recoveries the left model spent, and the tools its provider refused, belong to its requests; the next
+        // model's first request gets its own, and the left provider's continuation state is not the next one's.
         self.replay_repair_used = false;
         self.tool_schema_drop_used = false;
+        self.dropped_tools.clear();
         self.provider_state = None;
         self.provider_state_changed = true;
         self.baseline = None;

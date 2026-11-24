@@ -500,8 +500,24 @@ export function chooseWorktreeIntent(key: string, intent: boolean) {
 }
 
 /** The New Task default, unless the user already chose on this draft. */
-export function applyDefaultWorktreeIntent(key: string) {
+function applyDefaultWorktreeIntent(key: string) {
   if (!chosenIntents.has(key)) setWorktreeIntent(key, true, true);
+}
+
+/** Drafts whose New Task default is read or applied: once per draft, until its first send starts a task (a New Task
+ *  without a draft id shares the key `default` with every later one). A read that failed applied nothing. */
+const defaultReads = new Set<string>();
+
+/** Reads the New Task default once for the draft `key` and applies it. */
+export function readNewTaskDefault(key: string, read: () => Promise<{ newTaskDefault?: string } | null | undefined>) {
+  if (defaultReads.has(key)) return;
+  defaultReads.add(key);
+  void read().then(
+    (settings) => {
+      if (settings?.newTaskDefault === 'worktree') applyDefaultWorktreeIntent(key);
+    },
+    () => defaultReads.delete(key)
+  );
 }
 
 export function setBranchIntent(key: string, branch: string, create: boolean) {
@@ -577,7 +593,11 @@ export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown
     started = result?.accepted === true && Boolean(result.sessionId);
     return result;
   } finally {
-    if (worktree && !started) {
+    if (started) {
+      // The draft became its task: a later draft under the same key is a new one.
+      defaultReads.delete(key);
+      chosenIntents.delete(key);
+    } else if (worktree) {
       if (selected) setBranchIntent(key, selected.branch, selected.create);
       else setWorktreeIntent(key, true, fromDefault);
     }

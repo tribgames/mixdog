@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use mixdog_fsio::{DirBuilder, Unlaned};
 
-use crate::context::{Platform, SshEnv};
+use crate::context::{Platform, SshEnv, ToolOutput};
 
 const TOOL_TIMEOUT: Duration = Duration::from_millis(8_000);
 const NAME_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -38,17 +38,77 @@ pub(crate) fn join_name(platform: Platform, base: &str, name: &str) -> String {
     format!("{trimmed}{separator}{name}")
 }
 
-/// Restricts the folder to one account (and its children by inheritance).
-pub async fn lock_to_user(env: &SshEnv, dir: &Path, user: &str) -> io::Result<()> {
-    let args = vec![dir.to_string_lossy().into_owned(), "/inheritance:r".to_owned(), "/grant:r".to_owned(), format!("{user}:(OI)(CI)F")];
+/// Restricts the folder to the account of the current token (named by its SID, so it resolves on any kind of PC) and its
+/// children by inheritance. `/L`: a link met on the way is changed itself, never its target.
+async fn lock_to_user(env: &SshEnv, dir: &Path, sid: &str) -> io::Result<()> {
+    let args = vec![dir.to_string_lossy().into_owned(), "/L".to_owned(), "/inheritance:r".to_owned(), "/grant:r".to_owned(), format!("*{sid}:(OI)(CI)F")];
     let locked = env.tools.run(Path::new("icacls"), &args, TOOL_TIMEOUT).await?;
     if locked.exit_code == Some(0) {
         return Ok(());
     }
-    let reason = [locked.stderr.trim(), locked.stdout.trim()].into_iter().find(|text| !text.is_empty()).map(str::to_owned);
-    Err(io::Error::other(reason.unwrap_or_else(|| format!("Could not restrict {} to this user.", dir.display()))))
+    Err(io::Error::other(format!("{} could not be restricted to this user: {}", dir.display(), reason_of(&locked))))
 }
 
+/// What a tool said about why it failed: its error text, else its output, else its exit code.
+fn reason_of(output: &ToolOutput) -> String {
+    [output.stderr.trim(), output.stdout.trim()]
+        .into_iter()
+        .find(|text| !text.is_empty())
+        .map_or_else(|| format!("exit code {:?}", output.exit_code), str::to_owned)
+}
+
+/// Prints <state> <SID of the running account>`: `link` (a junction or link, or no folder), `owner` (owned by an account other
+/// than this one, SYSTEM or Administrators), `broad` (a real folder of this account that an allowing access entry of someone
+/// else reaches) or `private` (every allowing entry names this account, SYSTEM or Administrators).
+const PRIVATE_CHECK: &str = "$ErrorActionPreference='Stop'; $me=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; \
+$item=Get-Item -LiteralPath '{dir}' -Force; \
+if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Write-Output \"link $me\"; exit 0}; \
+$acl=Get-Acl -LiteralPath '{dir}'; $owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value; \
+$ok=@($me,'S-1-5-18','S-1-5-32-544'); if($ok -notcontains $owner){Write-Output \"owner $me\"; exit 0}; \
+foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){ \
+if($rule.AccessControlType -eq 'Allow' -and $ok -notcontains $rule.IdentityReference.Value){Write-Output \"broad $me\"; exit 0} }; \
+Write-Output \"private $me\"";
+
+/// The state of a folder and the SID of the running account, in one PowerShell run.
+async fn standing(env: &SshEnv, dir: &Path) -> io::Result<(String, String)> {
+    let literal = dir.to_string_lossy().replace('\'', "''");
+    let args = vec!["-NoProfile".to_owned(), "-NonInteractive".to_owned(), "-Command".to_owned(), PRIVATE_CHECK.replace("{dir}", &literal)];
+    let result = env.tools.run(Path::new("powershell.exe"), &args, TOOL_TIMEOUT).await?;
+    let mut words = result.stdout.split_whitespace();
+    match (result.exit_code, words.next(), words.next()) {
+        (Some(0), Some(state), Some(sid)) => Ok((state.to_owned(), sid.to_owned())),
+        _ => Err(io::Error::other(format!("The owner and access list of {} could not be read: {}", dir.display(), reason_of(&result)))),
+    }
+}
+
+fn inside_profile(env: &SshEnv, dir: &Path) -> bool {
+    let plain = |path: &Path| path.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    let (home, dir) = (plain(&env.home), plain(dir));
+    !home.is_empty() && dir.strip_prefix(&home).is_some_and(|rest| rest.starts_with('\\'))
+}
+
+/// Proves a Windows folder outside the user's profile (a shared fallback location another account may have prepared first) is
+/// one only this account and the system can have written, by its owner and access list now. A real folder of this account whose
+/// access list is merely too broad is tightened and checked again; a link, or a folder of someone else, is refused untouched.
+pub(crate) async fn ensure_private_dir(env: &SshEnv, dir: &Path) -> io::Result<()> {
+    if inside_profile(env, dir) {
+        return Ok(());
+    }
+    let refused = |why: &str| io::Error::new(io::ErrorKind::PermissionDenied, format!("{} {why}, so it is not used.", dir.display()));
+    let (state, sid) = standing(env, dir).await?;
+    match state.as_str() {
+        "private" => Ok(()),
+        "link" => Err(refused("is a link or not a folder")),
+        "owner" => Err(refused("belongs to another account")),
+        _ => {
+            lock_to_user(env, dir, &sid).await?;
+            match standing(env, dir).await?.0.as_str() {
+                "private" => Ok(()),
+                _ => Err(refused("is not private to this user")),
+            }
+        }
+    }
+}
 fn random_suffix() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let mut hasher = RandomState::new().build_hasher();
@@ -91,13 +151,12 @@ pub async fn create_private_dir(env: &SshEnv, parent: &Path, prefix: &str) -> io
     #[cfg(unix)]
     builder.mode(0o700);
     builder.create(&Unlaned, parent)?;
-    let user = current_user(env);
     if windows {
-        lock_to_user(env, parent, &user).await?;
+        ensure_private_dir(env, parent).await?;
     }
     let dir = make_temp_dir(parent, prefix)?;
-    let locked = if windows { lock_to_user(env, &dir, &user).await } else { restrict_to_owner(&dir) };
-    if let Err(error) = locked {
+    // A folder made inside the proven parent has exactly the parent's access list.
+    if let Err(error) = restrict_to_owner(&dir) {
         let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
         return Err(error);
     }

@@ -164,6 +164,7 @@ function ImportListView({ listing, busy }: { listing: ImportListing; busy: boole
     if (selectAllRef.current) selectAllRef.current.indeterminate = allState === 'mixed';
   }, [allState]);
   const pinnedLocked = (id: string) => id === pinned?.id && selection.all;
+  const firstLoad = listing.loading && !list;
 
   return (
     <>
@@ -207,12 +208,12 @@ function ImportListView({ listing, busy }: { listing: ImportListing; busy: boole
             {t('No conversations match your filters.')}
           </p>
         )}
-        {listing.loading && !list && (
+        {firstLoad && (
           <p className="settings-import-note mx-empty-state" ref={emptyStateHost}>
             {t('Loading…')}
           </p>
         )}
-        {listing.loadingMore && !(listing.loading && !list) && <p className="settings-import-note">{t('Loading…')}</p>}
+        {listing.loadingMore && !firstLoad && <p className="settings-import-note">{t('Loading…')}</p>}
         {listing.listError && (
           <p className="settings-import-note" role="alert">
             {t('Conversations could not be listed.')}

@@ -205,8 +205,12 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
-  // Only the newest question may publish its pages.
+  // Only the newest read may publish its page.
   const sequence = useRef(0);
+  // The read the list goes on with: the page after the one that arrived, or the
+  // page that failed. Taken by the one load that starts it: a second
+  // intersection or Retry before React commits finds nothing to read.
+  const nextPage = useRef<{ question: Question; cursor: string | null; asOf?: number } | null>(null);
   const ask = (current: Question) => ({
     view: current.view,
     ...(current.anchor ? { anchor: current.anchor } : {}),
@@ -218,7 +222,8 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
   // `asOf` pins later pages to the first page's time, so a rolling period
   // does not slide while the list is scrolled.
   const load = (current: Question, after: string | null, asOf?: number) => {
-    const ticket = after ? sequence.current : ++sequence.current;
+    const ticket = ++sequence.current;
+    nextPage.current = null;
     setBusy(true);
     setError('');
     // A new question drops the old rows and cursor: if its first page fails,
@@ -232,10 +237,16 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
         if (sequence.current !== ticket) return;
         if (!after) setAnswer(page);
         setRequests((shown) => [...(after ? shown : []), ...rows(page.requests)]);
-        setCursor(typeof page.nextCursor === 'string' ? page.nextCursor : null);
+        const next = typeof page.nextCursor === 'string' ? page.nextCursor : null;
+        setCursor(next);
+        const pinned = after ? asOf : statsNumber(page.generatedAt) || undefined;
+        nextPage.current = next ? { question: current, cursor: next, asOf: pinned } : null;
       })
       .catch((reason) => {
-        if (sequence.current === ticket) setError(String(reason?.message || reason));
+        if (sequence.current !== ticket) return;
+        setError(String(reason?.message || reason));
+        // A failed page stays the next one to read: Retry, or for a later page the next scroll, reads it again.
+        nextPage.current = { question: current, cursor: after, asOf };
       })
       .finally(() => {
         if (sequence.current === ticket) setBusy(false);
@@ -248,7 +259,8 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
   const end = useRef<HTMLTableRowElement>(null);
   const loadMore = useRef(() => {});
   loadMore.current = () => {
-    if (!busy && cursor) load(question, cursor, statsNumber(answer?.generatedAt) || undefined);
+    const next = nextPage.current;
+    if (next) load(next.question, next.cursor, next.asOf);
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the end row exists only while there is a cursor, so each cursor re-observes it
   useEffect(() => {
@@ -314,7 +326,9 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
         trailing={filters}
         onLoad={(view, anchor, dates) => change({ view, anchor, dates })}
       />
-      {error && <ErrorNotice error={error} className="stats-error" />}
+      {error && (
+        <ErrorNotice error={error} className="stats-error" onRetry={() => loadMore.current()} retryDisabled={busy} />
+      )}
       <div className="usage-table-shell">
         <table className="usage-table request-log-table" aria-label={t('Request log')}>
           <colgroup>

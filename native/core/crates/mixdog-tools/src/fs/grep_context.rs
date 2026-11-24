@@ -395,9 +395,12 @@ impl SourceCache {
             if let Some(source) = entry
                 && !source
                     .fill(&windows, line_cap, |offset, max_len| {
-                        Box::pin(
-                            async move { Ok(guarded(ctx, "grep", ctx.files.read_versioned(ctx.io.interactive, path.clone(), offset, max_len)).await?.ok()) },
-                        )
+                        Box::pin(async move {
+                            if !super::common::followable(ctx, path).await {
+                                return Ok(None);
+                            }
+                            Ok(guarded(ctx, "grep", ctx.files.read_versioned(ctx.io.interactive, path.clone(), offset, max_len)).await?.ok())
+                        })
                     })
                     .await?
             {

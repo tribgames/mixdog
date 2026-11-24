@@ -79,7 +79,16 @@ impl SessionActor {
         match write {
             DraftWrite::Replace { rid, .. } => {
                 // Before anything queued after it: the file holding the unredacted value goes first.
-                self.draft_queue.retain(|(queued, _)| !matches!(queued, DraftWrite::Append { rid: r, .. } | DraftWrite::Replace { rid: r, .. } if r == rid));
+                // A draft ack is best effort: a dropped write answers it as a written one does, never as a closed run.
+                for (queued, ack) in std::mem::take(&mut self.draft_queue) {
+                    if matches!(&queued, DraftWrite::Append { rid: r, .. } | DraftWrite::Replace { rid: r, .. } if r == rid) {
+                        if let Some(ack) = ack {
+                            let _ = ack.send(Ok(()));
+                        }
+                    } else {
+                        self.draft_queue.push_back((queued, ack));
+                    }
+                }
                 self.draft_queue.push_front((DraftWrite::Remove { rid: rid.clone() }, None));
                 // And nothing the run drafted before the mark is written after it.
                 self.outbox.drop_drafts(rid);

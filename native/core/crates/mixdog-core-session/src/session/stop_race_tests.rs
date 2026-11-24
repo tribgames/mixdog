@@ -1233,3 +1233,85 @@ async fn an_output_that_commits_after_the_stop_decided_does_not_take_the_hand_ba
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(rows(&handle).is_empty(), "the prompt left: {:?}", rows(&handle));
 }
+
+/// A Stop pressed before the turn's prompt row is saved: the run ends at once, while that save is still under way, and the prompt
+/// goes back to the composer. Once the row lands it leaves the transcript and the model context: the prompt handed back is not
+/// also kept in the session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_prompt_handed_back_before_its_row_is_saved_leaves_the_session() {
+    use mixdog_store::schema::record::RunPhase;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            // Stopped before its input is durable, it ends at once, as a cancelled admission does.
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let (saving, save) = rig.store.hold_record(|record| matches!(record, Record::Run(run) if run.phase == RunPhase::Started));
+    let started = {
+        let handle = handle.clone();
+        tokio::spawn(async move { start(&handle).await })
+    };
+    awaiting(|| "the prompt row's save".to_owned(), saving.notified()).await;
+    let turn = handle.cell.run.load_full().expect("the run").turn.clone();
+    let stopped = stop(&handle);
+    // The actor took the run's end while the row's save is held.
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.stop_latches.while_running(&handle.id, &turn, || ()).is_none().then_some(())).await;
+    save.send(()).expect("the save waits");
+    let reply = awaiting(|| "the Stop's reply".to_owned(), stopped).await.expect("stop task");
+    stop_answered(&reply, "draft", &["sub1"]);
+    awaiting(|| "the turn's start".to_owned(), started).await.expect("start task");
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    assert!(!rows(&handle).contains(&("user", "draft".to_owned())), "the prompt left the transcript: {:?}", rows(&handle));
+    let context = rig.store.model_context(&handle.id);
+    assert!(!context.iter().any(|(_, body)| body.get("role").and_then(Value::as_str) == Some("user")), "the prompt left the model context: {context:?}");
+}
+
+/// A codec that refuses every `work_stop` record, as a store that cannot take it would.
+struct RefusesStops;
+
+impl super::seams::RecordCodec for RefusesStops {
+    fn encode(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, record: &Record) -> Result<super::seams::EncodedRecord, CoreError> {
+        match record {
+            Record::WorkStop(_) => Err(CoreError::Internal { incident_id: "stop-refused".into() }),
+            _ => super::seams::RecordCodec::encode(&super::store::StoreCodec, lane, record),
+        }
+    }
+}
+
+/// A Stop pressed before the turn's prompt row is saved, its own record refused at its encode: the Stop answers its failure
+/// at once, and no write is acknowledged after the prompt row's. The run's end, parked behind that row's save, is taken in the
+/// step that makes the row durable, not whenever something else next wakes the session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_handed_back_turn_ends_in_the_step_its_prompt_row_lands() {
+    use mixdog_store::schema::record::RunPhase;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.codec = Arc::new(RefusesStops);
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let (saving, save) = rig.store.hold_record(|record| matches!(record, Record::Run(run) if run.phase == RunPhase::Started));
+    let started = {
+        let handle = handle.clone();
+        tokio::spawn(async move { start(&handle).await })
+    };
+    awaiting(|| "the prompt row's save".to_owned(), saving.notified()).await;
+    let turn = handle.cell.run.load_full().expect("the run").turn.clone();
+    let refused = awaiting(|| "the Stop's reply".to_owned(), stop_result(&handle)).await.expect("stop task");
+    let error = refused.expect_err("the Stop's record was refused");
+    assert!(format!("{error:?}").contains(super::actor::STOP_NOT_SAVED), "{error:?}");
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.stop_latches.while_running(&handle.id, &turn, || ()).is_none().then_some(())).await;
+    assert!(!idle(&handle), "the end waits for the prompt row's save");
+    save.send(()).expect("the save waits");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    awaiting(|| "the turn's start".to_owned(), started).await.expect("start task");
+}

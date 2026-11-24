@@ -53,7 +53,7 @@ use mixdog_ai::service::admin_route::Obj;
 
 const START: i64 = 1_772_359_200_000;
 
-struct FixedClock;
+pub(crate) struct FixedClock;
 impl Clock for FixedClock {
     fn now_ms(&self) -> i64 {
         START
@@ -78,7 +78,7 @@ fn numbers(v: &Value) -> Vec<usize> {
     v.as_array().map(|a| a.iter().filter_map(|n| n.as_u64().map(|n| n as usize)).collect()).unwrap_or_default()
 }
 
-fn turn_result(v: &Value) -> TurnResult {
+pub(crate) fn turn_result(v: &Value) -> TurnResult {
     TurnResult {
         content: v["content"].as_str().unwrap_or_default().to_owned(),
         report_content: v.get("reportContent").and_then(Value::as_str).map(str::to_owned),
@@ -1111,13 +1111,11 @@ async fn cancelling_a_job_that_has_not_started_closes_no_session() {
     starter
         .start_job("send", meta(), Default::default(), move |_, _| async move {
             began.notify_one();
-            std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await
+            std::future::pending::<NoResult>().await
         })
         .expect("started");
     running.notified().await;
-    let waiting = starter
-        .start_job("send", meta(), Default::default(), |_, _| async { Ok::<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>(None) })
-        .expect("started");
+    let waiting = starter.start_job("send", meta(), Default::default(), |_, _| async { NoResult::Ok(None) }).expect("started");
     admission.waiting.notified().await;
     rig.shared.board.cancel(waiting.task_id(), "user cancelled", CancelNotice::Default);
     admission.left.notified().await;
@@ -1139,9 +1137,7 @@ async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
     );
     let meta = JobMeta { tag: Some("kid".into()), session_id: Some("sess_c1".into()), ..JobMeta::default() };
     let start = StartContext { caller_session_id: Some("sess_w1".into()), ..StartContext::default() };
-    let handle = starter
-        .start_job("spawn", meta, start, |_, _| std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>())
-        .expect("started");
+    let handle = starter.start_job("spawn", meta, start, |_, _| std::future::pending::<NoResult>()).expect("started");
     settle().await;
     let registry = Reg(rig.shared.clone());
     let closer = Closer(rig.shared.clone());
@@ -1207,8 +1203,6 @@ async fn a_job_started_at_a_hop_completes_at_that_hop() {
     assert!(told.contains(&(hopped.task_id().to_owned(), 3)), "{told:?}");
     assert!(told.contains(&(plain.task_id().to_owned(), 0)), "{told:?}");
 }
-
-// 2026-03-01T10:00:00.000Z
 
 // ---- the flows with their world written out -----------------------------------------------------------------------------------
 
@@ -1302,8 +1296,7 @@ async fn a_send_to_an_idle_worker_runs_its_turn_as_a_job_and_tells_the_caller() 
     let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|t| t.task_id.clone()).expect("the send's job");
     let state = final_state(&rig, &id, false);
     assert_eq!((state["status"].as_str(), state["result"]["content"].as_str()), (Some("completed"), Some("sent")));
-    let asked = lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("the worker's turn ran");
-    assert_eq!(asked, "follow up");
+    assert_eq!(asked(&rig), "follow up");
 }
 
 #[tokio::test(start_paused = true)]
@@ -1316,8 +1309,7 @@ async fn waking_an_idle_worker_reveals_its_session_and_runs_a_turn_with_an_empty
     settle().await;
     settle().await;
     assert_eq!(*lock(&rig.shared.revealed), [json!("sess_w1")]);
-    let asked = lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("a turn ran");
-    assert_eq!(asked, "");
+    assert_eq!(asked(&rig), "");
     assert!(!rig.send.wake_idle_worker("").await, "no session, no wake");
 }
 

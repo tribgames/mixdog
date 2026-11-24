@@ -43,8 +43,6 @@ function useStudioMenuFontWarmup(
     } catch {
       /* font readiness stays cosmetic */
     }
-    // Warm once per mount; the label vocabulary is stable per lane set.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
 

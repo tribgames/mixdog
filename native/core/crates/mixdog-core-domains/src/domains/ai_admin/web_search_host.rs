@@ -2,9 +2,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
-use mixdog_ai::catalog::ProviderReadiness;
-use mixdog_ai::registry::providers::ProviderRegistry;
-use mixdog_ai::service::admin_route::ensure_provider_enabled;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::Config;
@@ -12,6 +9,7 @@ use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_tools::web::SearchHost;
 use serde_json::Value;
 
+use super::chain::{RouteFacts, RouteSender};
 use super::web_search_models::listed_row;
 
 pub struct RegistrySearchHost {
@@ -20,15 +18,14 @@ pub struct RegistrySearchHost {
     pub cells: Arc<dyn LiveRoute>,
     pub config: Config,
     pub catalog: Arc<CatalogService>,
-    pub readiness: Arc<ProviderReadiness>,
-    pub registry: Arc<ProviderRegistry>,
+    /// What a route's provider is: readied, and who sends on it.
+    pub facts: Arc<dyn RouteFacts>,
 }
 
 impl RegistrySearchHost {
     /// `ensureProvidersReady(ensureProviderEnabled(cfg, provider))`.
     async fn ready(&self, provider: &str) -> Result<(), String> {
-        let providers = ensure_provider_enabled(&self.config.agent(), provider);
-        self.readiness.ensure_providers_ready(Some(providers)).await.map(|_| ()).map_err(|error| error.message)
+        self.facts.ensure_ready(&self.config.agent(), provider).await
     }
 }
 
@@ -55,9 +52,14 @@ impl SearchHost for RegistrySearchHost {
         self.catalog.sync_meta(model, provider).map(Value::Object)
     }
 
+    /// A route an agent serves has no provider of Mixdog's to send a hosted search through: it is not there, as a
+    /// provider the registry does not hold is not.
     async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
         self.ready(provider).await?;
-        self.registry.try_get(provider).await.map_err(|error| error.message)
+        Ok(match self.facts.sender(None, provider).await? {
+            Some(RouteSender::Provider(adapter)) => Some(adapter),
+            Some(RouteSender::Agent(_)) | None => None,
+        })
     }
 
     /// A conversation's session id is its thread id (`TurnScope.caller_session_id`).

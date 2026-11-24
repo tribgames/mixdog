@@ -46,6 +46,12 @@ impl RouteContext for Main {
     async fn resolve_chain_entry(&self, _: &Obj, _: &Obj) -> Result<Obj, String> {
         Err("unused".into())
     }
+    async fn ensure_ready(&self, _: &str) -> Result<(), String> {
+        Err("unused".into())
+    }
+    async fn sender(&self, _: &str) -> Result<Option<mixdog_core_domains::domains::ai_admin::chain::RouteSender>, String> {
+        Err("unused".into())
+    }
 }
 
 /// Whose shells a close cancelled.

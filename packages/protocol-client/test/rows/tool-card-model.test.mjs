@@ -28,6 +28,16 @@ for (const { id, input, options } of GOLDEN_CASES) {
   });
 }
 
+test('a finished card whose result yields no summary shows the result’s first line', () => {
+  const card = (name, args, result) => deriveToolCardModel({ name, args, result, nowMs: 20000 });
+  const fetched = card('web_fetch', { url: 'https://example.com/a' }, 'Example Domain\nThis domain is for use.');
+  assert.equal(fetched.resultSummary, null);
+  assert.equal(fetched.detailLine, 'Example Domain');
+  const graphed = card('code_graph', { mode: 'symbols' }, 'fn main (L1-3)\nfn other (L5-9)');
+  assert.equal(graphed.resultSummary, null);
+  assert.equal(graphed.detailLine, 'fn main (L1-3)');
+});
+
 test('golden file covers exactly the case list', () => {
   assert.deepEqual(Object.keys(golden).sort(), GOLDEN_CASES.map((c) => c.id).sort());
 });

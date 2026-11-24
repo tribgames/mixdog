@@ -101,8 +101,16 @@ export function ConnDialog({
         if (scrimCloses) scrimRef.current();
       })}
     >
+      {/* Marked nested: inside Settings, Escape is this dialog's (its listener above), not Settings'. */}
       {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the role is dialog or alertdialog, both of which take aria-modal */}
-      <section ref={ref} className="conn-dialog" role={role} aria-modal="true" aria-labelledby={`${id}-title`}>
+      <section
+        ref={ref}
+        className="conn-dialog"
+        role={role}
+        aria-modal="true"
+        aria-labelledby={`${id}-title`}
+        data-settings-nested-dialog
+      >
         <header>
           <h3 id={`${id}-title`}>{title}</h3>
           {description && <p>{description}</p>}

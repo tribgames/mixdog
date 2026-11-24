@@ -15,10 +15,9 @@ use crate::transport::session::TransportSession;
 pub const MAX_CLIENTS: usize = 64;
 const HOST_NAME_MAX: usize = 80;
 
-/// The capability of an authenticated phone to be sent media, owned by the client table: once an unpair (or an admission under one)
-/// sets it, it never clears, and every holder sees it. A media request and a direct-transport stream take it together with the
-/// media key and the device, before they spawn or wait, so a task delayed past the unpair holds the revoked one and cannot obtain a
-/// fresh one.
+/// The capability of an authenticated phone to be sent media, owned by the client table: once an unpair sets it, it never clears,
+/// and every holder sees it. A media request and a direct-transport stream take it together with the media key and the device,
+/// before they spawn or wait, so a task delayed past the unpair holds the revoked one and cannot obtain a fresh one.
 ///
 /// Guarantee: no new delivery is committed after [`revoke`](Self::revoke) returns; bytes already committed to a transport may
 /// still arrive. [`commit`](Self::commit) is the one step that tests the state and runs the delivery, serialized against `revoke`.
@@ -97,7 +96,7 @@ struct Client {
     /// client names the generation it was made for (see [`ClientTable::close_in`]).
     generation: u64,
     credential_id: String,
-    /// Refused the screen and media for its lifetime (live at an unpair, or admitted while one was in force); it keeps its credential.
+    /// Refused the screen and media for its lifetime (live at an unpair); it keeps its credential.
     revocation: Revocation,
     challenge: Challenge,
     link: Link,
@@ -234,8 +233,8 @@ impl ClientTable {
         self.clients.get(client_id).map(|c| c.credential_id.as_str())
     }
 
-    /// Marks every client attached with `credential_id` (a revoked pairing) screen-revoked for its lifetime. They stay attached under
-    /// the credential, as Node leaves them (it closes none itself: the relay does, once it removed the pairing). Returns their ids.
+    /// Marks every client attached with `credential_id` (a revoked pairing) screen-revoked for its lifetime; they stay attached under
+    /// the credential until the caller closes them. Returns their ids.
     pub fn revoke(&mut self, credential_id: &str) -> Vec<(String, u64)> {
         let mut ids = Vec::new();
         for (id, client) in &mut self.clients {
@@ -245,13 +244,6 @@ impl ClientTable {
             }
         }
         ids
-    }
-
-    /// A client admitted while its credential's unpair is in force is revoked from the start.
-    pub fn revoke_client(&mut self, client_id: &str) {
-        if let Some(client) = self.clients.get(client_id) {
-            client.revocation.revoke();
-        }
     }
 
     pub fn screen_revoked(&self, client_id: &str) -> bool {
@@ -390,8 +382,7 @@ mod tests {
     use super::*;
 
     /// The capability is taken with the key and the device, and an unpair sets the very one that was handed out: a request that took
-    /// its grant before holds it revoked, one after gets none, a client admitted under an unpair in force gets none, and another
-    /// credential's capability is untouched.
+    /// its grant before holds it revoked, one after gets none, and another credential's capability is untouched.
     #[test]
     fn an_unpair_revokes_the_capability_already_taken_and_refuses_a_new_grant() {
         let mut table = ClientTable::default();
@@ -419,11 +410,6 @@ mod tests {
         assert!(table.media_grant(&challenges[0]).is_none() && table.media_grant(&challenges[2]).is_none(), "no fresh grant after it");
         assert!(table.revocation_of("c1").unwrap().is_revoked());
         assert!(!other.revocation.is_revoked() && table.media_grant(&challenges[1]).is_some(), "another credential is untouched");
-        // A client admitted while the unpair is in force is revoked from the start.
-        let late = table.open("c4", "cred-a", &[]).map(|_| table.challenge_of("c4").unwrap()).unwrap();
-        table.clients.get_mut("c4").unwrap().media_key = Some([9; 32]);
-        table.revoke_client("c4");
-        assert!(table.media_grant(&late).is_none());
         assert!(table.media_grant("no-such-session").is_none());
     }
 

@@ -22,7 +22,13 @@ use crate::pins::owner_of;
 const HOME: &str = "/home/tester";
 const USER_FILE: &str = "/home/tester/.ssh/known_hosts";
 const GLOBAL_FILE: &str = "/etc/ssh/ssh_known_hosts";
-const DUMP: &str = "user root\nhostname 10.0.0.1\nport 22\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile /etc/ssh/ssh_known_hosts\n";
+const DUMP: &str = "user root\nhostname 10.0.0.1\nport 22\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile /etc/ssh/ssh_known_hosts\nhostkeyalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256\n";
+
+/// The dump with its `hostkeyalgorithms` line replaced, as `ssh -G` prints each setting once (the first line of a key wins).
+fn dump_with_algorithms(list: &str) -> String {
+    let kept: String = DUMP.lines().filter(|line| !line.starts_with("hostkeyalgorithms ")).map(|line| format!("{line}\n")).collect();
+    format!("{kept}hostkeyalgorithms {list}\n")
+}
 
 fn key_of(label: &str) -> String {
     STANDARD.encode(format!("key-{label}"))
@@ -212,6 +218,35 @@ fn quiet() -> Arc<Tools> {
     Tools::new(|_, _| out("", ""))
 }
 
+/// A Windows PC whose folders are in `state` (`private`, `broad`, `link`, `owner`) for the owner and access list check; `icacls`
+/// makes a `broad` one `private`.
+fn windows_tools(state: &'static str) -> Arc<Tools> {
+    let locked = std::sync::atomic::AtomicBool::new(false);
+    Tools::new(move |name, args| {
+        if name == "icacls" {
+            locked.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if name == "powershell" && args.last().is_some_and(|script| script.contains("GetOwner")) {
+            let now = if state == "broad" && locked.load(std::sync::atomic::Ordering::SeqCst) { "private" } else { state };
+            return out(&format!("{now} S-1-5-21-1\n"), "");
+        }
+        out("", "")
+    })
+}
+
+fn private_tools() -> Arc<Tools> {
+    windows_tools("private")
+}
+
+fn access_denied() -> io::Result<ToolOutput> {
+    Ok(ToolOutput { exit_code: Some(5), stdout: String::new(), stderr: "Access is denied.".into() })
+}
+
+/// A Windows PC whose folders are too broad and whose `icacls` is refused.
+fn untightenable_tools() -> Arc<Tools> {
+    Tools::new(|name, _| if name == "powershell" { out("broad S-1-5-21-1\n", "") } else { access_denied() })
+}
+
 // ---- key lines, ssh -G ----
 
 #[test]
@@ -301,7 +336,7 @@ async fn an_unknown_server_shows_the_key_ssh_would_negotiate_first_and_offers_it
     assert_eq!(tools.calls()[0][..2], ["ssh".to_owned(), "-G".to_owned()]);
     // HostKeyAlgorithms from the user's config decides which key is shown and pinned.
     let rsa_first = Network {
-        dump: format!("{DUMP}hostkeyalgorithms rsa-sha2-512,ssh-ed25519\n"),
+        dump: dump_with_algorithms("rsa-sha2-512,ssh-ed25519"),
         scan: format!("{}10.0.0.1 ssh-rsa {}\n", ed("ed"), key_of("rsa")),
         ..Network::default()
     };
@@ -374,6 +409,89 @@ async fn a_changed_key_shows_both_fingerprints_the_exact_ssh_keygen_r_command_an
     assert_eq!(system.replace, None);
 }
 
+fn rsa(label: &str) -> String {
+    format!("10.0.0.1 ssh-rsa {}\n", key_of(label))
+}
+
+/// A ProxyCommand server whose scan answers with the key of the first algorithm it is asked for, as a server holding an RSA and an
+/// ed25519 key does.
+fn proxied_tools(dump: String) -> Arc<Tools> {
+    Tools::new(move |name, args| {
+        if name == "ssh" && args.iter().any(|arg| arg == "-F") {
+            let known = PathBuf::from(&args[args.iter().position(|arg| arg == "-F").unwrap_or(0) + 1]).with_file_name("known_hosts");
+            let first = args.iter().find_map(|arg| arg.strip_prefix("HostKeyAlgorithms=")).and_then(|list| list.split(',').next()).unwrap_or("ssh-ed25519");
+            let key = if first.contains("rsa") { rsa("old") } else { ed("other") };
+            mixdog_fsio::write(&mixdog_fsio::Unlaned, known, key)?;
+            return out("", "");
+        }
+        out(&format!("{dump}proxycommand nc -X 5 -x proxy:1080 10.0.0.1 22\n"), "")
+    })
+}
+
+fn proxied_env(folder: &Path, trusted: &str, tools: Arc<Tools>) -> SshEnv {
+    env_with(Platform::Linux, &[("TMPDIR", folder.to_str().expect("a path"))], MemFiles::with(&[(USER_FILE, trusted.to_owned())]), tools)
+}
+
+#[tokio::test]
+async fn a_proxied_host_is_read_asking_for_the_key_types_the_user_trusts_so_an_unchanged_rsa_key_is_not_a_changed_key() {
+    let folder = temp();
+    // The realistic dump: ssh -G always prints the whole effective list, ed25519 first.
+    let tools = proxied_tools(DUMP.to_owned());
+    let result = inspect("root@10.0.0.1", &proxied_env(folder.path(), &rsa("old"), tools.clone()), None).await;
+    assert_eq!(result.check, HostKeyCheck::Trusted { authority: None, hops: None });
+    let asked = scan_calls(&tools).concat().into_iter().find(|arg| arg.starts_with("HostKeyAlgorithms=")).expect("the algorithms are asked for");
+    assert!(
+        asked.starts_with("HostKeyAlgorithms=rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-256,ssh-ed25519-cert"),
+        "{asked}"
+    );
+    assert!(!asked.contains('^'), "an explicit list, valid for every OpenSSH version");
+}
+
+#[tokio::test]
+async fn a_list_the_user_fixed_is_only_reordered_for_the_proxied_read_never_widened() {
+    let folder = temp();
+    let fixed = dump_with_algorithms("ssh-ed25519,rsa-sha2-512");
+    let tools = proxied_tools(fixed);
+    inspect("root@10.0.0.1", &proxied_env(folder.path(), &rsa("old"), tools.clone()), None).await;
+    let asked = |tools: &Tools| scan_calls(tools).concat().into_iter().find(|arg| arg.starts_with("HostKeyAlgorithms=")).expect("asked");
+    assert_eq!(asked(&tools), "HostKeyAlgorithms=rsa-sha2-512,ssh-ed25519");
+    let only_ed = proxied_tools(dump_with_algorithms("ssh-ed25519"));
+    inspect("root@10.0.0.1", &proxied_env(folder.path(), &rsa("old"), only_ed.clone()), None).await;
+    assert_eq!(asked(&only_ed), "HostKeyAlgorithms=ssh-ed25519", "a type the user's config excludes is not added");
+}
+
+#[tokio::test]
+async fn a_pin_mixdog_wrote_is_replaceable_in_the_app_by_a_key_of_another_type() {
+    let (_folder, configured) = configured_own().await;
+    let own_file = normalized(configured.known_hosts_file());
+    let managed = format!("{}\n", claim_of("ops@other", "10.0.0.1", "ssh-rsa", "old").line());
+    mixdog_fsio::write(&mixdog_fsio::Unlaned, configured.known_hosts_file(), &managed).expect("written");
+    let network = Network::plain(&ed("new"));
+    let env = linux(MemFiles::with(&[(own_file.as_str(), managed)]), Tools::new(network.script()));
+    let result = inspect("root@10.0.0.1", &env, Some(&configured)).await;
+    assert!(matches!(&result.check, HostKeyCheck::Changed { replaceable: true, .. }), "{:?}", result.check);
+    replace_host_key(&result).await.expect("replaced");
+    let after = text(configured.known_hosts_file());
+    assert!(after.contains(&format!("ssh-ed25519 {}", key_of("new"))) && !after.contains("ssh-rsa"), "{after}");
+}
+
+#[tokio::test]
+async fn a_key_of_a_type_the_user_never_trusted_or_a_rotated_key_beside_an_unchanged_one_is_a_changed_key() {
+    // Known: ssh-rsa only; the host now presents ed25519 only.
+    let only_ed = Network::plain(&ed("new"));
+    let result = inspect("root@10.0.0.1", &linux(MemFiles::with(&[(USER_FILE, rsa("old"))]), Tools::new(only_ed.script())), None).await;
+    assert!(matches!(result.check, HostKeyCheck::Changed { .. }), "{:?}", result.check);
+    // Known: ed25519 and rsa; only ed25519 rotated. ssh negotiates ed25519, so the unchanged rsa key must not make it trusted.
+    let both = Network::plain(&format!("{}{}", ed("new"), rsa("old")));
+    let known = format!("{}{}", ed("old"), rsa("old"));
+    let result = inspect("root@10.0.0.1", &linux(MemFiles::with(&[(USER_FILE, known)]), Tools::new(both.script())), None).await;
+    assert!(
+        matches!(&result.check, HostKeyCheck::Changed { previous, current, .. } if *previous == fingerprint_of("old") && *current == fingerprint_of("new")),
+        "{:?}",
+        result.check
+    );
+}
+
 #[tokio::test]
 async fn a_revoked_key_is_refused_and_a_certificate_authority_is_shown_not_pinned() {
     let network = Network::plain(&ed("ed"));
@@ -424,11 +542,7 @@ fn bastion_line() -> String {
 
 /// The jump-host PC: `ssh -G` per destination, ssh-keyscan of the bastion, and a through-the-proxy read whose
 /// throwaway known_hosts receives the target's key (what ssh does with StrictHostKeyChecking=no) unless it is blocked.
-fn jump_network(blocked: bool) -> Arc<Tools> {
-    let dumps = BTreeMap::from([
-        ("jump-target".to_owned(), "hostname 10.1.0.5\nport 22\nuserknownhostsfile ~/.ssh/known_hosts\nproxyjump ops@bastion.example.com:2200\n".to_owned()),
-        ("ops@bastion.example.com".to_owned(), "hostname bastion.example.com\nport 2200\nuserknownhostsfile ~/.ssh/known_hosts\n".to_owned()),
-    ]);
+fn jump_tools(dumps: BTreeMap<String, String>, blocked: bool) -> Arc<Tools> {
     Tools::new(move |name, args| {
         if name == "ssh-keyscan" {
             return out(&format!("{}\n", bastion_line()), "");
@@ -444,6 +558,14 @@ fn jump_network(blocked: bool) -> Arc<Tools> {
         mixdog_fsio::write(&mixdog_fsio::Unlaned, &known, format!("{seeded}10.1.0.5 ssh-ed25519 {}\n", key_of("target")))?;
         out("", "")
     })
+}
+
+fn jump_network(blocked: bool) -> Arc<Tools> {
+    let dumps = BTreeMap::from([
+        ("jump-target".to_owned(), "hostname 10.1.0.5\nport 22\nuserknownhostsfile ~/.ssh/known_hosts\nproxyjump ops@bastion.example.com:2200\n".to_owned()),
+        ("ops@bastion.example.com".to_owned(), "hostname bastion.example.com\nport 2200\nuserknownhostsfile ~/.ssh/known_hosts\n".to_owned()),
+    ]);
+    jump_tools(dumps, blocked)
 }
 
 fn scan_calls(tools: &Tools) -> Vec<Vec<String>> {
@@ -517,18 +639,7 @@ async fn a_revocation_added_to_a_jump_hosts_own_system_wide_file_after_the_revie
             format!("hostname bastion.example.com\nport 2200\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile {hop_global}\n"),
         ),
     ]);
-    let tools = Tools::new(move |name, args| {
-        if name == "ssh-keyscan" {
-            return out(&format!("{}\n", bastion_line()), "");
-        }
-        let Some(config) = args.iter().position(|arg| arg == "-F").map(|at| PathBuf::from(&args[at + 1])) else {
-            return out(dumps.get(args.last().map_or("", String::as_str)).map_or("", String::as_str), "");
-        };
-        let known = config.with_file_name("known_hosts");
-        let seeded = String::from_utf8_lossy(&mixdog_fsio::read(&mixdog_fsio::Unlaned, &known)?).into_owned();
-        mixdog_fsio::write(&mixdog_fsio::Unlaned, &known, format!("{seeded}10.1.0.5 ssh-ed25519 {}\n", key_of("target")))?;
-        out("", "")
-    });
+    let tools = jump_tools(dumps, false);
     let (data, scans) = (path("data"), path("scans"));
     std::fs::create_dir_all(&scans).expect("a folder");
     let mut env = on_disk(&[("MIXDOG_DATA_DIR", data.as_str()), ("TMPDIR", scans.as_str())], tools);
@@ -561,18 +672,7 @@ async fn a_file_only_the_jump_hosts_ssh_reads_neither_trusts_nor_refuses_the_tar
             format!("hostname bastion.example.com\nport 2200\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile {hop_global}\n"),
         ),
     ]);
-    let tools = Tools::new(move |name, args| {
-        if name == "ssh-keyscan" {
-            return out(&format!("{}\n", bastion_line()), "");
-        }
-        let Some(config) = args.iter().position(|arg| arg == "-F").map(|at| PathBuf::from(&args[at + 1])) else {
-            return out(dumps.get(args.last().map_or("", String::as_str)).map_or("", String::as_str), "");
-        };
-        let known = config.with_file_name("known_hosts");
-        let seeded = String::from_utf8_lossy(&mixdog_fsio::read(&mixdog_fsio::Unlaned, &known)?).into_owned();
-        mixdog_fsio::write(&mixdog_fsio::Unlaned, &known, format!("{seeded}10.1.0.5 ssh-ed25519 {}\n", key_of("target")))?;
-        out("", "")
-    });
+    let tools = jump_tools(dumps, false);
     let (data, scans) = (path("data"), path("scans"));
     std::fs::create_dir_all(&scans).expect("a folder");
     let mut env = on_disk(&[("MIXDOG_DATA_DIR", data.as_str()), ("TMPDIR", scans.as_str())], tools);
@@ -642,11 +742,12 @@ async fn the_proxy_read_switches_the_login_off_for_the_server_being_read_only_an
     let env = on_disk(&[("TMPDIR", folder.path().to_str().expect("a path"))], tools);
     let ctx = AttemptContext::default();
     let target = parse_ssh_target("jump-target").expect("a target");
-    let scope = ScanScope { via: Some(vec!["ops@bastion:2200".into()]), open: "10.1.0.5".into(), trusted: Some("bastion ssh-ed25519 AAAA".into()) };
+    let scope =
+        ScanScope { via: Some(vec!["ops@bastion:2200".into()]), open: "10.1.0.5".into(), trusted: Some("bastion ssh-ed25519 AAAA".into()), algorithms: None };
     scan_through_ssh(&env, &ctx, &target, &scope).await.expect("a scan");
-    let behind = ScanScope { via: None, open: "*".into(), trusted: None };
+    let behind = ScanScope { via: None, open: "*".into(), trusted: None, algorithms: None };
     scan_through_ssh(&env, &ctx, &parse_ssh_target("behind-command").expect("a target"), &behind).await.expect("a scan");
-    let refused = ScanScope { via: None, open: "a\"b".into(), trusted: None };
+    let refused = ScanScope { via: None, open: "a\"b".into(), trusted: None, algorithms: None };
     let failure = scan_through_ssh(&env, &ctx, &target, &refused).await.expect_err("refused");
     assert!(failure.message.contains("cannot be read through a proxy"));
 
@@ -783,19 +884,26 @@ async fn replacing_a_key_rewrites_its_pin_in_place_and_keeps_its_mark() {
 async fn the_jump_host_key_scan_runs_from_a_folder_without_spaces_a_windows_temp_folder_with_spaces_falls_back_to_a_locked_down_programdata_folder() {
     let folder = temp();
     let program_data = folder.path().to_str().expect("a path").to_owned();
-    let tools = quiet();
+    let tools = windows_tools("broad");
     let vars = [("ProgramData", program_data.as_str()), ("TMP", "C:\\Users\\John Doe\\AppData\\Local\\Temp"), ("USERNAME", "John Doe")];
     let env = env_with(Platform::Windows, &vars, MemFiles::with(&[]), tools.clone());
     let dir = private_scan_dir(&env).await.expect("a folder");
     assert!(dir.starts_with(Path::new(&program_data).join("mixdog-ssh-scan-John_Doe")));
     assert!(!dir.to_string_lossy()[program_data.len()..].contains(char::is_whitespace));
-    // The shared parent is locked first, then the random folder, before anything is written into it.
-    let lock =
-        |path: &Path| vec!["icacls".to_owned(), path.to_string_lossy().into_owned(), "/inheritance:r".into(), "/grant:r".into(), "John Doe:(OI)(CI)F".into()];
-    assert_eq!(tools.calls(), vec![lock(dir.parent().expect("a parent")), lock(&dir)]);
-    let denied = Tools::new(|_, _| Ok(ToolOutput { exit_code: Some(5), stdout: String::new(), stderr: "Access is denied.".into() }));
+    // Only the shared parent is proven and locked: the random folder inside it inherits its access list.
+    let lock = |path: &Path| {
+        vec!["icacls".to_owned(), path.to_string_lossy().into_owned(), "/L".into(), "/inheritance:r".into(), "/grant:r".into(), "*S-1-5-21-1:(OI)(CI)F".into()]
+    };
+    assert_eq!(tools.named("icacls"), vec![lock(dir.parent().expect("a parent"))]);
+    let denied = Tools::new(|_, _| access_denied());
     let refused = env_with(Platform::Windows, &vars, MemFiles::with(&[]), denied);
-    assert!(private_scan_dir(&refused).await.expect_err("locked out").to_string().contains("Access is denied"));
+    // The refusal names the folder and the cause: here the check itself was refused.
+    let message = private_scan_dir(&refused).await.expect_err("locked out").to_string();
+    assert!(message.contains("mixdog-ssh-scan-John_Doe") && message.contains("could not be read") && message.contains("Access is denied"), "{message}");
+    // A too broad folder whose tightening is refused names the folder and the cause as well.
+    let message =
+        private_scan_dir(&env_with(Platform::Windows, &vars, MemFiles::with(&[]), untightenable_tools())).await.expect_err("not tightened").to_string();
+    assert!(message.contains("mixdog-ssh-scan-John_Doe") && message.contains("could not be restricted") && message.contains("Access is denied"), "{message}");
 }
 
 #[tokio::test]
@@ -944,7 +1052,7 @@ async fn legacy_import_does_not_create_the_old_folder_it_looks_for() {
     let folder = temp();
     let data = folder.path().join("data");
     let vars = [("MIXDOG_DATA_DIR", data.to_str().expect("a path")), ("USERNAME", "jdoe")];
-    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), quiet());
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), private_tools());
     let configured = MixdogSshConfig::configure(&env).await.expect("configured");
     // A path with a space is resolved through the 8.3 form, which needs the folder: it is not made for a read.
     let absent = folder.path().join("old desktop data");
@@ -962,36 +1070,51 @@ async fn configure_merges_the_desktops_known_hosts_when_its_folder_is_named() {
 }
 
 #[tokio::test]
-async fn the_ssh_folder_is_locked_to_the_user_once_and_a_later_start_runs_no_icacls() {
+async fn a_shared_ssh_folder_is_proven_in_one_process_at_every_start_and_tightened_only_when_merely_too_broad() {
     let folder = temp();
     let data = folder.path().to_str().expect("a path").to_owned();
     let vars = [("MIXDOG_DATA_DIR", data.as_str()), ("USERNAME", "jdoe")];
-    let first = quiet();
+    let first = windows_tools("broad");
     let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), first.clone());
     MixdogSshConfig::configure(&env).await.expect("configured");
-    assert_eq!(first.named("icacls").len(), 1, "the folder is locked at the first start");
-    let second = quiet();
+    assert_eq!(first.named("icacls").len(), 1, "a folder that is too broad is tightened");
+    let second = private_tools();
     let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), second.clone());
     MixdogSshConfig::configure(&env).await.expect("configured");
-    assert!(second.named("icacls").is_empty(), "a folder already locked to this user is not locked again");
-    // Another account is another lock.
-    let other = quiet();
-    let vars = [("MIXDOG_DATA_DIR", data.as_str()), ("USERNAME", "someone")];
-    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), other.clone());
-    MixdogSshConfig::configure(&env).await.expect("configured");
-    assert_eq!(other.named("icacls").len(), 1);
+    assert!(second.named("icacls").is_empty(), "a folder that passes the check is not locked again");
+    assert_eq!(second.named("powershell").len(), 1, "and it is checked at this start too, in one process");
 }
 
 #[tokio::test]
-async fn a_failed_lock_leaves_no_marker_so_the_next_start_tries_again() {
+async fn a_link_or_a_folder_of_another_account_is_refused_untouched_whatever_marker_it_holds() {
     let folder = temp();
     let data = folder.path().to_str().expect("a path").to_owned();
+    let ssh = folder.path().join("ssh");
+    std::fs::create_dir_all(&ssh).expect("a folder");
+    std::fs::write(ssh.join(".locked-to-user"), "jdoe").expect("a planted marker");
+    std::fs::write(ssh.join("config"), "Host *\n  ProxyCommand calc\n").expect("a planted config");
     let vars = [("MIXDOG_DATA_DIR", data.as_str()), ("USERNAME", "jdoe")];
-    let denied = Tools::new(|_, _| Ok(ToolOutput { exit_code: Some(5), stdout: String::new(), stderr: "Access is denied.".into() }));
-    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), denied);
+    for state in ["link", "owner"] {
+        let tools = windows_tools(state);
+        let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), tools.clone());
+        let refused = MixdogSshConfig::configure(&env).await.err().expect("refused");
+        assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied, "{state}");
+        assert!(tools.named("icacls").is_empty(), "{state}: nothing is tightened, so nothing behind a link is touched");
+        assert_eq!(text(&ssh.join("config")), "Host *\n  ProxyCommand calc\n", "{state}: nothing was published into it");
+    }
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), untightenable_tools());
     assert!(MixdogSshConfig::configure(&env).await.is_err());
-    let again = quiet();
-    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), again.clone());
+}
+
+#[tokio::test]
+async fn a_folder_inside_the_users_profile_is_not_asked_for_proof() {
+    let folder = temp();
+    let home = folder.path().join("home");
+    let data = home.join("data");
+    let vars = [("MIXDOG_DATA_DIR", data.to_str().expect("a path")), ("USERNAME", "jdoe")];
+    let tools = quiet();
+    let mut env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), tools.clone());
+    env.home = home;
     MixdogSshConfig::configure(&env).await.expect("configured");
-    assert_eq!(again.named("icacls").len(), 1);
+    assert_eq!(tools.named("powershell").len() + tools.named("icacls").len(), 0);
 }

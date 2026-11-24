@@ -353,10 +353,6 @@ pub fn line_rect_at(grid: &Grid, y: i32) -> Option<CellSpan> {
 pub struct PaintPublish {
     /// The rectangle to hand to the renderer (`None` clears the highlight).
     pub rect: Option<SelectionRect>,
-    /// Read the selected text after the frame that paints it.
-    pub remember_text: bool,
-    /// Harvest the rows of the selection for stitching.
-    pub harvest_stitch: bool,
 }
 
 /// What a throttled paint request comes to.
@@ -403,21 +399,19 @@ impl PaintQueue {
     }
 
     /// `publishSelectionRect`: publishes `rect` (or the clear). Returns what the renderer is to do, `None` when the
-    /// rectangle is the published one and no text capture is wanted.
-    pub fn publish(&mut self, rect: Option<SelectionRect>, remember_text: bool, now_ms: u64) -> Option<PaintPublish> {
-        let captures = rect.as_ref().is_some_and(|r| remember_text && r.capture_text);
+    /// rectangle is the published one.
+    pub fn publish(&mut self, rect: Option<SelectionRect>, now_ms: u64) -> Option<PaintPublish> {
         let equal = match (&self.rect, &rect) {
             (None, None) => true,
             (Some(a), Some(b)) => a.same_region(b),
             _ => false,
         };
         if equal {
-            return captures.then_some(PaintPublish { rect, remember_text: true, harvest_stitch: true });
+            return None;
         }
         self.rect.clone_from(&rect);
         self.painted_at = Some(now_ms);
-        let harvest_stitch = rect.is_some();
-        Some(PaintPublish { rect, remember_text: captures, harvest_stitch })
+        Some(PaintPublish { rect })
     }
 
     /// `cancelPendingPaint`: drops the waiting rectangle and the timer, before any direct paint, so a stale rectangle
@@ -427,7 +421,7 @@ impl PaintQueue {
         self.pending = None;
     }
 
-    /// `flushPendingPaint`: publishes a waiting rectangle now (without reading its text), so the next frame carries
+    /// `flushPendingPaint`: publishes a waiting rectangle now, so the next frame carries
     /// the newest rectangle of a fast drag.
     pub fn flush_pending(&mut self, now_ms: u64) -> Option<PaintPublish> {
         if !self.timer_armed && self.pending.is_none() {
@@ -435,7 +429,7 @@ impl PaintQueue {
         }
         let pending = self.pending.take();
         self.timer_armed = false;
-        pending.and_then(|rect| self.publish(Some(rect), false, now_ms))
+        pending.and_then(|rect| self.publish(Some(rect), now_ms))
     }
 
     /// `scheduleThrottledPaint`: paints now when the interval has passed since the last paint, otherwise keeps the
@@ -452,7 +446,7 @@ impl PaintQueue {
         let elapsed = self.painted_at.map_or(u64::MAX, |at| now_ms.saturating_sub(at));
         if elapsed >= self.interval_ms {
             self.cancel_pending();
-            return Throttle::Paint(self.publish(rect, false, now_ms));
+            return Throttle::Paint(self.publish(rect, now_ms));
         }
         self.pending = rect;
         if self.timer_armed {
@@ -466,7 +460,7 @@ impl PaintQueue {
     pub fn fire_timer(&mut self, now_ms: u64) -> Option<PaintPublish> {
         let pending = self.pending.take();
         self.timer_armed = false;
-        self.publish(pending, false, now_ms)
+        self.publish(pending, now_ms)
     }
 }
 
@@ -637,17 +631,14 @@ mod tests {
         let b = rect(SelectionMode::Linear, 0, 0, 6, 0);
         let c = rect(SelectionMode::Linear, 0, 0, 7, 0);
         let mut queue = PaintQueue::default();
-        let first = queue.publish(Some(a), true, 100).unwrap();
-        assert!(first.remember_text && first.harvest_stitch);
-        assert_eq!(queue.publish(Some(a), false, 101), None);
-        assert!(queue.publish(Some(a), true, 102).is_some_and(|p| p.remember_text && p.harvest_stitch));
+        assert_eq!(queue.publish(Some(a), 100).map(|p| p.rect), Some(Some(a)));
+        assert_eq!(queue.publish(Some(a), 101), None);
         // Inside the interval the rectangle waits for the trailing timer; a later one replaces it.
         assert_eq!(queue.schedule_throttled(Some(b), 110), Throttle::Wait(Some(14)));
         assert_eq!(queue.schedule_throttled(Some(c), 112), Throttle::Wait(None));
         assert_eq!(queue.schedule_throttled(Some(a), 113), Throttle::Unchanged);
         let fired = queue.fire_timer(124).unwrap();
         assert_eq!(fired.rect, Some(c));
-        assert!(!fired.remember_text && fired.harvest_stitch);
         assert!(!queue.timer_armed());
         // After the interval the paint is direct and drops anything waiting.
         queue.schedule_throttled(Some(b), 130);

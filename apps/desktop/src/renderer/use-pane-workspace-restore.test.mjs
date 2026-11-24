@@ -15,6 +15,8 @@ const { usePaneWorkspaceState } = await import('./use-pane-workspace-restore.ts'
 const { navigationKey } = await import('./text-format.ts');
 const { useSessionCatalog } = await import('./app-session-catalog.ts');
 const { useAppSessionActivity } = await import('./app-root/use-app-session-activity.ts');
+const { useAppSessionActions } = await import('./use-app-session-actions.ts');
+const { closeSessionPaneTabs } = await import('./session-tab-cleanup.ts');
 const { BOT_DELETED_EVENT } = await import('./agent-profile-actions.ts');
 const { filterPaneLayoutSessions, paneLeaves } = await import('./pane-layout.ts');
 
@@ -112,32 +114,57 @@ function bridge({ file = null, catalog = SESSIONS, sections = false, pool } = {}
   return { api, calls };
 }
 
-/** The session lifecycle beside the restore, as the app wires them: the real catalog hook feeds the real activity hook,
- *  whose pane close takes the session's tabs out of the pane tree. */
+/** The session lifecycle beside the restore, as the app wires them: the real catalog hook feeds the real activity hook
+ *  and, with its removal notices, the real session actions; their pane close takes the session's tabs out of the pane tree. */
 function useLifecycle(workspace) {
   const catalog = useSessionCatalog(() => {});
-  const [, setTabs] = React.useState([]);
+  const [tabs, setTabs] = React.useState([]);
+  const closePaneTab = (key) =>
+    workspace.setState((prev) => {
+      const keep = new Set(
+        paneLeaves(prev.layout).flatMap((node) =>
+          node.tabs.flatMap((tab) => (tab.kind === 'session' && navigationKey(tab) !== key ? [tab.id] : []))
+        )
+      );
+      const layout = filterPaneLayoutSessions(prev.layout, keep);
+      if (layout === prev.layout || !layout) return prev;
+      const leaves = paneLeaves(layout);
+      return {
+        layout,
+        focusedLeafId: leaves.some((node) => node.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
+      };
+    });
   useAppSessionActivity({
     sessions: catalog.sessions,
     setTabs,
     refreshSessions: catalog.refreshSessions,
     setSessionCatalogReady() {},
+    closePaneTab,
+  });
+  useAppSessionActions({
+    sessions: catalog.sessions,
+    setSessions: catalog.setSessions,
+    tabs,
+    setTabs,
+    setError() {},
+    refreshSessions: catalog.refreshSessions,
+    pendingRenames: catalog.pendingRenames,
+    pendingArchives: catalog.pendingArchives,
+    pendingDeletes: catalog.pendingDeletes,
+    invalidateSessionListings: catalog.invalidateInFlight,
+    applySnapshot() {},
+    activateSelection() {},
+    onSessionDeleted() {},
+    closeSessionTabs: (id) => closeSessionPaneTabs(id, [], '', tabs, setTabs, closePaneTab),
+    openSession() {},
+    navigationEpoch: React.useRef(0),
+    setRequestedSessionId() {},
     subscribeSessionsRemoved: catalog.subscribeRemoved,
-    closePaneTab: (key) =>
-      workspace.setState((prev) => {
-        const keep = new Set(
-          paneLeaves(prev.layout).flatMap((node) =>
-            node.tabs.flatMap((tab) => (tab.kind === 'session' && navigationKey(tab) !== key ? [tab.id] : []))
-          )
-        );
-        const layout = filterPaneLayoutSessions(prev.layout, keep);
-        if (layout === prev.layout || !layout) return prev;
-        const leaves = paneLeaves(layout);
-        return {
-          layout,
-          focusedLeafId: leaves.some((node) => node.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
-        };
-      }),
+    selectionRef: React.useRef({ kind: 'new' }),
+    viewedSessionRef: React.useRef(''),
+    unreadViewedSessionRef: React.useRef(''),
+    setSelection() {},
+    lastSessionStorageKey: 'test:last-session',
   });
 }
 

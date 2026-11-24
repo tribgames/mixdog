@@ -920,8 +920,7 @@ function presentationCommandOutput(input: {
 }): { outputText: string; outputNote: string; diffPatch: string } {
   const { normalizedName, command, tone, diffPatch } = input;
   let { outputText, outputNote } = input;
-  // A clean exit is the default; only a failing code is worth a line.
-  // Only a failing code is worth a line, and it reads as a quiet note.
+  // A clean exit is the default; only a failing code is worth a line, as a quiet note.
   if (command && normalizedName !== 'git') {
     const exit = /^\[exit(?: code)?:\s*(-?\d+)\]\n*/.exec(outputText);
     if (exit) {

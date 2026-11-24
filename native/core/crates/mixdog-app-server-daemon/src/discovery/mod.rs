@@ -10,7 +10,6 @@
     clippy::disallowed_types,
     reason = "blocking file bodies: publish/withdraw/read are synchronous and run at core startup and release, never on an async worker"
 )]
-use std::ffi::OsString;
 use std::io;
 use std::io::Write;
 use std::path::Path;
@@ -433,48 +432,8 @@ mod sys {
 
 #[cfg(test)]
 mod tests;
-/// Node's `os.tmpdir()`, which 1.4.5 roots the runtime directory in.
-fn node_tmpdir() -> PathBuf {
-    let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
-    #[cfg(windows)]
-    {
-        let path: OsString = var("TEMP").or_else(|| var("TMP")).unwrap_or_else(|| {
-            let mut root = var("SystemRoot").or_else(|| var("windir")).unwrap_or_default();
-            root.push("\\temp");
-            root
-        });
-        let text = path.to_string_lossy();
-        if text.len() > 1 && text.ends_with('\\') && !text.ends_with(":\\") {
-            return PathBuf::from(&text[..text.len() - 1]);
-        }
-        PathBuf::from(path)
-    }
-    #[cfg(unix)]
-    {
-        let path: OsString = var("TMPDIR").or_else(|| var("TMP")).or_else(|| var("TEMP")).unwrap_or_else(|| "/tmp".into());
-        let text = path.to_string_lossy();
-        if text.len() > 1 && text.ends_with('/') {
-            return PathBuf::from(&text[..text.len() - 1]);
-        }
-        PathBuf::from(path)
-    }
-}
-/// The runtime root 1.4.5 clients resolve (`T:src/runtime/shared/runtime-root.mjs:32-47`):
-/// `MIXDOG_RUNTIME_ROOT`, else `tmpdir()/mixdog` on Windows, else `tmpdir()/mixdog-<uid>`.
-pub fn runtime_root() -> io::Result<PathBuf> {
-    if let Some(configured) = std::env::var_os("MIXDOG_RUNTIME_ROOT") {
-        let text = configured.to_string_lossy();
-        if !text.trim().is_empty() {
-            return std::path::absolute(text.trim());
-        }
-    }
-    #[cfg(windows)]
-    let name = String::from("mixdog");
-    #[cfg(unix)]
-    // SAFETY: getuid has no preconditions.
-    let name = format!("mixdog-{}", unsafe { libc::getuid() });
-    Ok(node_tmpdir().join(name))
-}
+pub use mixdog_app_server_client::discovery::runtime_root;
+
 /// Publishes `discovery` at `<root>/daemon.json`: written owner-only to a
 /// staging file, synced, and renamed over the old file.
 ///
@@ -524,7 +483,7 @@ fn publish_with(root: &Path, discovery: &Discovery, replace: &dyn Fn(&Path, &Pat
 /// The pid of the running core the local discovery file names (Node reads its owner record, `readSingletonOwner(OWNER_PATH).owner?.pid`); `None` while
 /// no file names one: the lock's holder has not published yet, or the file is a dead core's.
 pub fn running_core_pid() -> Option<u32> {
-    let core = mixdog_app_server_client::discovery::Discovery::read(&path(&runtime_root().ok()?)).ok()?;
+    let core = mixdog_app_server_client::discovery::Discovery::read(&path(&runtime_root())).ok()?;
     names_running_core(core.pid, &core.core.process_start_time).unwrap_or(true).then_some(core.pid)
 }
 /// Node watched-file-cache.mjs uses a 50 ms reload debounce, not a polling clock.

@@ -32,12 +32,15 @@ use mixdog_migrate::run::Front;
 use mixdog_migrate::run::MigrateOptions;
 use mixdog_migrate::run::cli::MigrateArgs;
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
+use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 
 use crate::ServeError;
 use crate::barrier::BarrierRecord;
+use crate::lifecycle::DiscoveryPublication;
 use crate::lifecycle::Lifecycle;
 use crate::lifecycle::Migration;
+use crate::lifecycle::Publication;
 use crate::serving::Booting;
 use crate::serving::StartIn;
 use crate::startup::Lanes;
@@ -313,11 +316,11 @@ impl Behind {
     }
 
     /// Converts the rest on a thread of its own, taking each session into `index`; returns at once. `stop` is the core's run token.
+    /// `completed` runs on that thread once the conversion has run to its completion marker, never when it ends early.
     #[allow(
         clippy::disallowed_methods,
         reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take"
     )]
-    /// `completed` runs on that thread once the conversion has run to its completion marker, never when it ends early.
     pub fn run(
         self,
         index: Arc<mixdog_store::sqlite::SqliteStore>,
@@ -473,14 +476,78 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
         migrate,
     )
     .await;
-    if let Some(signal) = watch.requested() {
-        return Err(ServeError::StoppedDuringStartup(signal.name()));
-    }
-    let started = started?;
-    crate::stale_temps::sweep_summary_temps_of_start(tokens, data_dir).await;
-    let booting = booted.lock().unwrap_or_else(PoisonError::into_inner).take().expect("startup ran init before it returned");
+    let booting = booted.lock().unwrap_or_else(PoisonError::into_inner).take();
     let behind = behind.lock().unwrap_or_else(PoisonError::into_inner).take();
+    let outcome = match watch.requested() {
+        Some(signal) => Err(ServeError::StoppedDuringStartup(signal.name())),
+        None => started.map_err(ServeError::from),
+    };
+    let started = match outcome {
+        Ok(started) => started,
+        Err(error) => {
+            abandon(tokens, booting.map(|booting| booting.discovery), behind).await;
+            return Err(error);
+        }
+    };
+    crate::stale_temps::sweep_summary_temps_of_start(tokens, data_dir).await;
+    let booting = booting.expect("startup ran init before it returned");
     Ok(Begun { started, booting, watch, behind })
+}
+
+/// A start abandoned before the core serves (a stop request, a failed step, composition or attach) gives back what the boot published
+/// and started, since no release runs to do it: the discovery document naming this core is withdrawn (dropped, the publication leaves
+/// it), and the migration's extension host is closed and awaited (dropped, it is only asked to leave, on a runtime about to end).
+pub async fn abandon(tokens: &LaneTokens, discovery: Option<Arc<DiscoveryPublication>>, behind: Option<Behind>) {
+    if let Some(behind) = behind {
+        behind.pool.close().await;
+    }
+    let Some(discovery) = discovery else { return };
+    // The withdrawal waits for the discovery writer's thread: a lane job, off the runtime's workers.
+    let withdrawn = match tokens.durability_io.submit(&mixdog_rt::CancellationToken::new(), move |_lane| discovery.withdraw()) {
+        Ok(job) => job.await.map_err(|error| error.to_string()),
+        Err(_) => Err("the durability lane is full".to_owned()),
+    };
+    if let Err(error) = withdrawn {
+        tracing::error!(%error, "the discovery of the abandoned start was not withdrawn");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "the test reads the discovery file of its own temporary directory")]
+mod abandon_tests {
+    use super::*;
+    use crate::discovery;
+    use crate::lifecycle::DiscoveryPhase;
+    use crate::lifecycle::DiscoveryState;
+
+    /// A start abandoned before the core serves leaves no discovery document naming it: the `booting` one its boot published is withdrawn.
+    #[tokio::test]
+    async fn an_abandoned_start_withdraws_the_discovery_it_published() {
+        let root = tempfile::tempdir().unwrap();
+        let base = discovery::Discovery {
+            pid: 1,
+            endpoints: discovery::Endpoints { session: discovery::SessionEndpoint { port: 4001, token: "tok".into() }, model_proxy: None },
+            core: discovery::CoreSection {
+                version: "1.5.0".into(),
+                build: "b".into(),
+                instance_id: "inst".into(),
+                process_start_time: "1".into(),
+                state: discovery::CoreState::Booting,
+                blocked: None,
+                drain: None,
+                rpc: None,
+                ssh_rpc: None,
+                rebuild: None,
+                control: discovery::Port { port: 4001 },
+            },
+        };
+        let publication = Arc::new(DiscoveryPublication::new(root.path().to_path_buf(), base, Box::new(|_| {})));
+        publication.publish(&DiscoveryState { phase: DiscoveryPhase::Booting, blocked: None, drain_id: None });
+        publication.flush();
+        assert!(discovery::path(root.path()).exists(), "the booting core is published");
+        abandon(&mixdog_rt::testing::tokens(), Some(publication), None).await;
+        assert!(!discovery::path(root.path()).exists(), "the abandoned start's discovery is withdrawn");
+    }
 }
 
 #[cfg(test)]

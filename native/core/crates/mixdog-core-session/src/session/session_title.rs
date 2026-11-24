@@ -827,6 +827,8 @@ mod tests {
     struct Store {
         header: Mutex<Map<String, Value>>,
         rename_once: AtomicBool,
+        /// Woken by each header write and each log line: what [`Rig::until`] waits on.
+        changed: Arc<tokio::sync::Notify>,
     }
 
     impl Store {
@@ -842,6 +844,7 @@ mod tests {
         }
         async fn patch_header(&self, _: &ThreadId, set: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             self.header.lock().unwrap().extend(set);
+            self.changed.notify_waiters();
             Ok(())
         }
         async fn patch_header_at(
@@ -874,6 +877,7 @@ mod tests {
                 return Ok(Some(now));
             }
             header.extend(set);
+            self.changed.notify_waiters();
             Ok(None)
         }
         async fn store_header(&self, thread: &ThreadId, write: HeaderWrite) -> HeaderStored {
@@ -961,8 +965,11 @@ mod tests {
                 released: AtomicBool::new(false),
             });
             let lines: Arc<Mutex<Vec<String>>> = Arc::default();
-            let sink = lines.clone();
-            let log = LineTitleLog(Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned())));
+            let (sink, changed) = (lines.clone(), store.changed.clone());
+            let log = LineTitleLog(Arc::new(move |line: &str| {
+                sink.lock().unwrap().push(line.to_owned());
+                changed.notify_waiters();
+            }));
             let stored = Arc::new(StoredTitles::new(store.clone(), store.clone(), Arc::new(Now)));
             let deps = TitleDeps::new(model.clone(), stored, Arc::new(log), Arc::new(|| "en-US".to_owned()));
             Self { hooks: TitleHooks::new(SessionTitles::new(deps)), store, model, lines }
@@ -997,13 +1004,8 @@ mod tests {
         }
 
         async fn until(&self, what: &str, done: impl Fn(&Self) -> bool) {
-            for _ in 0..500 {
-                if done(self) {
-                    return;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            panic!("{what} did not happen: {:?}", self.lines.lock().unwrap());
+            let what = || format!("{what}: {:?}", self.lines.lock().unwrap());
+            crate::session::testing::eventually_on_awaiting(what, &[&*self.store.changed], || done(self).then_some(())).await;
         }
     }
 

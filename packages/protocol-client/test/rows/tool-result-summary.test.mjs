@@ -327,7 +327,10 @@ test('singular counts still translate through the canonical plural key', () => {
 });
 
 test('a failure presented by what it failed on reads the reason below it', () => {
-  assert.equal(extractErrorCause('Error: [https://example.com/a]\n(error: HTTP 500)\nerrorCode: HTTP_ERROR'), 'HTTP 500');
+  assert.equal(
+    extractErrorCause('Error: [https://example.com/a]\n(error: HTTP 500)\nerrorCode: HTTP_ERROR'),
+    'HTTP 500'
+  );
   assert.equal(
     extractErrorCause('Error: {"ok":false,"status":"failed","error":"paths must stay inside the project"}'),
     'paths must stay inside the project'
@@ -346,13 +349,22 @@ test('a failure that is only a status word is UI text, passed to the translator'
   const translate = (key, _original) => `<${key}>`;
   assert.equal(summarizeToolResult('grep', { pattern: 'x' }, 'Cancelled', true, translate), '<Cancelled>');
   assert.equal(summarizeToolResult('grep', { pattern: 'x' }, 'Cancelled', true), 'Cancelled');
-  assert.equal(summarizeToolResult('grep', { pattern: 'x' }, 'Error: grep failed: bad pattern', true, translate), 'grep failed: bad pattern');
+  assert.equal(
+    summarizeToolResult('grep', { pattern: 'x' }, 'Error: grep failed: bad pattern', true, translate),
+    'grep failed: bad pattern'
+  );
 });
 
 test('the one word a cancel action answers is UI text; the same word in content is not', () => {
   const translate = (key, _original) => `<${key}>`;
-  assert.equal(summarizeToolResult('github', { action: 'run.cancel', id: 7 }, 'Cancelled', false, translate), '<Cancelled>');
-  assert.equal(summarizeToolResult('setup', { action: 'cancel_quota_resume' }, 'Cancelled', false, translate), '<Cancelled>');
+  assert.equal(
+    summarizeToolResult('github', { action: 'run.cancel', id: 7 }, 'Cancelled', false, translate),
+    '<Cancelled>'
+  );
+  assert.equal(
+    summarizeToolResult('setup', { action: 'cancel_quota_resume' }, 'Cancelled', false, translate),
+    '<Cancelled>'
+  );
   assert.equal(summarizeToolResult('github', { action: 'run.view', id: 7 }, 'Cancelled', false, translate), null);
   assert.equal(summarizeToolResult('read', { file_path: 'a.txt' }, 'Cancelled', false, translate), '<{{count}} lines>');
 });

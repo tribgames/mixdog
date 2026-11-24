@@ -112,15 +112,14 @@ What `apply` does, in this order, writing nothing already in force:
    `bash /opt/mixdog-relay/deploy/conntrack.sh report` prints the same on
    demand.
 
-By hand, on a host whose `nf_conntrack_buckets` sysctl is read-only (the
+By hand, on a host whose ``nf_conntrack_buckets`` sysctl is read-only (the
 script then reports the refusal and leaves the hash alone): set the hash when
 the module loads, `echo 'options nf_conntrack hashsize=131072'
->/etc/modprobe.d/nf_conntrack-hash.conf`; if `nf_conntrack` is loaded from the
-initramfs, run `update-initramfs -u`; if it is built into the kernel
-(`/sys/module/nf_conntrack/initstate` absent), add `nf_conntrack.hashsize=131072`
-to the kernel command line instead. It takes effect at the next boot (or the
-next load of the module); check with
-`cat /sys/module/nf_conntrack/parameters/hashsize`.
+
+> /etc/modprobe.d/nf_conntrack-hash.conf``; if ``nf_conntrack``is loaded from the
+> initramfs, run``update-initramfs -u``; if it is built into the kernel
+> (``/sys/module/nf_conntrack/initstate``absent), add``nf_conntrack.hashsize=131072``to the kernel command line instead. It takes effect at the next boot (or the
+> next load of the module); check with``cat /sys/module/nf_conntrack/parameters/hashsize`.
 
 Rollout: files under `deploy/` count as a relay input, and `deploy-remote.ps1`
 deploys a relay change only with a CI build of the current relay sources (or

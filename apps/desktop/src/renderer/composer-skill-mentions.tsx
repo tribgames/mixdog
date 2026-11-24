@@ -19,7 +19,7 @@ import {
   skillMentions,
 } from '../../../../packages/protocol-client/src/rows/skill-mentions.mjs';
 
-export type ComposerSkillCatalog = {
+type ComposerSkillCatalog = {
   /** The user's available custom skills: the `$` palette and the + menu. */
   selectable: ComposerSkill[];
   /** Every available skill (on and in scope here), built-ins included: what a
@@ -227,7 +227,7 @@ export function filterSkillMentions(skills: ComposerSkill[], query: string): Ski
   return [...prefix, ...contains];
 }
 
-export type SkillMentionSegment = { text: string; skill?: string };
+type SkillMentionSegment = { text: string; skill?: string };
 
 /** `text` split into plain runs and recognised `$name` tokens. */
 export function skillMentionSegments(text: string, isSkill: (name: string) => boolean): SkillMentionSegment[] {
@@ -242,7 +242,7 @@ export function skillMentionSegments(text: string, isSkill: (name: string) => bo
   return segments;
 }
 
-export type ComposerHighlightSegment = SkillMentionSegment & { slash?: boolean };
+type ComposerHighlightSegment = SkillMentionSegment & { slash?: boolean };
 
 /** `text` split into plain runs, recognised `$name` tokens and a recognised
  *  leading `/command` (colour only; never changes the text). */

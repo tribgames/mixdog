@@ -110,6 +110,8 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Everything of a turn the host supplies. Owners are named where the real source is not in this
 /// crate yet.
 pub struct Assembled {
+    /// The header the turn was assembled on: the turn's, or the one a preflight fallback landed on.
+    pub header: mixdog_store::schema::record::Header,
     /// The route's provider adapter, chosen by the registry (WP-AI-SVC) for the header's route
     /// (broker, wire route, credentials).
     pub provider: Arc<dyn ProviderAdapter>,
@@ -323,7 +325,7 @@ use self::history::*;
 pub(crate) use self::history::{native_searches, session_messages, system_messages};
 use self::interrupt::*;
 use self::observer::*;
-pub use self::outside::{History, OutsideAgents, OutsideAnswer, OutsideAsk, OutsideAssembled, OutsideReport, OutsideTurn};
+pub use self::outside::{History, OutsideAgents, OutsideAssembled, OutsideReport, OutsideTurn};
 use self::outside::{Outside, drive_outside};
 pub(crate) use self::segments::Segments;
 use self::segments::*;

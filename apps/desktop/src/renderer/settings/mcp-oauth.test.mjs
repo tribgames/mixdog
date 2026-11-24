@@ -658,15 +658,11 @@ test('no sign-in actions for stdio, disabled or credentialed servers', async () 
       if (capability === 'getMcpServerConfig') {
         const row = { local: 'local', off: 'off', keyed: 'keyed' };
         assert.ok(row[args[0]]);
-        return {
-          name: args[0],
-          config:
-            args[0] === 'local'
-              ? { type: 'stdio', command: 'x' }
-              : args[0] === 'keyed'
-                ? { type: 'http', url: 'https://k.test/mcp', bearer_token_env_var: 'TOKEN' }
-                : server().config,
+        const configs = {
+          local: { type: 'stdio', command: 'x' },
+          keyed: { type: 'http', url: 'https://k.test/mcp', bearer_token_env_var: 'TOKEN' },
         };
+        return { name: args[0], config: configs[args[0]] ?? server().config };
       }
     },
   });
@@ -843,6 +839,35 @@ test('the shared dialog keeps provider extras: device code, manual code paste, o
       dialog.querySelector('form.settings-oauth-code').requestSubmit();
     });
     assert.deepEqual(submitted, ['abc#def']);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('the local MiMo sign-in names its manual field a redirect URL or code, not an Anthropic code', async () => {
+  const { OAuthControl } = await import('./provider-panel.tsx');
+  const host = document.body.appendChild(document.createElement('main'));
+  const root = createRoot(host);
+  const run = async (capability) => {
+    if (capability === 'beginOAuthProviderLogin') {
+      return {
+        flowId: 'mimo-1',
+        state: 'pending',
+        manualUrl: 'https://mimo.test/authorize',
+        manualCodeSupported: true,
+      };
+    }
+    return undefined;
+  };
+  await act(async () =>
+    root.render(React.createElement(OAuthControl, { api: {}, provider: { id: 'mimo-oauth' }, disabled: false, run }))
+  );
+  try {
+    await act(async () => [...host.querySelectorAll('button')].find((node) => node.textContent === 'Connect').click());
+    const form = document.querySelector('.settings-oauth-dialog form.settings-oauth-code');
+    assert.equal(form.querySelector(':scope > b').textContent, 'Sign-in redirect URL or code');
+    assert.equal(form.querySelector('input[name="code"]').getAttribute('aria-label'), 'Sign-in redirect URL or code');
   } finally {
     await act(async () => root.unmount());
     host.remove();

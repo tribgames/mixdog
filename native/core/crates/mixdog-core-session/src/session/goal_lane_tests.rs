@@ -54,6 +54,8 @@ struct Spy {
     pinned: Mutex<Option<Goal>>,
     /// While set, `turn_settled` waits for it.
     hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    /// `(reached, go)`: the next `goal_status` tells `reached` and waits for `go`.
+    status_hold: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     /// Per continuation call in order: `Some(run)` replaces the runtime's `run`.
     runs: Mutex<std::collections::VecDeque<Option<bool>>>,
     /// While set, no continuation runs: the Goal stays active and starts no turn of its own.
@@ -70,6 +72,7 @@ impl Spy {
             inputs: Mutex::new(Vec::new()),
             pinned: Mutex::new(None),
             hold: Mutex::new(None),
+            status_hold: Mutex::new(None),
             runs: Mutex::default(),
             no_runs: std::sync::atomic::AtomicBool::new(false),
             called: tokio::sync::Notify::new(),
@@ -130,6 +133,11 @@ impl GoalContinuationHooks for Spy {
 #[async_trait]
 impl GoalViewHooks for Spy {
     async fn goal_status(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
+        let held = lock(&self.status_hold).take();
+        if let Some((reached, go)) = held {
+            reached.notify_one();
+            go.notified().await;
+        }
         self.pin_or(self.inner.goal_status(thread).await)
     }
     async fn stored_goal(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
@@ -698,6 +706,50 @@ async fn a_queued_closeout_is_steered_only_while_its_goal_is_at_its_duration() {
         // The dequeue is acked (durable) a moment after the turn ends.
         eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty).then_some(())).await;
     }
+}
+/// A terminal boundary waits for the check of the Goal closeout queued beside a room prompt: until the answer it has taken
+/// nothing. The prompt's hop has not reached the turn, and a room Stop of the prompt meanwhile finds it queued, not running in
+/// the turn, which goes on and takes only the closeout.
+#[tokio::test(start_paused = true)]
+async fn a_drain_waiting_for_its_goal_check_has_taken_nothing() {
+    use super::run::{DrainRequest, DrainStage, Priority};
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let taken: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (open, out) = (gate.clone(), taken.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, out) = (open.clone(), out.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            open.notified().await;
+            let steers = run.port.take_steers(DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Next }).await.expect("take");
+            lock(&out).extend(steers.into_iter().map(|steer| steer.content.to_string()));
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let spy = Spy::new(&rig);
+    let directory = directory(&rig, &spy);
+    let handle = start_thread(&directory).await;
+    changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
+    assert!(directory.submit_member_turn(&handle.id, &json!("from the room"), "rsub_q", 2, "").await, "the room prompt is queued");
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 2 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    let (reached, go) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    *lock(&spy.status_hold) = Some((reached.clone(), go.clone()));
+    gate.notify_one();
+    super::testing::awaiting(|| "the drain's Goal check".to_owned(), reached.notified()).await;
+    let active = handle.cell.run.load_full().expect("the turn");
+    assert_eq!(handle.cell.turn_chain.hop(), 0, "the room prompt's hop has not reached the turn");
+    directory.stop_work(&handle.id, vec!["rsub_q".into()]).await.expect("saved");
+    assert!(!active.cancel.is_aborted(), "the turn never took the room prompt: its Stop leaves the turn running");
+    go.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let taken = lock(&taken).clone();
+    assert_eq!(taken.len(), 1, "only the closeout is taken: {taken:?}");
+    assert!(taken[0].contains("<goal_deadline_reached>"), "{taken:?}");
 }
 /// `suppressDisplay`: a hidden Goal notice a turn takes in paints no row, where a user prompt
 /// taken in the same way does.

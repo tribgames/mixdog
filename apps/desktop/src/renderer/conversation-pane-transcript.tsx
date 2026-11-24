@@ -116,7 +116,9 @@ function TranscriptRowContexts({
                 <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
                   <TurnChangesContext.Provider value={turnChangesSurface}>
                     <TurnRowsContext.Provider value={rowsOf}>
-                      <TurnCardsWithheldContext.Provider value={withheldCards}>{children}</TurnCardsWithheldContext.Provider>
+                      <TurnCardsWithheldContext.Provider value={withheldCards}>
+                        {children}
+                      </TurnCardsWithheldContext.Provider>
                     </TurnRowsContext.Provider>
                   </TurnChangesContext.Provider>
                 </TranscriptViewerDeviceContext.Provider>
@@ -153,9 +155,6 @@ export function ConversationTranscript({
   intro,
   agentMode = false,
 }: {
-  /** The list mounts one frame after the shell (a phone entering a cold
-   *  session); the cover stays up until it has. */
-  listHeld?: boolean;
   /** An agent chat: its rows learn their estimated heights apart from coding's. */
   agentMode?: boolean;
   /** Agent mode: the contact's profile a chat with no messages yet shows. */
@@ -169,7 +168,6 @@ export function ConversationTranscript({
     | 'requestEarlierTranscript'
     | 'requestLaterTranscript'
     | 'transcriptHistoryActive'
-    | 'showTranscriptTimeline'
     | 'transcriptIdentity'
     | 'activeStreamingTail'
   >;
@@ -264,10 +262,6 @@ export function ConversationTranscript({
         onKeyDown={follow.handleKeyDown}
       >
         <div className="thread">
-          {/* An empty draft carries only the centered brand watermark;
-            shortcuts live solely on the fully empty
-            workspace; secondary surfaces keep the quiet letterpress).
-            Sessions and transitions never show it. */}
           {showWelcome && welcomeWatermark(visibleWarmPaintHandoff)}
           {intro &&
             itemCount === 0 &&

@@ -14,6 +14,7 @@ use crate::http1::{Request, ResponseWriter};
 use crate::ids::is_routing_id;
 use crate::rate_limit::now_ms;
 use crate::store::{ClientProfile, ProfileInput, client_profile};
+use crate::web::releases::version_at_least;
 
 pub const MAX_PENDING_CLAIMS: usize = 64;
 /// The global pool is shared by every desktop on the box, so it also needs a per-target and per-source share: otherwise one
@@ -25,12 +26,17 @@ pub const CLAIM_TTL_MS: i64 = 300_000;
 pub const APPROVED_CLAIM_RETAIN_MS: i64 = 60_000;
 pub const EXPIRED_CLAIM_RETAIN_MS: i64 = 60_000;
 
+/// The first desktop release whose bundle claims under a fresh id when its own is refused as paired.
+const CLIENT_RECOVERY_RELEASE: &str = "1.5.0";
+
 /// The name a claim carries when the browser gave none.
 const DEFAULT_CLAIM_NAME: &str = "Web app";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimStatus {
     Pending,
+    /// The desktop approved and the credential is being written: nothing else may answer the claim until it is.
+    Registering,
     Approved,
     Denied,
     Expired,
@@ -39,7 +45,7 @@ pub enum ClaimStatus {
 impl ClaimStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Pending => "pending",
+            Self::Pending | Self::Registering => "pending",
             Self::Approved => "approved",
             Self::Denied => "denied",
             Self::Expired => "expired",
@@ -62,6 +68,9 @@ pub struct Claim {
     /// The opaque box the desktop sealed the pairing material in, as it sent it.
     pub sealed: Value,
     pub expires_at: i64,
+    /// The stamp of the credential the claimed id held when the claim began (None: it held none); the approval writes only
+    /// while the id still holds it.
+    pub replaces: Option<String>,
 }
 
 /// What the desktop's approval asks the handler to do next.
@@ -70,7 +79,7 @@ pub enum Approval {
     /// Not this desktop's claim, not pending, or lapsed (and then marked so): nothing more.
     Ignored,
     /// Register this browser, then [`Claims::finish_approval`].
-    Register { client_id: String, profile: ClientProfile },
+    Register { client_id: String, profile: ClientProfile, replaces: Option<String> },
 }
 
 /// The pending claims (`claims`): a map in insertion order.
@@ -109,7 +118,7 @@ impl Claims {
     /// forgotten; anything else lapses to `expired`.
     pub fn sweep(&mut self, now: i64) {
         self.rows.retain_mut(|claim| {
-            if claim.expires_at > now {
+            if claim.expires_at > now || claim.status == ClaimStatus::Registering {
                 return true;
             }
             if matches!(claim.status, ClaimStatus::Approved | ClaimStatus::Expired) {
@@ -139,7 +148,10 @@ impl Claims {
         self.rows
             .iter()
             .find(|claim| {
-                claim.status == ClaimStatus::Pending && claim.device_id == device_id && claim.client_id == client_id && claim.public_key == public_key
+                matches!(claim.status, ClaimStatus::Pending | ClaimStatus::Registering)
+                    && claim.device_id == device_id
+                    && claim.client_id == client_id
+                    && claim.public_key == public_key
             })
             .map(|claim| claim.id.clone())
     }
@@ -168,14 +180,15 @@ impl Claims {
             claim.expires_at = now + EXPIRED_CLAIM_RETAIN_MS;
             return Approval::Ignored;
         }
-        Approval::Register { client_id: claim.client_id.clone(), profile: claim.profile.clone() }
+        claim.status = ClaimStatus::Registering;
+        Approval::Register { client_id: claim.client_id.clone(), profile: claim.profile.clone(), replaces: claim.replaces.clone() }
     }
 
-    /// The second half of `approveClaim`, once the registration answered: a refused one (the device is full) is a denial. From here
+    /// The second half of `approveClaim`, once the registration answered: a refused one (the device is full, or the id is already paired) is a denial. From here
     /// the claim only lives to be re-read by a poller whose answer was lost. A claim that is no longer pending (it was denied or
     /// lapsed while the credential was being written) keeps its state.
     pub fn finish_approval(&mut self, id: &str, token: Option<String>, sealed: Value, now: i64) {
-        let Some(claim) = self.get_mut(id).filter(|claim| claim.status == ClaimStatus::Pending) else { return };
+        let Some(claim) = self.get_mut(id).filter(|claim| claim.status == ClaimStatus::Registering) else { return };
         match token {
             None => claim.status = ClaimStatus::Denied,
             Some(token) => {
@@ -187,9 +200,17 @@ impl Claims {
         }
     }
 
-    /// `denyClaim`: only the desktop the claim named may answer it.
+    /// An approval that ended without [`Claims::finish_approval`] (its future was dropped or unwound): the claim is pending again,
+    /// for the desktop to answer once more or for the sweep to lapse.
+    fn abort_approval(&mut self, id: &str) {
+        if let Some(claim) = self.get_mut(id).filter(|claim| claim.status == ClaimStatus::Registering) {
+            claim.status = ClaimStatus::Pending;
+        }
+    }
+
+    /// `denyClaim`: only the desktop the claim named may answer it, and only while it is pending.
     pub fn deny(&mut self, id: &str, device_id: &str) {
-        if let Some(claim) = self.get_mut(id).filter(|claim| claim.device_id == device_id) {
+        if let Some(claim) = self.get_mut(id).filter(|claim| claim.device_id == device_id && claim.status == ClaimStatus::Pending) {
             claim.status = ClaimStatus::Denied;
         }
     }
@@ -198,6 +219,28 @@ impl Claims {
 /// `/^[A-Za-z0-9_-]{86,88}$/`.
 fn is_public_key(value: &str) -> bool {
     (86..=88).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The registering state of one claim, ended whichever way the approval ends.
+struct Registering<'a> {
+    claims: &'a std::sync::Mutex<Claims>,
+    id: &'a str,
+    finished: bool,
+}
+
+impl Registering<'_> {
+    fn finish(mut self, token: Option<String>, sealed: Value) {
+        self.finished = true;
+        lock(self.claims).finish_approval(self.id, token, sealed, now_ms());
+    }
+}
+
+impl Drop for Registering<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            lock(self.claims).abort_approval(self.id);
+        }
+    }
 }
 
 /// What a browser asked for in its claim.
@@ -215,18 +258,33 @@ struct ClaimRequest<'a> {
 enum Started {
     Offline,
     Busy,
+    /// The browser id is already paired: its credential is not for a claim to replace.
+    Paired,
     /// A pending claim for the same device, client and key already exists.
     Resumed(String),
     Opened(String),
 }
 
 impl Pairing {
+    /// The one place that decides who is refused a claim for an id that is already paired (`409 paired`): an id alone must not
+    /// take a paired slot, but only a client that can answer the refusal by claiming under a fresh id may be refused. The
+    /// renderer bundle a device runs follows its desktop's version, so that is the desktop's reported release: 1.5.0 is the
+    /// first with the recovery. An earlier or unreported desktop serves a bundle that cannot recover, so its claim is
+    /// prompted and approved as before. Delete this rule, and the replacement it allows, once no 1.4.x desktop is supported.
+    fn client_recovers_from_a_paired_id(&self, device_id: &str) -> bool {
+        version_at_least(&self.hub.store().device_version(device_id).app_version, CLIENT_RECOVERY_RELEASE)
+    }
+
     /// Desktop online, no duplicate request, quota available: records the claim and asks the desktop for approval. A request with no
     /// ticket is never labelled a code; a client retrying a code-started pairing says so, and the dialog calls it a retry.
     fn start_claim(&self, asked: ClaimRequest<'_>) -> Started {
         let ClaimRequest { device_id, client_id, public_key, ticket, retry, profile, source } = asked;
         if !self.hub.desktop_open(device_id) {
             return Started::Offline;
+        }
+        let replaces = self.hub.store().client_credential_stamp(device_id, client_id);
+        if replaces.is_some() && self.client_recovers_from_a_paired_id(device_id) {
+            return Started::Paired;
         }
         let now = now_ms();
         // The pool is read and written under one lock, so two requests cannot both take the last place.
@@ -271,6 +329,7 @@ impl Pairing {
             token: String::new(),
             sealed: Value::Null,
             expires_at,
+            replaces,
         });
         Started::Opened(id)
     }
@@ -279,11 +338,12 @@ impl Pairing {
     pub(super) async fn approve_claim(&self, device_id: &str, message: &Value) {
         let Some(claim_id) = message.get("claimId").and_then(Value::as_str) else { return };
         let approval = lock(&self.claims).begin_approval(claim_id, device_id, now_ms());
-        let Approval::Register { client_id, profile } = approval else { return };
+        let Approval::Register { client_id, profile, replaces } = approval else { return };
         let profile = ProfileInput { name: Value::String(profile.name), platform: Value::String(profile.platform), browser: Value::String(profile.browser) };
-        let registered = self.hub.store().register_client(device_id, &client_id, &profile).await;
+        let registering = Registering { claims: &self.claims, id: claim_id, finished: false };
+        let registered = self.hub.store().register_client_expecting(device_id, &client_id, &profile, replaces.as_deref()).await;
         let sealed = message.get("sealed").cloned().unwrap_or(Value::Null);
-        lock(&self.claims).finish_approval(claim_id, registered.map(|client| client.token), sealed, now_ms());
+        registering.finish(registered.map(|client| client.token), sealed);
     }
 
     /// `denyClaim`.
@@ -334,6 +394,55 @@ pub(super) async fn handle(pairing: &Pairing, mut request: Request, mut response
     match pairing.start_claim(asked) {
         Started::Offline => reply_json(&mut response, 503, &json!({ "status": "offline" }), &[]),
         Started::Busy => reply_json(&mut response, 503, &json!({ "status": "busy" }), &[]),
+        // 409 with exactly this body is the one answer that means "this client id is already paired"; no other refusal uses 409.
+        Started::Paired => reply_json(&mut response, 409, &json!({ "status": "paired" }), &[]),
         Started::Resumed(id) | Started::Opened(id) => reply_json(&mut response, 202, &json!({ "claimId": id }), &[]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending() -> std::sync::Mutex<Claims> {
+        let mut claims = Claims::new();
+        claims.insert(Claim {
+            id: "c1".to_owned(),
+            device_id: "dev".to_owned(),
+            client_id: "bbbbbbbb".to_owned(),
+            public_key: "k".repeat(87),
+            profile: ClientProfile { name: String::new(), platform: String::new(), browser: String::new() },
+            source: "127.0.0.1".to_owned(),
+            status: ClaimStatus::Pending,
+            token: String::new(),
+            sealed: Value::Null,
+            expires_at: 1_000,
+            replaces: None,
+        });
+        std::sync::Mutex::new(claims)
+    }
+
+    #[test]
+    fn an_approval_that_is_dropped_leaves_the_claim_pending_again() {
+        let claims = pending();
+        assert!(matches!(lock(&claims).begin_approval("c1", "dev", 10), Approval::Register { .. }));
+        drop(Registering { claims: &claims, id: "c1", finished: false });
+        assert_eq!(lock(&claims).get("c1").map(|claim| claim.status), Some(ClaimStatus::Pending));
+        assert!(matches!(lock(&claims).begin_approval("c1", "dev", 10), Approval::Register { .. }));
+    }
+
+    #[test]
+    fn a_finished_approval_is_not_undone_by_its_guard() {
+        let claims = pending();
+        let _ = lock(&claims).begin_approval("c1", "dev", 10);
+        Registering { claims: &claims, id: "c1", finished: false }.finish(Some("tok".to_owned()), Value::Null);
+        assert_eq!(lock(&claims).get("c1").map(|claim| claim.status), Some(ClaimStatus::Approved));
+    }
+
+    #[test]
+    fn a_reload_while_the_credential_is_written_resumes_the_same_claim() {
+        let claims = pending();
+        let _ = lock(&claims).begin_approval("c1", "dev", 10);
+        assert_eq!(lock(&claims).pending_id("dev", "bbbbbbbb", &"k".repeat(87)).as_deref(), Some("c1"));
     }
 }

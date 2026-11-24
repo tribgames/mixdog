@@ -46,7 +46,7 @@ pub(super) fn spawn_accept_loop(listener: StdListener, server: Weak<PageServer>,
                     async move {
                         let (parts, _) = request.into_parts();
                         let response = match server.upgrade() {
-                            Some(server) => server.respond(&parts.method, parts.headers.get(hyper::header::HOST), parts.uri.path(), port).await,
+                            Some(server) => server.respond(&parts.method, &parts.headers, parts.uri.path(), port).await,
                             None => super::serve::refuse(hyper::StatusCode::SERVICE_UNAVAILABLE),
                         };
                         Ok::<_, Infallible>(response)

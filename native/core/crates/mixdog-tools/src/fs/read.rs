@@ -696,9 +696,9 @@ impl ReadTool {
             let piece = normalize_input_path(piece);
             let target = match (&root, piece.as_str()) {
                 (_, "." | "..") | (None, _) => None,
-                (Some(_), _) => match resolve_path(&ctx.cwd, &piece) {
-                    Ok(abs) => real(abs.as_path().to_path_buf()).await,
-                    Err(_) => None,
+                (Some(_), _) => match guarded_target(ctx, &piece).await {
+                    Ok(Ok(abs)) => real(abs.as_path().to_path_buf()).await,
+                    _ => None,
                 },
             };
             inside &= match (&root, target) {
@@ -1052,17 +1052,14 @@ pub(super) async fn read_target(ctx: &ToolContext, raw: &str) -> Result<Result<A
     if url_as_path(raw) {
         return Ok(Err(URL_AS_PATH.to_owned()));
     }
-    if let Some(reason) = path_string_guard(raw) {
-        return Ok(Err(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(raw))));
-    }
-    let abs = resolve_path(&ctx.cwd, raw)?;
-    if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
-        return Ok(Err(format!("Error: {reason}: {}", fwd(abs.as_path()))));
-    }
-    if let Some(refusal) = super::common::symlink_refusal(ctx, &abs, raw).await? {
-        return Ok(Err(refusal));
-    }
-    Ok(Ok(abs))
+    guarded_target(ctx, raw).await
+}
+
+/// `raw` resolved against the cwd once the spelling given, its resolution and every link on the way meet the read guards;
+/// the refusal text otherwise. Every tool that opens a path it was handed passes through here before the OS sees it.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(super) async fn guarded_target(ctx: &ToolContext, raw: &str) -> Result<Result<AbsPath, String>, ToolError> {
+    super::common::admit(ctx, &ctx.cwd, raw, super::common::Access::Read).await
 }
 
 /// `Math.trunc(Number(tail))` of a legacy `path` call's `tail`: a number, or the text of one.
@@ -2537,11 +2534,6 @@ enum Scanned {
     Note(String),
     /// What the OCR engine read off the page.
     Ocr(String),
-}
-
-/// UNC and raw-device namespaces are refused before any path resolution.
-fn path_string_guard(raw: &str) -> Option<&'static str> {
-    read_paths::string_guard(raw)
 }
 
 /// The image type of a path by its extension (`imageMimeForPath`).

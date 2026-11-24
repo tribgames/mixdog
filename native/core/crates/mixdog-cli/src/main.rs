@@ -173,6 +173,11 @@ struct StopArgs {
     reason: String,
     #[arg(long)]
     confirm_token: Option<String>,
+    /// The replacing build's id; with `--version`, required for `update`, `restart`, `fastDeploy` and `sshReplace`.
+    #[arg(long, requires = "version")]
+    revision: Option<String>,
+    #[arg(long, requires = "revision")]
+    version: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -366,7 +371,7 @@ fn ctl(args: CtlArgs) -> ExitCode {
 
 async fn ctl_request(action: CtlAction) -> Result<mixdog_app_server_client::ctl::CoreStatus, mixdog_app_server_client::ctl::CtlError> {
     use mixdog_app_server_client::ctl::CtlClient;
-    use mixdog_app_server_client::ctl::StopMode;
+    use mixdog_app_server_client::ctl::{StopMode, StopReason};
 
     // A process table that cannot answer proves nothing: the call goes to the listener.
     let client =
@@ -388,7 +393,14 @@ async fn ctl_request(action: CtlAction) -> Result<mixdog_app_server_client::ctl:
                     stop.reason
                 ))
             })?;
-            client.stop(mode, reason, stop.confirm_token.as_deref()).await
+            let replacing = matches!(reason, StopReason::Update | StopReason::Restart | StopReason::FastDeploy | StopReason::SshReplace);
+            match (stop.revision.as_deref(), stop.version.as_deref()) {
+                (Some(revision), Some(version)) => client.stop_replacing(mode, reason, stop.confirm_token.as_deref(), revision, version).await,
+                _ if replacing => Err(mixdog_app_server_client::ctl::CtlError::BadReply(
+                    "a replacement stop names the build that replaces this one: pass --revision and --version".into(),
+                )),
+                _ => client.stop(mode, reason, stop.confirm_token.as_deref()).await,
+            }
         }
         CtlAction::CancelDrain { drain_id } => client.cancel_drain(&drain_id).await,
         CtlAction::Release { pid, confirm_token } => client.release(pid, &confirm_token).await,
@@ -466,6 +478,13 @@ mod tests {
     fn stop_force_is_a_mode_of_its_own() {
         assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--force", "--reason", "userStop"]).is_ok());
         assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--force", "--abort", "--reason", "userStop"]).is_err());
+    }
+
+    #[test]
+    fn a_replacement_build_is_named_by_both_revision_and_version() {
+        let stop = ["mixdogd", "ctl", "stop", "--when-idle", "--reason", "update"];
+        assert!(Cli::try_parse_from(stop.into_iter().chain(["--revision", "abc", "--version", "1.5.1"])).is_ok());
+        assert!(Cli::try_parse_from(stop.into_iter().chain(["--revision", "abc"])).is_err());
     }
 
     #[test]

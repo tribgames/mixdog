@@ -1176,10 +1176,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     /// `max_message_size` is the negotiated SCTP maximum (infinite when unlimited); `pair` the selected candidate pair
     /// (`None`: the stats named none, and the path counts as not relayed).
     pub fn peer_open(&mut self, connection_id: &str, max_message_size: Option<f64>, pair: Option<CandidatePair>) {
-        self.peer_open_inner(connection_id, max_message_size, pair);
-    }
-
-    fn peer_open_inner(&mut self, connection_id: &str, max_message_size: Option<f64>, pair: Option<CandidatePair>) {
         if !self.live(connection_id) || self.direct.as_ref().is_some_and(|direct| direct.open) {
             return;
         }

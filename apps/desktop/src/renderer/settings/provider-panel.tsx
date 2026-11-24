@@ -676,15 +676,16 @@ export function OAuthControl({
   // take the final redirect (or code) back gets a paste step.
   const manualCodeFlow =
     providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || providerId === 'command-code-oauth' || remote;
-  const pasteLabels = remote
-    ? {
-        title: t('Sign-in redirect URL or code'),
-        placeholder: t('Paste the final redirect URL or code'),
-      }
-    : {
-        title: t('Anthropic authorization code'),
-        placeholder: t('Authorization code or code#state'),
-      };
+  const pasteLabels =
+    providerId === 'anthropic-oauth' && !remote
+      ? {
+          title: t('Anthropic authorization code'),
+          placeholder: t('Authorization code or code#state'),
+        }
+      : {
+          title: t('Sign-in redirect URL or code'),
+          placeholder: t('Paste the final redirect URL or code'),
+        };
   const start = () =>
     beginFlow((isRemote) => {
       // The host must not open a browser nobody is sitting at for a remote client.

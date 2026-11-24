@@ -114,7 +114,11 @@ test('a stop the core accepted paints stopping at once and through later phases,
   await act(async () => sleep(900));
   assert.equal(band()?.getAttribute('data-mode'), 'stopping');
   await render({ snapshot: spinner({ mode: 'requesting' }) });
-  assert.equal(band()?.getAttribute('data-mode'), 'requesting', 'nothing of the stop is left once the core withdraws it');
+  assert.equal(
+    band()?.getAttribute('data-mode'),
+    'requesting',
+    'nothing of the stop is left once the core withdraws it'
+  );
   assert.doesNotMatch(band()?.textContent ?? '', /Stopping/);
 });
 

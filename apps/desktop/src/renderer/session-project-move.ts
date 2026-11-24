@@ -33,8 +33,6 @@ export function sessionProjectMove(workspace: unknown): {
         ? { projectPath: pendingPath, requestedAt: Number(pendingRecord.requestedAt) || 0 }
         : null,
     failed:
-      failedRecord && message
-        ? { projectPath: failedPath ?? null, message, at: Number(failedRecord.at) || 0 }
-        : null,
+      failedRecord && message ? { projectPath: failedPath ?? null, message, at: Number(failedRecord.at) || 0 } : null,
   };
 }

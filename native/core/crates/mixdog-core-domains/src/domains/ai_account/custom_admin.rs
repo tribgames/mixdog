@@ -218,6 +218,13 @@ struct InputAt {
     env_name: String,
 }
 
+impl InputAt {
+    /// The provider has no stored key of its own: it is keyless or reads its key from the environment.
+    fn no_own_key(&self) -> bool {
+        self.keyless || !self.env_name.is_empty()
+    }
+}
+
 /// `customInputAt`. `stored_key` is the stored key of an existing provider (empty when none).
 fn input_at(agent: &Obj, input: &Obj, stored_key: &str, env: &dyn Environment, body_lone_units: usize) -> Result<InputAt, Failure> {
     let id = input.get("id").and_then(Value::as_str).map(str::to_owned);
@@ -267,9 +274,10 @@ impl ExtraPlan {
 }
 
 /// `extraKeyPlan`: `rows` absent keeps the saved ids; a typed key is stored under a new id, so a
-/// replaced key starts without the old one's cooldown. A keyless provider keeps none.
-fn extra_key_plan(saved: Vec<String>, rows: Option<&Value>, keyless: bool) -> Result<ExtraPlan, Failure> {
-    if keyless {
+/// replaced key starts without the old one's cooldown. A provider without its own stored key
+/// (keyless, or reading its key from the environment) keeps none.
+fn extra_key_plan(saved: Vec<String>, rows: Option<&Value>, no_own_key: bool) -> Result<ExtraPlan, Failure> {
+    if no_own_key {
         return Ok(ExtraPlan { removed: saved.clone(), saved, ids: Vec::new(), added: Vec::new() });
     }
     let Some(rows) = rows else {
@@ -534,7 +542,7 @@ pub fn custom_provider_row<F: CustomFacts + ?Sized>(facts: &F, id: &str, entry: 
         }
     }
     // Additional API keys by id only; their values never leave the keychain.
-    let extra = if keyless { Vec::new() } else { facts.custom_key_ids(id) };
+    let extra = if keyless || !api_key_env.is_empty() { Vec::new() } else { facts.custom_key_ids(id) };
     if !extra.is_empty() {
         row.insert("extraApiKeys".into(), json!(extra.iter().map(|key| json!({ "id": key })).collect::<Vec<_>>()));
     }
@@ -877,8 +885,9 @@ impl CustomHost {
             Err(_) => false,
         };
         let fallback = self.vault.is_fallback(&account).await.map_err(vault_failure)?;
-        let keyless = is_keyless(normalize(entry).ok().as_ref(), entry);
-        let key_ids = if keyless { Vec::new() } else { self.key_ids_of(id).await? };
+        let config = normalize(entry).ok();
+        let env_key = config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).is_some_and(|variable| !variable.is_empty());
+        let key_ids = if is_keyless(config.as_ref(), entry) || env_key { Vec::new() } else { self.key_ids_of(id).await? };
         let facts = Prefetched { account, stored, fallback, key_ids, env: Arc::clone(&self.env) };
         Ok(custom_provider_row(&facts, id, entry, true))
     }
@@ -934,16 +943,23 @@ impl CustomAdmin {
         Ok(())
     }
 
-    /// A failed save puts the saved roster back and drops the keys it added.
-    /// Node does not catch here: a failure replaces the error that started the revert.
-    async fn revert_extra_keys(&self, id: &str, plan: &ExtraPlan) -> Result<(), Failure> {
-        if plan.changed() {
-            self.host.accounts.set_custom_key_ids(id, plan.saved.clone()).await.map_err(acct)?;
+    /// A failed save puts the saved roster back and drops the keys it added. Each undo step runs
+    /// whatever the others did; a step that fails is logged, the save's own error is reported.
+    async fn revert_extra_keys(&self, id: &str, plan: &ExtraPlan) {
+        if plan.changed()
+            && let Err(error) = self.host.accounts.set_custom_key_ids(id, plan.saved.clone()).await.map_err(acct)
+        {
+            self.log_undo(id, "restore the additional API key list", &error);
         }
         for (key_id, _) in &plan.added {
-            self.host.keys.forget_custom(id, key_id).await.map_err(vault_failure)?;
+            if let Err(error) = self.host.keys.forget_custom(id, key_id).await.map_err(vault_failure) {
+                self.log_undo(id, "delete an additional API key", &error);
+            }
         }
-        Ok(())
+    }
+
+    fn log_undo(&self, id: &str, step: &str, error: &Failure) {
+        (self.host.log)(&format!("[provider-admin] a failed save of {id} could not {step}: {}\n", error.message()));
     }
 
     /// The config write of a save: the entry over the document this transaction sees.
@@ -972,22 +988,24 @@ impl CustomAdmin {
         let previous = if !typed.is_empty() && existing { host.keys.get(id).await.map_err(vault_failure)? } else { None };
         // Auth as of this save's turn in the key queue: a no-auth save queued earlier may have
         // landed since the input was resolved.
-        let keyless = if existing { input_at(&host.config.agent(), input, "", host.env.as_ref(), 0)?.keyless } else { resolved.keyless };
+        let no_own_key = if existing { input_at(&host.config.agent(), input, "", host.env.as_ref(), 0)?.no_own_key() } else { resolved.no_own_key() };
         let saved = if existing { host.key_ids_of(id).await? } else { Vec::new() };
-        let plan = extra_key_plan(saved, input.get("extraApiKeys"), keyless)?;
+        let plan = extra_key_plan(saved, input.get("extraApiKeys"), no_own_key)?;
         if !typed.is_empty() {
             host.keys.save(id, typed).await.map_err(vault_failure)?;
         }
         let entry = match self.write_entry(id, input, &plan).await {
             Ok(entry) => entry,
             Err(error) => {
-                self.revert_extra_keys(id, &plan).await?;
+                self.revert_extra_keys(id, &plan).await;
                 if !typed.is_empty() {
-                    match previous.filter(|key| !key.is_empty()) {
+                    let restored = match previous.filter(|key| !key.is_empty()) {
                         Some(key) => host.keys.save(id, &key).await,
                         None => host.keys.forget(id).await,
+                    };
+                    if let Err(undo) = restored.map_err(vault_failure) {
+                        self.log_undo(id, "restore the API key", &undo);
                     }
-                    .map_err(vault_failure)?;
                 }
                 return Err(error);
             }
@@ -1011,7 +1029,7 @@ impl CustomAdmin {
         let id = resolved.id.clone().unwrap_or_else(|| format!("custom-{}", uuid::Uuid::new_v4()));
         // Every save that may change the keys runs in the provider's key queue: a typed key, an
         // additional-key list, or a no-auth save (which drops them), decided from the input alone.
-        let keys_change = !resolved.typed.is_empty() || object.contains_key("extraApiKeys") || (resolved.id.is_some() && resolved.keyless);
+        let keys_change = !resolved.typed.is_empty() || object.contains_key("extraApiKeys") || (resolved.id.is_some() && resolved.no_own_key());
         if keys_change { self.serialized(&id, self.commit_save(&id, object, &resolved)).await } else { self.commit_save(&id, object, &resolved).await }
     }
 

@@ -18,6 +18,15 @@ pub(super) enum RouteSwitchCompaction {
 /// Node's `HOLD_REFUSAL` (`daemon-work-gate.mjs`): what a session call the work gate does not allow while it holds is refused with.
 pub(super) const HOLD_REFUSAL: &str = "daemon is holding new work for an update install";
 
+/// What a user who asked for a compaction that changed nothing is told.
+const NOTHING_TO_COMPACT: &str = "Nothing to compact";
+
+/// The reason a compaction asked while another owns the session is skipped with.
+const COMPACTION_RUNNING: &str = "compact skipped: compaction in progress";
+
+/// What a given-up idle clear's compaction is aborted with when the next compaction starts.
+const CLEAR_SUPERSEDED: &str = "auto-clear given up: another compaction started";
+
 /// A manual compaction's answer to its actor. A session closed, deleted or shut down under the compaction has no actor
 /// left to take it: the compaction's result (Node returns it after the close) goes straight to the request waiting for it.
 fn answer(jobs: &mpsc::UnboundedSender<JobDone>, job: JobDone) {
@@ -30,12 +39,12 @@ fn answer(jobs: &mpsc::UnboundedSender<JobDone>, job: JobDone) {
 }
 
 /// Reports a compaction's end to its actor, once: explicitly, or when the compaction's task ends without having (a panic, a drop).
-struct CompactionEnding(Option<mpsc::UnboundedSender<JobDone>>);
+struct CompactionEnding(Option<(mpsc::UnboundedSender<JobDone>, u64)>);
 
 impl CompactionEnding {
     fn report(&mut self) {
-        if let Some(jobs) = self.0.take() {
-            let _ = jobs.send(JobDone::CompactionEnded);
+        if let Some((jobs, id)) = self.0.take() {
+            let _ = jobs.send(JobDone::CompactionEnded(id));
         }
     }
 }
@@ -69,7 +78,7 @@ impl SessionActor {
                 };
                 let (side, thread, jobs, op) = (self.deps.side.clone(), self.id.clone(), self.jobs_tx.clone(), req.op.clone());
                 // A cold transcript is compacted before the question only while nothing else runs on the session.
-                let idle = !self.turn_busy() && self.compactions == 0;
+                let idle = !self.turn_busy() && !self.compacting();
                 tokio::spawn(async move {
                     let result =
                         super::super::turn_ops::ask_side_question(side.as_ref(), &thread, &params.question, idle).await.map(|text| json!({ "text": text }));
@@ -91,15 +100,16 @@ impl SessionActor {
                     Ok(params) => params,
                     Err(error) => return Err((error, tx)),
                 };
+                let requested = super::super::turn_ops::is_user_compaction(params.options.as_ref());
                 // `{afterTurn: true}`: the session tool's `compact` (`workspace-tools.mjs:268`) only marks
                 // the thread; the turn's completion runs it.
                 if params.options.as_ref().and_then(|options| options.get("afterTurn")) == Some(&Value::Bool(true)) {
                     self.compact_scheduled = true;
                     Ok(Value::Null)
-                } else if self.ui_busy() && super::super::turn_ops::is_user_compaction(params.options.as_ref()) {
+                } else if self.ui_busy() && requested {
                     Ok(self.schedule_compact_for_turn_end())
                 } else {
-                    self.compact_start(req.op.clone(), tx, params.options);
+                    self.compact_start(req.op.clone(), tx, params.options, requested);
                     return Ok(());
                 }
             }
@@ -158,17 +168,34 @@ impl SessionActor {
         }
     }
 
-    pub(super) fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
+    /// The compaction's number once it starts; `None` when it is refused (its answer is given). `requested`: a user's own
+    /// compaction, told when it changed nothing.
+    pub(super) fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>, requested: bool) -> Option<u64> {
         if self.ui_busy() {
-            return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
+            self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
+            return None;
         }
         // A side question's compaction of an idle session is decided here, under the exclusion a turn's start takes: a turn
         // that started (or is starting, or queued) after the question looked, or another compaction, keeps the history.
         let idle_only = options.as_ref().and_then(|options| options.get("idleOnly")) == Some(&Value::Bool(true));
-        if idle_only && (self.turn_busy() || self.compactions > 0) {
-            return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
+        if idle_only && (self.turn_busy() || self.compacting()) {
+            self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
+            return None;
+        }
+        // One compaction at a time: a second ask (a double trigger, another device) would commit over a history the first
+        // moved, and take the cancel a Stop, a close or a delete reaches the first by.
+        if self.compacting() {
+            self.replied(op, tx, Ok(json!({ "changed": false, "reason": COMPACTION_RUNNING })));
+            return None;
+        }
+        // A given-up clear's compaction holds the cancel this one takes: it is aborted first, so none runs out of reach.
+        if self.compactions > 0 {
+            self.cell
+                .abort_compaction(&mixdog_agent::cancel::Abort { message: CLEAR_SUPERSEDED.into(), reason: mixdog_agent::interrupt::AbortReason::Unnamed });
         }
         self.compactions += 1;
+        self.compaction_seq += 1;
+        let id = self.compaction_seq;
         let (trigger, require_reduction) = super::super::turn_ops::compact_trigger(options.as_ref());
         // `withCommandStatus` / `performAutoClear`: the command's status, its clock starting as the compaction begins.
         let (verb, mode) = if require_reduction { ("Auto-clearing idle conversation", "auto-clear") } else { ("Compacting conversation", "compacting") };
@@ -185,7 +212,7 @@ impl SessionActor {
         tokio::spawn(async move {
             let _core_abort = core_abort;
             // However the task ends (a panic, a drop), the compaction's end is reported, so its command status cannot stay set.
-            let mut ending = CompactionEnding(Some(jobs.clone()));
+            let mut ending = CompactionEnding(Some((jobs.clone(), id)));
             let result = match compaction.compact(&thread, trigger, require_reduction, &cancel).await {
                 Ok(result) => result.unwrap_or(Value::Null),
                 Err(error) => {
@@ -200,8 +227,9 @@ impl SessionActor {
             compaction.post_compact(&thread, trigger).await;
             // The applied result ends the compaction after its commit (`compaction_rows`).
             ending.0 = None;
-            answer(&jobs, JobDone::Compacted { op, tx, result, recover });
+            answer(&jobs, JobDone::Compacted { id, op, tx, result, recover, requested });
         });
+        Some(id)
     }
 
     /// `scheduleCompactForTurnEnd` (`session-api/commands.mjs`): a user's `/compact` while a turn runs is announced and runs once
@@ -246,7 +274,7 @@ impl SessionActor {
         }
         let synced = self.deps.compaction.synced_compaction(header, false);
         let settings = synced.as_ref().or_else(|| header.get("compaction"));
-        if settings.and_then(|settings| settings.get("onModelChange")) == Some(&Value::Bool(false)) || self.compactions > 0 || self.compaction_blocked() {
+        if settings.and_then(|settings| settings.get("onModelChange")) == Some(&Value::Bool(false)) || self.compacting() || self.compaction_blocked() {
             return RouteSwitchCompaction::NotNeeded;
         }
         RouteSwitchCompaction::Compact
@@ -305,14 +333,14 @@ impl SessionActor {
     pub(super) fn idle_clear_checked(&mut self, due: bool) {
         // A compaction already running (a manual one admitted while the meter was read) is the clear: `commandBusy` kept 1.4.5's
         // drain from reaching `autoClearBeforeSubmit` meanwhile, so two commands never own the status at once.
-        if !due || self.compaction_blocked() || self.compactions > 0 {
+        if !due || self.compaction_blocked() || self.compacting() {
             self.idle_clearing = false;
             self.idle_cleared = true;
             return;
         }
         let (tx, rx) = oneshot::channel();
         self.after_compaction = Some(AfterCompaction { waiting: Vec::new(), goal_active: false });
-        self.compact_start(None, tx, Some(json!({ "requireReduction": true })));
+        self.idle_clear_compaction = self.compact_start(None, tx, Some(json!({ "requireReduction": true })), false);
         let jobs = self.jobs_tx.clone();
         // `compactWithinTimeout`: the wait is bounded, not the compaction. One that outlasts it keeps running; its result is
         // applied only if no turn has begun by then (`compaction_rows`), and the turn does not wait for it.
@@ -332,6 +360,10 @@ impl SessionActor {
     /// turn that waited goes on once what was asked meanwhile ran.
     pub(super) fn idle_clear_ended(&mut self, skipped: Option<String>) {
         self.idle_cleared = true;
+        // Still running, its wait gave up: it holds nothing back from here, though a Stop, a close or a delete still reaches it.
+        if let Some(id) = self.idle_clear_compaction.take() {
+            self.given_up.push(id);
+        }
         // `performAutoClear`'s `finally`: the wait that blocked the turn ended (the compaction did, or the wait gave up and a
         // slow compaction runs on), and the command's status ends with it.
         self.end_command_status();
@@ -347,7 +379,7 @@ impl SessionActor {
     pub(super) fn run_scheduled_compaction(&mut self, goal_active: bool) {
         let (tx, rx) = oneshot::channel();
         self.after_compaction = Some(AfterCompaction { waiting: Vec::new(), goal_active });
-        self.compact_start(None, tx, None);
+        self.compact_start(None, tx, None, false);
         let jobs = self.jobs_tx.clone();
         tokio::spawn(async move {
             let _ = rx.await;
@@ -395,7 +427,7 @@ impl SessionActor {
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()
             || self.turn_busy()
-            || (self.compactions > 0 && !self.compaction_held())
+            || (self.compacting() && !self.compaction_held())
             || self.pending_retry.is_some()
             || self.after_compaction.as_ref().is_some_and(|after| after.waiting.iter().any(|w| matches!(w, super::Waiting::Retry(_))))
             || !self.projected.queue.is_empty()
@@ -740,15 +772,18 @@ impl SessionActor {
             self.try_unload();
         }
     }
-    /// The rest of a manual compaction once its Goal reminder is marked.
-    pub(super) fn compacted(&mut self, op: Option<OpId>, tx: Waiter, result: Value, recover: bool) {
+    /// The rest of a manual compaction once it ran. Only a history it changed re-marks the Goal reminder: one that moved
+    /// (`TRANSCRIPT_MOVED_ERROR`) or found nothing left the conversation the reminder was marked for.
+    pub(super) fn compacted(&mut self, id: u64, op: Option<OpId>, tx: Waiter, result: Value, recover: bool, requested: bool) {
         if result.get("changed") == Some(&Value::Bool(true)) {
             self.context_compacted();
+            self.mark_goal_reminder("compaction");
+        } else if requested {
+            self.notice(None, NOTHING_TO_COMPACT, "info");
         }
-        self.mark_goal_reminder("compaction");
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
         tokio::spawn(async move {
-            let mut ending = CompactionEnding(Some(jobs.clone()));
+            let mut ending = CompactionEnding(Some((jobs.clone(), id)));
             compaction.rearm(&thread).await;
             if recover {
                 compaction.recover_workers(&thread);
@@ -844,7 +879,7 @@ impl SessionActor {
             Box::new(move |current: &_| {
                 let mut change = match header {
                     Some(header) => header(current, &appended),
-                    None => mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() },
+                    None => mixdog_store::schema::record::HeaderChange::default(),
                 };
                 if leaves_agent {
                     change.set.shift_remove(agent_session);

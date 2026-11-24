@@ -33,7 +33,10 @@ export function sessionRailOrder(stored: unknown): SessionRailCategory[] {
     if (order.includes(id)) continue;
     const next = SESSION_RAIL_CATEGORIES.slice(index + 1).find((other) => order.includes(other));
     const previous = SESSION_RAIL_CATEGORIES.slice(0, index).findLast((other) => order.includes(other));
-    order.splice(next ? order.indexOf(next) : previous ? order.indexOf(previous) + 1 : order.length, 0, id);
+    let at = order.length;
+    if (next) at = order.indexOf(next);
+    else if (previous) at = order.indexOf(previous) + 1;
+    order.splice(at, 0, id);
   }
   return order;
 }

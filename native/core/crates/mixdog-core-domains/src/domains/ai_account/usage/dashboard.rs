@@ -743,6 +743,14 @@ async fn api_provider_row(item: &Value, providers: &Value, preview: bool, refres
     row
 }
 
+/// The account a reading was measured for: the reading's own `credentialStamp` (a digest of provider and account identity,
+/// never the credential), carried next to `updatedAt` so a consumer orders readings of one account only.
+fn set_credential_stamp(row: &mut Row, snapshot: Option<&Value>) {
+    if let Some(stamp) = snapshot.and_then(|s| s.get("credentialStamp")).filter(|v| v.as_str().is_some_and(|t| !t.is_empty())) {
+        set(row, "credentialStamp", stamp.clone());
+    }
+}
+
 async fn apply_api_snapshot(row: &mut Row, id: &str, provider_cfg: &Value, refresh: bool, sources: &dyn UsageSources) {
     let mut has_quota = false;
     let snapshot = api_snapshot(sources, id, refresh).await;
@@ -755,6 +763,7 @@ async fn apply_api_snapshot(row: &mut Row, id: &str, provider_cfg: &Value, refre
     let normalised = normalise_windows(windows, &source);
     let estimated = local_budget(provider_cfg);
     set(row, "updatedAt", num_or(snapshot.and_then(|s| s.get("cachedAt")), None).map_or(Value::Null, n));
+    set_credential_stamp(row, snapshot);
     if let Some(known) = &known {
         apply_known_remaining(row, known, false);
         set(row, "sourceLabel", "API");
@@ -828,6 +837,7 @@ async fn apply_oauth_snapshot(row: &mut Row, id: &str, refresh: bool, sources: &
         set(row, "credits", credits);
     }
     set(row, "updatedAt", num_or(snapshot.and_then(|s| s.get("cachedAt")), None).map_or(Value::Null, n));
+    set_credential_stamp(row, snapshot);
     if let Some(known) = &known {
         apply_known_remaining(row, known, false);
         set(row, "sourceLabel", "API");

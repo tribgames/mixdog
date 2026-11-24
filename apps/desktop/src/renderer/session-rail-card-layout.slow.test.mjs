@@ -214,7 +214,8 @@ test('the session panel stands right of the reading column: in its margin, or th
     await new Promise((resolve) => setTimeout(resolve, 100));
     return page.evaluate(() => window.measure());
   };
-  const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) <= 1, `${message}: ${actual} ≠ ${expected}`);
+  const near = (actual, expected, message) =>
+    assert.ok(Math.abs(actual - expected) <= 1, `${message}: ${actual} ≠ ${expected}`);
 
   const centre = (rect) => (rect.left + rect.right) / 2;
 
@@ -267,7 +268,10 @@ test('the session panel stands right of the reading column: in its margin, or th
   near(tight.panel.right, tight.cell.right, "the panel on the pane's edge");
   near(tight.panel.bottom, tight.surface.bottom, "to the surface's bottom");
   near(tight.scroller.right, tight.panel.left, 'the scroller ends at the panel');
-  assert.ok(tight.row.right <= tight.panel.left, `the reading column ends before the panel: ${tight.row.right} > ${tight.panel.left}`);
+  assert.ok(
+    tight.row.right <= tight.panel.left,
+    `the reading column ends before the panel: ${tight.row.right} > ${tight.panel.left}`
+  );
   assert.ok(tight.composer.right <= tight.panel.left, 'and so does the composer');
 
   // Either side of the width where the scroller, giving up the band on both sides, still holds the 848px column the
@@ -281,7 +285,10 @@ test('the session panel stands right of the reading column: in its margin, or th
     const beside = await at(cellWidth + frame, fitted.width, fitted.reserve);
     assert.equal(beside.cellWidth, cellWidth);
     const width = (rect) => rect.right - rect.left;
-    assert.ok(Math.abs(width(beside.row) - width(without.row)) <= 0.5, `${cellWidth}: the rows keep their width: ${width(beside.row)} ≠ ${width(without.row)}`);
+    assert.ok(
+      Math.abs(width(beside.row) - width(without.row)) <= 0.5,
+      `${cellWidth}: the rows keep their width: ${width(beside.row)} ≠ ${width(without.row)}`
+    );
     assert.ok(beside.row.right <= beside.panel.left, `${cellWidth}: the rows end before the panel`);
     if (fitted.reserve === 0) {
       near(beside.row.left, without.row.left, `${cellWidth}: the rows stay where they were`);
@@ -303,7 +310,8 @@ test('the session panel stands right of the reading column: in its margin, or th
 test('a section that arrives opens from nothing and one that leaves closes to nothing: no other head jumps at its first or last frame, beside open or folded sections, first or last', async (t) => {
   const { page, errors } = await openPage(t);
   await page.setViewport({ width: 800, height: 800 });
-  const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) <= 0.5, `${message}: ${actual} ≠ ${expected}`);
+  const near = (actual, expected, message) =>
+    assert.ok(Math.abs(actual - expected) <= 0.5, `${message}: ${actual} ≠ ${expected}`);
   const boxes = () => page.evaluate(() => window.sectionBoxes());
   // `moving` comes (it is in `to` only) or goes (in `from` only); '-' names a folded section.
   const fold = async (from, to, moving) => {

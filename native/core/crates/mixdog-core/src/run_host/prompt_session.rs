@@ -577,7 +577,7 @@ pub fn presented_workspace_of(header: &Header) -> Value {
 /// block again. A session without an `env` block or a tail only gets the re-root, as in Node.
 pub fn reset_environment(header: &Header, blocks: &SystemBlocks) -> PromptPatch {
     let mut next = blocks.clone();
-    let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
+    let mut change = HeaderChange::default();
     if pending_workspace_reroot(header).is_some() {
         let rewrite = route_prompt_refresh(&PromptView { header, tier3: blocks.core.as_deref(), env: blocks.env.as_deref() }, true);
         change = rewrite.change;

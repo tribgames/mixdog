@@ -1196,18 +1196,9 @@ impl Migrator {
         match progress.state {
             ItemState::Disposed => return Ok(()),
             ItemState::Verified => {
-                if driver.keeps_sources(item) || crate::stores::keeps_catalog_item(item, &self.roots.data) {
-                    // The sources are the target, or a database that is not Mixdog's.
-                } else if self.core_serves() {
-                    for source in &item.sources {
-                        shared.fault(&format!("delete:{k}:before"))?;
-                        durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
-                    }
-                } else {
-                    for path in self.rehash(cx, item)? {
-                        shared.fault(&format!("delete:{k}:before"))?;
-                        durable::remove_file(&path)?;
-                    }
+                // Sources kept are the target, or a database that is not Mixdog's.
+                if !(driver.keeps_sources(item) || crate::stores::keeps_catalog_item(item, &self.roots.data)) {
+                    self.remove_sources(shared, cx, item)?;
                 }
             }
             ItemState::Expired => {
@@ -1234,17 +1225,7 @@ impl Migrator {
                     shared.fault(&format!("purge:{k}:before"))?;
                     retention.purge(id, &header).map_err(|error| Blocked::journal(format!("{k}: {error}")))?;
                 }
-                if self.core_serves() {
-                    for source in &item.sources {
-                        shared.fault(&format!("delete:{k}:before"))?;
-                        durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
-                    }
-                } else {
-                    for path in self.rehash(cx, item)? {
-                        shared.fault(&format!("delete:{k}:before"))?;
-                        durable::remove_file(&path)?;
-                    }
-                }
+                self.remove_sources(shared, cx, item)?;
             }
             ItemState::Quarantined => {
                 let code = progress.quarantined.ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
@@ -1268,6 +1249,23 @@ impl Migrator {
             }
         }
         shared.record(&format!("disposed:{k}"), JournalRecord::Disposed(KeyEntry { key: key(item) }))
+    }
+
+    /// Deletes `item`'s sources, each only as planned: by size and hash when a core serves, by `rehash` otherwise.
+    fn remove_sources(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {
+        let k = item.key.as_str();
+        if self.core_serves() {
+            for source in &item.sources {
+                shared.fault(&format!("delete:{k}:before"))?;
+                durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
+            }
+        } else {
+            for path in self.rehash(cx, item)? {
+                shared.fault(&format!("delete:{k}:before"))?;
+                durable::remove_file(&path)?;
+            }
+        }
+        Ok(())
     }
 
     fn dispose_shared_files(&self, shared: &Shared<'_>, cx: &ItemContext<'_>) -> Result<()> {

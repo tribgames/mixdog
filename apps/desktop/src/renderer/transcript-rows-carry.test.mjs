@@ -39,10 +39,20 @@ function sessionOf(seed) {
     if (roll < 0.14) {
       const checkpointId = random.chance(0.3) ? id('cp') : undefined;
       if (checkpointId) checkpoints.push(checkpointId);
-      return { id: id('u'), kind: 'user', text: `prompt ${serial}`, at: serial, ...(checkpointId ? { checkpointId } : {}) };
+      return {
+        id: id('u'),
+        kind: 'user',
+        text: `prompt ${serial}`,
+        at: serial,
+        ...(checkpointId ? { checkpointId } : {}),
+      };
     }
     if (roll < 0.34) {
-      const text = random.chance(0.1) ? ' ' : random.chance(0.3) ? `see [file](src/file-${serial % 7}.ts)` : `reply ${serial}`;
+      const text = random.chance(0.1)
+        ? ' '
+        : random.chance(0.3)
+          ? `see [file](src/file-${serial % 7}.ts)`
+          : `reply ${serial}`;
       return { id: id('a'), kind: 'assistant', text, at: serial };
     }
     if (roll < 0.72) {
@@ -59,7 +69,10 @@ function sessionOf(seed) {
         ...(done ? { completedAt: serial, result: visualize ? `Opened as tab v${serial % 4}` : 'ok' } : {}),
       };
     }
-    if (roll < 0.8) return random.chance(0.5) ? { id: id('n'), kind: 'notice', text: 'notice' } : { kind: 'notice', text: `note ${serial}` };
+    if (roll < 0.8)
+      return random.chance(0.5)
+        ? { id: id('n'), kind: 'notice', text: 'notice' }
+        : { kind: 'notice', text: `note ${serial}` };
     if (roll < 0.84) return { id: id('s'), kind: 'statusdone', status: random.pick(['', 'compacted']) };
     const status = random.pick(['', '', 'completed', 'failed', 'cancelled']);
     return {
@@ -92,7 +105,9 @@ function sessionOf(seed) {
       items = items.slice(0, Math.floor(random.next() * (items.length + 1)));
     } else if (roll < 0.95) {
       const at = Math.floor(random.next() * (items.length + 1));
-      items = random.chance(0.5) ? [...items.slice(0, at), make(), ...items.slice(at)] : [...items.slice(0, at), ...items.slice(at + 1)];
+      items = random.chance(0.5)
+        ? [...items.slice(0, at), make(), ...items.slice(at)]
+        : [...items.slice(0, at), ...items.slice(at + 1)];
     } else if (roll < 0.98) {
       items = items.slice(Math.floor(random.next() * items.length));
     } else {
@@ -105,7 +120,10 @@ function sessionOf(seed) {
 
 /** A row list as a from-nothing projection under another session key would name it. */
 const underKey = (rows, from, to) =>
-  rows.map((row) => ({ ...row, key: row.key.startsWith(`${from}:`) ? `${to}:${row.key.slice(from.length + 1)}` : row.key }));
+  rows.map((row) => ({
+    ...row,
+    key: row.key.startsWith(`${from}:`) ? `${to}:${row.key.slice(from.length + 1)}` : row.key,
+  }));
 
 const turnsOf = (index) =>
   [...index].map(([turnKey, turn]) => ({
@@ -311,7 +329,11 @@ test('a pane carries its rows on through its frames: the hook that makes them re
   const before = await show(items);
   reads.clear();
   const at = items.findIndex((item) => item.id === 't2-5-a');
-  const after = await show([...items.slice(0, at), tool('t2-5-a', { completedAt: 9, result: 'ok' }), ...items.slice(at + 1)]);
+  const after = await show([
+    ...items.slice(0, at),
+    tool('t2-5-a', { completedAt: 9, result: 'ok' }),
+    ...items.slice(at + 1),
+  ]);
   assert.deepEqual(
     after.flatMap((row, index) => (row === before[index] ? [] : [index])).map((index) => after[index].items[0].id),
     ['t2-5-a']
@@ -374,7 +396,10 @@ test('under a head kept above a shorter window the pane makes its own turn keys,
   }
   // The turn ends: its items take the key of its end, and only the keys before them are said to be left in place.
   const turnStart = shown.findLastIndex((item) => item.kind === 'user');
-  const ended = await show([...shown, { id: 'd-end', kind: 'turndone', status: 'completed', attemptId: 'att-1' }], shown.length);
+  const ended = await show(
+    [...shown, { id: 'd-end', kind: 'turndone', status: 'completed', attemptId: 'att-1' }],
+    shown.length
+  );
   assert.deepEqual(ended.settledTurnKeys, transcriptTurnKeys(shown));
   const note = carriedFrom(ended.settledTurnKeys);
   assert.equal(note.prior, before.settledTurnKeys);
@@ -462,7 +487,11 @@ test('the keys of a session’s changes: order, a row outside the ones a review 
   assert.notEqual(fileChangeKey([user, first]), fileChangeKey(base), 'a call that left');
   assert.notEqual(fileChangeKey([...base, patch('e3')]), fileChangeKey(base), 'a call that finished');
   assert.notEqual(fileChangeKey([user, first, patch('e9')]), fileChangeKey(base), 'another call in its place');
-  assert.equal(fileChangeKey([...base, patch('e4', false)]), fileChangeKey(base), 'a running call has changed nothing yet');
+  assert.equal(
+    fileChangeKey([...base, patch('e4', false)]),
+    fileChangeKey(base),
+    'a running call has changed nothing yet'
+  );
 
   // The transcript's own review reads its patch and write calls in order: the key moves with any of them, and with
   // their places, and with nothing else.
@@ -474,7 +503,11 @@ test('the keys of a session’s changes: order, a row outside the ones a review 
   assert.notEqual(transcriptReviewKey([user, first]), key, 'a patch that left');
   assert.notEqual(transcriptReviewKey([user, first, { ...second }]), key, 'a patch row that changed');
   assert.notEqual(transcriptReviewKey([...base, patch('e3')]), key, 'a patch that landed');
-  assert.notEqual(transcriptReviewKey([...base, { ...patch('e5'), isError: true }]).split(':')[0], '3', 'a failed patch is not read');
+  assert.notEqual(
+    transcriptReviewKey([...base, { ...patch('e5'), isError: true }]).split(':')[0],
+    '3',
+    'a failed patch is not read'
+  );
 
   // A sum of hashes that carry their places tells two orders apart; one that leaves the place out does not.
   const plain = carriedSum((entry) => entry.hash);
@@ -487,9 +520,9 @@ test('the keys of a session’s changes: order, a row outside the ones a review 
 
 test('a sum, a last match and the first places read from a list carried on are those of the list read whole', () => {
   const random = randomOf(11);
-  const valueOf = (entry) => (entry.count ? entry.value : undefined);
+  const countedValue = (entry) => (entry.count ? entry.value : undefined);
   const marked = (entry) => entry.count && entry.value % 3 === 0;
-  const sum = carriedSum(valueOf);
+  const sum = carriedSum(countedValue);
   const last = carriedLast(marked);
   const firsts = carriedFirsts();
   let list = [];
@@ -508,7 +541,7 @@ test('a sum, a last match and the first places read from a list carried on are t
     }
     list = next;
     names = nextNames;
-    assert.deepEqual(sum(list), carriedSum(valueOf)(list), `sum, frame ${frame}`);
+    assert.deepEqual(sum(list), carriedSum(countedValue)(list), `sum, frame ${frame}`);
     assert.equal(last(list), list.findLastIndex(marked), `last match, frame ${frame}`);
     assert.deepEqual(
       [...firsts(names)].sort(),
@@ -517,7 +550,13 @@ test('a sum, a last match and the first places read from a list carried on are t
     );
   }
   // The key a session's file changes are read under moves with a finished write, carried on or not.
-  const edit = (id, done) => ({ id, kind: 'tool', name: 'edit', args: { file_path: 'a.ts' }, ...(done ? { completedAt: 1 } : {}) });
+  const edit = (id, done) => ({
+    id,
+    kind: 'tool',
+    name: 'edit',
+    args: { file_path: 'a.ts' },
+    ...(done ? { completedAt: 1 } : {}),
+  });
   const running = [{ id: 'u', kind: 'user', text: 'go' }, edit('e1', true), edit('e2', false)];
   const finished = [...running.slice(0, 2), edit('e2', true)];
   const key = fileChangeKey(running);

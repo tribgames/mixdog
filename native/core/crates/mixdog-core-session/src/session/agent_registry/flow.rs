@@ -1050,6 +1050,41 @@ mod tests {
         let logged = stage_lines(&lines, &handle.id);
         assert!(logged.iter().any(|line| line.starts_with("stage=starting ms=")), "{logged:?}");
     }
+
+    /// A start the session answers with the receipt of an earlier acceptance of the same submission (a restarted core minting
+    /// an id the session already holds) ran nothing for this request: the turn fails at once, never told it started, instead
+    /// of waiting for an outcome no turn brings, and its start is not left on the session for a later turn to take.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_start_answered_with_an_earlier_turns_receipt_fails_at_once() {
+        let rig = crate::session::testing::Rig::new();
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (count, script) = (runs.clone(), completing());
+        rig.set_script(Arc::new(move |run| {
+            count.fetch_add(1, Ordering::SeqCst);
+            script(run)
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = crate::session::tests::start_thread(&directory).await;
+        let turns = SessionTurns::new(directory, Arc::new(Released(Mutex::default())));
+        let (first, _) = staged_request(&handle.id, "sub-1");
+        assert_eq!(turns.run_turn(first).await.expect("turn").content, "done");
+
+        let (again, staged) = staged_request(&handle.id, "sub-1");
+        let run = turns.run_turn(again);
+        tokio::pin!(run);
+        let refused = loop {
+            tokio::select! {
+                biased;
+                ended = run.as_mut() => break ended.expect_err("nothing ran for it"),
+                () = staged.entered.notified() => {
+                    assert!(!staged.told().contains(&TurnStage::Started), "an earlier turn's receipt is not this request's start: {:?}", staged.told());
+                }
+            }
+        };
+        assert!(refused.message.starts_with("the turn did not start"), "{}", refused.message);
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "the session ran no turn for it");
+        assert!(handle.cell.agent_start.lock().unwrap().is_none(), "and no start waits for a later turn to take");
+    }
 }
 
 /// The session layer as a worker's turn uses it (`TurnSessions`): reads over the stored model
@@ -1267,19 +1302,20 @@ impl SessionTurns {
         }
     }
 
+    /// Takes the start of submission `submission` back from the session, if its actor has not taken it: whether it was still
+    /// waiting there. The worker's start is this request's only while no later request put its own in its place.
+    fn take_waiting(handle: &crate::session::handle::SessionHandle, submission: &str) -> bool {
+        let mut waiting = handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner());
+        waiting.take_if(|start| start.turn.hooks.submission_id == submission).is_some()
+    }
+
     /// A start its job stopped waiting for, which the session's actor may still answer: the answer is taken here, so a
     /// turn the session starts for it is stopped and one it queued is taken off the queue. A start the cancellation
     /// ended before it reached the actor answers its refusal, and nothing is left.
     fn unstart(handle: Arc<crate::session::handle::SessionHandle>, thread: ThreadId, op: OpId, submission: String, start: PendingStart) {
         drop(mixdog_rt::spawn("agent-turn-unstart", mixdog_rt::TaskClass::Work, async move {
             let answer = start.await;
-            // The worker's start is this request's only while no later request put its own in its place.
-            {
-                let mut waiting = handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner());
-                if waiting.as_ref().is_some_and(|start| start.turn.hooks.submission_id == submission) {
-                    waiting.take();
-                }
-            }
+            Self::take_waiting(&handle, &submission);
             match answer {
                 Ok(Reply::Value(value)) if value["kind"] == "started" => {
                     if let Some(turn) = value["turnId"].as_str() {
@@ -1327,11 +1363,10 @@ impl SessionTurns {
         // the transcript length is read).
         self.admitted(thread.as_str(), epoch)?;
         let submission = request.hooks.submission_id.clone();
-        let submission_id = submission.clone();
         let op = OpId::from(format!("agent-turn:{}", if submission.is_empty() { uuid::Uuid::new_v4().to_string() } else { submission.clone() }));
         let input = TurnInput {
             prompt: PromptContent::Text(request.prompt.clone()),
-            options: Some(SubmitOptions { client_submission_id: Some(submission).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
+            options: Some(SubmitOptions { client_submission_id: Some(submission.clone()).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
         };
         self.admitted(thread.as_str(), epoch)?;
         // The report and the failure leave the worker for its owner: the worker's sensitive values as the marker.
@@ -1367,7 +1402,7 @@ impl SessionTurns {
                 // The request may be with the actor: its answer is waited for apart from the job, which ends now.
                 () = cancel.cancelled() => {
                     mixdog_rt::turn_trace!("[turn-start] session={thread} stage=starting cancelled");
-                    Self::unstart(handle, thread, op, submission_id, start);
+                    Self::unstart(handle, thread, op, submission, start);
                     return Err(TurnError::new(cancel.reason()));
                 }
             },
@@ -1379,6 +1414,15 @@ impl SessionTurns {
         match started {
             // The turn this request started, named to its submitter: what a cancellation of the job stops.
             Ok(Reply::Value(value)) if value["kind"] == "started" => {
+                // The actor takes the start before it answers a turn it started: one still waiting was answered with the receipt
+                // of an earlier acceptance of the same submission, and no turn runs for this request.
+                if Self::take_waiting(&handle, &submission) {
+                    let earlier = value["turnId"].as_str().unwrap_or_default();
+                    return Err(ended(
+                        &stages,
+                        format!("the turn did not start: agent session {} holds submission {submission} from its earlier turn {earlier}", request.session_id),
+                    ));
+                }
                 stages.enter(TurnStage::Started);
                 if let (Some(submitted), Some(turn)) = (&submitted, value["turnId"].as_str()) {
                     submitted(turn);

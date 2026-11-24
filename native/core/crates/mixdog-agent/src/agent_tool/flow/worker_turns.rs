@@ -12,8 +12,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Weak;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use crate::agent_tool::watchdog::WATCHDOG_STALL_FAILURE;
 
@@ -33,8 +31,6 @@ use crate::env::Clock;
 
 /// The row's `failureReason` for a turn the process exit cut off.
 pub const PROCESS_RESTART_FAILURE: &str = "process-restart";
-
-static SUBMISSIONS: AtomicU64 = AtomicU64::new(1);
 
 struct Current {
     turn_id: String,
@@ -241,7 +237,8 @@ impl WorkerTurns {
     /// turn's start (the turn then carries the job), and `release` for the dispatch's end. A
     /// dispatch that started no turn at all (it failed before one opened) settles the row itself.
     pub fn claim(&self, session_id: &str, job: Option<Arc<JobHandle>>) -> Claim {
-        let submission_id = format!("agent-turn-{:016x}", SUBMISSIONS.fetch_add(1, Ordering::SeqCst));
+        // Unique across processes: a resumed session answers a submission id it already holds with that earlier turn.
+        let submission_id = format!("agent-turn-{}", mixdog_ai::registry::accounting::random_uuid().replace('-', ""));
         let owner = self.owner_of(session_id).map(|owner| {
             let started_before = {
                 let mut state = owner.state();

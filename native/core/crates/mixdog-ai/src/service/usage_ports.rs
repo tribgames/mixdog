@@ -47,9 +47,9 @@ use crate::providers::compat::creds::OpenCodeGoCredentials;
 use crate::providers::compat::login::opencode_go::OpenCodeGoAuth;
 use crate::providers::compat::login::opencode_go::RefreshError;
 use crate::providers::connect::rewrite::Credential as _;
+use crate::providers::cursor::Access;
 use crate::providers::cursor::AccessToken;
 use crate::providers::cursor::auth::{ApiKeyAccess, FileAccess as CursorAccess};
-use crate::providers::google::auth::RequestAuth as _;
 use crate::providers::google::auth::antigravity::AntigravityAuth;
 use crate::providers::google::auth::antigravity::FileTokenStore;
 use crate::providers::google::auth::antigravity::VERSION_FALLBACK as ANTIGRAVITY_VERSION_FALLBACK;
@@ -156,7 +156,6 @@ enum Held {
     Grok(Arc<GrokCredential>),
     OpenCode(Arc<OpenCodeGoAuth>),
     Antigravity(Arc<AntigravityAuth>),
-    Cursor(Arc<CursorAccess>),
 }
 
 /// [`UsageSource`] over the account store: each account's credential file, one credential object per
@@ -198,15 +197,17 @@ impl super::oauth_usage::CursorApiPlan for CursorApiReading {
     }
 
     async fn read(&self) -> Result<Value, UsageError> {
-        read_cursor(usage_cursor::API_PROVIDER_ID, self.http.clone(), self.versions.as_ref(), self.access.clone()).await
+        read_cursor(usage_cursor::API_PROVIDER_ID, self.http.clone(), self.versions.as_ref(), self.access.clone(), &mut None).await
     }
 }
 
+/// `sent`: the access the reading went out on ([`usage_cursor::CursorUsage::read`]).
 async fn read_cursor(
     provider: &str,
     http: Arc<dyn HttpSend>,
     versions: Option<&Arc<ClientVersions>>,
     access: Arc<dyn AccessToken>,
+    sent: &mut Option<Access>,
 ) -> Result<Value, UsageError> {
     let version = match versions {
         Some(versions) => {
@@ -215,7 +216,7 @@ async fn read_cursor(
         }
         None => crate::providers::cursor::CLIENT_VERSION_FLOOR.into(),
     };
-    usage_cursor::CursorUsage::new(provider, http, None, version, access).read().await
+    usage_cursor::CursorUsage::new(provider, http, None, version, access).read(sent).await
 }
 
 struct MuseFailure {
@@ -294,7 +295,6 @@ impl ProviderUsageSource {
                     Box::new(move || pace.now_ms()),
                 )))
             }
-            usage_cursor::PROVIDER_ID => Held::Cursor(Arc::new(CursorAccess::new(self.http.clone(), self.file(provider, account_id)?))),
             usage_opencode_go::PROVIDER_ID => {
                 Held::OpenCode(Arc::new(OpenCodeGoAuth::new(self.http.clone(), self.pace.clone(), self.file(provider, account_id)?)))
             }
@@ -335,6 +335,11 @@ fn opencode_failure(error: RefreshError) -> UsageError {
     }
 }
 
+/// The credential a reading was sent with, as the stored document that holds it.
+fn stored_auth(stored: &impl serde::Serialize) -> Option<UsageAuth> {
+    serde_json::to_value(stored).ok().map(UsageAuth::plain)
+}
+
 /// The identity fields Node reads with `text()`: trimmed, empty when absent.
 fn identity(value: Option<&str>) -> &str {
     value.map_or("", js_trim)
@@ -343,7 +348,7 @@ fn identity(value: Option<&str>) -> &str {
 impl ProviderUsageSource {
     /// `getUsageSnapshot()` of antigravity-oauth: `retrieveUserQuotaSummary` with the stored access
     /// token (refreshed when it is about to expire), as the hub client.
-    async fn antigravity_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
+    async fn antigravity_snapshot(&self, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         let version = match &self.versions {
             Some(versions) => {
                 versions.warm(Dialect::Antigravity).await;
@@ -355,8 +360,9 @@ impl ProviderUsageSource {
         // `ensureAccessToken` throws a plain `Error` (no status) when nothing is signed in. The turn path's auth types
         // that same failure as a 401 re-auth, so the usage read tells it apart by asking for the sign-in first.
         auth.current().await.map_err(|error| UsageError::new(format!("[antigravity-oauth] {}", error.message)))?;
-        let authorization =
-            auth.authorize().await.map_err(|error| UsageError { status: error.status, message: format!("[antigravity-oauth] {}", error.message) })?;
+        let (authorization, tokens) =
+            auth.authorized().await.map_err(|error| UsageError { status: error.status, message: format!("[antigravity-oauth] {}", error.message) })?;
+        *sent = Some(UsageAuth::plain(tokens.to_json()));
         let bearer = authorization.headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, value)| value).unwrap_or_default();
         let headers = vec![
             ("Authorization".to_owned(), bearer.clone()),
@@ -372,14 +378,7 @@ impl ProviderUsageSource {
         }
         let summary: Value = serde_json::from_str(&reply.body)
             .map_err(|error| UsageError::new(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
-        let mut reading = usage_antigravity::snapshot(&summary);
-        // Stamped with the bearer and project this request carried.
-        let credential = json!({ "access_token": bearer.strip_prefix("Bearer ").unwrap_or(&bearer), "project_id": authorization.identity });
-        super::oauth_usage::stamp_reading(
-            &mut reading,
-            credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_antigravity::PROVIDER_ID, doc)),
-        );
-        Ok(Some(reading))
+        Ok(Some(usage_antigravity::snapshot(&summary)))
     }
 
     async fn prepare_cursor_api(&self) -> Result<Option<Arc<dyn super::oauth_usage::CursorApiPlan>>, UsageError> {
@@ -407,15 +406,21 @@ impl ProviderUsageSource {
         Ok(Some(Arc::new(CursorApiReading { key: digest, http: self.http.clone(), versions: self.versions.clone(), access })))
     }
 
-    async fn cursor_snapshot(&self, provider: &str, account_id: &str) -> Result<Option<Value>, UsageError> {
+    async fn cursor_snapshot(&self, provider: &str, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         if provider == usage_cursor::API_PROVIDER_ID {
             return match self.prepare_cursor_api().await? {
                 Some(plan) => plan.read().await.map(Some),
                 None => Ok(None),
             };
         }
-        let Some(Held::Cursor(access)) = self.held(provider, account_id)? else { unreachable!("the provider is held") };
-        read_cursor(provider, self.http.clone(), self.versions.as_ref(), access).await.map(Some)
+        // The credential in force for the slot at this reading: the override while it is set, as for a send, else the file.
+        let tokens =
+            CursorAccess::new(self.http.clone(), self.file(provider, account_id)?).with_env_token(self.accounts.credential_override(provider, account_id));
+        let mut access = None;
+        let reading = read_cursor(provider, self.http.clone(), self.versions.as_ref(), Arc::new(tokens), &mut access).await;
+        // A Cursor file holds its tokens alone: the token is the whole of the sign-in.
+        *sent = access.map(|access| UsageAuth::plain(json!({ "access_token": access.token })));
+        reading.map(Some)
     }
 
     fn muse_states(&self) -> std::sync::MutexGuard<'_, HashMap<String, MuseState>> {
@@ -424,7 +429,7 @@ impl ProviderUsageSource {
 
     /// `getUsageSnapshot()` of muse-code-oauth: the key endpoint with the Meta account token, behind
     /// a 5-minute cooldown after a failure, with the last good reading kept for the account it came from.
-    async fn muse_code_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
+    async fn muse_code_snapshot(&self, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         let file = self.file(usage_muse_code::PROVIDER_ID, account_id)?;
         let stored = match file.load::<MuseCodeCredentials>().await {
             Probe::Present(stored) if !js_trim(&stored.access_token).is_empty() && !js_trim(&stored.api_key).is_empty() => stored,
@@ -436,6 +441,8 @@ impl ProviderUsageSource {
             _ => return Err(UsageError::new(MUSE_SIGNED_OUT)),
         };
         file.keep(&[&stored.access_token, &stored.api_key]);
+        // The cooldown's answer and the last good reading are this sign-in's too: they are kept per identity.
+        *sent = stored_auth(&stored);
         let stored_account = stored.account_id.clone().unwrap_or_default();
         let digest = Sha256::digest(stored.access_token.as_bytes());
         let identity = format!("{stored_account}:{}", digest.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>());
@@ -542,9 +549,9 @@ impl ProviderUsageSource {
 
     /// `getUsageSnapshot()` of opencode-go-oauth: the status read, behind one refresh when the token is
     /// rejected (`withConsoleTokenRetry`).
-    async fn opencode_go_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
+    async fn opencode_go_snapshot(&self, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         let tokens = self.opencode_tokens(account_id).await?;
-        let mut sent = tokens.clone();
+        *sent = stored_auth(&tokens);
         let parsed = match self.opencode_status(&tokens).await {
             Err(error) if error.status == Some(401) => {
                 let Some(Held::OpenCode(auth)) = self.held(usage_opencode_go::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
@@ -555,7 +562,7 @@ impl ProviderUsageSource {
                 {
                     return Err(UsageError::new("[opencode-go-oauth] the OpenCode sign-in changed during the request"));
                 }
-                sent = next.clone();
+                *sent = stored_auth(&next);
                 match self.opencode_status(&next).await {
                     Err(error) if error.status == Some(401) => return Err(opencode_reauth("console 401", 401)),
                     other => other?,
@@ -563,18 +570,11 @@ impl ProviderUsageSource {
             }
             other => other?,
         };
-        let mut reading = usage_opencode_go::snapshot(parsed, identity(tokens.email.as_deref()), identity(tokens.account_id.as_deref()), now_ms());
-        // Stamped with the credential whose request answered: the refreshed one after a rejected first try.
-        let credential = json!({ "access_token": sent.access_token, "account_id": identity(sent.account_id.as_deref()) });
-        super::oauth_usage::stamp_reading(
-            &mut reading,
-            credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_opencode_go::PROVIDER_ID, doc)),
-        );
-        Ok(Some(reading))
+        Ok(Some(usage_opencode_go::snapshot(parsed, identity(tokens.email.as_deref()), identity(tokens.account_id.as_deref()), now_ms())))
     }
 
     /// `getUsageSnapshot()` of command-code-oauth: the credits request with the account's key.
-    async fn command_code_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
+    async fn command_code_snapshot(&self, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         let file = self.file(usage_command_code::PROVIDER_ID, account_id)?;
         let Probe::Present(stored) = file.load::<CommandCodeCredentials>().await else {
             return Err(UsageError::new(COMMAND_CODE_SIGNED_OUT));
@@ -584,6 +584,7 @@ impl ProviderUsageSource {
             return Err(UsageError::new(COMMAND_CODE_SIGNED_OUT));
         }
         file.keep(&[key]);
+        *sent = stored_auth(&stored);
         let headers = vec![("Accept".to_owned(), "application/json".to_owned()), ("Authorization".to_owned(), format!("Bearer {key}"))];
         let reply = RoutedUsageHttp::new(self.http.clone())
             .get(usage_command_code::CREDITS_URL, &headers, Duration::from_millis(usage_command_code::REQUEST_TIMEOUT_MS))
@@ -630,9 +631,11 @@ impl UsageSource for ProviderUsageSource {
                     None => session.attempt().await,
                 }
                 .map_err(failure)?;
-                Ok(Some(UsageAuth::sent_on(json!({ "accessToken": attempt.access_token }), attempt)))
+                // The account the login names, beside its token, as its stored document names it.
+                let doc = json!({ "accessToken": attempt.access_token, "identity": attempt.owner() });
+                Ok(Some(UsageAuth::sent_on(doc, attempt)))
             }
-            Held::Antigravity(_) | Held::Cursor(_) => Ok(None),
+            Held::Antigravity(_) => Ok(None),
             Held::OpenCode(auth) => {
                 // The sign-in refreshed is the pair the refused credential was handed out on, which it carries.
                 let tokens = match rejected.and_then(UsageAuth::attempt::<OpenCodeGoCredentials>) {
@@ -664,13 +667,13 @@ impl UsageSource for ProviderUsageSource {
         !matches!(provider, usage_antigravity::PROVIDER_ID | usage_cursor::PROVIDER_ID | usage_cursor::API_PROVIDER_ID)
     }
 
-    async fn provider_snapshot(&self, provider: &str, account_id: &str) -> Result<Option<Value>, UsageError> {
+    async fn provider_snapshot(&self, provider: &str, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         match provider {
-            usage_command_code::PROVIDER_ID => self.command_code_snapshot(account_id).await,
-            usage_opencode_go::PROVIDER_ID => self.opencode_go_snapshot(account_id).await,
-            usage_muse_code::PROVIDER_ID => self.muse_code_snapshot(account_id).await,
-            usage_antigravity::PROVIDER_ID => self.antigravity_snapshot(account_id).await,
-            usage_cursor::PROVIDER_ID | usage_cursor::API_PROVIDER_ID => self.cursor_snapshot(provider, account_id).await,
+            usage_command_code::PROVIDER_ID => self.command_code_snapshot(account_id, sent).await,
+            usage_opencode_go::PROVIDER_ID => self.opencode_go_snapshot(account_id, sent).await,
+            usage_muse_code::PROVIDER_ID => self.muse_code_snapshot(account_id, sent).await,
+            usage_antigravity::PROVIDER_ID => self.antigravity_snapshot(account_id, sent).await,
+            usage_cursor::PROVIDER_ID | usage_cursor::API_PROVIDER_ID => self.cursor_snapshot(provider, account_id, sent).await,
             _ => Err(UsageError::new(format!("{provider} plan usage is not available from this build"))),
         }
     }
