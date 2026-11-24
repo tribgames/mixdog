@@ -2,7 +2,10 @@
 # against the selected manifest's package graph, so the core workspace's overrides cannot be loaded here.
 
 [profile.ci]
-slow-timeout = { period = "30s", terminate-after = 4 }
+# A test is terminated after 2 minutes (period x terminate-after) and fails the leg; a child it leaves holding its output
+# is waited for 5 s, not until the job's own timeout.
+slow-timeout = { period = "30s", terminate-after = 4, grace-period = "5s" }
+leak-timeout = "5s"
 retries = 0
 fail-fast = false
 status-level = "slow"

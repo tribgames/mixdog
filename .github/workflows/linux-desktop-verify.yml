@@ -171,14 +171,22 @@ jobs:
         uses: ./.github/actions/apt-packages
         with:
           packages: xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      # The arm64 desktop shards copy the prebuilt main-process module below (build-test-native.mjs then finds it newer
+      # than its sources), so they never run cargo.
+      - name: Resolve the version-neutral Cargo.lock key
+        id: cargo-lock
+        if: ${{ matrix.suite == 'root' || matrix.arch == 'x64' }}
+        run: echo "key=$(node scripts/cargo-cache-key.mjs native/core/Cargo.lock native/mixdog-main-native/Cargo.lock)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: ${{ matrix.suite == 'root' || matrix.arch == 'x64' }}
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             native/*/target
-          key: cargo-${{ matrix.arch }}-${{ hashFiles('native/**/Cargo.lock') }}
+          key: cargo-${{ matrix.arch }}-${{ steps.cargo-lock.outputs.key }}-${{ hashFiles('native/*/Cargo.lock', '!native/core/Cargo.lock', '!native/mixdog-main-native/Cargo.lock') }}
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        if: ${{ matrix.suite == 'root' || matrix.arch == 'x64' }}
         with:
           toolchain: "1.99.1"
       - uses: actions/download-artifact@v5
@@ -307,12 +315,15 @@ jobs:
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
           # graph must come from native-out: no silent fallback to the pinned download.
           echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph" >> "$GITHUB_ENV"
+      # Electron and its builder are downloaded only to package; adopted packages are not rebuilt.
       - name: Resolve Electron download key
         id: electron-key
+        if: ${{ !inputs.packages_prebuilt }}
         run: |
           key=$(node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json)
           echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: ${{ !inputs.packages_prebuilt }}
         with:
           path: |
             ~/.cache/electron
@@ -321,10 +332,12 @@ jobs:
       # Side by side, each PID waited on, transient failures retried. The skip
       # covers these two trees only: the packaged runtime comes from
       # prepare-runtime's own staging `npm ci`, which keeps downloading the
-      # CUDA provider libraries the shipped linux-x64 app carries.
+      # CUDA provider libraries the shipped linux-x64 app carries. The desktop
+      # tree is for packaging alone, so adopted packages install the root tree only.
       - name: Install root and desktop dependencies
         env:
           ONNXRUNTIME_NODE_INSTALL: skip
+          PACKAGES_PREBUILT: ${{ inputs.packages_prebuilt }}
         run: |
           npm_ci() {
             local attempt
@@ -337,11 +350,13 @@ jobs:
           }
           npm_ci &
           root_pid=$!
-          npm_ci --prefix apps/desktop &
-          desktop_pid=$!
+          if [ "$PACKAGES_PREBUILT" != true ]; then
+            npm_ci --prefix apps/desktop &
+            desktop_pid=$!
+          fi
           status=0
           wait "$root_pid" || status=1
-          wait "$desktop_pid" || status=1
+          if [ "$PACKAGES_PREBUILT" != true ]; then wait "$desktop_pid" || status=1; fi
           exit "$status"
       - name: GNOME extension source present (uuid == dir name, modes 0755/0644)
         run: bash apps/desktop/scripts/linux-gnome-extension-check.sh source .
@@ -396,6 +411,14 @@ jobs:
       - name: glibc floor check self-test (must fail closed)
         run: bash apps/desktop/scripts/linux-glibc-floor-selftest.sh
       - name: Verify the built packages (extracted .deb + AppImage payloads, native-tool hashes, glibc floor <= 2.31)
+        if: ${{ !inputs.packages_prebuilt }}
+        run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ matrix.arch }} 2.31 extract | tee package-verify.txt
+      # The packager (desktop-package.yml) already ran that check on these exact bytes (the digest is verified on download);
+      # only the extracted payloads the checks below read are needed.
+      - name: Extract the adopted packages
+        if: ${{ inputs.packages_prebuilt }}
+        env:
+          MIXDOG_EXTRACT_ONLY: "1"
         run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ matrix.arch }} 2.31 extract | tee package-verify.txt
       - name: GNOME extension packaged (system-wide + resources in .deb, resources in AppImage)
         run: bash apps/desktop/scripts/linux-gnome-extension-check.sh payload "${DEB_ROOT%/opt/Mixdog}" "$AI_ROOT"
@@ -602,14 +625,22 @@ jobs:
           path: server-cores-in
       - name: Adopt the run's server bundles
         run: node apps/desktop/scripts/stage-core.mjs --server-cores=server-cores-in
+      # The release already built the platform-neutral output once (release.yml build-desktop-once); this is its artifact.
+      - name: Take the run's desktop output
+        if: ${{ inputs.packages_prebuilt }}
+        uses: actions/download-artifact@v5
+        with:
+          name: desktop-out
+          path: apps/desktop/out
       - name: Build N+1 Linux package (patch version bumped)
         working-directory: apps/desktop
         env:
           XZ_DEFAULTS: -T0 # multi-threaded .deb compression, as in "Build Linux package"
+          PACKAGES_PREBUILT: ${{ inputs.packages_prebuilt }}
         run: |
           next=$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")
           echo "N+1 version: $next"
-          npm run build
+          if [ "$PACKAGES_PREBUILT" != true ]; then npm run build; fi
           npx --no-install electron-builder --linux --x64 --publish never "-c.extraMetadata.version=$next"
           grep -q "^version: $next\$" dist/latest-linux.yml
           deb=$(ls dist/*.deb)
@@ -752,12 +783,19 @@ jobs:
       # Every download here is retried: a dropped connection must not fail the
       # distro smoke. The tarball lands on disk first, so a retried transfer
       # never feeds tar a second copy.
+      - name: Restore the Node tarball
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/node-tarball
+          key: node-tarball-v22.19.0-linux-${{ matrix.node }}
       - name: Stage Node, the smoke script's ws dependency and the distro image
         run: |
           tarball=node-v22.19.0-linux-${{ matrix.node }}.tar.xz
-          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 30 -o "$tarball" "https://nodejs.org/dist/v22.19.0/$tarball"
-          tar -xJf "$tarball"
-          rm "$tarball"
+          if [ ! -f "$RUNNER_TEMP/node-tarball/$tarball" ]; then
+            mkdir -p "$RUNNER_TEMP/node-tarball"
+            curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 30 -o "$RUNNER_TEMP/node-tarball/$tarball" "https://nodejs.org/dist/v22.19.0/$tarball"
+          fi
+          tar -xJf "$RUNNER_TEMP/node-tarball/$tarball"
           mv node-v22.19.0-linux-${{ matrix.node }} node
           mkdir ctr
           cp apps/desktop/scripts/linux-launch-smoke.mjs ctr/

@@ -61,7 +61,7 @@ env:
 #   changes ---> core-build-linux ---> core-tests-linux (N legs), core-list-linux, core-pg (a leg per profile), core-entry
 #      +-------> core-build-macos ---> core-tests-macos (at most 3 legs), core-list-macos, core-pg-macos (both profiles)
 #      +-------> core-build-windows -> core-tests-windows (N legs), core-list-windows
-#      +-------> mixdogd-linux ---> core-entry, desktop-slow, runtime-slow;  mixdogd-windows ---> desktop-computer
+#      +-------> mixdogd-linux ---> core-entry, runtime-slow;  mixdogd-windows ---> desktop-computer
 #      +--> core-lint (clippy, plain stable compile)   rustfmt   core-doctests   core-real (release mixdogd, node real-core tests)
 #      +--> runtime, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
 #
@@ -228,8 +228,11 @@ jobs:
           # The protocol packages the desktop, the phone and the smokes import, and their own suites.
           PACKAGES_RE='^(packages/|apps/mixdogd-npm/|scripts/test-tsx\.mjs$|package(-lock)?\.json$|\.github/workflows/release-gate\.yml$)'
           # The core's process manager is the library of native/mixdog-spawn built through crates/mixdog-spawn; its
-          # integration tests (the core-test feature) are in no other job. The core crates it compiles are listed.
-          SPAWN_RE="^(native/mixdog-spawn/|native/core/|${STANDALONE_NEXTEST_INPUTS})"
+          # integration tests (the core-test feature) are in no other job. The core crates it compiles are listed: the
+          # path dependencies of its manifest and their workspace dependencies (native/mixdog-spawn/Cargo.lock), the patched
+          # vendor crates and the build script's dev_only.rs.
+          SPAWN_CORE_CRATES='mixdog-(app-protocol|core-api|image-egress|js|protocol|rt|workspace-hack)'
+          SPAWN_RE="^(native/mixdog-spawn/|${CORE_WORKSPACE}|native/core/crates/${SPAWN_CORE_CRATES}/|native/core/vendor/(icu_collator|regress)/|native/core/build-support/|apps/desktop/build/mixdog\.ico$|${STANDALONE_NEXTEST_INPUTS})"
           # What scripts/rust-core, benchmarks/token-lang and the terminal-bench harness's Rust-core suites test beyond the
           # crates' own suites (core-real runs them).
           # core-real also builds with the toolchain pin and the core's lockfile, and runs through this workflow.
@@ -294,8 +297,8 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FULL: ${{ inputs.ref != '' || steps.paths.outputs.full == 'true' }}
-          # The slow Node lanes also need the dev programs; core-select adds them independently for the entry tests.
-          MIXDOGD_DEV: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.runtime == 'true' }}
+          # The runtime slow lane needs the dev programs; core-select adds them independently for the entry tests.
+          MIXDOGD_DEV: ${{ steps.paths.outputs.runtime == 'true' }}
           # The Windows leg (desktop-computer) boots the built app against this run's Windows dev daemon.
           MIXDOGD_WINDOWS: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.desktop_computer == 'true' }}
           RUSTUP_TOOLCHAIN: ${{ steps.rust-pin.outputs.version }}
@@ -733,8 +736,8 @@ jobs:
             ~/.cargo/git
             native/mixdog-computer/target
           # The lockfile (the dependencies) is in every key; only the crate's own sources may differ in a fallback.
-          key: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock') }}-${{ hashFiles('native/mixdog-computer/src/**') }}
-          restore-keys: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock') }}-
+          key: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('native/mixdog-computer/src/**') }}
+          restore-keys: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock', 'rust-toolchain.toml') }}-
       # Every standalone Rust test step runs through scripts/ci/run-nextest.mjs: its receipt records each terminal testcase of nextest's
       # JUnit report by binary and full test path, plus the ignore dispositions of the unfiltered listing, and the check after it fails a
       # damaged receipt and a skip with no exact reviewed exception (scripts/ci/coverage/exceptions.json).
@@ -952,8 +955,7 @@ jobs:
 
   # Every *.test.mjs under apps/desktop runs here by existing. The fast lane is
   # split in three; the slow lane (*.slow.test.mjs, git-cli owns minutes of real
-  # git process work) is its own job (desktop-slow) because it drives the mixdogd
-  # the Rust build job produces; the gate finishes at the longest of them.
+  # git process work) is its own job (desktop-slow), also in three shards; the gate finishes at the longest of them.
   # Depends on nothing a producer builds, so its receipts do not wait on or die with the Windows boot's inputs (desktop-computer).
   desktop-tests:
     needs: changes
@@ -1027,6 +1029,16 @@ jobs:
           wait "$desktop_pid" || status=1
           wait "$root_pid" || status=1
           exit "$status"
+      - name: Restore the compiled main native module
+        id: main-native
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-${{ hashFiles('native/mixdog-main-native/src/**', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**', 'native/core/Cargo.toml') }}
+          restore-keys: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-
       - name: Run the desktop fast lane (shard ${{ matrix.shard }}/3)
         shell: bash
         env:
@@ -1048,6 +1060,15 @@ jobs:
             ~/Library/Caches/electron
             ~/AppData/Local/electron/Cache
           key: ${{ steps.electron.outputs.cache-primary-key }}
+      - name: Save the compiled main native module
+        if: github.event_name != 'pull_request' && steps.main-native.outputs.cache-hit != 'true' && matrix.shard == 1
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: ${{ steps.main-native.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -1127,6 +1148,27 @@ jobs:
           test -f node_modules/onnxruntime-node/package.json
           test -f node_modules/tsx/package.json
           for file in pptxgen.cjs.js jszip.min.js LICENSE-pptxgenjs LICENSE-jszip.markdown; do test -f "data/pptxgenjs/$file"; done
+      # The entry computer-backend (windows) saves: the same key, so the helper's dependencies are not compiled again here.
+      - name: Restore the compiled Computer Use backend
+        id: computer-cargo
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-computer/target
+          key: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('native/mixdog-computer/src/**') }}
+          restore-keys: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Restore the compiled main native module
+        id: main-native
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-${{ hashFiles('native/mixdog-main-native/src/**', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**', 'native/core/Cargo.toml') }}
+          restore-keys: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-
       - name: Build the native Computer Use helper
         shell: bash
         run: cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target
@@ -1180,24 +1222,45 @@ jobs:
         with:
           path: ~/AppData/Local/electron/Cache
           key: ${{ steps.electron.outputs.cache-primary-key }}
+      - name: Save the compiled Computer Use backend
+        if: github.event_name != 'pull_request' && steps.computer-cargo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-computer/target
+          key: ${{ steps.computer-cargo.outputs.cache-primary-key }}
+      - name: Save the compiled main native module
+        if: github.event_name != 'pull_request' && steps.main-native.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: ${{ steps.main-native.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
           name: windows-desktop-computer-1of1
 
-  # The desktop's slow lane. The remote-protocol slow replays start a real core
-  # (MIXDOGD_BIN): the Linux mixdogd of this run's `mixdogd-linux` job (mixdog-cli/dev-controls,
-  # the replay controls every one of them needs), not a build of its own.
+  # The desktop's slow lane, in three shards like the fast one. No *.slow.test.* file under apps/desktop reads MIXDOGD_BIN or
+  # MIXDOG_TEST_NATIVE_DIR (nor imports a module that does), so it takes no daemon and waits for no producer.
   desktop-slow:
-    needs: [changes, mixdogd-linux]
+    needs: changes
     if: >-
       needs.changes.outputs.desktop == 'true'
       && needs.changes.outputs.desktop_css_only != 'true'
     timeout-minutes: 20
     runs-on: ubuntu-22.04
     env:
-      MIXDOG_LEG: linux/desktop-slow/1of1
+      MIXDOG_LEG: linux/desktop-slow/${{ matrix.shard }}of3
       MIXDOG_LEG_OS: linux
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -1229,10 +1292,6 @@ jobs:
             ~/Library/Caches/electron
             ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron-key.outputs.key }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: mixdogd-dev-${{ env.GATE_KEY }}
-          path: mixdogd-dev
       - name: Install dependencies
         shell: bash
         run: |
@@ -1260,13 +1319,21 @@ jobs:
       # suites resolve in native-tools/.
       - name: Stage the native tools
         run: node scripts/stage-native-tools.mjs
-      - name: Run the desktop slow lane
+      - name: Restore the compiled main native module
+        id: main-native
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-${{ hashFiles('native/mixdog-main-native/src/**', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**', 'native/core/Cargo.toml') }}
+          restore-keys: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-
+      - name: Run the desktop slow lane (shard ${{ matrix.shard }}/3)
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-slow.json
-        run: |
-          chmod +x "$PWD/mixdogd-dev/mixdogd"
-          MIXDOGD_BIN="$PWD/mixdogd-dev/mixdogd" npm run test:slow --prefix apps/desktop
+        run: npm run test:slow --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/3
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job (check-skips.mjs).
       - name: Check that no test of the desktop slow lane skipped outside the reviewed list
         shell: bash
@@ -1275,11 +1342,21 @@ jobs:
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
       # Locale catalogs are checked once, here, not during feature work.
       - name: Check locale catalogs
+        if: matrix.shard == 1
         run: npm run i18n:check --prefix apps/desktop
+      - name: Save the compiled main native module
+        if: github.event_name != 'pull_request' && steps.main-native.outputs.cache-hit != 'true' && matrix.shard == 1
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: ${{ steps.main-native.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
-          name: linux-desktop-slow-1of1
+          name: linux-desktop-slow-${{ matrix.shard }}of3
 
 
   # Every *.test.mjs in the relay package runs here by existing
@@ -1385,9 +1462,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             native/core/target
-          # The key core-real (linux) writes, the tree-helper lockfile included: the same formula, an exact hit or a
-          # cold build. There is no prefix fallback: an entry built for another lockfile is not restored.
-          key: core-release-linux-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
+          # The key core-real (linux) writes for the shipping profile, the tree-helper lockfile included: the same formula; an
+          # entry of another lockfile of the same segment is the fallback. The segment keeps the no-LTO entry out of the prefix.
+          key: core-release-linux-${{ runner.arch }}-shipping-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
+          restore-keys: |
+            core-release-linux-${{ runner.arch }}-shipping-
       # The key core-build (linux) writes: the same formula, so a pull request reads the entry main saved, exact or cold.
       - name: Restore the compiled test dependencies
         if: github.event_name == 'pull_request' && steps.store.outputs.cache-hit != 'true'
@@ -1489,8 +1568,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             native/mixdog-spawn/target
-          # The whole key is the dependency fingerprint: an entry built for another lockfile is not a fallback.
           key: spawn-core-test-cargo-${{ matrix.runner }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/core/Cargo.lock') }}
+          restore-keys: |
+            spawn-core-test-cargo-${{ matrix.runner }}-${{ steps.rust-pin.outputs.version }}-
       - uses: ./.github/actions/install-nextest
       - name: Test the process manager with the core's features
         shell: bash
@@ -1738,7 +1818,17 @@ jobs:
           git -C "$dir" sparse-checkout set apps/desktop/desktop_native
           git -C "$dir" fetch --depth 1 origin "$commit"
           git -C "$dir" checkout --detach --force "$commit"
-      # A cold debug build took 93s locally, so the job carries no cargo cache.
+      # The upstream lockfile is seeded from the pinned commit (build.ps1), so the commit is in the key with the wrapper's own files.
+      - name: Restore the compiled importer
+        id: cargo
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/browser-import/target
+          key: browser-import-cargo-${{ runner.os }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-browser-import/build.ps1', 'native/mixdog-browser-import/Cargo.toml') }}-${{ hashFiles('native/mixdog-browser-import/src/**') }}
+          restore-keys: browser-import-cargo-${{ runner.os }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-browser-import/build.ps1', 'native/mixdog-browser-import/Cargo.toml') }}-
       # The crate is staged as native/mixdog-browser-import/test.mjs stages it (its sources and manifest in a folder of their own, the
       # path dependency pointed at the upstream checkout, the upstream lockfile seeded) and run through nextest, so the job leaves the
       # structured report of every test: the package name is the tracked manifest's, so each case keeps its tracked identity.
@@ -1763,6 +1853,15 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/browser-import.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+      - name: Save the compiled importer
+        if: github.event_name != 'pull_request' && steps.cargo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/browser-import/target
+          key: ${{ steps.cargo.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -1793,6 +1892,16 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+      - name: Restore the compiled helper
+        id: cargo
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-secure-desktop/target
+          key: secure-desktop-cargo-${{ runner.os }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-secure-desktop/Cargo.lock', 'native/mixdog-secure-desktop/Cargo.toml') }}-${{ hashFiles('native/mixdog-secure-desktop/src/**', 'native/mixdog-secure-desktop/build.rs') }}
+          restore-keys: secure-desktop-cargo-${{ runner.os }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-secure-desktop/Cargo.lock', 'native/mixdog-secure-desktop/Cargo.toml') }}-
       - uses: ./.github/actions/install-nextest
       - name: Run the secure-desktop helper's Rust tests
         shell: bash
@@ -1804,6 +1913,15 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/secure-desktop.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+      - name: Save the compiled helper
+        if: github.event_name != 'pull_request' && steps.cargo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-secure-desktop/target
+          key: ${{ steps.cargo.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -1834,6 +1952,16 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+      - name: Restore the compiled window library
+        id: cargo
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-window/target
+          key: window-cargo-${{ runner.os }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-window/Cargo.lock', 'native/mixdog-window/Cargo.toml', 'native/mixdog-window/.cargo/config.toml') }}-${{ hashFiles('native/mixdog-window/src/**', 'native/mixdog-window/build.rs') }}
+          restore-keys: window-cargo-${{ runner.os }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-window/Cargo.lock', 'native/mixdog-window/Cargo.toml', 'native/mixdog-window/.cargo/config.toml') }}-
       - uses: ./.github/actions/install-nextest
       - name: Run the window library's Rust tests
         shell: bash
@@ -1845,6 +1973,15 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/window.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+      - name: Save the compiled window library
+        if: github.event_name != 'pull_request' && steps.cargo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-window/target
+          key: ${{ steps.cargo.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -2068,8 +2205,8 @@ jobs:
   # (core-select.mjs store_key_mixdogd_dev: every tracked core input but the crates this build does not compile) and built only
   # when the store has no entry for the key. A pull request reads the entries main writes and writes none.
   #
-  # A job per system, so that a consumer waits for the daemon it runs and not for the other system's build: desktop-slow,
-  # runtime-slow and core-entry for the Linux one, desktop-computer for the Windows one (run 44959677392: the Linux daemon was
+  # A job per system, so that a consumer waits for the daemon it runs and not for the other system's build: runtime-slow
+  # and core-entry for the Linux one, desktop-computer for the Windows one (run 44959677392: the Linux daemon was
   # ready at 7.5 minutes, and its consumers started at 14.3, when the Windows one was).
   mixdogd-linux:
     name: mixdogd (${{ matrix.os }})
@@ -2116,6 +2253,7 @@ jobs:
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
       - name: Restore the compiled dependencies
+        id: deps
         if: steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -2126,6 +2264,9 @@ jobs:
           key: core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      # The parallel front end for the workspace crates: these programs only drive tests, none is shipped.
+      - uses: ./.github/actions/rustc-threads
+        if: steps.store.outputs.cache-hit != 'true'
       - name: Build the mixdogd the desktop replays drive, and the programs the npm package check starts
         if: steps.store.outputs.cache-hit != 'true'
         run: |
@@ -2138,12 +2279,25 @@ jobs:
         with:
           path: mixdogd-store
           key: ${{ steps.store.outputs.cache-primary-key }}
+      # The Windows entry is otherwise written only by a full gate's core-build, which is nightly: main's own builds keep it too.
+      - name: Keep only the third-party dependencies in the cache (Windows)
+        if: matrix.os == 'windows' && github.ref == 'refs/heads/main' && steps.store.outputs.cache-hit != 'true' && steps.deps.outputs.cache-hit != 'true'
+        run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
+      - name: Save the compiled dependencies (Windows)
+        if: matrix.os == 'windows' && github.ref == 'refs/heads/main' && steps.store.outputs.cache-hit != 'true' && steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            D:/.cargo/registry
+            D:/.cargo/git
+            native/core/target
+          key: ${{ steps.deps.outputs.cache-primary-key }}
       - name: Upload mixdogd
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mixdogd-dev-${{ env.GATE_KEY }}${{ matrix.os == 'windows' && '-windows' || '' }}
           overwrite: true
-          # One folder of the three programs: desktop-slow takes mixdogd from it, runtime-slow points MIXDOG_TEST_NATIVE_DIR at it.
+          # One folder of the three programs: runtime-slow points MIXDOG_TEST_NATIVE_DIR at it.
           path: |
             mixdogd-store/mixdogd${{ matrix.exe }}
             mixdogd-store/mixdog${{ matrix.exe }}
@@ -2351,13 +2505,6 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
-      - name: Read the repository Rust toolchain
-        id: rust-pin
-        shell: bash
-        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
-        with:
-          toolchain: ${{ steps.rust-pin.outputs.version }}
       - uses: ./.github/actions/install-nextest
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -2376,19 +2523,25 @@ jobs:
         id: ignored-audit
         env:
           OS: ${{ matrix.os }}
+          # Listing runs the archived binaries and builds nothing: the runner image's own toolchain is enough, and the pin in
+          # rust-toolchain.toml is not installed here.
+          RUSTUP_TOOLCHAIN: stable
         run: |
-          mkdir -p rust-lists
+          # nextest canonicalizes the destination of --extract-to, so the folder exists first
+          mkdir -p rust-lists core-extract
           # which invocation made the listing: this job, at this commit (cli.mjs reconcile checks it against the plan's list leg)
           printf '{"leg":"%s","sha":"%s"}\n' "${OS}/core-list/1of1" "$(git rev-parse HEAD)" > rust-lists/binding.json
-          cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --message-format json > rust-lists/all.json
+          # The archive (1.6 GB) is unpacked by the first listing alone; the others read the unpacked tree it leaves.
+          cargo nextest list --archive-file core-tests.tar.zst --extract-to core-extract --workspace-remap native/core --config-file native/core/.config/nextest.toml --message-format json > rust-lists/all.json
+          reuse=(--binaries-metadata core-extract/target/nextest/binaries-metadata.json --cargo-metadata core-extract/target/nextest/cargo-metadata.json --target-dir-remap core-extract/target --workspace-remap native/core)
           if [[ "$OS" != windows ]]; then
             for profile in pg services-pg; do
-              cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
+              cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
                 --profile "$profile" --run-ignored only --message-format json > "rust-lists/$profile.json"
             done
           fi
           if [[ "$OS" == linux ]]; then
-            cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
+            cargo nextest list "${reuse[@]}" --config-file native/core/.config/nextest.toml \
               --run-ignored only -E 'package(mixdog-entry) & binary(node_free)' --message-format json > rust-lists/entry.json
           fi
       # The lanes of release.yml `rust-lanes` (scripts/rust-core/k1-lanes.mjs) run `cargo test -p <package> <filter>`, and
@@ -2778,6 +2931,11 @@ jobs:
           key: core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      # The test-only features of the core's manifests are one unified set, so every `-p <crate>` test build shares its
+      # compiles (reads `cargo metadata`; once, on Linux).
+      - name: Check that the core manifests' test features have not drifted
+        if: matrix.os == 'linux'
+        run: node scripts/rust-core/check-test-feature-drift.mjs
       # Lints are not denied in the compile itself: a denied lint ends the build at the first crate that has
       # one, and the crates after it wait for the next run. Every crate is linted, then any finding fails.
       # The daemon and what composes it, when the selection holds the daemon (core-select.mjs `core_daemon`; every full run).
@@ -2803,11 +2961,13 @@ jobs:
           cd native/core
           # shellcheck disable=SC2086
           cargo check --manifest-path Cargo.toml --locked --all-targets $ARCHIVE_ARGS "${features[@]}"
+      # Also after a finding: the compile that found it is what the entry saves, so a failing clippy does not leave every
+      # later run to compile the dependencies again (cargo writes CACHEDIR.TAG when it creates the target folder).
       - name: Keep only the third-party dependencies in the cache
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && hashFiles('native/core/target/CACHEDIR.TAG') != ''
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
       - name: Save the checked dependencies
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && hashFiles('native/core/target/CACHEDIR.TAG') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -2848,8 +3008,8 @@ jobs:
       MIXDOG_LEG: ${{ matrix.os }}/core-real/1of1
       MIXDOG_LEG_OS: ${{ matrix.os }}
       # A full run (a call of the gate: a release, a deploy's native assets, the mirror; the nightly run; a manual full run) boots
-      # mixdogd in the shipping profile; a push and a manual ordinary run boot the release-optimised build without the thin-LTO
-      # link (opt-level 3, `lto = "off"`), which is most of the macOS build's 25-minute tail.
+      # mixdogd in the shipping profile; a push and a manual ordinary run build no release mixdogd and boot the development one
+      # of this run's mixdogd-linux job.
       SHIPPING: ${{ inputs.ref != '' || needs.changes.outputs.full == 'true' }}
       # The release's call builds nothing here: release.yml `mixdogd` (mixdogd-build.yml) builds the shipping mixdogd of this
       # run for every target, and the smoke below runs on that build.
@@ -2870,21 +3030,24 @@ jobs:
           toolchain: ${{ steps.rust-pin.outputs.version }}
       # The release mixdogd of one set of inputs and one profile is the same program: kept in a store keyed by those inputs
       # (core-select.mjs store_key_mixdogd), built only when the store has no entry for the key.
+      # Only a shipping-profile run builds a release mixdogd here: a push or a manual ordinary run smokes the development
+      # mixdogd of this run's `mixdogd-linux` job instead (the boot step below), so it builds none and keeps no store entry.
       - name: Take the release mixdogd of these inputs from the store
         id: store
-        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true'
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING == 'true' && env.SHIPPED_BUILD != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: mixdogd-store
-          key: mixdogd-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING == 'true' && 'shipping' || 'nolto' }}-${{ needs.changes.outputs.store_key_mixdogd }}
+          key: mixdogd-release-${{ matrix.os }}-${{ runner.arch }}-shipping-${{ needs.changes.outputs.store_key_mixdogd }}
       - name: Place the stored mixdogd
         if: steps.store.outputs.cache-hit == 'true'
         run: mkdir -p native/core/target/release && cp mixdogd-store/mixdogd native/core/target/release/mixdogd
-      # Two entries: the shipping profile's (`core-release-<os>-...`, which relay-rust also reads) and the one without LTO
-      # (`core-release-<os>-<arch>-nolto-...`). Dependencies compiled for an LTO link carry bitcode the other build does not.
+      # Two entries, each under a segment of its own so that neither is a prefix of the other: the shipping profile's
+      # (`core-release-<os>-<arch>-shipping-...`, which relay-rust also reads) and the one of a run without a release build
+      # (`core-release-<os>-<arch>-nolto-...`: the tree-helper's build). The release's call restores neither: it builds nothing here.
       - name: Restore the compiled release dependencies
         id: deps
-        if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true' && env.SHIPPED_BUILD != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -2892,20 +3055,18 @@ jobs:
             ~/.cargo/git
             native/core/target
             scripts/rust-core/tree-helper/target
-          key: core-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING != 'true' && 'nolto-' || '' }}${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
+          key: core-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING == 'true' && 'shipping' || 'nolto' }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
           restore-keys: |
-            core-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING != 'true' && 'nolto-' || '' }}
+            core-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING == 'true' && 'shipping' || 'nolto' }}-
       # First, since it is this job's longest step (macOS 23-37 minutes) and the helper and harness suites below do not read it:
       # after them it started 2-3 minutes into the job. The timeline says where the build's time goes.
       - name: Build mixdogd as it ships
-        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING == 'true' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
         run: |
-          profile=()
-          if [[ "$SHIPPING" != true ]]; then profile=(--config 'profile.release.lto="off"'); fi
-          cd native/core && cargo build --release --locked --timings "${profile[@]}" --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd
+          cd native/core && cargo build --release --locked --timings --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd
           mkdir -p ../../mixdogd-store && cp target/release/mixdogd ../../mixdogd-store/mixdogd
       - name: Keep the release mixdogd in the store
-        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING == 'true' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: mixdogd-store
@@ -2926,7 +3087,7 @@ jobs:
         if: matrix.unix && env.SHIPPED_BUILD == 'true'
         run: chmod +x native/core/target/release/mixdogd
       - name: Upload the release build timings
-        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING == 'true' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: core-timings-${{ env.GATE_KEY }}-release-${{ matrix.os }}
@@ -2974,6 +3135,23 @@ jobs:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/harness.json
           MIXDOG_SLOT: harness
         run: node scripts/ci/node-runner.mjs benchmarks/terminal-bench-2.1/harness/anthropic_oauth_preflight_rust.test.mjs benchmarks/terminal-bench-2.1/harness/prebake-rust.test.mjs
+      # A run without a release build smokes the development mixdogd of `mixdogd-linux` (mixdogd (linux)), waited for here, after
+      # the helper's suites, instead of building a release one of its own.
+      - name: Wait for the development mixdogd of this run (mixdogd-linux)
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING != 'true'
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/wait-for-artifact.sh mixdogd-dev-${{ env.GATE_KEY }} 'mixdogd (linux)' 25
+      - name: Take the development mixdogd of this run
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdogd-dev-${{ env.GATE_KEY }}
+          path: native/core/target/release
+      - name: Name the development mixdogd executable
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING != 'true'
+        run: chmod +x native/core/target/release/mixdogd
       - name: Boot mixdogd and answer a first call
         if: matrix.unix && github.event_name != 'pull_request'
         # Red by design while mixdogd writes no history/tool-failures.jsonl (owner rs-tool-failures): the smoke fails naming it.
@@ -2999,7 +3177,7 @@ jobs:
           if [[ "$UNIX" == true && "$EVENT" != pull_request ]]; then receipts+=("$RECEIPTS/core-session.json"); fi
           node scripts/ci/check-skips.mjs receipts "${receipts[@]}"
       - name: Keep only the third-party dependencies in the cache
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && matrix.unix && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && matrix.unix && env.SHIPPING == 'true' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile release --manifest-path native/core/Cargo.toml
       # The release's call built no mixdogd, nor a run that took it from the store: the folder holds a program, not dependencies.
       - name: Save the compiled release dependencies

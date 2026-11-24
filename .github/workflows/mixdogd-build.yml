@@ -88,6 +88,10 @@ jobs:
           targets: ${{ matrix.target }}
       # The compiled crates. The container legs mount this static binary into the container.
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      # Deploy rewrites the workspace crates' version in Cargo.lock on every release; the digest ignores it.
+      - name: Resolve the version-neutral Cargo.lock key
+        id: cargo-lock
+        run: echo "key=$(node scripts/cargo-cache-key.mjs native/core/Cargo.lock)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo registry
         if: ${{ !matrix.image }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -95,7 +99,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: mixdogd-cargo-${{ matrix.target }}-${{ hashFiles('native/core/Cargo.lock') }}
+          key: mixdogd-cargo-${{ matrix.target }}-${{ steps.cargo-lock.outputs.key }}
           restore-keys: mixdogd-cargo-${{ matrix.target }}-
       # The container's CARGO_HOME registry and git directories live on the runner, so the container can be thrown away.
       - name: Cache cargo registry (container)
@@ -105,7 +109,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cargo-registry
             ${{ runner.temp }}/cargo-git
-          key: mixdogd-cargo-${{ matrix.target }}-${{ hashFiles('native/core/Cargo.lock') }}
+          key: mixdogd-cargo-${{ matrix.target }}-${{ steps.cargo-lock.outputs.key }}
           restore-keys: mixdogd-cargo-${{ matrix.target }}-
       # One cargo invocation per program, one target directory: the crates they share compile once, and the features
       # each binary is built with stay its own.
@@ -114,9 +118,11 @@ jobs:
         run: |
           cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass --target ${{ matrix.target }}
           cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-entry --bin mixdog --target ${{ matrix.target }}
+          cargo build --locked --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml --target ${{ matrix.target }}
           mkdir -p out
           release="native/core/target/${{ matrix.target }}/release"
           cp "$release/mixdogd${{ matrix.exe }}" "$release/mixdog-askpass${{ matrix.exe }}" "$release/mixdog${{ matrix.exe }}" out/
+          cp "scripts/rust-core/tree-helper/target/${{ matrix.target }}/release/treerun${{ matrix.exe }}" out/
           sccache --show-stats
       # The Linux legs build in one container (the core, the terminal program and the relay): the script
       # runs the cargo invocations and leaves the programs in out/.
@@ -132,7 +138,7 @@ jobs:
             ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh 2>&1 | tee out/build.log
           test "${PIPESTATUS[0]}" -eq 0
           rm out/build.log
-          test -x out/mixdogd && test -x out/mixdog-askpass && test -x out/mixdog
+          test -x out/mixdogd && test -x out/mixdog-askpass && test -x out/mixdog && test -x out/treerun
           if [ -n "${{ matrix.relay }}" ]; then test -x out/mixdog-relay; fi
       # Both runners execute their own architecture. No renderer is configured; the port is the one the system picks.
       - name: The relay starts and answers /healthz
@@ -199,6 +205,14 @@ jobs:
         with:
           name: mixdog-entry-${{ matrix.target }}
           path: out/mixdog${{ matrix.exe }}
+          if-no-files-found: error
+          retention-days: 2
+      # The process-tree helper every smoke of a shipped mixdogd starts its children through (scripts/rust-core/tree-helper);
+      # the desktop packagers take it as MIXDOG_TREE_HELPER.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: treerun-${{ matrix.target }}
+          path: out/treerun${{ matrix.exe }}
           if-no-files-found: error
           retention-days: 2
       - name: Record the relay binary's actual source and digest

@@ -4,12 +4,17 @@ description: >-
   native/core/target/<target>/release/mixdogd[.exe] with mixdog-askpass[.exe] beside it, where apps/desktop/scripts/stage-core.mjs
   takes them (it stages the app's own core and the four server cores, and fails naming
   any target that is missing).
+inputs:
+  pattern:
+    description: Which mixdogd-<target> artifacts to take (the server bundles take the Unix targets only).
+    required: false
+    default: mixdogd-*
 runs:
   using: composite
   steps:
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        pattern: mixdogd-*
+        pattern: ${{ inputs.pattern }}
         path: mixdogd-in
     - shell: bash
       run: |

@@ -305,6 +305,20 @@ export function reachesOf(file, text, crate) {
 }
 
 /**
+ * The repository paths a build script names in a string beyond the macros reachesOf reads: the files of its
+ * `cargo:rerun-if-changed=` lines and of `.set_icon("...")`, relative to the crate's own directory.
+ * @returns {string[]}
+ */
+export function buildScriptReads(text, crate) {
+  const paths = [];
+  for (const match of text.matchAll(/(?:rerun-if-changed=|set_icon\(\s*")((?:\.\.\/)+[^"{}\s)]+)/g)) {
+    const path = posix.normalize(posix.join(crate, match[1]));
+    if (!path.startsWith('../') && path !== '..') paths.push(path);
+  }
+  return paths;
+}
+
+/**
  * Every reach of a tracked core source beyond native/core.
  * @param {string[]} tracked tracked repository paths
  * @param {(path: string) => string} read

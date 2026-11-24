@@ -275,10 +275,9 @@ jobs:
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
   # artifact to every native packager instead of running Vite four times.
-  # The packagers do not `need` this job: they prepare their platform runtime
-  # meanwhile and wait for the desktop-out artifact only where they consume it
-  # (desktop-package.yml "Wait for the common desktop output", which fails at
-  # once when this job fails). publish and stage-relay still need it directly.
+  # The packagers `need` this job (and mixdogd and server-cores) instead of
+  # polling for their artifacts on a macOS or Windows runner that bills while it
+  # idles; publish and stage-relay need it directly too.
   desktop-build:
     name: build-desktop-once
     runs-on: ubuntu-22.04
@@ -430,119 +429,16 @@ jobs:
       MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
-  # Each shipped core boots on a fresh profile and answers a first call, on its own OS (the release-gate rust-core job does
-  # the same on a debug build). The x86_64 macOS core cannot run on the Apple-silicon runner. A clean runner has no
-  # node_modules (scripts/rust-core/lib/core-session.mjs imports `ws`) and no tree helper (every child of the smoke is
-  # started through it).
+  # The four server bundles (Linux and macOS only: server cores are Unix-only). The job waits for the four Unix mixdogd
+  # artifacts in its own step, so it neither idles behind the Windows build nor holds a runner while it waits.
   server-cores:
-    needs: [identity, mixdogd]
+    needs: [identity]
     uses: ./.github/workflows/server-cores-build.yml
     permissions:
       contents: read
+      actions: read
     with:
       ref: ${{ inputs.ref }}
-
-  # The process-tree helper (scripts/rust-core/tree-helper, program `treerun`) every smoke of a shipped mixdogd starts its
-  # children through, built once per target here, beside the mixdogd build and from nothing but the repository, instead of
-  # by each of the nine jobs that run a smoke (the four core-smoke legs and the five packagers: a Rust install and a cargo
-  # build each, after their own work). Consumers take `treerun-<target>` and name it with MIXDOG_TREE_HELPER. The macOS x64
-  # helper is cross-built here and runs on the Intel packager.
-  tree-helper:
-    name: tree-helper-${{ matrix.target }}
-    needs: [identity]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, exe: "" }
-          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, exe: "" }
-          - { target: aarch64-apple-darwin, runner: macos-15, exe: "" }
-          - { target: x86_64-apple-darwin, runner: macos-15, exe: "" }
-          - { target: x86_64-pc-windows-msvc, runner: windows-2022, exe: ".exe" }
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
-        with:
-          toolchain: "1.99.1"
-          targets: ${{ matrix.target }}
-      - name: Build the process-tree helper
-        shell: bash
-        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: treerun-${{ matrix.target }}
-          path: scripts/rust-core/tree-helper/target/${{ matrix.target }}/release/treerun${{ matrix.exe }}
-          if-no-files-found: error
-          retention-days: 2
-
-  # Starts with its own work (checkout, install) beside the mixdogd build, and waits for its mixdogd-<target> artifact
-  # (actions: read) instead of idling behind `needs`; a failed mixdogd build fails it at once.
-  core-smoke:
-    name: boot-shipped-mixdogd-${{ matrix.target }}
-    needs: [identity, tree-helper]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, exe: "" }
-          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, exe: "" }
-          - { target: aarch64-apple-darwin, runner: macos-15, exe: "" }
-          - { target: x86_64-pc-windows-msvc, runner: windows-2022, exe: ".exe" }
-    defaults:
-      run:
-        shell: bash
-    env:
-      ONNXRUNTIME_NODE_INSTALL: skip
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
-      # Only the pure-JS `ws` is loaded; no install script is needed.
-      - name: Install
-        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
-      - name: Take the process-tree helper
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: treerun-${{ matrix.target }}
-          path: treerun-in
-      - name: Name the process-tree helper
-        run: |
-          chmod +x treerun-in/treerun${{ matrix.exe }}
-          helper="$PWD/treerun-in/treerun${{ matrix.exe }}"
-          # Git Bash's /d/a/... form is not a path node can open.
-          if command -v cygpath > /dev/null; then helper=$(cygpath -m "$helper"); fi
-          echo "MIXDOG_TREE_HELPER=$helper" >> "$GITHUB_ENV"
-      - name: Wait for the mixdogd build
-        timeout-minutes: 105
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/wait-for-artifact.sh mixdogd-${{ matrix.target }} mixdogd-${{ matrix.target }} 100
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: mixdogd-${{ matrix.target }}
-          path: core
-      - name: Boot mixdogd and answer a first call
-        run: |
-          chmod +x core/mixdogd${{ matrix.exe }}
-          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd core/mixdogd${{ matrix.exe }}
 
   # The npm packages: one per platform (scripts/npm-platforms.mjs), staged from the programs mixdogd-build.yml built once
   # (mixdogd-<target> and mixdog-entry-<target>), and the main package, which lists them as optional dependencies at the
@@ -637,10 +533,10 @@ jobs:
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
-  # actions: read lets each packager poll this run for the desktop-out
-  # artifact and the build-desktop-once result.
+  # Each packager starts once the common desktop output, every mixdogd and the
+  # server bundles it stages exist.
   desktop-windows:
-    needs: [prepare-github-release]
+    needs: [prepare-github-release, desktop-build, mixdogd, server-cores]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -660,7 +556,7 @@ jobs:
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
   desktop-darwin-arm64:
-    needs: [prepare-github-release]
+    needs: [prepare-github-release, desktop-build, mixdogd, server-cores]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -682,7 +578,7 @@ jobs:
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
   desktop-darwin-x64:
-    needs: [prepare-github-release]
+    needs: [prepare-github-release, desktop-build, mixdogd, server-cores]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -718,7 +614,7 @@ jobs:
       ref: ${{ inputs.ref }}
 
   desktop-linux-x64:
-    needs: [prepare-github-release, linux-native-tools]
+    needs: [prepare-github-release, linux-native-tools, desktop-build, mixdogd, server-cores]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -734,7 +630,7 @@ jobs:
       target: linux
 
   desktop-linux-arm64:
-    needs: [prepare-github-release, linux-native-tools]
+    needs: [prepare-github-release, linux-native-tools, desktop-build, mixdogd, server-cores]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -789,7 +685,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [coverage-gate, push-release-refs, prepared-runtime-join, validate, desktop-build, server-cores, core-smoke, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
+    needs: [coverage-gate, push-release-refs, prepared-runtime-join, validate, desktop-build, server-cores, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { join } from 'node:path';
@@ -41,17 +41,32 @@ async function alreadyPublished({ name, integrity }) {
   return true;
 }
 
-// Preflight every version before publishing anything; publish dependencies before the main package.
-for (const pkg of packages) pkg.exists = await alreadyPublished(pkg);
-for (const pkg of packages) {
+function publishNpmPackage(pkg) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      'npm',
+      ['publish', `./${pkg.file}`, '--provenance', '--access', 'public', '--ignore-scripts', '--registry', registry],
+      { stdio: 'inherit' }
+    );
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`npm publish ${pkg.name} exited ${code}`))));
+  });
+}
+
+async function publish(pkg) {
   if (pkg.exists) {
     console.log(`${pkg.name}@${version} already contains the verified bytes`);
-    continue;
+    return;
   }
-  execFileSync(
-    'npm',
-    ['publish', `./${pkg.file}`, '--provenance', '--access', 'public', '--ignore-scripts', '--registry', registry],
-    { stdio: 'inherit' }
-  );
+  await publishNpmPackage(pkg);
   if (!(await alreadyPublished(pkg))) throw new Error(`Cannot confirm publication of ${pkg.name}@${version}`);
 }
+
+// Preflight every version before publishing anything; the platform packages publish side by side, and the main
+// package (which depends on them) only after every one of them succeeded.
+await Promise.all(packages.map(async (pkg) => (pkg.exists = await alreadyPublished(pkg))));
+const main = packages.at(-1);
+const settled = await Promise.allSettled(packages.slice(0, -1).map(publish));
+const failed = settled.find((result) => result.status === 'rejected');
+if (failed) throw failed.reason;
+await publish(main);

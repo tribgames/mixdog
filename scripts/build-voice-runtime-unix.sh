@@ -93,7 +93,7 @@ case "${BACKEND}" in
 esac
 
 cmake "${CMAKE_ARGS[@]}"
-cmake --build "${BUILD_ROOT}" --config Release --target whisper-server --parallel 2
+cmake --build "${BUILD_ROOT}" --config Release --target whisper-server --parallel "$(getconf _NPROCESSORS_ONLN)"
 
 SERVER_PATH="$(find "${BUILD_ROOT}" -type f -name whisper-server -perm -111 | head -n 1)"
 if [[ -z "${SERVER_PATH}" ]]; then

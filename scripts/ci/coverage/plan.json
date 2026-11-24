@@ -123,7 +123,31 @@
       ]
     },
     {
-      "id": "linux/desktop-slow/1of1",
+      "id": "linux/desktop-slow/1of3",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "desktop-slow",
+      "slots": [
+        {
+          "id": "root",
+          "producer": "node"
+        }
+      ]
+    },
+    {
+      "id": "linux/desktop-slow/2of3",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "desktop-slow",
+      "slots": [
+        {
+          "id": "root",
+          "producer": "node"
+        }
+      ]
+    },
+    {
+      "id": "linux/desktop-slow/3of3",
       "os": "linux",
       "workflow": "release-gate.yml",
       "job": "desktop-slow",
@@ -843,7 +867,7 @@
       ],
       "requires": [
         {
-          "anyOf": ["linux/desktop-slow/1of1#root"]
+          "anyOf": ["linux/desktop-slow/1of3#root", "linux/desktop-slow/2of3#root", "linux/desktop-slow/3of3#root"]
         }
       ]
     },
@@ -1679,8 +1703,8 @@
       "deploy.yml": ["plan"]
     },
     "pinnedJobs": {
-      "deploy.yml#native-commit": "b88e509145b1dc4131dced14b7941b7b88d0541d89bbea8ed75ef79925be31ed",
-      "deploy.yml#prepare-app": "14eb8b7c9069de7803332b35f281bcca53f4f4b588c4ccfa711852db291c19d5",
+      "deploy.yml#native-commit": "e543833393737460666d7178864c12ae951974660d5427920bf4a554ac63342e",
+      "deploy.yml#prepare-app": "4dd37ab3bc241eb99a8e1cd8981b3328ed02ca333613d06b2ac4b12e228ade1a",
       "deploy.yml#candidate-cleanup": "7926c2a91d48a0e5eaebd2ec73d0f2d8c1b46fef3d9afef7f9e328e46a8835e3",
       "release.yml#push-release-refs": "136a19cfb32311cfdcf1de696be07cdf1f13dc59a14b8a8789394adbcc0f8b47",
       "refresh-runtime-manifest.yml#authorize": "96db9520b2513bbd5c55b2bbc8765896a728ea0a8cebcecbf7f88f8e9533ca94",
@@ -1746,18 +1770,6 @@
       "workflow": "release.yml",
       "job": "server-cores",
       "reason": "builds server cores into run artifacts",
-      "owner": "release-engineering"
-    },
-    {
-      "workflow": "release.yml",
-      "job": "tree-helper",
-      "reason": "builds a helper into a run artifact",
-      "owner": "release-engineering"
-    },
-    {
-      "workflow": "release.yml",
-      "job": "core-smoke",
-      "reason": "smoke test of built artifacts; read-only",
       "owner": "release-engineering"
     },
     {

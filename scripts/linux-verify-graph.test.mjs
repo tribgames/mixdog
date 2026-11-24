@@ -278,8 +278,7 @@ test('release graph (reusable call simulated): publish runs only when every inne
     assert.equal(packageFailed.results.publish, 'skipped', packager);
   }
 
-  // The packagers start beside build-desktop-once (they wait for its artifact
-  // in-step), so publish must block on the build itself.
+  // The packagers start after build-desktop-once and publish blocks on it too.
   const buildFailed = releaseRun({}, { 'desktop-build': 'failure' });
   for (const job of [
     'desktop-windows',
@@ -288,7 +287,7 @@ test('release graph (reusable call simulated): publish runs only when every inne
     'desktop-linux-x64',
     'desktop-linux-arm64',
   ])
-    assert.ok(!needsOf(release.jobs[job]).includes('desktop-build'), job);
+    assert.ok(needsOf(release.jobs[job]).includes('desktop-build'), job);
   assert.equal(buildFailed.results.publish, 'skipped');
   const relay = runWorkflow(release, { outcomes: { 'desktop-build': 'failure' }, inputs: { mobile_version: '' } });
   assert.equal(relay.results['stage-relay'], 'skipped');
@@ -307,7 +306,7 @@ test('release graph with the pre-fix conditions: publish would have proceeded wi
 
 test('a release builds server bundles once and verifies its actual Linux packages', () => {
   assert.equal(release.jobs['server-cores'].uses, './.github/workflows/server-cores-build.yml');
-  assert.ok(needsOf(release.jobs['server-cores']).includes('mixdogd'));
+  assert.ok(!needsOf(release.jobs['server-cores']).includes('mixdogd'), 'server cores wait for the Unix legs only, in-step');
   assert.ok(needsOf(release.jobs.publish).includes('server-cores'));
   for (const name of [
     'desktop-windows',
@@ -316,7 +315,8 @@ test('a release builds server bundles once and verifies its actual Linux package
     'desktop-linux-x64',
     'desktop-linux-arm64',
   ]) {
-    assert.ok(!needsOf(release.jobs[name]).includes('mixdogd'), `${name} should prepare while cores build`);
+    for (const dep of ['mixdogd', 'server-cores', 'desktop-build'])
+      assert.ok(needsOf(release.jobs[name]).includes(dep), `${name} starts once ${dep} is done`);
   }
   assert.equal(release.jobs['linux-verify-full'].with.server_cores_prebuilt, true);
   assert.equal(release.jobs['linux-verify-full'].with.packages_prebuilt, true);
@@ -374,28 +374,22 @@ test('release: Linux proofs use the packagers’ immutable artifacts and do not 
   assert.equal(verify.on.workflow_call.inputs.arm64_tests_only.default, false);
 });
 
-test('release: the process-tree helper is built once per target and every smoke takes it', () => {
-  const targets = release.jobs['tree-helper'].strategy.matrix.include.map((leg) => leg.target).sort();
-  assert.deepEqual(targets, [
-    'aarch64-apple-darwin',
-    'aarch64-unknown-linux-gnu',
-    'x86_64-apple-darwin',
-    'x86_64-pc-windows-msvc',
-    'x86_64-unknown-linux-gnu',
-  ]);
-  const smoke = release.jobs['core-smoke'];
-  assert.ok(needsOf(smoke).includes('tree-helper'));
-  assert.ok(!needsOf(smoke).includes('mixdogd'), 'core-smoke prepares while mixdogd builds and waits for its artifact');
-  assert.equal(smoke.permissions.actions, 'read');
-  const text = JSON.stringify(smoke.steps);
-  assert.doesNotMatch(text, /cargo build|rust-toolchain/);
-  assert.match(text, /treerun-\$\{\{ matrix\.target \}\}/);
-  assert.match(text, /wait-for-artifact\.sh mixdogd-\$\{\{ matrix\.target \}\} mixdogd-\$\{\{ matrix\.target \}\}/);
+test('release: the process-tree helper is built beside mixdogd and the packagers take it', () => {
+  assert.equal(release.jobs['tree-helper'], undefined);
+  assert.equal(release.jobs['core-smoke'], undefined, 'the packagers smoke the staged core on every platform');
+  const build = load('mixdogd-build.yml').jobs.build;
+  const upload = build.steps.find((step) => step.with?.name === 'treerun-${{ matrix.target }}');
+  assert.match(upload.uses, /^actions\/upload-artifact@/);
+  assert.match(JSON.stringify(build.steps), /scripts\/rust-core\/tree-helper\/Cargo\.toml/);
+  const container = new URL('../apps/desktop/scripts/linux-build-core-old-glibc.sh', import.meta.url);
+  assert.match(readFileSync(container, 'utf8'), /rust-core\/tree-helper\/Cargo\.toml/);
   const pack = JSON.stringify(parse(read('desktop-package.yml')).jobs.package.steps);
   assert.doesNotMatch(pack, /cargo build --release --locked --manifest-path scripts\/rust-core\/tree-helper/);
   assert.match(pack, /treerun-\$\{\{ steps\.helper\.outputs\.target \}\}/);
-  assert.match(pack, /tree-helper-\$HELPER_TARGET/);
-  // Only the x86_64 relay is built and used.
+  assert.doesNotMatch(pack, /wait-for-artifact/, 'the packagers start after their producers, they do not poll');
+  const serverCores = JSON.stringify(load('server-cores-build.yml').jobs['server-cores'].steps);
+  assert.match(serverCores, /wait-for-artifact\.sh \\"mixdogd-\$target\\"/);
+  assert.doesNotMatch(serverCores, /pc-windows/);  // Only the x86_64 relay is built and used.
   const include = load('mixdogd-build.yml').jobs.build.strategy.matrix.include;
   assert.deepEqual(
     include.filter((leg) => leg.relay).map((leg) => leg.target),

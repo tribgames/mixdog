@@ -179,6 +179,16 @@ test('npm resolution retries with backoff until the package appears', async () =
   assert.deepEqual(sleeps, [5000, 10_000, 20_000]);
 });
 
+test('npm resolution bypasses the registry cache that holds the publish preflight 404', async () => {
+  const requests = [];
+  const fetchFn = async (url, init) => {
+    requests.push(init?.headers?.['Cache-Control']);
+    return { ok: true, status: 200, json: async () => ({ version: VERSION }) };
+  };
+  await waitForNpm({ name: 'mixdog', version: VERSION, fetchFn, sleep: async () => {} });
+  assert.deepEqual(requests, ['no-cache']);
+});
+
 test('npm resolution gives up once the time budget is spent', async () => {
   const sleeps = [];
   const problems = await waitForNpm({
