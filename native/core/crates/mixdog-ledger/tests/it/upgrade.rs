@@ -52,7 +52,7 @@ fn upgrade_and_build(path: &Path, expect: Prepared) -> Connection {
     let mut conn = Connection::open(path).unwrap();
     let events: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0)).unwrap();
     assert_eq!(prepare(&mut conn).unwrap(), expect);
-    assert_eq!(counts(&conn), (20, 7, 1, 32));
+    assert_eq!(counts(&conn), (20, 8, 1, 32));
     assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
     assert_eq!(sums_complete(&conn).unwrap(), events == 0);
     // Small budget forces many resumable steps.
@@ -110,7 +110,7 @@ fn v3_routes_split_by_the_1h_count_merge_into_one() {
     let mut conn = Connection::open(&path).unwrap();
     assert_eq!(prepare(&mut conn).unwrap(), Prepared::UpgradedV3);
     assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
-    assert_eq!(counts(&conn), (20, 7, 1, 32));
+    assert_eq!(counts(&conn), (20, 8, 1, 32));
     let routes: Vec<String> =
         conn.prepare("SELECT signature FROM usage_routes").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
     assert_eq!(routes, vec![v3_route(None)]);
@@ -144,6 +144,25 @@ fn a_record_appended_after_the_1h_merge_lands_on_the_merged_route() {
     assert_eq!((routes, last), (1, 5.0));
     assert_sums_match_events(&conn);
     assert_eq!(prepare(&mut conn).unwrap(), Prepared::Current);
+}
+
+/// A v4 ledger's quota readings survive the upgrade to v5 as readings of fixed windows: none declared itself rolling.
+#[test]
+fn a_v4_ledger_keeps_its_quota_readings_as_fixed_windows_in_v5() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    for script in mixdog_store::schema::sql::LEDGER_NEW_SCRIPTS {
+        conn.execute_batch(script).unwrap();
+    }
+    conn.execute_batch(mixdog_store::schema::sql::LEDGER_V4_DELTA).unwrap();
+    assert_eq!(classify(&conn).unwrap(), LedgerState::V4);
+    conn.execute("INSERT INTO quota_samples VALUES ('p','a','5H',1,1,10,NULL)", []).unwrap();
+
+    assert_eq!(prepare(&mut conn).unwrap(), Prepared::UpgradedV4);
+
+    assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
+    assert_eq!(counts(&conn), (20, 8, 1, 32));
+    let rolling: i64 = conn.query_row("SELECT rolling FROM quota_samples", [], |r| r.get(0)).unwrap();
+    assert_eq!(rolling, 0);
 }
 
 #[test]

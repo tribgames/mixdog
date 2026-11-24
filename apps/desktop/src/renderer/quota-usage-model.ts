@@ -18,6 +18,12 @@ export function quotaValueBreakdown(row: Row): string {
   return `${t('Recorded value')}: ${usageMoney(row.costUsd)} · ${t('Outside Mixdog')}: ${outside}`;
 }
 
+export function quotaUnattributedNote(): string {
+  return t(
+    "Meter moved across an unmeasured gap or within this meter's observed jitter range, so it cannot be assigned to Mixdog or outside use."
+  );
+}
+
 export function quotaValueCaution(): string {
   return t(
     'Estimates use Mixdog’s usage pattern. Different external models or continuous mixed use can change the result.'

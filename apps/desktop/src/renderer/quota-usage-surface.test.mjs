@@ -728,6 +728,115 @@ test('subscription values distinguish recorded money, inferred outside use and t
   assert.ok(!document.querySelector('.stats-trend-detail-totals').textContent.includes('≈'));
 });
 
+/** A window where Mixdog's records moved the meter 20 % and the readings left `unattributed` % unassigned. */
+async function openUnattributed(context, unattributed) {
+  const render = harness(context);
+  const model = { model: 'model-priced', consumed: 20, turns: 10, input: 1000, output: 100, tokens: 1100, costUsd: 10 };
+  const { api } = quotaWorld(context, {
+    viewedAt: at(2, 1),
+    readings: [{ provider: 'anthropic-oauth', account: 'default', label: '5H', ts: at(2), usedPct: 25, resetAt }],
+    detail: {
+      'anthropic-oauth/5H': {
+        window: {
+          focus: { usedPct: 25, resetAt, startMs: opened, endMs: resetAt, current: true, peak: 25 },
+          summary: { consumed: 20 + unattributed, costUsd: 10, outsideCostUsd: 0, costPerPercent: 0.5, unattributed },
+          totals: { turns: 10, input: 1000, output: 100, tokens: 1100, costUsd: 10 },
+          outside: 0,
+          unattributed,
+          models: [model],
+          modelSeries: [
+            { ...model, key: model.model, points: [[opened, 0], [at(0, 30), 20]] },
+            ...(unattributed > 0 ? [{ key: '', part: 'unattributed', points: [[opened, 0], [at(0, 30), unattributed]] }] : []),
+          ],
+          points: [
+            [opened, 0, 1],
+            [at(0, 30), 20 + unattributed, 1],
+            [at(2), 25, 1],
+          ],
+          slots: [
+            {
+              fromMs: opened,
+              toMs: at(0, 30),
+              startPct: 0,
+              endPct: 25,
+              consumed: 20 + unattributed,
+              tokens: 1100,
+              models: [model],
+              outside: 0,
+              unattributed,
+            },
+          ],
+        },
+      },
+    },
+  });
+  focusQuotaUsage('anthropic-oauth');
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  return [...document.querySelectorAll('.quota-table .stats-model-row')].filter(
+    (row) => row.firstElementChild.textContent === t('Unattributed')
+  );
+}
+
+test('points the readings cannot assign show as an unpriced Unattributed share', async (context) => {
+  const [row, ...more] = await openUnattributed(context, 2.04);
+
+  assert.equal(more.length, 0);
+  assert.equal(row.cells[1].textContent, '2%');
+  assert.deepEqual(
+    [...row.cells].slice(2, -1).map((cell) => cell.textContent),
+    [''],
+    'no requests, speed or tokens'
+  );
+  assert.equal(row.lastElementChild.textContent, '—', 'never priced');
+  assert.equal(
+    row.firstElementChild.title,
+    t(
+      "Meter moved across an unmeasured gap or within this meter's observed jitter range, so it cannot be assigned to Mixdog or outside use."
+    )
+  );
+  assert.ok(document.querySelector('.quota-mix .stats-mix-bar [data-series="unattributed"]'));
+  const legend = document.querySelector('.quota-mix li [data-series="unattributed"]').parentElement;
+  assert.equal(legend.textContent, `${t('Unattributed')}2%`);
+});
+
+test("a slot's hover card lists the share its readings cannot assign beside its models", async (context) => {
+  await openUnattributed(context, 2.04);
+
+  await act(async () => document.querySelector('button.quota-chart-slot').click());
+
+  const items = [...document.querySelectorAll('.stats-trend-detail li')].map((li) => li.textContent);
+  assert.deepEqual(items, ['model-priced+20%', `${t('Unattributed')}+2%`]);
+  const unattributed = document.querySelector('.stats-trend-detail li [data-series="unattributed"]').closest('li');
+  assert.equal(
+    unattributed.title,
+    t(
+      "Meter moved across an unmeasured gap or within this meter's observed jitter range, so it cannot be assigned to Mixdog or outside use."
+    )
+  );
+});
+
+test('the chart stacks the share its readings cannot assign as its own layer', async (context) => {
+  await openUnattributed(context, 2.04);
+
+  assert.deepEqual(
+    [...document.querySelectorAll('.quota-chart-stack')].map((path) => path.dataset.series),
+    ['0', 'unattributed']
+  );
+  assert.deepEqual(texts('.quota-legend li'), ['model-priced', t('Unattributed')]);
+  assert.equal(document.querySelector('.quota-legend li:last-child > i').dataset.series, 'unattributed');
+});
+
+test('a window the readings fully assign shows no Unattributed share', async (context) => {
+  assert.deepEqual(await openUnattributed(context, 0), []);
+  assert.equal(document.querySelector('.quota-mix [data-series="unattributed"]'), null);
+  assert.deepEqual(texts('.quota-legend li'), ['model-priced']);
+
+  await act(async () => document.querySelector('button.quota-chart-slot').click());
+
+  assert.ok(document.querySelector('.stats-trend-detail li'), 'the hover card is open');
+  assert.equal(document.querySelector('.stats-trend-detail [data-series="unattributed"]'), null);
+});
+
 test('subscription usage lists Fast calls as a second model row marked Fast', async (context) => {
   const render = harness(context);
   const route = (fields) => ({ turns: 1, input: 100, output: 300, cacheRead: 0, tokens: 400, ...fields });

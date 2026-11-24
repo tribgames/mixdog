@@ -168,6 +168,7 @@ async fn quota_history_of_a_145_ledger_keeps_the_readings_recorded_after_the_upg
         provider: "openai".into(),
         account: "acct".into(),
         label: "5h".into(),
+        rolling: false,
         sample: QuotaSample { ts, used_pct, reset_at: Some(NOW + 4 * 3_600_000) },
     };
     writer.record_quota_queued(vec![reading(NOW - 3_600_000, 10.0), reading(NOW - 1_800_000, 40.0)]).await.unwrap();

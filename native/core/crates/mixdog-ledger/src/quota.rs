@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use rusqlite::params;
 use serde_json::Map;
@@ -29,14 +30,10 @@ use crate::measure::speed_tier_sql;
 use crate::period::PeriodRequest;
 use crate::period::resolve_usage_stats_period;
 use crate::quota_estimate::Estimate;
-use crate::quota_estimate::FinerWindow;
 use crate::quota_estimate::Interval;
-use crate::quota_estimate::Reading;
-use crate::quota_estimate::Span;
 use crate::quota_estimate::Weight;
-use crate::quota_estimate::estimate_outside_quota;
-use crate::quota_estimate::estimate_quota_value;
-use crate::quota_estimate::outside_spans;
+use crate::quota_estimate::is_value_evidence;
+use crate::quota_estimate::quota_value;
 use crate::time::day_key;
 use crate::time::local_fields;
 use crate::time::local_ms;
@@ -46,8 +43,8 @@ use mixdog_js::math::round;
 
 const MINUTE: f64 = 60_000.0;
 const HOUR: f64 = 60.0 * MINUTE;
-// Clean, priced meter rises a window needs before its value is shown in dollars when no
-// earlier window anchors it.
+// Distinct records a window's value, with the windows before it, must rest on before it is shown
+// in dollars.
 const MIN_VALUE_SAMPLES: usize = 10;
 // Codex reports its reset as a countdown, so one window's reset drifts by the request latency
 // between readings. A later reset, or a meter that fell, opens a new window.
@@ -66,8 +63,6 @@ const SERIES_LIMIT: usize = 6;
 // many quota points (at most this many windows).
 const PRIOR_POINTS: f64 = 100.0;
 const PRIOR_WINDOWS: usize = 24;
-// The by-model chart's series key for usage from outside Mixdog.
-const OUTSIDE_KEY: &str = "";
 const MOVE: u8 = 0;
 const MEASURED: u8 = 1;
 const UNMEASURED: u8 = 2;
@@ -141,6 +136,8 @@ pub struct QuotaReading {
     pub provider: String,
     pub account: String,
     pub label: String,
+    /// The provider declares the window rolling: its use ages out continuously instead of resetting.
+    pub rolling: bool,
     pub sample: QuotaSample,
 }
 
@@ -151,9 +148,11 @@ struct Latest {
     reset_at: Option<i64>,
 }
 
-fn same_window(previous: &Latest, sample: &QuotaSample) -> bool {
+fn same_window(previous: &Latest, reading: &QuotaReading) -> bool {
+    let sample = &reading.sample;
+    // A rolling window is one window: its use ages out and its reset slides with it.
     // An idle meter reads zero against a reset that may keep moving: no window ran.
-    if previous.used_pct == 0.0 && sample.used_pct == 0.0 {
+    if reading.rolling || (previous.used_pct == 0.0 && sample.used_pct == 0.0) {
         return true;
     }
     if sample.used_pct < previous.used_pct - RESET_DROP_POINTS {
@@ -167,7 +166,8 @@ fn same_window(previous: &Latest, sample: &QuotaSample) -> bool {
 
 /// Stores readings in one transaction. A repeat of the latest reading of its window extends
 /// that row; a new reading of the same window keeps the window's first reset, so a drifting
-/// countdown never splits one window. Returns the readings taken.
+/// countdown never splits one window, except a rolling window's, whose reset slides as its use
+/// ages out. Returns the readings taken.
 pub fn record_quota_samples(conn: &mut Connection, samples: &[QuotaReading]) -> Result<usize> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut written = 0;
@@ -185,23 +185,19 @@ pub fn record_quota_samples(conn: &mut Connection, samples: &[QuotaReading]) -> 
         if previous.as_ref().is_some_and(|p| sample.ts <= p.seen_until) {
             continue;
         }
-        let same = previous.as_ref().is_some_and(|p| same_window(p, sample));
+        let same = previous.as_ref().is_some_and(|p| same_window(p, reading));
         match &previous {
             Some(p) if same && (p.used_pct - sample.used_pct).abs() < 0.005 => {
                 tx.prepare_cached("UPDATE quota_samples SET seen_until=?1 WHERE provider=?2 AND account=?3 AND label=?4 AND ts=?5")?
                     .execute(params![sample.ts, key.0, key.1, key.2, p.ts])?;
             }
             _ => {
-                let reset = if same { previous.as_ref().and_then(|p| p.reset_at) } else { sample.reset_at };
-                tx.prepare_cached("INSERT OR IGNORE INTO quota_samples VALUES (?1,?2,?3,?4,?5,?6,?7)")?.execute(params![
-                    key.0,
-                    key.1,
-                    key.2,
-                    sample.ts,
-                    sample.ts,
-                    sample.used_pct,
-                    reset
-                ])?;
+                let reset = if same && !reading.rolling { previous.as_ref().and_then(|p| p.reset_at) } else { sample.reset_at };
+                tx.prepare_cached(
+                    "INSERT OR IGNORE INTO quota_samples(provider,account,label,ts,seen_until,used_pct,reset_at,rolling)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                )?
+                .execute(params![key.0, key.1, key.2, sample.ts, sample.ts, sample.used_pct, reset, reading.rolling])?;
             }
         }
         written += 1;
@@ -217,7 +213,8 @@ pub const NEXT_SERIES_SQL: &str = "SELECT provider,account,label FROM quota_samp
 /// When a window's meter last moved.
 pub const SERIES_CHANGED_SQL: &str = "SELECT MAX(ts) FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3";
 /// Every reading of one window, oldest first.
-pub const WINDOW_ROWS_SQL: &str = "SELECT ts,seen_until,used_pct,reset_at FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3 ORDER BY ts";
+pub const WINDOW_ROWS_SQL: &str =
+    "SELECT ts,seen_until,used_pct,reset_at,rolling FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3 ORDER BY ts";
 
 #[derive(Clone, Debug)]
 struct Series {
@@ -302,6 +299,7 @@ struct Row {
     until: f64,
     used_pct: f64,
     reset_at: Option<f64>,
+    rolling: bool,
 }
 
 fn read_quota_rows(conn: &Connection, selection: &Selection, label: &str) -> Result<Vec<Row>> {
@@ -313,6 +311,7 @@ fn read_quota_rows(conn: &Connection, selection: &Selection, label: &str) -> Res
                 until: r.get::<_, i64>(1)? as f64,
                 used_pct: r.get(2)?,
                 reset_at: r.get::<_, Option<i64>>(3)?.map(|v| v as f64),
+                rolling: r.get(4)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -333,11 +332,16 @@ struct Instance {
     idle: bool,
     current: bool,
     paced: bool,
+    /// Its readings declare it rolling: use ages out continuously, so a fall is real use leaving it.
+    rolling: bool,
+    /// How far the meter moves on its own ([`series_jitter`]); none on a rolling window.
+    jitter: f64,
     start_ms: f64,
     end_ms: f64,
     outside: f64,
     outside_cost_usd: f64,
     outside_unpriced: f64,
+    unattributed: f64,
     intervals: Vec<Interval>,
     estimate: Option<Estimate>,
     value: Option<Estimate>,
@@ -349,15 +353,38 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
     let mut instances = group_instances(rows);
     mark_open_window(&mut instances, now);
     place_windows(&mut instances, label, now);
+    let jitter = series_jitter(&instances);
+    for instance in &mut instances {
+        instance.jitter = if instance.rolling { 0.0 } else { jitter };
+    }
     instances
 }
 
+/// The series' jitter band: the deepest fall below the highest reading so far inside any window that does not roll.
+/// Use there only accumulates, so such a fall is the meter's own movement, and a move no larger than it cannot be told
+/// from that movement.
+fn series_jitter(instances: &[Instance]) -> f64 {
+    let mut band = 0.0;
+    for instance in instances.iter().filter(|i| !i.rolling) {
+        let mut highest = 0.0;
+        for row in &instance.rows {
+            highest = max(highest, row.used_pct);
+            band = max(band, highest - row.used_pct);
+        }
+    }
+    band
+}
+
+/// Readings grouped by window: a moved reset or a fall opens the next one, except on a window that declares itself
+/// rolling, where use ages out and the reset slides with it.
 fn group_instances(rows: &[Row]) -> Vec<Instance> {
     let mut groups: Vec<Vec<Row>> = Vec::new();
     for row in rows {
         let new_group = match groups.last().and_then(|g| g.last()) {
             None => true,
-            Some(previous) => row.reset_at != previous.reset_at || row.used_pct < previous.used_pct - RESET_DROP_POINTS,
+            Some(previous) => {
+                !(row.rolling && previous.rolling) && (row.reset_at != previous.reset_at || row.used_pct < previous.used_pct - RESET_DROP_POINTS)
+            }
         };
         if new_group {
             groups.push(Vec::new());
@@ -377,15 +404,18 @@ fn group_instances(rows: &[Row]) -> Vec<Instance> {
                     peak = *row;
                 }
             }
+            let rolling = group.iter().any(|r| r.rolling);
             Instance {
                 key: js_number(first.ts).to_string(),
-                reset_at: first.reset_at,
+                // A rolling window's reset slides: it opened by its first and next frees up at its latest.
+                reset_at: if rolling { last.reset_at } else { first.reset_at },
                 peak: peak.used_pct,
                 peak_at: peak.ts,
                 exhausted_at: group.iter().find(|r| r.used_pct >= 100.0).map(|r| r.ts),
                 last_pct: last.used_pct,
                 last_at: last.until,
                 idle: peak.used_pct == 0.0,
+                rolling,
                 rows: group,
                 ..Instance::default()
             }
@@ -419,7 +449,7 @@ fn place_windows(instances: &mut [Instance], label: &str, now: f64) {
         let first_ts = instance.rows[0].ts;
         // A window's clock started at its opening: never after its first reading, never inside
         // the window before it.
-        let opened = quota_window_opened(label, instance.reset_at);
+        let opened = quota_window_opened(label, instance.rows[0].reset_at);
         instance.paced = opened.is_some();
         instance.start_ms = max(min(opened.unwrap_or(first_ts), first_ts), previous_end);
         instance.end_ms = max(min(instance.reset_at.unwrap_or(instance.last_at), next_ts.unwrap_or(f64::INFINITY)), instance.last_at);
@@ -578,9 +608,46 @@ struct Event {
     speed_output: f64,
     speed_ms: f64,
     tokens: f64,
+    span_ms: f64,
 }
 
 impl Event {
+    /// The stretch of the record's run, which ended at `ts`, inside (from_ms, to_ms].
+    fn run_in(&self, from_ms: f64, to_ms: f64) -> (f64, f64) {
+        if self.span_ms <= 0.0 {
+            return (self.ts, self.ts);
+        }
+        (max(self.ts - self.span_ms, from_ms), min(self.ts, to_ms))
+    }
+
+    fn fraction_in(&self, from_ms: f64, to_ms: f64) -> f64 {
+        if self.span_ms <= 0.0 {
+            return if self.ts > from_ms && self.ts <= to_ms { 1.0 } else { 0.0 };
+        }
+        max(0.0, min(self.ts, to_ms) - max(self.ts - self.span_ms, from_ms)) / self.span_ms
+    }
+
+    /// The stretches of the record's run that `covered`, stretches of that run, leave out, each with the part of the
+    /// record it is.
+    fn uncovered(&self, covered: &mut [(f64, f64)]) -> Vec<(f64, f64, f64)> {
+        if self.span_ms <= 0.0 {
+            return if covered.is_empty() { vec![(self.ts, self.ts, 1.0)] } else { Vec::new() };
+        }
+        covered.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut gaps = Vec::new();
+        let mut at = self.ts - self.span_ms;
+        for &(from_ms, to_ms) in covered.iter() {
+            if from_ms > at {
+                gaps.push((at, from_ms, (from_ms - at) / self.span_ms));
+            }
+            at = max(at, to_ms);
+        }
+        if self.ts > at {
+            gaps.push((at, self.ts, (self.ts - at) / self.span_ms));
+        }
+        gaps
+    }
+
     fn weight(&self, weight: Weight) -> f64 {
         match weight {
             Weight::Turns => self.turns,
@@ -638,11 +705,17 @@ fn model_family_scope(selection: &Selection) -> String {
     }
 }
 
-/// The best (lowest) origin rank of each day and model of the provider, keyed `day\0model`.
-fn best_origin_ranks(conn: &Connection, provider: &str, from_ms: f64, to_ms: f64) -> Result<HashMap<String, Option<f64>>> {
+/// `YYYY-MM-DD` of a record's `day` (`YYYYMMDD`).
+fn day_text(day: i64) -> String {
+    let day = day.to_string();
+    format!("{}-{}-{}", &day[..4], &day[4..6], &day[6..])
+}
+
+/// The best (lowest) origin rank of each day in [first_day, last_day] and model of the provider, keyed `day\0model`.
+fn best_origin_ranks(conn: &Connection, provider: &str, first_day: &str, last_day: &str) -> Result<HashMap<String, Option<f64>>> {
     let mut best: HashMap<String, Option<f64>> = HashMap::new();
     let mut ranks = conn.prepare_cached("SELECT day,model,MIN(rank) AS rank FROM daily WHERE provider=?1 AND day BETWEEN ?2 AND ?3 GROUP BY day,model")?;
-    let rows = ranks.query_map(params![provider, day_key(from_ms as i64), day_key(to_ms as i64)], |r| {
+    let rows = ranks.query_map(params![provider, first_day, last_day], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?))
     })?;
     for row in rows {
@@ -652,7 +725,36 @@ fn best_origin_ranks(conn: &Connection, provider: &str, from_ms: f64, to_ms: f64
     Ok(best)
 }
 
-/// The provider account's token records in [from_ms, to_ms], summed per minute and model,
+/// The records of provider `?1`'s account (`?2`, or unlabeled when `?3` is empty) whose runs reach into [`?4`, `?5`],
+/// summed per end, run and model. A record still running at `?5` ends no later than the longest run of its routes past
+/// it, which bounds the read on the time index.
+fn quota_events_sql() -> String {
+    format!(
+        "WITH routes AS (
+            SELECT id,json_extract(signature,'$[1]') AS model,json_extract(signature,'$[7]') AS rank,
+                {} AS speed_tier
+            FROM usage_routes
+            WHERE json_extract(signature,'$[0]')=?1 AND COALESCE(json_extract(signature,'$[8]'),'') IN (?2,?3)
+                AND json_extract(signature,'$[4]')<>'{NO_USAGE_COST_SOURCE}'
+        ),
+        reach AS (
+            SELECT ?5+COALESCE(MAX((SELECT MAX(d.duration_ms) FROM usage_events d WHERE d.route=routes.id)),0) AS ms FROM routes
+        )
+        SELECT e.ts,e.day,r.model,r.rank,COUNT(*) AS turns,
+            SUM(e.input) AS input,SUM(e.output) AS output,SUM(e.cache_read) AS cacheRead,
+            SUM(e.cache_write) AS cacheWrite,SUM(e.cost_usd) AS costUsd,COUNT(e.cost_usd) AS priced,
+            SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END) AS speedOutput,
+            SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speedMs,
+            r.speed_tier,COALESCE(e.duration_ms,0) AS spanMs
+        FROM usage_events e JOIN routes r ON r.id=e.route
+        WHERE e.ts>=?4 AND e.ts<=(SELECT ms FROM reach) AND e.ts-COALESCE(e.duration_ms,0)<=?5
+        GROUP BY e.ts,e.day,r.model,r.rank,r.speed_tier,COALESCE(e.duration_ms,0)
+        ORDER BY e.ts",
+        speed_tier_sql("signature")
+    )
+}
+
+/// The provider account's token records whose runs reach into [from_ms, to_ms], summed per end, run and model,
 /// keeping the best-ranked origin per day and model like the usage rollups. Records without an
 /// account belong to the legacy owner only, or to every account while no record names one.
 fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_ms: f64) -> Result<Vec<Event>> {
@@ -663,26 +765,7 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
         _ => "",
     };
     let scope = model_family_scope(selection);
-    let sql = format!(
-        "WITH routes AS (
-            SELECT id,json_extract(signature,'$[1]') AS model,json_extract(signature,'$[7]') AS rank,
-                {} AS speed_tier
-            FROM usage_routes
-            WHERE json_extract(signature,'$[0]')=?1 AND COALESCE(json_extract(signature,'$[8]'),'') IN (?2,?3)
-                AND json_extract(signature,'$[4]')<>'{NO_USAGE_COST_SOURCE}'
-        )
-        SELECT e.ts,e.day,r.model,r.rank,COUNT(*) AS turns,
-            SUM(e.input) AS input,SUM(e.output) AS output,SUM(e.cache_read) AS cacheRead,
-            SUM(e.cache_write) AS cacheWrite,SUM(e.cost_usd) AS costUsd,COUNT(e.cost_usd) AS priced,
-            SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END) AS speedOutput,
-            SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speedMs,
-            r.speed_tier
-        FROM usage_events e JOIN routes r ON r.id=e.route
-        WHERE e.ts>=?4 AND e.ts<=?5
-        GROUP BY e.ts,e.day,r.model,r.rank,r.speed_tier
-        ORDER BY e.ts",
-        speed_tier_sql("signature")
-    );
+    let sql = quota_events_sql();
     struct Raw {
         ts: i64,
         day: i64,
@@ -698,6 +781,7 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
         speed_output: Option<f64>,
         speed_ms: Option<f64>,
         tier: SpeedTier,
+        span_ms: f64,
     }
     let mut stmt = conn.prepare_cached(&sql)?;
     let raws: Vec<Raw> = stmt
@@ -717,10 +801,15 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
                 speed_output: r.get(11)?,
                 speed_ms: r.get(12)?,
                 tier: r.get(13)?,
+                span_ms: r.get::<_, f64>(14)?,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
-    let best = best_origin_ranks(conn, provider, from_ms, to_ms)?;
+    // A record's day is the one it ended on: for a record still running at `to_ms`, a day past it.
+    let (Some(first_day), Some(last_day)) = (raws.iter().map(|r| r.day).min(), raws.iter().map(|r| r.day).max()) else {
+        return Ok(Vec::new());
+    };
+    let best = best_origin_ranks(conn, provider, &day_text(first_day), &day_text(last_day))?;
     let unmeasuring = is_unmeasuring_provider(provider);
     let mut events = Vec::with_capacity(raws.len());
     for row in raws {
@@ -728,8 +817,7 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
         if !scope.is_empty() && model != scope && !model.starts_with(&format!("{scope}-")) {
             continue;
         }
-        let day = row.day.to_string();
-        let key = format!("{}-{}-{}\u{0}{}", &day[..4], &day[4..6], &day[6..], row.model);
+        let key = format!("{}\u{0}{}", day_text(row.day), row.model);
         if best.get(&key) != Some(&row.rank) {
             continue;
         }
@@ -754,23 +842,10 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
             speed_output: row.speed_output.unwrap_or(0.0),
             speed_ms: row.speed_ms.unwrap_or(0.0),
             tokens: input + output + cache_read + cache_write,
+            span_ms: row.span_ms,
         });
     }
     Ok(events)
-}
-
-/// `quota_samples` stores readings rounded to two decimal places. Respect the precision
-/// actually present: an integer-only series supplies whole-percent readings, not invented
-/// tenths.
-fn quota_reading_resolution(rows: &[Row]) -> f64 {
-    let cents: Vec<f64> = rows.iter().map(|r| round(r.used_pct * 100.0)).collect();
-    if cents.iter().any(|v| v % 10.0 != 0.0) {
-        0.01
-    } else if cents.iter().any(|v| v % 100.0 != 0.0) {
-        0.1
-    } else {
-        1.0
-    }
 }
 
 /// The windows just before `instance`, oldest first: the calibration its value continues from.
@@ -810,108 +885,232 @@ fn calibrated_windows(all: &[Instance], listed: &[usize], shown: &[usize]) -> Ve
     out
 }
 
-fn value_evidence(interval: &Interval) -> bool {
-    interval.priced && interval.cost_usd > 0.0 && interval.points > 0.0
+/// A rise of `points` over (from_ms, to_ms], with the records that ran in it.
+fn covered_interval(from_ms: f64, to_ms: f64, points: f64, events: &[Event], longest_run: f64) -> Interval {
+    let start = first_after(events, from_ms);
+    let end = first_after(events, to_ms + longest_run);
+    let (mut cost, mut tokens, mut turns, mut priced) = (0.0, 0.0, 0.0, 0.0);
+    for event in &events[start..end] {
+        let f = event.fraction_in(from_ms, to_ms);
+        cost += f * event.cost_usd;
+        tokens += f * event.tokens;
+        turns += f * event.turns;
+        priced += f * event.cost_known_turns;
+    }
+    let (mut weight, mut total) = (Weight::Turns, turns);
+    if cost > 0.0 {
+        weight = Weight::CostUsd;
+        total = cost;
+    } else if tokens > 0.0 {
+        weight = Weight::Tokens;
+        total = tokens;
+    }
+    Interval { from_ms, to_ms, points, cost_usd: cost, start, end, weight, total, external: 0.0, unattributed: 0.0, priced: turns > 0.0 && priced == turns }
 }
 
-/// One window's meter rises, each with the records behind it.
-fn window_intervals(instance: &Instance, events: &[Event], mixed: &[Span]) -> Vec<Interval> {
-    let resolution = quota_reading_resolution(&instance.rows);
-    let mut intervals = Vec::new();
-    let mut from_ms = instance.start_ms;
-    let mut from_pct = 0.0;
-    for (row_index, row) in instance.rows.iter().enumerate() {
-        let delta = row.used_pct - from_pct;
-        if delta > 0.0 {
-            let start = first_after(events, from_ms);
-            let end = first_after(events, row.ts);
-            let (mut cost, mut tokens, mut turns, mut priced) = (0.0, 0.0, 0.0, 0.0);
-            for event in &events[start..end] {
-                cost += event.cost_usd;
-                tokens += event.tokens;
-                turns += event.turns;
-                priced += event.cost_known_turns;
+/// A rise no record ran in: `external` points of outside use, the rest unattributed.
+fn uncovered_interval(from_ms: f64, to_ms: f64, points: f64, external: f64) -> Interval {
+    let unattributed = points - external;
+    Interval { from_ms, to_ms, points, cost_usd: 0.0, start: 0, end: 0, weight: Weight::Turns, total: 0.0, external, unattributed, priced: false }
+}
+
+/// One window's readings told apart into Mixdog's rises, each with the records behind it, outside use and what the
+/// readings cannot assign.
+///
+/// - A reading a record ran up to, since the last rise, rises above that rise by Mixdog's use; one at or below it
+///   books nothing, so the records running through a dip count in the next rise. A rolling meter steps from every
+///   reading instead.
+/// - The meter settles a request a reading late: a rise right after a Mixdog rise read only once, with a record that
+///   ended since the reading before, is that rise's own lagged debit and joins it, so its records count once. Across
+///   an unmeasured gap it cannot be told from other use and is unattributed.
+/// - A stretch of readings no record ran in is judged by its net move: within the series' jitter band it is the
+///   meter's own movement and books nothing, keeping the last rise as the base; past it, the excess is outside use and
+///   the band unattributed, booked where its readings rose ([`stretch_rises`]).
+fn window_intervals(instance: &Instance, events: &[Event], finer: &[Interval]) -> Vec<Interval> {
+    let longest_run = events.iter().fold(0.0, |m, e| max(m, e.span_ms));
+    let ran_in = |from_ms: f64, to_ms: f64| events[first_after(events, from_ms)..first_after(events, to_ms + longest_run)].iter().any(|e| e.fraction_in(from_ms, to_ms) > 0.0);
+    let rows = &instance.rows;
+    let mut intervals: Vec<Interval> = Vec::new();
+    let (mut base_ms, mut base_pct) = (instance.start_ms, 0.0);
+    // The reading that last rose by Mixdog's use, and when the reading before it was last confirmed.
+    let mut last_rise: Option<(usize, f64)> = None;
+    let mut index = 0;
+    while index < rows.len() {
+        let row = rows[index];
+        let delta = row.used_pct - base_pct;
+        if ran_in(base_ms, row.ts) {
+            if delta > 0.0 {
+                intervals.push(covered_interval(base_ms, row.ts, delta, events, longest_run));
+                last_rise = Some((index, if index > 0 { rows[index - 1].until } else { instance.start_ms }));
+                (base_ms, base_pct) = (row.ts, row.used_pct);
+            } else if instance.rolling {
+                (base_ms, base_pct) = (row.ts, row.used_pct);
+                last_rise = None;
             }
-            let (mut weight, mut total) = (Weight::Turns, turns);
-            if cost > 0.0 {
-                weight = Weight::CostUsd;
-                total = cost;
-            } else if tokens > 0.0 {
-                weight = Weight::Tokens;
-                total = tokens;
-            }
-            intervals.push(Interval {
-                from_ms,
-                to_ms: row.ts,
-                points: delta,
-                cost_usd: cost,
-                start,
-                end,
-                weight,
-                total,
-                resolution,
-                // Only an inferred opening, a saturated meter, or the first rise from zero
-                // lowers its measurement quality.
-                measured: row_index > 0 && from_pct > 0.0 && row.used_pct < 100.0,
-                priced: turns > 0.0 && priced == turns,
-                mixed: mixed.iter().any(|span| span.from_ms < row.ts && span.to_ms > from_ms),
-            });
+            index += 1;
+            continue;
         }
-        from_ms = row.ts;
-        from_pct = row.used_pct;
+        let lagged = last_rise.is_some_and(|(rise, confirmed)| {
+            let read = rows[rise];
+            rise + 1 == index && read.until == read.ts && first_after(events, confirmed) < first_after(events, read.ts)
+        });
+        if delta > 0.0 && lagged {
+            if row.ts - rows[index - 1].ts <= MEASURED_GAP_MS {
+                let rise = intervals.last_mut().expect("the rise the lagged debit settles");
+                rise.points += delta;
+                rise.to_ms = row.ts;
+            } else {
+                intervals.push(uncovered_interval(base_ms, row.ts, delta, 0.0));
+            }
+            last_rise = None;
+            (base_ms, base_pct) = (row.ts, row.used_pct);
+            index += 1;
+            continue;
+        }
+        let mut end = index + 1;
+        if !instance.rolling {
+            while end < rows.len() && !ran_in(rows[end - 1].ts, rows[end].ts) {
+                end += 1;
+            }
+        }
+        let last = rows[end - 1];
+        let net = last.used_pct - base_pct;
+        if instance.rolling {
+            if net > 0.0 {
+                intervals.push(uncovered_interval(base_ms, last.ts, net, net));
+            }
+            (base_ms, base_pct) = (last.ts, last.used_pct);
+        } else if net <= instance.jitter {
+            base_ms = last.ts;
+        } else {
+            let rises = stretch_rises(&rows[index..end], base_ms, base_pct);
+            let risen = rises.iter().fold(0.0, |sum, rise| sum + rise.2);
+            for (from_ms, to_ms, rise) in rises {
+                let share = rise / risen;
+                intervals.push(uncovered_interval(from_ms, to_ms, net * share, (net - instance.jitter) * share));
+            }
+            (base_ms, base_pct) = (last.ts, last.used_pct);
+        }
+        last_rise = None;
+        index = end;
+    }
+    for interval in intervals.iter_mut().filter(|i| i.total > 0.0) {
+        (interval.external, interval.unattributed) = finer_split(interval, finer);
     }
     intervals
 }
 
-/// An outside-use interval.
+/// Each reading of a stretch that rose above the highest one before it, from (`from_ms`, `from_pct`): the time since
+/// that highest reading and the points it rose by. What the stretch books is shared out by these rises, so it lands
+/// where the meter moved, and a meter that only climbs books each step as it read.
+fn stretch_rises(rows: &[Row], from_ms: f64, from_pct: f64) -> Vec<(f64, f64, f64)> {
+    let (mut high_ms, mut high) = (from_ms, from_pct);
+    let mut rises = Vec::new();
+    for row in rows {
+        if row.used_pct > high {
+            rises.push((high_ms, row.ts, row.used_pct - high));
+            (high_ms, high) = (row.ts, row.used_pct);
+        }
+    }
+    rises
+}
+
+/// The points of a covered rise that a finer meter puts outside Mixdog and leaves unattributed over the same time, in
+/// proportion to the finer points that overlap it.
+fn finer_split(interval: &Interval, finer: &[Interval]) -> (f64, f64) {
+    let (mut total, mut outside, mut unattributed) = (0.0, 0.0, 0.0);
+    for rise in finer {
+        let part = rise.points * interval_share(rise, interval.from_ms, interval.to_ms);
+        if !(part > 0.0) {
+            continue;
+        }
+        total += part;
+        outside += part * rise.external / rise.points;
+        unattributed += part * rise.unattributed / rise.points;
+    }
+    if total > 0.0 { (interval.points * outside / total, interval.points * unattributed / total) } else { (0.0, 0.0) }
+}
+
+/// The points of an interval that are not Mixdog's: outside use, with its value, and unattributed points, which have
+/// none.
 #[derive(Clone, Copy, Debug)]
 struct Outside {
     from_ms: f64,
     to_ms: f64,
     points: f64,
+    unattributed: f64,
     cost_usd: Option<f64>,
 }
 
-fn allocate_quota(all: &mut [Instance], instances: &[usize], events: &[Event], mixed: &[Span], listed: &[usize]) -> (Vec<f64>, Vec<Outside>) {
-    let mut shares = vec![0.0f64; events.len()];
+/// What one meter rise credits one record: the part of the record that ran in the rise, the stretch
+/// it ran over, and the points of the rise that are its share.
+#[derive(Clone, Copy, Debug)]
+struct Piece {
+    event: usize,
+    from_ms: f64,
+    to_ms: f64,
+    fraction: f64,
+    share: f64,
+}
+
+/// How many records stand behind these rises.
+fn covering_records(intervals: &[&Interval], events: &[Event]) -> usize {
+    let mut seen: HashSet<usize> = HashSet::new();
+    for interval in intervals {
+        for index in interval.start..interval.end {
+            if events[index].fraction_in(interval.from_ms, interval.to_ms) > 0.0 {
+                seen.insert(index);
+            }
+        }
+    }
+    seen.len()
+}
+
+/// Each shown window's rises split among the records that ran in them, and the points that are not Mixdog's. A record
+/// that spans rises appears once per rise, with the part of it in that rise, and once per stretch of its run no rise
+/// covers. The dollar value is the covered priced cost over the points it moved, continuing from the earlier windows;
+/// unattributed points have none.
+fn allocate_quota(all: &mut [Instance], instances: &[usize], events: &[Event], finer: &[Interval], listed: &[usize]) -> (Vec<Piece>, Vec<Outside>) {
+    let mut pieces: Vec<Piece> = Vec::new();
+    let mut covered: Vec<Vec<(f64, f64)>> = vec![Vec::new(); events.len()];
     let mut outside: Vec<Outside> = Vec::new();
     let mut calibration: HashMap<usize, Vec<Interval>> = HashMap::new();
     for &index in instances {
         let earlier = earlier_windows(all, listed, index);
         let mut prior: Vec<Interval> = Vec::new();
         for window in earlier {
-            let held = calibration.entry(window).or_insert_with(|| window_intervals(&all[window], events, mixed).into_iter().filter(|i| !i.mixed).collect());
+            let held = calibration.entry(window).or_insert_with(|| window_intervals(&all[window], events, finer));
             prior.extend(held.iter().cloned());
         }
-        let intervals = window_intervals(&all[index], events, mixed);
-        let own: Vec<Interval> = intervals.iter().filter(|i| !i.mixed).cloned().collect();
-        let estimate = estimate_quota_value(&own, &prior);
-        // The estimate still splits the meter, but it is shown in dollars only once it rests on
-        // more than a few coincidences.
-        let own_samples = own.iter().filter(|i| i.measured && value_evidence(i)).count();
-        let value = estimate.clone().filter(|_| prior.iter().any(value_evidence) || own_samples >= MIN_VALUE_SAMPLES);
+        let intervals = window_intervals(&all[index], events, finer);
+        let evidence: Vec<&Interval> = prior.iter().chain(&intervals).filter(|i| is_value_evidence(i)).collect();
+        let estimate = quota_value(&evidence, covering_records(&evidence, events));
+        let value = estimate.clone().filter(|e| e.samples >= MIN_VALUE_SAMPLES);
         let instance = &mut all[index];
         instance.outside = 0.0;
         instance.outside_cost_usd = 0.0;
         instance.outside_unpriced = 0.0;
+        instance.unattributed = 0.0;
         for interval in &intervals {
-            let mut external = interval.points;
+            let (external, unattributed) = (interval.external, interval.unattributed);
             if interval.total > 0.0 {
-                external = 0.0;
-                if interval.measured && interval.priced {
-                    external = match (&estimate, interval.mixed) {
-                        (Some(model), true) => min(interval.points, max(0.0, interval.points - interval.cost_usd / model.cost_per_percent)),
-                        _ => estimate_outside_quota(interval, estimate.as_ref()),
-                    };
-                }
                 for event_index in interval.start..interval.end {
-                    shares[event_index] += ((interval.points - external) * events[event_index].weight(interval.weight)) / interval.total;
+                    let event = &events[event_index];
+                    let fraction = event.fraction_in(interval.from_ms, interval.to_ms);
+                    if fraction <= 0.0 {
+                        continue;
+                    }
+                    let (from_ms, to_ms) = event.run_in(interval.from_ms, interval.to_ms);
+                    covered[event_index].push((from_ms, to_ms));
+                    let share = ((interval.points - external - unattributed) * fraction * event.weight(interval.weight)) / interval.total;
+                    pieces.push(Piece { event: event_index, from_ms, to_ms, fraction, share });
                 }
             }
-            if external > 0.0 {
+            if external > 0.0 || unattributed > 0.0 {
                 let cost_usd = value.as_ref().map(|v| external * v.cost_per_percent);
-                outside.push(Outside { from_ms: interval.from_ms, to_ms: interval.to_ms, points: external, cost_usd });
+                outside.push(Outside { from_ms: interval.from_ms, to_ms: interval.to_ms, points: external, unattributed, cost_usd });
                 instance.outside += external;
+                instance.unattributed += unattributed;
                 match cost_usd {
                     None => instance.outside_unpriced += external,
                     Some(c) => instance.outside_cost_usd += c,
@@ -922,33 +1121,49 @@ fn allocate_quota(all: &mut [Instance], instances: &[usize], events: &[Event], m
         instance.estimate = estimate;
         instance.value = value;
     }
-    (shares, outside)
+    // The stretches of a record that ran where no shown rise did are still its usage, with no share.
+    for (index, ranges) in covered.iter_mut().enumerate() {
+        for (from_ms, to_ms, fraction) in events[index].uncovered(ranges) {
+            pieces.push(Piece { event: index, from_ms, to_ms, fraction, share: 0.0 });
+        }
+    }
+    (pieces, outside)
 }
 
-/// The weekly all-model limit's five-hour companion restarts from zero every few hours and moves
-/// in quarter-size steps, so it exposes outside use that a whole-percent weekly reading hides.
-fn finer_outside_spans(conn: &Connection, selection: &Selection, events: &[Event], weeks: &[&Instance], now: f64) -> Result<Vec<Span>> {
-    if selection.label != "7D" || events.is_empty() || weeks.is_empty() {
-        return Ok(Vec::new());
+/// The meters finer than a coarse series, in the order they are tried: a weekly series' five-hour
+/// companion; a monthly series' five-hour, else weekly. A model-scope suffix is kept.
+fn finer_labels(label: &str) -> Vec<String> {
+    let (head, suffix) = label.split_once(' ').map_or((label, String::new()), |(head, rest)| (head, format!(" {rest}")));
+    match head {
+        "7D" => vec![format!("5H{suffix}")],
+        "M" => vec![format!("5H{suffix}"), format!("7D{suffix}")],
+        _ => Vec::new(),
     }
-    let mut prefix = vec![0.0f64];
-    for event in events {
-        prefix.push(prefix[prefix.len() - 1] + event.cost_usd);
+}
+
+/// The windows of the finer meter of a coarse series that were open in (from_ms, to_ms].
+fn finer_windows(conn: &Connection, selection: &Selection, from_ms: f64, to_ms: f64, now: f64) -> Result<Vec<Instance>> {
+    for label in finer_labels(&selection.label) {
+        let rows = read_quota_rows(conn, selection, &label)?;
+        if rows.is_empty() {
+            continue;
+        }
+        return Ok(quota_instances(&rows, &label, now).into_iter().filter(|i| !i.idle && i.end_ms > from_ms && i.start_ms < to_ms).collect());
     }
-    let cost_between = |from: f64, to: f64| prefix[first_after(events, to)] - prefix[first_after(events, from)];
-    let fives: Vec<Instance> = quota_instances(&read_quota_rows(conn, selection, "5H")?, "5H", now).into_iter().filter(|i| !i.idle).collect();
-    let mut spans = Vec::new();
-    for week in weeks {
-        let readings: Vec<Vec<Reading>> = fives
-            .iter()
-            .filter(|five| five.start_ms >= week.start_ms && five.start_ms < week.end_ms)
-            .map(|five| five.rows.iter().map(|r| Reading { ts: r.ts, used_pct: r.used_pct }).collect())
-            .collect();
-        let starts: Vec<f64> = fives.iter().filter(|five| five.start_ms >= week.start_ms && five.start_ms < week.end_ms).map(|five| five.start_ms).collect();
-        let windows: Vec<FinerWindow> = starts.iter().zip(&readings).map(|(start_ms, readings)| FinerWindow { start_ms: *start_ms, readings }).collect();
-        spans.extend(outside_spans(&windows, &cost_between, 5.0 * MINUTE));
-    }
-    Ok(spans)
+    Ok(Vec::new())
+}
+
+/// The records of the series' windows in (from_ms, to_ms], and the rises of its finer meter there, each with the
+/// records behind it; a finer rise no record covers is use that did not come through Mixdog. The records are read over
+/// the finer windows whole, so a finer rise that began before the range or ended after it is judged by every record
+/// that ran in it.
+fn read_records_and_finer_rises(conn: &Connection, selection: &Selection, from_ms: f64, to_ms: f64, now: f64) -> Result<(Vec<Event>, Vec<Interval>)> {
+    let windows = finer_windows(conn, selection, from_ms, to_ms, now)?;
+    let from = windows.iter().fold(from_ms, |m, w| min(m, w.start_ms));
+    let to = windows.iter().fold(to_ms, |m, w| max(m, w.end_ms));
+    let events = read_quota_events(conn, selection, from, to)?;
+    let finer = windows.iter().flat_map(|w| window_intervals(w, &events, &[])).collect();
+    Ok((events, finer))
 }
 
 fn interval_share(interval: &Interval, from_ms: f64, to_ms: f64) -> f64 {
@@ -1012,18 +1227,19 @@ struct Usage {
 }
 
 impl Usage {
-    fn add(&mut self, event: &Event, share: f64) {
+    /// part of the record's usage and share points of the meter.
+    fn add(&mut self, event: &Event, share: f64, part: f64) {
         self.consumed += share;
-        self.turns += event.turns;
-        self.input += event.input;
-        self.output += event.output;
-        self.cache_read += event.cache_read;
-        self.cache_write += event.cache_write;
-        self.cost_usd += event.cost_usd;
-        self.cost_known_turns += event.cost_known_turns;
-        self.unmeasured_turns += event.unmeasured_turns;
-        self.speed_output += event.speed_output;
-        self.speed_ms += event.speed_ms;
+        self.turns += event.turns * part;
+        self.input += event.input * part;
+        self.output += event.output * part;
+        self.cache_read += event.cache_read * part;
+        self.cache_write += event.cache_write * part;
+        self.cost_usd += event.cost_usd * part;
+        self.cost_known_turns += event.cost_known_turns * part;
+        self.unmeasured_turns += event.unmeasured_turns * part;
+        self.speed_output += event.speed_output * part;
+        self.speed_ms += event.speed_ms * part;
     }
 
     fn tokens(&self) -> f64 {
@@ -1147,13 +1363,31 @@ struct Slot {
     outside: f64,
     outside_cost_usd: f64,
     outside_unpriced: f64,
+    unattributed: f64,
 }
 
-/// Each model's running share of its window, sampled at slot ends; the slot running now is
-/// sampled at now, as far as it has run.
-fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f64) -> Vec<Value> {
-    let mut series: Vec<(String, Vec<Value>)> = keys.iter().map(|k| (k.clone(), Vec::new())).collect();
-    let mut running: HashMap<String, f64> = HashMap::new();
+/// A layer of the by-model chart: a model's share, outside use, or the points the readings cannot assign.
+enum Layer {
+    Model(String),
+    Outside,
+    Unattributed,
+}
+
+impl Layer {
+    fn part(&self, slot: &Slot) -> f64 {
+        match self {
+            Layer::Model(key) => slot.models.get(key).map_or(0.0, |u| u.consumed),
+            Layer::Outside => slot.outside,
+            Layer::Unattributed => slot.unattributed,
+        }
+    }
+}
+
+/// Each layer's running share of its window, sampled at slot ends; the slot running now is
+/// sampled at now, as far as it has run. A layer that is not a model has an empty key and names its `part`.
+fn model_series(slots: &[Slot], instances: &[&Instance], layers: &[Layer], now: f64) -> Vec<Value> {
+    let mut series: Vec<Vec<Value>> = vec![Vec::new(); layers.len()];
+    let mut running = vec![0.0; layers.len()];
     let mut owner: Option<Option<usize>> = None;
     for slot in slots {
         if slot.future {
@@ -1162,25 +1396,34 @@ fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f
         let instance = instances.iter().position(|entry| slot.from_ms >= entry.start_ms && slot.from_ms < entry.end_ms);
         if owner != Some(instance) {
             owner = Some(instance);
-            for (key, points) in &mut series {
-                running.insert(key.clone(), 0.0);
+            for (points, total) in series.iter_mut().zip(&mut running) {
+                *total = 0.0;
                 points.push(Value::Array(vec![js_number(slot.from_ms), 0.into()]));
             }
         }
-        for (key, points) in &mut series {
-            let part = if key == OUTSIDE_KEY { slot.outside } else { slot.models.get(key).map_or(0.0, |u| u.consumed) };
-            let total = running[key.as_str()] + part;
-            running.insert(key.clone(), total);
-            points.push(Value::Array(vec![js_number(min(slot.to_ms, now)), js_number(round_to(total, 2))]));
+        for ((layer, points), total) in layers.iter().zip(&mut series).zip(&mut running) {
+            *total += layer.part(slot);
+            points.push(Value::Array(vec![js_number(min(slot.to_ms, now)), js_number(round_to(*total, 2))]));
         }
     }
-    series
-        .into_iter()
-        .map(|(key, points)| {
+    layers
+        .iter()
+        .zip(series)
+        .map(|(layer, points)| {
             let mut out = Map::new();
-            out.insert("key".into(), key.clone().into());
-            if key != OUTSIDE_KEY {
-                put_identity(&mut out, &key);
+            match layer {
+                Layer::Model(key) => {
+                    out.insert("key".into(), key.clone().into());
+                    put_identity(&mut out, key);
+                }
+                Layer::Outside => {
+                    out.insert("key".into(), "".into());
+                    out.insert("part".into(), "outside".into());
+                }
+                Layer::Unattributed => {
+                    out.insert("key".into(), "".into());
+                    out.insert("part".into(), "unattributed".into());
+                }
             }
             out.insert("points".into(), Value::Array(points));
             Value::Object(out)
@@ -1188,19 +1431,20 @@ fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f
         .collect()
 }
 
-/// Outside usage is spread over the time its interval covers; returns its total within the
-/// domain.
-fn spread_outside_usage(outside: &[Outside], slots: &mut [Slot], domain_from: f64, domain_to: f64, slot_ms: f64) -> f64 {
+/// Outside and unattributed usage is spread over the time its interval covers; returns their totals within the domain.
+fn spread_outside_usage(outside: &[Outside], slots: &mut [Slot], domain_from: f64, domain_to: f64, slot_ms: f64) -> (f64, f64) {
     let slot_at = |time: f64, len: usize| min((len - 1) as f64, max(0.0, ((time - domain_from) / slot_ms).floor())) as usize;
-    let mut total = 0.0;
-    let add = |slot: &mut Slot, interval: &Outside, share: f64, total: &mut f64| {
+    let mut total = (0.0, 0.0);
+    let add = |slot: &mut Slot, interval: &Outside, share: f64, total: &mut (f64, f64)| {
         let part = interval.points * share;
         slot.outside += part;
+        slot.unattributed += interval.unattributed * share;
         match interval.cost_usd {
             None => slot.outside_unpriced += part,
             Some(c) => slot.outside_cost_usd += c * share,
         }
-        *total += part;
+        total.0 += part;
+        total.1 += interval.unattributed * share;
     };
     let len = slots.len();
     for interval in outside {
@@ -1226,14 +1470,16 @@ fn spread_outside_usage(outside: &[Outside], slots: &mut [Slot], domain_from: f6
 }
 
 fn history_row(instance: &Instance, events: &[Event]) -> Value {
-    let start = first_after(events, instance.start_ms - 1.0);
-    let end = first_after(events, instance.end_ms);
+    let longest_run = events.iter().fold(0.0, |m, e| max(m, e.span_ms));
+    let start = first_after(events, instance.start_ms);
+    let end = first_after(events, instance.end_ms + longest_run);
     let (mut tokens, mut turns, mut cost_usd, mut unpriced) = (0.0, 0.0, 0.0, 0.0);
     for event in &events[start..end] {
-        tokens += event.tokens;
-        turns += event.turns;
-        cost_usd += event.cost_usd;
-        unpriced += event.turns - event.cost_known_turns;
+        let part = event.fraction_in(instance.start_ms, instance.end_ms);
+        tokens += part * event.tokens;
+        turns += part * event.turns;
+        cost_usd += part * event.cost_usd;
+        unpriced += part * (event.turns - event.cost_known_turns);
     }
     let mut out = Map::new();
     out.insert("key".into(), instance.key.clone().into());
@@ -1250,6 +1496,7 @@ fn history_row(instance: &Instance, events: &[Event]) -> Value {
     out.insert("costPerPercent".into(), instance.value.as_ref().map_or(Value::Null, |v| js_number(round_to(v.cost_per_percent, 6))));
     out.insert("estimateSamples".into(), instance.estimate.as_ref().map_or(0, |e| e.samples).into());
     out.insert("outside".into(), js_number(round_to(instance.outside, 2)));
+    out.insert("unattributed".into(), js_number(round_to(instance.unattributed, 2)));
     Value::Object(out)
 }
 
@@ -1305,8 +1552,9 @@ fn slot_value(slot: &Slot, points: &[Point], last_point: f64, shown: &[&Instance
     o.insert("future".into(), slot.future.into());
     o.insert("startPct".into(), js_number(value_at(points, slot.from_ms)));
     o.insert("endPct".into(), js_number(value_at(points, min(slot.to_ms, last_point))));
-    o.insert("consumed".into(), js_number(round_to(slot.usage.consumed + slot.outside, 2)));
+    o.insert("consumed".into(), js_number(round_to(slot.usage.consumed + slot.outside + slot.unattributed, 2)));
     o.insert("outside".into(), js_number(round_to(slot.outside, 2)));
+    o.insert("unattributed".into(), js_number(round_to(slot.unattributed, 2)));
     o.insert("tokens".into(), js_number(slot.usage.tokens()));
     o.insert("turns".into(), js_number(slot.usage.turns));
     let slot_rate = period_quota_rate(shown, slot.from_ms, slot.to_ms);
@@ -1357,7 +1605,7 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     let listed: Vec<usize> = (0..instances.len()).filter(|&i| !instances[i].idle).collect();
     let mut range = Map::new();
     range.insert("firstDay".into(), day_key(rows[0].ts as i64).into());
-    let Some((period, period_from, period_to)) = history_period(query, view, &instances, &listed) else {
+    let Some((period, period_from, period_to)) = history_period(query, view, &instances, &listed, now) else {
         base.insert("range".into(), Value::Object(range));
         base.insert("period".into(), Value::Null);
         return Ok(Value::Object(base));
@@ -1370,16 +1618,14 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     let calibrated = calibrated_windows(&instances, &listed, &shown);
     let from = calibrated.iter().fold(domain_from, |m, &i| min(m, instances[i].start_ms));
     let to = shown.iter().fold(domain_to, |m, &i| max(m, instances[i].end_ms));
-    let events = read_quota_events(conn, &selection, from, to)?;
-    let calibrated_refs: Vec<&Instance> = calibrated.iter().map(|&i| &instances[i]).collect();
-    let finer = finer_outside_spans(conn, &selection, &events, &calibrated_refs, now)?;
-    let (shares, outside) = allocate_quota(&mut instances, &shown, &events, &finer, &listed);
+    let (events, finer) = read_records_and_finer_rises(conn, &selection, from, to, now)?;
+    let (pieces, outside) = allocate_quota(&mut instances, &shown, &events, &finer, &listed);
     let shown_refs: Vec<&Instance> = shown.iter().map(|&i| &instances[i]).collect();
     let points = quota_points(&shown_refs);
 
     let (mut slots, slot_ms) = quota_slots(domain_from, domain_to, now);
-    let (totals, models) = fold_events_into_slots(&events, &shares, &mut slots, domain_from, domain_to, slot_ms);
-    let outside_total = spread_outside_usage(&outside, &mut slots, domain_from, domain_to, slot_ms);
+    let (totals, models) = fold_events_into_slots(&events, &pieces, &mut slots, domain_from, domain_to, slot_ms);
+    let (outside_total, unattributed_total) = spread_outside_usage(&outside, &mut slots, domain_from, domain_to, slot_ms);
     let cost_per_percent = period_quota_rate(&shown_refs, domain_from, domain_to);
     let outside_cost_usd = if cost_per_percent.is_none() || slots.iter().any(|s| s.outside_unpriced > 0.0) {
         None
@@ -1389,14 +1635,17 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
 
     let mut exported_models: Vec<Value> = models.iter().map(|(key, usage)| export_model(key, usage)).collect();
     sort_model_tiers(&mut exported_models, model_of_row, &["consumed", "tokens"]);
-    let mut series_keys: Vec<String> = exported_models
+    let mut layers: Vec<Layer> = exported_models
         .iter()
         .filter(|m| m["consumed"].as_f64().unwrap_or(0.0) > 0.0)
         .take(SERIES_LIMIT)
-        .map(|m| m["model"].as_str().unwrap_or("").to_string())
+        .map(|m| Layer::Model(m["model"].as_str().unwrap_or("").to_string()))
         .collect();
     if outside_total > 0.0 {
-        series_keys.push(OUTSIDE_KEY.to_string());
+        layers.push(Layer::Outside);
+    }
+    if unattributed_total > 0.0 {
+        layers.push(Layer::Unattributed);
     }
     let last_point = points.last().map_or(domain_from, |p| p.at);
     let peaks: Vec<&Instance> = listed.iter().map(|&i| &instances[i]).filter(|i| overlapping(i)).collect();
@@ -1424,8 +1673,9 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     out.insert("focus".into(), focus.map_or(Value::Null, focus_value));
     out.insert("forecast".into(), forecast);
     let mut summary = Map::new();
-    summary.insert("consumed".into(), js_number(round_to(totals.consumed + outside_total, 2)));
+    summary.insert("consumed".into(), js_number(round_to(totals.consumed + outside_total + unattributed_total, 2)));
     summary.insert("outside".into(), js_number(round_to(outside_total, 2)));
+    summary.insert("unattributed".into(), js_number(round_to(unattributed_total, 2)));
     put_cost_fields(&mut summary, totals.cost_usd, outside_cost_usd, totals.cost_known_turns < totals.turns);
     summary.insert("costPerPercent".into(), cost_per_percent.map_or(Value::Null, js_number));
     summary.insert("estimateSamples".into(), shown_refs.iter().fold(0usize, |sum, i| sum + i.estimate.as_ref().map_or(0, |e| e.samples)).into());
@@ -1433,17 +1683,19 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     out.insert("summary".into(), Value::Object(summary));
     out.insert("totals".into(), Value::Object(export_usage(&totals)));
     out.insert("outside".into(), js_number(round_to(outside_total, 2)));
+    out.insert("unattributed".into(), js_number(round_to(unattributed_total, 2)));
     out.insert("models".into(), Value::Array(exported_models));
     out.insert("slotMs".into(), js_number(slot_ms));
     let slot_values: Vec<Value> = slots.iter().map(|slot| slot_value(slot, &points, last_point as f64, &shown_refs)).collect();
     out.insert("slots".into(), Value::Array(slot_values));
-    out.insert("modelSeries".into(), Value::Array(model_series(&slots, &shown_refs, &series_keys, now)));
+    out.insert("modelSeries".into(), Value::Array(model_series(&slots, &shown_refs, &layers, now)));
     out.insert("peaks".into(), Value::Array(if view == "window" { Vec::new() } else { peak_values(&peaks) }));
     Ok(Value::Object(out))
 }
 
-/// The period a history question covers and its bounds: the window `view: window` selects, or [from_ms, to_ms].
-fn history_period(query: &QuotaHistoryQuery, view: &str, instances: &[Instance], listed: &[usize]) -> Option<(Value, f64, f64)> {
+/// The period a history question covers and its bounds (from, to]: the window `view: window` selects, or the
+/// statistics period [from_ms, to_ms].
+fn history_period(query: &QuotaHistoryQuery, view: &str, instances: &[Instance], listed: &[usize], now: f64) -> Option<(Value, f64, f64)> {
     if view == "window" {
         window_period(instances, listed, query.anchor.as_deref()).map(|p| {
             let from = p["fromMs"].as_f64().unwrap_or(0.0);
@@ -1455,7 +1707,9 @@ fn history_period(query: &QuotaHistoryQuery, view: &str, instances: &[Instance],
         p.insert("view".into(), view.to_string().into());
         p.insert("fromMs".into(), query.from_ms.map_or(Value::Null, js_number));
         p.insert("toMs".into(), query.to_ms.map_or(Value::Null, js_number));
-        Some((Value::Object(p), query.from_ms.unwrap_or(0.0), query.to_ms.unwrap_or(0.0)))
+        // A statistics period never reaches past now: its `toMs` is now, or the last millisecond of a range that ended
+        // earlier, which as a range (from, to] ends one past it.
+        Some((Value::Object(p), query.from_ms.unwrap_or(0.0), query.to_ms.map_or(0.0, |to| min(to + 1.0, now))))
     }
 }
 
@@ -1475,28 +1729,46 @@ fn quota_slots(domain_from: f64, domain_to: f64, now: f64) -> (Vec<Slot>, f64) {
             outside: 0.0,
             outside_cost_usd: 0.0,
             outside_unpriced: 0.0,
+            unattributed: 0.0,
         });
         start += slot_ms;
     }
     (slots, slot_ms)
 }
 
-/// Each event's share of the meter, added to its slot and to the totals of the domain and of its model.
-fn fold_events_into_slots(events: &[Event], shares: &[f64], slots: &mut [Slot], domain_from: f64, domain_to: f64, slot_ms: f64) -> (Usage, Ordered<Usage>) {
+/// Each piece of a record, added to the slots its run covers and to the totals of the domain and of
+/// its model: a record spanning several rises or slots gives each the part that ran there.
+fn fold_events_into_slots(events: &[Event], pieces: &[Piece], slots: &mut [Slot], domain_from: f64, domain_to: f64, slot_ms: f64) -> (Usage, Ordered<Usage>) {
     let last_slot = (slots.len() - 1) as f64;
     let slot_at = |time: f64| min(last_slot, max(0.0, ((time - domain_from) / slot_ms).floor())) as usize;
+    // A record that ran no time belongs to the range (from, to] its end falls in, as every run does.
+    let slot_ending = |time: f64| min(last_slot, max(0.0, ((time - domain_from) / slot_ms).ceil() - 1.0)) as usize;
     let mut totals = Usage::default();
     let mut models: Ordered<Usage> = Ordered::default();
-    for (index, event) in events.iter().enumerate() {
-        if event.ts < domain_from || event.ts > domain_to {
+    let mut deposit = |slot: &mut Slot, event: &Event, share: f64, part: f64| {
+        totals.add(event, share, part);
+        models.entry(&event.model, Usage::default).add(event, share, part);
+        slot.usage.add(event, share, part);
+        slot.models.entry(&event.model, Usage::default).add(event, share, part);
+    };
+    for piece in pieces {
+        let event = &events[piece.event];
+        if piece.to_ms <= piece.from_ms {
+            if piece.to_ms > domain_from && piece.to_ms <= domain_to {
+                deposit(&mut slots[slot_ending(piece.to_ms)], event, piece.share, piece.fraction);
+            }
             continue;
         }
-        let share = shares[index];
-        totals.add(event, share);
-        models.entry(&event.model, Usage::default).add(event, share);
-        let slot = &mut slots[slot_at(event.ts)];
-        slot.usage.add(event, share);
-        slot.models.entry(&event.model, Usage::default).add(event, share);
+        let (from, to) = (max(piece.from_ms, domain_from), min(piece.to_ms, domain_to));
+        let mut index = slot_at(from);
+        while index < slots.len() && slots[index].from_ms < to {
+            let overlap = min(to, slots[index].to_ms) - max(from, slots[index].from_ms);
+            if overlap > 0.0 {
+                let part = overlap / (piece.to_ms - piece.from_ms);
+                deposit(&mut slots[index], event, piece.share * part, piece.fraction * part);
+            }
+            index += 1;
+        }
     }
     (totals, models)
 }
@@ -1555,9 +1827,7 @@ pub(crate) fn read_quota_windows(conn: &Connection, query: &QuotaWindowsQuery, n
     let calibrated = calibrated_windows(&instances, &chronological, &shown);
     let from = calibrated.iter().fold(f64::INFINITY, |m, &i| min(m, instances[i].start_ms));
     let to = shown.iter().fold(f64::NEG_INFINITY, |m, &i| max(m, instances[i].end_ms));
-    let events = read_quota_events(conn, &selection, from, to)?;
-    let calibrated_refs: Vec<&Instance> = calibrated.iter().map(|&i| &instances[i]).collect();
-    let finer = finer_outside_spans(conn, &selection, &events, &calibrated_refs, now)?;
+    let (events, finer) = read_records_and_finer_rises(conn, &selection, from, to, now)?;
     allocate_quota(&mut instances, &shown, &events, &finer, &chronological);
     base.insert("page".into(), index.into());
     base.insert("pageCount".into(), page_count.into());
@@ -1644,4 +1914,341 @@ pub(crate) fn get_quota_history(conn: &Connection, options: &QuotaHistoryOptions
         *slot = period;
     }
     Ok(history)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod recorded;
+
+    const MIN_MS: f64 = 60_000.0;
+    const HOUR_MS: f64 = 60.0 * MIN_MS;
+    const START: f64 = 1_000.0 * MIN_MS;
+
+    /// A ledger holding a record per (end, duration) on `prov`'s account `acc`, with each record's day ranked.
+    fn ledger(records: &[(f64, f64)]) -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::schema::create(&mut conn).unwrap();
+        conn.execute("INSERT INTO usage_routes(id,signature) VALUES (1,'[\"prov\",\"m\",\"oauth\",\"cli\",\"subscription\",null,\"live\",0,\"acc\"]')", []).unwrap();
+        conn.execute("INSERT INTO usage_sessions(id,value) VALUES (1,'s')", []).unwrap();
+        for (index, &(ts, duration)) in records.iter().enumerate() {
+            let day = day_key(ts as i64);
+            conn.execute("INSERT OR IGNORE INTO daily VALUES (?1,0,'prov','m','live','subscription',0,2,2,2,2,2,2,0,0)", [&day]).unwrap();
+            conn.execute(
+                "INSERT INTO usage_events VALUES (?1,?2,?3,1,1,1,1,1,0,0.5,?4)",
+                rusqlite::params![vec![1u8, index as u8], ts as i64, day.replace('-', "").parse::<i64>().unwrap(), duration],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    fn selection(label: &str) -> Selection {
+        Selection { provider: "prov".into(), account: "acc".into(), label: label.into() }
+    }
+
+    fn reading(label: &str, rolling: bool, ts: f64, used_pct: f64, reset_at: f64) -> QuotaReading {
+        QuotaReading {
+            provider: "prov".into(),
+            account: "acc".into(),
+            label: label.into(),
+            rolling,
+            sample: QuotaSample { ts: ts as i64, used_pct, reset_at: Some(reset_at as i64) },
+        }
+    }
+
+    /// What a window's own view folds into its domain: (pieces' totals, the slots).
+    fn view(all: &mut [Instance], index: usize, events: &[Event], listed: &[usize]) -> (Usage, Vec<Slot>) {
+        let (pieces, _) = allocate_quota(all, &[index], events, &[], listed);
+        let (from, to) = (all[index].start_ms, all[index].end_ms);
+        let (mut slots, slot_ms) = quota_slots(from, to, START + 120.0 * MIN_MS);
+        let (totals, _) = fold_events_into_slots(events, &pieces, &mut slots, from, to, slot_ms);
+        (totals, slots)
+    }
+
+    fn record(ts: f64, span_ms: f64, cost_usd: f64) -> Event {
+        Event {
+            ts,
+            model: "m".into(),
+            turns: 1.0,
+            input: 0.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            cost_usd,
+            cost_known_turns: 1.0,
+            unmeasured_turns: 0.0,
+            speed_output: 0.0,
+            speed_ms: 0.0,
+            tokens: 0.0,
+            span_ms,
+        }
+    }
+
+    fn row(minutes: f64, used_pct: f64) -> Row {
+        Row { ts: START + minutes * MIN_MS, until: START + minutes * MIN_MS, used_pct, reset_at: None, rolling: false }
+    }
+
+    fn window(rows: Vec<Row>) -> Instance {
+        Instance { start_ms: START, end_ms: START + 60.0 * MIN_MS, rows, ..Default::default() }
+    }
+
+    #[test]
+    fn a_meter_that_dips_and_returns_rises_only_above_its_highest_reading() {
+        let instance = window(vec![row(5.0, 20.0), row(10.0, 19.0), row(15.0, 20.0), row(20.0, 21.0)]);
+        // A reading no record ran up to is judged with the stretch it is in; these all have one.
+        let events = vec![record(START + 20.0 * MIN_MS, 20.0 * MIN_MS, 1.0)];
+
+        let intervals = window_intervals(&instance, &events, &[]);
+
+        let points: Vec<f64> = intervals.iter().map(|i| i.points).collect();
+        assert_eq!(points, vec![20.0, 1.0]);
+    }
+
+    #[test]
+    fn records_running_between_the_highest_reading_and_a_dip_count_in_the_next_rise() {
+        let instance = window(vec![row(5.0, 10.0), row(10.0, 9.0), row(15.0, 11.0)]);
+        let events = vec![record(START + 10.0 * MIN_MS, 2.0 * MIN_MS, 1.0)];
+
+        let intervals = window_intervals(&instance, &events, &[]);
+
+        assert_eq!(intervals.len(), 2);
+        assert_eq!(intervals[1].from_ms, START + 5.0 * MIN_MS);
+        assert!(intervals[1].total > 0.0 && intervals[1].external == 0.0, "{:?}", intervals[1]);
+    }
+
+    #[test]
+    fn a_rolling_meter_counts_its_rise_from_the_previous_reading() {
+        let mut instance = window(vec![row(5.0, 20.0), row(10.0, 19.0), row(15.0, 20.0)]);
+        instance.rolling = true;
+
+        let points: Vec<f64> = window_intervals(&instance, &[], &[]).iter().map(|i| i.points).collect();
+
+        assert_eq!(points, vec![20.0, 1.0]);
+    }
+
+    #[test]
+    fn a_long_record_spanning_several_rises_leaves_none_of_them_outside() {
+        let instance = window(vec![row(10.0, 1.0), row(20.0, 2.0), row(30.0, 3.0)]);
+        let events = vec![record(START + 30.0 * MIN_MS, 30.0 * MIN_MS, 3.0)];
+
+        let intervals = window_intervals(&instance, &events, &[]);
+
+        assert_eq!(intervals.len(), 3);
+        for interval in &intervals {
+            assert!(interval.total > 0.0, "a rise inside the record's run has no record: {interval:?}");
+            assert!((interval.cost_usd - 1.0).abs() < 1e-9, "{interval:?}");
+        }
+        let mut all = vec![instance];
+        let (pieces, outside) = allocate_quota(&mut all, &[0], &events, &[], &[0]);
+        assert!(outside.is_empty() && all[0].outside == 0.0);
+        let share: f64 = pieces.iter().map(|p| p.share).sum();
+        assert!((share - 3.0).abs() < 1e-9, "{pieces:?}");
+    }
+
+    #[test]
+    fn a_covered_rise_is_not_outside_whatever_its_dollars_per_point() {
+        let instance = window(vec![row(10.0, 1.0), row(20.0, 30.0)]);
+        let events = vec![record(START + 10.0 * MIN_MS, MIN_MS, 5.0), record(START + 20.0 * MIN_MS, MIN_MS, 0.01)];
+        let mut all = vec![instance];
+
+        let (_, outside) = allocate_quota(&mut all, &[0], &events, &[], &[0]);
+
+        assert!(outside.is_empty() && all[0].outside == 0.0, "{outside:?}");
+    }
+
+    #[test]
+    fn a_weekly_rise_takes_the_outside_share_its_five_hour_companion_shows() {
+        let weekly = window(vec![row(60.0, 3.0)]);
+        let events = vec![record(START + 30.0 * MIN_MS, 30.0 * MIN_MS, 3.0)];
+        // The first five-hour reading is confirmed by a later poll, so the next rise is not its lagged debit.
+        let five = window(vec![Row { until: START + 35.0 * MIN_MS, ..row(30.0, 2.0) }, row(60.0, 4.0)]);
+        let finer = window_intervals(&five, &events, &[]);
+        assert!(finer[0].total > 0.0 && finer[1].total == 0.0);
+        let mut all = vec![weekly];
+
+        let (_, outside) = allocate_quota(&mut all, &[0], &events, &finer, &[0]);
+
+        assert!((all[0].outside - 1.5).abs() < 1e-9, "{outside:?}");
+        assert!(all[0].intervals[0].external > 0.0 && !is_value_evidence(&all[0].intervals[0]));
+    }
+
+    #[test]
+    fn a_record_crossing_slots_gives_each_slot_its_share_of_the_rises() {
+        let instance = window(vec![row(30.0, 1.0), row(60.0, 2.0)]);
+        let events = vec![record(START + 60.0 * MIN_MS, 60.0 * MIN_MS, 2.0)];
+        let mut all = vec![instance];
+        let (pieces, _) = allocate_quota(&mut all, &[0], &events, &[], &[0]);
+        let (mut slots, slot_ms) = quota_slots(START, START + 60.0 * MIN_MS, START + 120.0 * MIN_MS);
+        assert!(slots.len() > 1);
+
+        let (totals, _) = fold_events_into_slots(&events, &pieces, &mut slots, START, START + 60.0 * MIN_MS, slot_ms);
+
+        let first_half: f64 = slots.iter().filter(|s| s.to_ms <= START + 30.0 * MIN_MS).map(|s| s.usage.consumed).sum();
+        let second_half: f64 = slots.iter().filter(|s| s.from_ms >= START + 30.0 * MIN_MS).map(|s| s.usage.consumed).sum();
+        assert!((first_half - 1.0).abs() < 1e-9 && (second_half - 1.0).abs() < 1e-9, "{first_half} {second_half}");
+        assert!((totals.consumed - 2.0).abs() < 1e-9 && (totals.turns - 1.0).abs() < 1e-9, "{} {}", totals.consumed, totals.turns);
+    }
+
+    #[test]
+    fn a_record_across_two_windows_is_split_between_their_rows() {
+        let first = Instance { end_ms: START + 30.0 * MIN_MS, ..window(vec![row(30.0, 1.0)]) };
+        let second = Instance { start_ms: START + 30.0 * MIN_MS, ..window(vec![row(60.0, 1.0)]) };
+        let events = vec![record(START + 60.0 * MIN_MS, 60.0 * MIN_MS, 2.0)];
+
+        let (a, b) = (history_row(&first, &events), history_row(&second, &events));
+
+        assert!((a["turns"].as_f64().unwrap() - 0.5).abs() < 1e-6, "{a}");
+        assert!((b["turns"].as_f64().unwrap() - 0.5).abs() < 1e-6, "{b}");
+        assert!((a["costUsd"].as_f64().unwrap() - 1.0).abs() < 1e-6, "{a}");
+    }
+
+    #[test]
+    fn records_of_one_millisecond_keep_their_own_durations() {
+        let ts = 1_795_500_000_000.0;
+        let conn = ledger(&[(ts, 0.0), (ts, 600_000.0)]);
+
+        let events = read_quota_events(&conn, &selection("5H"), ts - 1.0, ts + 1.0).unwrap();
+
+        let mut spans: Vec<f64> = events.iter().map(|e| e.span_ms).collect();
+        spans.sort_by(f64::total_cmp);
+        assert_eq!(spans, vec![0.0, 600_000.0]);
+    }
+
+    #[test]
+    fn the_part_of_a_record_no_rise_covers_stays_where_it_ran() {
+        let mut all = vec![window(vec![row(30.0, 1.0)])];
+        let events = vec![record(START + 60.0 * MIN_MS, 60.0 * MIN_MS, 2.0)];
+
+        let (totals, slots) = view(&mut all, 0, &events, &[0]);
+
+        let turns: Vec<f64> = slots.iter().map(|s| s.usage.turns).collect();
+        assert_eq!(turns, vec![0.5, 0.5], "the uncovered half ran in the second slot");
+        assert_eq!((slots[0].usage.consumed, slots[1].usage.consumed, totals.turns), (1.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn a_record_across_two_windows_counts_once_across_their_views() {
+        let first = Instance { end_ms: START + 30.0 * MIN_MS, ..window(vec![row(30.0, 1.0)]) };
+        let second = Instance { start_ms: START + 30.0 * MIN_MS, ..window(vec![row(60.0, 1.0)]) };
+        let events = vec![record(START + 60.0 * MIN_MS, 60.0 * MIN_MS, 2.0)];
+        let mut all = vec![first, second];
+
+        let turns: Vec<f64> = (0..2).map(|index| view(&mut all, index, &events, &[0, 1]).0.turns).collect();
+
+        assert_eq!(turns, vec![0.5, 0.5]);
+    }
+
+    #[test]
+    fn a_record_running_past_midnight_is_read_with_the_day_it_ended_on() {
+        let midnight = local_ms(chrono::NaiveDate::from_ymd_opt(2026, 11, 24).unwrap().and_hms_opt(0, 0, 0).unwrap()) as f64;
+        let conn = ledger(&[(midnight + 5.0 * MIN_MS, 10.0 * MIN_MS)]);
+
+        let events = read_quota_events(&conn, &selection("5H"), midnight - HOUR_MS, midnight - MIN_MS).unwrap();
+
+        assert_eq!(events.len(), 1, "the record ran before midnight");
+        assert!((events[0].fraction_in(midnight - HOUR_MS, midnight - MIN_MS) - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_record_at_the_boundary_of_two_windows_counts_once_across_them() {
+        let boundary = START + 30.0 * MIN_MS;
+        let first = Instance { end_ms: boundary, ..window(vec![row(30.0, 1.0)]) };
+        let second = Instance { start_ms: boundary, ..window(vec![row(60.0, 1.0)]) };
+        let at_end = vec![record(boundary, 0.0, 1.0)];
+        for events in [at_end.clone(), vec![record(boundary + 1.0, 2.0, 1.0)]] {
+            let (a, b) = (history_row(&first, &events), history_row(&second, &events));
+            assert_eq!(a["turns"].as_f64().unwrap() + b["turns"].as_f64().unwrap(), 1.0, "{a} {b}");
+        }
+        assert_eq!(history_row(&first, &at_end)["turns"].as_f64(), Some(1.0), "a record belongs to the range its end is in");
+        let mut all = vec![first, second];
+
+        let turns: Vec<f64> = (0..2).map(|index| view(&mut all, index, &at_end, &[0, 1]).0.turns).collect();
+
+        assert_eq!(turns, vec![1.0, 0.0]);
+    }
+
+    #[test]
+    fn a_finer_rise_is_judged_by_its_records_outside_the_coarse_range() {
+        let t0 = 1_795_500_000_000.0;
+        // The five-hour window opened two hours before the weekly one; its first rise's record ran before the week.
+        let mut conn = ledger(&[(t0 - HOUR_MS, 30.0 * MIN_MS), (t0 + 45.0 * MIN_MS, 10.0 * MIN_MS)]);
+        let (five, week) = (t0 + 3.0 * HOUR_MS, t0 + 7.0 * 24.0 * HOUR_MS);
+        record_quota_samples(
+            &mut conn,
+            &[reading("5H", false, t0 + 30.0 * MIN_MS, 4.0, five), reading("5H", false, t0 + HOUR_MS, 6.0, five), reading("7D", false, t0 + HOUR_MS, 1.0, week)],
+        )
+        .unwrap();
+        let query = QuotaWindowsQuery { provider: "prov".into(), account: "acc".into(), label: "7D".into(), in_use: BTreeMap::new(), page: 0.0 };
+
+        let page = read_quota_windows(&conn, &query, (t0 + 2.0 * HOUR_MS) as i64).unwrap();
+
+        assert_eq!(page["windows"][0]["outside"].as_f64(), Some(0.0), "{page}");
+    }
+
+    #[test]
+    fn a_window_is_rolling_only_when_its_readings_declare_it() {
+        let mut conn = ledger(&[]);
+        let reset = START + 5.0 * HOUR_MS;
+        record_quota_samples(&mut conn, &[reading("W", false, START, 10.0, reset), reading("5H", true, START, 10.0, reset)]).unwrap();
+        let rolling = |label: &str| quota_instances(&read_quota_rows(&conn, &selection(label), label).unwrap(), label, START)[0].rolling;
+
+        assert!(!rolling("W"), "Grok Build's weekly window resets");
+        assert!(rolling("5H"), "Muse Code's sized window declares itself rolling");
+    }
+
+    #[test]
+    fn a_value_is_shown_once_it_rests_on_enough_distinct_records_with_the_windows_before() {
+        // Ten one-point rises split between two windows, each rise with a record of its own.
+        let rises = |from: i32, to: i32, base: i32| (from..=to).map(|i| row(f64::from(i) * 5.0, f64::from(i - base))).collect::<Vec<_>>();
+        let earlier = Instance { end_ms: START + 25.0 * MIN_MS, ..window(rises(1, 5, 0)) };
+        let later = Instance { start_ms: START + 25.0 * MIN_MS, ..window(rises(6, 10, 5)) };
+        let records: Vec<Event> = (1..=10).map(|i| record(START + f64::from(i) * 5.0 * MIN_MS, MIN_MS, 1.0)).collect();
+        for (count, shown) in [(9, false), (10, true)] {
+            let mut all = vec![earlier.clone(), later.clone()];
+
+            allocate_quota(&mut all, &[1], &records[..count], &[], &[0, 1]);
+
+            assert_eq!(all[1].value.is_some(), shown, "{count} records");
+            assert_eq!(all[1].estimate.as_ref().map(|e| e.samples), Some(count));
+        }
+    }
+
+    #[test]
+    fn a_period_ending_now_keeps_its_slots_and_one_that_ended_runs_through_its_last_millisecond() {
+        let now = 1_795_500_000_000.0;
+        let mut conn = ledger(&[]);
+        record_quota_samples(&mut conn, &[reading("5H", false, now - HOUR_MS, 10.0, now + HOUR_MS)]).unwrap();
+        let query = |view: &str, from_ms: f64, to_ms: f64| QuotaHistoryQuery {
+            provider: "prov".into(),
+            account: "acc".into(),
+            label: "5H".into(),
+            view: view.into(),
+            from_ms: Some(from_ms),
+            to_ms: Some(to_ms),
+            ..QuotaHistoryQuery::default()
+        };
+
+        let hour = read_quota_history(&conn, &query("hour", now - 24.0 * HOUR_MS, now), now as i64).unwrap();
+        let closed = read_quota_history(&conn, &query("custom", now - 48.0 * HOUR_MS, now - 24.0 * HOUR_MS - 1.0), now as i64).unwrap();
+
+        let slots = hour["slots"].as_array().unwrap();
+        assert_eq!((hour["slotMs"].as_f64(), slots.len(), hour["domain"]["toMs"].as_f64()), (Some(30.0 * MIN_MS), 48, Some(now)));
+        assert!(slots.iter().all(|s| s["future"] == false), "{slots:?}");
+        assert_eq!(closed["domain"]["toMs"].as_f64(), Some(now - 24.0 * HOUR_MS));
+    }
+
+    #[test]
+    fn the_record_read_is_bounded_on_the_time_index_by_the_longest_run_of_its_routes() {
+        use rusqlite::types::Null;
+        let conn = ledger(&[]);
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", quota_events_sql())).unwrap();
+
+        let plan: Vec<String> =
+            stmt.query_map(rusqlite::params![Null, Null, Null, Null, Null], |r| r.get(3)).unwrap().collect::<std::result::Result<_, _>>().unwrap();
+
+        assert!(plan.iter().any(|row| row.starts_with("SEARCH e ") && row.contains("ts>? AND ts<?")), "{plan:?}");
+        assert!(plan.iter().any(|row| row.contains("usage_events_route_duration (route=?)")), "{plan:?}");
+    }
 }

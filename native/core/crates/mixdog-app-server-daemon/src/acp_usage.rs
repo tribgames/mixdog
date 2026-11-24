@@ -245,6 +245,7 @@ impl AgentUsage {
                     ts: *at,
                     used_pct: window.get("usedPct")?.as_f64()?,
                     reset_at: window.get("resetAt").and_then(Value::as_f64).map(|reset| reset.round() as i64),
+                    rolling: window.get("rolling") == Some(&Value::Bool(true)),
                 })
             })
             .collect();

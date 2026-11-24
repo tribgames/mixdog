@@ -89,6 +89,8 @@ struct Spec {
     label: String,
     long_label: String,
     duration_ms: Option<f64>,
+    /// The key endpoint's `window` is a rolling window: its use ages out over the window's span instead of resetting.
+    rolling: bool,
 }
 
 fn usage_window(spec: Spec, entry: Option<&Value>, tier: Option<&str>) -> Option<Value> {
@@ -109,6 +111,9 @@ fn usage_window(spec: Spec, entry: Option<&Value>, tier: Option<&str>) -> Option
     if let Some(duration) = spec.duration_ms.filter(|d| *d != 0.0) {
         window.insert("durationMs".into(), jn(duration));
     }
+    if spec.rolling {
+        window.insert("rolling".into(), true.into());
+    }
     if let Some(tier) = tier.filter(|t| !t.is_empty()) {
         window.insert("tier".into(), tier.into());
     }
@@ -121,7 +126,7 @@ fn usage_window(spec: Spec, entry: Option<&Value>, tier: Option<&str>) -> Option
 fn rolling_window_spec(minutes: Option<&Value>) -> Spec {
     let m = to_number_of(minutes);
     if !m.is_finite() || m <= 0.0 {
-        return Spec { id: "rolling".into(), label: "W".into(), long_label: "Rolling Window".into(), duration_ms: None };
+        return Spec { id: "rolling".into(), label: "W".into(), long_label: "Rolling Window".into(), duration_ms: None, rolling: true };
     }
     let rounded = (m + 0.5).floor();
     let whole = rounded % 60.0 == 0.0;
@@ -134,6 +139,7 @@ fn rolling_window_spec(minutes: Option<&Value>) -> Spec {
         label: if whole { format!("{}H", shown(hours)) } else { format!("{}M", shown(rounded)) },
         long_label: format!("{} {}", shown(count), if count == 1.0 { unit.to_owned() } else { format!("{unit}s") }),
         duration_ms: Some(m * 60_000.0),
+        rolling: true,
     }
 }
 
@@ -143,7 +149,11 @@ pub fn quota_windows_from_subs_usage(subs_usage: Option<&Value>, tier: Option<&s
     let weekly = subs_usage.and_then(|u| u.get("weekly"));
     let mut windows = Vec::new();
     windows.extend(usage_window(rolling_window_spec(window.and_then(|w| w.get("window_duration_mins"))), window, tier));
-    windows.extend(usage_window(Spec { id: "1w".into(), label: "7D".into(), long_label: "Weekly".into(), duration_ms: Some(WEEK_MS) }, weekly, tier));
+    windows.extend(usage_window(
+        Spec { id: "1w".into(), label: "7D".into(), long_label: "Weekly".into(), duration_ms: Some(WEEK_MS), rolling: false },
+        weekly,
+        tier,
+    ));
     windows
 }
 

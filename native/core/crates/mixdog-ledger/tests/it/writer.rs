@@ -315,6 +315,7 @@ async fn quota_history_waits_for_queued_readings() {
         provider: "prov".into(),
         account: "acc".into(),
         label: "5h".into(),
+        rolling: false,
         sample: QuotaSample { ts: TS, used_pct: 12.5, reset_at: Some(TS + 3_600_000) },
     };
     let history = read_waits_for_the_queued_write(
