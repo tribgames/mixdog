@@ -657,7 +657,8 @@ test("the foot's usage line and Clean up share one row at every pane width, Clea
     await freshLead(tab);
     await tab.evaluate(() => window.__render('en'));
     const forms = new Set();
-    for (let width = 900; width >= 340; width -= 10) {
+    // Down to a pane's floor (PANE_MIN_WIDTH in pane-layout.ts): only there does the three-part line outgrow its room.
+    for (let width = 900; width >= 320; width -= 10) {
       const row = await tab.evaluate((next) => window.__footRow(next), width);
       const at = `@${width} (panel ${row.panel}px, "${row.text}")`;
       forms.add(row.parts);
