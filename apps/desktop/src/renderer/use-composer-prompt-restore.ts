@@ -4,7 +4,13 @@
 // submission ids applies it, and it never replaces a draft that is already there.
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { Snapshot } from './desktop-types';
-import { appliedPromptRestores, draftWithRestoredPrompt, wasSubmittedHere } from './composer-draft';
+import {
+  appliedPromptRestores,
+  draftWithRestoredPrompt,
+  stashComposerDraft,
+  stashedComposerDraft,
+  wasSubmittedHere,
+} from './composer-draft';
 
 type AppliedRestores = typeof appliedPromptRestores;
 
@@ -40,6 +46,22 @@ export function replyRestoreApplied(
   if (seen.offer === id || seen.reply === id) return true;
   applied.set(sessionId, { ...seen, reply: id });
   return false;
+}
+
+/** A prompt handed back to session `sessionId` while the composer already belongs to another one (the session the pane
+ *  was pointed at, its lane not landed yet) waits in `sessionId`'s own draft. */
+export function useHeldPromptRestore(
+  promptRestore: Snapshot['promptRestore'],
+  sessionId: string,
+  onQueuedRestored?: (ids: string[]) => void
+): void {
+  useEffect(() => {
+    if (!promptRestore || !sessionId) return;
+    const next = applyPromptRestore(promptRestore, stashedComposerDraft(sessionId), sessionId);
+    if (next === null) return;
+    stashComposerDraft(sessionId, next);
+    onQueuedRestored?.(promptRestore.ids);
+  }, [promptRestore, sessionId, onQueuedRestored]);
 }
 
 export function useComposerPromptRestore({

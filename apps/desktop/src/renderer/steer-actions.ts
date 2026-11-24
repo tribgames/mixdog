@@ -163,6 +163,7 @@ export function useSteerActions({
   steerItems,
   turnId,
   sessionId,
+  recoveryScope,
   invokeResult,
   applySnapshot,
   submit,
@@ -173,6 +174,8 @@ export function useSteerActions({
   /** The turn the session runs, as the core names it; '' while none runs. */
   turnId: string;
   sessionId: string;
+  /** Where a message taken back waits while the composer lends no editor for this session. */
+  recoveryScope: string;
   invokeResult: ComposerProps['invokeResult'];
   applySnapshot: ComposerProps['applySnapshot'];
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
@@ -183,8 +186,17 @@ export function useSteerActions({
 }) {
   const { invokeCapability } = useComposerCapability({ invokeResult, applySnapshot, sessionId });
   const { visibleSteerItems, setHidden, setPressed } = useSteerVisibility(steerItems, sessionId);
-  const latest = useRef({ steerItems, turnId, sessionId, invokeCapability, invokeResult, submit, onTaken });
-  latest.current = { steerItems, turnId, sessionId, invokeCapability, invokeResult, submit, onTaken };
+  const latest = useRef({
+    steerItems,
+    turnId,
+    sessionId,
+    recoveryScope,
+    invokeCapability,
+    invokeResult,
+    submit,
+    onTaken,
+  });
+  latest.current = { steerItems, turnId, sessionId, recoveryScope, invokeCapability, invokeResult, submit, onTaken };
   const draft = useRef<ComposerDraftHandoff | null>(null);
   const inFlight = useRef(false);
   const actions = useMemo<SteerActions>(() => {
@@ -193,7 +205,7 @@ export function useSteerActions({
     const originScope = (): DraftOrigin => {
       const editor = draft.current;
       if (editor) return { scope: editor.scope(), recoveryScope: editor.recoveryScope() };
-      return { scope: latest.current.sessionId, recoveryScope: '' };
+      return { scope: latest.current.sessionId, recoveryScope: latest.current.recoveryScope };
     };
     // One action at a time: a second press while the first is in flight is dropped.
     const exclusive = (work: () => Promise<void>) => {

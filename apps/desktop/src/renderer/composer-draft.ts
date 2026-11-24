@@ -330,7 +330,19 @@ export async function submissionRetryKey(
   texts: readonly string[],
   attachments: readonly ComposerAttachment[]
 ): Promise<string> {
-  const digests = await Promise.all(attachments.map(contentDigest));
+  return retryKeyOf(texts, attachments, await Promise.all(attachments.map(contentDigest)));
+}
+
+/** `submissionRetryKey` of a send without attachments: it waits on no digest, so it is known at once. */
+export function textRetryKey(texts: readonly string[]): string {
+  return retryKeyOf(texts, [], []);
+}
+
+function retryKeyOf(
+  texts: readonly string[],
+  attachments: readonly ComposerAttachment[],
+  digests: readonly string[]
+): string {
   const places = new Map<string, number>();
   attachments.forEach((attachment, place) => {
     if (attachment.token && !places.has(attachment.token)) places.set(attachment.token, place);

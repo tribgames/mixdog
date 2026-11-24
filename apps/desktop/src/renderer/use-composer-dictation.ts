@@ -122,7 +122,7 @@ function warmTranscription(): void {
     });
 }
 
-function withTranscript(draft: string, text: string): string {
+export function withTranscript(draft: string, text: string): string {
   if (!draft) return text;
   return `${draft}${/\s$/.test(draft) ? '' : ' '}${text}`;
 }
@@ -242,8 +242,11 @@ export function useComposerDictation({
   invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
   showNotice(message: string, tone?: 'info' | 'error'): void;
   requestVoiceInstall(): void;
-  /** Fired when a take ended by `stopDictationAndSend` produced real text. */
-  onTranscriptSubmit?(): void;
+  /** A take ended by `stopDictationAndSend` produced `text`: the composer sends it, joined to its draft, and calls
+   *  `settle` in the run that sends it (`true`) or once it cannot go out (`false`: the words then join the draft). The
+   *  overlay stays up until then; cancelling it meanwhile (`cancelled()`) stops the send. Without this, the words join
+   *  the draft. */
+  onTranscriptSubmit?(text: string, take: { settle(sent: boolean): void; cancelled(): boolean }): void;
 }) {
   const [dictationState, setDictationState] = useState<DictationState>('idle');
   // Off screen (a retained or parked conversation) the composer owns no mic.
@@ -264,6 +267,7 @@ export function useComposerDictation({
   const voiceAvailableRef = useRef(false);
   const voiceGeneration = useRef(0);
   const conversation = useRef(identityScope);
+  const mounted = useRef(true);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
@@ -279,6 +283,9 @@ export function useComposerDictation({
   } | null>(null);
   // The latest take, kept until its words land (the recording session above ends when the recorder stops).
   const latestTake = useRef<{ home: string } | null>(null);
+  // The upload and transcription in flight. It is the only phase with nothing local to end it, so cancelling it
+  // drops the result instead of waiting on a daemon that may never answer.
+  const transcription = useRef<{ cancelled: boolean } | null>(null);
 
   /** Discards a take whose microphone is still opening; true when one was. */
   const cancelPendingAttempt = useCallback((): boolean => {
@@ -373,36 +380,76 @@ export function useComposerDictation({
           window.clearTimeout(session.stopTimer);
           stopLevelMeter(session.meter, dictationLevelRef);
           session.meter = null;
-          dictationSession.current = null;
+          // A take the composer moved away from (`moveTo`) is no longer its own: it transcribes out of sight, and the
+          // composer's state and overlay stay the shown conversation's.
+          const own = dictationSession.current === session;
+          if (own) dictationSession.current = null;
           for (const track of session.stream.getTracks()) track.stop();
           if (session.cancelled || !session.live || session.chunks.length === 0) {
-            setDictationState('idle');
+            if (own) setDictationState('idle');
             return;
           }
-          setDictationState('transcribing');
+          const run = { cancelled: false };
+          if (own) {
+            setDictationState('transcribing');
+            transcription.current = run;
+          }
+          /** The words join the draft of the conversation they were spoken in, parked when another is shown or the
+           *  composer is gone. */
+          const land = (text: string) => {
+            if (mounted.current && session.home === conversation.current) {
+              setDraft((current) => withTranscript(current, text));
+            } else stashComposerDraft(session.home, withTranscript(stashedComposerDraft(session.home), text));
+          };
+          let handedOff = false;
           try {
             const blob = new Blob(session.chunks, {
               type: recorder.mimeType || 'audio/webm',
             });
             const dataUrl = await blobDataUrl(blob);
-            if (generation !== voiceGeneration.current) return;
+            if (run.cancelled || generation !== voiceGeneration.current) return;
             const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+            // A discarded take's late failure is not the user's to see: it never reaches the error banner.
             const result = await invokeResult(() =>
-              window.mixdogDesktop.invokeCapability<string>({
-                capability: 'transcribeAudio',
-                args: [{ data: base64, mimeType: blob.type }],
-              })
+              window.mixdogDesktop
+                .invokeCapability<string>({
+                  capability: 'transcribeAudio',
+                  args: [{ data: base64, mimeType: blob.type }],
+                })
+                .catch((reason: unknown) => {
+                  if (run.cancelled) return undefined;
+                  throw reason;
+                })
             );
-            if (generation !== voiceGeneration.current) return;
+            if (run.cancelled || generation !== voiceGeneration.current) return;
             const text = String(result?.value ?? '').trim();
-            // The composer shows another conversation now: the words wait in the parked draft of the one they were
-            // spoken in, and nothing is sent.
-            if (text && session.home !== conversation.current) {
-              stashComposerDraft(session.home, withTranscript(stashedComposerDraft(session.home), text));
+            // No longer the composer's own take (moved away, closed): the words wait in its draft, and nothing is sent.
+            if (text && transcription.current !== run) {
+              land(text);
               return;
             }
-            if (text) {
-              setDraft((current) => withTranscript(current, text));
+            // Only a take that produced words is allowed to send itself. A
+            // silent or failed transcription falls back to the ordinary
+            // draft, so nothing is ever posted blind. The words of a take sent
+            // go to the send, never through the editor first.
+            if (text && session.submitOnStop && onTranscriptSubmit) {
+              handedOff = true;
+              let settled = false;
+              onTranscriptSubmit(text, {
+                settle: (sent) => {
+                  if (settled) return;
+                  settled = true;
+                  if (!sent) land(text);
+                  if (transcription.current === run) {
+                    transcription.current = null;
+                    setDictationState('idle');
+                  }
+                },
+                // Cancelled, moved away from or closed while the send waited.
+                cancelled: () => transcription.current !== run,
+              });
+            } else if (text) {
+              land(text);
               // Editing a transcript needs the caret; sending it directly does
               // not (and must not reopen the mobile keyboard).
               if (!session.submitOnStop) {
@@ -410,13 +457,12 @@ export function useComposerDictation({
                   if (surfaceActiveRef.current) textarea.current?.focus();
                 }, 0);
               }
-              // Only a take that produced words is allowed to send itself. A
-              // silent or failed transcription falls back to the ordinary
-              // draft, so nothing is ever posted blind.
-              if (session.submitOnStop) onTranscriptSubmit?.();
             }
           } finally {
-            setDictationState('idle');
+            if (!handedOff && transcription.current === run) {
+              transcription.current = null;
+              setDictationState('idle');
+            }
           }
         })();
       };
@@ -458,14 +504,32 @@ export function useComposerDictation({
   // stopped, so a take started by mistake had no way back (overlay ×, Esc).
   const cancelDictation = useCallback(() => {
     if (cancelPendingAttempt()) return;
+    const running = transcription.current;
+    if (running) {
+      running.cancelled = true;
+      transcription.current = null;
+      setDictationState('idle');
+      return;
+    }
     const active = dictationSession.current;
     if (!active) return;
     active.cancelled = true;
     stopRecorder(active.recorder);
   }, [cancelPendingAttempt]);
 
+  /** Ends the take in the conversation it was started in: the mic is released and its words wait in that draft, never
+   *  sent, while the composer gets an idle mic and no overlay at once. */
+  const detachTake = useCallback(() => {
+    cancelPendingAttempt();
+    const active = dictationSession.current;
+    dictationSession.current = null;
+    transcription.current = null;
+    setDictationState('idle');
+    if (active) stopRecorder(active.recorder);
+  }, [cancelPendingAttempt]);
+
   /** The composer now shows `next`. A draft that became that session (`sameConversation`) keeps its take; any other
-   *  move ends the take in the conversation it was started in: the mic is released and its words wait there. */
+   *  move detaches it. */
   const moveTo = useCallback(
     (next: string, sameConversation: boolean) => {
       const left = conversation.current;
@@ -474,16 +538,14 @@ export function useComposerDictation({
         if (latestTake.current?.home === left) latestTake.current.home = next;
         return;
       }
-      cancelPendingAttempt();
-      const active = dictationSession.current;
-      if (active) stopRecorder(active.recorder);
+      detachTake();
     },
-    [cancelPendingAttempt]
+    [detachTake]
   );
 
   useEffect(() => {
     if (!keysActive || !surfaceActive) return undefined;
-    if (dictationState !== 'recording' && dictationState !== 'preparing') return undefined;
+    if (dictationState === 'idle') return undefined;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.isComposing) return;
       if (event.key === 'Escape') {
@@ -495,6 +557,7 @@ export function useComposerDictation({
       if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
         return;
       }
+      if (dictationState === 'transcribing') return;
       event.preventDefault();
       event.stopPropagation();
       if (dictationState === 'recording') void toggleDictation();
@@ -510,19 +573,14 @@ export function useComposerDictation({
     if (session) stopRecorder(session.recorder);
   }, [surfaceActive, cancelPendingAttempt]);
 
-  useEffect(
-    () => () => {
-      if (dictationAttempt.current) dictationAttempt.current.cancelled = true;
-      const session = dictationSession.current;
-      if (!session) return;
-      session.cancelled = true;
-      stopLevelMeter(session.meter, dictationLevelRef);
-      session.meter = null;
-      stopRecorder(session.recorder);
-      for (const track of session.stream.getTracks()) track.stop();
-    },
-    []
-  );
+  // A closed composer detaches its take as a switch does.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      detachTake();
+    };
+  }, [detachTake]);
 
   return {
     dictationState,

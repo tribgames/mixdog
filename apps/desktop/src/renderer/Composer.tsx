@@ -53,12 +53,12 @@ import {
   takeDraftPromotion,
   takeStashedComposerAttachments,
 } from './composer-draft';
-import { useComposerDictation } from './use-composer-dictation';
+import { useComposerDictation, withTranscript } from './use-composer-dictation';
 import { useComposerAttachments } from './use-composer-attachments';
 import { useComposerCapability } from './use-composer-capability';
 import { useComposerExternalDraft } from './use-composer-external-draft';
 import { useComposerPromptRestore } from './use-composer-prompt-restore';
-import { useComposerSubmission } from './use-composer-submission';
+import { type SubmittedDraft, useComposerSubmission } from './use-composer-submission';
 import { useComposerKeyboard } from './use-composer-keyboard';
 import { useComposerFocus } from './use-composer-focus';
 import { restoreDraftHandoff } from './composer-attachment-restore';
@@ -260,6 +260,11 @@ export type ComposerProps = {
   turnBusy: boolean;
   commandBusy: boolean;
   transitioning: boolean;
+  /** The session this composer belongs to is not loaded yet (the pane was just pointed at it): a send or a goal started
+   *  now waits for its lane, and runs with that session's own state once the lane lands. */
+  held?: boolean;
+  /** The held session's lane cannot be read: what waits for it is dropped, and the draft stays as it is. */
+  laneUnavailable?: boolean;
   focusRequest: number;
   historyScope: string;
   /** Which conversation this composer paints — the session id, or
@@ -365,8 +370,10 @@ function usePersistDraftOnHide(
 }
 
 /** A message taken back from the transcript (✕ on an unread bubble, an
- *  answer that did not go out) returns to this editor. */
+ *  answer that did not go out) returns to this editor. While `held`, the
+ *  transcript is the outgoing session's and this editor is not its own: none is lent. */
 function useComposerSteerHandoff({
+  held,
   activeIdentityScope,
   recoveryScopeRef,
   draftRef,
@@ -380,6 +387,7 @@ function useComposerSteerHandoff({
   showNotice,
   keepSubmissionId,
 }: {
+  held: boolean;
   activeIdentityScope: { current: string };
   recoveryScopeRef: { current: string };
   draftRef: { current: string };
@@ -395,7 +403,7 @@ function useComposerSteerHandoff({
 }) {
   const steer = useContext(SteerContext);
   useEffect(() => {
-    if (!steer) return undefined;
+    if (!steer || held) return undefined;
     const handoff: typeof steer.draft.current = {
       scope: () => activeIdentityScope.current,
       recoveryScope: () => recoveryScopeRef.current,
@@ -423,6 +431,7 @@ function useComposerSteerHandoff({
     };
   }, [
     steer,
+    held,
     activeIdentityScope,
     recoveryScopeRef,
     draftRef,
@@ -444,6 +453,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     turnBusy,
     commandBusy,
     transitioning,
+    held = false,
+    laneUnavailable = false,
     focusRequest,
     historyScope,
     identityScope,
@@ -517,10 +528,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
-  // Voice → send in one press. The transcript reaches the draft through a
-  // state update, and `send` reads the textarea, so the intent is parked here
-  // and fired by the effect below on the commit that carries the words.
-  const voiceSubmitPending = useRef(false);
+  // Voice → send in one press: the take's words, joined to the draft, are sent in the commit that ends the take. The
+  // editor shows them only when the send cannot go out (no model, a chip still loading, a lane not landed yet).
+  const voiceSubmitRef = useRef<(text: string, take: Omit<SubmittedDraft, 'draft'>) => void>(() => {});
   const dictation = useComposerDictation({
     keysActive: paneActive,
     identityScope,
@@ -530,9 +540,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     invokeResult,
     showNotice: showComposerNotice,
     requestVoiceInstall: useCallback(() => onOpenSettings('voice'), [onOpenSettings]),
-    onTranscriptSubmit: useCallback(() => {
-      voiceSubmitPending.current = true;
-    }, []),
+    onTranscriptSubmit: useCallback(
+      (text: string, take: Omit<SubmittedDraft, 'draft'>) => voiceSubmitRef.current(text, take),
+      []
+    ),
   });
   const history = useComposerHistory({ historyScope, promptHistoryList });
   // Recoveries parked for a conversation join its draft once the identity switch below has opened that draft:
@@ -812,7 +823,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     void backfillAgentChatRoute(sessionId, { provider, model, ...(effort ? { effort } : {}) }).catch(() => {});
   }, [agentMode, sessionId, provider, model, effort]);
 
-  const { send, stop, keepSubmissionId } = useComposerSubmission({
+  const { send: sendNow, stop, keepSubmissionId } = useComposerSubmission({
     turnBusy,
     commandBusy,
     draftMode,
@@ -850,6 +861,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     modelMissing: !(provider && model),
   });
   useComposerSteerHandoff({
+    held,
     activeIdentityScope,
     recoveryScopeRef,
     draftRef,
@@ -863,6 +875,48 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     showNotice: showComposerNotice,
     keepSubmissionId,
   });
+  // What is started before the session's lane lands (a send, a goal) waits for the landing and then runs with that
+  // session's own state; it is dropped when the composer leaves the session first or its lane cannot be read.
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  const laneUnavailableRef = useRef(laneUnavailable);
+  laneUnavailableRef.current = laneUnavailable;
+  const landings = useRef<Array<{ scope: string; settle(landed: boolean): void }>>([]);
+  const afterLanding = useCallback((): Promise<boolean> => {
+    if (!heldRef.current) return Promise.resolve(true);
+    if (laneUnavailableRef.current) return Promise.resolve(false);
+    return new Promise((settle) => landings.current.push({ scope: activeIdentityScope.current, settle }));
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope settles what waits for a session the composer left; the body reads it through the ref
+  useEffect(() => {
+    const scope = activeIdentityScope.current;
+    const waiting = held && !laneUnavailable;
+    const settled = landings.current.filter((entry) => !waiting || entry.scope !== scope);
+    if (!settled.length) return;
+    landings.current = landings.current.filter((entry) => !settled.includes(entry));
+    for (const entry of settled) entry.settle(!held && entry.scope === scope);
+  }, [held, laneUnavailable, identityScope]);
+  const sendNowRef = useRef(sendNow);
+  sendNowRef.current = sendNow;
+  // The send waiting for the landing is for the draft as it was: an edit or clear drops it.
+  const waitingSend = useRef<{ draft: string; attachments: ComposerAttachment[] } | null>(null);
+  const send = useCallback(
+    async (slash = '', source: Parameters<typeof sendNow>[1] = 'form-submit', submitted?: SubmittedDraft) => {
+      if (!heldRef.current) return sendNow(slash, source, submitted);
+      // Words not in the editor yet wait there, where an edit drops the send.
+      submitted?.settle(false);
+      const waiting = { draft: submitted?.draft ?? draftRef.current, attachments: attachmentsRef.current };
+      waitingSend.current = waiting;
+      if (!(await afterLanding()) || waitingSend.current !== waiting) return;
+      waitingSend.current = null;
+      return sendNowRef.current(slash, source);
+    },
+    [sendNow, afterLanding, attachmentsRef]
+  );
+  useEffect(() => {
+    const waiting = waitingSend.current;
+    if (waiting && (waiting.draft !== draft || waiting.attachments !== attachments)) waitingSend.current = null;
+  }, [draft, attachments]);
   // Pins and picks queued from the session's visualize panel make a message
   // sendable on their own.
   const feedbackPending = visualizeFeedbackPending(useVisualizeFeedback(sessionId));
@@ -923,12 +977,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const sendable = feedbackPending || hasSendablePromptContent({ text: draft, attachments });
   // A live take turns the send disc into "finish and send".
   const voiceSend = dictation.dictationState === 'recording';
-  // biome-ignore lint/correctness/useExhaustiveDependencies: draft is a re-check trigger for the pending voice submit even though the body does not read it
-  useEffect(() => {
-    if (!voiceSubmitPending.current || dictation.dictationState !== 'idle') return;
-    voiceSubmitPending.current = false;
-    void send('', 'voice-submit');
-  }, [dictation.dictationState, draft, send]);
+  voiceSubmitRef.current = (text, take) =>
+    void send('', 'voice-submit', { ...take, draft: withTranscript(draftRef.current, text) }).finally(() =>
+      take.settle(false)
+    );
 
   const onTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     sampleKeystrokePaint(composerPaintSamplePending);
@@ -977,6 +1029,27 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
   };
   const goalDisabled = turnBusy || commandBusy || submitting;
+  const goalDisabledRef = useRef(goalDisabled);
+  goalDisabledRef.current = goalDisabled;
+  const executeSlashRef = useRef(executeSlash);
+  executeSlashRef.current = executeSlash;
+  // A goal started before the lane lands starts once it has, if the session's own state still takes one. One goal at
+  // most waits: a later start replaces it, and the replaced start answers with the outcome of the one that replaced it.
+  const waitingGoal = useRef<{ replacedBy?: Promise<boolean> } | null>(null);
+  const startGoal = useCallback(
+    (command: string): Promise<boolean> => {
+      const slot: { replacedBy?: Promise<boolean> } = {};
+      const start = afterLanding().then((landed) => {
+        if (slot.replacedBy) return slot.replacedBy;
+        if (waitingGoal.current === slot) waitingGoal.current = null;
+        return landed && !goalDisabledRef.current && executeSlashRef.current(command);
+      });
+      if (waitingGoal.current) waitingGoal.current.replacedBy = start;
+      waitingGoal.current = slot;
+      return start;
+    },
+    [afterLanding]
+  );
   const phone = useMobileRemoteSurface() && !roomMembers;
   const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers);
   const card = !roomMembers && (phone || oneLineOverflows);
@@ -1168,6 +1241,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           agentMode={agentMode}
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}
+          startGoal={startGoal}
           transitioning={transitioning}
           paneActive={paneActive}
           hasConversation={hasConversation}
