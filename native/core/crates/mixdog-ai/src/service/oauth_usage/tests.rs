@@ -212,6 +212,29 @@ fn five_hour(pct: u32) -> String {
     format!(r#"{{"five_hour":{{"utilization":{pct},"resets_at":"2099-01-01T00:00:00Z"}}}}"#)
 }
 
+/// A window's kind is what its provider declares: Muse Code's sized window is rolling; its weekly window and Grok
+/// Build's weekly `W` reset.
+#[test]
+fn a_reading_records_each_window_with_the_kind_its_provider_declares() {
+    let muse = crate::service::usage_muse_code::snapshot(
+        &serde_json::json!({ "subs_usage": { "window": { "used_percent": 40, "window_duration_mins": 300 }, "weekly": { "used_percent": 10 } } }),
+        "",
+        "",
+        1,
+    )
+    .unwrap();
+    let billing = serde_json::json!({ "currentPeriod": { "type": "WEEKLY" }, "weeklyLimit": 100, "used": 10 });
+    let grok = serde_json::json!({ "quotaWindows": [norm::credit_window_from_billing(&billing, 0).unwrap()] });
+
+    let kinds: Vec<(String, bool)> = [("muse-code-oauth", &muse), ("grok-build", &grok)]
+        .into_iter()
+        .flat_map(|(provider, snapshot)| quota_samples(provider, "acct", snapshot, 7))
+        .map(|sample| (sample.label, sample.rolling))
+        .collect();
+
+    assert_eq!(kinds, [("5H".to_owned(), true), ("7D".to_owned(), false), ("W".to_owned(), false)]);
+}
+
 #[tokio::test]
 async fn a_reading_is_recorded_cached_and_served_without_a_second_request() {
     let r = rig().await;

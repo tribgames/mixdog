@@ -28,6 +28,7 @@ fn reading(sample: Sample) -> QuotaReading {
         provider: sample.provider,
         account: sample.account,
         label: sample.label,
+        rolling: sample.rolling,
         sample: QuotaSample { ts: sample.ts, used_pct: sample.used_pct, reset_at: sample.reset_at },
     }
 }
@@ -99,7 +100,7 @@ mod tests {
             Arc::new(NoPrices),
             crate::run_host::usage_stats_feed::recording_push(),
         );
-        let sample = Sample { provider: "p".into(), account: "a".into(), label: "5H".into(), ts: 1, used_pct: 1.0, reset_at: None };
+        let sample = Sample { provider: "p".into(), account: "a".into(), label: "5H".into(), ts: 1, used_pct: 1.0, reset_at: None, rolling: false };
         assert!(LedgerQuotaHistory::new(source).record(vec![sample]).await.is_err());
     }
 }

@@ -14,6 +14,7 @@ import {
   quotaPercent,
   quotaSeries,
   quotaTone,
+  quotaUnattributedNote,
   quotaValue,
   quotaValueBreakdown,
   quotaValueCaution,
@@ -86,6 +87,7 @@ function rangeLabel(fromMs: unknown, toMs: unknown): string {
 function QuotaMix({
   models,
   outside,
+  unattributed,
   remaining,
   provider,
   seriesInk,
@@ -93,12 +95,13 @@ function QuotaMix({
 }: {
   models: Row[];
   outside: number;
+  unattributed: number;
   remaining: number | null;
   provider: string;
   seriesInk: (model: string) => string;
   loading: boolean;
 }) {
-  const parts = [
+  const parts: { key: string; ink: string; label: string; value: number; title?: string }[] = [
     ...models
       .filter((row) => statsNumber(row.consumed) > 0)
       .map((row) => ({
@@ -108,6 +111,17 @@ function QuotaMix({
         value: statsNumber(row.consumed),
       })),
     ...(outside > 0 ? [{ key: 'outside', ink: 'outside', label: t('Outside Mixdog'), value: outside }] : []),
+    ...(unattributed > 0
+      ? [
+          {
+            key: 'unattributed',
+            ink: 'unattributed',
+            label: t('Unattributed'),
+            value: unattributed,
+            title: quotaUnattributedNote(),
+          },
+        ]
+      : []),
     ...(remaining !== null ? [{ key: 'remaining', ink: 'remaining', label: t('Remaining'), value: remaining }] : []),
   ];
   const total = parts.reduce((sum, part) => sum + part.value, 0);
@@ -130,7 +144,7 @@ function QuotaMix({
       </div>
       <ul>
         {parts.map((part) => (
-          <li key={part.key}>
+          <li key={part.key} title={part.title}>
             <i data-series={part.ink} aria-hidden="true" />
             {part.label}
             <b>
@@ -153,16 +167,18 @@ function QuotaTable({
   consumed,
   models,
   outside,
+  unattributed,
   loading,
 }: {
   provider: string;
   providerNames: Record<string, string>;
   totals: Row;
   summary: Row;
-  /** Share of the limit used in the period, by Mixdog and from outside it. */
+  /** Share of the limit used in the period: by Mixdog, from outside it and what the readings cannot assign. */
   consumed: number;
   models: Row[];
   outside: number;
+  unattributed: number;
   loading: boolean;
 }) {
   const [open, setOpen] = useState(true);
@@ -207,7 +223,7 @@ function QuotaTable({
             </th>
           </tr>
         </thead>
-        {(models.length > 0 || outside > 0) && (
+        {(models.length > 0 || outside > 0 || unattributed > 0) && (
           <tbody className="stats-provider" data-usage-provider={provider} data-open={open ? 'true' : 'false'}>
             <tr className="stats-provider-row">
               <td className="stats-provider-cell">
@@ -250,6 +266,16 @@ function QuotaTable({
                 </td>
               </tr>
             )}
+            {open && unattributed > 0 && (
+              <tr className="stats-model-row">
+                <td className="stats-model-cell" title={quotaUnattributedNote()}>
+                  {t('Unattributed')}
+                </td>
+                <td className="stats-share-cell">{quotaPercent(unattributed)}</td>
+                <td colSpan={7} />
+                <td className="stats-cost-cell">—</td>
+              </tr>
+            )}
           </tbody>
         )}
         {loading && (
@@ -263,7 +289,7 @@ function QuotaTable({
             ))}
           </tbody>
         )}
-        {!loading && !models.length && !(outside > 0) && (
+        {!loading && !models.length && !(outside > 0) && !(unattributed > 0) && (
           <tbody>
             <tr>
               <td className="usage-empty" colSpan={10}>
@@ -580,6 +606,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   const summary = record(loaded.summary);
   const models = rows(loaded.models);
   const outside = statsNumber(loaded.outside);
+  const unattributed = statsNumber(loaded.unattributed);
   const firstDay = String(record(loaded.range).firstDay || '');
   const empty = !loading && !subscriptions.length;
   const ranks = new Map(models.map((row, index) => [usageModelKey(row), index]));
@@ -697,6 +724,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           <QuotaMix
             models={models}
             outside={outside}
+            unattributed={unattributed}
             remaining={windowView && !loading ? Math.max(0, 100 - used) : null}
             provider={provider}
             seriesInk={seriesInk}
@@ -718,6 +746,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
             consumed={statsNumber(summary.consumed)}
             models={models}
             outside={outside}
+            unattributed={unattributed}
             loading={loading}
           />
           <QuotaHistory

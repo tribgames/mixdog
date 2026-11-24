@@ -177,6 +177,30 @@ pub struct QuotaSample {
     pub ts: i64,
     pub used_pct: f64,
     pub reset_at: Option<i64>,
+    /// The window declares itself rolling (`rolling: true`): its use ages out continuously instead of resetting.
+    pub rolling: bool,
+}
+
+/// The quota-history samples of a reading's windows, read at `ts`.
+fn quota_samples(provider: &str, account: &str, snapshot: &Value, ts: i64) -> Vec<QuotaSample> {
+    let Some(windows) = snapshot.get("quotaWindows").and_then(Value::as_array) else { return Vec::new() };
+    windows
+        .iter()
+        .filter_map(|w| {
+            let label: String = clean(w.get("label"))?.chars().take(40).collect();
+            let used = w.get("usedPct").and_then(Value::as_f64).filter(|u| u.is_finite() && *u >= 0.0)?;
+            let reset_at = w.get("resetAt").and_then(Value::as_f64).filter(|r| r.is_finite()).map(|r| r.round() as i64);
+            Some(QuotaSample {
+                provider: provider.to_owned(),
+                account: if account.is_empty() { "default".into() } else { account.to_owned() },
+                label,
+                ts,
+                used_pct: norm::round(used, 2),
+                reset_at,
+                rolling: w.get("rolling") == Some(&Value::Bool(true)),
+            })
+        })
+        .collect()
 }
 
 /// The usage ledger's quota history (`recordQuotaQueued`).
@@ -888,28 +912,7 @@ impl OAuthUsage {
     }
 
     async fn record_quota_history(&self, provider: &str, account: &str, snapshot: &Value) {
-        let ts = now_ms();
-        let samples: Vec<QuotaSample> = snapshot
-            .get("quotaWindows")
-            .and_then(Value::as_array)
-            .map(|ws| {
-                ws.iter()
-                    .filter_map(|w| {
-                        let label: String = clean(w.get("label"))?.chars().take(40).collect();
-                        let used = w.get("usedPct").and_then(Value::as_f64).filter(|u| u.is_finite() && *u >= 0.0)?;
-                        let reset_at = w.get("resetAt").and_then(Value::as_f64).filter(|r| r.is_finite()).map(|r| r.round() as i64);
-                        Some(QuotaSample {
-                            provider: provider.to_owned(),
-                            account: if account.is_empty() { "default".into() } else { account.to_owned() },
-                            label,
-                            ts,
-                            used_pct: norm::round(used, 2),
-                            reset_at,
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let samples = quota_samples(provider, account, snapshot, now_ms());
         if samples.is_empty() {
             return;
         }

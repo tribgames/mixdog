@@ -1120,6 +1120,7 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   --quota-series-5: var(--mx-chart-green);
   --quota-series-other: var(--mx-chart-mauve);
   --quota-series-outside: var(--mx-chart-grey);
+  --quota-series-unattributed: color-mix(in srgb, var(--mx-chart-grey) 45%, transparent);
 }
 .quota-surface [data-series="0"] {
   --quota-ink: var(--quota-series-0);
@@ -1144,6 +1145,9 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 }
 .quota-surface [data-series="outside"] {
   --quota-ink: var(--quota-series-outside);
+}
+.quota-surface [data-series="unattributed"] {
+  --quota-ink: var(--quota-series-unattributed);
 }
 .quota-surface [data-series="remaining"] {
   --quota-ink: transparent;

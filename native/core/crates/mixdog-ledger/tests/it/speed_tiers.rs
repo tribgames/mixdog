@@ -145,6 +145,7 @@ async fn model_speed_tiers_reconcile_to_subscription_totals() {
             provider: "openai-oauth".into(),
             account: "acct".into(),
             label: "5H".into(),
+            rolling: false,
             sample: QuotaSample { ts: now, used_pct: 70.0, reset_at: Some(ts + 4 * 3_600_000) },
         }])
         .await

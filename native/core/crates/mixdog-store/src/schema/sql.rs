@@ -59,6 +59,10 @@ pub const LEDGER_USER_VERSION: i32 = 3;
 /// held them are merged by the ledger crate's upgrade in the same transaction.
 pub const LEDGER_V4_DELTA: &str = include_str!("sql/ledger_v4.sql");
 pub const LEDGER_V4_USER_VERSION: i32 = 4;
+/// The v5 delta over a v4 ledger: whether each quota reading's window is rolling, as its provider declares, and each
+/// route's longest record run on an index.
+pub const LEDGER_V5_DELTA: &str = include_str!("sql/ledger_v5.sql");
+pub const LEDGER_V5_USER_VERSION: i32 = 5;
 /// The ledger keeps 1.4.5's `application_id` (0).
 pub const LEDGER_APPLICATION_ID: i32 = 0;
 

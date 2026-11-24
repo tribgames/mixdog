@@ -3,7 +3,14 @@ import { useId, type CSSProperties } from 'react';
 import { t, uiFormatLocale } from './i18n';
 import { UsageModelName, usageModelTitle } from './UsageStatsSurface';
 import { usageModelKey } from './usage-model-tier';
-import { quotaClock, quotaPercent, quotaValue, quotaValueBreakdown, quotaValueCaution } from './quota-usage-model';
+import {
+  quotaClock,
+  quotaPercent,
+  quotaUnattributedNote,
+  quotaValue,
+  quotaValueBreakdown,
+  quotaValueCaution,
+} from './quota-usage-model';
 import { record, rows } from './record-utils';
 import { timeFormatOptions } from './time-format-preference';
 import { TrendDetailCard, useTrendDetail } from './trend-detail';
@@ -264,12 +271,17 @@ function quotaTrendModel(
         (row) => statsNumber(row.peak) > 0 && statsNumber(row.peakAt) >= from && statsNumber(row.peakAt) <= to
       );
   const models = rows(data.modelSeries).map((entry) => {
+    const list = pointList(entry.points).map(([time, value]): [number, number] => [time, value]);
+    // A layer that is not a model names its part: outside use, or the points the readings cannot assign.
+    if (entry.part === 'unattributed') {
+      return { key: 'part:unattributed', ink: 'unattributed', label: t('Unattributed'), list };
+    }
     const key = entry.key ? usageModelKey(entry) : '';
     return {
       key,
       ink: key ? seriesInk(key) : 'outside',
       label: key ? usageModelTitle(entry, provider) : t('Outside Mixdog'),
-      list: pointList(entry.points).map(([time, value]): [number, number] => [time, value]),
+      list,
     };
   });
   // The models are read sparsely and the meter densely, so the layers are
@@ -333,6 +345,7 @@ function quotaTrendModel(
   const rate = statsNumber(forecast.ratePerHour);
   const slotModels = rows(active?.models).filter((row) => statsNumber(row.consumed) > 0 || statsNumber(row.tokens) > 0);
   const slotOutside = statsNumber(active?.outside);
+  const slotUnattributed = statsNumber(active?.unattributed);
   return {
     span,
     now,
@@ -363,6 +376,7 @@ function quotaTrendModel(
     rate,
     slotModels,
     slotOutside,
+    slotUnattributed,
   };
 }
 
@@ -412,6 +426,7 @@ export function QuotaTrend({
     rate,
     slotModels,
     slotOutside,
+    slotUnattributed,
   } = quotaTrendModel(data, provider, windowView, seriesInk, detail.activeKey);
   // Chart space with no slot to read ends a hover card; a pinned one stays.
   const idle = {
@@ -604,7 +619,7 @@ export function QuotaTrend({
                   <dd title={`${quotaValueBreakdown(active)}\n${quotaValueCaution()}`}>{quotaValue(active)}</dd>
                 </div>
               </dl>
-              {(slotModels.length > 0 || slotOutside > 0) && (
+              {(slotModels.length > 0 || slotOutside > 0 || slotUnattributed > 0) && (
                 <ul aria-label={t('Model')}>
                   {slotModels.map((row) => (
                     <li key={usageModelKey(row)}>
@@ -622,6 +637,15 @@ export function QuotaTrend({
                         {t('Outside Mixdog')}
                       </span>
                       <b>{`+${quotaPercent(slotOutside)}`}</b>
+                    </li>
+                  )}
+                  {slotUnattributed > 0 && (
+                    <li title={quotaUnattributedNote()}>
+                      <span>
+                        <i data-series="unattributed" aria-hidden="true" />
+                        {t('Unattributed')}
+                      </span>
+                      <b>{`+${quotaPercent(slotUnattributed)}`}</b>
                     </li>
                   )}
                 </ul>
