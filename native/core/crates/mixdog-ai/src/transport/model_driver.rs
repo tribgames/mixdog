@@ -253,6 +253,10 @@ impl BodyStream for DrivenBody {
         self.inner.hold_connection();
     }
 
+    fn drain_on_drop(&mut self) {
+        self.inner.drain_on_drop();
+    }
+
     fn connection(&self) -> Option<ConnectionInfo> {
         self.inner.connection()
     }

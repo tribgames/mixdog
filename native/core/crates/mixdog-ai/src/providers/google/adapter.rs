@@ -1602,6 +1602,11 @@ impl ModelStream for GoogleStream {
             match self.body.next().await {
                 Some(Ok(chunk)) => {
                     let decoded = decode_read(self.decoder.wire(), Some(&chunk));
+                    // The response ended: a consumer that stops at a completion decoded before the body's end drops the
+                    // body, which is read off then.
+                    if self.decoder.wire().terminal_seen() {
+                        self.body.drain_on_drop();
+                    }
                     self.publish_usage();
                     match decoded {
                         Ok((events, held)) => {

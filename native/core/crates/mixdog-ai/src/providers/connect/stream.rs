@@ -180,10 +180,15 @@ impl ModelStream for DecodedStream {
                         self.report(events);
                     }
                     self.settle(decoded);
-                    if self.billed.is_some() && !self.ended && self.decoder.terminal_seen() {
-                        self.ended = true;
-                        let decoded = decode_read(self.decoder.as_mut(), None);
-                        self.settle(decoded);
+                    if !self.ended && self.decoder.terminal_seen() {
+                        // The response ended: a consumer that stops at the completion drops the body before its end,
+                        // which is read off then.
+                        self.body.drain_on_drop();
+                        if self.billed.is_some() {
+                            self.ended = true;
+                            let decoded = decode_read(self.decoder.as_mut(), None);
+                            self.settle(decoded);
+                        }
                     }
                 }
                 Some(Err(fault)) => {

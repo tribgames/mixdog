@@ -89,6 +89,10 @@ impl BodyStream for Guarded {
         *self.ended.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);
         Some(Err(TransportFault::Closed))
     }
+
+    fn drain_on_drop(&mut self) {
+        self.inner.drain_on_drop();
+    }
 }
 
 /// An aborted `fetch` rejects with this (the signal's default reason).

@@ -57,6 +57,12 @@ pub trait BodyStream: Send {
     /// that socket busy. The default does nothing.
     fn hold_connection(&mut self) {}
 
+    /// The reader is done with this response: its terminal event arrived, and what may still follow it (closing events, the
+    /// end of the stream) is already on its way. Dropped afterwards, a body that has not ended is read to its end off the
+    /// reader's path instead of being cancelled, as a drop without this is: an HTTP/2 connection counts the frames that
+    /// cross a stream's reset against itself. The default does nothing.
+    fn drain_on_drop(&mut self) {}
+
     /// The connection this body is read off, where the transport knows it: carried on the failure of a request whose body
     /// was cut ([`mixdog_core_api::domain::provider::ProviderError::connection`]). The default: unknown.
     fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
@@ -801,6 +807,10 @@ struct DeadlineBody {
 impl BodyStream for DeadlineBody {
     fn hold_connection(&mut self) {
         self.inner.hold_connection();
+    }
+
+    fn drain_on_drop(&mut self) {
+        self.inner.drain_on_drop();
     }
 
     fn connection(&self) -> Option<ConnectionInfo> {

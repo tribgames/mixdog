@@ -1567,10 +1567,15 @@ impl ResponsesStream {
         }
     }
 
-    /// The response completed on a pooled socket: it keeps the anchor.
+    /// The response completed: a pooled socket keeps the anchor; an HTTP body is read off to its end once let go.
     fn park(&mut self) {
-        let Some(Source::Ws { checkout, .. }) = self.source.take() else {
-            return;
+        let checkout = match self.source.take() {
+            Some(Source::Ws { checkout, .. }) => checkout,
+            Some(Source::Http(mut body)) => {
+                body.drain_on_drop();
+                return;
+            }
+            None => return,
         };
         let mut chain = Chain::default();
         if let Some(anchor) = self.anchor.take()
@@ -1584,8 +1589,8 @@ impl ResponsesStream {
 
 impl Drop for ResponsesStream {
     /// The consumer let go of the response. Before its terminal event that is a cancel (the user's, or a stall
-    /// watchdog's): `onAbort` closes the socket with `4002 aborted`. After it, the socket goes back to the pool as on
-    /// the next read. A failed exchange has no source left.
+    /// watchdog's): `onAbort` closes the socket with `4002 aborted`. After it, the socket goes back to the pool and an
+    /// HTTP body is read off, as on the next read. A failed exchange has no source left.
     fn drop(&mut self) {
         if self.decoder.terminal_seen() {
             self.park();

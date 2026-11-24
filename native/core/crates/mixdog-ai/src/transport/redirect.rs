@@ -93,6 +93,10 @@ impl BodyStream for Tapped {
         self.body.hold_connection();
     }
 
+    fn drain_on_drop(&mut self) {
+        self.body.drain_on_drop();
+    }
+
     fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
         self.body.connection()
     }
