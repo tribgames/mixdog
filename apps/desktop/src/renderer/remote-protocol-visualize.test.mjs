@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adapter as files } from './remote-protocol-files.ts';
-import { adapter } from './remote-protocol-visualize.ts';
+import { adapter, thumbnailRule } from './remote-protocol-visualize.ts';
 
 function rig(answers = {}) {
   const requests = [];
@@ -439,4 +439,17 @@ test('a core that refuses the lane is followed through its section, which always
   const before = refused.resyncs();
   refused.set([hostState()]);
   assert.equal(refused.resyncs(), before + 1);
+});
+
+test('the thumbnail rule keeps a digest of a picture, and forgets a session that ended', () => {
+  const rule = thumbnailRule();
+  const state = (data) => ({
+    sessionId: 's1',
+    tabs: [{ id: 't1', thumbnail: `data:image/png;base64,${data}`, thumbnailVersion: 1 }],
+  });
+  assert.ok(rule(state('AAAA')).tabs[0].thumbnail);
+  assert.equal(rule(state('AAAA')).tabs[0].thumbnail, undefined, 'a repeat is not sent');
+  assert.ok(rule(state('AAAB')).tabs[0].thumbnail, 'a one-character change is');
+  rule.forget('s1');
+  assert.ok(rule(state('AAAB')).tabs[0].thumbnail, 'a forgotten session is sent whole again');
 });

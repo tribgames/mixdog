@@ -830,3 +830,81 @@ test('an abort closes a socket parked on desktop-gone', async () => {
   controller.abort();
   assert.equal(far.closes.length, before + 1, 'the parked socket was closed');
 });
+
+test('a followed thread with no mounted conversation still has its window kept as the thread changes', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const pos = (id: string) => `h1:0:${id}`;
+  const unit = (id: string, ordinal: number) => ({
+    position: pos(id),
+    ordinal,
+    items: [{ type: 'agentMessage', id, text: id, meta: { ext: { historyPosition: pos(id) } } }],
+  });
+  far.start();
+  const sent: any[] = [];
+  const phoneOptions = {
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    webrtc: {
+      createPeer: () => {
+        throw new Error('no direct path in this test');
+      },
+      visible: () => true,
+      log: () => {},
+    },
+    random: () => 0.5,
+    onConnection: () => undefined,
+  };
+  const server = (async () => {
+    const hello = await far.next();
+    assert.equal(hello.method, 'initialize');
+    await far.send({ id: hello.id, result: options.initializeResult });
+    for (;;) {
+      const frame = await far.next();
+      sent.push(frame);
+      if (frame.method === 'thread/resume') {
+        await far.send({
+          id: frame.id,
+          result: { thread, subscription: { id: 'sub', mode: 'snapshot', epoch: 'e1', startSeq: 11 } },
+        });
+        await far.send({
+          method: 'thread/snapshot',
+          params: {
+            thread,
+            items: [],
+            state: {},
+            hasOlder: false,
+            window: {
+              windowVersion: 10,
+              lineage: 1,
+              ranges: [{ id: 'tail', older: { kind: 'end' }, newer: { kind: 'end' } }],
+              added: [{ range: 'tail', units: [unit('r1', 10), unit('r2', 20)] }],
+              followTail: true,
+            },
+          },
+          feed: feed(10),
+        });
+        // A record past one the tail does not hold: the window owes a read, whether a conversation shows it or not.
+        await far.send({
+          method: 'thread/transcript/changed',
+          params: { lineage: 1, change: { op: 'insert', after: pos('r4'), unit: unit('r5', 50) } },
+          feed: feed(11),
+        });
+      } else if (frame.method === 'thread/window/set') {
+        await far.send({ id: frame.id, result: {} });
+        return;
+      } else if (frame.id !== undefined && frame.method !== 'initialized') {
+        await far.send({ id: frame.id, result: {} });
+      }
+    }
+  })();
+  const phone = await connectPhone(phoneOptions);
+  await phone.client.resumeThread('t1', { lastItems: 50 });
+  await server;
+  assert.ok(sent.some((frame) => frame.method === 'thread/window/set'));
+  await phone.client.close();
+});
+

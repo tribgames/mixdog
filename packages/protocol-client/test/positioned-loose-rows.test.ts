@@ -10,6 +10,7 @@ import { at, cont, end, pos } from './positioned-fixtures.ts';
 import {
   keepTranscriptWindow,
   moveTranscriptWindow,
+  releaseTranscriptWindow,
   windowWant,
   WINDOW_PAGE_ROWS,
   WINDOW_TAIL_MAX_ROWS,
@@ -304,6 +305,19 @@ test('a window the core let go is asked for again by the next thing that needs i
   void moveTranscriptWindow(sent, 't', { kind: 'read', first: 'r1', last: 'r2', end: true, reader: 'A' });
   await settled();
   assert.deepEqual(failing.wants, [anew, anew], 'a pane showing the session asks');
+});
+
+test('what the window kept of a thread that ended is released: the thread opened again is asked afresh', async () => {
+  const s = insert(snapshot([unit('r1', 10), unit('r2', 20)]), unit('r5', 50), 'r4');
+  const client = fakeClient(s);
+  const sent = client as unknown as ProtocolClient<SessionFold>;
+  client.fail = true;
+  assert.equal(await keepTranscriptWindow(sent, 't'), false);
+  assert.equal(await keepTranscriptWindow(sent, 't'), false);
+  assert.equal(client.wants.length, 1, 'a failed read is not asked again on the same window');
+  releaseTranscriptWindow(sent, 't');
+  assert.equal(await keepTranscriptWindow(sent, 't'), false);
+  assert.equal(client.wants.length, 2, 'the failure belonged to the thread that ended');
 });
 
 test('a read of what the window owes that fails is asked again by one rule: another window, or a page more held', async () => {

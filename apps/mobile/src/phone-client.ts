@@ -5,6 +5,7 @@ import {
   ClientFailure,
   connect,
   DEFAULT_LADDER,
+  keepTranscriptWindow,
   sessionReducer,
   type ProtocolClient,
   type SessionFold,
@@ -245,6 +246,10 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   }
   // The attempt's end is the client's: its reconnect ladder must not outlive the pairing it served.
   const owned = client;
+  // The window of every followed thread is kept as it changes, mounted or not (the desktop's session lane does the same).
+  owned.store.subscribe((change) => {
+    if (change.type === 'thread') void keepTranscriptWindow(owned, change.threadId);
+  });
   options.signal?.addEventListener('abort', () => void owned.close(), { once: true });
   const report = (shown: PhoneConnection): void => {
     if (terminal) return;
@@ -274,3 +279,4 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   const screen = options.screen ? createScreenReporter(client, options.screen) : undefined;
   return { client, link, ...(screen ? { screen } : {}) };
 }
+

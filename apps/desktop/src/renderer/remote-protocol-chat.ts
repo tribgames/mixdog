@@ -101,7 +101,7 @@ export interface ChatShared {
   sessionStateOf(threadId: string): SessionSnapshot | undefined;
   /** Runs `resume` (the thread's subscription) and resolves once the client has folded the thread's snapshot: the client folds a
    *  snapshot in budgeted steps after the subscription's reply (client.ts `fold`), so the reply alone leaves no fold to read. */
-  whenFolded(threadId: string, resume: () => Promise<unknown>): Promise<void>;
+  whenFolded(threadId: string, resume: () => Promise<unknown>, signal?: AbortSignal): Promise<void>;
   /** Resolves once the core no longer asks request `id` of this connection (`serverRequest/resolved`, or the socket's end). */
   whenSettled(id: string): Promise<void>;
   /** The pending server request whose card shows `cardId`; an id no card shows is passed on as it is. */
@@ -566,13 +566,11 @@ export function createChatAdapter(options: {
       return true;
     }
     const [resume] = shared.routeService('prefetchSession', [sessionId]).requests;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      shared
-        .whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window, { force: true }))
-        .catch(() => undefined),
-      new Promise<void>((resolve) => (timer = setTimeout(resolve, FRESH_FOLD_WAIT_MS))),
-    ]);
+    const waiting = new AbortController();
+    const timer = setTimeout(() => waiting.abort(), FRESH_FOLD_WAIT_MS);
+    await shared
+      .whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window, { force: true }), waiting.signal)
+      .catch(() => undefined);
     clearTimeout(timer);
     const state = shared.sessionStateOf(sessionId);
     if (!state) return false;
@@ -669,16 +667,27 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
     coreErrorForWindow,
     normalizedProviderModels,
     sessionStateOf: (threadId) => sessionStateOf(client, threadId) as unknown as SessionSnapshot | undefined,
-    whenFolded: async (threadId, resume) => {
+    whenFolded: async (threadId, resume, signal) => {
       let off = (): void => undefined;
       // Listened for before the subscription is asked for, so a fold that lands with its reply is not missed.
       const folded = new Promise<void>((resolve) => {
         off = client.store.subscribe((change) => {
-          if (change.type === 'thread' && change.threadId === threadId) resolve();
+          if (
+            (change.type === 'thread' && change.threadId === threadId) ||
+            (change.type === 'subscription' && change.feedId === threadId && change.state === 'lost')
+          )
+            resolve();
         });
+        signal?.addEventListener('abort', () => resolve(), { once: true });
       });
       try {
-        await resume();
+        const cancelled = new Promise<undefined>((resolve) => signal?.addEventListener('abort', () => resolve(undefined)));
+        const reply = (await Promise.race([resume(), cancelled])) as
+          | { subscription?: { mode?: unknown } }
+          | null
+          | undefined;
+        // A replay folds no snapshot: nothing is coming to wait for.
+        if (reply?.subscription?.mode === 'replay') return;
         await folded;
       } finally {
         off();
@@ -709,7 +718,7 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
   };
 };
 
-type FoldClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'store'>;
+type FoldClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'store' | 'on'>;
 
 /** The page still on its way from a fold, by the fold's `origin` (one per snapshot): it goes with the fold. */
 const pagesOut = new WeakMap<object, Promise<boolean>>();
@@ -757,10 +766,18 @@ async function growFold(client: FoldClient, threadId: string, fold: SessionFold,
   const [resume] = routeService('prefetchSession', [threadId, items]).requests;
   let off = (): void => undefined;
   const replaced = new Promise<SessionFold | undefined>((resolve) => {
-    off = client.store.subscribe(() => {
+    const offStore = client.store.subscribe(() => {
       const next = client.store.thread(threadId)?.state;
       if (next?.origin !== fold.origin) resolve(next);
     });
+    // A reconnect is no replacement: the page's snapshot may still land after it. Only the client's end finds none.
+    const offStatus = client.on((event) => {
+      if (event.type === 'status' && event.status.state === 'closed') resolve(client.store.thread(threadId)?.state);
+    });
+    off = () => {
+      offStore();
+      offStatus();
+    };
   });
   try {
     const reply = await client.resumeThread(threadId, resume?.params.window as never);
@@ -815,3 +832,4 @@ export const phoneChatAdapter = (timers?: RosterTimers): PhoneProtocolAdapter =>
   });
 
 export const adapter: PhoneProtocolAdapter = phoneChatAdapter();
+

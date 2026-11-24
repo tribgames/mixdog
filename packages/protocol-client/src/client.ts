@@ -47,6 +47,7 @@ import { createLinkLog } from './link-log.mjs';
 import { DEFAULT_REQUEST_TIMEOUT_MS } from './request-limits.ts';
 import { LinkHealth } from './health.ts';
 import { isObj } from './obj.ts';
+import { releaseTranscriptWindow } from './transcript-window.ts';
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 
@@ -434,6 +435,8 @@ class Engine implements ProtocolClient<Json> {
   private classResponses = classes();
   private feedEvents = 0;
   private readonly threadLastEvent = new Map<string, number>();
+  /** The requests naming a thread that still await their answer: its last-event mark stays for them (windowFull retries on it). */
+  private readonly requestsFor = new Map<string, number>();
   private wake: Array<() => void> = [];
   private readyWaiters: Array<{ ok: () => void; err: (e: ClientFailure) => void }> = [];
   private readonly unanswered = new Map<string, Unanswered>();
@@ -661,6 +664,7 @@ class Engine implements ProtocolClient<Json> {
     this.resuming.clear();
     this.subId.clear();
     this.tokenWindow.clear();
+    this.feedChains.clear();
     const dropped = [...this.serverRequests.values()];
     this.serverRequests.clear();
     for (const r of dropped) this.touchSurface(r);
@@ -825,13 +829,15 @@ class Engine implements ProtocolClient<Json> {
     this.recv.delete(threadId);
     this.lostWindows.set(threadId, window);
     this.subs.delete(threadId);
-    this.subToken.delete(threadId);
+    this.dropToken(threadId);
     this.repeated.delete(threadId);
     this.replayThrough.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
     // A fold of the lost subscription may wait on a read that is never answered: the next open does not queue behind it.
     this.feedChains.delete(threadId);
+    if (!this.requestsFor.has(threadId)) this.threadLastEvent.delete(threadId);
+    releaseTranscriptWindow(this as never, threadId);
     this.emit({ type: 'subscriptionLost', threadId, error: outcome });
     this.store.emit({ type: 'subscription', feedId: threadId, state: 'lost', error: outcome });
   }
@@ -866,11 +872,13 @@ class Engine implements ProtocolClient<Json> {
    *  when the bound the caller gave ends first: the wait is part of the call that needs the thread. Without one it has no limit. */
   whenHeldSettled(threadId: string, options?: Pick<CallOptions, 'timeoutMs'>): Promise<void> {
     const settled = async (limit?: CallLimit): Promise<void> => {
+      const unlessEnded = <T>(wait: Promise<T>): Promise<T> =>
+        limit?.ended ? Promise.race([wait, limit.ended]) : wait;
       for (;;) {
-        await this.whenReady();
+        await unlessEnded(this.whenReady(limit?.ended));
         const restoring = this.heldRestoring.get(threadId);
         if (!restoring || limit?.expired) return;
-        await restoring.done;
+        await unlessEnded(restoring.done);
       }
     };
     return options?.timeoutMs === undefined
@@ -903,7 +911,7 @@ class Engine implements ProtocolClient<Json> {
     }
     if (outcome === 'ended') return false;
     this.appSubscribed = false;
-    this.subToken.delete(WIRE.appFeedId);
+    this.dropToken(WIRE.appFeedId);
     this.emit({ type: 'subscriptionLost', threadId: WIRE.appFeedId, error: outcome });
     this.store.emit({ type: 'subscription', feedId: WIRE.appFeedId, state: 'lost', error: outcome });
     return false;
@@ -915,6 +923,9 @@ class Engine implements ProtocolClient<Json> {
     for (const p of drain(this.pending)) p.reject(fail(detail));
     for (const u of [...this.unanswered.values()]) u.reject(fail(detail));
     this.unanswered.clear();
+    this.feedChains.clear();
+    this.threadLastEvent.clear();
+    this.tokenWindow.clear();
     for (const threadId of [...this.held.keys(), ...this.heldRestoring.keys()]) this.releaseHeld(threadId);
     for (const w of this.readyWaiters.splice(0)) w.err(fail(detail));
     this.pulse();
@@ -1152,8 +1163,14 @@ class Engine implements ProtocolClient<Json> {
   private pulse(): void {
     for (const w of this.wake.splice(0)) w();
   }
-  private async waitUntil(done: () => boolean): Promise<void> {
-    while (!done() && this.writer !== null && !this.terminal) await new Promise<void>((r) => this.wake.push(r));
+  private async waitUntil(done: () => boolean, ended?: Promise<never>): Promise<void> {
+    let over = false;
+    ended?.catch(() => {
+      over = true;
+      this.pulse();
+    });
+    while (!done() && !over && this.writer !== null && !this.terminal)
+      await new Promise<void>((r) => this.wake.push(r));
   }
 
   private onServerRequest(r: ServerRequest): void {
@@ -1201,9 +1218,9 @@ class Engine implements ProtocolClient<Json> {
       return;
     }
     this.feedEvents++;
-    this.threadLastEvent.set(f.id, this.feedEvents);
     this.pulse();
     const tracked = f.id === WIRE.appFeedId ? this.appSubscribed : this.subs.has(f.id);
+    if (tracked || this.held.has(f.id) || this.requestsFor.has(f.id)) this.threadLastEvent.set(f.id, this.feedEvents);
     if (!tracked && !this.held.has(f.id)) return;
     const snapshot = n.method === WIRE.threadSnapshot || n.method === WIRE.appSnapshot;
     const cur = this.recv.get(f.id);
@@ -1506,9 +1523,17 @@ class Engine implements ProtocolClient<Json> {
     if (s.mode === 'snapshot') this.awaitingSnapshot.add(feedId);
     else this.awaitingSnapshot.delete(feedId);
     if (feedId === WIRE.appFeedId) this.store.liveSeq = s.liveSeq ?? s.startSeq;
+    this.dropToken(feedId);
     const token = ++this.tokenSeq;
     this.subToken.set(feedId, token);
-    if (window) this.tokenWindow.set(token, window);
+    if (window && s.mode === 'snapshot') this.tokenWindow.set(token, window);
+  }
+
+  /** The feed's subscription token and the window its snapshot would have folded go together. */
+  private dropToken(feedId: string): void {
+    const token = this.subToken.get(feedId);
+    if (token !== undefined) this.tokenWindow.delete(token);
+    this.subToken.delete(feedId);
   }
 
   resumeThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse> {
@@ -1873,7 +1898,7 @@ class Engine implements ProtocolClient<Json> {
     this.subs.delete(threadId);
     this.lostWindows.delete(threadId);
     this.releaseHeld(threadId);
-    this.subToken.delete(threadId);
+    this.dropToken(threadId);
     this.recv.delete(threadId);
     this.repeated.delete(threadId);
     this.awaitingSnapshot.delete(threadId);
@@ -1883,6 +1908,8 @@ class Engine implements ProtocolClient<Json> {
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
     this.feedChains.delete(threadId);
+    if (!this.requestsFor.has(threadId)) this.threadLastEvent.delete(threadId);
+    releaseTranscriptWindow(this as never, threadId);
     for (const told of [...this.unsubscribed]) told(threadId);
     await this.run('thread/unsubscribe', { threadId }, INTERNAL, undefined, false, options?.sent);
   }
@@ -1922,9 +1949,11 @@ class Engine implements ProtocolClient<Json> {
         : method === 'feed/unsubscribe' && feedId
           ? () => {
               this.recv.delete(feedId);
+              this.feedChains.delete(feedId);
+              if (!this.requestsFor.has(feedId)) this.threadLastEvent.delete(feedId);
               this.repeated.delete(feedId);
               this.awaitingSnapshot.delete(feedId);
-              this.subToken.delete(feedId);
+              this.dropToken(feedId);
               this.subId.delete(feedId);
             }
           : undefined;
@@ -1942,7 +1971,10 @@ class Engine implements ProtocolClient<Json> {
     /** The request this wait is for, when it is not the caller's own (a shared attach): whether it is out is read there. */
     of?: CallLimit
   ): Promise<T> {
-    const limit: CallLimit = { method, expired: false, sent: false };
+    let quit!: (error: ClientFailure) => void;
+    const ended = new Promise<never>((_, reject) => (quit = reject));
+    ended.catch(() => undefined);
+    const limit: CallLimit = { method, expired: false, sent: false, ended };
     const out = (): boolean => (of ?? limit).sent;
     const explicit = timeoutMs !== undefined;
     const ms = timeoutMs ?? this.o.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -1955,6 +1987,7 @@ class Engine implements ProtocolClient<Json> {
         limit.expired = true;
         const cause: ClientErrorDetail = { kind: 'requestTimeout', method, sent: out() };
         abandon(cause);
+        quit(fail(cause));
         reject(fail(opId !== null && out() ? { kind: 'opOutcomeUnknown', opId, state: 'statusFailed', cause } : cause));
       };
       const timer = setTimeout(() => {
@@ -2000,7 +2033,26 @@ class Engine implements ProtocolClient<Json> {
     this.heldRestoring.delete(threadId);
   }
   /** `stay` calls (stub resolution inside the fold) never wait for a reconnect: they reject `connectionLost` instead. */
-  private async run(
+  private run(
+    method: string,
+    params: Json,
+    info: MethodInfo,
+    sync?: (v: Json) => void,
+    stay = false,
+    onSent?: SentClaim,
+    limit?: CallLimit
+  ): Promise<Json> {
+    const named = (params as { threadId?: unknown } | null)?.threadId;
+    if (typeof named !== 'string') return this.runRequest(method, params, info, sync, stay, onSent, limit);
+    this.requestsFor.set(named, (this.requestsFor.get(named) ?? 0) + 1);
+    return this.runRequest(method, params, info, sync, stay, onSent, limit).finally(() => {
+      const left = (this.requestsFor.get(named) ?? 1) - 1;
+      if (left > 0) return this.requestsFor.set(named, left);
+      this.requestsFor.delete(named);
+      if (!this.subs.has(named) && !this.held.has(named)) this.threadLastEvent.delete(named);
+    });
+  }
+  private async runRequest(
     method: string,
     params: Json,
     info: MethodInfo,
@@ -2016,14 +2068,14 @@ class Engine implements ProtocolClient<Json> {
       if (stay) {
         if (this.status.state !== 'ready' || generation !== this.generation) throw fail({ kind: 'connectionLost' });
       } else {
-        await unlessEnded(this.whenReady());
+        await unlessEnded(this.whenReady(limit?.ended));
         // A request naming a held control thread leaves only once that thread is subscribed again on this connection. A resume the
         // core refused (the thread is gone) never lets the request go on naming it: it fails here, nothing sent.
         const naming = (params as { threadId?: unknown } | null)?.threadId;
         const restoring =
           typeof naming === 'string' && method !== 'thread/resume' ? this.heldRestoring.get(naming) : undefined;
         if (restoring) {
-          const lost = await restoring.done;
+          const lost = await unlessEnded(restoring.done);
           if (lost) throw fail(lost);
           continue;
         }
@@ -2040,7 +2092,7 @@ class Engine implements ProtocolClient<Json> {
         if (d.kind === 'rpc' && d.code === -32001) {
           // Refused before it ran: it has not been out.
           if (limit) limit.sent = false;
-          await unlessEnded(this.awaitRetryTrigger(d, sent));
+          await unlessEnded(this.awaitRetryTrigger(d, sent, limit?.ended));
           if (sentGeneration !== this.generation && (method === 'feed/subscribe' || method === 'feed/unsubscribe')) {
             throw fail({ kind: 'connectionLost' });
           }
@@ -2052,25 +2104,36 @@ class Engine implements ProtocolClient<Json> {
     }
   }
 
-  private whenReady(): Promise<void> {
+  private whenReady(ended?: Promise<never>): Promise<void> {
     if (this.status.state === 'ready') return Promise.resolve();
     if (this.terminal) return Promise.reject(fail(this.terminal));
-    return new Promise((ok, err) => this.readyWaiters.push({ ok, err }));
+    return new Promise((ok, err) => {
+      const waiter = { ok, err };
+      this.readyWaiters.push(waiter);
+      // A request that ended no longer waits for the link: its waiter goes with it.
+      ended?.catch(() => {
+        const at = this.readyWaiters.indexOf(waiter);
+        if (at >= 0) this.readyWaiters.splice(at, 1);
+      });
+    });
   }
 
   /** SPEC R7: every trigger is a fact that arrives while the scope progresses; none is a timer. */
-  private async awaitRetryTrigger(d: Extract<ClientErrorDetail, { kind: 'rpc' }>, sent: SentAt): Promise<void> {
+  private async awaitRetryTrigger(d: Extract<ClientErrorDetail, { kind: 'rpc' }>,
+    sent: SentAt,
+    ended?: Promise<never>
+  ): Promise<void> {
     const data = d.data;
     switch (data?.reason) {
       case 'inflightLimit': {
         const cls = data.class;
-        return this.waitUntil(() => this.classResponses[cls] > sent.byClass[cls]);
+        return this.waitUntil(() => this.classResponses[cls] > sent.byClass[cls], ended);
       }
       case 'queueFull':
-        return this.waitUntil(() => this.responses > sent.all);
+        return this.waitUntil(() => this.responses > sent.all, ended);
       case 'windowFull': {
         const t = data.threadId;
-        return this.waitUntil(() => (this.threadLastEvent.get(t) ?? 0) > sent.feed);
+        return this.waitUntil(() => (this.threadLastEvent.get(t) ?? 0) > sent.feed, ended);
       }
       default:
         throw fail(d);
@@ -2291,3 +2354,7 @@ export const connect: Connect = async <S>(options: ConnectOptions<S>) => {
   await engine.start();
   return engine as unknown as ProtocolClient<S>;
 };
+
+
+
+
