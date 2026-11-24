@@ -130,7 +130,11 @@ export async function waitForNpm({
   let last = 'not queried';
   for (;;) {
     try {
-      const response = await fetchFn(`https://registry.npmjs.org/${name}/${version}`);
+      // The publish preflight's 404 for this version is cached by the registry's CDN; no-cache reaches the origin
+      // (scripts/ci/publish-npm.mjs sends the same header).
+      const response = await fetchFn(`https://registry.npmjs.org/${name}/${version}`, {
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (response.ok && (await response.json()).version === version) return [];
       last = `HTTP ${response.status}`;
     } catch (error) {

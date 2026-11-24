@@ -114,6 +114,9 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: Mixdog uses the microphone for voice dictation.
     NSAppleEventsUsageDescription: Mixdog uses AppleScript to show native folder pickers and read clipboard attachments.
+# The updater reads the zip and its blockmap; the dmg is only downloaded by hand, and its blockmap is never uploaded.
+dmg:
+  writeUpdateInfo: false
 linux:
   category: Development
   # hicolor sizes (16-256) generated from build/mixdog.png; the icon name is the

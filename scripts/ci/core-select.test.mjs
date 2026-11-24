@@ -116,6 +116,18 @@ test("the build's own inputs and the gate itself reach every crate", () => {
   }
 });
 
+test('a Node or benchmark test file outside the crates selects no archive build', () => {
+  for (const path of [
+    'scripts/ci/core-select.test.mjs',
+    'scripts/rust-core/tree-helper.test.mjs',
+    'src/runtime/x.test.mjs',
+    'benchmarks/token-lang/measure-exec.test.mjs',
+    'benchmarks/terminal-bench-2.1/harness/tests/test_x.py',
+  ])
+    assert.equal(select([path]).core_build, false, path);
+  assert.equal(select(['benchmarks/token-lang/fixture.json']).core_scope, 'all');
+});
+
 test('the standalone nextest config does not select workspace builds or tests', () => {
   const config = 'native/.config/nextest-standalone.toml';
   assert.equal(select([config]).core_build, false);
@@ -199,17 +211,37 @@ test("a stored program's key moves with the inputs its build compiles, and with 
       mkdirSync(dir, { recursive: true });
       // a real reach into `named`; `zeta` only named in a comment and a string
       const cli =
-        '// like native/core/crates/zeta\nconst PAGE: &str = include_str!("../../named/page.html");\nconst NAME: &str = "crates/zeta";\n';
+        '// like native/core/crates/zeta\nconst PAGE: &str = include_str!("../../named/page.html");\nconst NAME: &str = "crates/zeta";\n' +
+        'const MANIFEST: &str = include_str!("../../../../../src/runtime/manifest.json");\n';
       writeFileSync(join(dir, 'lib.rs'), crate.name === 'mixdog-cli' ? cli : '');
     }
     // a reach from a test file the program's build does not compile
     mkdirSync(join(where, 'native/core/crates/alpha/tests'), { recursive: true });
     writeFileSync(join(where, 'native/core/crates/alpha/tests/it.rs'), '#[path = "../../zeta/src/lib.rs"] mod zeta;\n');
+    // a crate outside the workspace (not in `cargo metadata`), built from a standalone tool's sources
+    const write = (path, text) => {
+      mkdirSync(join(where, path, '..'), { recursive: true });
+      writeFileSync(join(where, path), text);
+    };
+    write('native/core/Cargo.toml', '[workspace.dependencies]\nshim = { path = "crates/shim" }\n');
+    write('native/core/crates/mixdog-cli/Cargo.toml', '[dependencies]\nshim.workspace = true\n');
+    write('native/core/crates/shim/Cargo.toml', '[lib]\npath = "../../../mixdog-tool/src/lib.rs"\n');
+    write('native/core/crates/shim/build.rs', '');
+    write('native/mixdog-tool/src/lib.rs', 'mod inner;\n');
+    write('native/mixdog-tool/src/inner.rs', '');
     const files = [
+      'native/core/Cargo.toml',
+      'native/core/crates/mixdog-cli/Cargo.toml',
+      'native/core/crates/shim/Cargo.toml',
+      'native/core/crates/shim/build.rs',
+      'native/mixdog-tool/src/lib.rs',
+      'native/mixdog-tool/src/inner.rs',
       ...meta.packages.map((crate) => `native/core/crates/${crate.name}/src/lib.rs`),
       'native/core/crates/alpha/tests/it.rs',
       'native/core/Cargo.lock',
       'src/runtime/manifest.json',
+      'src/runtime/unread.json',
+      'scripts/ci/gate.mjs',
       'docs/notes.md',
     ];
     const stage = (changed = '') =>
@@ -223,11 +255,22 @@ test("a stored program's key moves with the inputs its build compiles, and with 
       'native/core/crates/named/src/lib.rs',
       'native/core/Cargo.lock',
       'src/runtime/manifest.json',
+      'native/core/crates/shim/build.rs',
+      'native/mixdog-tool/src/lib.rs',
+      'native/mixdog-tool/src/inner.rs',
     ])
       assert.notEqual(keys(path).store_key_mixdogd, base.store_key_mixdogd, path);
-    // a dev-dependency, a crate the build does not reach, a path outside the core inputs
-    for (const path of ['native/core/crates/probe/src/lib.rs', 'native/core/crates/zeta/src/lib.rs', 'docs/notes.md'])
+    assert.equal(keys('native/mixdog-tool/src/inner.rs').store_key_relay, base.store_key_relay);
+    // a dev-dependency, a crate the build does not reach, a core input no compiled source reads, this gate's scripts
+    for (const path of [
+      'native/core/crates/probe/src/lib.rs',
+      'native/core/crates/zeta/src/lib.rs',
+      'src/runtime/unread.json',
+      'scripts/ci/gate.mjs',
+      'docs/notes.md',
+    ])
       assert.equal(keys(path).store_key_mixdogd, base.store_key_mixdogd, path);
+    assert.equal(keys('src/runtime/manifest.json').store_key_relay, base.store_key_relay, 'the relay reads no manifest');
     assert.equal(keys('native/core/crates/alpha/src/lib.rs').store_key_relay, base.store_key_relay);
     assert.equal(select([]).store_key_mixdogd, undefined, 'no key without the tracked files');
   } finally {

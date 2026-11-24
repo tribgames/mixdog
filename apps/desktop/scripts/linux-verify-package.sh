@@ -33,6 +33,15 @@ deb_root="$work/deb/opt/Mixdog"
 ai_root="$work/appimage/squashfs-root"
 echo "deb payload: $deb_root"
 echo "AppImage payload: $ai_root"
+if [ -n "${GITHUB_ENV:-}" ]; then
+	echo "DEB_ROOT=$deb_root" >>"$GITHUB_ENV"
+	echo "AI_ROOT=$ai_root" >>"$GITHUB_ENV"
+fi
+# For packages whose payloads an earlier job already proved byte for byte (an adopted, digest-checked artifact): extraction only.
+if [ "${MIXDOG_EXTRACT_ONLY:-}" = 1 ]; then
+	echo "payloads extracted"
+	exit 0
+fi
 for root in "$deb_root" "$ai_root"; do
 	for t in computer graph; do
 		want=$(sha256sum "$native/mixdog-$t" | cut -d' ' -f1)
@@ -58,8 +67,4 @@ for root in "$deb_root" "$ai_root"; do
 	echo "== glibc floor: $root"
 	node "$here/linux-glibc-floor.mjs" "$root" "$max" --arch "$arch" --require "$required"
 done
-if [ -n "${GITHUB_ENV:-}" ]; then
-	echo "DEB_ROOT=$deb_root" >>"$GITHUB_ENV"
-	echo "AI_ROOT=$ai_root" >>"$GITHUB_ENV"
-fi
 echo "package verification passed"

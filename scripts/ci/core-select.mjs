@@ -12,10 +12,10 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { isCoreInput, reachesOf, REVIEWED } from './core-inputs.mjs';
+import { buildScriptReads, isCoreInput, reachesOf, REVIEWED } from './core-inputs.mjs';
 
 // A leg takes about this many tests (about 4,370 s of summed test time over 15,902 tests is 0.27 s a test: a leg of this size is
 // four to five minutes of a four-core runner) and a run has at most `maxLegs` legs per OS. A system whose tests run slower
@@ -56,6 +56,13 @@ const WHOLE = [
   /^\.github\/actions\/install-nextest\/action\.yml$/,
   /^scripts\/ci\//,
 ];
+
+// What every program's build reads beyond the crates it compiles: the workspace manifest and lockfile, the cargo config, the
+// patched vendor crates and the toolchain pin.
+const WORKSPACE_INPUTS = /^(native\/core\/(Cargo\.(toml|lock)|\.cargo\/|vendor\/)|rust-toolchain\.toml$)/;
+
+// Node and Python test files, outside the crates, are loaded by no Rust job (a crate's own files are classified by their crate).
+const NODE_TEST = /(?:\.test|-test)\.(?:mjs|ts)$|^benchmarks\/.*(?:\/tests\/|\/test_[^/]*\.py$)/;
 
 // The libraries of four standalone native tools are built into the core by the crates of the same name (their sources are
 // `path = "../../../mixdog-spawn/src/lib.rs"` and so on); their own tests are not compiled by the core.
@@ -185,6 +192,7 @@ function classifyChanges({ changed, all, owner, readers }) {
     if (whole) break;
     // Only the standalone jobs load this file; workspace jobs use native/core/.config/nextest.toml.
     if (path === 'native/.config/nextest-standalone.toml') continue;
+    if (NODE_TEST.test(path) && !owner(path)) continue;
     if (WHOLE.some((re) => re.test(path))) {
       whole = true;
       reasons.push(`${path}: reaches every crate`);
@@ -314,16 +322,17 @@ export const STORES = {
 };
 
 /**
- * The content key of a program built from `packages`: the mode, object and path of every tracked core input (core-inputs.mjs),
- * without the files of the crates its build does not compile. A crate is compiled when it is a normal or build dependency of one
+ * The inputs of a program built from `packages`, as indexes into `stage`: every tracked file of the crates its build compiles, the
+ * workspace manifest, lockfile, cargo config, vendor crates and toolchain pin (WORKSPACE_INPUTS), and the paths outside the crates
+ * that its compiled sources and build scripts read (the folder of a module file read through #[path]). Not this gate, its scripts,
+ * nor the rest of the core inputs. A crate is compiled when it is a normal or build dependency of one
  * compiled (optional ones included, whatever the features), or when a source the build compiles (any but a crate's tests/,
  * benches/ and examples/, and every file a compiled one includes) reaches into it (core-inputs.mjs reachesOf:
  * include_str!, include_bytes!, include!, #[path], the fixture macros, the CARGO_MANIFEST_DIR climbs; a reach to the repository
- * root counts what REVIEWED says it reads, and a reach the scan cannot resolve counts every crate). Every other input stays in the
- * key: the build's own files, the toolchain, this gate and its scripts, the Node runtime the core embeds.
+ * root counts what REVIEWED says it reads, and a reach the scan cannot resolve counts every crate).
  * @param {string[]} stage `git ls-files -s` entries: `<mode> <object> <stage>\t<path>`
  */
-function storeKey({ root, crates, stage, packages }) {
+export function storeInputs({ root, crates, stage, packages }) {
   const byName = new Map(crates.map((crate) => [crate.name, crate]));
   const owner = ownerOf(crates);
   const paths = stage.map((entry) => entry.slice(entry.indexOf('\t') + 1));
@@ -336,12 +345,47 @@ function storeKey({ root, crates, stage, packages }) {
       sources.set(crate.name, [...(sources.get(crate.name) ?? []), path]);
   }
   const built = new Set();
+  const reads = new Set();
   const scanned = new Set();
   const pending = [...packages];
   const files = [];
   const add = (name) => {
     if (name && !built.has(name)) pending.push(name);
   };
+  // A manifest's `path = "../..."` (a [lib] path, a path dependency) reaches beyond its crate.
+  const manifests = new Set();
+  const scanManifest = (dir) => {
+    if (manifests.has(dir) || !tracked.has(`${dir}/Cargo.toml`)) return;
+    manifests.add(dir);
+    const manifest = readFileSync(join(root, dir, 'Cargo.toml'), 'utf8');
+    for (const match of manifest.matchAll(/\bpath\s*=\s*"([^"]+)"/g)) read(posix.normalize(posix.join(dir, match[1])));
+    // `name.workspace = true` takes the path the workspace manifest gives the dependency.
+    for (const match of manifest.matchAll(/^([\w-]+)(?:\.workspace\s*=\s*true|\s*=\s*\{[^}\n]*\bworkspace\s*=\s*true)/gm))
+      if (workspacePaths.has(match[1])) read(posix.normalize(posix.join('native/core', workspacePaths.get(match[1]))));
+  };
+  const workspacePaths = new Map();
+  if (tracked.has('native/core/Cargo.toml'))
+    for (const match of readFileSync(join(root, 'native/core/Cargo.toml'), 'utf8').matchAll(
+      /^([\w-]+)\s*=\s*\{[^}\n]*\bpath\s*=\s*"([^"]+)"/gm
+    ))
+      workspacePaths.set(match[1], match[2]);
+  // A crate outside the workspace (the core's build of native/mixdog-spawn and the three like it, which `cargo metadata` of the
+  // workspace does not list) and a standalone native tool are read whole: manifest, build script and every source, each scanned.
+  const readTree = (dir) => {
+    if (reads.has(dir)) return;
+    reads.add(dir);
+    for (const file of paths) if (file.startsWith(`${dir}/`) && file.endsWith('.rs')) files.push(file);
+    scanManifest(dir);
+  };
+  function read(path) {
+    const crate = owner(path);
+    add(crate?.name);
+    if (crate) return;
+    const tree = /^native\/(?:mixdog-[^/]+|core\/crates\/[^/]+)/.exec(path)?.[0];
+    // otherwise a module file brings its siblings: the folder of a Rust source is read
+    if (tree) readTree(tree);
+    else reads.add(path.endsWith('.rs') ? posix.dirname(path) : path);
+  }
   while (pending.length || files.length) {
     if (pending.length) {
       const name = pending.pop();
@@ -351,25 +395,48 @@ function storeKey({ root, crates, stage, packages }) {
       if (!crate) continue;
       for (const dep of crate.buildDeps) add(dep);
       files.push(...(sources.get(name) ?? []));
+      scanManifest(crate.dir);
       continue;
     }
     const file = files.pop();
     if (scanned.has(file)) continue;
     scanned.add(file);
     const base = owner(file)?.dir ?? file.slice(0, file.lastIndexOf('/'));
-    for (const reach of reachesOf(file, readFileSync(join(root, file), 'utf8'), base)) {
+    const text = readFileSync(join(root, file), 'utf8');
+    for (const reach of reachesOf(file, text, base)) {
       if (reach.path !== undefined) {
-        add(owner(reach.path)?.name);
+        read(reach.path);
         if (reach.path.endsWith('.rs') && tracked.has(reach.path)) files.push(reach.path);
-      } else if (reach.review === 'root') for (const path of REVIEWED[file]?.reads ?? []) add(owner(path)?.name);
+      } else if (reach.review === 'root') for (const path of REVIEWED[file]?.reads ?? []) read(path);
       else for (const other of crates) add(other.name);
     }
+    if (file.endsWith('/build.rs')) for (const path of buildScriptReads(text, base)) read(path);
   }
-  const hash = createHash('sha256').update(`${packages.join(',')}\n`);
+  // A path a compiled source reads that no crate owns: itself and what is under it, else (a file no one tracks, such as a
+  // generated one a build script watches through its folder) the nearest folder that holds a tracked file.
+  const roots = [...reads].map((read) => {
+    let root = read;
+    while (root && root !== '.' && !paths.some((path) => path === root || path.startsWith(`${root}/`)))
+      root = posix.dirname(root);
+    return root;
+  });
+  const inputs = [];
   paths.forEach((path, index) => {
     const crate = owner(path);
-    if (isCoreInput(path) && (!crate || built.has(crate.name))) hash.update(`${stage[index]}\n`);
+    if (
+      crate
+        ? built.has(crate.name)
+        : WORKSPACE_INPUTS.test(path) || roots.some((root) => path === root || path.startsWith(`${root}/`))
+    )
+      inputs.push(index);
   });
+  return { built, inputs };
+}
+
+function storeKey(options) {
+  const { inputs } = storeInputs(options);
+  const hash = createHash('sha256').update(`${options.packages.join(',')}\n`);
+  for (const index of inputs) hash.update(`${options.stage[index]}\n`);
   return hash.digest('hex').slice(0, 40);
 }
 

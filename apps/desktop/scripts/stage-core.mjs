@@ -151,21 +151,23 @@ export async function stageCore({
 
   if (hostOnly) return null;
   if (prebuiltServerCores) return adoptServerCores({ source: prebuiltServerCores, serversDir, targetDir, version });
-  const binaries = {};
-  for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
-    const source = await builtBinary(targetDir, target, key.split('-')[0]);
-    const payloadDir = join(runtimeDir, 'server-js', key);
-    await buildPayload({ key, payloadDir, cacheDir: join(runtimeDir, 'node-cache') });
-    await verifyPayload({ key, payloadDir });
-    await mkdir(join(serversDir, key), { recursive: true });
-    // One upload per platform: the core and its JS runtime, installed together under one version directory.
-    const bundle = await createBundleArchive({ binary: source, payloadDir, out: join(serversDir, key, BUNDLE_FILE) });
-    binaries[key] = {
-      sha256: await sha256Of(source),
-      size: (await readFile(source)).length,
-      bundle: { file: BUNDLE_FILE, ...bundle },
-    };
-  }
+  // The four platforms share nothing but the read-only pinned downloads, so they build side by side.
+  const built = await Promise.all(
+    Object.entries(SERVER_PLATFORM_TARGETS).map(async ([key, target]) => {
+      const source = await builtBinary(targetDir, target, key.split('-')[0]);
+      const payloadDir = join(runtimeDir, 'server-js', key);
+      await buildPayload({ key, payloadDir, cacheDir: join(runtimeDir, 'node-cache') });
+      await verifyPayload({ key, payloadDir });
+      await mkdir(join(serversDir, key), { recursive: true });
+      // One upload per platform: the core and its JS runtime, installed together under one version directory.
+      const bundle = await createBundleArchive({ binary: source, payloadDir, out: join(serversDir, key, BUNDLE_FILE) });
+      return [
+        key,
+        { sha256: await sha256Of(source), size: (await readFile(source)).length, bundle: { file: BUNDLE_FILE, ...bundle } },
+      ];
+    })
+  );
+  const binaries = Object.fromEntries(built);
   const manifest = { version, build: manifestBuild(binaries), binaries };
   await writeFile(join(serversDir, SERVER_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;

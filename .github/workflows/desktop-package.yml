@@ -67,12 +67,9 @@ jobs:
       assets: ${{ steps.windows-assets.outputs.assets || steps.mac-assets.outputs.assets || steps.linux-subject.outputs.assets }}
       mac_feed_id: ${{ steps.mac-feed.outputs.artifact-id }}
       linux_package_id: ${{ steps.linux-package.outputs.artifact-id }}
-    # Preparation overlaps the 90-minute core producer and the shared server bundle
-    # stage. This budget includes that wait plus the former 45-minute packaging work.
-    timeout-minutes: 150
+    timeout-minutes: 60
     permissions:
       contents: write # upload assets to the hidden draft release
-      actions: read # poll this run for the desktop-out artifact and build-desktop-once
     env:
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
       # Outside the checkout: electron-builder runs CommonJS helpers (icon-tool.js)
@@ -110,6 +107,9 @@ jobs:
           npm_key=$(node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json)
           echo "npm_key=$npm_key" >> "$GITHUB_OUTPUT"
           echo "manifest_key=$(node scripts/manifest-cache-key.mjs apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          # The workspace version Deploy rewrites is left out of the main-process module's key (its sources, patches and
+          # dependencies are all in it): prepare-runtime's own marker is version-neutral the same way.
+          echo "main_native_cargo=$(node scripts/cargo-cache-key.mjs native/core/Cargo.toml native/mixdog-main-native/Cargo.lock)" >> "$GITHUB_OUTPUT"
           echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
           # The pin is compiled into the helper, so it keys every cache that
           # holds a built helper (a cache key cannot hold the DN's commas).
@@ -219,7 +219,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.cache/main-native
-          key: desktop-main-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-main-native/**', '!native/mixdog-main-native/target/**', 'native/core/Cargo.toml', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**') }}
+          key: desktop-main-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ steps.runtime-dependencies.outputs.main_native_cargo }}-${{ hashFiles('rust-toolchain.toml', 'native/mixdog-main-native/**', '!native/mixdog-main-native/target/**', '!native/mixdog-main-native/Cargo.lock', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**') }}
       # macOS and Windows bundle the native Computer Use helper, which
       # prepare-runtime builds from native/mixdog-computer for the target
       # (Windows with the runner's cargo, like the other in-repo helpers).
@@ -264,18 +264,15 @@ jobs:
           done
           exit 1
         working-directory: apps/desktop
-      # What the packaged-core smoke needs (scripts/rust-core/smoke-mixdogd.mjs loads the pure-JS `ws`), installed here,
-      # while the producers of the core and the bundles are still building, instead of after the package. The helper
-      # it starts every child through is built once per run (release.yml `tree-helper`, artifact treerun-<target>).
-      - name: Install the core smoke runner's dependencies (root, without scripts)
+      # What the packaged-core smoke needs (scripts/rust-core/smoke-mixdogd.mjs loads the pure-JS, dependency-free `ws`):
+      # the copy the desktop install above already holds, where the script's own module resolution finds it, instead of a
+      # second install of the whole root tree. The helper it starts every child through is built once per run
+      # (mixdogd-build.yml, artifact treerun-<target>).
+      - name: Put the desktop install's ws where the core smoke runner resolves it
         shell: bash
         run: |
-          for attempt in 1 2 3; do
-            npm ci --ignore-scripts --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
+          mkdir -p node_modules
+          cp -r apps/desktop/node_modules/ws node_modules/ws
       - name: Resolve the process-tree helper of this platform
         id: helper
         shell: bash
@@ -396,29 +393,8 @@ jobs:
           # The receipt must exist, be complete and hold a test that ran; a skip here means the runtime this step exists to check was
           # not prepared (the suite skips without one), which is not a pass: --strict accepts no skip, whatever the reviewed list holds.
           node ../../scripts/ci/check-skips.mjs receipts --strict "$MIXDOG_RECEIPT"
-      # This job does not `need` build-desktop-once or the server-cores job
-      # (release.yml), so it prepares the runtime while they build. Poll this
-      # run until each artifact exists; a failed or cancelled producer fails
-      # the step at once instead of waiting out the deadline.
-      - name: Wait for the common desktop output, the server bundles and the process-tree helper
-        timeout-minutes: 125
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HELPER_TARGET: ${{ steps.helper.outputs.target }}
-        run: |
-          # The waits share wall time; do not add independent deadlines serially.
-          bash .github/scripts/wait-for-artifact.sh desktop-out build-desktop-once 120 &
-          desktop_wait=$!
-          bash .github/scripts/wait-for-artifact.sh server-cores server-cores 120 &
-          server_wait=$!
-          bash .github/scripts/wait-for-artifact.sh "treerun-$HELPER_TARGET" "tree-helper-$HELPER_TARGET" 120 &
-          helper_wait=$!
-          status=0
-          wait "$desktop_wait" || status=$?
-          wait "$server_wait" || status=$?
-          wait "$helper_wait" || status=$?
-          exit "$status"
+      # The caller runs this job after build-desktop-once, mixdogd (every target and the process-tree helper) and
+      # server-cores, so every artifact below exists.
       - name: Download common desktop output
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -473,6 +449,18 @@ jobs:
           fi
           echo "name=$output" >> "$GITHUB_OUTPUT"
           echo "started_at=$(node -p 'Date.now()')" >> "$GITHUB_OUTPUT"
+      # The signing module is downloaded from the PowerShell Gallery on every release otherwise; refreshed monthly.
+      - name: Resolve the TrustedSigning module cache month
+        id: signing-module
+        if: inputs.platform == 'win32'
+        shell: bash
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - name: Restore the TrustedSigning module
+        if: inputs.platform == 'win32'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Documents/PowerShell/Modules/TrustedSigning
+          key: trusted-signing-module-v1-${{ steps.signing-module.outputs.month }}
       - name: Build Windows installer
         id: windows-package
         if: inputs.platform == 'win32'
@@ -506,8 +494,10 @@ jobs:
             # Install the signing module once, up front: electron-builder's own
             # install runs per file, in parallel and non-interactively, and left
             # Invoke-TrustedSigning missing for every file.
-            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-            Install-Module -Name TrustedSigning -Scope CurrentUser -Force -Repository PSGallery
+            if (-not (Get-Module -ListAvailable -Name TrustedSigning)) {
+              Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+              Install-Module -Name TrustedSigning -Scope CurrentUser -Force -Repository PSGallery
+            }
             Import-Module TrustedSigning
             if (-not (Get-Command Invoke-TrustedSigning -ErrorAction SilentlyContinue)) {
               Write-Output '::error title=Windows signing unavailable::The TrustedSigning module did not install.'
@@ -520,7 +510,6 @@ jobs:
             exit 1
           }
           "signed=$signed" >> $env:GITHUB_OUTPUT
-          npm run brand:win
           npx --no-install electron-builder --win --x64 --publish never @signArgs
       - name: Verify Windows signatures
         if: inputs.platform == 'win32' && steps.windows-package.outputs.signed == 'true'
@@ -643,15 +632,9 @@ jobs:
           app="dist/$MIXDOG_PACKAGED_OUTPUT/Mixdog.app"
           test -d "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          # stapler validate looks the ticket up on Apple's CloudKit service;
-          # a dropped connection there (NSURLError -1005, exit 68) is retried.
-          # An invalid ticket fails every attempt.
-          for attempt in 1 2 3 4; do
-            if xcrun stapler validate "$app"; then break; fi
-            if [ "$attempt" -eq 4 ]; then exit 1; fi
-            echo "stapler validate failed (attempt $attempt); retrying in 30s"
-            sleep 30
-          done
+          # notarize-mac.cjs stapled the ticket and fails the build when that does not succeed; `stapler validate` would
+          # look it up on Apple's CloudKit service again (exit 68 on a dropped connection). Gatekeeper's assessment
+          # below reads the stapled ticket offline, so a missing or invalid one still fails here.
           spctl --assess --type execute --verbose=4 "$app"
       - name: Verify Linux package payloads (native-tool hashes, glibc floor <= 2.31)
         if: inputs.platform == 'linux'

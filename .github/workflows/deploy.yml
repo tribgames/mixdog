@@ -64,6 +64,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
       - name: Require the default branch
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -278,15 +284,25 @@ jobs:
     permissions:
       contents: write # the candidate ref only (scripts/ci/coverage/wiring.mjs: a candidate writer pushes refs/mixdog-candidates/ and nothing else)
     outputs:
-      sha: ${{ steps.bump.outputs.sha }}
+      sha: ${{ steps.bump.outputs.sha || steps.keep.outputs.sha }}
     steps:
+      # No graph version bump: the deploy's commit is the native commit, so there is nothing to check out or commit.
+      - name: Use the deploy's commit
+        id: keep
+        if: ${{ needs.plan.outputs.graph_bump != 'true' }}
+        env:
+          BASE: ${{ needs.plan.outputs.sha }}
+        run: echo "sha=$BASE" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        if: ${{ needs.plan.outputs.graph_bump == 'true' }}
         with:
           ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
 
       - name: Commit the changed native components' versions
         id: bump
+        if: ${{ needs.plan.outputs.graph_bump == 'true' }}
         env:
           BASE: ${{ needs.plan.outputs.sha }}
           GRAPH_BUMP: ${{ needs.plan.outputs.graph_bump }}
@@ -531,7 +547,7 @@ jobs:
           git add package.json package-lock.json CHANGELOG.md changelog \
             apps/desktop/package.json apps/desktop/package-lock.json \
             apps/relay/package.json apps/relay/package-lock.json \
-            native/core/Cargo.toml native/core/Cargo.lock \
+            native/core/Cargo.toml native/core/Cargo.lock native/mixdog-main-native/Cargo.lock \
             src/runtime/memory/data/runtime-manifest.json \
             src/runtime/channels/data/voice-runtime-manifest.json \
             src/runtime/agent/orchestrator/tools/graph-manifest.json

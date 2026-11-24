@@ -64,8 +64,30 @@ jobs:
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
 
+      # The entry the release gate's desktop jobs save: the same key.
+      - name: Restore the compiled main native module
+        id: main-native
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-${{ hashFiles('native/mixdog-main-native/src/**', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'native/core/vendor/icu_collator/**', 'native/core/Cargo.toml') }}
+          restore-keys: main-native-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-main-native/Cargo.lock', 'native/mixdog-main-native/Cargo.toml', 'native/mixdog-main-native/.cargo/config.toml') }}-
+
       - name: Build the main native module
         run: node apps/desktop/scripts/build-test-native.mjs
+
+      - name: Save the compiled main native module
+        if: steps.main-native.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-main-native/target
+          key: ${{ steps.main-native.outputs.cache-primary-key }}
 
       # The Electron integration entries run under xvfb-run (scripts/suite-health.mjs).
       - name: Install a virtual X server

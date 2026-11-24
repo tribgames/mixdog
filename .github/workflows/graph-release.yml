@@ -148,6 +148,18 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
+      - name: Resolve the version-neutral Cargo.lock key
+        id: cargo-lock
+        shell: bash
+        run: echo "key=$(node scripts/cargo-cache-key.mjs native/mixdog-graph/Cargo.lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: graph-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.cargo-lock.outputs.key }}
       - name: Verify source, toolchain, and protocol
         shell: bash
         run: |
@@ -205,6 +217,18 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
+      - name: Resolve the version-neutral Cargo.lock key
+        id: cargo-lock
+        shell: bash
+        run: echo "key=$(node scripts/cargo-cache-key.mjs native/mixdog-graph/Cargo.lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: graph-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.cargo-lock.outputs.key }}
       - name: Verify source and toolchain
         shell: bash
         run: |
@@ -302,6 +326,18 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
+      - name: Resolve the version-neutral Cargo.lock key
+        id: cargo-lock
+        shell: bash
+        run: echo "key=$(node scripts/cargo-cache-key.mjs native/mixdog-graph/Cargo.lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: graph-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.cargo-lock.outputs.key }}
       - name: Build comparison reproducible binary
         shell: bash
         run: |
@@ -540,12 +576,14 @@ jobs:
             console.log(`${asset.name}\t${asset.id}`);
           }
           NODE
+          : > /tmp/verified-names
           while IFS= read -r NAME; do
             ASSET_ID=$(awk -F '\t' -v name="$NAME" '$1 == name { print $2 }' /tmp/assets.tsv)
             if [ -n "$ASSET_ID" ]; then
               gh api -H "Accept: application/octet-stream" \
                 "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" > "/tmp/${NAME}"
               cmp "_release/${NAME}" "/tmp/${NAME}"
+              echo "$NAME" >> /tmp/verified-names
             else
               ENCODED_NAME=$(NAME=$NAME node -p "encodeURIComponent(process.env.NAME)")
               curl --fail-with-body --silent --show-error --request POST \
@@ -571,7 +609,9 @@ jobs:
             console.log(`${asset.name}\t${asset.id}`);
           }
           NODE
+          # An asset that was already there was compared byte for byte above; only the ones uploaded now are read back.
           while IFS=$'\t' read -r NAME ASSET_ID; do
+            if grep -qxF -- "$NAME" /tmp/verified-names; then continue; fi
             gh api -H "Accept: application/octet-stream" \
               "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" > "/tmp/final-${NAME}"
             cmp "_release/${NAME}" "/tmp/final-${NAME}"

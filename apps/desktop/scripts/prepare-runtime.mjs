@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { access, chmod, cp, mkdir, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -9,6 +9,7 @@ import { embeddingRuntimeTarget, WINDOWS_DML_PRUNABLE_FILES } from '../../../scr
 import { pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import { downloadNativeTool, nativeToolInstalledName } from '../../../scripts/native-tool-download.mjs';
+import { neutralCargoLock, neutralCargoManifest } from '../../../scripts/cargo-cache-key.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
 import { optionValue } from './cli-args.mjs';
 import {
@@ -159,7 +160,9 @@ async function sourceTreeHash(sourceRoot) {
   for (const path of sourceFiles) {
     sourceHash.update(relative(sourceRoot, path).replaceAll(sep, '/'));
     sourceHash.update('\0');
-    sourceHash.update(await readFile(path));
+    // Deploy rewrites the release version in a lock file; the digest keeps every dependency but not that number.
+    const bytes = await readFile(path);
+    sourceHash.update(basename(path) === 'Cargo.lock' ? neutralCargoLock(bytes.toString('utf8')) : bytes);
     sourceHash.update('\0');
   }
   return sourceHash.digest('hex');
@@ -198,7 +201,9 @@ const mainNativeBuiltFileName = {
 async function prepareMainNative() {
   const sourceHashes = [];
   for (const root of mainNativeSourceRoots) sourceHashes.push(await sourceTreeHash(join(rootDir, root)));
-  for (const file of mainNativeSourceFiles) sourceHashes.push(sha256(await readFile(join(rootDir, file))));
+  for (const file of mainNativeSourceFiles) {
+    sourceHashes.push(sha256(neutralCargoManifest(await readFile(join(rootDir, file), 'utf8'))));
+  }
   const identity = { schemaVersion: 1, target: embeddingTarget.key, sourceHash: sha256(sourceHashes.join('\n')) };
   const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
   if (overrideDir && embeddingTarget.platform === 'linux') {

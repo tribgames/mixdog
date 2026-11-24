@@ -32,7 +32,8 @@ manifest=/w/native/core/Cargo.toml
 if [ "${MIXDOG_RELAY_ONLY:-}" != "1" ]; then
 	cargo build --locked --release --manifest-path "$manifest" -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass
 	cargo build --locked --release --manifest-path "$manifest" -p mixdog-entry --bin mixdog
-	cp /tmp/target/release/mixdogd /tmp/target/release/mixdog-askpass /tmp/target/release/mixdog "$out/"
+	cargo build --locked --release --manifest-path /w/scripts/rust-core/tree-helper/Cargo.toml
+	cp /tmp/target/release/mixdogd /tmp/target/release/mixdog-askpass /tmp/target/release/mixdog /tmp/target/release/treerun "$out/"
 fi
 if [ "${MIXDOG_BUILD_RELAY:-}" = "1" ]; then
 	env -u MIXDOG_GOOGLE_OAUTH_CLIENT_ID -u MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \

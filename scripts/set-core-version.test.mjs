@@ -37,12 +37,14 @@ async function tree() {
   await mkdir(join(root, 'native/core'), { recursive: true });
   await writeFile(join(root, 'native/core/Cargo.toml'), MANIFEST);
   await writeFile(join(root, 'native/core/Cargo.lock'), LOCK);
+  await mkdir(join(root, 'native/mixdog-main-native'), { recursive: true });
+  await writeFile(join(root, 'native/mixdog-main-native/Cargo.lock'), LOCK);
   return root;
 }
 
 test('the workspace version and the workspace crates of Cargo.lock move; registry crates and other versions stay', async () => {
   const root = await tree();
-  assert.deepEqual(await setCoreVersion('1.4.6', root), { from: '1.4.5', lockEntries: 1 });
+  assert.deepEqual(await setCoreVersion('1.4.6', root), { from: '1.4.5', lockEntries: 2 });
   assert.equal(await workspaceVersion(join(root, 'native/core/Cargo.toml')), '1.4.6');
   const manifest = await readFile(join(root, 'native/core/Cargo.toml'), 'utf8');
   assert.match(manifest, /serde = \{ version = "1\.4\.5" \}/);
@@ -51,6 +53,8 @@ test('the workspace version and the workspace crates of Cargo.lock move; registr
   assert.match(lock, /name = "mixdog-a"\nversion = "1\.4\.6"/);
   assert.match(lock, /name = "serde"\nversion = "1\.4\.5"\nsource/);
   assert.match(lock, /name = "mixdog-workspace-hack"\nversion = "0\.1\.0"/);
+  const mainNative = await readFile(join(root, 'native/mixdog-main-native/Cargo.lock'), 'utf8');
+  assert.match(mainNative, /name = "mixdog-a"\nversion = "1\.4\.6"/);
 });
 
 test('a version that is not strict MAJOR.MINOR.PATCH changes nothing', async () => {

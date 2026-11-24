@@ -59,6 +59,9 @@ jobs:
   testflight:
     runs-on: macos-15
     timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
     defaults:
       run:
         working-directory: apps/mobile
@@ -215,16 +218,6 @@ jobs:
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_ISSUER"
 
-      - name: Submit to external TestFlight (beta app review)
-        if: github.event_name != 'workflow_dispatch' || inputs.submit_review
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.TESTFLIGHT_EXTERNAL_GROUP_ID || secrets.TESTFLIGHT_EXTERNAL_GROUP_ID }}
-        run: |
-          set -euo pipefail
-          python3 scripts/testflight-submit.py "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}"
-
       # Deploy does not hold the desktop release on iOS, so a failed upload or
       # submission must be impossible to miss in the run summary.
       - name: Report a failed TestFlight release
@@ -244,3 +237,49 @@ jobs:
       - name: Remove API key
         if: always()
         run: rm -rf "$RUNNER_TEMP/appstoreconnect"
+
+  # The beta-review submission only polls App Store Connect over HTTPS until the uploaded build has finished processing (3 min
+  # typically, up to 45): a Linux minute instead of a macOS one. A failed upload never reaches it.
+  submit-review:
+    name: submit-testflight-review
+    needs: [testflight]
+    if: ${{ inputs.submit_review }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Submit to external TestFlight (beta app review)
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.TESTFLIGHT_EXTERNAL_GROUP_ID || secrets.TESTFLIGHT_EXTERNAL_GROUP_ID }}
+          VERSION: ${{ needs.testflight.outputs.version }}
+          BUILD: ${{ needs.testflight.outputs.build }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [ -z "${!name}" ]; then echo "Missing secret $name" >&2; exit 1; fi
+          done
+          key_dir="$RUNNER_TEMP/appstoreconnect"
+          mkdir -p "$key_dir"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          chmod 600 "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          export ASC_KEY_PATH="$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          python3 -m pip install --quiet pyjwt "cryptography>=42"
+          python3 scripts/testflight-submit.py "$VERSION" "$BUILD"
+
+      - name: Report a failed TestFlight submission
+        if: failure()
+        env:
+          VERSION: ${{ needs.testflight.outputs.version }}
+        run: |
+          echo "::error title=iOS TestFlight submission failed::Mixdog iOS ${VERSION:-?} was uploaded but not submitted for beta review. Desktop and Android releases are unaffected; re-run this job once the cause is fixed."
+          printf '### iOS TestFlight submission failed\n\nMixdog iOS %s was uploaded but not submitted for beta review. Desktop and Android releases are unaffected; re-run this job once the cause is fixed.\n' "${VERSION:-?}" >> "$GITHUB_STEP_SUMMARY"

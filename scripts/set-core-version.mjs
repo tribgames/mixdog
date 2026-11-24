@@ -18,7 +18,8 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export async function setCoreVersion(version, root = DEFAULT_ROOT) {
   if (!STRICT.test(version)) throw new Error(`not a strict MAJOR.MINOR.PATCH version: ${version}`);
   const manifestPath = join(root, 'native/core/Cargo.toml');
-  const lockPath = join(root, 'native/core/Cargo.lock');
+  // The desktop's main-process module is a workspace of its own that links two core crates by path, so its lock carries their version.
+  const lockPaths = [join(root, 'native/core/Cargo.lock'), join(root, 'native/mixdog-main-native/Cargo.lock')];
   const from = await workspaceVersion(manifestPath);
 
   const manifest = await readFile(manifestPath, 'utf8');
@@ -32,11 +33,13 @@ export async function setCoreVersion(version, root = DEFAULT_ROOT) {
     'g'
   );
   let lockEntries = 0;
-  const lock = (await readFile(lockPath, 'utf8')).replace(entry, (_, head, tail) => {
-    lockEntries += 1;
-    return `${head}${version}${tail}`;
-  });
-  await writeFile(lockPath, lock);
+  for (const lockPath of lockPaths) {
+    const lock = (await readFile(lockPath, 'utf8')).replace(entry, (_, head, tail) => {
+      lockEntries += 1;
+      return `${head}${version}${tail}`;
+    });
+    await writeFile(lockPath, lock);
+  }
   return { from, lockEntries };
 }
 
