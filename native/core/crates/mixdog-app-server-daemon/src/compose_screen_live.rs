@@ -16,6 +16,7 @@
 //! be carried); nothing else carries it.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -44,7 +45,7 @@ use mixdog_tools::desktop::screen_source::ScreenFrame;
 use mixdog_tools::desktop::screen_source::ScreenSink;
 use mixdog_tools::desktop::screen_source::ScreenViewer;
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::Notify;
 
 use crate::live_view::PhoneScreens;
 
@@ -78,18 +79,81 @@ enum Op {
     Capture(String),
     Channel(String, Value),
     Drawn(String, bool),
-    Frame(String, ScreenFrame),
 }
 
 impl Op {
     fn key(&self) -> &str {
         match self {
-            Self::Geometry(key, _) | Self::Capture(key) | Self::Channel(key, _) | Self::Drawn(key, _) | Self::Frame(key, _) => key,
+            Self::Geometry(key, _) | Self::Capture(key) | Self::Channel(key, _) | Self::Drawn(key, _) => key,
         }
     }
 }
 
 type Event = (Option<u64>, Op);
+
+/// What the sink has reported and the worker has not applied. Control events keep their order; a captured frame is not queued:
+/// the worker takes the latest of each screen, and one it did not take yet is replaced by the next, so a stalled worker holds
+/// at most one picture per screen.
+#[derive(Default)]
+struct Queue {
+    pending: Mutex<Pending>,
+    wake: Notify,
+}
+
+#[derive(Default)]
+struct Pending {
+    events: VecDeque<Event>,
+    /// Keyed by display and session: a trailing frame of an ended session cannot displace the current one's.
+    frames: HashMap<(String, Option<u64>), ScreenFrame>,
+    closed: bool,
+}
+
+enum Next {
+    Event(Event),
+    Frame(String, Option<u64>, ScreenFrame),
+}
+
+impl Queue {
+    fn event(&self, session: Option<u64>, op: Op) {
+        lock(&self.pending).events.push_back((session, op));
+        self.wake.notify_one();
+    }
+
+    fn frame(&self, session: Option<u64>, key: &str, frame: ScreenFrame) {
+        lock(&self.pending).frames.insert((key.to_owned(), session), frame);
+        self.wake.notify_one();
+    }
+
+    fn close(&self) {
+        lock(&self.pending).closed = true;
+        self.wake.notify_one();
+    }
+
+    fn is_closed(&self) -> bool {
+        lock(&self.pending).closed
+    }
+
+    /// The next control event, else the latest frame of a screen; the capacity a drained queue held goes back.
+    fn take(&self) -> Option<Next> {
+        let mut pending = lock(&self.pending);
+        if pending.closed {
+            return None;
+        }
+        if let Some(event) = pending.events.pop_front() {
+            if pending.events.is_empty() {
+                pending.events.shrink_to_fit();
+            }
+            return Some(Next::Event(event));
+        }
+        let key = pending.frames.keys().next().cloned()?;
+        let frame = pending.frames.remove(&key)?;
+        let (key, session) = key;
+        if pending.frames.is_empty() {
+            pending.frames.shrink_to_fit();
+        }
+        Some(Next::Frame(key, session, frame))
+    }
+}
 
 struct Core {
     host: LiveHost,
@@ -100,17 +164,17 @@ struct Core {
 /// The live view's screens (see the module header).
 pub(crate) struct ScreenLive {
     core: Arc<Core>,
-    ops: mpsc::UnboundedSender<Event>,
+    ops: Arc<Queue>,
 }
 
 struct Sink {
-    ops: mpsc::UnboundedSender<Event>,
+    ops: Arc<Queue>,
     session: Option<u64>,
 }
 
 impl Sink {
     fn send(&self, op: Op) {
-        let _ = self.ops.send((self.session, op));
+        self.ops.event(self.session, op);
     }
 }
 
@@ -136,24 +200,41 @@ impl ScreenSink for Sink {
     }
 
     fn frame(&self, key: &str, frame: ScreenFrame) {
-        self.send(Op::Frame(key.to_owned(), frame));
+        self.ops.frame(self.session, key, frame);
     }
 }
 
 impl ScreenLive {
     /// Must be made inside the runtime.
     pub(crate) fn new(host: LiveHost, screens: Arc<dyn PhoneScreens>) -> Arc<Self> {
-        let (ops, mut queue) = mpsc::unbounded_channel::<Event>();
+        let ops = Arc::new(Queue::default());
+        let queue = ops.clone();
         let core = Arc::new(Core { host, screens, feeds: Mutex::default() });
         let worker = core.clone();
         mixdog_rt::spawn("live-view-screen", TaskClass::Work, async move {
-            while let Some((session, op)) = queue.recv().await {
+            loop {
+                let Some(next) = queue.take() else {
+                    if queue.is_closed() {
+                        return;
+                    }
+                    queue.wake.notified().await;
+                    continue;
+                };
                 worker.host.screen_event(|| {
                     // A rapid stop/start can replace the source before its queued stop or
                     // status reaches us. The display key alone no longer identifies it.
-                    let current = lock(&worker.feeds).get(op.key()).and_then(|feed| feed.viewer.as_ref()).map(|viewer| viewer.id());
-                    if session.is_none() || current == session {
-                        worker.apply(op);
+                    let current = |key: &str| lock(&worker.feeds).get(key).and_then(|feed| feed.viewer.as_ref()).map(|viewer| viewer.id());
+                    match next {
+                        Next::Event((session, op)) => {
+                            if session.is_none() || current(op.key()) == session {
+                                worker.apply(op);
+                            }
+                        }
+                        Next::Frame(key, session, frame) => {
+                            if session.is_none() || current(&key) == session {
+                                worker.frame(&key, frame);
+                            }
+                        }
                     }
                 });
             }
@@ -202,6 +283,12 @@ impl ScreenLive {
     }
 }
 
+impl Drop for ScreenLive {
+    fn drop(&mut self) {
+        self.ops.close();
+    }
+}
+
 impl Core {
     fn apply(&self, op: Op) {
         match op {
@@ -220,7 +307,6 @@ impl Core {
             Op::Capture(key) => self.recapture(&key),
             Op::Channel(key, message) => self.host.channel_push(&key, &message.to_string()),
             Op::Drawn(key, drawn) => self.draw(&key, drawn),
-            Op::Frame(key, frame) => self.frame(&key, frame),
         }
     }
 

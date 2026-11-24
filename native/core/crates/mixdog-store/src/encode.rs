@@ -44,12 +44,35 @@ pub fn body_slot<T: Serialize>(value: T) -> Result<(Slot<T>, Option<PendingBlob>
 /// `budget`, else a blob of that encoding. Also returns the inline bytes taken (0 for a
 /// blob): an item's `prompt` slot gets the `INLINE_MAX` its inline `body` leaves.
 pub fn slot_within<T: Serialize>(value: T, budget: usize) -> Result<(Slot<T>, Option<PendingBlob>, usize), EncodeError> {
-    let encoded = serde_json::to_vec(&value)?;
-    if encoded.len() <= budget {
-        return Ok((Slot::Inline(value), None, encoded.len()));
+    if let Some(len) = encoded_within(&value, budget)? {
+        return Ok((Slot::Inline(value), None, len));
     }
-    let (slot, blob) = out_of_line(encoded)?;
+    let (slot, blob) = out_of_line(serde_json::to_vec(&value)?)?;
     Ok((slot, Some(blob), 0))
+}
+
+/// The encoded length of `value` when it is at most `budget`, measured without keeping the bytes; `None` as soon as it is more.
+fn encoded_within<T: Serialize + ?Sized>(value: &T, budget: usize) -> Result<Option<usize>, EncodeError> {
+    struct Count {
+        len: usize,
+        budget: usize,
+    }
+    impl std::io::Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.len += buf.len();
+            if self.len > self.budget { Err(std::io::ErrorKind::OutOfMemory.into()) } else { Ok(buf.len()) }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count { len: 0, budget };
+    match serde_json::to_writer(&mut count, value) {
+        Ok(()) => Ok(Some(count.len)),
+        Err(error) if error.is_io() && count.len > budget => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// A checkpoint state as it is written: every header value of `HEADER_BLOB_MIN` encoded bytes or more out of line
@@ -156,11 +179,10 @@ fn reslot_within<T: Serialize>(slot: &mut Slot<T>, budget: usize, blobs: &mut Ve
     let Slot::Inline(value) = slot else {
         return Ok((None, 0));
     };
-    let encoded = serde_json::to_vec(value)?;
-    if encoded.len() <= budget {
-        return Ok((None, encoded.len()));
+    if let Some(len) = encoded_within(value, budget)? {
+        return Ok((None, len));
     }
-    let (moved, blob) = out_of_line(encoded)?;
+    let (moved, blob) = out_of_line(serde_json::to_vec(value)?)?;
     let digest = blob.digest.clone();
     *slot = moved;
     blobs.push(blob);

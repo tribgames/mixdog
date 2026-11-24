@@ -605,12 +605,11 @@ impl ArchiveStates {
                 move |(_, changes): &(T, Vec<(String, ArchiveEntry)>)| {
                     if !changes.is_empty() {
                         let mut slot = publish.write().unwrap_or_else(PoisonError::into_inner);
-                        let mut next = (**slot).clone();
+                        let next = Arc::make_mut(&mut slot);
                         for (id, entry) in changes {
                             next.entries.insert(id.clone(), *entry);
                         }
                         next.version += 1;
-                        *slot = Arc::new(next);
                     }
                     drop(pending);
                 },
