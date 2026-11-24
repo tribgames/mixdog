@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -104,6 +105,7 @@ impl LoginFlow for FakeFlow {
 struct FakeOAuth {
     has_flow: bool,
     started: Arc<Mutex<Vec<String>>>,
+    signed_in: Arc<AtomicBool>,
 }
 
 impl FakeOAuth {
@@ -120,7 +122,7 @@ impl OAuthProvider for FakeOAuth {
         "openai-oauth"
     }
     async fn describe(&self, _: &str) -> Value {
-        json!({ "authenticated": false })
+        json!({ "authenticated": self.signed_in.load(Ordering::SeqCst) })
     }
     async fn forget(&self, _: &str) -> Result<Value, String> {
         Ok(json!({ "removed": false }))
@@ -137,6 +139,7 @@ struct Rig {
     admin: Arc<ProviderAdmin>,
     world: World,
     started: Arc<Mutex<Vec<String>>>,
+    signed_in: Arc<AtomicBool>,
 }
 
 async fn rig(has_flow: bool, adc: Result<Option<String>, String>) -> Rig {
@@ -158,8 +161,9 @@ async fn rig_over(has_flow: bool, adc: Result<Option<String>, String>, http: Arc
         data_dir: world._dir.path().to_path_buf(),
     });
     let started = Arc::new(Mutex::new(Vec::new()));
+    let signed_in = Arc::new(AtomicBool::new(false));
     let admin = ProviderAdmin::new(
-        vec![Arc::new(FakeOAuth { has_flow, started: started.clone() })],
+        vec![Arc::new(FakeOAuth { has_flow, started: started.clone(), signed_in: signed_in.clone() })],
         world.builder.clone(),
         world.accounts.clone(),
         world.vault.clone(),
@@ -170,7 +174,7 @@ async fn rig_over(has_flow: bool, adc: Result<Option<String>, String>, http: Arc
         usage,
         io(),
     );
-    Rig { admin, world, started }
+    Rig { admin, world, started, signed_in }
 }
 
 fn stored(rig: &Rig, provider: &str) -> Value {
@@ -232,6 +236,61 @@ async fn a_signed_out_account_leaves_no_usage_for_the_next_sign_in() {
     assert!(rig.admin.oauth_usage.read_cached(&route, true).await.is_some());
     rig.admin.forget_provider_auth("openai-oauth", None, "test").await.unwrap();
     assert!(rig.admin.oauth_usage.read_cached(&route, true).await.is_none(), "the forgotten account's reading is gone");
+}
+
+/// The provider's own sign-in on `default`, with no roster stored, measured once.
+async fn measured_without_a_roster() -> Rig {
+    let rig = rig_over(true, Ok(None), Arc::new(SignedIn), Arc::new(SignedIn)).await;
+    rig.signed_in.store(true, Ordering::SeqCst);
+    let login = json!({ "access_token": "tok", "refresh_token": "r", "account_id": "acct-a" });
+    rig.world.accounts.credential_file("openai-oauth", "default").unwrap().save(&login).await.unwrap();
+    let route = RouteInfo { provider: "openai-oauth".into(), model: String::new(), account_id: "default".into() };
+    assert!(rig.admin.oauth_usage.fetch_snapshot(&route, false).await.is_some());
+    rig
+}
+
+#[tokio::test]
+async fn a_reading_without_a_roster_is_stored_listed_and_carried_into_the_row_the_roster_makes() {
+    let rig = measured_without_a_roster().await;
+    let pool = rig.world.accounts.pool("openai-oauth").await.unwrap();
+    assert!(pool.accounts.is_empty(), "measuring makes no roster");
+    assert_eq!(pool.implicit_usage.unwrap().windows[0].used_pct, Some(40.0), "the account store holds the reading");
+    let roster = rig.admin.list_provider_accounts("openai-oauth").await.unwrap();
+    assert_eq!(roster["accounts"][0]["id"], "default");
+    assert_eq!(roster["accounts"][0]["usage"]["windows"][0]["usedPct"], 40.0);
+    rig.admin.update_provider_accounts("openai-oauth", &json!({ "policy": "manual" })).await.unwrap();
+    let pool = rig.world.accounts.pool("openai-oauth").await.unwrap();
+    assert_eq!(pool.accounts[0].id, "default");
+    assert_eq!(pool.accounts[0].usage.as_ref().unwrap().windows[0].used_pct, Some(40.0), "the row made for the sign-in keeps its reading");
+    assert!(pool.implicit_usage.is_none());
+}
+
+#[tokio::test]
+async fn disconnecting_the_account_without_a_roster_removes_its_reading() {
+    let rig = measured_without_a_roster().await;
+    rig.admin.forget_provider_auth("openai-oauth", None, "test").await.unwrap();
+    assert!(rig.world.accounts.pool("openai-oauth").await.unwrap().implicit_usage.is_none());
+}
+
+#[tokio::test]
+async fn the_row_the_roster_makes_takes_no_reading_of_an_earlier_sign_in() {
+    let rig = measured_without_a_roster().await;
+    let other = json!({ "access_token": "tok-b", "refresh_token": "r", "account_id": "acct-b" });
+    rig.world.accounts.credential_file("openai-oauth", "default").unwrap().save(&other).await.unwrap();
+    rig.admin.update_provider_accounts("openai-oauth", &json!({ "policy": "manual" })).await.unwrap();
+    let pool = rig.world.accounts.pool("openai-oauth").await.unwrap();
+    assert_eq!(pool.accounts[0].id, "default");
+    assert_eq!(pool.accounts[0].usage, None, "acct-a's reading is not acct-b's row's");
+    assert!(pool.implicit_usage.is_none());
+}
+
+#[tokio::test]
+async fn a_reading_without_a_roster_of_another_sign_in_lists_no_windows() {
+    let rig = measured_without_a_roster().await;
+    let other = json!({ "access_token": "tok-b", "refresh_token": "r", "account_id": "acct-b" });
+    rig.world.accounts.credential_file("openai-oauth", "default").unwrap().save(&other).await.unwrap();
+    let roster = rig.admin.list_provider_accounts("openai-oauth").await.unwrap();
+    assert_eq!(roster["accounts"][0]["usage"]["windows"], json!([]), "answered as a retired reading, not as none");
 }
 
 #[tokio::test]

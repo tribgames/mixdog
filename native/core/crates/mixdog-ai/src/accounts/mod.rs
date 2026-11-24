@@ -148,9 +148,17 @@ fn normalize(provider: &str, mut pool: Pool) -> Pool {
             row.usage = None;
         }
     }
+    if pool.implicit_usage.as_ref().is_some_and(|u| policy::stale_quota_windows(provider, &u.windows)) {
+        pool.implicit_usage = None;
+    }
     let policy = pool.policy();
     pool.set_policy(policy);
     pool
+}
+
+/// Whether every window of `usage` was measured under the sign-in `stamp` names.
+fn measured_by(usage: &Usage, stamp: Option<&str>) -> bool {
+    stamp.is_some() && usage.windows.iter().all(|w| w.extra.get(model::CREDENTIAL).and_then(Value::as_str) == stamp)
 }
 
 fn pool_of(roster: &Value, provider: &str) -> Pool {
@@ -502,13 +510,18 @@ impl AccountStore {
 
     /// Adds account `id` (and, with `include_default`, the provider's own
     /// credential as `Account 1`), selecting the first account if none is.
+    /// The `default` row made takes the implicit reading only when the
+    /// sign-in in force measured it.
     pub async fn register(&self, provider: &str, id: &str, label: &str, include_default: bool) -> Result<Pool, AccountError> {
         require_id(id)?;
         let (id, label) = (id.to_owned(), slice_utf16(js_trim(label), MAX_LABEL));
+        let current = self.quota_credential(provider, "default").await;
         self.update(provider, move |pool| {
+            let mut implicit = pool.implicit_usage.take().filter(|usage| measured_by(usage, current.as_deref()));
             if include_default && pool.account("default").is_none() {
                 let mut row = Account::new("default");
                 row.label = Some("Account 1".into());
+                row.usage = implicit.take();
                 pool.accounts.insert(0, row);
             }
             if pool.account(&id).is_none() {
@@ -517,6 +530,9 @@ impl AccountStore {
                 }
                 let mut row = Account::new(id);
                 row.label = Some(if label.is_empty() { format!("Account {}", pool.accounts.len() + 1) } else { label });
+                if row.id == "default" {
+                    row.usage = implicit.take();
+                }
                 pool.accounts.push(row);
             }
             if pool.selected_id.is_none() {
@@ -612,6 +628,9 @@ impl AccountStore {
         require_id(id)?;
         let id = id.to_owned();
         self.update(provider, move |pool| {
+            if let Some(usage) = pool.usage_mut(&id) {
+                *usage = None;
+            }
             pool.accounts.retain(|r| r.id != id);
             if pool.selected_id.as_deref() == Some(&id) {
                 pool.selected_id = pool.accounts.first().map(|r| r.id.clone());
@@ -625,7 +644,7 @@ impl AccountStore {
     /// releases a prior refusal, but only on the meters the refusal drew on
     /// and only a MEASURED window.
     pub async fn record_usage(&self, provider: &str, id: &str, windows: Vec<QuotaWindowInput>) -> Result<(), AccountError> {
-        if !self.pool(provider).await?.accounts.iter().any(|r| r.id == id) {
+        if self.pool(provider).await?.usage_mut(id).is_none() {
             return Ok(());
         }
         let id = id.to_owned();
@@ -659,10 +678,17 @@ impl AccountStore {
             .collect();
         let clock = self.clock.clone();
         self.update(provider, move |pool| {
+            let usage = Usage { windows, checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) };
+            if !pool.accounts.iter().any(|r| r.id == id) {
+                if let Some(implicit) = pool.usage_mut(&id) {
+                    *implicit = Some(usage);
+                }
+                return Ok(());
+            }
             let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
                 return Ok(());
             };
-            row.usage = Some(Usage { windows, checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
+            row.usage = Some(usage);
             let usage = row.usage.clone();
             let kept: Vec<Block> = row
                 .blocks()
@@ -690,14 +716,12 @@ impl AccountStore {
         let flag = retired.clone();
         let clock = self.clock.clone();
         self.update(provider, move |pool| {
-            let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
+            let Some(usage) = pool.usage_mut(&id) else {
                 return Ok(());
             };
-            let ours = row.usage.as_ref().is_some_and(|u| {
-                !u.windows.is_empty() && u.windows.iter().all(|w| w.extra.get(model::CREDENTIAL).and_then(Value::as_str) == Some(stamp.as_str()))
-            });
+            let ours = usage.as_ref().is_some_and(|u| !u.windows.is_empty() && measured_by(u, Some(stamp.as_str())));
             if ours {
-                row.usage = Some(Usage { windows: Vec::new(), checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
+                *usage = Some(Usage { windows: Vec::new(), checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
                 flag.store(true, std::sync::atomic::Ordering::Release);
             }
             Ok(())
@@ -741,11 +765,23 @@ impl AccountStore {
         self.update(provider, move |pool| {
             if let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) {
                 row.clear_blocks();
-                row.usage = None;
+            }
+            if let Some(usage) = pool.usage_mut(&id) {
+                *usage = None;
             }
             Ok(())
         })
         .await
+    }
+
+    /// The usage of the implicit `default` account of `pool`, a roster with no account stored. A reading measured
+    /// under a sign-in other than the one in force is answered as a retired one: no windows.
+    pub async fn implicit_usage(&self, provider: &str, pool: &Pool) -> Option<Usage> {
+        let mut usage = pool.implicit_usage.clone().filter(|_| pool.accounts.is_empty())?;
+        if !measured_by(&usage, self.quota_credential(provider, "default").await.as_deref()) {
+            usage.windows.clear();
+        }
+        Some(usage)
     }
 
     /// The additional API key ids of custom provider `provider`, in use order.

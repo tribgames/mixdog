@@ -86,6 +86,17 @@ const USAGE_ROWS_FALLBACK = 2;
 const USAGE_ROWS_LIMIT = 64;
 const rememberedUsage = new Map<string, { windows: UsageWindow[]; checkedAt?: number }>();
 let rememberedRows: Record<string, number> | null = null;
+// An account id is unique within its provider only: every provider's own sign-in is `default`.
+const usageKey = (provider: string, id: string) => `${provider}\u0001${id}`;
+
+/** An account gone from its provider's answer (disconnected) leaves no meters to repaint. */
+function forgetDepartedUsage(provider: string, accounts: ProviderAccount[]): void {
+  const prefix = usageKey(provider, '');
+  const kept = new Set(accounts.map((account) => usageKey(provider, account.id)));
+  for (const key of rememberedUsage.keys()) {
+    if (key.startsWith(prefix) && !kept.has(key)) rememberedUsage.delete(key);
+  }
+}
 
 function usageRowCounts(): Record<string, number> {
   if (rememberedRows) return rememberedRows;
@@ -97,19 +108,23 @@ function usageRowCounts(): Record<string, number> {
   return rememberedRows;
 }
 
-function resolveAccountUsage(account: ProviderAccount): {
+function resolveAccountUsage(
+  provider: string,
+  account: ProviderAccount
+): {
   windows: UsageWindow[];
   checkedAt?: number;
   rows: number;
 } {
   const counts = usageRowCounts();
+  const key = usageKey(provider, account.id);
   const own = account.usage?.windows ?? [];
   if (own.length > 0) {
-    rememberedUsage.set(account.id, { windows: own, checkedAt: account.usage?.checkedAt });
-    if (counts[account.id] !== own.length) {
+    rememberedUsage.set(key, { windows: own, checkedAt: account.usage?.checkedAt });
+    if (counts[key] !== own.length) {
       // Most recent last; only the newest accounts are kept.
-      delete counts[account.id];
-      counts[account.id] = own.length;
+      delete counts[key];
+      counts[key] = own.length;
       for (const stale of Object.keys(counts).slice(0, -USAGE_ROWS_LIMIT)) delete counts[stale];
       try {
         window.localStorage.setItem(USAGE_ROWS_KEY, JSON.stringify(counts));
@@ -121,10 +136,10 @@ function resolveAccountUsage(account: ProviderAccount): {
   }
   // A reading without windows is the core's answer, not one still on its way: what an earlier reading showed is
   // gone. Only an account with no reading (`usage` null, its read still running) keeps its last meters.
-  if (account.usage) rememberedUsage.delete(account.id);
-  const known = account.reauthRequired || account.usage ? undefined : rememberedUsage.get(account.id);
+  if (account.usage) rememberedUsage.delete(key);
+  const known = account.reauthRequired || account.usage ? undefined : rememberedUsage.get(key);
   if (known) return { ...known, rows: known.windows.length };
-  return { windows: [], rows: account.reauthRequired ? 1 : Math.max(1, counts[account.id] || USAGE_ROWS_FALLBACK) };
+  return { windows: [], rows: account.reauthRequired ? 1 : Math.max(1, counts[key] || USAGE_ROWS_FALLBACK) };
 }
 
 /** One row per quota window the account carries, in the sidebar usage flyout's
@@ -320,6 +335,7 @@ const lastPools = new Map<string, Pool>();
 const poolListeners = new Set<() => void>();
 const storePool = (provider: string, pool: Pool) => {
   lastPools.set(provider, pool);
+  forgetDepartedUsage(provider, pool.accounts);
   for (const listener of poolListeners) listener();
 };
 
@@ -767,7 +783,7 @@ export function ProviderAccountsList({
           const selected = pool.selectedId === account.id;
           const selectable = !selected && account.authenticated && !account.reauthRequired;
           const lifted = drag?.moved && drag.from === index;
-          const usage = listOnly ? null : resolveAccountUsage(account);
+          const usage = listOnly ? null : resolveAccountUsage(provider, account);
           let usageNote = '';
           if (usage && account.reauthRequired) usageNote = t('Shown after signing in again');
           else if (usage && usage.windows.length === 0) usageNote = t('Usage not checked yet');

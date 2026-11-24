@@ -692,6 +692,7 @@ impl ProviderAdmin {
             if Self::authenticated(&oauth.describe("default").await) {
                 let mut row = Account::new("default");
                 row.label = Some("Account 1".into());
+                row.usage = self.accounts.implicit_usage(provider, &pool).await;
                 vec![row]
             } else {
                 Vec::new()
