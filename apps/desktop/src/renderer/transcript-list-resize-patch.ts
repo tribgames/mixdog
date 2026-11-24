@@ -220,6 +220,7 @@ function useWidthSyncRegistration({
   }, [surfaceActive]);
   return widthSyncing;
 }
+
 /** Decides whether the core compensates the reader's offset for a row's size
  *  change. The end-anchor total-size delta bypasses it by design: upstream
  *  virtual-core has no hook to hold that write, only its own isScrolling
@@ -259,6 +260,7 @@ function createScrollAdjustmentRule({
     return item.start < top && !instance.itemSizeCache.has(item.key);
   };
 }
+
 /** Patches the virtualizer instance's resize path and scroll-compensation
  *  predicate with this list's deferral, reading-anchor and end-pin rules. */
 export function useVirtualizerResizePatch({

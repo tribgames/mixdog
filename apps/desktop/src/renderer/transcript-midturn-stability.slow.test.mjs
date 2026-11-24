@@ -274,7 +274,8 @@ async function openPage(t, { phone = false, touch = false } = {}) {
   // The phone client marks its surface (mobile-surface.ts): its controls take 44px touch boxes.
   if (phone) await page.setViewport({ width: 412, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   // A desktop window whose primary pointer is coarse (a touch screen): the desktop layout with 44px tap targets.
-  else if (touch) await page.setViewport({ width: 900, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+  else if (touch)
+    await page.setViewport({ width: 900, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   else await page.setViewport({ width: 900, height: 700 });
   await page.setContent(
     `<!doctype html><html ${phone ? 'data-mixdog-mobile-tabs' : ''}><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div></body></html>`
@@ -345,7 +346,12 @@ const end = (extra = {}) => ({
   at: 2_000,
   ...extra,
 });
-const running = (items, extra = {}) => ({ items: [...base, prompt, ...items], busy: true, activityAt: 1_000, ...extra });
+const running = (items, extra = {}) => ({
+  items: [...base, prompt, ...items],
+  busy: true,
+  activityAt: 1_000,
+  ...extra,
+});
 const idle = (items, extra = {}) => ({ items: [...base, prompt, ...items], busy: false, ...extra });
 
 // ---- what a frame may and may not do
@@ -355,7 +361,9 @@ function moves(before, after) {
   const was = new Map(before.rows.map((row) => [row.key, row]));
   return after.rows.map((row) => {
     const old = was.get(row.key);
-    return old ? { key: row.key, dy: row.top - old.top, grew: Math.abs(row.height - old.height) > 1 } : { key: row.key };
+    return old
+      ? { key: row.key, dy: row.top - old.top, grew: Math.abs(row.height - old.height) > 1 }
+      : { key: row.key };
   });
 }
 
@@ -373,7 +381,10 @@ function assertRows(samples, label) {
       before.filter((key) => now.includes(key)),
       `${label} frame ${at}: rows changed places`
     );
-    const rise = Math.min(0, ...moves(samples[at - 1], samples[at]).flatMap((row) => (row.dy === undefined ? [] : [row.dy])));
+    const rise = Math.min(
+      0,
+      ...moves(samples[at - 1], samples[at]).flatMap((row) => (row.dy === undefined ? [] : [row.dy]))
+    );
     for (const row of samples[at - 1].rows) {
       if (now.includes(row.key)) continue;
       // Pushed up out of view by what came in below: it left the screen, not the transcript.
@@ -384,7 +395,8 @@ function assertRows(samples, label) {
   }
 }
 
-const placed = (sample) => sample.rows.map((row) => `${row.key}@${row.top.toFixed(0)}/${row.height.toFixed(0)}`).join(' ');
+const placed = (sample) =>
+  sample.rows.map((row) => `${row.key}@${row.top.toFixed(0)}/${row.height.toFixed(0)}`).join(' ');
 
 /** Pinned, the one rule: in every frame the last row ends `under` above the pane's bottom (the room it has at rest: no
  *  band is ever left under the rows) and the rows stand edge to edge. So a row whose size changed, came or left moves the
@@ -489,7 +501,12 @@ function assertAnchored(before, samples, anchor, label) {
 }
 
 /** Plays `states` from `start` pinned to the bottom, then again scrolled up, and checks every frame. */
-async function playCase(t, start, states, { remountAt = -1, phone = false, touch = false, band = false, frames = null } = {}) {
+async function playCase(
+  t,
+  start,
+  states,
+  { remountAt = -1, phone = false, touch = false, band = false, frames = null } = {}
+) {
   for (const mode of ['pinned', 'scrolled']) {
     const { page, errors } = await openPage(t, { phone, touch });
     const mounted = await page.evaluate((s) => window.fixture.mount(s), start);
@@ -550,7 +567,12 @@ async function playCase(t, start, states, { remountAt = -1, phone = false, touch
     }
     if (band && mode === 'pinned') assertOneBand(all, 'pinned');
     assert.deepEqual(errors, [], `${mode}: no page errors`);
-    t.diagnostic(`${mode}: ${all.length} frames, last rows ${all.at(-1).rows.map((row) => row.key).join(' ')}`);
+    t.diagnostic(
+      `${mode}: ${all.length} frames, last rows ${all
+        .at(-1)
+        .rows.map((row) => row.key)
+        .join(' ')}`
+    );
   }
 }
 
@@ -582,7 +604,12 @@ test('steering while text streams: queued, taken by the turn, and the turn ends'
     running([], { liveItem: streaming(80), steerItems: [steer] }),
     running([settledReply(80), steered('q1', 'Also update the docs')]),
     running([settledReply(80), steered('q1', 'Also update the docs')], { liveItem: { ...streaming(30), id: 'a2' } }),
-    idle([settledReply(80), steered('q1', 'Also update the docs'), { ...settledReply(30), id: 'a2' }, end({ finalAssistantId: 'a2' })]),
+    idle([
+      settledReply(80),
+      steered('q1', 'Also update the docs'),
+      { ...settledReply(30), id: 'a2' },
+      end({ finalAssistantId: 'a2' }),
+    ]),
   ]);
 });
 
@@ -614,7 +641,13 @@ test('send now: the queued message takes the turn over, the end and change card 
     // Its own row takes the sent bubble's place.
     running([patch, takenOver, next], { activityAt: 2_100, still: true }),
     idle(
-      [patch, takenOver, next, { ...settledReply(20), id: 'a2' }, { ...end({ id: 'end2', checkpointId: 'q1', finalAssistantId: 'a2' }) }],
+      [
+        patch,
+        takenOver,
+        next,
+        { ...settledReply(20), id: 'a2' },
+        { ...end({ id: 'end2', checkpointId: 'q1', finalAssistantId: 'a2' }) },
+      ],
       { sealed: true }
     ),
   ]);
@@ -663,13 +696,18 @@ test('a sub-agent report and a goal update arriving while text streams', async (
 
 test('the session hidden and shown again mid-turn, then the turn going on and ending', async (t) => {
   const steer = queued('q1', 'And the tests');
-  await playCase(t, running([tool('t1')], { liveItem: streaming(40) }), [
-    running([tool('t1')], { liveItem: streaming(60), steerItems: [steer] }),
-    running([tool('t1')], { liveItem: streaming(60), steerItems: [steer] }),
-    running([tool('t1')], { liveItem: streaming(80), steerItems: [steer] }),
-    running([tool('t1'), settledReply(80), steered('q1', 'And the tests')]),
-    idle([tool('t1'), settledReply(80), steered('q1', 'And the tests'), end({ finalAssistantId: 'a1' })]),
-  ], { remountAt: 1 });
+  await playCase(
+    t,
+    running([tool('t1')], { liveItem: streaming(40) }),
+    [
+      running([tool('t1')], { liveItem: streaming(60), steerItems: [steer] }),
+      running([tool('t1')], { liveItem: streaming(60), steerItems: [steer] }),
+      running([tool('t1')], { liveItem: streaming(80), steerItems: [steer] }),
+      running([tool('t1'), settledReply(80), steered('q1', 'And the tests')]),
+      idle([tool('t1'), settledReply(80), steered('q1', 'And the tests'), end({ finalAssistantId: 'a1' })]),
+    ],
+    { remountAt: 1 }
+  );
 });
 
 test('read again after a restart: every live row replaced by its stored record', async (t) => {
@@ -725,7 +763,8 @@ const ask = (result) => ({
   ...(result ? { result } : { status: 'running' }),
 });
 const question = { id: 'ap1', kind: 'question', toolCallId: 'ask1', args: askArgs };
-const answeredText = 'User has answered your questions: "Which file?"="a.ts". You can now continue with these answers in mind.';
+const answeredText =
+  'User has answered your questions: "Which file?"="a.ts". You can now continue with these answers in mind.';
 
 test('an ask_user card appearing under streamed text, answered, and the turn going on', async (t) => {
   await playCase(t, running([], { liveItem: streaming(30) }), [
@@ -805,7 +844,14 @@ test('a to-do update and a sub-agent task card report arriving while text stream
     id: 'n1',
     text: '🛠 Agent task',
     at: 1_350,
-    routine: { kind: 'task', name: 'Fence fix', status, summary: 'Fixed the fence', sessionId: 'sess_task_9', sendId: 'atask_1' },
+    routine: {
+      kind: 'task',
+      name: 'Fence fix',
+      status,
+      summary: 'Fixed the fence',
+      sessionId: 'sess_task_9',
+      sendId: 'atask_1',
+    },
   });
   await playCase(t, running([], { liveItem: streaming(30) }), [
     running([settledReply(30), plan(false)], { liveItem: reply2(20) }),
@@ -853,7 +899,11 @@ test('steering while the agent waits on a background task', async (t) => {
   await playCase(t, running([settledReply(30), wait('task', args)]), [
     running([settledReply(30), wait('task', args)], { steerItems: [steer] }),
     running([settledReply(30), wait('task', args, 'Not waiting: a user message is waiting.')], { steerItems: [steer] }),
-    running([settledReply(30), wait('task', args, 'Not waiting: a user message is waiting.'), steered('q1', 'Stop waiting, check the log')]),
+    running([
+      settledReply(30),
+      wait('task', args, 'Not waiting: a user message is waiting.'),
+      steered('q1', 'Stop waiting, check the log'),
+    ]),
   ]);
 });
 
@@ -863,7 +913,9 @@ test('steering while a sub-agent runs', async (t) => {
   await playCase(t, running([settledReply(30), wait('agent', args)]), [
     running([settledReply(30), wait('agent', args)], { steerItems: [steer] }),
     running([settledReply(30), wait('agent', args), steered('q1', 'Tell it to skip the docs')]),
-    running([settledReply(30), wait('agent', args, 'done'), steered('q1', 'Tell it to skip the docs')], { liveItem: reply2(30) }),
+    running([settledReply(30), wait('agent', args, 'done'), steered('q1', 'Tell it to skip the docs')], {
+      liveItem: reply2(30),
+    }),
   ]);
 });
 
@@ -874,7 +926,11 @@ test('steering while a tool approval waits', async (t) => {
   await playCase(t, running([settledReply(30), shell], { approval }), [
     running([settledReply(30), shell], { approval, steerItems: [steer] }),
     running([settledReply(30), wait('shell', { command: 'npm test' }, 'ok')], { steerItems: [steer] }),
-    running([settledReply(30), wait('shell', { command: 'npm test' }, 'ok'), steered('q1', 'Approve it, then continue')]),
+    running([
+      settledReply(30),
+      wait('shell', { command: 'npm test' }, 'ok'),
+      steered('q1', 'Approve it, then continue'),
+    ]),
   ]);
 });
 
@@ -892,39 +948,54 @@ for (const [surface, options] of [
   ['phone', { phone: true }],
   ['touch', { touch: true }],
 ])
-test(`${surface}: a queued message becoming a sent one, taken by the turn and by send now`, async (t) => {
-  const steer = queued('q1', 'Also the docs');
-  const next = queued('q2', 'Use the other file');
-  const takenOver = { ...end({ status: 'cancelled', cause: 'message', toolCount: 1 }), id: 'end' };
-  await playCase(
-    t,
-    running([patch], { liveItem: streaming(20) }),
-    [
-      running([patch], { liveItem: streaming(30), steerItems: [steer] }),
-      running([patch, settledReply(30), steered('q1', 'Also the docs')]),
-      running([patch, settledReply(30), steered('q1', 'Also the docs')], { steerItems: [next] }),
-      running([patch, settledReply(30), steered('q1', 'Also the docs')], {
-        steerItems: [{ ...next, steer: 'sending' }],
-        still: true,
-      }),
-      // The change card's record is read once the session idles: the end stands without it meanwhile.
-      running([patch, settledReply(30), steered('q1', 'Also the docs'), takenOver], {
-        steerItems: [{ ...next, steer: 'sending' }],
-        activityAt: 1_700,
-        sealed: false,
-      }),
-      running([patch, settledReply(30), steered('q1', 'Also the docs'), takenOver, { kind: 'user', id: 'q2', text: 'Use the other file', at: 1_700 }], {
-        activityAt: 1_700,
-        still: true,
-      }),
-    ],
-    options
-  );
-});
+  test(`${surface}: a queued message becoming a sent one, taken by the turn and by send now`, async (t) => {
+    const steer = queued('q1', 'Also the docs');
+    const next = queued('q2', 'Use the other file');
+    const takenOver = { ...end({ status: 'cancelled', cause: 'message', toolCount: 1 }), id: 'end' };
+    await playCase(
+      t,
+      running([patch], { liveItem: streaming(20) }),
+      [
+        running([patch], { liveItem: streaming(30), steerItems: [steer] }),
+        running([patch, settledReply(30), steered('q1', 'Also the docs')]),
+        running([patch, settledReply(30), steered('q1', 'Also the docs')], { steerItems: [next] }),
+        running([patch, settledReply(30), steered('q1', 'Also the docs')], {
+          steerItems: [{ ...next, steer: 'sending' }],
+          still: true,
+        }),
+        // The change card's record is read once the session idles: the end stands without it meanwhile.
+        running([patch, settledReply(30), steered('q1', 'Also the docs'), takenOver], {
+          steerItems: [{ ...next, steer: 'sending' }],
+          activityAt: 1_700,
+          sealed: false,
+        }),
+        running(
+          [
+            patch,
+            settledReply(30),
+            steered('q1', 'Also the docs'),
+            takenOver,
+            { kind: 'user', id: 'q2', text: 'Use the other file', at: 1_700 },
+          ],
+          {
+            activityAt: 1_700,
+            still: true,
+          }
+        ),
+      ],
+      options
+    );
+  });
 
 // ---- the working band through a turn
 
-const divider = { kind: 'statusdone', id: 'divider:k1', status: 'compacted', label: 'Conversation compacted', at: 1_950 };
+const divider = {
+  kind: 'statusdone',
+  id: 'divider:k1',
+  status: 'compacted',
+  label: 'Conversation compacted',
+  at: 1_950,
+};
 const settled3 = (count) => ({ ...settledReply(count), id: 'a3', at: 2_050 });
 
 // The core names a turn's attempt on every row of the turn and on its end.
@@ -966,7 +1037,14 @@ test('back-to-back turns: the working band stays one row from one turn into the 
       running([...first, firstEnd, next], { activityAt: 1_300 }),
       running([...first, firstEnd, next], { activityAt: 1_300, liveItem: reply2(20) }),
       running([...first, firstEnd, next, settled2(20), tool('t2')], { activityAt: 1_300 }),
-      idle([...first, firstEnd, next, settled2(20), tool('t2'), end({ id: 'e2', checkpointId: 'cp2', finalAssistantId: 'a2', at: 1_500 })]),
+      idle([
+        ...first,
+        firstEnd,
+        next,
+        settled2(20),
+        tool('t2'),
+        end({ id: 'e2', checkpointId: 'cp2', finalAssistantId: 'a2', at: 1_500 }),
+      ]),
     ],
     { band: true }
   );
@@ -984,45 +1062,48 @@ const bandOf = (sample) => sample.rows.find((row) => row.tag === 'Thinking');
 const sameBox = (row, other) => Math.abs(row.top - other.top) <= 1 && Math.abs(row.height - other.height) <= 1;
 
 for (const [surface, options] of SURFACES)
-test(`${surface}: Stop pressed while a tool runs: the band says stopping in place until the end row takes its seat`, async (t) => {
-  const tools = [patch, tool('t1', 'running')];
-  const stopping = working('tool-use', { stopping: true });
-  const stopped = [patch, tool('t1'), end({ status: 'cancelled' })];
-  await playCase(
-    t,
-    running(tools, { spinner: working('tool-use') }),
-    [
-      running(tools, { spinner: stopping, still: true }),
-      // The tool ignores the abort: the turn goes on reporting its work.
-      running(tools, { spinner: { ...stopping, mode: 'requesting', outputTokens: 40 }, still: true }),
-      running([patch, tool('t1')], { spinner: stopping }),
-      idle(stopped, { sealed: false, still: true }),
-      idle(stopped, { sealed: true }),
-    ],
-    {
-      ...options,
-      frames({ index, samples, label, pinned, before }) {
-        const was = bandOf(before);
-        for (const [at, sample] of samples.entries()) {
-          const band = bandOf(sample);
-          if (index >= 3) {
-            assert.equal(band, undefined, `${label} frame ${at}: no working band once the turn has ended`);
-            if (index === 3 && pinned) {
-              assert.ok(sameBox(sample.rows.at(-1), was), `${label} frame ${at}: the end row sits in the band's seat`);
+  test(`${surface}: Stop pressed while a tool runs: the band says stopping in place until the end row takes its seat`, async (t) => {
+    const tools = [patch, tool('t1', 'running')];
+    const stopping = working('tool-use', { stopping: true });
+    const stopped = [patch, tool('t1'), end({ status: 'cancelled' })];
+    await playCase(
+      t,
+      running(tools, { spinner: working('tool-use') }),
+      [
+        running(tools, { spinner: stopping, still: true }),
+        // The tool ignores the abort: the turn goes on reporting its work.
+        running(tools, { spinner: { ...stopping, mode: 'requesting', outputTokens: 40 }, still: true }),
+        running([patch, tool('t1')], { spinner: stopping }),
+        idle(stopped, { sealed: false, still: true }),
+        idle(stopped, { sealed: true }),
+      ],
+      {
+        ...options,
+        frames({ index, samples, label, pinned, before }) {
+          const was = bandOf(before);
+          for (const [at, sample] of samples.entries()) {
+            const band = bandOf(sample);
+            if (index >= 3) {
+              assert.equal(band, undefined, `${label} frame ${at}: no working band once the turn has ended`);
+              if (index === 3 && pinned) {
+                assert.ok(
+                  sameBox(sample.rows.at(-1), was),
+                  `${label} frame ${at}: the end row sits in the band's seat`
+                );
+              }
+              continue;
             }
-            continue;
+            if (pinned) assert.ok(band, `${label} frame ${at}: the working band is drawn`);
+            if (!band) continue;
+            assert.match(band.text, /Stopping…/, `${label} frame ${at}: the band says it is stopping`);
+            if (!was) continue;
+            assert.equal(band.key, was.key, `${label} frame ${at}: the band is the row it was`);
+            if (index < 2) assert.ok(sameBox(band, was), `${label} frame ${at}: the band keeps its slot`);
           }
-          if (pinned) assert.ok(band, `${label} frame ${at}: the working band is drawn`);
-          if (!band) continue;
-          assert.match(band.text, /Stopping…/, `${label} frame ${at}: the band says it is stopping`);
-          if (!was) continue;
-          assert.equal(band.key, was.key, `${label} frame ${at}: the band is the row it was`);
-          if (index < 2) assert.ok(sameBox(band, was), `${label} frame ${at}: the band keeps its slot`);
-        }
-      },
-    }
-  );
-});
+        },
+      }
+    );
+  });
 
 /** The frames a compaction's divider arrives in: it has the box the working band had, and no band still says compacting. */
 function assertDividerSeated({ samples, label, pinned, before }, { goesOn }) {
@@ -1090,7 +1171,10 @@ for (const [surface, options] of SURFACES) {
         assertDividerSeated(frame, { goesOn: false });
         for (const sample of frame.samples) assert.equal(bandOf(sample), undefined, `${frame.label}: the band is gone`);
         if (frame.pinned && state.still) {
-          assert.ok(sameBox(frame.samples[0].rows.at(-1), bandOf(frame.before)), `${frame.label}: the divider sits in the band's seat`);
+          assert.ok(
+            sameBox(frame.samples[0].rows.at(-1), bandOf(frame.before)),
+            `${frame.label}: the divider sits in the band's seat`
+          );
         }
       },
     });
@@ -1117,34 +1201,34 @@ for (const [surface, options, height] of [
   ['touch', { touch: true }, 24],
   ['phone', { phone: true }, 28],
 ])
-test(`${surface}: a Stop directly after the prompt leaves an end row of the working band's ${height}px`, async (t) => {
-  // The end as it lands, before the record of the turn's changes is read.
-  const stopped = idle([end({ status: 'cancelled' })], { sealed: false, still: true });
-  await playCase(t, running([]), [stopped], options);
-  const { before, after } = await rowsAcross(t, options, running([]), stopped);
-  assert.notEqual(after.key, before.key, 'the end row took the band’s place');
-  assert.equal(before.height, height, 'the working band');
-  assert.equal(after.height, height, 'the end row');
-});
+  test(`${surface}: a Stop directly after the prompt leaves an end row of the working band's ${height}px`, async (t) => {
+    // The end as it lands, before the record of the turn's changes is read.
+    const stopped = idle([end({ status: 'cancelled' })], { sealed: false, still: true });
+    await playCase(t, running([]), [stopped], options);
+    const { before, after } = await rowsAcross(t, options, running([]), stopped);
+    assert.notEqual(after.key, before.key, 'the end row took the band’s place');
+    assert.equal(before.height, height, 'the working band');
+    assert.equal(after.height, height, 'the end row');
+  });
 
 for (const [surface, options] of [
   ['desktop', {}],
   ['touch', { touch: true }],
   ['phone', { phone: true }],
 ])
-test(`${surface}: a queued bubble and the sent message it becomes are one height`, async (t) => {
-  const steer = queued('q1', 'Also the docs');
-  for (const sent of [steered('q1', 'Also the docs'), { kind: 'user', id: 'q1', text: 'Also the docs', at: 1_600 }]) {
-    const { before, after, touch } = await rowsAcross(
-      t,
-      options,
-      running([tool('t1')], { steerItems: [steer] }),
-      running([tool('t1'), sent]),
-      (rows) => rows.find((row) => /Also the docs/.test(row.text))
-    );
-    assert.equal(touch, surface !== 'desktop', 'the queued line draws its touch targets on a coarse pointer only');
-    assert.ok(before && after, 'the bubble, then its message');
-    const what = sent.steered ? 'the message a turn read' : 'the prompt of the turn it opens';
-    assert.equal(after.height, before.height, `${what} is ${after.height - before.height}px taller than its bubble`);
-  }
-});
+  test(`${surface}: a queued bubble and the sent message it becomes are one height`, async (t) => {
+    const steer = queued('q1', 'Also the docs');
+    for (const sent of [steered('q1', 'Also the docs'), { kind: 'user', id: 'q1', text: 'Also the docs', at: 1_600 }]) {
+      const { before, after, touch } = await rowsAcross(
+        t,
+        options,
+        running([tool('t1')], { steerItems: [steer] }),
+        running([tool('t1'), sent]),
+        (rows) => rows.find((row) => /Also the docs/.test(row.text))
+      );
+      assert.equal(touch, surface !== 'desktop', 'the queued line draws its touch targets on a coarse pointer only');
+      assert.ok(before && after, 'the bubble, then its message');
+      const what = sent.steered ? 'the message a turn read' : 'the prompt of the turn it opens';
+      assert.equal(after.height, before.height, `${what} is ${after.height - before.height}px taller than its bubble`);
+    }
+  });

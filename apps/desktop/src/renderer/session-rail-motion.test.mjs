@@ -108,7 +108,11 @@ test('a card turned round mid-way goes on from where it stands, whichever way', 
   // Where the opening card stands as it is taken away (the fold's own state, stood in for by its style).
   panel.card('todo').style.height = '37px';
   await panel.render('s1', ['info', 'context']);
-  assert.deepEqual(panel.running().map((animation) => animation.card), ['todo'], 'the opening fold gives way to the closing one');
+  assert.deepEqual(
+    panel.running().map((animation) => animation.card),
+    ['todo'],
+    'the opening fold gives way to the closing one'
+  );
   assert.equal(panel.running()[0].frames[0].height, '37px', 'it closes from there, not from its full height');
   assert.equal(panel.running()[0].frames[1].height, '0px');
   // Back again before it has closed: one card of the category, opening from where the closing one stood.
@@ -144,7 +148,11 @@ test('a card back after another has come to stand past its closing one opens whe
   await panel.render('s1', ['changes']);
   await panel.render('s1', ['agents', 'changes']);
   await panel.render('s1', ['agents', 'shells', 'changes']);
-  assert.deepEqual(panel.shown(), ['shells (leaving)', 'agents', 'shells', 'changes'], 'the order of the panel’s own cards is kept');
+  assert.deepEqual(
+    panel.shown(),
+    ['shells (leaving)', 'agents', 'shells', 'changes'],
+    'the order of the panel’s own cards is kept'
+  );
   assert.equal(panel.running().at(-1).frames[0].height, '0px', 'it opens from nothing, the old one closing on its own');
 });
 

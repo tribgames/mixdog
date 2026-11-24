@@ -382,6 +382,52 @@ async fn a_key_read_that_never_ran_fails_the_change_and_leaves_the_stored_key() 
     assert_eq!(w.vault.secrets.lock().unwrap().get(&format!("agent.{id}.apiKey")).map(String::as_str), Some("sk-a"));
 }
 
+/// A save whose roster write fails leaves the keychain as it was: the previous primary key is back
+/// and the additional keys it stored are gone, though the roster restore fails too.
+#[tokio::test]
+async fn a_failed_save_restores_the_keychain_when_the_roster_cannot_be_written() {
+    let w = world(HashMap::new()).await;
+    let base = json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1" });
+    let saved = w.admin.save(json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-old" }), 0).await.unwrap();
+    let id = saved["id"].as_str().unwrap().to_owned();
+    let before = w.vault.secrets.lock().unwrap().clone();
+    let roster = w.accounts.roster_path();
+    std::fs::create_dir_all(roster.parent().unwrap()).unwrap();
+    std::fs::write(roster, r#"{"version":2,"providers":{}}"#).unwrap();
+    let mut input = base.as_object().unwrap().clone();
+    input.insert("id".into(), json!(id));
+    input.insert("schemaVersion".into(), json!(2));
+    input.insert("apiKey".into(), json!("sk-new"));
+    input.insert("extraApiKeys".into(), json!([{ "apiKey": "sk-extra" }]));
+    assert!(w.admin.save(Value::Object(input), 0).await.is_err());
+    assert_eq!(*w.vault.secrets.lock().unwrap(), before);
+}
+
+/// Reading its key from an environment variable leaves no stored additional key in use or listed.
+#[tokio::test]
+async fn switching_to_an_environment_key_drops_the_additional_keys() {
+    let w = world(HashMap::from([("POOL_KEY".to_owned(), "sk-env".to_owned())])).await;
+    let saved = w
+        .admin
+        .save(
+            json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }),
+            0,
+        )
+        .await
+        .unwrap();
+    let id = saved["id"].as_str().unwrap().to_owned();
+    let row = w
+        .admin
+        .save(
+            json!({ "id": id, "schemaVersion": 2, "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKeyEnv": "POOL_KEY" }),
+            0,
+        )
+        .await
+        .unwrap();
+    assert!(row.get("extraApiKeys").is_none());
+    assert!(w.accounts.custom_key_ids(&id).await.unwrap().is_empty());
+}
+
 /// A removal whose additional-key list could not be read deletes nothing, so it can be retried:
 /// an empty list would delete the primary key and leave the additional ones behind.
 #[tokio::test]

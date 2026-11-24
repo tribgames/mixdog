@@ -566,7 +566,7 @@ function LoginDialog({
         </div>
         <footer>
           <span className="conn-grow" />
-          <button type="button" className="conn-btn" disabled={busy} onClick={onClose}>
+          <button type="button" className="conn-btn" disabled={busy} data-settings-nested-close onClick={onClose}>
             {t('Cancel')}
           </button>
           <button

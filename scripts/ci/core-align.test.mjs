@@ -37,13 +37,24 @@ test('a selection names for each crate it selects the features the whole build g
     'mixdog-protocol/default',
     'mixdog-protocol/x',
   ]);
-  assert.deepEqual(mismatches(whole, parseTree('mixdog-rt v1.5.0 (/x) virtual-clock,test-support\n└── syn v2.0.1 parsing\n')), []);
-  const found = mismatches(whole, parseTree('mixdog-protocol v1.5.0 (/x) default\n└── tracing-log v0.2.0 log-tracer,std\n'));
+  assert.deepEqual(
+    mismatches(whole, parseTree('mixdog-rt v1.5.0 (/x) virtual-clock,test-support\n└── syn v2.0.1 parsing\n')),
+    []
+  );
+  const found = mismatches(
+    whole,
+    parseTree('mixdog-protocol v1.5.0 (/x) default\n└── tracing-log v0.2.0 log-tracer,std\n')
+  );
   assert.equal(found.length, 2);
-  assert.match(found[0], /^target mixdog-protocol v1\.5\.0: the selection resolves \[default\], the whole \[codegen,default\]/);
+  assert.match(
+    found[0],
+    /^target mixdog-protocol v1\.5\.0: the selection resolves \[default\], the whole \[codegen,default\]/
+  );
   assert.match(found[1], /^target tracing-log v0\.2\.0/);
   assert.equal(mismatches(whole, parseTree('extra v1.0.0 \n')).length, 1);
   // a partial build adds the workspace crates it resolved otherwise, never a third-party one
-  const partial = parseTree('mixdog-protocol v1.5.0 (/x) default\nmixdog-rt v1.5.0 (/x) test-support,virtual-clock\n└── tracing-log v0.2.0 std\n');
+  const partial = parseTree(
+    'mixdog-protocol v1.5.0 (/x) default\nmixdog-rt v1.5.0 (/x) test-support,virtual-clock\n└── tracing-log v0.2.0 std\n'
+  );
   assert.deepEqual(widening(whole, partial, ['mixdog-protocol', 'mixdog-rt']), ['mixdog-protocol']);
 });

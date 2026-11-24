@@ -210,6 +210,13 @@ struct Record {
     terminal_reason: Option<String>,
     render: Option<RenderFn>,
     turn_stage: Option<(TurnStage, i64)>,
+    /// A later job of its owner's tag started: the tag is that job's, and this one no longer speaks for it.
+    tag_superseded: bool,
+}
+
+/// The session a job reports to, which its lost result is kept for.
+fn owner_of(task: &Record) -> String {
+    js_trim(task.notify_session.as_deref().unwrap_or_default()).to_owned()
 }
 
 fn is_terminal(status: &str) -> bool {
@@ -331,37 +338,53 @@ struct Outgoing {
 struct State {
     tasks: Vec<Record>,
     seq: u64,
-    /// `lostResults` (`close-flow.mjs`): the agents (session id, and the owner's tag) whose undelivered job was pruned.
-    /// A missing job never reads as delivered.
-    lost: std::collections::HashSet<String>,
+    lost: Lost,
 }
 
-/// `lostTagKey`: a tag is one owner's.
-fn lost_tag_key(owner: &str, tag: &str) -> String {
-    format!(
-        "tag:{}
-{tag}",
-        js_trim(owner)
-    )
+/// `lostResults` (`close-flow.mjs`): the agents (session id, and the owner's tag) whose undelivered job was pruned, each
+/// under the owner it reported to. A missing job never reads as delivered. An entry ends with what it describes: its tag
+/// given to a later job, its agent closed or gone, or its owner ended.
+#[derive(Default)]
+struct Lost {
+    /// (owner, session).
+    sessions: std::collections::HashSet<(String, String)>,
+    /// (owner, tag) → the session whose job it was: a tag is one owner's.
+    tags: std::collections::HashMap<(String, String), String>,
 }
 
 /// The eviction listener of `close-flow.mjs`: a pruned job marks its agent lost unless its result was delivered
 /// (`cancelled`, or its completion went out with the body or was read); a later delivered one supersedes an earlier lost.
-fn note_evicted(lost: &mut std::collections::HashSet<String>, task: &Record) {
+/// A job pruned before it had a session marks nothing: no agent of it is there to ask about.
+fn note_evicted(lost: &mut Lost, task: &Record) {
+    let Some(session) = task.meta.session_id.clone().filter(|s| !s.is_empty()) else { return };
     let delivered = task.status == "cancelled" || task.notified_with_body || task.acknowledged;
-    let mut mark = |key: String| {
-        if delivered {
-            lost.remove(&key);
-        } else {
-            lost.insert(key);
+    let owner = owner_of(task);
+    let tag = task.meta.tag.clone().filter(|t| !t.is_empty() && !task.tag_superseded).map(|tag| (owner.clone(), tag));
+    if delivered {
+        lost.sessions.retain(|(_, lost)| *lost != session);
+        if let Some(key) = tag {
+            lost.tags.remove(&key);
         }
-    };
-    if let Some(session) = task.meta.session_id.as_deref().filter(|s| !s.is_empty()) {
-        mark(session.to_owned());
+    } else {
+        if let Some(key) = tag {
+            lost.tags.insert(key, session.clone());
+        }
+        lost.sessions.insert((owner, session));
     }
-    if let Some(tag) = task.meta.tag.as_deref().filter(|t| !t.is_empty()) {
-        mark(lost_tag_key(task.notify_session.as_deref().unwrap_or_default(), tag));
+}
+
+/// The job `task_id` is the newest of its owner's tag: the tag starts with no lost result, and the jobs before it no
+/// longer speak for it.
+fn claim_tag(state: &mut State, task_id: &str) {
+    let Some(task) = state.tasks.iter().find(|t| t.task_id == task_id) else { return };
+    let Some(tag) = task.meta.tag.clone().filter(|t| !t.is_empty()) else { return };
+    let owner = owner_of(task);
+    for earlier in state.tasks.iter_mut().filter(|t| t.task_id != task_id && t.meta.tag.as_deref() == Some(tag.as_str())) {
+        if owner_of(earlier) == owner {
+            earlier.tag_superseded = true;
+        }
     }
+    state.lost.tags.remove(&(owner, tag));
 }
 
 struct Inner {
@@ -576,7 +599,9 @@ impl JobBoard {
             terminal_reason: None,
             render: job.render,
             turn_stage: None,
+            tag_superseded: false,
         });
+        claim_tag(&mut state, &id);
         drop(state);
         self.run(Effects { changed: vec![session_id.unwrap_or_default()], ..Effects::default() });
         Ok(id)
@@ -707,30 +732,49 @@ impl JobBoard {
         (before - count(&state)) as u64
     }
 
-    /// `resultDelivered(row, scopedContext)` (`close-flow.mjs`): the newest job in `scope` that ran the session or the
-    /// tag decides: running, not delivered; else delivered once cancelled, or once its completion went out with the body
-    /// or was read. With no job left, delivered unless one was pruned undelivered ([`note_evicted`]).
+    /// `resultDelivered(row, scopedContext)` (`close-flow.mjs`): the newest job in `scope` that ran the session or holds
+    /// the tag (one a later job of its tag superseded holds it no more) decides: running, not delivered; else delivered once
+    /// cancelled, or once its completion went out with the body or was read. With no job left, delivered unless one was
+    /// pruned undelivered ([`note_evicted`]).
     pub fn result_delivered(&self, session_id: &str, tag: &str, owner: &str, scope: &Scope) -> bool {
         let mut state = self.lock();
         self.prune(&mut state, scope, false);
         let mut latest: Option<&Record> = None;
         for task in state.tasks.iter().filter(|t| matches_scope(t, scope, true)) {
-            let runs = task.meta.session_id.as_deref() == Some(session_id) || (!tag.is_empty() && task.meta.tag.as_deref() == Some(tag));
+            let holds_tag = !tag.is_empty() && !task.tag_superseded && task.meta.tag.as_deref() == Some(tag);
+            let runs = task.meta.session_id.as_deref() == Some(session_id) || holds_tag;
             // The later of two started together wins, as Node's `>=` over the list.
             if runs && latest.is_none_or(|held| task.started_ms >= held.started_ms) {
                 latest = Some(task);
             }
         }
         match latest {
-            None => !state.lost.contains(session_id) && !(!tag.is_empty() && state.lost.contains(&lost_tag_key(owner, tag))),
+            None => {
+                !state.lost.sessions.iter().any(|(_, lost)| lost == session_id)
+                    && !(!tag.is_empty() && state.lost.tags.contains_key(&(js_trim(owner).to_owned(), tag.to_owned())))
+            }
             Some(task) if task.status == "running" => false,
             Some(task) => task.status == "cancelled" || task.notified_with_body || task.acknowledged,
         }
     }
 
-    /// `lostResults.delete(sessionId)`: a dropped row's session holds no lost result.
-    pub fn forget_lost(&self, session_id: &str) {
-        self.lock().lost.remove(session_id);
+    /// `lostResults.delete(sessionId)`: the agent `session_id` was closed or is gone. No result is lost by it or to it any
+    /// more, nor by `owner`'s `tag` (either may be empty).
+    pub fn forget_lost(&self, session_id: &str, tag: &str, owner: &str) {
+        let mut state = self.lock();
+        let Lost { sessions, tags } = &mut state.lost;
+        if !session_id.is_empty() {
+            sessions.retain(|(of, lost)| lost != session_id && of != session_id);
+            tags.retain(|(of, _), lost| lost != session_id && of != session_id);
+        }
+        if !tag.is_empty() {
+            tags.remove(&(js_trim(owner).to_owned(), tag.to_owned()));
+        }
+    }
+
+    /// The session ended (deleted, or torn down as an owner): no result is lost by it or to it any more.
+    pub fn forget_session(&self, session_id: &str) {
+        self.forget_lost(js_trim(session_id), "", "");
     }
 
     /// The bot-chain hop the job was started at (`notifyContext.hop`): its completion is delivered at it.
@@ -757,11 +801,14 @@ impl JobBoard {
     /// `mergeJobMeta`: a later update to a job's identity fields.
     pub fn update_meta(&self, task_id: &str, update: impl FnOnce(&mut JobMeta)) {
         let mut state = self.lock();
-        if let Some(task) = state.tasks.iter_mut().find(|t| t.task_id == task_id) {
-            update(&mut task.meta);
-            if let Some(label) = task.meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| task.meta.session_id.clone().filter(|s| !s.is_empty())) {
-                task.label = Some(label);
-            }
+        let Some(task) = state.tasks.iter_mut().find(|t| t.task_id == task_id) else { return };
+        let tag = task.meta.tag.clone();
+        update(&mut task.meta);
+        if let Some(label) = task.meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| task.meta.session_id.clone().filter(|s| !s.is_empty())) {
+            task.label = Some(label);
+        }
+        if task.meta.tag != tag {
+            claim_tag(&mut state, task_id);
         }
     }
 
@@ -931,7 +978,9 @@ impl JobBoard {
         use mixdog_tools::exec::AgentTaskCancellation;
 
         let selected = |task: &&mut Record| task.task_id == task_id && scope.is_none_or(|scope| matches_scope(task, scope, true));
-        let hook = {
+        let mut effects = Effects::default();
+        // The row reads cancelled before its run is stopped: a run that wakes to the stop settles as cancelled.
+        let (hook, operation) = {
             let mut state = self.lock();
             let task = state.tasks.iter_mut().find(selected)?;
             if is_terminal(&task.status) {
@@ -940,20 +989,10 @@ impl JobBoard {
                 }
                 return Some(AgentTaskCancellation::AlreadySettled { status: task.status.clone() });
             }
-            task.cancel.clone()
-        };
-        // A failing hook must not keep the row from being marked cancelled.
-        if let Some(hook) = hook {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook()));
-        }
-        let mut effects = Effects::default();
-        let result = {
-            let mut state = self.lock();
-            let task = state.tasks.iter_mut().find(selected)?;
             let completion =
                 Completion { error: Some(reason.to_owned()), notify: notice == CancelNotice::Now, terminal_reason, ..Completion::new("cancelled") };
-            let transitioned = self.complete_locked(task, completion, &mut effects);
-            if transitioned && task.notify_on_cancel && notice != CancelNotice::Now && task.cancel_state.is_none() {
+            self.complete_locked(task, completion, &mut effects);
+            if task.notify_on_cancel && notice != CancelNotice::Now && task.cancel_state.is_none() {
                 if notice == CancelNotice::Never {
                     task.cancel_state = Some(CancelState::Silent);
                 } else {
@@ -965,14 +1004,14 @@ impl JobBoard {
                     }));
                 }
             }
-            if transitioned {
-                AgentTaskCancellation::Cancelled { operation: task.operation.clone() }
-            } else {
-                AgentTaskCancellation::AlreadySettled { status: task.status.clone() }
-            }
+            (task.cancel.clone(), task.operation.clone())
         };
+        // A failing hook must not keep the cancellation from being announced.
+        if let Some(hook) = hook {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook()));
+        }
         self.run(effects);
-        Some(result)
+        Some(AgentTaskCancellation::Cancelled { operation })
     }
 
     /// `settleCancelledBackgroundTask`: the cancelled run stopped; its deferred report goes out
@@ -1015,8 +1054,8 @@ impl Tasks for JobBoard {
     fn result_delivered(&self, session_id: &str, tag: &str, owner: &str, scope: &Scope) -> bool {
         JobBoard::result_delivered(self, session_id, tag, owner, scope)
     }
-    fn forget_lost(&self, session_id: &str) {
-        JobBoard::forget_lost(self, session_id);
+    fn forget_lost(&self, session_id: &str, tag: &str, owner: &str) {
+        JobBoard::forget_lost(self, session_id, tag, owner);
     }
 }
 

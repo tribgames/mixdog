@@ -54,7 +54,7 @@ export function useAppPaneChrome({
   activateSelection(selection: NavigationSelection, title: string): void;
   openFileTab(project: string, rel: string, line?: number, accessToken?: string): void;
   startProject(path: string): void;
-  navigateTab(tab: WorkspaceTab): void;
+  navigateTab(tab: WorkspaceTab, leafId?: string): void;
   closeTab(leafId: string, tab: WorkspaceTab): void;
   pinPaneTab(leafId: string, key: string): void;
   renameSession(sessionId: string, title: string): Promise<void>;
@@ -176,7 +176,7 @@ export function useAppPaneChrome({
           }
           paneWorkspace.focusLeaf(leaf.id);
           paneWorkspace.activateTab(leaf.id, tab.key);
-          navigateTab(tab);
+          navigateTab(tab, leaf.id);
         }}
         onCloseTab={(tab) => closeTab(leaf.id, tab)}
         onReorderTab={(sourceKey, targetKey) => paneWorkspace.reorderTab(leaf.id, sourceKey, targetKey)}

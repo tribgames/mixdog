@@ -25,7 +25,14 @@ test('an answered question stands between the calls made before and after it', (
 
 test('an answered question inside a roll-up stands between the members before and after it', () => {
   const plan = (id) => ({ kind: 'tool', id, name: 'update_plan', args: {}, result: 'ok', count: 1, completedCount: 1 });
-  const ask = { kind: 'tool', id: 'ask', name: 'ask_user', args: { questions: [] }, result: answered, completedCount: 1 };
+  const ask = {
+    kind: 'tool',
+    id: 'ask',
+    name: 'ask_user',
+    args: { questions: [] },
+    result: answered,
+    completedCount: 1,
+  };
   const aggregate = {
     kind: 'tool',
     id: 'g',
@@ -40,7 +47,9 @@ test('an answered question inside a roll-up stands between the members before an
     [['p1'], 'ask', ['p2']]
   );
   assert.deepEqual(
-    parts.filter((part) => part.tools).map((part) => [part.tools[0].id, part.tools[0].count, part.tools[0].completedCount]),
+    parts
+      .filter((part) => part.tools)
+      .map((part) => [part.tools[0].id, part.tools[0].count, part.tools[0].completedCount]),
     [
       ['g', 1, 1],
       ['g:1', 1, 1],

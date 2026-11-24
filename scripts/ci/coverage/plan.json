@@ -1346,11 +1346,7 @@
         "name": "macos",
         "os": "macos",
         "listLeg": "macos/core-list/1of1",
-        "testLegs": [
-          "macos/core-tests/1of3#ci",
-          "macos/core-tests/2of3#ci",
-          "macos/core-tests/3of3#ci"
-        ],
+        "testLegs": ["macos/core-tests/1of3#ci", "macos/core-tests/2of3#ci", "macos/core-tests/3of3#ci"],
         "profileLegs": {
           "pg": ["macos/core-pg/1of1#pg"],
           "services-pg": ["macos/core-pg/1of1#services-pg"]

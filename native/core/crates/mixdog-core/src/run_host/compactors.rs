@@ -63,9 +63,6 @@ pub trait CompactionWorld: Send + Sync + 'static {
     /// request the side-question store saved no longer holds the history a later compaction must
     /// summarize.
     fn retire_fork(&self, thread: &ThreadId);
-    /// The agents that run turns outside the loop: a session on one has that agent for its own model, which then
-    /// writes the session's summaries. A world with no summary of its own to route has nothing to bind.
-    fn bind_outside(&self, _agents: Arc<dyn super::factory::OutsideAgents>) {}
 }
 
 pub struct SessionCompactors {
@@ -82,11 +79,6 @@ impl SessionCompactors {
     pub fn with_skills(mut self, catalog: Arc<mixdog_mcp::skill_catalog::SkillCatalog>, arm: Arc<super::skill_session::HeaderSkillArm>) -> Self {
         self.skills = Some((catalog, arm));
         self
-    }
-
-    /// [`CompactionWorld::bind_outside`] of the world the sessions' compactors are built over.
-    pub fn bind_outside(&self, agents: Arc<dyn super::factory::OutsideAgents>) {
-        self.world.bind_outside(agents);
     }
 }
 

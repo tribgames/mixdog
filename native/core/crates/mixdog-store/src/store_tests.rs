@@ -1992,6 +1992,31 @@ fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_transcript_shows_the_base_amends_as_of_the_fork() {
+    let env = Env::new();
+    let base = env.create("b0", None).await;
+    let (base, _) = env.commit(base, vec![user("b1", "one"), user("b2", "two")]).await;
+    let child = env.create("c0", Some(("b0", 3))).await;
+    let (_child, _) = env.commit(child, vec![user("c1", "own")]).await;
+    let amend = rec(json!({"k":"amend","iid":"b1","refs":[],"body":{"inline":{"role":"user","content":"one 2"}}}));
+    let (_base, _) = env.commit(base, vec![amend]).await;
+    let levels = lineage(&[("c0", None), ("b0", Some(3))]);
+    let (rows, _) = env.store.history_page(levels.clone(), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["c1", "b2", "b1"]);
+    assert!(rows.iter().all(|r| r.amend.is_none()), "{rows:?}");
+    let (own, _) = env.store.history_page(lineage(&[("b0", None)]), None, None, 10).await.unwrap();
+    assert!(own[1].amend.is_some());
+}
+
+#[test]
+fn session_id_key_tolerates_ids_outside_the_alphabet() {
+    for id in ["sess_abc.bak", "copy 1", "é"] {
+        let key = crate::schema::sql::session_id_key(id);
+        assert_eq!(key.len(), 2 * id.len() + 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_model_context_follows_the_fork_lineage_as_of_the_fork() {
     let env = Env::new();
     let base = env.create("b0", None).await;
@@ -3134,11 +3159,11 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     drop(open_built(rebuilt.path()));
     assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
 }
+
 /// A boot reconcile whose index cursor stopped behind the log's newest checkpoint reads the log from the anchor before the
 /// cursor, not from its first frame: a damaged frame before that anchor is never read, and the session reconciles to its end.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reconcile_behind_the_newest_checkpoint_reads_from_the_anchor_before_its_cursor() {
-    use crate::schema::record::Record;
     let env = Env::new();
     let w = env.create("s1", None).await;
     let w = env.commit(w, vec![item("a")]).await.0;
@@ -3151,18 +3176,7 @@ async fn a_reconcile_behind_the_newest_checkpoint_reads_from_the_anchor_before_i
     let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
     drop(w);
     let dir = env.dir("s1");
-    let start = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(&dir).unwrap(), file_no: 0, offset: 0 };
-    let mut checkpoints = Vec::new();
-    let mut pos = start;
-    loop {
-        let read = read_forward_unlaned(&dir, pos, 1 << 20).unwrap();
-        checkpoints.extend(read.frames.iter().filter(|(record, ..)| matches!(record, Record::Checkpoint(_))).map(|(_, at, _)| at.ordinal));
-        match read.next {
-            crate::log::ForwardEnd::More(next) => pos = next,
-            crate::log::ForwardEnd::Done { torn: false, .. } => break,
-            other => panic!("the log reads to a clean end: {other:?}"),
-        }
-    }
+    let checkpoints = checkpoints_of(&dir);
     assert!(checkpoints.first().is_some_and(|&first| first < cursor.ordinal), "an anchor before the cursor: {checkpoints:?}, {cursor:?}");
     assert!(checkpoints.last().is_some_and(|&last| last >= cursor.ordinal), "the newest anchor past the cursor: {checkpoints:?}, {cursor:?}");
     let path = dir.join(log_name(0));
@@ -3181,15 +3195,14 @@ async fn a_reconcile_behind_the_newest_checkpoint_reads_from_the_anchor_before_i
         conn.query_row("SELECT status, damage, row_count FROM sessions WHERE id = 's1'", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
     assert_eq!((status.as_str(), damage, rows), ("ok", None, 15));
 }
+
 /// Checkpoint A, the index cursor, a rewind to before A, checkpoint B: the reconcile restores the fold from A, and the rewind
 /// reaches rows A's state does not hold. It is folded all the same, from the log's first frame: the session's rows, cursor and
 /// status are those of a rebuild from the log, and no damage is recorded.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rewind_behind_the_anchor_before_the_cursor_reconciles_as_a_fold_from_the_first_frame() {
-    use crate::schema::record::Record;
     let env = Env::new();
-    let header = json!({"k":"session","v":2,"id":"s1","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}}});
-    let w = env.create_from("s1", rec(header)).await;
+    let w = env.create_from("s1", stamped_session("s1")).await;
     let w = env.commit(w, vec![item("a"), item("b")]).await.0;
     let w = env.commit(w, (0..6).map(|i| big_item(&format!("p{i}"))).collect()).await.0;
     let w = env.commit(w, vec![item("c")]).await.0;
@@ -3202,17 +3215,7 @@ async fn a_rewind_behind_the_anchor_before_the_cursor_reconciles_as_a_fold_from_
     let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
     drop(w);
     let dir = env.dir("s1");
-    let mut checkpoints = Vec::new();
-    let mut pos = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(&dir).unwrap(), file_no: 0, offset: 0 };
-    loop {
-        let read = read_forward_unlaned(&dir, pos, 1 << 20).unwrap();
-        checkpoints.extend(read.frames.iter().filter(|(record, ..)| matches!(record, Record::Checkpoint(_))).map(|(_, at, _)| at.ordinal));
-        match read.next {
-            crate::log::ForwardEnd::More(next) => pos = next,
-            crate::log::ForwardEnd::Done { torn: false, .. } => break,
-            other => panic!("the log reads to a clean end: {other:?}"),
-        }
-    }
+    let checkpoints = checkpoints_of(&dir);
     let a = checkpoints.iter().copied().rfind(|&at| at < cursor.ordinal).expect("a checkpoint before the cursor");
     assert!(2 < a && checkpoints.last().is_some_and(|&b| b > cursor.ordinal), "the rewind's target, A, the cursor, B: {checkpoints:?}, {cursor:?}");
     let reopened = open_index(&env.data).unwrap();
@@ -3685,6 +3688,7 @@ async fn a_fork_of_a_holed_base_takes_no_view_and_its_retirement_is_refused_at_o
     drop(reopened);
     assert_eq!(session_rows_but_sid(&env.data), rebuilt_rows_of_all(&env));
 }
+
 /// A repair that fails to write the index fails every way into its session with its reason: a read, a write, a read from
 /// inside a read-lane job, and the wait for every repair. None answers from the rows the crash left, a listing takes the
 /// session as not answerable, and the other sessions owed a repair are repaired and served.
@@ -3860,6 +3864,14 @@ async fn sessions_not_under_repair_are_served_while_the_repair_of_another_is_hel
 #[derive(Default)]
 struct ToldRows(Mutex<Vec<RowEdge>>);
 
+impl ToldRows {
+    /// `(summary before, summary after)` of each change told of `id`.
+    fn summaries_of(&self, id: &str) -> Vec<(Option<String>, String)> {
+        let edges = self.0.lock().unwrap();
+        edges.iter().filter(|edge| edge.id == id).map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect()
+    }
+}
+
 impl RowSink for ToldRows {
     fn written(&self, edge: RowEdge) {
         self.0.lock().unwrap().push(edge);
@@ -3932,10 +3944,7 @@ async fn a_rebuild_tells_its_final_row_against_the_row_from_before_it() {
     mixdog_rt::time::timeout(REPAIR_BOUND, reopened.reconciled()).await.expect("the repairs ended").unwrap();
     let after = reopened.summary("s1").await.unwrap().expect("listed");
     assert_eq!(after, before, "the rebuild ends with the row from before it");
-    let edges = told.0.lock().unwrap().clone();
-    let told: Vec<_> =
-        edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
-    assert_eq!(told, [(Some(before), after)]);
+    assert_eq!(told.summaries_of("s1"), [(Some(before), after)]);
 }
 
 /// A row sink set while a rebuild replays its log (the composition wires its publication after the repairs started) is
@@ -3953,10 +3962,7 @@ async fn a_row_sink_set_during_a_rebuild_is_told_of_its_final_row() {
     release.send(()).unwrap();
     mixdog_rt::time::timeout(REPAIR_BOUND, repaired).await.expect("the repairs ended").unwrap().unwrap();
     let after = reopened.summary("s1").await.unwrap().expect("listed");
-    let edges = told.0.lock().unwrap().clone();
-    let told: Vec<_> =
-        edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
-    assert_eq!(told, [(Some(before), after)]);
+    assert_eq!(told.summaries_of("s1"), [(Some(before), after)]);
 }
 
 /// The repairs start once the withheld set is committed, not at the open, and a session an access asks for is the next
@@ -4209,6 +4215,7 @@ async fn a_serving_write_commits_between_the_transactions_of_a_refold() {
     built.close();
     assert_eq!(rows_but_the_written(&env.data), rows_but_the_written(clean.path()));
 }
+
 // ---------------------------------------------------------------------------------------
 // Catalog rows against Node's `_sessionSummary` on the migration corpus.
 
@@ -5016,4 +5023,35 @@ async fn an_index_of_version_20_gains_the_boundary_columns_in_place() {
     assert_eq!(occurrences(&units).into_iter().map(|o| o.1).collect::<Vec<_>>(), ["b", "divider:k1", "a"]);
     assert!(reopened.unit_anchor(lineage(&[("s1", None)]), None, vec!["divider:k1".into()], Some("k1".into())).await.unwrap().is_some());
     reopened.close();
+}
+
+/// A writer in a pending rollback that lost the log refuses `append` and `retry_storage` before it cuts the file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_append_and_a_retry_check_ownership_before_they_run_a_pending_rollback() {
+    let env = Env::new();
+    let owned = Arc::new(MockOwnership::default());
+    let deps = WriterDeps { ownership: owned.clone(), ..env.deps() };
+    env.store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
+    let dir = env.dir("s1");
+    let w = on_lane(move |l| LogWriter::create(l, &dir, stamped_session("s1"), deps).unwrap().0).await;
+    let path = env.dir("s1").join(log_name(0));
+    {
+        let mut faults = env.io.0.lock().unwrap();
+        faults.sync = 1;
+        faults.truncate = 2;
+    }
+    let (w, failed) = env.append(w, vec![item("a")]).await;
+    assert!(matches!(failed, Err(AppendError::Indeterminate(_))), "{failed:?}");
+    assert!(matches!(w.state(), WriterState::PendingRollback { .. }));
+    let left = std::fs::metadata(&path).unwrap().len();
+    owned.lose(mixdog_core_api::domain::ownership::FenceReason::LockLost);
+    let (w, retried) = on_lane(move |l| {
+        let mut w = w;
+        let retried = w.retry_storage(l);
+        (w, retried)
+    })
+    .await;
+    assert!(matches!(retried, Err(AppendError::Fenced { .. })), "{retried:?}");
+    assert!(matches!(w.state(), WriterState::Fenced(_)));
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), left, "a writer that lost the log cut its file");
 }

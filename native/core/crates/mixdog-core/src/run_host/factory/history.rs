@@ -12,6 +12,14 @@ pub(super) enum HistoryRow {
 }
 
 impl HistoryRow {
+    /// A message read from its stored row, kept as that row (shared with the message).
+    pub(super) fn held(message: &AgentMessage) -> Self {
+        match &message.stored {
+            Some(stored) => HistoryRow::Stored(stored.clone()),
+            None => HistoryRow::Message(Box::new(message.clone())),
+        }
+    }
+
     /// The message: the row read back as it was read when the turn began (the same row, the same codec).
     pub(super) fn message(&self) -> AgentMessage {
         match self {
@@ -135,6 +143,7 @@ impl mixdog_agent::env::StoredHistory for ReloadedHistory {
         let generation = self.gate.0.generation();
         let stored = self.context.read().await.map_err(|error| format!("model context unreadable: {error:?}"))?;
         let mut messages = Vec::new();
+        let mut base = Vec::new();
         for (iid, body) in stored {
             let message = mixdog_agent::message_row::message_of_owned(body)
                 .map_err(|(error, _)| format!("the model context holds a row this build cannot read: {error}"))?;
@@ -142,11 +151,14 @@ impl mixdog_agent::env::StoredHistory for ReloadedHistory {
                 continue;
             }
             if let Some(id) = &message.message_id {
-                lock(&self.sink.iids).insert(id.clone(), iid);
+                lock(&self.sink.iids).insert(id.clone(), iid.clone());
             }
             self.sink.rows.record_stored(&message);
+            base.push((iid, HistoryRow::held(&message)));
             messages.push(message);
         }
+        // The store holds every row the run queued (they landed before the read): the context restarts here.
+        self.sink.restart(base);
         Ok((messages, generation))
     }
 }

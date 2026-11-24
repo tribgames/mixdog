@@ -102,7 +102,7 @@ use super::turn_inputs::CatalogVision;
 use super::turn_path::TurnPathParts;
 
 /// TurnPathParts.hops: built once the directory and the registry exist.
-pub type HopsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>;
+pub type HopsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<dyn RouteFacts>) -> HopFactory>;
 
 /// HopSessions of a directory.
 pub type HopSessionsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>) -> Arc<dyn HopSessions> + Send>;
@@ -279,7 +279,7 @@ pub struct ReadyRows {
     pub allow_all: Arc<ConfigAllowAll>,
 }
 
-/// `TurnPathParts.hops`: the route hop over the directory and the path's registry. `sessions` builds
+/// `TurnPathParts.hops`: the route hop over the directory and the path's route facts. `sessions` builds
 /// the `HopSessions` of the directory (`SessionHops` over a `SessionRouteAdapter`).
 pub fn hops(
     process: &ProcessServices,
@@ -289,9 +289,9 @@ pub fn hops(
 ) -> HopsBuilder {
     let (config, catalog) = (process.config.clone(), process.catalog.clone());
     let (errors, wiring) = (hop.errors.clone(), hop.wiring.clone());
-    Box::new(move |directory, registry| {
+    Box::new(move |directory, facts| {
         let deps = HopDeps {
-            registry: registry.clone(),
+            facts: facts.clone(),
             catalog,
             // `getConfigSnapshot()` is the agent config (`providers`, `default`, presets), the file's `agent` section.
             config: Arc::new(move || config.agent()),
@@ -299,7 +299,7 @@ pub fn hops(
             errors,
             wiring,
         };
-        HopFactory::new(deps, sessions(directory)).with_eligibility(Arc::new(mixdog_core_run::run_host::hop_host::RegistryEligibility(registry.clone())))
+        HopFactory::new(deps, sessions(directory)).with_eligibility(Arc::new(mixdog_core_run::run_host::hop_host::RegisteredEligibility(facts.clone())))
     })
 }
 
@@ -448,7 +448,7 @@ pub fn pending_rows(directory: &Arc<SessionDirectory>, clock: Arc<dyn mixdog_cor
 /// The live route cell of every thread: a thread's first read, and a held route being adopted, resolve
 /// through the saved config (`resolveRoute(getConfig(), request)`, `boot/shared.mjs:19`). The same
 /// `Arc` is the `LiveRoute` of `ConfigHosts` and the `RouteCell` of `LiveRouteWriter`.
-pub fn live_routes(config: Config, facts: Arc<CatalogFacts>) -> Arc<SessionRoutes> {
+pub fn live_routes(config: Config, facts: Arc<dyn RouteFacts>) -> Arc<SessionRoutes> {
     Arc::new(SessionRoutes::new(move |request: &Route| resolve_route(&config.agent(), request, &|provider, full| facts.is_known(provider, full))))
 }
 
@@ -740,8 +740,10 @@ pub struct ConfigHostsIn {
     pub routes: Arc<dyn LiveRoute>,
     pub gauge: Arc<dyn ContextStatusCache>,
     pub agents: Arc<AgentDefinitions>,
-    /// The catalog and readiness; answers both `RouteFacts` and `ProvidersReady`.
-    pub facts: Arc<CatalogFacts>,
+    /// What a route's provider is, an agent's route included.
+    pub facts: Arc<dyn RouteFacts>,
+    /// The catalog's readiness of whole provider maps.
+    pub ready: Arc<CatalogFacts>,
     pub refresh: Arc<dyn AuthRefresh>,
     pub env: Env,
     /// Whether a route provider is an outside agent's.
@@ -755,8 +757,8 @@ pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
         routes: input.routes,
         gauge: input.gauge,
         agents: input.agents,
-        facts: input.facts.clone(),
-        ready: input.facts,
+        facts: input.facts,
+        ready: input.ready,
         refresh: input.refresh,
         env: input.env,
         agent_providers: input.agent_providers,
@@ -813,20 +815,16 @@ pub struct Owed {
 }
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
 /// `ready` and `owed`.
-pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, early: EarlyRows, mut ready: ReadyRows, owed: Owed) -> TurnPathParts {
+pub fn turn_path_parts(process: &ProcessServices, facts: Arc<dyn RouteFacts>, early: EarlyRows, mut ready: ReadyRows, owed: Owed) -> TurnPathParts {
     let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
-    // A session on an agent outside the loop has that agent for its own model: its summaries are the agent's to write.
-    if let Some(agents) = &owed.outside {
-        owed.compactors.bind_outside(agents.clone());
-    }
     let env = ready.auto_effort_env;
     let clock = owed.clock.clone();
     ready.settings.first_auto_effort = Some(Arc::new(super::auto_effort::TurnAutoEffort::new(
         ready.auto_effort,
         Arc::new(super::turn_judge::ModelTurnJudge::new(owed.effort_judge.clone(), &env)),
         ready.ladder.clone(),
-        Arc::new(super::auto_effort::RegistryConfiguration::new(
-            registry.clone(),
+        Arc::new(super::auto_effort::RouteConfiguration::new(
+            facts.clone(),
             ready.hop.source.clone(),
             process.unsupported.clone(),
             ready.hop.codex_declared.clone(),
@@ -840,7 +838,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         tokens: owed.tokens,
         clock: owed.clock,
         paths: owed.paths,
-        registry,
+        facts,
         effort_judge: owed.effort_judge,
         side: owed.side,
         next: owed.next,

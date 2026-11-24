@@ -19,6 +19,23 @@ use crate::transport::http::BidiOpen;
 use crate::transport::http::FrameSink;
 use crate::transport::http::HttpResponse;
 
+struct NoBody;
+
+#[async_trait]
+impl crate::transport::http::BodyStream for NoBody {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        None
+    }
+}
+
+struct Silent;
+
+impl FrameSink for Silent {
+    fn send(&self, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::provider::TransportFault> {
+        Ok(())
+    }
+}
+
 struct Token;
 
 #[async_trait]
@@ -64,19 +81,6 @@ async fn an_in_place_retry_that_finds_the_sign_out_sends_nothing() {
         }
     }
 
-    struct NoBody;
-    #[async_trait]
-    impl crate::transport::http::BodyStream for NoBody {
-        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-            None
-        }
-    }
-    struct Silent;
-    impl FrameSink for Silent {
-        fn send(&self, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::provider::TransportFault> {
-            Ok(())
-        }
-    }
     /// Every run is refused with a 500; the bearer of each is kept.
     struct Down(std::sync::Mutex<Vec<String>>);
     #[async_trait]
@@ -339,6 +343,14 @@ async fn only_a_401_of_the_primary_call_refuses_the_sign_in() {
     assert_eq!(http.requests.lock().unwrap().len(), 8, "every attempt of the ladder was made");
 }
 
+/// The request reads text and base64 images only, so the route declares it takes no document and the attachments of any
+/// other kind are lowered to text before the request is built, instead of vanishing.
+#[test]
+fn the_route_takes_no_document_so_attachments_are_lowered_to_text() {
+    let (_, adapter) = adapter(Vec::new());
+    assert_eq!((adapter.native_pdf(), adapter.native_documents()), (false, Some(false)));
+}
+
 /// Node's `session.selectedContextWindow` decides Max mode: the route's saved `context` choice names the window.
 #[test]
 fn the_routes_context_choice_is_the_selected_window() {
@@ -434,19 +446,6 @@ async fn an_exhausted_cold_discovery_prefers_the_installed_catalog_to_the_fallba
 /// fresh conversation id, once per streak of failures; the scope's record goes when the scope ends.
 #[tokio::test]
 async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_forgets_it() {
-    struct Silent;
-    impl FrameSink for Silent {
-        fn send(&self, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::provider::TransportFault> {
-            Ok(())
-        }
-    }
-    struct NoBody;
-    #[async_trait]
-    impl crate::transport::http::BodyStream for NoBody {
-        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-            None
-        }
-    }
     mixdog_rt::testing::tokens();
     let (_http, adapter) = adapter(Vec::new());
     let derived = adapter.conversation_of("s1");
@@ -507,19 +506,6 @@ async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_
 async fn a_throttled_conversation_is_retried_under_a_fresh_id() {
     struct Throttled(std::sync::Mutex<Vec<Vec<u8>>>);
 
-    struct Silent;
-    impl FrameSink for Silent {
-        fn send(&self, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::provider::TransportFault> {
-            Ok(())
-        }
-    }
-    struct NoBody;
-    #[async_trait]
-    impl crate::transport::http::BodyStream for NoBody {
-        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-            None
-        }
-    }
     #[async_trait]
     impl BidiOpen for Throttled {
         async fn open(&self, _: WireRequest, first: Vec<u8>, _: crate::transport::Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {

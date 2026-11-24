@@ -111,6 +111,21 @@ impl Table {
         Self { procs, at, children, unreadable: unreadable.into_iter().collect() }
     }
 
+    /// The table of `pids`, each read with `row`: a pid the kernel will not show us is listed as unreadable and the
+    /// read goes on.
+    pub(crate) fn scan(pids: impl IntoIterator<Item = u32>, row: impl Fn(u32) -> io::Result<Row>) -> io::Result<Self> {
+        let mut procs = Vec::new();
+        let mut unreadable = Vec::new();
+        for pid in pids {
+            match row(pid)? {
+                Row::Readable(proc) => procs.push(proc),
+                Row::Absent => {}
+                Row::Unreadable => unreadable.push(pid),
+            }
+        }
+        Ok(Self::with_unreadable(procs, unreadable))
+    }
+
     pub(crate) fn row(&self, pid: u32) -> Row {
         match self.at.get(&pid) {
             Some(&index) => Row::Readable(self.procs[index].clone()),
@@ -158,7 +173,8 @@ pub(crate) trait Signals: Send + Sync {
     fn group(&self, pgid: u32, signal: Signal) -> bool;
     /// The same for one process.
     fn process(&self, pid: u32, signal: Signal) -> bool;
-    /// Shutdown may signal an individual only through a stable OS handle.
+    /// SIGKILL to `target` only while it is still that process, the one way shutdown signals an individual: `false`
+    /// when nothing was sent.
     fn kill_identified(&self, _target: &Identity) -> bool {
         false
     }
@@ -458,13 +474,19 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
         self.signals.group(self.root, Signal::Probe)
     }
 
-    /// The caller holds the reap lock and started the leader with `setsid`.
-    /// Another session cannot join this group, and the unreaped PID cannot
-    /// be reused. Neither guarantee depends on a process-table read.
-    pub(crate) fn shutdown_private_group(&self) {
+    /// Keeps what the group holds for [`Self::shutdown_descendants`], which may come once the group id is anyone's. The
+    /// root was started with `setsid` and cannot be reaped meanwhile (the caller is its reaper, or holds the reap lock):
+    /// another session cannot join this group, and the unreaped PID cannot be reused. Neither guarantee depends on a
+    /// process-table read.
+    pub(crate) fn keep_private_group(&self) {
         if let Ok(table) = self.reader.table() {
             self.tracker().absorb_shutdown(&table, true, &self.reader);
         }
+    }
+
+    /// [`Self::keep_private_group`], then the group's SIGKILL.
+    pub(crate) fn shutdown_private_group(&self) {
+        self.keep_private_group();
         self.signals.group(self.root, Signal::Kill);
     }
 

@@ -109,7 +109,11 @@ const COMMANDS = {
   'history pick': { send: (t) => ({ tabId: '', action: 'history', entry: t.entry }), live: selected, past: selected },
   reopen: { send: () => ({ action: 'reopen', targets: ['site/a.html'] }), live: selected, past: selected },
   close: { send: () => ({ action: 'close' }), live: closed, past: closed },
-  version: { send: () => ({ action: 'version', version: 1 }), live: (state) => tab(state).version === 1, past: 'refused' },
+  version: {
+    send: () => ({ action: 'version', version: 1 }),
+    live: (state) => tab(state).version === 1,
+    past: 'refused',
+  },
   network: {
     send: () => ({ action: 'network', allow: false }),
     live: (state) => tab(state).networkAllowed === undefined,
@@ -163,7 +167,11 @@ test('the user’s open of a file only the running turn has a tab of shows that 
     }
     assert.deepEqual(tab(event.state), tab(t.before));
     const id = ofC(event.state).id;
-    assert.equal((await t.service.paneText(SESSION, id, 0)).text, '<h1>c one</h1>', 'the source view is of the tab as shown');
+    assert.equal(
+      (await t.service.paneText(SESSION, id, 0)).text,
+      '<h1>c one</h1>',
+      'the source view is of the tab as shown'
+    );
 
     // What acts on the content waits for the turn's end; viewing does not.
     const shown = t.service.snapshot()[0];
@@ -180,7 +188,10 @@ test('the user’s open of a file only the running turn has a tab of shows that 
     assert.equal((await send(t, 'v1', { action: 'activate' })).error, undefined);
     assert.equal((await send(t, id, { action: 'activate' })).error, undefined);
     assert.equal(t.service.snapshot()[0].active, id);
-    assert.ok([...t.events, ...t.hostEvents].every((one) => one.held === true), 'the hold is never lifted');
+    assert.ok(
+      [...t.events, ...t.hostEvents].every((one) => one.held === true),
+      'the hold is never lifted'
+    );
 
     // The turn's end shows what the turn made, the version it selected included: the user's view changed nothing.
     t.events.length = 0;
@@ -241,7 +252,10 @@ test('a preview of an ended turn reopened while the next turn, already running, 
       assert.equal(state.tabs.length, 3, 'nothing else of the next turn');
     }
     const id = ofC(t.service.snapshot()[0]).id;
-    assert.match((await send(t, id, { action: 'export', format: 'png', pane: 0 })).error?.message ?? '', /still writing/);
+    assert.match(
+      (await send(t, id, { action: 'export', format: 'png', pane: 0 })).error?.message ?? '',
+      /still writing/
+    );
 
     await t.service.setTurnActive(SESSION, false);
     const ended = t.service.snapshot()[0];
@@ -273,15 +287,20 @@ for (const [stateName, state] of Object.entries(STATES)) {
         const expected = live ? command.live : command.past;
         // The source view of a visible tab is of that tab as shown: its own page, also when the turn closed the tab.
         assert.equal((await t.service.paneText(SESSION, 'v1', 0)).text, readFileSync(t.page, 'utf8'), 'source view');
-        const outcome = await t.service
-          .command({ sessionId: SESSION, tabId: 'v1', ...command.send(t) })
-          .then((value) => ({ value }), (error) => ({ error }));
+        const outcome = await t.service.command({ sessionId: SESSION, tabId: 'v1', ...command.send(t) }).then(
+          (value) => ({ value }),
+          (error) => ({ error })
+        );
         const shown = t.service.snapshot()[0];
 
         // A visible result: the session shows the command's effect, or the user is told why it did not run.
         if (expected === 'refused') {
           assert.match(outcome.error?.message ?? '', /running turn has changed or closed tab v1/);
-          assert.deepEqual({ ...shown, held: undefined, heldSince: undefined }, { ...t.before, held: undefined, heldSince: undefined }, 'nothing moved');
+          assert.deepEqual(
+            { ...shown, held: undefined, heldSince: undefined },
+            { ...t.before, held: undefined, heldSince: undefined },
+            'nothing moved'
+          );
         } else {
           assert.equal(outcome.error, undefined);
           if (expected === 'runs') assert.deepEqual(outcome.value, { canceled: true }, 'it ran on the tab');

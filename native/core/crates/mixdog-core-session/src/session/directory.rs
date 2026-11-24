@@ -351,6 +351,7 @@ pub(crate) struct SlotLease {
     /// Dropped with the lease, after the slot is released: the actor has ended ([`Journal::actor_ended`]).
     _ended: oneshot::Sender<()>,
 }
+
 /// The journal writer of one loaded runtime, kept by the directory until the runtime leaves it. An unload or the shutdown
 /// takes it and retires the writer, with the thread's id still held; an actor that ended any other way drops it, and the
 /// writer is not retired (the session stays marked for the next start).
@@ -361,6 +362,7 @@ struct Journal {
     /// Errs once the actor has ended and dropped its channel to the journal: nothing more is appended.
     actor_ended: oneshot::Receiver<()>,
 }
+
 impl Journal {
     /// Once the actor has ended: the writer finishes what it accepted, closes, and the catalog settles its row.
     async fn retire(mut self, thread: ThreadId) {
@@ -419,6 +421,7 @@ fn shutdown_stage(what: std::fmt::Arguments<'_>) {
     #[cfg(not(any(test, feature = "test-support")))]
     let _ = what;
 }
+
 impl Drop for SlotLease {
     fn drop(&mut self) {
         if let Some(directory) = self.directory.upgrade() {
@@ -468,6 +471,7 @@ impl DeleteHold {
         applied
     }
 }
+
 type ListedKey = (ThreadId, Option<&'static [&'static str]>);
 /// A record read under way, for as long as a caller awaits it.
 type ListedRead = futures::future::WeakShared<futures::future::BoxFuture<'static, Result<Option<Header>, CoreError>>>;
@@ -1482,6 +1486,8 @@ impl DirInner {
             recovered: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             drafts_settled: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            jobs_settled: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             gate_holds: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -2790,6 +2796,12 @@ impl SessionDirectory {
     /// host is disposed ([`super::new_task::NewTaskReceipts::cut`]); [`Self::shutdown_for`] later waits for the writes they began.
     pub fn cut_new_tasks(&self) {
         self.inner.deps.new_tasks.cut();
+    }
+
+    /// The drain of the stop request that cut the new-task attempts was cancelled: attempts start again, and each request the cut left
+    /// unanswered is made again ([`super::new_task::NewTaskReceipts::reopen`]).
+    pub fn reopen_new_tasks(&self) {
+        self.inner.deps.new_tasks.reopen();
     }
 
     /// Resolves once no unloaded runtime of `id` is still closing: its close work has ended and its journal writer's

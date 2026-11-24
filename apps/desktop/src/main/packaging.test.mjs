@@ -125,14 +125,19 @@ test('a closed stdio pipe cannot crash the main process', async () => {
   assert.match(await text('./index.ts'), /\[process\.stdout, process\.stderr\][\s\S]{0,120}?on\?\.\('error'/);
 });
 
-test('Windows Crashpad starts locally, before the single-instance lock', async () => {
+test('Windows Crashpad starts locally in the instance that holds the lock, before any window', async () => {
   const main = await text('./index.ts');
   const profile = main.indexOf('const PACKAGED_USER_DATA_DIRECTORY');
-  const reporter = main.indexOf('crashReporter.start(');
   const lock = main.indexOf('app.requestSingleInstanceLock()');
+  const reporter = main.indexOf('crashReporter.start(');
+  const window = main.indexOf('new BrowserWindow(');
   assert.ok(profile >= 0 && profile < reporter, 'the user-data directory is configured before Crashpad starts');
-  assert.ok(reporter > 0 && reporter < lock);
-  assert.match(main.slice(reporter, lock), /uploadToServer:\s*false/);
+  assert.ok(
+    lock > 0 && lock < reporter && reporter < window,
+    'a second launch exits first; the instance that stays starts Crashpad before any window'
+  );
+  assert.match(main.slice(lock, reporter), /if \(holdsSingleInstanceLock && process\.platform === 'win32'\)/);
+  assert.match(main.slice(reporter, window), /uploadToServer:\s*false/);
 });
 
 test('production desktop starts the packaged mixdogd and tells it where its resources are', async () => {

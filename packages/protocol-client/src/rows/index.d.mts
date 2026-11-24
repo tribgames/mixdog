@@ -70,7 +70,10 @@ export function toolResultDisplay(
 export function isTranscriptHiddenControlToolName(name: unknown): boolean;
 export function isTranscriptHiddenToolItem(item: { name?: unknown; result?: unknown } | null | undefined): boolean;
 export function isTranscriptSkillToolName(name: unknown): boolean;
-export function toolCallDisplayIdentity(name: unknown, args: unknown): { name: unknown; args: unknown; via?: 'call_tool' };
+export function toolCallDisplayIdentity(
+  name: unknown,
+  args: unknown
+): { name: unknown; args: unknown; via?: 'call_tool' };
 export function toolResultTerminalStatus(text: unknown): string;
 export function withCancelledResultMarker(text: unknown, item?: Record<string, unknown>): string;
 export function summarizeToolResult(name: string, args: unknown, resultText: string, isError?: boolean): string | null;

@@ -245,16 +245,11 @@ test('an unreadable Local State refuses the import with a fixed reason that name
   const w = world(t);
   const localState = join(w.chrome, 'Local State');
   writeFileSync(localState, '{"profile": SECRET-CONTENT');
-  await assert.rejects(w.manual(), (error) => {
-    assert.equal(error.message, "Chrome's profile list (Local State) could not be read.");
-    return true;
-  });
+  const refusal = { message: "Chrome's profile list (Local State) could not be read." };
+  await assert.rejects(w.manual(), refusal);
   rmSync(localState);
   mkdirSync(localState);
-  await assert.rejects(w.manual(), (error) => {
-    assert.equal(error.message, "Chrome's profile list (Local State) could not be read.");
-    return true;
-  });
+  await assert.rejects(w.manual(), refusal);
 });
 
 test('an automatic import with the saved key imports without ever allowing elevation', {

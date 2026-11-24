@@ -566,8 +566,9 @@ pub trait Tasks: Send + Sync {
     fn result_delivered(&self, _session_id: &str, _tag: &str, _owner: &str, _scope: &Scope) -> bool {
         true
     }
-    /// A dropped row's session no longer counts as holding a lost result (`lostResults.delete(sessionId)`).
-    fn forget_lost(&self, _session_id: &str) {}
+    /// The agent `session_id` was closed or is gone (`lostResults.delete(sessionId)`): no result is lost by it or to it
+    /// any more, nor by `owner`'s `tag` (either may be empty).
+    fn forget_lost(&self, _session_id: &str, _tag: &str, _owner: &str) {}
 }
 
 /// The readers over the job board and the tag registry. Listing and lookup refresh the

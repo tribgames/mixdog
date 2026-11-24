@@ -69,6 +69,14 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     return `${scheme}://${location.host}/ws?token=${auth}`;
   };
 
+  const storeBrowserId = (): void => {
+    try {
+      localStorage.setItem(ctx.pairingKeys.browserId, ctx.browserId);
+    } catch {
+      /* session only */
+    }
+  };
+
   const ensureClientRegistration = (): Promise<void> => {
     if (ctx.clientRegistered) return Promise.resolve();
     // Single flight: the app fires several RPCs at startup and every one dials
@@ -101,11 +109,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
       const result = (await response.json()) as { clientId?: unknown; token?: unknown };
       if (typeof result.clientId === 'string' && result.clientId) {
         ctx.browserId = result.clientId;
-        try {
-          localStorage.setItem(ctx.pairingKeys.browserId, ctx.browserId);
-        } catch {
-          /* session only */
-        }
+        storeBrowserId();
       }
       if (typeof result.token === 'string' && isRemoteClientCredential(result.token)) {
         ctx.token = result.token;
@@ -128,6 +132,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     claimStorageKey: ctx.pairingKeys.claim,
     serverBase: () => ctx.serverBase || location.origin,
     clientId: () => ctx.browserId,
+    renewClientId: () => renewBrowserId(),
     acceptApproval: (credential, material) => adoptApproval(credential, material),
     verifyConnection: () => verifyApprovedConnection(),
   });
@@ -163,6 +168,11 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
       /* the flag stays; restore retries the delete */
     }
   };
+  /** An id goes with the credential minted for it: the relay keeps it paired and refuses to pair it again. */
+  const renewBrowserId = (): void => {
+    ctx.browserId = newBrowserId();
+    storeBrowserId();
+  };
   const dropLocalCredential = (): void => {
     try {
       const keys = ctx.pairingKeys;
@@ -170,6 +180,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     } catch {
       /* nothing was written */
     }
+    renewBrowserId();
   };
 
   /** What an approval hands back: a credential minted for THIS container, plus
@@ -336,7 +347,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     ctx.token = '';
     ctx.e2eePairing = null;
     ctx.everPaired = false;
-    ctx.browserId = newBrowserId();
+    renewBrowserId();
     ctx.clientRegistered = false;
     showPairingScreen(message, false);
     window.dispatchEvent(new CustomEvent(REMOTE_PAIRING_INVALID_EVENT, { detail: message }));

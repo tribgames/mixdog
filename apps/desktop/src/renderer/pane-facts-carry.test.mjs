@@ -204,7 +204,12 @@ function rowMaker(random) {
     }
     if (roll < 0.64) {
       const open = { kind: 'tool', id: key('o'), name: 'browser', args: { action: 'open', input: {} }, result: SHOWN };
-      return { _tag: 'ToolActivity', key: key('r'), turnKey, items: [{ ...open, completedAt: 1, startedAt: DAY + serial }] };
+      return {
+        _tag: 'ToolActivity',
+        key: key('r'),
+        turnKey,
+        items: [{ ...open, completedAt: 1, startedAt: DAY + serial }],
+      };
     }
     if (roll < 0.7) {
       const read = { kind: 'tool', id: key('f'), name: 'read', args: { path: 'a' }, result: 'ok', completedAt: 1 };
@@ -290,7 +295,9 @@ test('a frame that lands one item reads that item, and the prompt the review is 
     items.push(watch(`p${turn}`, { id: `p${turn}`, kind: 'user', text: 'go', device: 'PC' }));
     for (let round = 0; round < 120; round += 1) {
       const id = `t${turn}-${round}`;
-      items.push(watch(id, { id, kind: 'tool', name: 'edit', args: { file_path: 'a.ts' }, completedAt: 1, result: 'ok' }));
+      items.push(
+        watch(id, { id, kind: 'tool', name: 'edit', args: { file_path: 'a.ts' }, completedAt: 1, result: 'ok' })
+      );
     }
     if (turn < 2) items.push(watch(`d${turn}`, { id: `d${turn}`, kind: 'turndone', status: 'completed' }));
   }
@@ -309,10 +316,17 @@ test('a frame that lands one item reads that item, and the prompt the review is 
   assert.ok(reads.size === items.length, 'every item was read once to begin with');
 
   reads.clear();
-  const landed = [...items, watch('t-new', { id: 't-new', kind: 'tool', name: 'edit', args: {}, completedAt: 2, result: 'ok' })];
+  const landed = [
+    ...items,
+    watch('t-new', { id: 't-new', kind: 'tool', name: 'edit', args: {}, completedAt: 2, result: 'ok' }),
+  ];
   noteCarried(landed, items, items.length);
   const after = keep(landed);
-  assert.deepEqual([...reads.keys()].sort(), ['p2', 't-new'], 'the row that landed, and the prompt the review is keyed by');
+  assert.deepEqual(
+    [...reads.keys()].sort(),
+    ['p2', 't-new'],
+    'the row that landed, and the prompt the review is keyed by'
+  );
   assert.deepEqual(after.slice(0, 5), before.slice(0, 5));
   assert.notEqual(after[5], before[5], 'a finished edit moves the file-change key');
   assert.deepEqual(after, keep(landed.slice()), 'and the list read whole gives the same');
@@ -331,10 +345,14 @@ function openHandoffRows(watch) {
   const rows = [];
   for (let turn = 0; turn < 3; turn += 1) {
     const turnKey = `t${turn}`;
-    rows.push(watch(`u${turn}`, { _tag: 'UserMessage', key: `u${turn}`, turnKey, item: { kind: 'user', id: `u${turn}` } }));
+    rows.push(
+      watch(`u${turn}`, { _tag: 'UserMessage', key: `u${turn}`, turnKey, item: { kind: 'user', id: `u${turn}` } })
+    );
     for (let round = 0; round < 100; round += 1) {
       const id = `${turn}-${round}`;
-      const items = [round % 25 === 0 ? send(`c${id}`, `sess_${id}`) : { kind: 'tool', id: `f${id}`, name: 'read', args: {} }];
+      const items = [
+        round % 25 === 0 ? send(`c${id}`, `sess_${id}`) : { kind: 'tool', id: `f${id}`, name: 'read', args: {} },
+      ];
       rows.push(watch(`r${id}`, { _tag: 'ToolActivity', key: `r${id}`, turnKey, items }));
       const item = { kind: 'assistant', id: `a${id}`, text: 'Sent' };
       rows.push(watch(`a${id}`, { _tag: 'AssistantPart', key: `a${id}`, turnKey, item }));
@@ -347,47 +365,76 @@ test('a row that lands under hundreds of rows with open hand-offs is the only ro
   const reads = new Map();
   const watch = watching(reads);
   const rows = openHandoffRows(watch);
-  const linesOf = (list) => list.flatMap((_, index) => handoffLinesAt(list, index).map((line) => `${index}:${line.id}`));
+  const linesOf = (list) =>
+    list.flatMap((_, index) => handoffLinesAt(list, index).map((line) => `${index}:${line.id}`));
   const before = linesOf(rows);
   assert.equal(before.length, 12, 'four open hand-offs a turn');
   assert.ok(reads.size === rows.length);
 
   reads.clear();
-  const reply = { _tag: 'AssistantPart', key: 'a-new', turnKey: 't2', item: { kind: 'assistant', id: 'a-new', text: 'More' } };
+  const reply = {
+    _tag: 'AssistantPart',
+    key: 'a-new',
+    turnKey: 't2',
+    item: { kind: 'assistant', id: 'a-new', text: 'More' },
+  };
   const landed = [...rows, watch('a-new', reply)];
   noteCarried(landed, rows, rows.length);
   const after = linesOf(landed);
   assert.deepEqual(after, linesOf(landed.slice()), 'the lines are those of the rows read whole');
   assert.deepEqual(after.slice(0, 8), before.slice(0, 8), 'the ended turns keep their lines where they were');
-  assert.ok(after.slice(8).every((line) => line.startsWith(`${landed.length - 1}:`)), 'the running turn carries its lines at its new reply');
+  assert.ok(
+    after.slice(8).every((line) => line.startsWith(`${landed.length - 1}:`)),
+    'the running turn carries its lines at its new reply'
+  );
   // The copy read whole above read every row; what the carried list read is counted from before it.
   reads.clear();
   const again = [...landed, watch('a-next', { ...reply, key: 'a-next', item: { ...reply.item, id: 'a-next' } })];
   noteCarried(again, landed, landed.length);
   linesOf(again);
-  assert.deepEqual([...reads.keys()], ['a-next'], 'the new reply: the ended turns are not read to place their lines again');
+  assert.deepEqual(
+    [...reads.keys()],
+    ['a-next'],
+    'the new reply: the ended turns are not read to place their lines again'
+  );
 });
 
 test('text streaming in the newest turn leaves the hand-off lines of every turn as placed: only the streaming row is read', () => {
   const reads = new Map();
   const watch = watching(reads);
   const rows = openHandoffRows(watch);
-  const anchors = [rows.findLastIndex((row) => row.turnKey === 't0'), rows.findLastIndex((row) => row.turnKey === 't1')];
+  const anchors = [
+    rows.findLastIndex((row) => row.turnKey === 't0'),
+    rows.findLastIndex((row) => row.turnKey === 't1'),
+  ];
   const streaming = (text) =>
-    watch('live', { _tag: 'AssistantPart', key: 'live', turnKey: 't2', live: true, item: { kind: 'assistant', id: 'live', text } });
+    watch('live', {
+      _tag: 'AssistantPart',
+      key: 'live',
+      turnKey: 't2',
+      live: true,
+      item: { kind: 'assistant', id: 'live', text },
+    });
   // The reply opens: the newest turn's lines move under it, the older turns' stay.
   let shown = [...rows, streaming('W')];
   noteCarried(shown, rows, rows.length);
   handoffLinesAt(rows, 0);
   const placed = [...anchors, shown.length - 1].map((at) => handoffLinesAt(shown, at));
-  assert.deepEqual(placed.map((lines) => lines.length), [4, 4, 4]);
+  assert.deepEqual(
+    placed.map((lines) => lines.length),
+    [4, 4, 4]
+  );
   for (const text of ['Wo', 'Wor', 'Work', 'Working']) {
     reads.clear();
     const next = [...rows, streaming(text)];
     noteCarried(next, shown, rows.length);
     shown = next;
     [...anchors, shown.length - 1].forEach((at, turn) => {
-      assert.equal(handoffLinesAt(shown, at), placed[turn], `the lines of turn ${turn} are the ones placed, at "${text}"`);
+      assert.equal(
+        handoffLinesAt(shown, at),
+        placed[turn],
+        `the lines of turn ${turn} are the ones placed, at "${text}"`
+      );
     });
     assert.deepEqual([...reads.keys()], ['live'], `only the streaming row is read, at "${text}"`);
     const whole = shown.slice();
@@ -419,18 +466,39 @@ test('the newest entry of each key, the first place of each key and a sum with p
     });
     assert.deepEqual([...latest(list)].sort(), [...newest].sort(), `newest, frame ${step}`);
     assert.deepEqual([...firsts(list)].sort(), [...first].sort(), `first places, frame ${step}`);
-    assert.deepEqual(placed(list), carriedSum((entry, index) => placedHash(entry.value, index))(list), `sum, frame ${step}`);
+    assert.deepEqual(
+      placed(list),
+      carriedSum((entry, index) => placedHash(entry.value, index))(list),
+      `sum, frame ${step}`
+    );
   }
 });
 
 test('the map made for a list stays that list’s: a frame carried on from it changes a map of its own', () => {
   const latest = carriedLatest((entry) => [entry.name, entry.value]);
-  const first = [{ name: 'a', value: 1 }, { name: 'b', value: 2 }];
+  const first = [
+    { name: 'a', value: 1 },
+    { name: 'b', value: 2 },
+  ];
   const held = latest(first);
   const second = [first[0], { name: 'b', value: 3 }, { name: 'c', value: 4 }];
   noteCarried(second, first, 1);
-  assert.deepEqual([...latest(second)], [['a', 1], ['b', 3], ['c', 4]]);
-  assert.deepEqual([...held], [['a', 1], ['b', 2]], 'the map a reader holds for the list before is as it was');
+  assert.deepEqual(
+    [...latest(second)],
+    [
+      ['a', 1],
+      ['b', 3],
+      ['c', 4],
+    ]
+  );
+  assert.deepEqual(
+    [...held],
+    [
+      ['a', 1],
+      ['b', 2],
+    ],
+    'the map a reader holds for the list before is as it was'
+  );
   assert.equal(latest(first), held);
   // A frame that says nothing new keeps the map made before.
   const third = [...second];

@@ -53,3 +53,31 @@ impl Pace for FakePace {
         self.now.fetch_add(d.as_millis() as u64, std::sync::atomic::Ordering::SeqCst);
     }
 }
+
+/// A contender for a refresh lease whose every wait for it is announced and parks until the test lets it go, on the
+/// system clock.
+#[cfg(test)]
+pub(crate) struct Parked {
+    pub waiting: tokio::sync::Semaphore,
+    pub go: tokio::sync::Semaphore,
+}
+
+#[cfg(test)]
+impl Parked {
+    pub fn new() -> Self {
+        Self { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) }
+    }
+}
+
+#[cfg(test)]
+#[async_trait]
+impl Pace for Parked {
+    fn now_ms(&self) -> u64 {
+        SystemPace.now_ms()
+    }
+
+    async fn wait(&self, _: Duration) {
+        self.waiting.add_permits(1);
+        self.go.acquire().await.expect("an open gate").forget();
+    }
+}

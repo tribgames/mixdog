@@ -94,11 +94,15 @@ pub fn provider_error_text(error: &ProviderError, surface: &str) -> String {
 /// A rate-limit or quota refusal as an agent task hands it to its spawner: the provider by name and the provider's own words,
 /// read from the `"message"` of a JSON body the text carries (also one cut short), else the whole text.
 pub fn provider_limit_line(provider: &str, message: &str) -> String {
-    let own = re!(r#""message"\s*:\s*"((?:[^"\\]|\\.)*)"#)
-        .captures(message)
-        .map(|c| serde_json::from_str::<String>(&format!("\"{}\"", &c[1])).unwrap_or_else(|_| c[1].to_owned()))
-        .unwrap_or_else(|| message.to_owned());
+    let own = json_message(message).unwrap_or_else(|| message.to_owned());
     format!("{provider} quota/rate limit hit: {}", one_line(&strip_error_prefix(&own)))
+}
+
+/// The `"message"` of a JSON body the text carries, also one cut short.
+fn json_message(text: &str) -> Option<String> {
+    re!(r#""message"\s*:\s*"((?:[^"\\]|\\.)*)"#)
+        .captures(text)
+        .map(|c| serde_json::from_str::<String>(&format!("\"{}\"", &c[1])).unwrap_or_else(|_| c[1].to_owned()))
 }
 
 /// `providerDisplayName` (`shared/provider-display-name.mjs`): a known provider id's display name, any other id as itself.
@@ -174,10 +178,7 @@ fn chain_line(message: &str) -> Option<String> {
 /// status; `None` when nothing is left.
 fn refusal_reason(message: &str) -> Option<String> {
     let message = message.split("\nSkipped fallback").next().unwrap_or(message);
-    let own = match re!(r#""message"\s*:\s*"((?:[^"\\]|\\.)*)"#).captures(message) {
-        Some(c) => serde_json::from_str::<String>(&format!("\"{}\"", &c[1])).unwrap_or_else(|_| c[1].to_owned()),
-        None => re!(r"^[^{]*?\b[0-9]{3}\s*:\s*").replace(message, "").into_owned(),
-    };
+    let own = json_message(message).unwrap_or_else(|| re!(r"^[^{]*?\b[0-9]{3}\s*:\s*").replace(message, "").into_owned());
     let own = one_line(&strip_error_prefix(&own));
     (!own.is_empty()).then(|| cap_text(&own, 300.0))
 }

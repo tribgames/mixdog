@@ -597,6 +597,45 @@ async fn a_first_look_that_cannot_read_a_pid_is_not_gone() {
     assert_eq!(control.observe(), Observation::Gone, "a complete listing with nothing in it is gone");
 }
 
+/// Lists its pids and reads each one's row through [`Table::scan`], as the operating system's readers do.
+struct Listed(Vec<(u32, Row)>);
+
+impl Reader for Listed {
+    fn table(&self) -> io::Result<Table> {
+        Table::scan(self.0.iter().map(|(pid, _)| *pid), |pid| self.row(pid))
+    }
+
+    fn row(&self, pid: u32) -> io::Result<Row> {
+        Ok(self.0.iter().find(|(at, _)| *at == pid).map_or(Row::Absent, |(_, row)| row.clone()))
+    }
+}
+
+/// A process the kernel will not show us (another user's under `hidepid`, one a security module hides) is listed as
+/// unreadable and the read goes on: the survivor is still seen, and a cancel still ends the group and the survivor.
+#[tokio::test]
+async fn a_process_the_kernel_will_not_show_does_not_stop_a_cancel() {
+    let survivor = Identity { pid: 7000, token: "s1".to_owned() };
+    let log = Log::default();
+    let clock = ScriptedClock::new(&log);
+    let reader = Listed(vec![(1, Row::Unreadable), (7000, Row::Readable(proc(7000, 1, ROOT, "s1")))]);
+    let tree = Arc::new(Tree::new(reader, ScriptedSignals::new(&log), clock.clone(), ROOT, None));
+    tree.root_reaped();
+    assert_eq!(tree.observe(), Observation::Running(vec![survivor]));
+    log.lock().unwrap().clear();
+    let task = tokio::spawn({
+        let tree = tree.clone();
+        async move { tree.cancel().await }
+    });
+    assert!(!run_gated(task, &clock, &log, |_| {}).await, "the survivor is still there");
+    let sent: Vec<Value> = log.lock().unwrap().iter().filter(|e| e["op"] == "kill" && e["signal"] != json!(0)).cloned().collect();
+    let group = |signal: &str| json!({"op": "kill", "target": "group", "id": ROOT, "signal": signal});
+    let mut expected = vec![group("SIGTERM"), group("SIGKILL")];
+    for _ in 0..KILL_ROUNDS {
+        expected.extend([kill_of(7000, json!("SIGTERM")), kill_of(7000, json!("SIGKILL"))]);
+    }
+    assert_eq!(sent, expected);
+}
+
 #[tokio::test]
 async fn the_retention_probe_asks_the_group_and_nothing_else() {
     let log = Log::default();

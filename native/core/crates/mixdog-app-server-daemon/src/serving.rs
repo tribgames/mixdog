@@ -134,6 +134,10 @@ fn core_wiring(core: &Arc<ComposedCore>, running: &Running, sections: &Arc<Secti
             let core = core.clone();
             Arc::new(move || core.cut_new_tasks())
         },
+        reopen_new_tasks: {
+            let core = core.clone();
+            Arc::new(move || core.reopen_new_tasks())
+        },
         final_barriers: {
             let core = core.clone();
             Arc::new(move || core.run_final_barriers())
@@ -215,6 +219,12 @@ impl crate::lifecycle::CorePort for LateCorePort {
     fn cut_new_tasks(&self) {
         if let Some(core) = self.core.get() {
             core.cut_new_tasks();
+        }
+    }
+
+    fn reopen_new_tasks(&self) {
+        if let Some(core) = self.core.get() {
+            core.reopen_new_tasks();
         }
     }
 

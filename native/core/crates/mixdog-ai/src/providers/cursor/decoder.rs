@@ -33,16 +33,15 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use mixdog_core_api::domain::provider::Content;
-use mixdog_core_api::domain::provider::Message;
-use mixdog_core_api::domain::provider::ModelRequest;
-use mixdog_core_api::domain::provider::Role;
-
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ItemKind;
+use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -229,7 +228,7 @@ pub struct CursorDecoder {
     /// How many tool requests the service listed for the step being read.
     listed: Option<u64>,
     /// The execs received for that step by key, those already answered among them; one sent again is the same exec.
-    step_execs: std::collections::HashSet<String>,
+    step_execs: HashSet<String>,
     /// Results were written back and frames that arrived before them may still be unread: the step they answer ends
     /// once those are read ([`Self::caught_up`]).
     resumed: bool,
@@ -238,7 +237,7 @@ pub struct CursorDecoder {
     /// The run has shown something: text, reasoning, a call, or tokens of the model at work.
     spoke: bool,
     /// Every exec the run received, by key: one sent again is no new tool request of any step.
-    seen: std::collections::HashSet<String>,
+    seen: HashSet<String>,
     /// The frame being read is the service's heartbeat and nothing else.
     heartbeat_only: bool,
     /// A frame other than a heartbeat was read since this was last taken.
@@ -375,8 +374,15 @@ impl WireDecoder for CursorDecoder {
                 return Err(error);
             }
             if frame.is_end_stream() {
+                let failure = self.end_stream_error(&frame.payload);
+                // An end frame that fails the run is read at the head of a feed: the events decoded before it reach the
+                // caller first, and the next `feed` of nothing reads it ([`Self::has_waiting`]).
+                if !events.is_empty() && (failure.is_some() || (self.pending.is_empty() && !self.saw_turn_ended)) {
+                    self.waiting.push_front(frame);
+                    return Ok(events);
+                }
                 self.saw_end = true;
-                if let Some(mut error) = self.end_stream_error(&frame.payload) {
+                if let Some(mut error) = failure {
                     self.refusal = Refusal::of(&frame.payload);
                     error.exposure = self.exposure;
                     return Err(error);
@@ -506,7 +512,6 @@ mod tests {
 
     /// A request whose transcript holds the result `stored <id>` of each call in `ids`.
     fn answered(ids: &[&str]) -> Arc<ModelRequest> {
-        use mixdog_core_api::domain::provider::Content;
         let results = ids.iter().map(|id| {
             let mut result = Message::new(Role::Tool, Content::Text(format!("stored {id}").into()));
             result.tool_call_id = Some((*id).to_owned());
@@ -784,6 +789,20 @@ mod tests {
         decoder.feed(&[update(1, |t| t.string(1, "working on it")), listing(1), mcp_call(1, "a")].concat()).expect("decodes");
         decoder.resume();
         assert!(!decoder.silent());
+    }
+
+    /// A run that fails in the chunk that carried its text hands that text out first, and the failure that says it was shown
+    /// follows it.
+    #[test]
+    fn a_failing_end_frame_follows_the_text_of_its_chunk() {
+        let mut decoder = lookup_decoder();
+        let end =
+            crate::providers::connect::frame::encode(br#"{"error":{"code":"unavailable","message":"Error"}}"#, crate::providers::connect::frame::END_STREAM);
+        let shown = decoder.feed(&[update(1, |t| t.string(1, "working on it")), end].concat()).expect("the text before the end frame");
+        assert!(shown.contains(&StreamEvent::TextDelta("working on it".into())));
+        assert!(decoder.has_waiting(), "the end frame is read next");
+        let failure = decoder.feed(&[]).expect_err("the run failed");
+        assert!(failure.exposure.text_emitted && failure.message.contains("unavailable"), "{}", failure.message);
     }
 
     /// An exec the service sends again after its result was written back is answered at once and never handed over

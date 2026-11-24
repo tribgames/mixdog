@@ -23,7 +23,7 @@ pub mod response;
 pub mod util;
 
 pub use body::{Body, BodyError};
-pub use conn::{ConnGuard, ConnHandle, ConnInfo, Lifecycle, Limits, serve_connection};
+pub use conn::{ConnGuard, ConnHandle, ConnInfo, Lifecycle, Limits, serve_admitted, serve_connection};
 pub use head::{HeaderValue, Headers};
 pub use response::{HIGH_WATER_MARK, HeaderError, ResponseWriter, status_message};
 

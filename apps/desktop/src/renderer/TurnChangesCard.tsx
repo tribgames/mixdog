@@ -522,7 +522,6 @@ function TurnChangesCardBody({
     });
   };
   const seatHeight = (): number => seat.current?.getBoundingClientRect().height ?? 0;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: every commit: the height shown is the one last laid out
   useLayoutEffect(() => {
     if (running) return;
     const height = seatHeight();
@@ -558,9 +557,15 @@ function TurnChangesCardBody({
     });
     const view = row.closest('.transcript');
     if (view) follows.observe(view, { attributes: true, attributeFilter: ['data-following'] });
+    // A row left with no box (its pane hidden) takes one again when the pane returns: where it is then decides.
+    const boxed = new ResizeObserver(() => {
+      if (!displaces(true)) give();
+    });
+    boxed.observe(row);
     return () => {
       leftView.disconnect();
       follows.disconnect();
+      boxed.disconnect();
     };
   }, [superseded, read, withheld, checkpointId]);
   const reply = trying ? read : (given ?? recorded);
@@ -606,8 +611,7 @@ function TurnChangesCardBody({
         : stalled
           ? t('This turn\u2019s changes are still being recorded. Click the card to read them again.')
           : t('Reading this turn\u2019s changes');
-  const blockedReason =
-    surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : waitingReason;
+  const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : waitingReason;
   const mutate: MutateChanges = (capability, file, success) => mutation.mutate(revision, capability, file, success);
   const activate: ActivateChange = (event, file) => {
     activateTurnChange(event, file, surface, { checkpointId, boundary }, reply.root, visualized);

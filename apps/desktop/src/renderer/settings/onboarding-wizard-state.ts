@@ -49,7 +49,8 @@ export function useOnboardingRun(api: DesktopApi) {
       args: unknown[] = [],
       key: string = capability,
       _refresh = false,
-      silent = false
+      silent = false,
+      errorMode: 'toast' | 'throw' = 'toast'
     ): Promise<T | undefined> => {
       if (!silent) {
         mutationCount.current += 1;
@@ -65,6 +66,8 @@ export function useOnboardingRun(api: DesktopApi) {
           return result;
         } catch (rawReason) {
           const reason = friendlyCapabilityError(rawReason);
+          // A throwing caller (the OAuth code paste) shows the error in its own dialog.
+          if (errorMode === 'throw') throw reason;
           if (!silent) setError(errorMessage(reason));
           return undefined;
         } finally {
@@ -77,7 +80,7 @@ export function useOnboardingRun(api: DesktopApi) {
       // OAuth status reads must not wait behind an interactive login mutation.
       if (silent) return execute();
       const task = mutationChain.current.then(execute);
-      mutationChain.current = task;
+      mutationChain.current = task.catch(() => undefined);
       return task;
     },
     [api]
@@ -200,7 +203,8 @@ export function useOnboardingModality({
         if (portaledMenuOpen(dialog)) return;
         event.preventDefault();
         event.stopPropagation();
-        if (nested) nested.querySelector<HTMLButtonElement>('[aria-label^="Close"]')?.click();
+        // The close buttons' labels are translated, so they are found by their marker.
+        if (nested) nested.querySelector<HTMLButtonElement>('[data-settings-nested-close]')?.click();
         else requestSkip(closeRef.current);
         return;
       }

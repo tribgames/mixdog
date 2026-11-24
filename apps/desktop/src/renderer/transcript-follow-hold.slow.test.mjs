@@ -190,13 +190,16 @@ async function openPage(t, scale = 1) {
   const { assets, browser } = await shared;
   const page = await browser.newPage();
   t.after(() => page.close());
+  // A page behind another is hidden, and a hidden document holds the paced reveal of a streaming reply at its first step.
+  await page.bringToFront();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.setViewport({ width: 1200, height: 800, deviceScaleFactor: scale });
   await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
   await page.addStyleTag({ content: assets.css });
   await page.addStyleTag({
-    content: '#root { position: fixed; left: 0; top: 0; width: 1200px; height: 800px; display: flex; container-type: size; }',
+    content:
+      '#root { position: fixed; left: 0; top: 0; width: 1200px; height: 800px; display: flex; container-type: size; }',
   });
   await page.addScriptTag({ content: assets.script });
   return { page, errors };
@@ -214,7 +217,13 @@ const history = Array.from({ length: 16 }, (_, index) =>
     : { kind: 'user', id: `h${index}`, text: `Earlier prompt ${index}`, at: 100 + index }
 );
 const prompt = { kind: 'user', id: 'u1', text: 'Change the files', checkpointId: 'cp', at: 1_000 };
-const reply = (id, count, at, streaming = false) => ({ kind: 'assistant', id, text: words(count), at, ...(streaming ? { streaming } : {}) });
+const reply = (id, count, at, streaming = false) => ({
+  kind: 'assistant',
+  id,
+  text: words(count),
+  at,
+  ...(streaming ? { streaming } : {}),
+});
 const tool = (id, name, at, done = true) => ({
   kind: 'tool',
   id,
@@ -228,7 +237,12 @@ const tools = (prefix, count, at, runningLast = false) =>
   Array.from({ length: count }, (_, index) =>
     tool(`${prefix}${index}`, index % 2 ? 'read' : 'grep', at + index, !(runningLast && index === count - 1))
   );
-const running = (head, items, extra = {}) => ({ items: [...head, prompt, ...items], busy: true, activityAt: 1_000, ...extra });
+const running = (head, items, extra = {}) => ({
+  items: [...head, prompt, ...items],
+  busy: true,
+  activityAt: 1_000,
+  ...extra,
+});
 
 /** The states of a long turn: text paragraphs between tool groups that grow and re-summarise, the window letting go of
  *  the oldest rows as the turn goes on. */
@@ -238,9 +252,11 @@ function turn() {
   let head = history;
   for (let round = 0; round < 4; round += 1) {
     const at = 2_000 + round * 100;
-    for (const count of [10, 40, 90]) states.push(running(head, done, { liveItem: reply(`r${round}`, count, at, true) }));
+    for (const count of [10, 40, 90])
+      states.push(running(head, done, { liveItem: reply(`r${round}`, count, at, true) }));
     done.push(reply(`r${round}`, 90, at));
-    for (let count = 1; count <= 5; count += 1) states.push(running(head, [...done, ...tools(`t${round}-`, count, at + 10, true)]));
+    for (let count = 1; count <= 5; count += 1)
+      states.push(running(head, [...done, ...tools(`t${round}-`, count, at + 10, true)]));
     done.push(...tools(`t${round}-`, 5, at + 10));
     states.push(running(head, done));
     // The window slides: the oldest exchange leaves its top.
@@ -297,12 +313,21 @@ for (const scale of [1.25, 1.5]) {
   test(`at a display scale of ${scale}: follow holds through the turn and fractional pane sizes`, async (t) => {
     const { page, errors } = await mountedAtEnd(t, scale);
     const states = turn();
-    const layouts = [{ height: 640.4 }, { reserve: 120.6 }, { width: 1033.3 }, { height: 801.2 }, { reserve: 0, width: 1200 }];
+    const layouts = [
+      { height: 640.4 },
+      { reserve: 120.6 },
+      { width: 1033.3 },
+      { height: 801.2 },
+      { reserve: 0, width: 1200 },
+    ];
     for (const [index, state] of states.entries()) {
       assertHeld(await page.evaluate((s) => window.fixture.step(s, 6), state), `${scale} state ${index}`);
       if (index % 6 === 5) {
-        const layout = layouts[(index / 6) % layouts.length | 0];
-        assertHeld(await page.evaluate((l) => window.fixture.layout(l, 6), layout), `${scale} ${JSON.stringify(layout)}`);
+        const layout = layouts[((index / 6) % layouts.length) | 0];
+        assertHeld(
+          await page.evaluate((l) => window.fixture.layout(l, 6), layout),
+          `${scale} ${JSON.stringify(layout)}`
+        );
       }
     }
     assert.deepEqual(errors, []);
@@ -350,18 +375,23 @@ test('a selection inside the reply that is still streaming holds follow: the sel
   const { page, errors } = await mountedAtEnd(t);
   // The reply streams a second paragraph under a first one it has written.
   const streaming = (count) =>
-    running(history, [{ kind: 'assistant', id: 'r', text: `${body(1)}\n\n${words(count)}`, at: 1_100, streaming: true }]);
+    running(history, [
+      { kind: 'assistant', id: 'r', text: `${body(1)}\n\n${words(count)}`, at: 1_100, streaming: true },
+    ]);
   await page.evaluate((s) => window.fixture.step(s), streaming(40));
-  // The first paragraph is written out: all of it revealed, none of it still fading in.
+  // What is sent is written out: all of it revealed, none of it still fading in. The row grows, and follow moves the
+  // text up, until then: a point read earlier would no longer be on the first paragraph.
   await page.waitForFunction(
-    (written) => {
+    (written, last) => {
       const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);
       const first = row?.querySelector('[data-md-unit="p@0"]');
-      return first?.textContent === written && !first.querySelector('mx-fade');
+      return first?.textContent === written && row.textContent.endsWith(last) && !row.querySelector('mx-fade');
     },
     { timeout: 10_000, polling: 100 },
-    body(1)
+    body(1),
+    'word39'
   );
+  await page.evaluate(() => window.fixture.layout({}, 4));
   // The first words of the streaming reply's first paragraph, in the last row.
   const text = await page.evaluate(() => {
     const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);

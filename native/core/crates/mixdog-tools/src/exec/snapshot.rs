@@ -111,7 +111,8 @@ fn fresh_snapshot_path(dir: &Path, shell_path: &str) -> PathBuf {
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
     let suffix = {
         use sha2::Digest;
-        let digest = sha2::Sha256::digest(format!("{stamp}:{}", std::process::id()));
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let digest = sha2::Sha256::digest(format!("{stamp}:{}:{}", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
         digest.iter().take(3).map(|b| format!("{b:02x}")).collect::<String>()
     };
     dir.join(format!("snapshot-{tag}-{stamp}-{suffix}.sh"))
@@ -176,15 +177,22 @@ impl Snapshots {
             .ok()?
             .await;
         let result = self.run(&request, &path, config_exists.then(|| config.to_string_lossy().into_owned())).await;
-        match &result {
+        self.record(key, &result, request.cancel.is_cancelled());
+        result
+    }
+
+    /// A snapshot a stopped call never finished says nothing about the shell: only an uncancelled
+    /// failure is remembered.
+    fn record(&self, key: String, result: &Option<PathBuf>, cancelled: bool) {
+        match result {
             Some(path) => {
                 lock(&self.cache).insert(key, path.clone());
             }
-            None => {
+            None if !cancelled => {
                 lock(&self.failed).insert(key);
             }
+            None => {}
         }
-        result
     }
 
     /// Runs the dump script in a login shell (`-c -l`: login mode runs the profile without
@@ -207,17 +215,28 @@ impl Snapshots {
         if request.processes.spawn(spawn).await.is_ok()
             && let Ok(mut source) = request.processes.subscribe(&handle, Some(0))
         {
-            while let Some(event) = source.next().await {
+            let mut stopped = false;
+            loop {
+                let event = tokio::select! {
+                    event = source.next() => event,
+                    () = request.cancel.cancelled(), if !stopped => {
+                        stopped = true;
+                        let _ = request.processes.kill(&handle);
+                        continue;
+                    }
+                };
+                let Some(event) = event else { break };
                 if let ProcessEvent::Exited { exit, .. } = event {
-                    finished_ok = exit.killed.is_none() && exit.status == ExitStatus::Code(0);
+                    finished_ok = !stopped && exit.killed.is_none() && exit.status == ExitStatus::Code(0);
                     break;
                 }
             }
         }
         let target = path.to_owned();
+        // The file's check runs whether or not the call was stopped: a stopped call's partial file goes too.
         request
             .lane
-            .submit(request.cancel, move |_| {
+            .submit(&CancellationToken::new(), move |_| {
                 let keep = finished_ok && std::fs::read_to_string(&target).is_ok_and(|content| snapshot_has_payload(&content));
                 if keep {
                     Some(target)
@@ -249,6 +268,56 @@ impl Snapshots {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stopped_call_does_not_disable_the_shell_snapshot() {
+        let snapshots = Snapshots::default();
+        snapshots.record("bash|1|1".into(), &None, true);
+        assert!(lock(&snapshots.failed).is_empty());
+        snapshots.record("bash|1|1".into(), &None, false);
+        assert!(lock(&snapshots.failed).contains("bash|1|1"));
+    }
+
+    /// A snapshot that would run for its whole 10 s limit ends when the call is stopped: the
+    /// process is killed and its half-made file is gone.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stopped_call_ends_its_snapshot_process_at_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let shell = dir.path().join("slowbash");
+        std::fs::write(&shell, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let processes: Arc<dyn ProcessManager> = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let shell_path = shell.to_string_lossy().into_owned();
+        let request = SnapshotRequest {
+            processes: &processes,
+            lane: tokens.spawn_io,
+            cancel: &cancel,
+            shell_path: &shell_path,
+            data_dir: dir.path(),
+            launcher_dir: "",
+            cwd: AbsPath::new(dir.path()).unwrap(),
+            thread: ThreadId::from("t"),
+            call: ToolCallId::from("c"),
+        };
+        let target = dir.path().join("snapshot-sh-1-abc.sh");
+        std::fs::write(&target, "partial").unwrap();
+        let started = std::time::Instant::now();
+        let made = Snapshots::default().run(&request, &target, None).await;
+        assert!(made.is_none() && !target.exists());
+        assert!(started.elapsed() < SNAPSHOT_TIMEOUT / 2, "the wait ended with the call, not at the snapshot's limit: {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn snapshot_paths_made_in_one_millisecond_differ() {
+        let dir = Path::new("/tmp");
+        let paths: HashSet<PathBuf> = (0..50).map(|_| fresh_snapshot_path(dir, "/bin/bash")).collect();
+        assert_eq!(paths.len(), 50);
+    }
 
     #[tokio::test]
     async fn drain_removes_every_snapshot_file_the_runtime_made() {

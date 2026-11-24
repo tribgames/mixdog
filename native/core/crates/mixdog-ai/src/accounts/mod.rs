@@ -16,6 +16,7 @@ pub mod rotation;
 pub mod validity;
 
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -222,6 +223,66 @@ const OWN_FILES: [(&str, &str, &str); 10] = [
     ("antigravity-oauth", "antigravity-oauth.json", "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH"),
 ];
 
+/// The provider's own credential file under data folder `dir`: the one its variable in `var` names, else its file in `dir`.
+fn own_file_in(dir: &Path, var: &dyn Fn(&str) -> Option<String>, provider: &str) -> PathBuf {
+    let Some((_, file, variable)) = OWN_FILES.iter().find(|(id, _, _)| *id == provider) else {
+        return dir.join(format!("{provider}.json"));
+    };
+    match var(variable).filter(|path| !path.is_empty()) {
+        Some(explicit) => std::path::absolute(&explicit).unwrap_or_else(|_| PathBuf::from(explicit)),
+        None => dir.join(file),
+    }
+}
+
+/// Where account `id` of `provider` keeps its credential under data folder `dir`: `None` for `default`, whose file is
+/// the provider's own.
+fn account_path_in(dir: &Path, provider: &str, id: &str) -> Result<Option<PathBuf>, AccountError> {
+    require_provider(provider)?;
+    require_id(id)?;
+    Ok((id != "default").then(|| dir.join("provider-accounts").join(provider).join(format!("{id}.json"))))
+}
+
+/// The credential file of slot `slot` under data folder `dir`: the provider's own file for `default`, else the account's.
+fn slot_path(dir: &Path, var: &dyn Fn(&str) -> Option<String>, provider: &str, slot: &str) -> Result<PathBuf, AccountError> {
+    Ok(account_path_in(dir, provider, slot)?.unwrap_or_else(|| own_file_in(dir, var, provider)))
+}
+
+/// `CURSOR_ACCESS_TOKEN` read through `var`: while it is set, the credential in force for the `default` Cursor slot in
+/// place of its file, as a send uses it.
+fn override_in(var: &dyn Fn(&str) -> Option<String>, provider: &str, slot: &str) -> Option<String> {
+    (provider == "cursor-oauth" && slot == "default").then(|| var("CURSOR_ACCESS_TOKEN")).flatten().filter(|token| !token.is_empty())
+}
+
+/// The document an override stands in for: the tokens a send reads from it.
+fn override_document(token: String) -> Option<serde_json::Map<String, Value>> {
+    crate::providers::cursor::auth::document(&crate::providers::cursor::auth::StoredTokens::standing_in(token)).ok()
+}
+
+/// The stamp of `doc`, the credential in force for a slot, while it is a sign-in at `now_ms`.
+fn signed_in_stamp(provider: &str, doc: &serde_json::Map<String, Value>, now_ms: f64) -> Option<String> {
+    validity::credential_valid(provider, doc, now_ms).then(|| crate::service::oauth_usage::credential_stamp(provider, doc)).flatten()
+}
+
+/// [`AccountStore::quota_credential`] for a reader of data folder `dir` that reads the files and the environment itself:
+/// `var` gives an environment variable, `read` a file's text.
+pub fn slot_stamp(
+    dir: &Path,
+    provider: &str,
+    slot: &str,
+    var: &dyn Fn(&str) -> Option<String>,
+    read: &dyn Fn(&Path) -> Option<String>,
+    now_ms: f64,
+) -> Option<String> {
+    let doc = match override_in(var, provider, slot) {
+        Some(token) => override_document(token)?,
+        None => match mixdog_statefile::parse_json_text(read(&slot_path(dir, var, provider, slot).ok()?)?.as_bytes()) {
+            Ok(Value::Object(doc)) => doc,
+            _ => return None,
+        },
+    };
+    signed_in_stamp(provider, &doc, now_ms)
+}
+
 #[cfg(test)]
 mod rotation_tests;
 #[cfg(test)]
@@ -239,7 +300,8 @@ pub struct AccountStore {
     clock: Arc<dyn Pace>,
     /// A remote-mode server holds no model credentials: every credential file reads as absent.
     remote_client: bool,
-    /// The environment whose `*_OAUTH_CREDENTIALS_PATH` names a provider's own file in place of the data dir's.
+    /// The environment whose `*_OAUTH_CREDENTIALS_PATH` names a provider's own file in place of the data dir's, and whose
+    /// `CURSOR_ACCESS_TOKEN` stands in for the default Cursor slot's file.
     env: Option<Arc<dyn crate::registry::keys::Environment>>,
 }
 impl AccountStore {
@@ -248,21 +310,20 @@ impl AccountStore {
     }
 
     /// Reads each provider's own credential where its `*_OAUTH_CREDENTIALS_PATH` in `env` names it (resolved against
-    /// the process's working directory), as Node's provider modules do.
+    /// the process's working directory), as Node's provider modules do, and the default Cursor slot's from its override.
     pub fn with_env(mut self, env: Arc<dyn crate::registry::keys::Environment>) -> Self {
         self.env = Some(env);
         self
     }
 
+    /// The environment's variables that name where a provider's own credential file is.
+    fn path_vars(&self) -> impl Fn(&str) -> Option<String> + '_ {
+        |variable| self.env.as_ref().and_then(|env| env.var(variable))
+    }
+
     /// The provider's own credential file: the one its variable names, else its file in the data dir.
     fn own_file(&self, provider: &str) -> PathBuf {
-        let Some((_, file, variable)) = OWN_FILES.iter().find(|(id, _, _)| *id == provider) else {
-            return self.dir.join(format!("{provider}.json"));
-        };
-        match self.env.as_ref().and_then(|env| env.var(variable)).filter(|path| !path.is_empty()) {
-            Some(explicit) => std::path::absolute(&explicit).unwrap_or_else(|_| PathBuf::from(explicit)),
-            None => self.dir.join(file),
-        }
+        own_file_in(&self.dir, &self.path_vars(), provider)
     }
 
     /// The files the loaded config's OAuth probes read (`[providerAccountsPath(), ...oauthCredentialFiles()]`): the
@@ -318,19 +379,13 @@ impl AccountStore {
     /// Where `id`'s credential lives: `None` for `default`, whose file is the
     /// provider's own (see [`Self::credential_file`]).
     pub fn account_path(&self, provider: &str, id: &str) -> Result<Option<PathBuf>, AccountError> {
-        require_provider(provider)?;
-        require_id(id)?;
-        Ok((id != "default").then(|| self.dir.join("provider-accounts").join(provider).join(format!("{id}.json"))))
+        account_path_in(&self.dir, provider, id)
     }
 
     /// The credential file of account `id`: the provider's own file for
     /// `default`, else the account's file.
     pub fn credential_file(&self, provider: &str, id: &str) -> Result<CredentialFile, AccountError> {
-        let path = match self.account_path(provider, id)? {
-            Some(path) => path,
-            None => self.own_file(provider),
-        };
-        Ok(CredentialFile::new(path, self.io).remote_client(self.remote_client))
+        Ok(CredentialFile::new(slot_path(&self.dir, &self.path_vars(), provider, id)?, self.io).remote_client(self.remote_client))
     }
 
     /// The account slot `provider` resolves to now (`currentProviderAccountId`); `default` when the roster cannot be read.
@@ -394,23 +449,22 @@ impl AccountStore {
         })
     }
 
-    /// The sign-in a stored plan reading may describe, read without refreshing auth.
+    /// The credential in force for `slot` of `provider` in place of its file, while one is set ([`override_in`]).
+    pub(crate) fn credential_override(&self, provider: &str, slot: &str) -> Option<String> {
+        override_in(&|name| self.env.as_ref()?.key_var(name), provider, slot)
+    }
+
+    /// The sign-in a stored plan reading may describe, read without refreshing auth: the stamp of the credential in force
+    /// for the slot ([`crate::service::oauth_usage::credential_stamp`]).
     pub(crate) async fn quota_credential(&self, provider: &str, slot: &str) -> Option<String> {
-        // Cursor's default credential can come from outside the roster file. A file reading
-        // cannot prove anything about that override.
-        if provider == "cursor-oauth"
-            && slot == "default"
-            && self.env.as_ref().and_then(|env| env.key_var("CURSOR_ACCESS_TOKEN")).is_some_and(|token| !token.is_empty())
-        {
-            return None;
-        }
-        let Probe::Present(doc) = self.credential_file(provider, slot).ok()?.load_document().await else {
-            return None;
+        let doc = match self.credential_override(provider, slot) {
+            Some(token) => override_document(token)?,
+            None => match self.credential_file(provider, slot).ok()?.load_document().await {
+                Probe::Present(doc) => doc,
+                Probe::Absent | Probe::Unreadable => return None,
+            },
         };
-        if !validity::credential_valid(provider, &doc, self.now_ms() as f64) {
-            return None;
-        }
-        crate::service::oauth_usage::credential_stamp(provider, &doc)
+        signed_in_stamp(provider, &doc, self.now_ms() as f64)
     }
 
     async fn update(&self, provider: &str, mutate: impl FnOnce(&mut Pool) -> Result<(), AccountError> + Send + 'static) -> Result<Pool, AccountError> {

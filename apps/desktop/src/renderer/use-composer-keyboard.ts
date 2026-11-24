@@ -74,6 +74,8 @@ interface ComposerKeyboardOptions {
   };
   selector: {
     open: boolean;
+    /** There may be a prompt to rewind to: Esc-Esc on an empty draft asks for them. */
+    hasTargets: boolean;
     setOpen(open: boolean): void;
     index: number;
     setIndex: Dispatch<SetStateAction<number>>;
@@ -152,9 +154,12 @@ export function useComposerKeyboard({
       if (!path || !mention.match) return;
       const before = draft.value.slice(0, mention.match.start);
       const after = draft.value.slice(mention.match.end);
-      const inserted = `@${path}${after && /^\s/.test(after) ? '' : ' '}`;
+      // The caret lands past the separating space (an existing one is reused),
+      // so the finished mention does not reopen the palette.
+      const separated = after && /^\s/.test(after);
+      const inserted = `@${path}${separated ? '' : ' '}`;
       const next = `${before}${inserted}${after}`;
-      const caret = before.length + inserted.length;
+      const caret = before.length + inserted.length + (separated ? 1 : 0);
       draft.set(next);
       draft.setCaretOffset(caret);
       mention.setDismissed('');
@@ -391,7 +396,7 @@ export function useComposerKeyboard({
         // Messages sent behind a turn live in the transcript, not a queue
         // the editor takes back.
         hasQueuedMessages: false,
-        hasMessages: selector.messages.length > 0,
+        hasMessages: selector.hasTargets,
         value: draft.value || (runtime.attachments.length ? 'attachment' : ''),
         lastClearPressAt: runtime.escapeClearAt.current,
       });
@@ -433,19 +438,22 @@ export function useComposerKeyboard({
   const onKeyDown = useCallback(
     (event: TextareaKeyEvent) => {
       if (event.key !== 'Escape') runtime.escapeClearAt.current = 0;
+      // Phone keyboards have no Shift+Enter, so Enter keeps its native line
+      // break there and the send button submits.
+      const mobile = isMobileRemoteSurface();
+      const composing = event.nativeEvent.isComposing || ime.composing.current || event.nativeEvent.keyCode === 229;
+      // Windows names a key the IME takes `Process`; its code still says Enter.
+      const imeEnter = composing && (event.code === 'Enter' || event.code === 'NumpadEnter');
+      const key = imeEnter ? 'Enter' : event.key;
       const newlineChord = isComposerNewlineChord({
-        key: event.key,
+        key,
         shiftKey: event.shiftKey,
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
         altKey: event.altKey,
       });
-      // Phone keyboards have no Shift+Enter, so Enter keeps its native line
-      // break there and the send button submits.
-      const mobile = isMobileRemoteSurface();
-      const composing = event.nativeEvent.isComposing || ime.composing.current || event.nativeEvent.keyCode === 229;
       if (!composing) ime.suppressLineBreak.current = false;
-      if (composing && event.key === 'Enter' && !mobile) {
+      if (composing && key === 'Enter' && !mobile) {
         ime.suppressLineBreak.current = true;
       }
       if (composing && newlineChord && !mobile) {
@@ -459,7 +467,7 @@ export function useComposerKeyboard({
       }
       if (
         composing &&
-        (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' || event.key.startsWith('Arrow'))
+        (key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' || event.key.startsWith('Arrow'))
       ) {
         event.stopPropagation();
         return;

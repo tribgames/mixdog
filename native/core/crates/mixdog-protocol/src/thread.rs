@@ -421,7 +421,13 @@ pub struct SubmitOptions {
     /// in place of a part's claimed `sizeBytes` (`attachmentBlobSize`). Host-only, like `context`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_sizes: Option<BTreeMap<String, u32>>,
+    /// A follow-up that only joins a running turn's queue; an idle session refuses it instead of starting a turn. Host-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_only: Option<bool>,
 }
+
+/// The code of a `queueOnly` submission refused because the session had no running turn to join.
+pub const QUEUE_ONLY_IDLE: &str = "EQUEUEONLYIDLE";
 
 /// Today's `DesktopQuotaResume`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

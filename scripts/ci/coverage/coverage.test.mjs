@@ -2082,7 +2082,10 @@ test('the listings of a gate call are read from the layout the download leaves, 
     // a variant's list leg is a list leg of its own system, never a test leg
     const onTestLeg = structuredClone(plan);
     onTestLeg.rust.variants[0].listLeg = 'linux/core-tests/1of6#ci';
-    assert.match(planProblems(onTestLeg).join('\n'), /rust variant linux names the list leg linux\/core-tests\/1of6#ci/);
+    assert.match(
+      planProblems(onTestLeg).join('\n'),
+      /rust variant linux names the list leg linux\/core-tests\/1of6#ci/
+    );
     const otherSystem = structuredClone(plan);
     otherSystem.rust.variants[0].listLeg = 'windows/core-list/1of1';
     assert.match(planProblems(otherSystem).join('\n'), /which no list leg of linux is/);

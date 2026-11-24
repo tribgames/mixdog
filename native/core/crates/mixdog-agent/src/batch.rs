@@ -36,11 +36,11 @@ use crate::run::AgentError;
 use crate::run::Run;
 use crate::tools::CallEnv;
 use crate::tools::CallFuture;
+use crate::tools::Earlier;
 use crate::tools::Executed;
 use crate::tools::Projection;
 use crate::tools::ToolSet;
 use crate::tools::arg_shape;
-use crate::tools::call_signature;
 use crate::tools::failure_signature;
 use crate::tools::intra_turn_duplicates;
 use mixdog_core_api::domain::common::AbsPath;
@@ -91,15 +91,15 @@ pub(crate) struct Settle {
 /// Whether a streamed run's result is the one a host keeps for its call until the call's row commits (it recovers the
 /// call by it): a read from before a change must not be recovered as the read after it. The batch decides it, where it
 /// decides whether it takes the run's result or runs the call again (`kept` in [`Run::process_tool_batch`]), from the
-/// calls before it that run. A call the stream handed over behind a call that may change what it reads is undecided
-/// until then: whether that call runs at all is the batch's to say.
+/// calls before it that run, or answers the call without it ([`Run::pass`]). A call the stream handed over behind a call
+/// that may change what it reads is undecided until then: whether that call runs at all is the batch's to say.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Standing {
     /// The call's result: told as its early result.
     Kept,
     /// Not known yet: told as settled, and held.
     Undecided,
-    /// The batch runs the call again: told as settled, and nothing more.
+    /// The batch runs the call again or answers it without a run: told as settled, and nothing more.
     Superseded,
 }
 
@@ -141,15 +141,6 @@ impl Drop for Settler {
     }
 }
 
-/// The batch answered the call without its run: no retry is due, and a place the retry took is given up.
-fn passed(slots: &HashMap<String, SettleSlot>, id: &str) {
-    if let Some(slot) = slots.get(id) {
-        let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        s.retry_due = false;
-        s.turn = None;
-    }
-}
-
 /// One assistant turn issuing N `edit` calls with the same file and
 /// `old_string` (not replace-all) and N distinct `new_string`s is
 /// unambiguous as a whole: the k-th call takes the k-th occurrence. Members
@@ -180,6 +171,11 @@ pub(crate) fn edit_groups(calls: &[ToolCall]) -> HashMap<String, EditGroup> {
         .filter(|(_, (total, news))| *total >= 2 && news.len() as u32 == *total)
         .map(|(key, (total, _))| (key, Arc::new(Mutex::new((total, 0)))))
         .collect()
+}
+
+/// What the repeat guards know a call by: its normalized failure signature and its argument shape.
+fn guard_keys(call: &ToolCall, cwd: &std::path::Path) -> (String, String) {
+    (failure_signature(&call.name, &call.arguments, cwd), format!("{}:{}", call.name, arg_shape(&call.arguments)))
 }
 
 fn edit_key(call: &ToolCall) -> Option<String> {
@@ -239,7 +235,7 @@ fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, reason = "a short-lived per-call decision; the skip message is moved out once")]
 enum Decision {
     Skip(AgentMessage),
     Run,
@@ -249,7 +245,73 @@ enum Decision {
 pub(crate) fn is_single_call_per_turn_tool(name: &str) -> bool {
     name == "computer"
 }
+
+/// For each call of a one-per-turn tool after the first of its turn, that first call's id.
+fn single_call_firsts(calls: &[ToolCall]) -> Vec<Option<String>> {
+    let mut firsts: HashMap<String, String> = HashMap::new();
+    calls
+        .iter()
+        .map(|call| {
+            if call.id.is_empty() || !is_single_call_per_turn_tool(&call.name) {
+                return None;
+            }
+            match firsts.get(&call.name) {
+                None => {
+                    firsts.insert(call.name.clone(), call.id.clone());
+                    None
+                }
+                Some(first) => Some(first.clone()),
+            }
+        })
+        .collect()
+}
+
+/// A step's calls as the batch judges them, from its first call: the execution view ([`Run::execution_view`]) with each
+/// call's bridging and `call_tool` refusal, each call's identical twin before it, and the first call of its one-per-turn tool.
+pub(crate) struct StepCalls {
+    calls: Vec<ToolCall>,
+    bridged: Vec<bool>,
+    unprojected: Vec<Option<String>>,
+    dups: HashMap<usize, String>,
+    single_of: Vec<Option<String>>,
+}
+
+/// What the batch has made of a step's calls: the repeat guards hold the outcomes of the calls before `recorded`, and `runs`
+/// says of each call the batch has decided whether it runs. A step still streaming has neither.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Decided<'a> {
+    recorded: usize,
+    runs: &'a [Option<bool>],
+}
+
+impl Decided<'_> {
+    fn of(&self, i: usize) -> Option<bool> {
+        self.runs.get(i).copied().flatten()
+    }
+}
+
 impl Run {
+    /// The step of `wire_calls`, from its first call, as the batch judges it.
+    pub(crate) fn step_calls(&self, wire_calls: &[ToolCall]) -> StepCalls {
+        let (calls, bridged, unprojected) = self.execution_view(wire_calls);
+        let dups = intra_turn_duplicates(&calls, &self.tools);
+        let single_of = single_call_firsts(&calls);
+        StepCalls { calls, bridged, unprojected, dups, single_of }
+    }
+
+    /// The batch answered the call `id` with `answer`, without its run: no retry is due and a place the retry took is given
+    /// up. A run the stream started for it is not its result: what that run told is taken back for the answer, and what it
+    /// tells later is told superseded.
+    fn pass(&self, id: &str, answer: &AgentMessage) {
+        let Some(slot) = self.eager_settles.get(id) else { return };
+        let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        s.retry_due = false;
+        s.turn = None;
+        s.standing = Standing::Superseded;
+        s.held = None;
+        self.env.observer.early_result_replaced(self.env.observer.send_generation(), id, Some(answer.clone()));
+    }
+
     /// The batch is at `call`: its group retry is due if its group has occurrences left.
     pub(crate) fn reach_call(&self, call: &ToolCall, groups: &HashMap<String, EditGroup>) {
         if let Some(slot) = self.eager_settles.get(&call.id) {
@@ -294,73 +356,66 @@ impl Run {
         self.live_cwd().as_path().to_path_buf()
     }
 
-    /// The call as it will run (a `call_tool` as its target) when nothing in the batch could answer it
-    /// differently: no limit, no guard near firing, no duplicate, receipt or cached body; `None` leaves
-    /// it to the serial batch. The single-call slot is taken before anything can refuse the call.
-    async fn admit_eager(&mut self, call: &ToolCall, cwd: &AbsPath) -> Option<ToolCall> {
+    /// The call `k` of `step` as it will run (a `call_tool` as its target) when nothing in the batch could answer it
+    /// differently: no limit, no answer the batch gives it before the repeat guards ([`Self::prejudge`]), no twin, receipt
+    /// or cached body, and no repeat guard that could answer it. For a read that is a guard refusing it now: a read started
+    /// early leaves nothing behind but a result the batch takes back when it answers the call ([`Self::pass`]). For any
+    /// other call it is a guard answering it in any state the calls before it can leave, as the batch has `decided` them or
+    /// will decide them by its rules, and a changing call before it that may still start ([`Self::clears_the_way`]): changing
+    /// calls start in call order, each with every changing call before it in the barriers it waits on. `None` leaves it to the
+    /// serial batch.
+    async fn admit_eager(&self, step: &StepCalls, k: usize, decided: Decided<'_>, cwd: &AbsPath) -> Option<ToolCall> {
+        let call = &step.calls[k];
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
             || self.eager_started.iter().any(|e| e.id == call.id)
+            || decided.of(k) == Some(false)
+            || step.dups.contains_key(&k)
+            || step.unprojected[k].is_some()
+            || crate::tools::is_invalid_args_marker(&call.arguments)
         {
             return None;
         }
-        let canonical = ToolCall { name: self.tools.canonical(&call.name), ..call.clone() };
-        let invalid_args = crate::tools::is_invalid_args_marker(&call.arguments);
-        let (exec, bridged) = if invalid_args {
-            (canonical, false)
-        } else {
-            match self.tools.project(&self.tool_env.thread_id, &canonical) {
-                Projection::Plain => (canonical, false),
-                Projection::Target(target) => (target, true),
-                Projection::Refused(_) => return None,
-            }
-        };
-        let name = exec.name.clone();
-        if is_single_call_per_turn_tool(&name) {
-            match self.eager_single.get(&name) {
-                Some(first) if *first != call.id => return None,
-                Some(_) => {}
-                None => {
-                    self.eager_single.insert(name.clone(), call.id.clone());
-                }
-            }
-        }
-        if invalid_args {
+        let name = &call.name;
+        let changes = !self.tools.read_only(name);
+        if (uses_result_cache(name) && self.barriers.has_reuse_invalidator()) || (changes && !(0..k).all(|i| self.clears_the_way(step, decided, i))) {
             return None;
         }
-        if uses_result_cache(&name) && self.barriers.has_reuse_invalidator() {
+        self.env.gate.refresh_policy(&GateCall::new(name.clone(), call.arguments.clone())).await;
+        if self.prejudge(step, k).is_some() {
             return None;
         }
-        let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
-        self.env.gate.refresh_policy(&gate_call).await;
-        if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
+        let earlier = if changes { self.unrecorded(step, decided, k, cwd.as_path()) } else { Vec::new() };
+        let (sig, shape_sig) = guard_keys(call, cwd.as_path());
+        if self.carry.repeat.could_answer(&earlier, &sig, &shape_sig) {
             return None;
         }
-        let dedup = self.tools.dedup_eligible(&name) && (bridged || self.tools.get(&name).is_some());
-        if dedup {
-            let sig = call_signature(&name, &exec.arguments);
-            if !self.eager_sigs.insert(sig.clone()) {
-                return None;
-            }
-        }
-        if (dedup || uses_result_cache(&name))
+        let dedup = self.tools.dedup_eligible(name) && (step.bridged[k] || self.tools.get(name).is_some());
+        if (dedup || uses_result_cache(name))
             && let Some(reuse) = self.env.reuse.clone()
-            && let Some(invocation) = self.tools.reuse_invocation(&exec)
+            && let Some(invocation) = self.tools.reuse_invocation(call)
             && reuse.has_candidate(&invocation, cwd.as_path()).await
         {
             return None;
         }
-        Some(exec)
+        Some(call.clone())
     }
 
-    /// Starts a read-only call the moment the provider streams it, when [`Self::admit_eager`] admits it.
-    /// A call that did not start here is decided by the serial batch. `cwd` is the session's folder the
-    /// caller read for this start: the calls one start takes together are prepared in order from one
-    /// read, so a sibling's Project switch landing meanwhile moves none of them.
-    pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath) {
+    /// Whether the call `i` of `step` lets a changing call after it start: it is a read, its run is in the barriers (started
+    /// early), its outcome is recorded, or the batch decided not to run it.
+    fn clears_the_way(&self, step: &StepCalls, decided: Decided<'_>, i: usize) -> bool {
+        let call = &step.calls[i];
+        self.tools.read_only(&call.name) || i < decided.recorded || decided.of(i) == Some(false) || self.eager_started.iter().any(|e| e.id == call.id)
+    }
+
+    /// Starts the call `k` of `step` (`call` as the wire carries it) ahead of the batch's decision, as the provider streams
+    /// it or as the batch starts what it decided, when [`Self::admit_eager`] admits it. A call that did not start here is
+    /// decided by the serial batch. `cwd` is the session's folder the caller read for this start: the calls one start takes
+    /// together are prepared in order from one read, so a sibling's Project switch landing meanwhile moves none of them.
+    pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath, step: &StepCalls, k: usize, decided: Decided<'_>) {
         let behind = self.behind_a_change(call);
-        let Some(exec) = self.admit_eager(call, cwd).await else { return };
+        let Some(exec) = self.admit_eager(step, k, decided, cwd).await else { return };
         let name = exec.name.clone();
         let mut env = self.call_env();
         let id = call.id.clone();
@@ -476,10 +531,8 @@ impl Run {
             }
         }
         self.eager_settles.clear();
-        self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
-        self.eager_single.clear();
         self.streamed_ids.clear();
         self.streamed_changes = (false, false);
         self.streamed_behind.clear();
@@ -492,10 +545,8 @@ impl Run {
         self.settle_gate.send_replace(true);
         self.eager.clear();
         self.eager_settles.clear();
-        self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
-        self.eager_single.clear();
         self.streamed_ids.clear();
         self.streamed_changes = (false, false);
         self.streamed_behind.clear();
@@ -506,58 +557,77 @@ impl Run {
         self.streamed_ids.contains(id)
     }
 
-    /// What one call is: surface denial, one-per-turn tools,
-    /// intra-turn twin and repeat-failure guards.
-    #[allow(clippy::too_many_arguments, reason = "the call's per-turn lookups, each an independent guard input")]
-    async fn decide(
-        &mut self,
-        call: &ToolCall,
-        dup_of: Option<&String>,
-        single_of: Option<&String>,
-        sig: &str,
-        shape_sig: &str,
-        unprojected: Option<&String>,
-    ) -> Decision {
+    /// What the call `j` of `step` is: surface denial, one-per-turn tools, intra-turn twin and repeat-failure guards.
+    async fn decide(&mut self, step: &StepCalls, j: usize, sig: &str, shape_sig: &str) -> Decision {
+        let call = &step.calls[j];
+        if step.unprojected[j].is_none() && !crate::tools::is_invalid_args_marker(&call.arguments) {
+            self.env.gate.refresh_policy(&GateCall::new(call.name.clone(), call.arguments.clone())).await;
+        }
+        if let Some(decision) = self.prejudge(step, j) {
+            return decision;
+        }
+        match self.carry.repeat.skip(&call.name, sig, shape_sig) {
+            Some(text) => Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error)),
+            None => Decision::Run,
+        }
+    }
+
+    /// What the batch makes of the call `i` of `step` before the repeat guards are asked, whatever the outcomes before it:
+    /// an answer without a run, a run no guard is asked about, or `None` when the guards judge it next. The gate reads the
+    /// policy as last refreshed.
+    fn prejudge(&self, step: &StepCalls, i: usize) -> Option<Decision> {
+        let call = &step.calls[i];
         // A `call_tool` that names no tool answers its wire id with the bridge error; it never meets a guard.
-        if let Some(text) = unprojected {
-            return Decision::Skip(AgentMessage::tool_text(&call.id, text.clone(), ToolKind::Error));
+        if let Some(text) = &step.unprojected[i] {
+            return Some(Decision::Skip(AgentMessage::tool_text(&call.id, text.clone(), ToolKind::Error)));
         }
         if crate::tools::is_invalid_args_marker(&call.arguments) {
-            return Decision::Run;
+            return Some(Decision::Run);
         }
-        let gate_call = GateCall::new(call.name.clone(), call.arguments.clone());
-        self.env.gate.refresh_policy(&gate_call).await;
-        if let Some(text) = self.env.gate.pre_dispatch_deny(&gate_call) {
-            return Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error));
+        if let Some(text) = self.env.gate.pre_dispatch_deny(&GateCall::new(call.name.clone(), call.arguments.clone())) {
+            return Some(Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error)));
         }
-        if let Some(first) = single_of {
-            return Decision::Skip(AgentMessage::tool_text(
+        if let Some(first) = &step.single_of[i] {
+            return Some(Decision::Skip(AgentMessage::tool_text(
                 &call.id,
                 format!(
                     "[computer-call-cardinality] Only the first Computer Use call in an assistant turn is executed (tool_use_id={first}). This call was not executed. Inspect the first call's fresh result, then issue at most one next computer call; use sequence only for a deterministic same-window focus chain."
                 ),
                 ToolKind::Error,
-            ));
+            )));
         }
         if let Some(why) = self.dropped_tools.get(&call.name) {
-            return Decision::Skip(AgentMessage::tool_text(&call.id, format!("Error: {why}"), ToolKind::Error));
+            return Some(Decision::Skip(AgentMessage::tool_text(&call.id, format!("Error: {why}"), ToolKind::Error)));
         }
-        if let Some(first) = dup_of
+        if let Some(first) = step.dups.get(&i)
             && !uses_result_cache(&call.name)
         {
-            return Decision::Skip(AgentMessage::tool_text(
+            return Some(Decision::Skip(AgentMessage::tool_text(
                 &call.id,
                 format!(
                     "[intra-turn-dedup] identical read-only `{}` call was already executed in this same assistant turn as tool_use_id={first}. The first call's tool_result is in context immediately above; skipping re-execution to save tokens. If you needed a different slice of the file, narrow the next call (different path / offset / limit / pattern) so it has a distinct signature.",
                     call.name
                 ),
                 ToolKind::Skipped,
-            ));
+            )));
         }
-        match self.carry.repeat.skip(&call.name, sig, shape_sig) {
-            Some(text) => Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error)),
-            None => Decision::Run,
-        }
+        None
+    }
+
+    /// How the repeat guards will meet the calls of `step` from `decided.recorded` up to `k`, whose outcomes they do not hold
+    /// yet: a call the batch decided as it decided it, any other as the batch's rules make it before the guards are asked.
+    fn unrecorded(&self, step: &StepCalls, decided: Decided<'_>, k: usize, cwd: &std::path::Path) -> Vec<Earlier> {
+        (decided.recorded..k)
+            .map(|i| {
+                let guarded = match decided.of(i).or_else(|| self.prejudge(step, i).map(|decision| matches!(decision, Decision::Run))) {
+                    Some(false) => return Earlier::Unrun,
+                    Some(true) => false,
+                    None => true,
+                };
+                let (sig, shape_sig) = guard_keys(&step.calls[i], cwd);
+                Earlier::Runs { sig, shape_sig, guarded }
+            })
+            .collect()
     }
 
     /// A failed executed call keeps its FULL command text in the stored assistant turn, so the model
@@ -611,22 +681,9 @@ impl Run {
 
     pub(crate) async fn process_tool_batch(&mut self, wire_calls: &[ToolCall], allowed: u64) -> Result<(), AgentError> {
         let n = wire_calls.len();
-        let (calls, bridged, unprojected) = self.execution_view(wire_calls);
-        let dups = intra_turn_duplicates(&calls, &self.tools);
-        let mut single_first: HashMap<String, String> = HashMap::new();
-        let mut single_of: Vec<Option<String>> = vec![None; n];
-        for (i, c) in calls.iter().enumerate() {
-            if c.id.is_empty() || !is_single_call_per_turn_tool(&c.name) {
-                continue;
-            }
-            match single_first.get(&c.name) {
-                None => {
-                    single_first.insert(c.name.clone(), c.id.clone());
-                }
-                Some(first) => single_of[i] = Some(first.clone()),
-            }
-        }
-        let groups = edit_groups(&calls);
+        let step = self.step_calls(wire_calls);
+        let (calls, bridged) = (&step.calls, &step.bridged);
+        let groups = edit_groups(calls);
         let wrap_up = self.turn_limits().and_then(|l| l.wrap_up_at_ms);
         let cwd = self.cwd_now();
 
@@ -661,24 +718,24 @@ impl Run {
                 }
                 let call = &calls[j];
                 if (j as u64) >= allowed || wrap_up.is_some_and(|at| self.env.clock.now_ms() >= at) {
-                    staged[j] = Some(limits::refusal(&call.id));
-                    passed(&self.eager_settles, &call.id);
+                    let refusal = limits::refusal(&call.id);
+                    self.pass(&call.id, &refusal);
+                    staged[j] = Some(refusal);
                     evaluated[j] = true;
                     finished[j] = true;
                     continue;
                 }
-                let sig = failure_signature(&call.name, &call.arguments, &cwd);
-                let shape_sig = format!("{}:{}", call.name, arg_shape(&call.arguments));
+                let (sig, shape_sig) = guard_keys(call, &cwd);
                 // Earlier outcomes not recorded yet could change this decision.
                 let unrecorded = j - recorded;
                 if unrecorded > 0 && self.carry.repeat.could_fire(unrecorded) {
                     break;
                 }
                 evaluated[j] = true;
-                match self.decide(call, dups.get(&j), single_of[j].as_ref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
+                match self.decide(&step, j, &sig, &shape_sig).await {
                     Decision::Skip(message) => {
+                        self.pass(&call.id, &message);
                         staged[j] = Some(message);
-                        passed(&self.eager_settles, &call.id);
                         finished[j] = true;
                         skipped[j] = true;
                     }
@@ -721,15 +778,14 @@ impl Run {
                 reach_tx.send_replace(recorded);
             }
             // 3. Start what is ready.
+            let runs: Vec<Option<bool>> = (0..n).map(|i| evaluated[i].then_some(ready[i])).collect();
             for j in 0..n {
                 if !ready[j] || started[j] {
                     continue;
                 }
                 let started_in = self.live_cwd();
-                for (k, wire_call) in wire_calls.iter().enumerate().take(n).skip(j) {
-                    if !dups.contains_key(&k) {
-                        self.try_eager(wire_call, &started_in).await;
-                    }
+                for (k, wire_call) in wire_calls.iter().enumerate().skip(j) {
+                    self.try_eager(wire_call, &started_in, &step, k, Decided { recorded, runs: &runs }).await;
                 }
                 let call = calls[j].clone();
                 let read_only = self.tools.get(&call.name).is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
@@ -856,7 +912,7 @@ impl Run {
         }
         drop(running);
 
-        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, (&mut writes, &outputs, &hits)).await;
+        self.finalize_results(calls, &mut staged, &was_executed, &tool_ms, &mut intervals, (&mut writes, &outputs, &hits)).await;
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
                 self.emit(RunEvent::ToolResult { call_id: id.to_owned(), kind });

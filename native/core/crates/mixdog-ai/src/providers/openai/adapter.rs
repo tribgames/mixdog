@@ -394,12 +394,12 @@ pub struct OpenAiAdapter {
     ws_timers: WsTimers,
 }
 
-/// The windows of a Responses WebSocket stream (`openai-ws-watchdogs.mjs`), the same for every route that speaks it:
-/// `PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS` (`None` when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off), its
-/// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS`, and the no-first-frame window after the request frame.
 /// `streamStalledError('Responses WS', …)`: what a stalled socket stream is called, whichever route it serves.
 pub(crate) const WS_STREAM_LABEL: &str = "Responses WS";
 
+/// The windows of a Responses WebSocket stream (`openai-ws-watchdogs.mjs`), the same for every route that speaks it:
+/// `PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS` (`None` when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off), its
+/// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS`, and the no-first-frame window after the request frame.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WsTimers {
     idle_ms: Option<f64>,

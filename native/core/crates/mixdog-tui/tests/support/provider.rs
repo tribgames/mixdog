@@ -4,47 +4,27 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
-#[derive(Debug, Default)]
-struct GateState {
-    reached: bool,
-    open: bool,
-}
-
-/// A point of a reply the stand-in holds at until the test opens it; the test can wait for the stand-in to get there.
+/// A point of a reply the stand-in holds at until the test opens it.
 #[derive(Clone, Debug, Default)]
-pub struct Gate(Arc<(Mutex<GateState>, Condvar)>);
+pub struct Gate(Arc<(Mutex<bool>, Condvar)>);
 
 impl Gate {
     /// Lets the reply go on.
     pub fn open(&self) {
         let (lock, wake) = &*self.0;
-        lock.lock().unwrap_or_else(PoisonError::into_inner).open = true;
+        *lock.lock().unwrap_or_else(PoisonError::into_inner) = true;
         wake.notify_all();
-    }
-
-    /// Waits until the stand-in has written everything before the gate; `false` at the limit.
-    pub fn wait_reached(&self, limit: Duration) -> bool {
-        let deadline = Instant::now() + limit;
-        let (lock, wake) = &*self.0;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        while !state.reached {
-            let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
-            state = wake.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
-        }
-        true
     }
 
     fn pass(&self) {
         let (lock, wake) = &*self.0;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        state.reached = true;
-        wake.notify_all();
-        while !state.open {
-            state = wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+        let mut open = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        while !*open {
+            open = wake.wait(open).unwrap_or_else(PoisonError::into_inner);
         }
     }
 }

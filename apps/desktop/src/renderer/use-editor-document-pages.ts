@@ -47,7 +47,9 @@ export function useEditorDocumentPages({
   const documentPreviewRef = useRef<DocumentPreview | null>(null);
   documentPreviewRef.current = documentPreview;
   const documentWidth = useRef<number | undefined>(undefined);
-  const documentSettling = useRef('');
+  // A change on disk was seen while a page batch was in flight: page 1 is
+  // reloaded when the batch ends.
+  const documentRefreshPending = useRef(false);
 
   /** Starts a fresh opening and returns its generation. */
   const resetDocument = useCallback((): number => {
@@ -60,7 +62,7 @@ export function useEditorDocumentPages({
     documentPagesInFlight.current = false;
     setDocumentPagesLoading(false);
     documentWidth.current = undefined;
-    documentSettling.current = '';
+    documentRefreshPending.current = false;
     return documentGeneration.current;
   }, []);
 
@@ -68,7 +70,7 @@ export function useEditorDocumentPages({
   // conversion is shared, but each page is its own rasterization and a phone
   // gains nothing from three of them racing down the same link.
   const loadDocumentPages = useCallback(
-    (pages: number[], maxWidth?: number) => {
+    function load(pages: number[], maxWidth?: number) {
       const reader = api?.previewDocumentPages;
       if (!reader || pages.length === 0 || documentPagesInFlight.current) return;
       const generation = documentGeneration.current;
@@ -107,6 +109,10 @@ export function useEditorDocumentPages({
           if (generation !== documentGeneration.current) return;
           documentPagesInFlight.current = false;
           setDocumentPagesLoading(false);
+          if (documentRefreshPending.current) {
+            documentRefreshPending.current = false;
+            load([1], documentWidth.current);
+          }
         });
     },
     [accessToken, api, projectPath, relPath]
@@ -129,7 +135,7 @@ export function useEditorDocumentPages({
     documentPreviewRef,
     documentPagesInFlight,
     documentWidth,
-    documentSettling,
+    documentRefreshPending,
   };
 }
 
@@ -146,7 +152,7 @@ export function useEditorPreviewPoll({
   documentPreviewRef,
   documentPagesInFlight,
   documentWidth,
-  documentSettling,
+  documentRefreshPending,
 }: {
   api: typeof window.mixdogDesktop;
   projectPath: string;
@@ -160,46 +166,41 @@ export function useEditorPreviewPoll({
   documentPreviewRef: { current: DocumentPreview | null };
   documentPagesInFlight: { current: boolean };
   documentWidth: { current: number | undefined };
-  documentSettling: { current: string };
+  documentRefreshPending: { current: boolean };
 }) {
+  // Each `fs/changed` already closes a burst of writes (the core batches
+  // them), so one sighting of a new revision is enough to refresh.
   useEffect(() => {
     if (!active || !previewWatched) return undefined;
-    return startEditorDiskWatch(api, projectPath, relPath, () => {
-      if (document.body.dataset.tabDragging) return;
-      void api
-        ?.statProjectFile?.(projectPath, relPath, accessToken)
-        .then((info) => {
-          if (!info) return;
-          const shown = documentPreviewRef.current;
-          const changed = shown
-            ? documentRevision(shown) !== documentRevision(info)
-            : info.mtimeMs !== savedMtime.current;
-          const key = documentRevision(info);
-          if (!changed) {
-            documentSettling.current = '';
-            return;
-          }
-          if (documentSettling.current !== key) {
-            documentSettling.current = key;
-            return;
-          }
-          if (!shown) {
-            documentSettling.current = '';
-            reload();
-          } else if (!documentPagesInFlight.current) {
-            documentSettling.current = '';
-            loadDocumentPages([1], documentWidth.current);
-          }
-        })
-        .catch(() => undefined);
-    });
+    return startEditorDiskWatch(
+      api,
+      projectPath,
+      relPath,
+      () => {
+        if (document.body.dataset.tabDragging) return;
+        void api
+          ?.statProjectFile?.(projectPath, relPath, accessToken)
+          .then((info) => {
+            if (!info) return;
+            const shown = documentPreviewRef.current;
+            if (!shown) {
+              if (info.mtimeMs !== savedMtime.current) reload();
+            } else if (documentRevision(shown) !== documentRevision(info)) {
+              if (documentPagesInFlight.current) documentRefreshPending.current = true;
+              else loadDocumentPages([1], documentWidth.current);
+            }
+          })
+          .catch(() => undefined);
+      },
+      { checkOnStart: true }
+    );
   }, [
     accessToken,
     active,
     api,
     documentPagesInFlight,
     documentPreviewRef,
-    documentSettling,
+    documentRefreshPending,
     documentWidth,
     loadDocumentPages,
     previewWatched,

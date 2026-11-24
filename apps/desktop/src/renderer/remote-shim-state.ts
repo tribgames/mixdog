@@ -345,7 +345,10 @@ export const createRemoteShimContext = (): RemoteShimContext => {
   try {
     const storedBrowserId = localStorage.getItem(keys.browserId) || '';
     browserIdStored = Boolean(storedBrowserId);
-    browserId = storedBrowserId || newBrowserId();
+    // An id kept without its credential (dropped, or evicted from storage) stays paired on the relay, which pairs an id once: it is
+    // replaced. A pending claim's id is the one its approval is minted for. A durable copy restores its own id with its credential.
+    const orphaned = !token && !localStorage.getItem(keys.claim);
+    browserId = (!orphaned && storedBrowserId) || newBrowserId();
     localStorage.setItem(keys.browserId, browserId);
   } catch {
     browserId = newBrowserId();

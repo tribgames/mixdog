@@ -18,7 +18,9 @@ const thread = (id: string) => ({
   projectPath: null,
 });
 
-test('a page whose timers are throttled (hidden) still folds what arrives, turn after turn', { timeout: 20_000 }, async () => {
+test('a page whose timers are throttled (hidden) still folds what arrives, turn after turn', {
+  timeout: 20_000,
+}, async () => {
   const realImmediate = globalThis.setImmediate;
   const realTimeout = globalThis.setTimeout;
   const macrotask = () => new Promise<void>((r) => realImmediate(r));
@@ -70,7 +72,11 @@ test('a page whose timers are throttled (hidden) still folds what arrives, turn 
   try {
     const FRAMES = 40;
     for (let seq = 1; seq <= FRAMES; seq++)
-      conn.serverSend({ method: 'thread/name/updated', params: { threadId: 't0', title: `n${seq}` }, feed: { id: 't0', epoch: 'e1', seq } });
+      conn.serverSend({
+        method: 'thread/name/updated',
+        params: { threadId: 't0', title: `n${seq}` },
+        feed: { id: 't0', epoch: 'e1', seq },
+      });
     for (let turn = 0; applied < FRAMES && turn < 10_000; turn++) await macrotask();
     assert.equal(applied, FRAMES, `${applied} of ${FRAMES} frames folded with no timer firing`);
   } finally {

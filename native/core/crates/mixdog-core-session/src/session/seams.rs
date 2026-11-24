@@ -272,7 +272,8 @@ pub enum ContextStep {
 }
 
 /// Store-private position where appends continue (open-for-append happens at the first write).
-pub struct AppendPosition(pub Box<dyn Any + Send>);
+#[derive(Clone)]
+pub struct AppendPosition(pub std::sync::Arc<dyn Any + Send + Sync>);
 
 /// One compaction divider of the restored window (`SqliteStore::dividers`, 1.4.5's
 /// "Conversation compacted" row): shown before window row `before` (the window's length:

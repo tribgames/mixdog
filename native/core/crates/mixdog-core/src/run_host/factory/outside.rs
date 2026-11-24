@@ -41,37 +41,6 @@ pub trait OutsideAgents: Send + Sync + 'static {
     /// that takes the agent's own session out of the header, if the header names one; the turn starts once the session
     /// holds it.
     fn loop_turn(&self, thread: &ThreadId, header: &Header) -> Option<mixdog_store::schema::record::HeaderChange>;
-    /// The route provider `provider` is one of these agents': a session on it has that agent for its own model, so
-    /// what the session's own model writes outside a turn (a summary of the conversation) the agent writes.
-    fn answers(&self, _provider: &str) -> bool {
-        false
-    }
-    /// Asks the agent of `ask.provider` one question outside every conversation, in a session of the agent's that
-    /// ends with the answer. `Err` tells why no answer was made.
-    async fn ask(&self, ask: OutsideAsk) -> Result<OutsideAnswer, String> {
-        Err(format!("no agent answers for {}", ask.provider))
-    }
-}
-
-/// One question for an agent outside every conversation.
-pub struct OutsideAsk {
-    /// The route provider and model of the session the question is asked for.
-    pub provider: String,
-    pub model: String,
-    /// The instructions the answer is written under, and the question.
-    pub system: String,
-    pub prompt: String,
-}
-
-/// An agent's answer to an [`OutsideAsk`].
-#[derive(Clone, Debug, Default)]
-pub struct OutsideAnswer {
-    pub text: String,
-    /// Why the agent stopped, in the protocol's word for it; `None` when it did not say.
-    pub stop_reason: Option<String>,
-    pub usage: Option<mixdog_core_api::domain::provider::Usage>,
-    /// The usage's input leaves its cache reads out.
-    pub input_excludes_cache: bool,
 }
 
 /// Hears the calls an outside agent's turn runs as the loop's observer hears its own: a wait on the user's approval is
@@ -464,6 +433,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         review,
         gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: asks.clone() }),
     ));
+    let failures = failures.map(|inner| Arc::new(SensitiveFailures { inner, context }) as Arc<dyn mixdog_agent::env::ToolFailureLog>);
     let calls = Arc::new(HandedCalls::new(HandedParts {
         tools,
         tool_env,
@@ -477,7 +447,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         live_cwd,
         artifacts,
         images,
-        failures: failures.map(|inner| Arc::new(SensitiveFailures { inner, context }) as Arc<dyn mixdog_agent::env::ToolFailureLog>),
+        failures: failures.clone(),
         repeat,
         cancel: cancel.clone(),
         slot,
@@ -488,6 +458,17 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     let model = header.get("model").and_then(Value::as_str).unwrap_or_default().to_owned();
     let system = system_messages(&header);
     let asked_at = clock.now_ms();
+    // An unattended turn's watchdog judges the agent's work as it judges the loop's, on the progress the agent's turn marks
+    // from the ask it begins (the cell's earlier ask is the session's last turn's).
+    let watchdog = if unattended {
+        let watched = progress.subscribe();
+        let watched_turn =
+            Watched { parts: &parts, thread: &thread, header: &header, hidden_agent, budget: None, signal: &signal, clock: &clock, failures, asked_at };
+        arm_watchdog(watched_turn, move |now| watched.borrow().snapshot(now).filter(|snapshot| snapshot.ask_started_at >= asked_at)).await
+    } else {
+        None
+    };
+    let stalled_thread = thread.clone();
     let history = History {
         port: port.clone(),
         rows: stored_ids.into_iter().zip(prior).collect(),
@@ -500,7 +481,8 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     // From here the turn's stop is the agent's turn's to close, as the loop closes its own.
     asked.store(true, Ordering::SeqCst);
     handover.reached.store(true, Ordering::SeqCst);
-    let end_port = port.clone();
+    // What the turn leaves is saved whenever its token fires, before or after the agent's turn ends.
+    let end_port = port.closing();
     let report = Arc::new(OutsideReport::default());
     let begun = OutsideTurn {
         thread,
@@ -517,6 +499,15 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         report: report.clone(),
     };
     let outcome = agents.run(begun).await;
+    drop(watchdog);
+    // The watchdog's stop is a stalled failure, as the loop's is: its sentence is the error, and the shells the turn
+    // registered while it unwound are swept.
+    let outcome = if !matches!(outcome, RunOutcome::Completed(_)) && signal.is_aborted() && is_watchdog_abort(&signal.reason()) {
+        parts.reap_turn_shells(&stalled_thread, asked_at);
+        failed(signal.reason(), Value::Null)
+    } else {
+        outcome
+    };
     hints.finish().await;
     // The guard state that outlives one turn lives on the session record, as the loop leaves it, and so does the turn's
     // result as its owner gets it: the last text the turn committed. A turn that did not finish, or committed no text,
@@ -527,22 +518,19 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     }
     let mut unset = Vec::new();
     match &outcome {
-        RunOutcome::Completed(result)
-            if !cancel.is_cancelled() && !mixdog_js::js_trim(result.report_content.as_deref().unwrap_or(&result.content)).is_empty() =>
-        {
+        RunOutcome::Completed(result) if !mixdog_js::js_trim(result.report_content.as_deref().unwrap_or(&result.content)).is_empty() => {
             let said = result.report_content.as_deref().unwrap_or(&result.content);
             set.insert("lastHandoff".to_owned(), Value::String(redactor.redact_text(said)));
             set.insert("lastHandoffTurn".to_owned(), Value::String(turn_id.as_str().to_owned()));
         }
         _ => unset.extend(["lastHandoff".to_owned(), "lastHandoffTurn".to_owned()]),
     }
-    let end_port = if cancel.is_cancelled() { end_port.closing() } else { end_port };
     let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset, patch: Default::default() }).await;
     match &outcome {
         // `settleAskTurn`: the ask's usage, over the conversation as the turn left it, reaches the header and the usage
         // the statusline reads, as a finished turn of the loop settles its own. An agent that reported no usage for the
         // turn has nothing to settle: the session's readings and the ask books stay as they were.
-        RunOutcome::Completed(result) if !cancel.is_cancelled() && lock(&report.usage).is_some() => {
+        RunOutcome::Completed(result) if lock(&report.usage).is_some() => {
             let (usage, input_excludes_cache) = lock(&report.usage).take().unwrap_or_default();
             let rows = conversation_after(&redactor).await.unwrap_or_default();
             let transcript = settled_transcript(system, rows, held.load(Ordering::SeqCst), &ended_input);

@@ -119,19 +119,21 @@ export function registerProjectFileIpc({
       return { ...preview, ...info };
     }
     let file: string;
+    let root: string;
     let info: { mtimeMs: number; size: number };
     if (typeof accessToken === 'string' && accessToken) {
       const granted = await grantedFile(accessToken, projectPath, relPath);
       file = granted.absolute;
+      root = granted.root;
       info = await invokeDesktopOperation('statProjectFileIn', [granted.root, granted.rel]);
     } else {
       const cleanProject = requiredString(projectPath, 'projectPath');
       const cleanRel = requiredString(relPath, 'relPath');
-      const root = await projectRoot(cleanProject);
+      root = await projectRoot(cleanProject);
       file = projectEntryPathIn(root, cleanRel);
       info = await invokeDesktopOperation('statProjectFileIn', [root, cleanRel]);
     }
-    const preview = registerFilePreview(file, `${info.mtimeMs}:${info.size}`);
+    const preview = registerFilePreview(file, `${info.mtimeMs}:${info.size}`, { root });
     if (!preview) throw new Error('This file type does not support an in-app preview.');
     return { ...preview, ...info };
   });

@@ -267,6 +267,35 @@ impl DeviceStore {
         Some(RegisteredClient { token, client })
     }
 
+    /// The stamp of the credential a browser id holds now (None when it holds none), for [`Self::register_client_expecting`].
+    pub fn client_credential_stamp(&self, device_id: &str, client_id: &str) -> Option<String> {
+        self.inner.state().devices.client_token_hash(device_id, client_id)
+    }
+
+    /// `registerClient` for a claim's approval: it writes only if the id still holds the credential the claim saw (`expected`
+    /// is its stamp, or None for an id that held none), so a claim cannot overwrite a credential another claim has issued since.
+    /// None, and nothing written, otherwise.
+    pub async fn register_client_expecting(
+        &self,
+        device_id: &str,
+        client_id: &str,
+        profile: &ProfileInput,
+        expected: Option<&str>,
+    ) -> Option<RegisteredClient> {
+        let token = auth::hex(&rand::random::<[u8; 32]>());
+        let (device_id, client_id, profile, expected) = (device_id.to_owned(), client_id.to_owned(), profile.clone(), expected.map(str::to_owned));
+        let (hash, now) = (sha256_hex(&token), now_ms());
+        let client = self
+            .mutate(move |devices| {
+                if devices.client_token_hash(&device_id, &client_id) != expected {
+                    return Change::Keep(None);
+                }
+                devices.register_client(&device_id, &client_id, &profile, &hash, now)
+            })
+            .await??;
+        Some(RegisteredClient { token, client })
+    }
+
     /// `touchClient`: the browser was seen now; a profile field that is set replaces the stored one. Persisted on the debounced beat.
     pub fn touch_client(&self, device_id: &str, client_id: &str, profile: &ProfileInput) -> bool {
         let mut state = self.inner.state();

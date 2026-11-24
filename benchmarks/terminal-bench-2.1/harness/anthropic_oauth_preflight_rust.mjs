@@ -1,15 +1,13 @@
 #!/usr/bin/env node
-// Host-side Anthropic OAuth preflight on the Rust core: the K1 replacement of anthropic_oauth_preflight.mjs, which
-// loaded the Node core's anthropic-oauth-credentials.mjs.
+// Host-side Anthropic OAuth preflight on the Rust core.
 //
 // The credential's state is read from the user's own running `mixdogd` through its account status (the
 // `providerSetup` section of the app feed: `usable`, `reauthRequired`, `expiresAt` of the `anthropic-oauth` row), and
 // the lease is checked against it. The snapshot a container gets is the credentials file without its rotating refresh
-// token, as before. A token that expires inside the lease is refreshed first, by the core
-// (`account/refreshProviderSetup` with `renewCredential`/`minimumValidityMs`, `OAuthSession::ensure_lease`), as the
-// Node preflight's refresh did.
+// token. A token that expires inside the lease is refreshed first, by the core
+// (`account/refreshProviderSetup` with `renewCredential`/`minimumValidityMs`, `OAuthSession::ensure_lease`).
 //
-// Like its predecessor this file is copied into a TEMP harness snapshot, so it finds the repository through
+// This file is copied into a TEMP harness snapshot, so it finds the repository through
 // MIXDOG_TB_REPO_ROOT (the agent passes it) and falls back to the in-repo layout.
 // Usage: anthropic_oauth_preflight_rust.mjs --output <snapshot> --minimum-validity-ms <ms>
 //        env: ANTHROPIC_OAUTH_CREDENTIALS_PATH, MIXDOG_RUNTIME_ROOT (the running core's runtime root)

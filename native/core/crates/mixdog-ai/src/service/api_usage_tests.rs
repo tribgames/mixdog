@@ -11,26 +11,16 @@ use bytes::Bytes;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 
 use super::super::usage_ports::RoutedUsageHttp;
 use super::*;
 use crate::registry::keys::MemoryVault;
 use crate::transport::Exchange;
-use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
+use crate::transport::testing::Once;
 use serde_json::json;
-
-struct Body(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Body {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
 
 struct Reply {
     url: String,
@@ -59,7 +49,7 @@ impl HttpSend for Net {
                 if reply.fail {
                     return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent));
                 }
-                Ok(HttpResponse { status: reply.status, headers: Vec::new(), body: Box::new(Body(Some(Bytes::from(reply.text.clone())))) })
+                Ok(HttpResponse { status: reply.status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(reply.text.clone())))) })
             }
             None => Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent)),
         }
@@ -126,6 +116,7 @@ struct Lookups {
     service: ApiUsageService,
     net: Arc<Net>,
     now: Arc<AtomicI64>,
+    vault: Arc<MemoryVault>,
     _dir: tempfile::TempDir,
 }
 
@@ -140,13 +131,13 @@ fn lookups(replies: Vec<Reply>, env: &[(&str, &str)]) -> Lookups {
     let service = ApiUsageService::new(
         Arc::new(RoutedUsageHttp::following(net.clone())),
         ApiKeyStore::new(vault.clone(), env.clone(), false),
-        vault,
+        vault.clone(),
         env,
         CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         dir.path().to_path_buf(),
         Arc::new(move || clock.load(Ordering::SeqCst)),
     );
-    Lookups { service, net, now, _dir: dir }
+    Lookups { service, net, now, vault, _dir: dir }
 }
 
 impl Lookups {
@@ -200,6 +191,19 @@ async fn a_stale_snapshot_is_still_offered_for_an_hour_when_staleness_is_allowed
     assert!(l.service.cached("deepseek", true).await.is_some());
     l.now.fetch_add(31 * 60_000, Ordering::SeqCst);
     assert!(l.service.cached("deepseek", true).await.is_none(), "an hour is the limit");
+}
+
+#[tokio::test]
+async fn a_snapshot_measured_under_another_key_is_not_served_after_the_key_changes() {
+    let l = lookups(vec![reply(200, BALANCE), reply(200, BALANCE)], &[]);
+    l.vault.set("agent.deepseek.apiKey", "old-key").await.unwrap();
+    l.service.fetch("deepseek", false).await.unwrap().expect("a snapshot");
+    assert!(l.service.cached("deepseek", true).await.is_some());
+    l.vault.set("agent.deepseek.apiKey", "new-key").await.unwrap();
+    assert!(l.service.cached("deepseek", true).await.is_none(), "the old key's reading is not the new key's");
+    l.service.fetch("deepseek", false).await.unwrap().expect("a snapshot");
+    assert_eq!(l.asked(), 2, "the new key is asked, not served from the cache");
+    assert!(l.service.cached("deepseek", true).await.is_some());
 }
 
 #[tokio::test]

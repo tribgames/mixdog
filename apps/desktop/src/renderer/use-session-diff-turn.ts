@@ -35,7 +35,12 @@ type Patches = {
 const ALL = '';
 const NO_ROWS: readonly SessionDiffRow[] = [];
 const NO_FILES: readonly TurnChangesFile[] = [];
-const noPatches = (generation: string): Patches => ({ generation, parts: new Map(), read: new Set(), failed: new Map() });
+const noPatches = (generation: string): Patches => ({
+  generation,
+  parts: new Map(),
+  read: new Set(),
+  failed: new Map(),
+});
 
 /** The turn's files as the pane's rows, each with its slice of the turn's
  *  patch and the path it opens at now: a file listed without its patch (for

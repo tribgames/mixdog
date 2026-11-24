@@ -9,11 +9,6 @@ use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
-/// The ceiling of the whole release, from its start: Node's `SHUTDOWN_BUDGET_MS` (`daemon.mjs:258`, armed at `:292-296`), after which the process
-/// exits with `<reason> (budget exceeded, forced exit)` whatever step still runs. The launcher's wait is shorter (`IN_TREE_DAEMON_STOP_GRACE_MS`, 5 s,
-/// `daemon-stop-budget.mjs:9`), and what Node guaranteed inside it was the PostgreSQL stop, at its own fallback point (`PG_FORCED_STOP_AT`, 4.2 s).
-pub const SHUTDOWN_BUDGET: Duration = Duration::from_millis(15_000);
-
 /// What each release step may take. A step that is still running at its budget is abandoned:
 /// the supervisor records its name, withdraws discovery and exits without it.
 ///

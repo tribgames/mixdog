@@ -391,10 +391,57 @@ fn fsync_outcome(result: std::io::Result<()>) -> std::io::Result<()> {
 
 type Step<'a> = (&'static str, Option<&'a Path>, std::io::Error);
 
-fn write_restored<'a>(path: &'a Path, content: &[u8]) -> Result<(), Step<'a>> {
-    let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path).map_err(|e| ("open", Some(path), e))?;
-    file.write_all(content).map_err(|e| ("write", None, e))?;
-    fsync_outcome(file.sync_all()).map_err(|e| ("fsync", None, e))
+/// The staging file of a restore, created with the file's own permissions from its first byte (a private file's content is
+/// never readable by others). A name that already exists is not ours: it is left alone and another is taken.
+fn create_restore_temp(path: &Path, perms: Option<&fs::Permissions>) -> std::io::Result<(PathBuf, fs::File)> {
+    for _ in 0..8 {
+        let tmp = restore_temp_for(path);
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            use std::os::unix::fs::PermissionsExt;
+            options.mode(perms.map_or(0o600, |p| p.mode() & 0o7777));
+        }
+        #[cfg(not(unix))]
+        let _ = perms;
+        match options.open(&tmp) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            opened => return opened.map(|file| (tmp, file)),
+        }
+    }
+    Err(std::io::Error::other("no free restore name"))
+}
+
+fn write_restored<'a>(path: &'a Path, content: &[u8], perms: Option<&fs::Permissions>) -> Result<(), Step<'a>> {
+    // Published by rename, as the patch replaced the file: a read-only file cannot be opened for writing, and a
+    // truncating open leaves a torn file when the write fails.
+    let (tmp, mut file) = create_restore_temp(path, perms).map_err(|e| ("open", Some(path), e))?;
+    let staged = (|| -> Result<(), Step<'a>> {
+        file.write_all(content).map_err(|e| ("write", None, e))?;
+        fsync_outcome(file.sync_all()).map_err(|e| ("fsync", None, e))?;
+        // Unix gives the sibling its exact mode before the rename. Windows has only the read-only attribute: it is set on
+        // the published file by the caller, so a refused rename leaves a sibling that can still be removed.
+        #[cfg(unix)]
+        if let Some(perms) = perms {
+            fs::set_permissions(&tmp, perms.clone()).map_err(|e| ("chmod", Some(path), e))?;
+        }
+        Ok(())
+    })()
+    .and_then(|()| {
+        drop(file);
+        fs::rename(&tmp, path).map_err(|e| ("rename", Some(path), e))
+    });
+    if staged.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    staged
+}
+
+fn restore_temp_for(path: &Path) -> PathBuf {
+    let name: String = path.file_name().map(|n| n.to_string_lossy().chars().take(80).collect()).unwrap_or_default();
+    path.with_file_name(format!("{name}.mixdog-restore-{}-{}", std::process::id(), QUARANTINE_SEQ.fetch_add(1, Ordering::Relaxed)))
 }
 
 /// Undoes the batch: every snapshotted path is written back (or removed when it did not exist).
@@ -415,7 +462,7 @@ pub(super) async fn restore(ctx: &ToolContext, snapshots: Vec<Snapshot>) -> Resu
             let result = if s.existed {
                 let parent_ok = path.parent().map_or(Ok(()), |p| fs::create_dir_all(p).map_err(|e| ("mkdir", Some(p), e)));
                 parent_ok
-                    .and_then(|()| write_restored(path, s.content.as_deref().unwrap_or_default()))
+                    .and_then(|()| write_restored(path, s.content.as_deref().unwrap_or_default(), s.perms.as_ref()))
                     .and_then(|()| s.perms.clone().map_or(Ok(()), |p| fs::set_permissions(path, p).map_err(|e| ("chmod", Some(path), e))))
             } else if path.exists() {
                 fs::remove_file(path).map_err(|e| ("unlink", Some(path), e))
@@ -585,5 +632,49 @@ mod fsync_tests {
         let other = libc::EIO;
         assert!(fsync_outcome(Err(std::io::Error::from_raw_os_error(other))).is_err());
         assert!(fsync_outcome(Ok(())).is_ok());
+    }
+
+    /// A rollback puts a read-only file back, and leaves no staging file behind.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_file_is_restored() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("mixdog-restore-readonly-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ro.txt");
+        fs::write(&path, "patched").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        let private = fs::Permissions::from_mode(0o600);
+        // The staging file is private from its first byte.
+        let (staged, file) = create_restore_temp(&path, Some(&private)).unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o7777, 0o600);
+        drop(file);
+        fs::remove_file(staged).unwrap();
+        write_restored(&path, b"original", Some(&private)).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o600);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Where the rename is refused (a read-only target on Windows) the staging file is removed, and the snapshot's read-only
+    /// state is not put on it before the rename.
+    #[cfg(windows)]
+    #[test]
+    fn a_refused_restore_leaves_no_staging_file() {
+        let dir = std::env::temp_dir().join(format!("mixdog-restore-refused-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ro.txt");
+        fs::write(&path, "patched").unwrap();
+        let mut read_only = fs::metadata(&path).unwrap().permissions();
+        read_only.set_readonly(true);
+        fs::set_permissions(&path, read_only.clone()).unwrap();
+        assert!(write_restored(&path, b"original", Some(&read_only)).is_err());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(fs::read(&path).unwrap(), b"patched");
+        #[allow(clippy::permissions_set_readonly_false, reason = "Windows: clears only the read-only attribute")]
+        read_only.set_readonly(false);
+        fs::set_permissions(&path, read_only).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

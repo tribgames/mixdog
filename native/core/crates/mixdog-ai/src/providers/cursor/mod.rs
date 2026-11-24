@@ -620,6 +620,11 @@ impl ProviderAdapter for CursorAdapter {
         false
     }
 
+    /// The request carries text and base64 images only: any other attachment is lowered to text before it is built.
+    fn native_documents(&self) -> Option<bool> {
+        Some(false)
+    }
+
     fn codec(&self) -> &dyn WireCodec {
         &self.placeholder
     }

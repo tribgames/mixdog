@@ -342,7 +342,10 @@ export class CookieAutoImporter {
     // Cookies from every profile land in the same jar: the latest import of any is the age the user sees.
     let last: CookieAutoImportProfileStatus | undefined;
     for (const row of bound ? Object.values(state.profileStatus ?? {}) : []) {
-      if (row.lastImportAt !== undefined && (last?.lastImportAt === undefined || row.lastImportAt > last.lastImportAt)) {
+      if (
+        row.lastImportAt !== undefined &&
+        (last?.lastImportAt === undefined || row.lastImportAt > last.lastImportAt)
+      ) {
         last = row;
       }
     }
@@ -492,8 +495,7 @@ export class CookieAutoImporter {
       if ((await this.deps.state.read()).profileStatus?.[profileId]?.needsManualImport || !stillSelected()) return;
       const outcome = await this.deps.run(profileId, stillSelected);
       if (outcome.state === 'imported') this.importedSinceStart = true;
-      this.chromeSkippedProfile =
-        outcome.state === 'skipped' && outcome.reason === 'chrome-running' ? profileId : null;
+      this.chromeSkippedProfile = outcome.state === 'skipped' && outcome.reason === 'chrome-running' ? profileId : null;
     })()
       .catch((error) => this.deps.onError?.(error))
       .finally(() => {

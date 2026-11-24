@@ -168,12 +168,15 @@ struct Desktop {
     next: u64,
     /// The tool of each approval card this client was shown and allowed.
     approved: Vec<String>,
+    /// By thread, the turns this client asked for, and the turn ends it was told of.
+    asked: std::collections::HashMap<String, usize>,
+    ended: std::collections::HashMap<String, usize>,
 }
 
 impl Desktop {
     async fn open(server: &Arc<dyn Connector>) -> Self {
         let halves = server.open(&Target { id: "in-process".into() }).await.expect("a connection");
-        let mut desktop = Self { halves, next: 0, approved: Vec::new() };
+        let mut desktop = Self { halves, next: 0, approved: Vec::new(), asked: Default::default(), ended: Default::default() };
         desktop
             .call("initialize", json!({ "clientInfo": { "name": "desktop", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": {} }))
             .await;
@@ -186,15 +189,7 @@ impl Desktop {
         self.halves.writer.send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string()).await.expect("send");
         let answer = tokio::time::timeout(LIMIT, async {
             loop {
-                let TransportEvent::Frame(text) = self.halves.reader.recv().await else { panic!("the server closed before the reply to {method}") };
-                let frame: Value = serde_json::from_str(&text).expect("a frame");
-                // The gate's approval card: the user allows the call.
-                if frame["method"] == "item/tool/requestApproval" {
-                    self.approved.push(frame["params"]["name"].as_str().unwrap_or_default().to_owned());
-                    let allowed = json!({ "jsonrpc": "2.0", "id": frame["id"], "result": { "approved": true } });
-                    self.halves.writer.send(allowed.to_string()).await.expect("send");
-                    continue;
-                }
+                let frame = self.frame(&format!("the reply to {method}")).await;
                 if frame["id"] == id && frame.get("method").is_none() {
                     return frame;
                 }
@@ -204,6 +199,39 @@ impl Desktop {
         .unwrap_or_else(|_| panic!("no reply to {method}"));
         assert!(answer.get("result").is_some(), "{method}: {answer}");
         answer["result"].clone()
+    }
+
+    /// The next frame the server sends, once the approval cards before it are allowed; the turn ends it tells are counted.
+    async fn frame(&mut self, waiting: &str) -> Value {
+        loop {
+            let TransportEvent::Frame(text) = self.halves.reader.recv().await else { panic!("the server closed before {waiting}") };
+            let frame: Value = serde_json::from_str(&text).expect("a frame");
+            // The gate's approval card: the user allows the call.
+            if frame["method"] == "item/tool/requestApproval" {
+                self.approved.push(frame["params"]["name"].as_str().unwrap_or_default().to_owned());
+                let allowed = json!({ "jsonrpc": "2.0", "id": frame["id"], "result": { "approved": true } });
+                self.halves.writer.send(allowed.to_string()).await.expect("send");
+                continue;
+            }
+            if frame["method"] == "turn/completed"
+                && let Some(thread) = frame["params"]["threadId"].as_str()
+            {
+                *self.ended.entry(thread.to_owned()).or_default() += 1;
+            }
+            return frame;
+        }
+    }
+
+    /// Once every turn this client asked of `thread` has ended.
+    async fn turns_ended(&mut self, thread: &str) {
+        let asked = self.asked.get(thread).copied().unwrap_or_default();
+        tokio::time::timeout(LIMIT, async {
+            while self.ended.get(thread).copied().unwrap_or_default() < asked {
+                self.frame("a turn's end").await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the turns asked of {thread} never ended"));
     }
 
     fn op(&self) -> String {
@@ -221,6 +249,7 @@ impl Desktop {
         let op = self.op();
         let turn = self.call("turn/start", json!({ "opId": op, "threadId": thread, "input": { "prompt": prompt } })).await;
         assert!(matches!(turn["kind"].as_str(), Some("started" | "queued")), "{turn}");
+        *self.asked.entry(thread.to_owned()).or_default() += 1;
     }
 
     /// The thread's items, as text, once they hold `text`.
@@ -284,19 +313,12 @@ impl World {
         Self { core, desktop, shutdown, preset, thread, data, provider_requests, log: dir.join("daemon.log") }
     }
 
-    /// One prompt of the agent, to the end of its turn; the client answers the cards it is shown meanwhile. The thread's items.
+    /// One prompt of the agent, to the end of its turn and of every turn asked before it; the client answers the cards it is
+    /// shown meanwhile. The thread's items.
     async fn turn(&mut self, prompt: &str) -> String {
         self.desktop.ask(&self.thread, prompt).await;
-        let handle = self.core.real.directory.handle(&self.thread()).expect("the session is loaded");
-        let deadline = tokio::time::Instant::now() + LIMIT;
-        loop {
-            let items = self.desktop.call("thread/items/list", json!({ "threadId": self.thread })).await.to_string();
-            if !handle.turn_busy() {
-                return self.desktop.call("thread/items/list", json!({ "threadId": self.thread })).await.to_string();
-            }
-            assert!(tokio::time::Instant::now() < deadline, "the turn of {prompt:?} never ended: {items}");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        self.desktop.turns_ended(&self.thread).await;
+        self.desktop.call("thread/items/list", json!({ "threadId": self.thread })).await.to_string()
     }
 
     fn thread(&self) -> ThreadId {

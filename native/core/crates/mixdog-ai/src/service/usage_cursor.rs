@@ -19,12 +19,11 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::oauth_usage::UsageError;
-use super::oauth_usage::credential_stamp;
-use super::oauth_usage::stamp_reading;
 use super::usage_normalize::jn;
 use super::usage_normalize::round;
 use crate::client_versions::Live;
 use crate::providers::cursor::API_URL;
+use crate::providers::cursor::Access;
 use crate::providers::cursor::AccessToken;
 use crate::providers::cursor::http_status_error;
 use crate::providers::cursor::is_sign_in_refusal;
@@ -400,13 +399,6 @@ pub struct CursorUsage {
     provider: String,
 }
 
-/// The shared credential stamp of the access token a request carried; the stored sign-in document names the same
-/// token as `access_token` and no account identity, so a rotated or foreign credential stamps differently and its
-/// reading stays unbound (nonbinding).
-fn sent_credential_stamp(token: &str) -> Option<String> {
-    credential_stamp(PROVIDER_ID, serde_json::json!({ "access_token": token }).as_object()?)
-}
-
 fn failure(error: ProviderError) -> UsageError {
     UsageError { status: error.status, message: error.into_message() }
 }
@@ -436,9 +428,10 @@ impl CursorUsage {
         Ok(body.body)
     }
 
-    /// `getUsageSnapshot()`.
-    pub async fn read(&self) -> Result<Value, UsageError> {
+    /// `getUsageSnapshot()`. `sent` is the access the reading's requests go out on, once the tokens handed it out.
+    pub async fn read(&self, sent: &mut Option<Access>) -> Result<Value, UsageError> {
         let access = self.tokens.access_token().await.map_err(failure)?;
+        *sent = Some(access.clone());
         let token = access.token.clone();
         let (usage, plan) = futures::future::join(self.call(&token, USAGE_PATH), self.call(&token, PLAN_PATH)).await;
         let usage_body = match usage {
@@ -465,13 +458,7 @@ impl CursorUsage {
         };
         let Value::Object(mut snapshot) = normalize_cursor_usage(&usage, &plan) else { unreachable!("a snapshot is an object") };
         snapshot.insert("provider".into(), self.provider.clone().into());
-        // The usage call that just succeeded carried `token`; it, not the stored file before or after, is the
-        // credential this meter was measured under.
-        let mut reading = Value::Object(snapshot);
-        if self.provider == PROVIDER_ID {
-            stamp_reading(&mut reading, sent_credential_stamp(&token));
-        }
-        Ok(reading)
+        Ok(Value::Object(snapshot))
     }
 }
 
@@ -526,13 +513,13 @@ mod rejection_tests {
 
         for answer in [503, 403] {
             status.store(answer, Ordering::SeqCst);
-            assert!(usage.read().await.is_err());
+            assert!(usage.read(&mut None).await.is_err());
             assert!(signed_in(&path), "a {answer} is not a refusal of the sign-in");
             assert!(!http.requests.lock().unwrap().iter().any(|request| request.url == EXCHANGE_URL), "a {answer} renewed the sign-in");
         }
 
         status.store(401, Ordering::SeqCst);
-        let error = usage.read().await.expect_err("the reading is refused");
+        let error = usage.read(&mut None).await.expect_err("the reading is refused");
         assert!(error.message.contains(crate::providers::cursor::auth::REAUTH_GUIDANCE), "{}", error.message);
         assert!(!signed_in(&path), "the refused sign-in still reads as signed in");
     }
@@ -552,7 +539,7 @@ mod rejection_tests {
         let access: Arc<FileAccess> = Arc::new(FileAccess::new(http.clone(), file));
         let version = || -> Live { crate::providers::cursor::CLIENT_VERSION_FLOOR.into() };
 
-        let error = CursorUsage::new(PROVIDER_ID, http.clone(), None, version(), access.clone()).read().await.expect_err("nothing is read");
+        let error = CursorUsage::new(PROVIDER_ID, http.clone(), None, version(), access.clone()).read(&mut None).await.expect_err("nothing is read");
         assert!(error.message.contains(crate::providers::cursor::auth::REAUTH_GUIDANCE), "{}", error.message);
 
         struct NoRun;
@@ -599,21 +586,6 @@ mod quota_scope_tests {
         // A cap used up in its own pool makes the full lane binding.
         let windows = lanes(100.0, 40.0, json!({"overallLimit": 1000, "overallUsed": 1000}));
         assert!(windows[0].get("binding").is_none());
-    }
-
-    #[test]
-    fn a_sent_token_stamps_as_the_stored_sign_in_does_and_another_does_not() {
-        let stored = |token: &str| crate::providers::cursor::auth::StoredTokens {
-            access_token: token.into(),
-            refresh_token: None,
-            expires_at: 0,
-            reauth_required: false,
-        };
-        let doc = |token: &str| serde_json::to_value(stored(token)).unwrap();
-        let from_file = credential_stamp(PROVIDER_ID, doc("tok").as_object().unwrap());
-        assert!(from_file.is_some());
-        assert_eq!(sent_credential_stamp("tok"), from_file);
-        assert_ne!(sent_credential_stamp("rotated"), from_file, "a different credential's reading is not bound");
     }
 
     #[test]

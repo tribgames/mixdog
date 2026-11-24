@@ -152,6 +152,52 @@ test('a refused answer claims another device only when the core published the re
   }
 });
 
+test('a refusal names the device the core published while the answer travelled; the notice ends with that request and that chat', async () => {
+  // Every prompt came from this PC: only the approval was answered on the phone.
+  const items = [{ kind: 'user', id: 'u1', text: 'from here', device: 'DESKTOP-7' }];
+  let refuse;
+  answer = () => new Promise((resolve) => (refuse = resolve));
+  const ui = await mountHook('s1');
+  const notice = () =>
+    conversationIslandFlash(ui.state.approvals.retiredApproval, ui.state.approvals.answeredElsewhere, 'DESKTOP-7');
+  try {
+    await ui.show({ sessionId: 's1', items, toolApproval: shell });
+    let pending;
+    await act(async () => {
+      pending = ui.state.approvals.approvalDock.props.resolve({ approved: true });
+    });
+    // The phone's decision is published while this device's answer is on its way.
+    const decided = {
+      sessionId: 's1',
+      items,
+      toolApproval: shell,
+      toolApprovalResult: { id: 'ap-1', approved: true, device: 'Pixel' },
+    };
+    await ui.show(decided);
+    await act(async () => {
+      refuse(false);
+      await pending;
+    });
+    assert.equal(notice()?.text, 'Resolved on another device · from Pixel');
+    assert.equal(ui.state.approvals.approvalDock, null, 'the decided request is no longer offered');
+    // The request leaves; a later request under the same id is offered again.
+    await ui.show({ ...decided, toolApproval: null });
+    await ui.show(decided);
+    assert.ok(ui.state.approvals.approvalDock, 'the reissued id shows its card');
+    assert.equal(ui.state.approvals.answeredElsewhere, null);
+    // Refused again, then the pane moves to a chat whose own request has the same id.
+    answer = async () => false;
+    await act(async () => ui.state.approvals.approvalDock.props.resolve({ approved: true }));
+    assert.equal(ui.state.approvals.answeredElsewhere?.id, 'ap-1');
+    ui.route('s2');
+    await ui.show({ sessionId: 's2', items: [], toolApproval: shell });
+    assert.equal(ui.state.approvals.answeredElsewhere, null, 'another chat shows no notice');
+    assert.ok(ui.state.approvals.approvalDock, 'and offers its own request');
+  } finally {
+    await ui.done();
+  }
+});
+
 async function mountCard(sessionId) {
   const routeSessionIdRef = { current: sessionId };
   const host = document.getElementById('root');

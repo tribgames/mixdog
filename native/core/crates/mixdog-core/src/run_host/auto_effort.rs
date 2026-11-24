@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
+use mixdog_core_ports::ports::route_facts::{RouteFacts, RouteSender};
 use mixdog_js::{js_trim, utf16_len, value_to_string};
 use mixdog_rt::{CancellationToken, DurabilityIo, LaneToken, MaintenanceIo};
 use mixdog_services::effort_judge::ladder::{clamp_base, ladder_of, resolve_auto_effort};
@@ -95,33 +95,28 @@ pub trait EffortConfiguration: Send + Sync {
     async fn configured(&self, header: &Header) -> bool;
 }
 
-/// [`EffortConfiguration`] over the provider registry, with the facts a route wire reads.
-pub struct RegistryConfiguration {
-    registry: Arc<ProviderRegistry>,
+/// [`EffortConfiguration`] over the route facts, with the facts a route wire reads.
+pub struct RouteConfiguration {
+    routes: Arc<dyn RouteFacts>,
     wiring: Arc<dyn WiringSource>,
     unsupported: Arc<UnsupportedEfforts>,
     codex_declared: Arc<CodexDeclared>,
 }
 
-impl RegistryConfiguration {
-    pub fn new(
-        registry: Arc<ProviderRegistry>,
-        wiring: Arc<dyn WiringSource>,
-        unsupported: Arc<UnsupportedEfforts>,
-        codex_declared: Arc<CodexDeclared>,
-    ) -> Self {
-        Self { registry, wiring, unsupported, codex_declared }
+impl RouteConfiguration {
+    pub fn new(routes: Arc<dyn RouteFacts>, wiring: Arc<dyn WiringSource>, unsupported: Arc<UnsupportedEfforts>, codex_declared: Arc<CodexDeclared>) -> Self {
+        Self { routes, wiring, unsupported, codex_declared }
     }
 }
 
 #[async_trait]
-impl EffortConfiguration for RegistryConfiguration {
+impl EffortConfiguration for RouteConfiguration {
     async fn configured(&self, header: &Header) -> bool {
         let (provider, model) = (text(header, "provider"), text(header, "model"));
         let effort = header.get("effort").and_then(Value::as_str);
         let parameters = header.get("modelParameters").filter(|p| !p.is_null()).cloned().unwrap_or_else(|| Value::Object(Map::new()));
-        // `getProvider(session.provider)`: none reads as a provider without config or row.
-        let facts = match self.registry.get(provider).await {
+        // `getProvider(session.provider)`: none, an agent's route included, reads as a provider without config or row.
+        let facts = match self.routes.sender(None, provider).await.ok().flatten().and_then(RouteSender::adapter) {
             Some(adapter) => self.wiring.facts(provider, model, &adapter),
             None => ProviderFacts::plain(Value::Null),
         };
@@ -452,3 +447,69 @@ impl TurnAutoEffort {
 }
 
 mod decision_log;
+
+#[cfg(test)]
+mod route_configuration_tests {
+    use mixdog_agent::text_only::MediaText;
+    use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
+    use mixdog_core_api::domain::provider::ProviderAdapter;
+    use mixdog_core_run::run_host::route_wiring::LocalEntry;
+
+    use super::*;
+
+    /// A registry builder that records every provider name it is asked about, and builds nothing.
+    #[derive(Default)]
+    struct Asked(Mutex<Vec<String>>);
+
+    #[async_trait]
+    impl ProviderBuilder for Asked {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            self.0.lock().unwrap().push(name.to_owned());
+            Err("nothing is built here".into())
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, name: &str) -> bool {
+            self.0.lock().unwrap().push(name.to_owned());
+            true
+        }
+        async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
+            self.0.lock().unwrap().push(name.to_owned());
+            Ok(false)
+        }
+    }
+
+    /// A route with no provider of the loop is wired from nothing.
+    struct Unwired;
+
+    impl WiringSource for Unwired {
+        fn facts(&self, _: &str, _: &str, _: &Arc<dyn ProviderAdapter>) -> ProviderFacts {
+            unreachable!("an agent's route has no provider to read facts off")
+        }
+        fn local_entry(&self, _: &str) -> Option<LocalEntry> {
+            None
+        }
+        fn runtime_tools(&self, _: &str) -> Option<bool> {
+            None
+        }
+        fn media(&self, _: &Value) -> Arc<dyn MediaText> {
+            unreachable!("the effort configuration reads no media")
+        }
+    }
+
+    /// Auto effort on a header whose route an agent outside the loop serves is answered by the route facts: the route
+    /// has no provider a judged effort could be wired to, and the registry is asked nothing under the agent's name.
+    #[tokio::test]
+    async fn an_agents_route_takes_no_judged_effort_and_asks_the_registry_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let builder = Arc::new(Asked::default());
+        let registry = Arc::new(ProviderRegistry::new(builder.clone()));
+        let facts = crate::run_host::compaction_world::tests::facts_in(dir.path(), registry).await;
+        let codex_declared: Arc<CodexDeclared> = Arc::new(|_: &str| None::<bool>);
+        let configuration = RouteConfiguration::new(facts, Arc::new(Unwired), Arc::default(), codex_declared);
+        let header = json!({ "provider": "acp-agent", "model": "m", "effort": "high" }).as_object().cloned().unwrap();
+        assert!(!configuration.configured(&header).await);
+        assert!(builder.0.lock().unwrap().is_empty(), "the registry was asked about {:?}", builder.0.lock().unwrap());
+    }
+}

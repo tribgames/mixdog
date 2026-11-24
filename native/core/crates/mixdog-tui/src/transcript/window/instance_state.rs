@@ -51,7 +51,7 @@ impl WindowState {
         std::mem::replace(&mut self.total_rows, total_rows)
     }
 
-    /// The caches of heights and rendered lines (the selection stitch reads the lines of off-screen rows through them).
+    /// The caches of heights and rendered lines.
     pub fn heights(&mut self) -> &mut ItemHeights {
         &mut self.heights
     }

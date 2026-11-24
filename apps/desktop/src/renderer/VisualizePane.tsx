@@ -196,6 +196,12 @@ function useFrameBuffer<S extends FrameBufferSpec>(
   return { front, back, frontFrame, backFrame, backLoaded };
 }
 
+/** A network-off page runs no worker of any kind (dedicated, shared, `blob:`): a worker's request names no window, frame or referrer,
+ *  so no filter could tie it to the page. The page server answers `Allow-CSP-From` so the frame may carry this. */
+const NETWORK_OFF_FRAME_POLICY = "worker-src 'none'";
+const embeddedPolicy = (page: boolean, spec: { networkAllowed: boolean }) =>
+  page && !spec.networkAllowed ? ({ csp: NETWORK_OFF_FRAME_POLICY } as Record<string, string>) : {};
+
 const sameFrameSource = (left: { src: string; revision: number }, right: { src: string; revision: number }): boolean =>
   left.src === right.src && left.revision === right.revision;
 
@@ -233,13 +239,14 @@ function BufferedFrame({
   const frameProps = { title, className, sandbox, referrerPolicy, allow: 'fullscreen' };
   return (
     <div className="visualize-frame-stack">
-      <iframe key={front.id} ref={frontFrame} src={front.src} {...frameProps} />
+      <iframe key={front.id} ref={frontFrame} src={front.src} {...frameProps} {...embeddedPolicy(page, front)} />
       {back ? (
         <iframe
           key={back.id}
           ref={backFrame}
           src={back.src}
           {...frameProps}
+          {...embeddedPolicy(page, back)}
           className={`${className ?? ''} visualize-frame-pending`.trim()}
           aria-hidden="true"
           tabIndex={-1}

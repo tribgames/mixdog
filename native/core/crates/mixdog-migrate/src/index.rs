@@ -85,8 +85,15 @@ fn projected(db: &Path) -> Result<BTreeMap<String, (u64, u64)>> {
     rows.collect::<std::result::Result<_, _>>().map_err(|e| Blocked::sqlite("read", db, e))
 }
 
-fn sessions(cx: &ItemContext<'_>) -> Vec<String> {
-    cx.verified_sessions().map(str::to_string).collect()
+/// The verified sessions still published: one the user deleted behind the serving core is no longer the index's to hold.
+fn sessions(cx: &ItemContext<'_>) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for id in cx.verified_sessions() {
+        if durable::exists(&cx.roots.data.join("sessions").join(id))? {
+            out.push(id.to_string());
+        }
+    }
+    Ok(out)
 }
 
 /// The sha256 of the migrated session ids, one per line: what the item of a serving index stages and verifies. The rows
@@ -120,7 +127,7 @@ impl ItemDriver for IndexDriver {
 
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         if let Some(index) = self.projector.serving() {
-            let sessions = sessions(cx);
+            let sessions = sessions(cx)?;
             adopt_all(cx, index, &sessions)?;
             return Ok(Staged::Output { output_sha256: held(&sessions), replaced_surrogates: 0 });
         }
@@ -128,7 +135,7 @@ impl ItemDriver for IndexDriver {
         durable::create_dir_all(&stage)?;
         let db = stage.join(STAGED_FILE);
         durable::step(durable::Step::Project, &db, &[]);
-        self.projector.project(&cx.roots.data, &db, &sessions(cx)).map_err(|os_error| Blocked::Io { op: "project_index", path: db.clone(), os_error })?;
+        self.projector.project(&cx.roots.data, &db, &sessions(cx)?).map_err(|os_error| Blocked::Io { op: "project_index", path: db.clone(), os_error })?;
         durable::step(durable::Step::Projected, &db, &[]);
         durable::sync_file(&db)?;
         Ok(Staged::Output { output_sha256: durable::hash_file(&db)?.1, replaced_surrogates: 0 })
@@ -159,7 +166,7 @@ impl ItemDriver for IndexDriver {
         let db = cx.roots.data.join(INDEX_PATH);
         if let Some(index) = self.projector.serving() {
             // A run that staged, then ended, may have verified sessions the index was never given.
-            let sessions = sessions(cx);
+            let sessions = sessions(cx)?;
             adopt_all(cx, index, &sessions)?;
             let have = projected(&db)?;
             if let Some(missing) = sessions.iter().find(|id| !have.contains_key(*id)) {
@@ -167,7 +174,7 @@ impl ItemDriver for IndexDriver {
             }
             return Ok(Verdict::Verified { digest: Some(crate::json::hex_digest(&held(&sessions))) });
         }
-        let want = expected(cx, &sessions(cx))?;
+        let want = expected(cx, &sessions(cx)?)?;
         let have = projected(&db)?;
         if want != have {
             return Ok(Verdict::Quarantine {

@@ -320,7 +320,11 @@ test('a version, a network switch and a restore during a turn change their own t
           `${name}: the turn's own tab v3 is never shown`
         );
       }
-      for (const state of [t.events.at(-1).state, t.service.snapshot()[0], remoteVisualizeState(t.service.hostSnapshot()[0])]) {
+      for (const state of [
+        t.events.at(-1).state,
+        t.service.snapshot()[0],
+        remoteVisualizeState(t.service.hostSnapshot()[0]),
+      ]) {
         assert.ok(applied(state.tabs[0]), `${name}: the tab shows the command's result at once`);
         assert.equal(state.active, 'v2', name);
       }

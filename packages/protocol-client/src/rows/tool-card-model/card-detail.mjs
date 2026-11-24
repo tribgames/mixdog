@@ -12,11 +12,11 @@ function toolArgPathOf(parsedArgs) {
 function nonShellDetail(base, surface, display, status, imageDetail) {
   const { pending, isError, elapsed } = base;
   const { normalizedName, label, isShellSurface } = surface;
-  const { resultSummary, hasResult, firstResultLine } = display;
+  const { resultSummary, hasDisplayResult, firstResultLine } = display;
   const { agentDetail, agentCompletionDetail, backgroundElapsed, backgroundMetadataHeaderFailure } = status;
   const genericDetail =
     !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
-      ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
+      ? genericCompletedDetail({ normalizedName, label, hasResult: hasDisplayResult, firstResultLine, isError })
       : '';
   const backgroundMetadataDetail =
     display.isBackgroundMetadataResult && !backgroundMetadataHeaderFailure

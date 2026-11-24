@@ -80,18 +80,18 @@ async function mountCard(
           TurnRowsContext.Provider,
           { value: rows ? () => rows : null },
           h(
-          TurnChangesContext.Provider,
-          { value: nextValue },
-          undo
-            ? h(TurnChangesUndo, { turnChanges: nextRef, visualized })
-            : framed
-              ? h(TurnChangesCard, {
-                  turnChanges: nextRef,
-                  visualized,
-                  frame: (card) => h('div', { className: 'frame' }, card),
-                })
-              : h(TurnChangesCard, { turnChanges: nextRef, visualized }),
-          h(RequestProbe)
+            TurnChangesContext.Provider,
+            { value: nextValue },
+            undo
+              ? h(TurnChangesUndo, { turnChanges: nextRef, visualized })
+              : framed
+                ? h(TurnChangesCard, {
+                    turnChanges: nextRef,
+                    visualized,
+                    frame: (card) => h('div', { className: 'frame' }, card),
+                  })
+                : h(TurnChangesCard, { turnChanges: nextRef, visualized }),
+            h(RequestProbe)
           )
         )
       );
@@ -757,20 +757,53 @@ test('a tool round’s turn record is the one its card reads: the checkpoint and
 
 /** A turn's rows as the transcript lists them: its prompt, the calls that wrote `paths`, and the reply its card stands on. */
 const turnRows = (paths, checkpointId = 'cp') => [
-  { _tag: 'UserMessage', key: 'u', turnKey: 't', item: { kind: 'user', id: checkpointId, text: 'do it' }, attachedUser: false },
+  {
+    _tag: 'UserMessage',
+    key: 'u',
+    turnKey: 't',
+    item: { kind: 'user', id: checkpointId, text: 'do it' },
+    attachedUser: false,
+  },
   ...paths.map((path, at) => ({
     _tag: 'ToolActivity',
     key: `w${at}`,
     turnKey: 't',
-    items: [{ kind: 'tool', id: `w${at}`, name: 'write', args: { path, content: 'one\ntwo\nthree\n' }, result: 'ok', count: 1, completedCount: 1 }],
+    items: [
+      {
+        kind: 'tool',
+        id: `w${at}`,
+        name: 'write',
+        args: { path, content: 'one\ntwo\nthree\n' },
+        result: 'ok',
+        count: 1,
+        completedCount: 1,
+      },
+    ],
   })),
-  { _tag: 'AssistantPart', key: 'r', turnKey: 't', item: { kind: 'assistant', id: 'r', text: 'done' }, turnChanges: { checkpointId, boundary: 'done-1', trailing: false } },
+  {
+    _tag: 'AssistantPart',
+    key: 'r',
+    turnKey: 't',
+    item: { kind: 'assistant', id: 'r', text: 'done' },
+    turnChanges: { checkpointId, boundary: 'done-1', trailing: false },
+  },
 ];
 
 test("a turn's own records name the files it changed: the write calls of its own turn, up to the row its card stands on", () => {
   const before = [
-    { _tag: 'ToolActivity', key: 'old', turnKey: 't0', items: [{ kind: 'tool', id: 'old', name: 'write', args: { path: 'other.ts', content: 'x' }, result: 'ok' }] },
-    { _tag: 'AssistantPart', key: 'r0', turnKey: 't0', item: { kind: 'assistant', id: 'r0', text: 'earlier' }, turnChanges: { checkpointId: 'cp0', boundary: 'done-0', trailing: false } },
+    {
+      _tag: 'ToolActivity',
+      key: 'old',
+      turnKey: 't0',
+      items: [{ kind: 'tool', id: 'old', name: 'write', args: { path: 'other.ts', content: 'x' }, result: 'ok' }],
+    },
+    {
+      _tag: 'AssistantPart',
+      key: 'r0',
+      turnKey: 't0',
+      item: { kind: 'assistant', id: 'r0', text: 'earlier' },
+      turnChanges: { checkpointId: 'cp0', boundary: 'done-0', trailing: false },
+    },
   ];
   const recorded = recordedTurnChanges([...before, ...turnRows([`${ROOT}/src/a.ts`, 'b.ts'])], 'cp', ROOT);
   assert.deepEqual(
@@ -784,12 +817,25 @@ test("a turn's own records name the files it changed: the write calls of its own
   // A turn whose end names a checkpoint of its own, after a turn that ended without a kept end row (no card row
   // between them): only its own turn's edits are its card's.
   const earlier = [
-    { _tag: 'UserMessage', key: 'u0', turnKey: 't0', item: { kind: 'user', id: 'p0', text: 'before' }, attachedUser: false },
-    { _tag: 'ToolActivity', key: 'w-old', turnKey: 't0', items: [{ kind: 'tool', id: 'w-old', name: 'write', args: { path: 'earlier.ts', content: 'x' }, result: 'ok' }] },
+    {
+      _tag: 'UserMessage',
+      key: 'u0',
+      turnKey: 't0',
+      item: { kind: 'user', id: 'p0', text: 'before' },
+      attachedUser: false,
+    },
+    {
+      _tag: 'ToolActivity',
+      key: 'w-old',
+      turnKey: 't0',
+      items: [{ kind: 'tool', id: 'w-old', name: 'write', args: { path: 'earlier.ts', content: 'x' }, result: 'ok' }],
+    },
     { _tag: 'AssistantPart', key: 'r0', turnKey: 't0', item: { kind: 'assistant', id: 'r0', text: 'stopped' } },
   ];
   assert.deepEqual(
-    recordedTurnChanges([...earlier, ...turnRows(['mine.ts'], 'end-checkpoint')], 'end-checkpoint', ROOT).files.map((entry) => entry.path),
+    recordedTurnChanges([...earlier, ...turnRows(['mine.ts'], 'end-checkpoint')], 'end-checkpoint', ROOT).files.map(
+      (entry) => entry.path
+    ),
     ['mine.ts']
   );
   // Consecutive write calls show as one card of several: each call in it is read.
@@ -848,10 +894,88 @@ test('a card is drawn from its turn’s records before the read answers, and the
   assert.equal(view.q('.turn-changes-action').disabled, false);
 });
 
+test('a read that lands while its pane is hidden is shown when the pane returns with its row out of view', async (t) => {
+  resetTurnChangesCache();
+  const resized = [];
+  class Resized {
+    constructor(callback) {
+      this.callback = callback;
+      resized.push(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {
+      this.callback = null;
+    }
+  }
+  // Only a change of the row's intersection is told, and none happens here.
+  class Intersecting {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  const { dom, document, root } = installTestDom(t, {
+    expose: ['HTMLElement', 'Node', 'Event', 'MouseEvent', 'CustomEvent', 'MutationObserver'],
+    rootId: 'root',
+    globals: { ResizeObserver: Resized, IntersectionObserver: Intersecting },
+  });
+  let paneShown = true;
+  const box = (top, height) => ({ top, bottom: top + height, height, left: 0, right: 400, width: 400, x: 0, y: top });
+  // The view shows 0-500; the row stands below it. A hidden pane renders no box.
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    if (!paneShown) return box(0, 0);
+    if (this.classList.contains('transcript')) return box(0, 500);
+    if (this.classList.contains('transcript-virtual-row')) return box(900, 200);
+    if (this.classList.contains('turn-changes-card')) return box(900, 40 * Number(this.dataset.fileCount));
+    return box(0, 0);
+  };
+  let answer;
+  dom.window.mixdogDesktop = {
+    invokeCapability: () => new Promise((resolve) => (answer = (value) => resolve({ value }))),
+  };
+  const surface = { sessionId: 's1', busy: false, turnRunning: false };
+  const ref = { checkpointId: 'cp', boundary: 'done-1', trailing: false };
+  await act(async () =>
+    root.render(
+      h(
+        TurnRowsContext.Provider,
+        { value: () => turnRows(['a.ts']) },
+        h(
+          TurnChangesContext.Provider,
+          { value: surface },
+          h(
+            'div',
+            { className: 'transcript', 'data-following': 'false' },
+            h('div', { className: 'transcript-virtual-row' }, h(TurnChangesCard, { turnChanges: ref }))
+          )
+        )
+      )
+    )
+  );
+  const card = () => document.querySelector('.turn-changes-card');
+  const files = () => document.querySelectorAll('.turn-changes-file').length;
+  assert.equal(card()?.dataset.source, 'records');
+  paneShown = false;
+  await act(async () => answer(ready([file('a.ts'), file('b.ts')])));
+  await settle();
+  assert.equal(card().dataset.read, 'updating', 'a hidden row says nothing of where it is: the read is kept back');
+  assert.equal(files(), 1);
+  // The pane is shown again: its row takes its box, below the view.
+  paneShown = true;
+  await act(async () => {
+    for (const observer of resized) observer.callback?.([], observer);
+  });
+  assert.equal(card().dataset.read, undefined);
+  assert.equal(files(), 2, 'the read is shown');
+});
+
 test('the read names another set of files than the records did: the card changes then', async (t) => {
   await t.test('a file changed by other means joins the card', async (t) => {
     let answer;
-    const view = await mountCard(t, { rows: turnRows(['a.ts']), reply: () => new Promise((resolve) => (answer = resolve)) });
+    const view = await mountCard(t, {
+      rows: turnRows(['a.ts']),
+      reply: () => new Promise((resolve) => (answer = resolve)),
+    });
     assert.equal(view.qa('.turn-changes-file').length, 1);
     await act(async () => answer(ready([file('a.ts'), file('build/out.js')])));
     await settle();
@@ -859,7 +983,10 @@ test('the read names another set of files than the records did: the card changes
   });
   await t.test('a turn whose record lists nothing loses its card', async (t) => {
     let answer;
-    const view = await mountCard(t, { rows: turnRows(['a.ts']), reply: () => new Promise((resolve) => (answer = resolve)) });
+    const view = await mountCard(t, {
+      rows: turnRows(['a.ts']),
+      reply: () => new Promise((resolve) => (answer = resolve)),
+    });
     assert.ok(view.q('.turn-changes-card'));
     await act(async () => answer(ready([])));
     await settle();

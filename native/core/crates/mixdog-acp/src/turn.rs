@@ -10,11 +10,13 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use mixdog_agent::handed::Handed;
 use mixdog_agent::handed::HandedCalls;
 use mixdog_agent::handed::Judged;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_core_api::domain::provider::ToolCall;
+use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_review::turn_review::line_diff::LineDiffer;
 use mixdog_core_run::run_host::progress::RunProgress;
 use mixdog_core_run::run_host::progress::StreamKind;
@@ -316,11 +318,11 @@ impl Reply<'_> {
         }
     }
 
-    /// Runs `call` of a Mixdog tool.
-    async fn run_handed(&mut self, calls: &HandedCalls, call: ToolCall) -> mixdog_agent::handed::Handed {
-        let outcome = self.piped(calls.call(call)).await;
+    /// Runs `batch`, calls of Mixdog tools made together; their outcomes in order.
+    async fn run_handed(&mut self, calls: &HandedCalls, batch: &[ToolCall]) -> Vec<Handed> {
+        let outcomes = self.piped(calls.calls(batch)).await;
         self.mark_after_call().await;
-        outcome
+        outcomes
     }
 
     /// The agent reported its context: the window it names is the session's.
@@ -447,9 +449,22 @@ impl Reply<'_> {
         let id = self.session.call_id(agent_id, self.context.turn.as_str(), self.epoch);
         let tool = &earlier.tool;
         self.late += 1;
-        let call = (id.clone(), tool.name(self.agent()), tool.late_arguments(&earlier.id));
-        self.commit_assistant(surface.as_ref(), new_item_id(), "", vec![call]).await?;
+        let (name, arguments) = tool.late_card(self.agent(), &earlier.id);
+        self.commit_assistant(surface.as_ref(), new_item_id(), "", vec![(id.clone(), name, arguments)]).await?;
         self.commit_result(rows::tool_result(new_item_id(), &id, tool.result_text(), tool.status == "failed", tool.diff(&self.differ))).await
+    }
+
+    /// The item and text of the assistant row a new call is made under: the text shown before it, settled, or a new item.
+    async fn text_before_call(&mut self) -> Result<(ItemId, String), RunError> {
+        self.end_reasoning().await?;
+        self.blank.clear();
+        match self.text.take() {
+            Some((item, text)) => {
+                self.surface.text_settled(item.clone()).await?;
+                Ok((item, text))
+            }
+            None => Ok((new_item_id(), String::new())),
+        }
     }
 
     /// The call's state after `update`; a call first heard of gets its card: the assistant row that makes it,
@@ -480,22 +495,14 @@ impl Reply<'_> {
         } else {
             let mut tool = AgentTool { id: agent_id.clone(), ..AgentTool::default() };
             tool.merge(update);
-            self.end_reasoning().await?;
-            self.blank.clear();
-            let (item, text) = match self.text.take() {
-                Some((item, text)) => {
-                    self.surface.text_settled(item.clone()).await?;
-                    (item, text)
-                }
-                None => (new_item_id(), String::new()),
-            };
+            let (item, text) = self.text_before_call().await?;
             let id = self.session.call_id(&agent_id, self.context.turn.as_str(), self.epoch);
-            let name = tool.name(self.agent());
+            let (name, arguments) = tool.card(self.agent());
             self.context.mark(|progress, now| progress.tool_call(Some(&name), now));
             // The call is the turn's once its row is stored, and from then on the turn's end gives it a result: a row
             // the session did not take leaves no call to close, so no result is written for a call that is not there.
             let surface = self.surface.clone();
-            self.commit_assistant(surface.as_ref(), item, &text, vec![(id.clone(), name, tool.arguments())]).await?;
+            self.commit_assistant(surface.as_ref(), item, &text, vec![(id.clone(), name, arguments)]).await?;
             self.mark(CallMark::ToolCall).await;
             self.order.push(agent_id.clone());
             self.calls.insert(agent_id.clone(), Call { id, tool, closed: false });
@@ -546,71 +553,119 @@ impl Reply<'_> {
         }
         // The session's surface may have moved since it was last read: a name it does not hold is looked for once more.
         let Ok(tools) = handed.tools.definitions(&handed.thread).await else { return false };
-        let listed: Vec<String> = tools.into_iter().map(|tool| tool.name).collect();
+        let listed: Vec<String> = tools.into_iter().map(|tool| tool.name).chain([crate::mcp::BATCH_TOOL.to_owned()]).collect();
         let found = is_listed(&listed);
         self.listed = Some(listed);
         found
     }
 
-    /// Opens the card of a call of the Mixdog tool `name`: the assistant row that makes it, under the item of the
-    /// text shown before it. Returns the call's id in the rows.
-    async fn open_handed(&mut self, name: &str, arguments: &Value) -> Result<String, RunError> {
-        self.end_reasoning().await?;
-        self.blank.clear();
-        let (item, text) = match self.text.take() {
-            Some((item, text)) => {
-                self.surface.text_settled(item.clone()).await?;
-                (item, text)
-            }
-            None => (new_item_id(), String::new()),
-        };
-        self.handed += 1;
-        let id = self.session.call_id(&format!("mixdog-{}", self.handed), self.context.turn.as_str(), self.epoch);
-        self.context.mark(|progress, now| progress.tool_call(Some(name), now));
+    /// Opens the cards of `calls` of Mixdog tools, `(name, arguments)` each, made together: the one assistant row that
+    /// makes them all, under the item of the text shown before it. Returns the calls' ids in the rows.
+    async fn open_handed(&mut self, calls: &[(String, Value)]) -> Result<Vec<String>, RunError> {
+        let (item, text) = self.text_before_call().await?;
+        let mut ids = Vec::with_capacity(calls.len());
+        for _ in calls {
+            self.handed += 1;
+            ids.push(self.session.call_id(&format!("mixdog-{}", self.handed), self.context.turn.as_str(), self.epoch));
+        }
+        self.context.mark(|progress, now| progress.tool_call(calls.first().map(|(name, _)| name.as_str()), now));
         let surface = self.surface.clone();
-        self.commit_assistant(surface.as_ref(), item, &text, vec![(id.clone(), name.to_owned(), arguments.clone())]).await?;
-        Ok(id)
+        let made = ids.iter().zip(calls).map(|(id, (name, arguments))| (id.clone(), name.clone(), arguments.clone())).collect();
+        self.commit_assistant(surface.as_ref(), item, &text, made).await?;
+        Ok(ids)
     }
 
-    /// A call of a Mixdog tool the agent made through the session's server: it is shown as that tool's call, run
-    /// through Mixdog's pipeline, and answered with its result. Its row is committed however the call ends.
+    /// Calls of Mixdog tools the agent made together, `(name, arguments)` each: shown as one step's calls, run through
+    /// Mixdog's pipeline together, and each given its result row however it ends. Their outcomes in order, with the first
+    /// failure to store a result row; `Err` where the session did not take the row that makes them, and none ran.
+    async fn run_calls(&mut self, calls: Vec<(String, Value)>) -> Result<(Vec<Handed>, Option<RunError>), RunError> {
+        let ids = self.open_handed(&calls).await?;
+        let batch: Vec<ToolCall> =
+            ids.iter().zip(calls).map(|(id, (name, arguments))| ToolCall { id: id.clone(), name, arguments, native_type: None }).collect();
+        let outcomes = match self.context.calls.clone() {
+            Some(calls) => self.run_handed(&calls, &batch).await,
+            None => ids.iter().map(|id| crate::mcp::unrun(id, "This turn runs no Mixdog tools.")).collect(),
+        };
+        self.context.mark(|progress, now| progress.tool_call(None, now));
+        let mut unstored = None;
+        for outcome in &outcomes {
+            if let Err(error) = self.commit_result(rows::tool_message(new_item_id(), &outcome.message)).await {
+                unstored.get_or_insert(error);
+            }
+        }
+        Ok((outcomes, unstored))
+    }
+
+    /// The tool of the session's surface, `listed`, that an item of a batch names: by the name the server lists it
+    /// under, or by the name the agent's own tool list gives it.
+    fn listed_as(&self, listed: &[ToolDefinition], name: &str) -> Result<String, String> {
+        let format = self.session.preset.quirks.mcp_tool_name.as_deref();
+        let agents = |tool: &str| format.map(|format| format.replace("{server}", crate::mcp::SERVER_NAME).replace("{tool}", tool));
+        listed
+            .iter()
+            .find(|tool| tool.name == name || agents(&tool.name).as_deref() == Some(name))
+            .map(|tool| tool.name.clone())
+            .ok_or_else(|| format!("{name} is not a tool of this session."))
+    }
+
+    /// A call the agent made through the session's server: of a Mixdog tool, or of the batch tool, whose items are calls
+    /// of Mixdog tools made together. Each call is shown as that tool's call, run through Mixdog's pipeline, and given
+    /// its row however it ends; the agent is answered with the call's result, or with every item's answer in order. A
+    /// call of a tool the session's surface does not hold is refused, and has no card.
     async fn handed(&mut self, ask: ToolAsk) -> Result<(), RunError> {
         let Some(handed) = self.session.handed.clone() else {
             ask.refuse("This session hands out no tools.");
             return Ok(());
         };
         // The agent is handed the session's surface as it is now, and nothing beyond it.
-        let listed = handed.tools.definitions(&handed.thread).await;
-        match listed {
-            Ok(tools) if tools.iter().any(|tool| tool.name == ask.name) => {}
-            Ok(_) => {
-                let unknown = format!("{} is not a tool of this session.", ask.name);
-                ask.refuse(&unknown);
-                return Ok(());
-            }
+        let listed = match handed.tools.definitions(&handed.thread).await {
+            Ok(tools) => tools,
             Err(message) => {
                 ask.refuse(&message);
                 return Ok(());
             }
-        }
-        let id = match self.open_handed(&ask.name, &ask.arguments).await {
-            Ok(id) => id,
-            Err(error) => {
-                ask.refuse("The session stopped taking this turn's work; the call was not run.");
-                return Err(error);
+        };
+        let batch = ask.name == crate::mcp::BATCH_TOOL;
+        let items: Vec<crate::mcp::BatchItem<(String, Value)>> = if batch {
+            match crate::mcp::batch_items(&ask.arguments) {
+                Ok(items) => items
+                    .into_iter()
+                    .map(|(tool, arguments)| {
+                        let call = arguments.and_then(|arguments| self.listed_as(&listed, &tool).map(|name| (name, arguments)));
+                        (call.as_ref().map_or(tool, |(name, _)| name.clone()), call)
+                    })
+                    .collect(),
+                Err(why) => {
+                    ask.refuse(&why);
+                    return Ok(());
+                }
+            }
+        } else {
+            let call = listed.iter().any(|tool| tool.name == ask.name).then(|| (ask.name.clone(), ask.arguments.clone()));
+            vec![(ask.name.clone(), call.ok_or_else(|| format!("{} is not a tool of this session.", ask.name)))]
+        };
+        let calls: Vec<(String, Value)> = items.iter().filter_map(|(_, call)| call.as_ref().ok().cloned()).collect();
+        let (outcomes, unstored) = if calls.is_empty() {
+            (Vec::new(), None)
+        } else {
+            match self.run_calls(calls).await {
+                Ok(ran) => ran,
+                Err(error) => {
+                    ask.refuse("The session stopped taking this turn's work; the call was not run.");
+                    return Err(error);
+                }
             }
         };
-        let outcome = match &self.context.calls {
-            Some(calls) => {
-                let calls = calls.clone();
-                self.run_handed(&calls, ToolCall { id: id.clone(), name: ask.name.clone(), arguments: ask.arguments.clone(), native_type: None }).await
-            }
-            None => crate::mcp::unrun(&id, "This turn runs no Mixdog tools."),
+        let mut outcomes = outcomes.into_iter();
+        let answers: Vec<crate::mcp::BatchItem<Handed>> =
+            items.into_iter().map(|(tool, call)| (tool, call.map(|_| outcomes.next().expect("an outcome for every call run")))).collect();
+        let answer = match &answers[..] {
+            [(_, Ok(outcome))] if !batch => crate::mcp::rendered(outcome),
+            [(_, Err(why))] if !batch => crate::mcp::result_text(why.clone(), true),
+            answers => crate::mcp::batch_rendered(answers),
         };
-        self.context.mark(|progress, now| progress.tool_call(None, now));
-        let committed = self.commit_result(rows::tool_message(new_item_id(), &outcome.message)).await;
-        let _ = ask.answer.send(crate::mcp::rendered(&outcome));
-        committed
+        let _ = ask.answer.send(answer);
+        unstored.map_or(Ok(()), Err)
     }
 
     /// Stores the result row of a call whose assistant row is stored. A stop of the turn that lands while the row is on
@@ -655,7 +710,7 @@ impl Reply<'_> {
         // the list shows. A session that hands no tools shows the plan as the call's card only.
         let written = match self.context.calls.clone() {
             Some(calls) if !arguments["items"].as_array().is_none_or(Vec::is_empty) => {
-                Some(self.run_handed(&calls, ToolCall { id: id.clone(), name: name.to_owned(), arguments, native_type: None }).await)
+                self.run_handed(&calls, &[ToolCall { id: id.clone(), name: name.to_owned(), arguments, native_type: None }]).await.pop()
             }
             _ => None,
         };
@@ -698,14 +753,15 @@ impl Reply<'_> {
         let request = params.get("toolCall").cloned().unwrap_or(Value::Null);
         let options = options_of(params);
         let once = options.iter().find(|(_, kind)| kind == "allow_once").map(|(id, _)| id.clone());
-        // A call of a Mixdog tool is asked about by that tool's own pipeline, which asks the user what it must: the
-        // agent's question about the same call is answered yes, for this one call. An agent that offers no answer for
-        // one call is not answered for longer on the user's behalf: its question goes to the user as any other.
-        if once.is_some() && self.is_mixdog_call(&request).await {
+        let lasting = options.iter().find(|(_, kind)| kind == "allow_always").map(|(id, _)| id.clone());
+        // Every call of a Mixdog tool is asked about by that tool's own pipeline, which asks the user what it must: the
+        // agent's question about the tool is answered yes for good, which grants nothing that pipeline does not judge
+        // again, and the agent stops asking.
+        if (lasting.is_some() || once.is_some()) && self.is_mixdog_call(&request).await {
             if let Some(id) = request.get("toolCallId").and_then(Value::as_str) {
                 self.reports.insert(id.to_owned());
             }
-            return Ok(outcome(once));
+            return Ok(outcome(lasting.or(once)));
         }
         if let Some(id) = request.get("toolCallId").and_then(Value::as_str) {
             // The question is the user's to answer: the call gets its card.
@@ -744,7 +800,7 @@ impl Reply<'_> {
             return Ok(outcome(once));
         }
         let call = &self.calls[&agent_id];
-        let always = options.iter().any(|(_, kind)| kind == "allow_always");
+        let always = lasting.is_some();
         // The agent offers no approval for one call: the user is asked for the lasting one, and told that it is.
         let lasting_only = once.is_none() && always;
         // The card's wording is the client's: the agent and whether its call has a title are data here.
@@ -905,6 +961,9 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
     let replying = matches!(ask, Ask::Reply);
     let prompt = match ask {
         Ask::Prompt(blocks) => {
+            // The prompt is the turn's request: the watchdog times the agent's first answer from its send, as it times a
+            // provider's from the request's start.
+            context.mark(|progress, now| progress.stage_change("requesting", now));
             let sent = tokio::select! {
                 biased;
                 () = context.cancel.cancelled() => None,
@@ -912,6 +971,8 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             };
             match sent {
                 Some(Ok(id)) => {
+                    // Written, the prompt is the agent's: what is left to wait for is its first answer.
+                    context.mark(|progress, now| progress.stream_delta(StreamKind::Transport, now));
                     // The agent holds the prompt: its session is the conversation's from here. A record that cannot be
                     // saved leaves the conversation naming no session, and the next turn hands it over again.
                     if let Some(change) = record {

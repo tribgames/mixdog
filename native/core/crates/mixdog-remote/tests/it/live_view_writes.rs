@@ -50,8 +50,10 @@ fn frame(seq: u64) -> String {
     json!({ "method": "browser/frame", "params": { "sessionId": "sess_1", "seq": seq } }).to_string()
 }
 
+/// An unpair the relay refuses closes the phone and its socket to the core at once: the live-view writes the core queued before it
+/// are never read, and the phone is told nothing but the close.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_live_view_write_queued_before_an_unpair_reaches_no_phone() {
+async fn an_unpair_closes_the_phone_before_a_live_view_write_queued_for_it_is_read() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let identity = {
@@ -76,19 +78,16 @@ async fn a_live_view_write_queued_before_an_unpair_reaches_no_phone() {
     reads.add_permits(1);
     assert_eq!(mixdog_rt::time::timeout(WAIT, phone.recv()).await.expect("the first frame reached the phone within 10 s"), frame(1));
 
-    // A frame and a WebRTC signal the core queued before the unpair, then a message of another kind.
+    // A frame and a WebRTC signal the core queued before the unpair, not yet read by the bridge.
     let signal = json!({ "method": "browser/webrtcSignal", "params": { "signal": { "type": "offer", "sdp": "v=0" } } }).to_string();
-    let other = json!({ "method": "thread/updated", "params": { "threadId": "t1" } }).to_string();
-    for text in [frame(2), signal, other.clone()] {
+    for text in [frame(2), signal] {
         to_bridge.send(Frame::Text(text)).unwrap();
     }
-    // The unpair, which the relay refuses: the phone's connection stays open.
-    let _ = runtime.revoke_client(CRED).await;
-    // The bridge reads what was queued.
-    reads.add_permits(3);
-    assert_eq!(
-        mixdog_rt::time::timeout(WAIT, phone.recv()).await.expect("a message reached the phone within 10 s"),
-        other,
-        "the frame and the signal queued before the unpair reached no phone"
-    );
+    assert!(runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
+    // The close went out on the leg before the relay was asked.
+    relay.frame(|frame| frame["type"] == "revoke-client").await;
+    assert_eq!(phone.arrived().await, 1, "the close and nothing else reached the phone");
+    assert_eq!(phone.closed().await, "relay encryption authentication failed");
+    // The core's socket is gone with what it held: nothing queued before the unpair can be read for any phone.
+    mixdog_rt::time::timeout(WAIT, to_bridge.closed()).await.expect("the unpair closed the phone's socket to the core within 10 s");
 }

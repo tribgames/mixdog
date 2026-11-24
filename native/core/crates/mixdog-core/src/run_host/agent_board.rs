@@ -17,7 +17,8 @@ use mixdog_core_domains::domains::ai_admin::model_list::ModelListService;
 use mixdog_tools::exec::TaskNotifier;
 use serde_json::Value;
 
-use super::agent_world::configured_route_candidates;
+use mixdog_core_run::run_host::route_chain::{BotRoutes, route_candidates};
+
 use super::compose_parts::LateDirectory;
 use super::late::Bound;
 
@@ -29,6 +30,8 @@ pub struct ModelListCatalog {
     pub registry: Arc<ProviderRegistry>,
     /// An ACP agent route's state: `None` when the provider is no agent's, `Some(None)` when the agent can run, else why not.
     pub agent_state: Arc<AgentState>,
+    /// The bots' own routes: a bot's route is the stored one, not the config's.
+    pub bots: Arc<dyn BotRoutes>,
 }
 
 /// The state of the ACP agent a provider id names.
@@ -54,7 +57,8 @@ impl ModelCatalog for ModelListCatalog {
 
     async fn agent_provider(&self, agent: &str) -> Option<String> {
         let config = self.models.config.agent();
-        let route = configured_route_candidates(&config, agent).into_iter().next()?;
+        let candidate = route_candidates(&config, agent, &*self.bots).await.ok()?.into_iter().next()?;
+        let route = if candidate.is_object() { candidate } else { mixdog_core_config::config::agent_routes::route_of(&config, &candidate)? };
         route.get("provider").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned)
     }
 
@@ -133,6 +137,18 @@ mod tests {
             Ok(true)
         }
     }
+    /// One bot, `scout`, with a route of its own.
+    struct Scout;
+    #[async_trait]
+    impl BotRoutes for Scout {
+        async fn bot_route(&self, id: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok((id == "scout").then(|| Some(json!({ "provider": "google", "model": "gemini" }))))
+        }
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
+        }
+    }
+
     #[tokio::test]
     async fn the_catalog_reports_a_signed_out_providers_state_and_the_agents_saved_provider() {
         use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
@@ -164,7 +180,11 @@ mod tests {
         let path = dir.path().join("mixdog-config.json");
         crate::run_host::fixture_fs::write(
             &path,
-            serde_json::to_vec(&json!({ "agent": { "agents": { "writer": { "provider": "cursor-oauth", "model": "m" } } } })).unwrap(),
+            serde_json::to_vec(&json!({ "agent": {
+                "presets": [{ "id": "light", "name": "light", "provider": "openai", "model": "gpt-mini" }],
+                "agents": { "writer": { "provider": "cursor-oauth", "model": "m" }, "reader": "light" }
+            } }))
+            .unwrap(),
         );
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
@@ -178,8 +198,10 @@ mod tests {
         let registry = Arc::new(ProviderRegistry::new(Arc::new(CursorSignedOut)));
         let providers = json!({ "anthropic": { "enabled": true }, "cursor-oauth": { "enabled": true } });
         registry.init_providers(providers.as_object().unwrap()).await.unwrap();
-        let catalog = ModelListCatalog { models, registry, agent_state: Arc::new(|_| None) };
+        let catalog = ModelListCatalog { models, registry, agent_state: Arc::new(|_| None), bots: Arc::new(Scout) };
         assert_eq!(catalog.agent_provider("writer").await.as_deref(), Some("cursor-oauth"));
+        assert_eq!(catalog.agent_provider("reader").await.as_deref(), Some("openai"), "a route given as a preset name");
+        assert_eq!(catalog.agent_provider("scout").await.as_deref(), Some("google"), "a bot's own route");
         let state = catalog.provider_state("cursor-oauth").await.expect("the set-aside provider cannot run");
         assert!(state.contains("not signed in"), "{state}");
         assert_eq!(catalog.provider_state("anthropic").await, None);

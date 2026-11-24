@@ -53,6 +53,7 @@ use super::resume::ResumeRequest;
 use super::resume::TagResume;
 use super::resume::resolve_prompt;
 use super::scope::Caller;
+use super::scope::Owner;
 use super::scope::Scope;
 use super::scope::TagRecord;
 use super::scope::clean;
@@ -167,13 +168,13 @@ fn cancel_session_tasks(tasks: &dyn Tasks, session_id: &str, target: &str, scope
     }
 }
 
-/// `dropGoneRow`: a deleted session has nothing left to close, only its row and tag remain.
-fn drop_gone_row(registry: &dyn Registry, tasks: &dyn Tasks, tag: &str, session_id: &str) {
+/// `dropGoneRow`: a deleted session has nothing left to close, only its row and `owner`'s tag remain.
+fn drop_gone_row(registry: &dyn Registry, tasks: &dyn Tasks, tag: &str, session_id: &str, owner: &str) {
     registry.remove_worker_row(session_id);
     if !tag.is_empty() {
         registry.unbind_tag(tag);
     }
-    tasks.forget_lost(session_id);
+    tasks.forget_lost(session_id, tag, owner);
 }
 
 /// `rowContext`: the scope of the row's owner session, else of its host process.
@@ -185,13 +186,17 @@ fn row_scope(row: &TagRecord) -> Scope {
     }
 }
 
-/// `resultDelivered(row, scopedContext)`: see [`Tasks::result_delivered`]. A tag is its owner's: the row's, else the caller.
-fn result_delivered(tasks: &dyn Tasks, row: &TagRecord, scope: &Scope) -> bool {
-    let owner = [row.owner.parent_session_id.as_str(), row.owner.owner_session_id.as_str(), scope.caller_session_id.as_deref().unwrap_or_default()]
+/// A tag is its owner's: the one its agent's row or session names, else the caller.
+fn tag_owner<'a>(owner: &'a Owner, scope: &'a Scope) -> &'a str {
+    [owner.parent_session_id.as_str(), owner.owner_session_id.as_str(), scope.caller_session_id.as_deref().unwrap_or_default()]
         .into_iter()
         .find(|id| !id.is_empty())
-        .unwrap_or_default();
-    tasks.result_delivered(&row.session_id, &row.tag, owner, scope)
+        .unwrap_or_default()
+}
+
+/// `resultDelivered(row, scopedContext)`: see [`Tasks::result_delivered`].
+fn result_delivered(tasks: &dyn Tasks, row: &TagRecord, scope: &Scope) -> bool {
+    tasks.result_delivered(&row.session_id, &row.tag, tag_owner(&row.owner, scope), scope)
 }
 
 /// `parkIdle(row)` (`close-flow.mjs`), the idle timer's release: an idle agent whose last result was delivered gives up
@@ -200,7 +205,7 @@ pub async fn park_idle(parts: CloseParts<'_>, row: &TagRecord) -> IdleOutcome {
     let CloseParts { registry, sessions, tasks } = parts;
     let scope = row_scope(row);
     if sessions.session_gone(&row.session_id).await {
-        drop_gone_row(registry, tasks, &clean_str(&row.tag), &row.session_id);
+        drop_gone_row(registry, tasks, &clean_str(&row.tag), &row.session_id, tag_owner(&row.owner, &scope));
         return IdleOutcome::Gone;
     }
     if sessions.turn_in_flight(&row.session_id) {
@@ -246,7 +251,12 @@ pub async fn close_tree_members(sessions: &dyn Sessions, tasks: &dyn Tasks, orde
             }
         }
         match sessions.try_close_covered(current, reason, options).await {
-            Ok(done) => closed |= done,
+            Ok(done) => {
+                if done {
+                    tasks.forget_lost(current, "", "");
+                }
+                closed |= done;
+            }
             Err(error) => failures.push(error),
         }
     }
@@ -295,17 +305,21 @@ pub async fn close_resolved(
     keep_row: bool,
 ) -> Result<ClosedView, String> {
     let CloseParts { registry, sessions, tasks } = parts;
-    if registry.live_session(session_id).await.is_some_and(|s| is_lead_pool_agent(&s.agent)) {
+    let live = registry.live_session(session_id).await;
+    if live.as_ref().is_some_and(|s| is_lead_pool_agent(&s.agent)) {
         return Err(format!("agent close: target \"{target}\" is a Lead session"));
     }
     let tag = registry.tag_for_session(session_id).await;
+    let row_tag = match tag.as_deref().filter(|tag| !tag.is_empty()) {
+        Some(tag) => tag,
+        None if target.starts_with("sess_") => "",
+        None => target,
+    };
+    let held = registry.worker_row(session_id).map(|row| row.owner).or_else(|| live.map(|s| s.owner)).unwrap_or_default();
+    let owner = tag_owner(&held, scope);
     if sessions.session_gone(session_id).await {
-        let row_tag = match tag.as_deref().filter(|tag| !tag.is_empty()) {
-            Some(tag) => tag,
-            None if target.starts_with("sess_") => "",
-            None => target,
-        };
-        drop_gone_row(registry, tasks, row_tag, session_id);
+        cancel_session_tasks(tasks, session_id, target, scope);
+        drop_gone_row(registry, tasks, row_tag, session_id, owner);
         if let Some(id) = &task_id_out {
             tasks.cancel(id, CLOSE_REASON);
         }
@@ -339,6 +353,9 @@ pub async fn close_resolved(
         hide_failed.extend(spared.into_iter().map(|Spared { session_id, reason }| HideFailed { session_id, reason }));
         hide_failed.extend(unstored.into_iter().map(|(session_id, reason)| HideFailed { session_id, reason: format!("its release was not stored: {reason}") }));
         hide_failed.extend(sessions.hide_sessions(&hides).await);
+    }
+    if ok {
+        tasks.forget_lost(session_id, row_tag, owner);
     }
     // A close that did not land names why. Node reads the barrier failure its runtime entry kept; a close that fails
     // its durable stamp is this function's `Err` here, so what is left is the close that recorded nothing.
@@ -488,9 +505,10 @@ async fn apply_cleanup(parts: CleanupParts, plan: CleanupPlan, recovered: Recove
         cancel_planned_jobs(&**tasks, &plan.scoped_jobs, &id, &id);
         // The tag goes only while it is this row's: it may have been bound to another session since the plan.
         let tag = clean_str(&row.tag);
-        report.tags_removed += u64::from(registry.tag_session(&tag).as_deref() == Some(id.as_str()));
+        let own_tag = registry.tag_session(&tag).as_deref() == Some(id.as_str());
+        report.tags_removed += u64::from(own_tag);
         registry.forget_terminal_session(Some(&tag), &id);
-        tasks.forget_lost(&id);
+        tasks.forget_lost(&id, if own_tag { &tag } else { "" }, tag_owner(&row.owner, &plan.scope));
         removed.insert(id);
         report.gone_rows_cleared += 1;
     }
@@ -634,6 +652,8 @@ async fn close_tree(
                 if outcome == MemberOutcome::Closed {
                     closed = true;
                     stamped.push(member.id.clone());
+                    let tag = if member.id == root { clean_str(&row.tag) } else { String::new() };
+                    tasks.forget_lost(&member.id, &tag, tag_owner(&row.owner, &plan.scope));
                 }
             }
             Err(error) => {
@@ -805,16 +825,17 @@ impl AgentRuntime {
 
     // ---- close / cleanup -------------------------------------------------------------------
 
-    async fn tag_bound_by_caller(&self, target: &str, scope: &Scope) -> bool {
+    /// The owner fields of the agent `target` names, when the caller owns it: its live session's, else its row's.
+    async fn tag_bound_by_caller(&self, target: &str, scope: &Scope) -> Option<Owner> {
         let registry = &self.deps.registry;
         let live = match registry.tag_session(target) {
             Some(id) => registry.live_session(&id).await,
             None => None,
         };
         if let Some(live) = live {
-            return scope.owns(&live.owner);
+            return scope.owns(&live.owner).then_some(live.owner);
         }
-        registry.read_worker_rows(scope).map(|rows| rows.iter().any(|r| clean_str(&r.tag) == target)).unwrap_or(false)
+        registry.read_worker_rows(scope).ok()?.into_iter().find(|r| clean_str(&r.tag) == target).map(|r| r.owner)
     }
 
     /// `keep_row`: a process exit closes the worker but leaves its row for the next process.
@@ -841,11 +862,15 @@ impl AgentRuntime {
             .resolve_tag(&target, &scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: false })
             .await?
         else {
-            if !target.starts_with("sess_") && registry.has_tag_agent(&target) && self.tag_bound_by_caller(&target, &scope).await {
+            if !target.starts_with("sess_")
+                && registry.has_tag_agent(&target)
+                && let Some(held) = self.tag_bound_by_caller(&target, &scope).await
+            {
                 registry.unbind_tag(&target);
                 if let Some(id) = &task_id_out {
                     self.deps.tasks.cancel(id, CLOSE_REASON);
                 }
+                self.deps.tasks.forget_lost("", &target, tag_owner(&held, &scope));
                 return Ok(ClosedView { closed: true, tag: Some(target), task_id: task_id_out, forgotten: true, ..ClosedView::default() });
             }
             return Err(format!("agent close: target \"{target}\" not found"));
@@ -994,6 +1019,7 @@ impl AgentRuntime {
             map.insert("tag".into(), tag.into());
             map.insert("prompt".into(), prompt.into());
             map.shift_remove("message");
+            map.shift_remove("file");
             map.insert("agent".into(), inherited.agent.into());
             map.insert("cwd".into(), inherited.cwd.into());
         }

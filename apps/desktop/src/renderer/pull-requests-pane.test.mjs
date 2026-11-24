@@ -175,6 +175,34 @@ test('checkout runs the host checkout then reloads; checked-out rows hide it', a
   assert.equal(lists, 2);
 });
 
+test('Checkout Pull Request… asks for the number in the app prompt and checks it out', async (t) => {
+  const { overridePromptAction } = await import('./app-confirm.tsx');
+  const asked = [];
+  overridePromptAction((title) => {
+    asked.push(title);
+    return '#7';
+  });
+  const nativePrompt = window.prompt;
+  window.prompt = () => {
+    throw new Error('Electron has no window.prompt');
+  };
+  t.after(() => {
+    overridePromptAction(null);
+    window.prompt = nativePrompt;
+  });
+  const calls = [];
+  const view = mount(t, {
+    ghPrCheckout: async (project, number) => {
+      calls.push([project, number]);
+    },
+  });
+  await view.render();
+  await click(byLabel(view.host, 'More pull request actions'));
+  await click(document.querySelector('[data-action-id="checkout"]'));
+  assert.deepEqual(asked, ['Pull request number']);
+  assert.deepEqual(calls, [['/a', 7]]);
+});
+
 test('opening a row uses the open handler, or the external URL without one', async (t) => {
   const opened = [];
   const external = [];

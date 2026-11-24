@@ -40,13 +40,15 @@ async function rig(limits: Record<string, unknown> = {}) {
     random: () => options.jitterUnit,
     ladder: options.ladder,
   });
-  const handshake = async (): Promise<MockConn> => {
+  const handshake = async (serverInstanceId = 'i1'): Promise<MockConn> => {
     const conn = await net.accept();
     const init = JSON.parse(await conn.nextSent());
-    conn.serverSend({ id: init.id, result: {
+    conn.serverSend({
+      id: init.id,
+      result: {
         ...options.initializeResult,
         limits: { ...options.initializeResult.limits, ...limits },
-        serverInstanceId: 'i1',
+        serverInstanceId,
       },
     });
     await conn.nextSent();
@@ -73,6 +75,9 @@ async function rig(limits: Record<string, unknown> = {}) {
     client,
     frames,
     answerNext,
+    /** The next request the client writes, unanswered. */
+    next: async (): Promise<{ id: number; method: string; params: { offset?: number } }> =>
+      JSON.parse(await conn.nextSent()),
     reply: (frame: unknown) => conn.serverSend(frame as never),
     statusIs,
     /** Resolves with the length of the frame log at the moment the client went `reconnecting`: what follows belongs to the next connection. */
@@ -82,9 +87,10 @@ async function rig(limits: Record<string, unknown> = {}) {
       await down;
       return frames.length;
     },
-    reconnect: async () => {
+    /** `serverInstanceId` other than the first connection's: the core restarted meanwhile. */
+    reconnect: async (serverInstanceId?: string) => {
       const up = statusIs('ready');
-      conn = await handshake();
+      conn = await handshake(serverInstanceId);
       await up;
     },
   };
@@ -178,7 +184,7 @@ const putsOf = (frames: Array<{ body: unknown }>): PutFrame[] =>
   frames.map((f) => f.body as PutFrame).filter((b) => b.method === 'blob/put');
 const putAt = (frames: Array<{ body: unknown }>, index: number): PutFrame => {
   const put = putsOf(frames)[index];
-  if (!put) throw new Error('no chunk ' + index);
+  if (!put) throw new Error(`no chunk ${index}`);
   return put;
 };
 
@@ -235,7 +241,10 @@ test('a chunk failing mid-way fails the put once with its error, and no chunk is
   await settleIo();
   const [first, second, third] = putsOf(frames) as [PutFrame, PutFrame, PutFrame];
   reply({ id: first.id, result: {} });
-  reply({ id: second.id, error: { code: -32603, message: 'disk full', data: { reason: 'internal', incidentId: 'x' } } });
+  reply({
+    id: second.id,
+    error: { code: -32603, message: 'disk full', data: { reason: 'internal', incidentId: 'x' } },
+  });
   reply({ id: third.id, result: {} });
   assert.match(await outcome, /disk full/);
   assert.equal(putsOf(frames).length, 3, 'no chunk is uploaded again or after the failure');
@@ -266,6 +275,64 @@ test('chunks the core refuses as out of order resume from the bytes it holds, no
   reply({ id: putAt(frames, 4).id, result: {} });
   await uploaded;
   assert.equal(putsOf(frames).length, 5);
+});
+
+// blob.rs `already_stored`: a continuation chunk of a digest the core holds no staging for.
+const DROPPED = {
+  code: -32602,
+  message: 'invalid params',
+  data: { reason: 'invalidParams', path: 'offset', expected: '0: no upload of this blob is in progress' },
+};
+
+/** A three-chunk upload served one chunk at a time; `answer` takes its next chunk, which must be at `offset`, or fails on the put's outcome. */
+async function droppedUpload() {
+  const harness = await rig({ maxUploadInFlightBytes: 0 });
+  const chunk = options.initializeResult.limits.maxBlobPutChunkBytes as number;
+  const outcome = harness.client.putBlob(new Uint8Array(chunk * 3), 'application/octet-stream').then(
+    () => 'resolved',
+    (error: unknown) => error
+  );
+  const step = async () => {
+    const put = await Promise.race([harness.next(), outcome]);
+    assert.equal(typeof put === 'object' && put !== null && 'method' in put ? put.method : put, 'blob/put');
+    return put as { id: number; params: { offset?: number } };
+  };
+  const answer = async (offset: number, error?: unknown) => {
+    const put = await step();
+    assert.equal(put.params.offset, offset);
+    harness.reply(error === undefined ? { id: put.id, result: {} } : { id: put.id, error });
+  };
+  return { ...harness, chunk, outcome, step, answer };
+}
+
+test('an upload whose core restarted part-way starts again from the first byte on the new core', async () => {
+  const { chunk, outcome, step, answer, reply, lose, reconnect } = await droppedUpload();
+  await answer(0);
+  // Refused before it ran, the chunk waits for its retry; the core restarts meanwhile and the chunk goes to the new one.
+  const waiting = await step();
+  assert.equal(waiting.params.offset, chunk);
+  reply({ id: waiting.id, error: { code: -32001, message: 'busy', data: { reason: 'inflightLimit', class: 'C1' } } });
+  await lose();
+  await reconnect('i2');
+  await answer(chunk, DROPPED);
+  await answer(chunk, DROPPED);
+  await answer(0);
+  await answer(chunk);
+  await answer(chunk * 2);
+  assert.equal(await outcome, 'resolved');
+});
+
+test('an upload the core that acknowledged its bytes dropped fails once with its refusal, nothing sent again from the first byte', async () => {
+  const { chunk, outcome, next, answer } = await droppedUpload();
+  await answer(0);
+  await answer(chunk, DROPPED);
+  // From the bytes acknowledged, once: the same core no longer holds them either.
+  await answer(chunk, DROPPED);
+  const settled = await Promise.race([next(), outcome]);
+  const detail = (settled as { detail?: { reason?: string; data?: { path?: string; expected?: string } } }).detail;
+  assert.equal(detail?.reason, 'invalidParams', 'the put ends with the core refusal, not another chunk');
+  assert.equal(detail?.data?.path, 'offset');
+  assert.equal(detail?.data?.expected, DROPPED.data.expected);
 });
 
 test("a call that never writes hands nothing over, and the next call's frame is claimed by that call alone", async () => {

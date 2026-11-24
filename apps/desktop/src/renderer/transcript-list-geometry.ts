@@ -1,4 +1,4 @@
-import type { Virtualizer } from '@tanstack/react-virtual';
+import type { VirtualItem, Virtualizer } from '@tanstack/react-virtual';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
 
@@ -65,9 +65,6 @@ export function viewportSize(instance: TranscriptVirtualizer): number {
   return coreScrollState(instance).getSize();
 }
 
-/** How long landed rows may keep re-measuring above a held reading anchor:
- *  from the landing, extended by each late size, never past the maximum. */
-
 /** A row the reader is looking at and its offset from the viewport's top. */
 export type ReadingAnchor = { key: unknown; offset: number; index: number };
 
@@ -76,6 +73,22 @@ function positionalRowKey(row: TranscriptRowModel): boolean {
   if (row._tag === 'UserMessage' || row._tag === 'AssistantPart') return missing(row.item.id);
   if (row._tag === 'ToolActivity') return row.items.every((item) => missing(item.id));
   return false;
+}
+
+/** The index of the first of the first `count` (> 0) measured rows whose end lies past `top`; the last one when none does. */
+export function firstRowEndingAfter(
+  measurements: readonly Pick<VirtualItem, 'end'>[],
+  count: number,
+  top: number
+): number {
+  let low = 0;
+  let high = count - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((measurements[middle]?.end ?? 0) <= top) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 }
 
 /** The first row under the reading offset that `nextRows` still carries, or the next one after it that does. Must run
@@ -93,13 +106,7 @@ export function captureReadingAnchor(
   // The first row VISIBLE at the viewport's top edge: rows start `inset`
   // below the scroll origin, so one ending within that strip is still in view.
   const visibleTop = reading - inset;
-  let low = 0;
-  let high = count - 1;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if ((measurements[middle]?.end ?? 0) <= visibleTop) low = middle + 1;
-    else high = middle;
-  }
+  const low = firstRowEndingAfter(measurements, count, visibleTop);
   let survivors: Set<unknown> | null = null;
   for (let index = low; index < count; index += 1) {
     const row = previousRows[index];

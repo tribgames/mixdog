@@ -7,6 +7,7 @@ import type {
   DesktopRendererComposerActionDiagnostic,
   DesktopSubmitOptions,
 } from '../shared/contract';
+import { restoreAttachmentsFromRecord } from './composer-attachment-restore';
 import { reportComposerAction } from './composer-diagnostics';
 import { finishComposerComposition } from './use-composer-ime';
 import { skillTitle, withSelectedSkill } from './composer-skill';
@@ -51,6 +52,17 @@ export function restoreAlreadyApplied(
     : [];
   if (!id || !ids.some(wasSubmittedHere)) return false;
   return replyRestoreApplied(id, sessionId, applied);
+}
+
+let parkedSequence = 0;
+
+/** A prompt for a conversation the composer no longer shows waits in that conversation's recovery scope, as a refused
+ *  send does, and joins its draft when it is shown again. */
+export function parkComposerRecovery(scope: string, text: string, attachments: ComposerAttachment[]): void {
+  if (!text.trim() && !attachments.length) return;
+  const id = `parked-${++parkedSequence}`;
+  retainComposerSubmissionRecovery({ id, scope, text, attachments });
+  rejectComposerSubmissionRecovery(id);
 }
 
 /** The core's code for a submission a user Stop ended before it ran (`TURN_STOPPED`, session/actor.rs). */
@@ -277,26 +289,37 @@ export function useComposerSubmission({
         setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
         return;
       }
+      const origin = routeRef.current;
       setDraft((current) => (current === submittedDraft ? '' : current));
       removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
       historyNavigation.current = { index: -1, seed: '' };
       const accepted = await executeSlash(text);
-      if (!accepted) {
-        setDraft((current) => (current ? current : submittedDraft));
-        mergeRestoredAttachments(submittedAttachments, submittedDraft);
-      } else {
+      if (accepted) {
         rememberPrompt(text);
+        return;
       }
+      // Refused after the composer moved to another conversation (or went away): the command goes back to the one
+      // it was typed in.
+      if (!mountedRef.current || routeRef.current !== origin) {
+        parkComposerRecovery(recoveryScope, submittedDraft, submittedAttachments);
+        if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
+        return;
+      }
+      setDraft((current) => (current ? current : submittedDraft));
+      mergeRestoredAttachments(submittedAttachments, submittedDraft);
     },
     [
       commandBusy,
       executeSlash,
       historyNavigation,
       mergeRestoredAttachments,
+      mountedRef,
+      recoveryScope,
       rememberPrompt,
       removeAttachments,
       setAttachmentError,
       setDraft,
+      setSubmissionRecoveryVersion,
     ]
   );
   const send = useCallback(
@@ -504,6 +527,7 @@ export function useComposerSubmission({
       submissionId = '',
       source: DesktopRendererComposerActionDiagnostic['source'] = 'stop-button'
     ) => {
+      const origin = routeRef.current;
       const restorePrompt = submissionId ? !preserveDraft : false;
       const report = (answer: Partial<DesktopRendererComposerActionDiagnostic>) =>
         reportComposerAction({
@@ -534,8 +558,8 @@ export function useComposerSubmission({
       const restoredSubmissions =
         Array.isArray(result?.restoredSubmissionIds) && result.restoredSubmissionIds.length > 0;
       const reason = typeof result?.reason === 'string' ? result.reason : '';
-      const stopOutcome =
-        result?.aborted === true ? 'stopped' : result?.restoreText || restoredSubmissions ? 'restored' : 'nothing';
+      const restored = Boolean(result?.restoreText) || restoredSubmissions;
+      const stopOutcome = result?.aborted === true ? 'stopped' : restored ? 'restored' : 'nothing';
       report({
         stopOutcome,
         aborted: result?.aborted === true,
@@ -556,6 +580,17 @@ export function useComposerSubmission({
       // not inserted twice.
       if (result?.restoreText && !restoreAlreadyApplied(result, sessionId || '')) {
         const restoredText = String(result.restoreText);
+        // The composer moved to another conversation (or went away) while the Stop was answered: the prompt goes
+        // back to the one it was stopped in.
+        if (!mountedRef.current || routeRef.current !== origin) {
+          const parked = restoreAttachmentsFromRecord(result, restoredText, {
+            reservedIds: new Set(),
+            sequence: { current: 1 },
+          });
+          parkComposerRecovery(recoveryScope, parked.text, parked.attachments);
+          if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
+          return;
+        }
         const restored = restoredAttachments(result, restoredText);
         const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
         setDraft((current) => {
@@ -571,16 +606,31 @@ export function useComposerSubmission({
       composingRef,
       draftRef,
       mergeRestoredAttachments,
+      mountedRef,
       onQueuedRestored,
       queued,
+      recoveryScope,
       restoredAttachments,
       sessionId,
       setDraft,
+      setSubmissionRecoveryVersion,
       showNotice,
       textarea,
       turnBusy,
     ]
   );
 
-  return { send, stop };
+  // The draft is a message handed back after a send under `submissionId` that may have landed: sent again unchanged,
+  // it goes out under that id, so the core acknowledges it instead of posting it twice.
+  const keepSubmissionId = useCallback(
+    (submissionId: string) => {
+      const { expandedText, used } = buildSubmissionContent(draftRef.current, [...attachmentsRef.current]);
+      void submissionRetryKey([selectedSkill, expandedText], used).then((key) => {
+        submissionRetryRef.current = { key, id: submissionId };
+      });
+    },
+    [attachmentsRef, draftRef, selectedSkill, submissionRetryRef]
+  );
+
+  return { send, stop, keepSubmissionId };
 }

@@ -10,9 +10,11 @@ import { usageNumber } from './usage-format';
 import { displayUsagePercent } from './usage-percent';
 import { usageResetSchedule as resetSchedule, usageTimestamp as timestamp } from './usage-window-text';
 
+/** The dashboard's rows as the usage surfaces list them: a row whose quota another provider's row shows
+ *  (`sameQuotaAs`) is left out, so that quota is listed once. */
 export function usageRows(value: unknown): UsageRecord[] {
   const dashboard = record(value);
-  return Array.isArray(dashboard.rows) ? dashboard.rows.map(record) : [];
+  return Array.isArray(dashboard.rows) ? dashboard.rows.map(record).filter((row) => !row.sameQuotaAs) : [];
 }
 
 export { usageNumber };

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import type { Json, ProtocolClient } from '../src/api.ts';
 import { desktopSessionState, sessionReducer } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
+import { at, cont, end, pos } from './positioned-fixtures.ts';
 import {
   keepTranscriptWindow,
   moveTranscriptWindow,
@@ -17,19 +18,32 @@ import {
 
 type O = Record<string, any>;
 
-const pos = (id: string) => `h1:0:${id}`;
-const reply = (id: string, text = id) => ({ type: 'agentMessage', id, text, meta: { ext: { historyPosition: pos(id) } } });
-const call = (id: string, more: O = {}) => ({ type: 'toolCall', id, name: 'read', input: { path: id }, meta: { ...more } });
-const turnEnd = (of: string) => ({ type: 'turnEnd', id: `${of}:2`, status: 'done', elapsedMs: 1, finalAssistantId: of, meta: {} });
+const reply = (id: string, text = id) => ({
+  type: 'agentMessage',
+  id,
+  text,
+  meta: { ext: { historyPosition: pos(id) } },
+});
+const call = (id: string, more: O = {}) => ({
+  type: 'toolCall',
+  id,
+  name: 'read',
+  input: { path: id },
+  meta: { ...more },
+});
+const turnEnd = (of: string) => ({
+  type: 'turnEnd',
+  id: `${of}:2`,
+  status: 'done',
+  elapsedMs: 1,
+  finalAssistantId: of,
+  meta: {},
+});
 const unit = (id: string, ordinal?: number, ...more: O[]) => ({
   position: pos(id),
   items: [reply(id), ...more],
   ...(ordinal === undefined ? {} : { ordinal }),
 });
-const cont = (position: string) => ({ kind: 'continuation', position });
-const end = { kind: 'end' };
-const at = (s: SessionFold, method: string, params: O) =>
-  sessionReducer.apply(s, { method, params: { threadId: 't', ...params } } as never);
 const ids = (rows: readonly O[]) => rows.map((row) => row.id);
 const state = (s: SessionFold) => desktopSessionState(s, []) as O;
 const insert = (s: SessionFold, u: O, after?: string) =>
@@ -112,15 +126,22 @@ test('a stretch apart from the tail shows its settled rows, and the rows in prog
   s = at(
     s,
     'thread/window/changed',
-    changed(11, [{ id: 'q:at', older: cont(pos('a1')), newer: end }], [
-      { range: 'q:at', units: [unit('a1', 10), unit('a2', 20, turnEnd('a2'))] },
-    ])
+    changed(
+      11,
+      [{ id: 'q:at', older: cont(pos('a1')), newer: end }],
+      [{ range: 'q:at', units: [unit('a1', 10), unit('a2', 20, turnEnd('a2'))] }]
+    )
   );
   let shown = state(s);
-  assert.deepEqual(ids(shown.transcriptViewItems), ['a1', 'a2', 'a2:2', 'live'], 'a settled end and the row in progress');
-  assert.deepEqual(shown.transcriptViews.map((view: O) => [ids(view.items), view.before, view.after]), [
-    [['a1', 'a2', 'a2:2', 'live'], true, false],
-  ]);
+  assert.deepEqual(
+    ids(shown.transcriptViewItems),
+    ['a1', 'a2', 'a2:2', 'live'],
+    'a settled end and the row in progress'
+  );
+  assert.deepEqual(
+    shown.transcriptViews.map((view: O) => [ids(view.items), view.before, view.after]),
+    [[['a1', 'a2', 'a2:2', 'live'], true, false]]
+  );
   // The tail read anew arrives apart from it: the stretch goes on toward newer rows, and the row in progress is the tail's.
   s = at(
     s,
@@ -152,9 +173,11 @@ test('a record that joins the tail past one the tail does not hold states the ho
   s = at(
     s,
     'thread/window/changed',
-    changed(11, [{ id: 'tail', older: cont(pos('r3')), newer: end }], [
-      { range: 'tail', units: [unit('r3', 30), unit('r4', 40), unit('r5', 50), unit('r6', 60)] },
-    ])
+    changed(
+      11,
+      [{ id: 'tail', older: cont(pos('r3')), newer: end }],
+      [{ range: 'tail', units: [unit('r3', 30), unit('r4', 40), unit('r5', 50), unit('r6', 60)] }]
+    )
   );
   assert.equal(s.held!.gap, undefined);
   assert.deepEqual(ids(s.items), ['r3', 'r4', 'r5', 'r6']);
@@ -225,7 +248,11 @@ test('what the window owes is asked for by one definition: a hole is read with w
     pinned: [],
   };
   assert.deepEqual(windowWant(holed.fold.held!, { kind: 'keep' }, readers), mended);
-  assert.deepEqual(windowWant(holed.fold.held!, { kind: 'follow', reader: 'third' }, readers), mended, 'as a move asks it');
+  assert.deepEqual(
+    windowWant(holed.fold.held!, { kind: 'follow', reader: 'third' }, readers),
+    mended,
+    'as a move asks it'
+  );
   // Asked once, however many changes land while the read is out.
   void keepTranscriptWindow(client, 't');
   const again = keepTranscriptWindow(client, 't');
@@ -235,7 +262,9 @@ test('what the window owes is asked for by one definition: a hole is read with w
 });
 
 test('a tail past its bound is read anew with no reader moving, and with no reader at all', async () => {
-  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS + 1 }, (_, i) => unit(`g${String(i).padStart(4, '0')}`, 1_000 + i));
+  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS + 1 }, (_, i) =>
+    unit(`g${String(i).padStart(4, '0')}`, 1_000 + i)
+  );
   const client = fakeClient(snapshot(many.slice(0, -1)));
   const sent = client as unknown as ProtocolClient<SessionFold>;
   // Each record that arrives is a change of the thread: the lane asks what the window owes.
@@ -253,7 +282,11 @@ test('a window the core let go is asked for again by the next thing that needs i
   s = at(s, 'thread/window/changed', { ...changed(11, [], []), followTail: false });
   assert.deepEqual(ids(s.items), []);
   const anew = { ranges: [], followTail: true, pinned: [] };
-  assert.deepEqual(windowWant(s.held!, { kind: 'read', first: 'r1', last: 'r2', end: true }), anew, "a follower's next move");
+  assert.deepEqual(
+    windowWant(s.held!, { kind: 'read', first: 'r1', last: 'r2', end: true }),
+    anew,
+    "a follower's next move"
+  );
   assert.deepEqual(windowWant(s.held!, { kind: 'follow' }), anew);
   const client = fakeClient(s);
   void keepTranscriptWindow(client as unknown as ProtocolClient<SessionFold>, 't');
@@ -280,7 +313,8 @@ test('a read of what the window owes that fails is asked again by one rule: anot
   client.fail = true;
   assert.equal(await keepTranscriptWindow(sent, 't'), false);
   // The reads of the tail anew (they retain no tail range); a page a reader asks for is another matter.
-  const anew = () => client.wants.filter((want) => !want.ranges.some((range: O) => range.at === 'retain' && range.id === 'tail'));
+  const anew = () =>
+    client.wants.filter((want) => !want.ranges.some((range: O) => range.at === 'retain' && range.id === 'tail'));
   assert.equal(anew().length, 1);
   // Records keep arriving on the same window: none of them asks again.
   for (let n = 0; n < 5; n += 1) {
@@ -355,7 +389,11 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
   const added: O[] = [];
   for (let page = 0; page < PAGES; page += 1) {
     const units = records.slice(page * STEP, page * STEP + WINDOW_PAGE_ROWS);
-    ranges.push({ id: `q:${page}`, older: page === 0 ? cont(pos('a0000')) : cont(units[0]!.position), newer: cont(units.at(-1)!.position) });
+    ranges.push({
+      id: `q:${page}`,
+      older: page === 0 ? cont(pos('a0000')) : cont(units[0]!.position),
+      newer: cont(units.at(-1)!.position),
+    });
     added.push({ range: `q:${page}`, units });
   }
   s = at(s, 'thread/window/changed', changed(11, ranges, added));
@@ -364,7 +402,8 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
   const rowsKept = (want: O | null): number => {
     const kept = new Set<string>();
     for (const range of want?.ranges ?? [])
-      if (range.at === 'retain') for (const position of held.ranges.find((r) => r.id === range.id)!.positions) kept.add(position);
+      if (range.at === 'retain')
+        for (const position of held.ranges.find((r) => r.id === range.id)!.positions) kept.add(position);
     return kept.size;
   };
   // B opened the hit at the stretch's newest end and stays; A paged up to its oldest end and asks for the next page.
@@ -378,10 +417,16 @@ test('each reader holds what is near it: two in one stretch apart, one paging fa
   // The window's largest size: the tail, and for each reader its bound and the page it asks for.
   const most = WINDOW_TAIL_MAX_ROWS + 2 * (WINDOW_VIEW_MAX_ROWS + WINDOW_PAGE_ROWS);
   assert.ok(rowsKept(both) + WINDOW_PAGE_ROWS <= most, `two readers: ${rowsKept(both)} rows kept`);
-  assert.ok(rowsKept(both) <= 2 + 2 * WINDOW_VIEW_MAX_ROWS, `two readers: ${rowsKept(both)} rows kept of ${records.length}`);
+  assert.ok(
+    rowsKept(both) <= 2 + 2 * WINDOW_VIEW_MAX_ROWS,
+    `two readers: ${rowsKept(both)} rows kept of ${records.length}`
+  );
   assert.ok(rowsKept(both) < records.length - 1_000, 'the pages between them are let go');
   const retained = new Set((both?.ranges ?? []).map((range: O) => range.id));
-  assert.ok(retained.has('q:0') && retained.has(`q:${PAGES - 1}`) && retained.has('tail'), 'each keeps the rows it shows');
+  assert.ok(
+    retained.has('q:0') && retained.has(`q:${PAGES - 1}`) && retained.has('tail'),
+    'each keeps the rows it shows'
+  );
   assert.ok(!retained.has(`q:${PAGES / 2}`), 'nobody is near the middle');
   // B's own move, standing still elsewhere, keeps the same: neither reader's want lets go of the other's rows.
   const stands = windowWant(held, { kind: 'at', position: pos('zz'), reader: 'C' }, [a, b]);
@@ -402,7 +447,10 @@ test('a superseded record map, record and row is unreachable once the change tha
     for (let i = 0; i < 300; i += 1) {
       maps.push(new WeakRef(s.held!.units));
       rows.push(new WeakRef(s.held!.units.get(pos(`g${i}`))!.rows[0]!));
-      s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: { ...unit(`g${i}`, 1_000 + i), items: [reply(`g${i}`, 'again')] } } });
+      s = at(s, 'thread/transcript/changed', {
+        lineage: 1,
+        change: { op: 'replace', unit: { ...unit(`g${i}`, 1_000 + i), items: [reply(`g${i}`, 'again')] } },
+      });
       state(s);
     }
     return { fold: s, maps, rows };
@@ -423,7 +471,8 @@ test('the rows made for a stretch apart live as long as the stretch is shown: jo
   const vm = await import('node:vm');
   v8.setFlagsFromString('--expose-gc');
   const collect = vm.runInNewContext('gc') as () => void;
-  const apart = (ranges: O[], added: O[], version: number) => changed(version, [{ id: 'tail', older: cont(pos('r8')), newer: end }, ...ranges], added);
+  const apart = (ranges: O[], added: O[], version: number) =>
+    changed(version, [{ id: 'tail', older: cont(pos('r8')), newer: end }, ...ranges], added);
   for (const ending of ['joins the tail', 'is left by its reader'] as const) {
     const made = (): { fold: SessionFold; refs: WeakRef<object>[] } => {
       let s = snapshot([unit('r8', 80), unit('r9', 90)]);
@@ -432,7 +481,11 @@ test('the rows made for a stretch apart live as long as the stretch is shown: jo
       s = at(
         s,
         'thread/window/changed',
-        apart([{ id: 'q:hit', older: cont(pos('a1')), newer: cont(pos('a3')) }], [{ range: 'q:hit', units: [unit('a1', 1), unit('a2', 2), unit('a3', 3)] }], 11)
+        apart(
+          [{ id: 'q:hit', older: cont(pos('a1')), newer: cont(pos('a3')) }],
+          [{ range: 'q:hit', units: [unit('a1', 1), unit('a2', 2), unit('a3', 3)] }],
+          11
+        )
       );
       const shown = state(s);
       assert.deepEqual(ids(shown.transcriptViewItems), ['a1', 'a2', 'a3']);
@@ -448,7 +501,10 @@ test('the rows made for a stretch apart live as long as the stretch is shown: jo
           s,
           'thread/window/changed',
           apart(
-            [{ id: 'q:hit', older: cont(pos('a1')), newer: cont(pos('a3')) }, { id: 'q:down', older: cont(pos('a3')), newer: cont(pos('r8')) }],
+            [
+              { id: 'q:hit', older: cont(pos('a1')), newer: cont(pos('a3')) },
+              { id: 'q:down', older: cont(pos('a3')), newer: cont(pos('r8')) },
+            ],
             [{ range: 'q:down', units: [unit('a3', 3), unit('r8', 80)] }],
             12
           )
@@ -459,9 +515,15 @@ test('the rows made for a stretch apart live as long as the stretch is shown: jo
         s = at(s, 'thread/window/changed', apart([], [], 12));
         assert.equal(state(s).transcriptViewItems, null);
       }
-      s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: { ...unit('r9', 90), items: [reply('r9', 'again')] } } });
+      s = at(s, 'thread/transcript/changed', {
+        lineage: 1,
+        change: { op: 'replace', unit: { ...unit('r9', 90), items: [reply('r9', 'again')] } },
+      });
       if (ending === 'joins the tail')
-        s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: { ...unit('a2', 2), items: [reply('a2', 'again')] } } });
+        s = at(s, 'thread/transcript/changed', {
+          lineage: 1,
+          change: { op: 'replace', unit: { ...unit('a2', 2), items: [reply('a2', 'again')] } },
+        });
       state(s);
       return { fold: s, refs };
     };
@@ -484,7 +546,9 @@ test('a record that lands before everything the tail holds states a hole too', (
 });
 
 test("two readers of one window: one's move never lets go of the stretch the other stands in", async () => {
-  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS + 300 }, (_, i) => unit(`g${String(i).padStart(4, '0')}`, 1_000 + i));
+  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS + 300 }, (_, i) =>
+    unit(`g${String(i).padStart(4, '0')}`, 1_000 + i)
+  );
   let s = snapshot(many);
   s = at(
     s,
@@ -501,7 +565,8 @@ test("two readers of one window: one's move never lets go of the stretch the oth
   const held = s.held!;
   const inHit = { kind: 'read', first: 'a1', last: 'a3', reader: 'left' } as const;
   const inTail = { kind: 'read', first: 'g1000', last: 'g1010', reader: 'right' } as const;
-  const retained = (want: O | null) => want && want.ranges.filter((range: O) => range.at === 'retain').map((range: O) => range.id);
+  const retained = (want: O | null) =>
+    want && want.ranges.filter((range: O) => range.at === 'retain').map((range: O) => range.id);
   // A reader off the end of a tail past its bound keeps its own rows and the other's stretch.
   const offEnd = windowWant(held, inTail, [inHit]);
   assert.deepEqual(retained(offEnd), ['q:hit']);
@@ -517,7 +582,9 @@ test("two readers of one window: one's move never lets go of the stretch the oth
   ] as const)
     assert.deepEqual(windowWant(held, follower, [inTail]), { ranges: [theirs], followTail: true, pinned: [] });
   // A record opened by one keeps the other's stretch, and the rows the other reads.
-  assert.deepEqual(retained(windowWant(held, { kind: 'at', position: pos('z9'), reader: 'right' }, [inHit])), ['q:hit']);
+  assert.deepEqual(retained(windowWant(held, { kind: 'at', position: pos('z9'), reader: 'right' }, [inHit])), [
+    'q:hit',
+  ]);
   assert.deepEqual(windowWant(held, { kind: 'at', position: pos('z9'), reader: 'left' }, [inTail])?.ranges, [
     { at: 'around', position: pos('z9'), before: 96, after: 96 },
     theirs,
@@ -538,7 +605,10 @@ test("two readers of one window: one's move never lets go of the stretch the oth
   );
   assert.deepEqual(
     state(more).transcriptViews.map((view: O) => ids(view.items)),
-    [['a1', 'a2', 'a3'], ['z8', 'z9']]
+    [
+      ['a1', 'a2', 'a3'],
+      ['z8', 'z9'],
+    ]
   );
   // The moves sent say who stands where: the second reader's page keeps the first one's stretch.
   const client = fakeClient(more);
@@ -558,7 +628,9 @@ test("two readers of one window: one's move never lets go of the stretch the oth
 });
 
 test('a reader exists as long as its pane shows the thread: withdrawn, what only it held is released', async () => {
-  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS - 200 }, (_, i) => unit(`g${String(i).padStart(4, '0')}`, 1_000 + i));
+  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS - 200 }, (_, i) =>
+    unit(`g${String(i).padStart(4, '0')}`, 1_000 + i)
+  );
   let s = snapshot(many);
   s = at(
     s,
@@ -585,7 +657,9 @@ test('a reader exists as long as its pane shows the thread: withdrawn, what only
   void moveTranscriptWindow(sent, 't', { kind: 'follow', reader: 'A' });
   await settled();
   assert.deepEqual(client.wants.map(retained), [['tail']]);
-  client.land(at(client.fold, 'thread/window/changed', changed(12, [{ id: 'tail', older: cont(pos('g0000')), newer: end }], [])));
+  client.land(
+    at(client.fold, 'thread/window/changed', changed(12, [{ id: 'tail', older: cont(pos('g0000')), newer: end }], []))
+  );
   await settled();
   assert.equal(rows(), many.length, 'the stretch is gone');
   // The same with A standing in the tail's stretch off its end before it left: B's long run is bounded.
@@ -599,11 +673,17 @@ test('a reader exists as long as its pane shows the thread: withdrawn, what only
   assert.ok(before > WINDOW_TAIL_MAX_ROWS, 'the tail grew past its bound');
   void moveTranscriptWindow(sent, 't', { kind: 'read', first: 'n390', last: 'n399', end: true, reader: 'B' });
   await settled();
-  assert.deepEqual(client.wants.at(-1), { ranges: [], followTail: true, pinned: [] }, 'the tail is read anew, nothing of A kept');
+  assert.deepEqual(
+    client.wants.at(-1),
+    { ranges: [], followTail: true, pinned: [] },
+    'the tail is read anew, nothing of A kept'
+  );
 });
 
 test('a reader standing still off the end does not keep the tail from being bounded', () => {
-  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS + 300 }, (_, i) => unit(`g${String(i).padStart(4, '0')}`, 1_000 + i));
+  const many = Array.from({ length: WINDOW_TAIL_MAX_ROWS + 300 }, (_, i) =>
+    unit(`g${String(i).padStart(4, '0')}`, 1_000 + i)
+  );
   let s = snapshot(many);
   // B sits a screen up and does not move; A follows the run.
   const still = { kind: 'read', first: 'g2300', last: 'g2310', reader: 'B' } as const;
@@ -631,7 +711,8 @@ test('a reader standing still off the end does not keep the tail from being boun
   );
   assert.equal(s.held!.units.size, 2348 - 2204, 'what is held is what the two readers are near');
   // The run goes on for long with B still: every bound crossed is read anew, B's rows kept as its own stretch.
-  for (let n = 0; n < WINDOW_TAIL_MAX_ROWS; n += 1) s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'insert', unit: unit(`n${n}`, 9_000 + n) } });
+  for (let n = 0; n < WINDOW_TAIL_MAX_ROWS; n += 1)
+    s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'insert', unit: unit(`n${n}`, 9_000 + n) } });
   const again = windowWant(s.held!, { kind: 'read', first: 'n2040', last: 'n2047', end: true, reader: 'A' }, [still]);
   assert.equal(again?.ranges.length, 1);
   assert.deepEqual(again?.ranges[0], { at: 'around', position: pos('g2300'), before: 96, after: 11 + 96 });

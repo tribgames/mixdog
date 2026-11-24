@@ -540,6 +540,9 @@ async fn run_reader<R: AsyncRead + Unpin>(
                 }
                 inner.on_event(event);
             }
+            // The next read waits for the owner to finish with what this chunk produced, so a slow owner stops the socket
+            // being read instead of the event queue growing.
+            inner.owner_caught_up(&mut destroyed).await;
             match outcome {
                 Err(error) => {
                     parsing = false;

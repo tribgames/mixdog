@@ -166,9 +166,10 @@ export function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShel
   return <StateMark working={runningShells > 0} />;
 }
 
-/** A panel title's or a category head's figures, written as its island segment writes them after its label ("Agents
- *  2 ●"): how many it lists, then `mark` while any works or waits. */
-export function HeadFigures({ count, mark }: { count: number; mark: ReactNode }) {
+/** A panel title's figures, written as its island segment writes them after its label ("Agents 2 ●"): how many are
+ *  in progress, then `mark`; with none in progress, neither. */
+function HeadFigures({ count, mark }: { count: number; mark: ReactNode }) {
+  if (count === 0) return null;
   return (
     <>
       <span className="composer-island-head-count">{count}</span>
@@ -177,12 +178,12 @@ export function HeadFigures({ count, mark }: { count: number; mark: ReactNode })
   );
 }
 
-/** The agents' state mark for a head: while any is not finished (works or waits), none otherwise. */
+/** The agents' state mark for a head: while any is in progress, none otherwise. */
 export function agentsHeadMark(agents: IslandAgentRow[]): ReactNode {
-  return agents.some((row) => !row.finished) ? jobsTabMark('agent', agents, 0) : null;
+  return agentsInProgress(agents) > 0 ? jobsTabMark('agent', agents, 0) : null;
 }
 
-export type AgentKindGroup = {
+type AgentKindGroup = {
   /** The kind, provider and model together: one fold each. */
   key: string;
   kind: string;
@@ -194,7 +195,7 @@ export type AgentKindGroup = {
 /** The listed agents by kind (Worker, Reviewer, …) and the provider and model they run on, each group's rows in the
  *  list's order. The groups stand in the order their first agent appeared (started), so work starting or ending moves
  *  no group. */
-export function agentKindGroups(agents: readonly IslandAgentRow[]): AgentKindGroup[] {
+function agentKindGroups(agents: readonly IslandAgentRow[]): AgentKindGroup[] {
   const groups = new Map<string, AgentKindGroup & { first: number }>();
   const routed = (row: IslandAgentRow) => {
     const { agent } = row.node;
@@ -227,13 +228,13 @@ export function agentKindGroups(agents: readonly IslandAgentRow[]): AgentKindGro
   }
   // Groups that started together, or with no start time, stand by name: the input's order follows activity.
   return [...groups.values()]
-    .sort((a, b) => (a.first === b.first ? a.key.localeCompare(b.key) : a.first < b.first ? -1 : 1))
+    .sort((a, b) => a.first - b.first || a.key.localeCompare(b.key))
     .map(({ first: _first, ...group }) => group);
 }
 
 /** The short model name a kind line adds where another listed group shares its kind and provider on another model
  *  ("Worker · Opus 5.5"): the model's display name less the brand word they all lead with. Keyed by group. */
-export function kindModelLabels(groups: readonly AgentKindGroup[]): Map<string, string> {
+function kindModelLabels(groups: readonly AgentKindGroup[]): Map<string, string> {
   const labels = new Map<string, string>();
   const named = new Map<string, AgentKindGroup[]>();
   for (const group of groups) {
@@ -253,8 +254,8 @@ export function kindModelLabels(groups: readonly AgentKindGroup[]): Map<string, 
 }
 
 /** A kind's fold, one line, as To-do's "Remaining 6" line: the kind (and the short model where another listed kind
- *  shares its name and provider), the chevron, then at the line's end the mark of whether any is not finished and how
- *  many, as a section head reads. The route (model and effort) is the line's tooltip. */
+ *  shares its name and provider), the chevron, then at the line's end the mark and how many are in progress, as a
+ *  section head reads, neither with none in progress. The route (model and effort) is the line's tooltip. */
 function AgentKindFold({
   group,
   model,
@@ -271,7 +272,7 @@ function AgentKindFold({
 }) {
   const { kind, rows } = group;
   const route = useSharedRouteText(rows.map(({ node }) => node.agent)) || modelDisplayName(group.model, group.provider);
-  const active = rows.filter((row) => !row.finished).length;
+  const active = agentsInProgress(rows);
   const needs = rows.filter((row) => row.state === 'needs-user').length;
   const Chevron = open ? ChevronDown : ChevronRight;
   const label = t('{{kind}}: {{count}} agents, {{active}} not finished', {
@@ -299,9 +300,9 @@ function AgentKindFold({
         <span className="composer-island-agent-fold-name">{kind}</span>
         {model && <span className="composer-island-agent-fold-model">{` · ${model}`}</span>}
         <Chevron size={12} className="composer-island-agent-fold-cv" aria-hidden="true" />
-        {/* At the line's end, as a section head writes its own: the mark while any is not finished, then how many. */}
+        {/* At the line's end, as a section head writes its own: the mark, then how many are in progress. */}
         {active > 0 && jobsTabMark('agent', rows, 0)}
-        <span className="composer-island-agent-fold-count">{rows.length}</span>
+        {active > 0 && <span className="composer-island-agent-fold-count">{active}</span>}
       </button>
     </div>
   );
@@ -405,13 +406,19 @@ export function ShellJobItem({
 
 /** The listed agents at work, read by the pill segment and the session
  *  panel's Agents section. An agent waiting on its own tasks is still at work
- *  (its timer runs), so it counts as running; `waiting` is queued only. */
+ *  (its timer runs), so it counts as running. */
 export function islandAgentCounts(agents: readonly IslandAgentRow[]) {
   const count = (...states: DesktopAgentActivityState[]) => agents.filter(({ state }) => states.includes(state)).length;
   return {
     running: count('running', 'waiting', 'cancel-unconfirmed'),
-    waiting: count('queued'),
   };
+}
+
+/** How many listed agents are in progress: not finished (at work, queued, blocked on the user, or not yet settled by
+ *  the pool), the agents a head's mark stands for. The heads, the kind lines and the pill count these, not every agent
+ *  listed. */
+export function agentsInProgress(agents: readonly IslandAgentRow[]): number {
+  return agents.filter((row) => !row.finished).length;
 }
 
 /** A clock under an hour and one under ten hours, at their widest digits. */
@@ -421,7 +428,7 @@ export const widestClocks = () => [formatWorkElapsed(3_599_000), formatWorkElaps
 export const widestAgentClocks = () => [formatWorkClock(3_599_000), formatWorkClock(35_999_000)];
 
 /** Everything an agent row's state column can read (agentElapsedText). */
-export function agentStateLabels(): string[] {
+function agentStateLabels(): string[] {
   return [...widestAgentClocks(), ...agentStateWords()];
 }
 
@@ -493,7 +500,7 @@ function AgentsPanel({
         chip={
           <>
             {t('Agents')}
-            <HeadFigures count={agents.length} mark={agentsHeadMark(agents)} />
+            <HeadFigures count={agentsInProgress(agents)} mark={agentsHeadMark(agents)} />
           </>
         }
         onClose={onClose}
@@ -553,7 +560,7 @@ function ShellsPanel({
         chip={
           <>
             {t('Shell')}
-            <HeadFigures count={shells.length} mark={runningShells > 0 && jobsTabMark('shell', [], runningShells)} />
+            <HeadFigures count={runningShells} mark={jobsTabMark('shell', [], runningShells)} />
           </>
         }
         onClose={onClose}
@@ -768,8 +775,8 @@ function AgentsSegment({
   onClick(): void;
 }) {
   const total = agents.length;
-  const active = agents.filter((row) => !row.finished).length;
-  const { running: working, waiting } = islandAgentCounts(agents);
+  const { running: working } = islandAgentCounts(agents);
+  const active = agentsInProgress(agents);
   const title = [
     t('Agent {{agent}}', { agent: total }),
     active === 0 ? t('Done') : '',
@@ -794,7 +801,8 @@ function AgentsSegment({
           <span className="composer-island-seg-word">{t('Agent')}</span>
         </>
       )}
-      <AgentMark working={working + waiting > 0} />
+      {/* The panel's own mark, so one state reads the same in the pill and the panel. */}
+      {jobsTabMark('agent', agents, 0)}
     </button>
   );
 }

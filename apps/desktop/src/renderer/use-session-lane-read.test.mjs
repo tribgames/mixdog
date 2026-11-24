@@ -75,12 +75,16 @@ const liveFrame = (rows) => ({
 
 test('the watch ends the read it covers, and Retry asks again with a wait of its own', async (t) => {
   const asked = [];
-  const pane = await mountPane(t, (sessionId, options) => {
+  const pane = await mountPane(t, (_sessionId, options) => {
     asked.push(options);
     return new Promise(() => {});
   });
   assert.equal(asked.length, 1);
-  assert.deepEqual([asked[0].signal.aborted, asked[0].retry], [false, undefined], 'the read on mount is an ordinary one');
+  assert.deepEqual(
+    [asked[0].signal.aborted, asked[0].retry],
+    [false, undefined],
+    'the read on mount is an ordinary one'
+  );
   await pane.fire();
   assert.equal(asked[0].signal.aborted, true, 'the read that never produced a lane is no longer waited for');
   assert.equal(pane.retry()?.textContent, 'Retry');
@@ -129,7 +133,7 @@ test('a healthy reconnect leaves the rows above the restored tail in place', asy
 
 test('a restore that stalls over a shown transcript is surfaced as unavailable with Retry, not left as stale content', async (t) => {
   const reads = [];
-  const pane = await mountPane(t, (sessionId, options) => {
+  const pane = await mountPane(t, (_sessionId, options) => {
     reads.push(options.retry === true);
     return new Promise(() => {});
   });

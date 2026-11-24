@@ -10,6 +10,7 @@ use mixdog_ai::service::oauth_usage::GrokClient;
 use mixdog_ai::service::oauth_usage::OAuthUsage;
 use mixdog_ai::service::oauth_usage::QuotaHistory;
 use mixdog_ai::service::oauth_usage::QuotaSample;
+use mixdog_ai::service::oauth_usage::RouteInfo;
 use mixdog_ai::service::oauth_usage::UsageDeps;
 use mixdog_ai::service::oauth_usage::UsageError;
 use mixdog_ai::service::oauth_usage::UsageHttp;
@@ -52,7 +53,7 @@ impl UsageSource for Offline {
     ) -> Result<Option<mixdog_ai::service::oauth_usage::UsageAuth>, UsageError> {
         Ok(None)
     }
-    async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<mixdog_ai::service::oauth_usage::UsageAuth>) -> Result<Option<Value>, UsageError> {
         Ok(None)
     }
 }
@@ -139,12 +140,16 @@ struct Rig {
 }
 
 async fn rig(has_flow: bool, adc: Result<Option<String>, String>) -> Rig {
+    rig_over(has_flow, adc, Arc::new(Offline), Arc::new(Offline)).await
+}
+
+async fn rig_over(has_flow: bool, adc: Result<Option<String>, String>, http: Arc<dyn UsageHttp>, source: Arc<dyn UsageSource>) -> Rig {
     let world = world(Default::default()).await;
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let usage = OAuthUsage::new(UsageDeps {
-        http: Arc::new(Offline),
-        source: Arc::new(Offline),
+        http,
+        source,
         grok: Arc::new(Offline),
         history: Arc::new(Offline),
         store: world.accounts.clone(),
@@ -182,6 +187,51 @@ fn secret(rig: &Rig, account: &str) -> Option<String> {
 
 async fn begin(rig: &Rig, provider: &str, options: Value) -> Result<(), String> {
     rig.admin.begin_oauth_provider_login(provider, &options, false).await.map(|_| ()).map_err(|failure| failure.message().to_owned())
+}
+
+/// A signed-in Codex account whose usage endpoint answers one meter.
+struct SignedIn;
+
+#[async_trait]
+impl UsageHttp for SignedIn {
+    async fn get(&self, url: &str, _: &[(String, String)], _: Duration) -> Result<UsageResponse, UsageError> {
+        if url.ends_with("/wham/usage") {
+            Ok(UsageResponse { status: 200, body: r#"{"rate_limit":{"primary_window":{"used_percent":40,"reset_at":4070908800}}}"#.into() })
+        } else {
+            Ok(UsageResponse { status: 404, body: String::new() })
+        }
+    }
+    async fn post_json(&self, _: &str, _: &[(String, String)], _: &Value, _: Duration) -> Result<UsageResponse, UsageError> {
+        Err(UsageError::new("offline"))
+    }
+}
+
+#[async_trait]
+impl UsageSource for SignedIn {
+    async fn ensure_auth(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&mixdog_ai::service::oauth_usage::UsageAuth>,
+    ) -> Result<Option<mixdog_ai::service::oauth_usage::UsageAuth>, UsageError> {
+        Ok(Some(mixdog_ai::service::oauth_usage::UsageAuth::plain(json!({ "access_token": "tok", "account_id": "acct-a" }))))
+    }
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<mixdog_ai::service::oauth_usage::UsageAuth>) -> Result<Option<Value>, UsageError> {
+        Ok(None)
+    }
+}
+
+#[tokio::test]
+async fn a_signed_out_account_leaves_no_usage_for_the_next_sign_in() {
+    let rig = rig_over(true, Ok(None), Arc::new(SignedIn), Arc::new(SignedIn)).await;
+    rig.world.accounts.register("openai-oauth", "default", "Account 1", false).await.unwrap();
+    let login = json!({ "access_token": "tok", "refresh_token": "r", "account_id": "acct-a" });
+    rig.world.accounts.credential_file("openai-oauth", "default").unwrap().save(&login).await.unwrap();
+    let route = RouteInfo { provider: "openai-oauth".into(), model: String::new(), account_id: "default".into() };
+    assert!(rig.admin.oauth_usage.fetch_snapshot(&route, false).await.is_some());
+    assert!(rig.admin.oauth_usage.read_cached(&route, true).await.is_some());
+    rig.admin.forget_provider_auth("openai-oauth", None, "test").await.unwrap();
+    assert!(rig.admin.oauth_usage.read_cached(&route, true).await.is_none(), "the forgotten account's reading is gone");
 }
 
 #[tokio::test]

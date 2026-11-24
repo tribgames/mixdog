@@ -39,7 +39,12 @@ test('a run that failed in another lane proved the core at its head; one whose c
   // run 45064159113: relay-rust failed, and complete with it; every core job passed
   const relay = [...CORE, job('relay-rust', 'failure'), job('complete', 'failure'), job('core-real')];
   assert.equal(coreProven(relay), true);
-  for (const failed of ['core-tests (linux 2/4)', 'core-build (linux) (linux, ubuntu-22.04)', 'mixdogd (linux)', 'changes'])
+  for (const failed of [
+    'core-tests (linux 2/4)',
+    'core-build (linux) (linux, ubuntu-22.04)',
+    'mixdogd (linux)',
+    'changes',
+  ])
     for (const conclusion of ['failure', 'cancelled'])
       assert.equal(
         coreProven(relay.map((entry) => (entry.name === failed ? job(failed, conclusion) : entry))),
@@ -76,21 +81,29 @@ test('the base is the newest completed push run that proved the core, never a pu
   assert.equal(coreBase({ runs: runs.filter((entry) => entry.id !== 2), repository: REPO, jobsOf }), 'sha-1');
   assert.equal(coreBase({ runs: [run(9, 'success', { status: 'in_progress' })], repository: REPO, jobsOf }), '');
   // a bounded number of failed runs is read before giving up
-  assert.equal(coreBase({ runs: [run(4, 'failure'), run(3, 'failure'), run(2, 'failure')], repository: REPO, jobsOf, limit: 2 }), '');
+  assert.equal(
+    coreBase({ runs: [run(4, 'failure'), run(3, 'failure'), run(2, 'failure')], repository: REPO, jobsOf, limit: 2 }),
+    ''
+  );
 });
 
 const gate = parse(readFileSync(new URL('../../.github/workflows/release-gate.yml', import.meta.url), 'utf8'));
-const bash = process.platform === 'win32' ? `${process.env.ProgramFiles || 'C:/Program Files'}/Git/bin/bash.exe` : 'bash';
+const bash =
+  process.platform === 'win32' ? `${process.env.ProgramFiles || 'C:/Program Files'}/Git/bin/bash.exe` : 'bash';
 
 test("release-gate.yml: a push selects the core's crates against the core's base and every other lane against the gate's", () => {
   const script = gate.jobs.changes.steps.find((step) => step.id === 'paths').run;
   const dir = mkdtempSync(join(tmpdir(), 'core-base-'));
   const slash = (path) => path.replaceAll('\\', '/');
   const git = (...args) =>
-    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], {
-      cwd: dir,
-      encoding: 'utf8',
-    });
+    execFileSync(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args],
+      {
+        cwd: dir,
+        encoding: 'utf8',
+      }
+    );
   const commit = (path) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), path);
@@ -115,47 +128,32 @@ test("release-gate.yml: a push selects the core's crates against the core's base
     writeFileSync(join(dir, 'scripts/ci/core-base.mjs'), `console.log(${JSON.stringify(coreBase)});\n`);
     writeFileSync(join(dir, 'paths.sh'), script.replaceAll('/tmp/', `${slash(dir)}/`));
     writeFileSync(join(dir, 'github-output'), '');
-    execFileSync(bash, [slash(join(dir, 'paths.sh'))], {
-      cwd: dir,
-      encoding: 'utf8',
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        PATH: `${bin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`,
-        EVENT_NAME: 'push',
-        FULL_GATE: 'false',
-        PR_BASE: '',
-        PUSH_BASE: '',
-        HEAD_MESSAGE: '',
-        ACTOR: 'someone',
-        BRANCH: 'main',
-        GITHUB_REPOSITORY: 'o/r',
-        GITHUB_SHA: head,
-        GITHUB_OUTPUT: slash(join(dir, 'github-output')),
-      },
-    });
+    const runPaths = () =>
+      execFileSync(bash, [slash(join(dir, 'paths.sh'))], {
+        cwd: dir,
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          PATH: `${bin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`,
+          EVENT_NAME: 'push',
+          FULL_GATE: 'false',
+          PR_BASE: '',
+          PUSH_BASE: '',
+          HEAD_MESSAGE: '',
+          ACTOR: 'someone',
+          BRANCH: 'main',
+          GITHUB_REPOSITORY: 'o/r',
+          GITHUB_SHA: head,
+          GITHUB_OUTPUT: slash(join(dir, 'github-output')),
+        },
+      });
+    runPaths();
     const lines = (name) => readFileSync(join(dir, name), 'utf8').split('\n').filter(Boolean).sort();
     assert.deepEqual(lines('changed'), ['apps/desktop/src/renderer/a.tsx', 'native/core/crates/a/src/lib.rs']);
     assert.deepEqual(lines('changed-core'), ['apps/desktop/src/renderer/a.tsx']);
     // no core base (no answer, or a failed query) leaves the core the gate's list
     writeFileSync(join(dir, 'scripts/ci/core-base.mjs'), 'process.exit(1);\n');
-    execFileSync(bash, [slash(join(dir, 'paths.sh'))], {
-      cwd: dir,
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        PATH: `${bin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`,
-        EVENT_NAME: 'push',
-        FULL_GATE: 'false',
-        PUSH_BASE: '',
-        HEAD_MESSAGE: '',
-        ACTOR: 'someone',
-        BRANCH: 'main',
-        GITHUB_REPOSITORY: 'o/r',
-        GITHUB_SHA: head,
-        GITHUB_OUTPUT: slash(join(dir, 'github-output')),
-      },
-    });
+    runPaths();
     assert.deepEqual(lines('changed-core'), lines('changed'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -176,12 +174,17 @@ test('release-gate.yml: every job core-select.mjs selects is checked, and so is 
         assert.ok(!OTHER_LANES.has(stem(need)), `${key} needs ${need}, whose result the base does not check`);
       continue;
     }
-    const reads = coreOutputs.filter((name) => new RegExp(`needs\\.changes\\.outputs\\.${name}(?!\\w)`).test(String(job.if ?? '')));
+    const reads = coreOutputs.filter((name) =>
+      new RegExp(`needs\\.changes\\.outputs\\.${name}(?!\\w)`).test(String(job.if ?? ''))
+    );
     if (key === 'core-real') continue;
     assert.deepEqual(reads, [], `${key} is selected by the core's selection, so its result must be checked`);
   }
   // core-real reads `core`, and on a push runs whatever it says: `core_scripts` is on for every push (`flag`)
-  assert.match(gate.jobs['core-real'].if, /github\.event_name != 'pull_request' && \(needs\.changes\.outputs\.core == 'true' \|\| needs\.changes\.outputs\.core_scripts == 'true'\)/);
+  assert.match(
+    gate.jobs['core-real'].if,
+    /github\.event_name != 'pull_request' && \(needs\.changes\.outputs\.core == 'true' \|\| needs\.changes\.outputs\.core_scripts == 'true'\)/
+  );
   const paths = gate.jobs.changes.steps.find((step) => step.id === 'paths').run;
   assert.match(paths, /flag core_scripts "\$CORE_SCRIPTS_RE"/);
   assert.match(paths, /if \[\[ "\$EVENT_NAME" != pull_request \]\]; then echo "\$1=true"/);

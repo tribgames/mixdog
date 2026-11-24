@@ -499,6 +499,11 @@ impl SpawnFlowImpl {
                 self.board.wait_terminal(&task).await
             }
         };
+        // The caller takes the run's result here and is gone once the run is over: nothing is kept as lost to it.
+        if let Some(row) = &row {
+            self.board.acknowledge(&row.task_id);
+        }
+        self.board.forget_session(&context.caller_id());
         let row = row.ok_or_else(|| "the agent run failed".to_owned())?;
         let result_value = match &row.result {
             Some(mixdog_tools::orch::agent::TaskResult::Json(value)) => value.clone(),

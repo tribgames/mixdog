@@ -5,7 +5,7 @@ import { t } from './i18n';
 import { asRecord } from './text-format';
 import { usageMoney } from './usage-format';
 
-export interface SessionUsageTotals {
+interface SessionUsageTotals {
   /** Fresh prompt tokens, over the calls whose prompt was measured. */
   input: number;
   cacheRead: number;
@@ -99,7 +99,7 @@ export function liveTokensPerSecond(spinner: unknown): number | null {
 
 /** What a readout item draws before its value: a lucide icon, a small red
  *  dot (a failure), or nothing. */
-export type ReadoutIcon = LucideIcon | 'dot' | null;
+type ReadoutIcon = LucideIcon | 'dot' | null;
 
 export interface ReadoutItem {
   icon: ReadoutIcon;
@@ -116,7 +116,7 @@ export interface ReadoutItem {
   fit?: { text: string; word: string };
 }
 
-export interface ReadoutParts {
+interface ReadoutParts {
   total: ReadoutItem | null;
   speed: ReadoutItem | null;
   hit: ReadoutItem | null;

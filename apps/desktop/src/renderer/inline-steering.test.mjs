@@ -9,7 +9,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
 const [
-  { steerPromptItems, pendingPromptTranscriptItems },
+  { steerPromptItems, pendingPromptTranscriptItems, promptWaitsBehindActiveTurn },
   { appendLiveTranscriptRows, projectSettledTranscriptRows },
   { transcriptTurnKeys },
   { SteerStatus },
@@ -130,7 +130,7 @@ async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
     routeSessionIdRef: { current: 's' },
     suppressDraftSubmitPaintHandoff: { current: false },
   };
-  function Pane({ settledItems, busy, queued }) {
+  function Pane({ settledItems, busy, queued, liveItem }) {
     const [optimisticPrompts, setOptimisticPrompts] = useState([]);
     const pending = useConversationPendingPrompts({
       optimisticPrompts,
@@ -156,7 +156,7 @@ async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
       precomputedTurnKeys: null,
       pendingItems: pending.transcriptPendingPromptItems,
       steerItems: pending.steerItems,
-      liveItem: null,
+      liveItem,
       busy,
       commandBusy: false,
       commandActivityVisible: false,
@@ -164,8 +164,8 @@ async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
     }).transcriptRows;
     return null;
   }
-  const show = ({ settledItems, busy = false, queued = [] }) =>
-    act(async () => root.render(React.createElement(Pane, { settledItems, busy, queued })));
+  const show = ({ settledItems, busy = false, queued = [], liveItem = null }) =>
+    act(async () => root.render(React.createElement(Pane, { settledItems, busy, queued, liveItem })));
   const shape = () => view.rows.map((row) => `${row._tag}:${row.key}`);
   const banded = () => view.rows.at(-1)?._tag === 'Thinking';
   const bubble = (id) => view.rows.find((row) => row._tag === 'UserMessage' && String(row.item.id) === id);
@@ -174,6 +174,34 @@ async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
 
 const finished = [prompt, { kind: 'assistant', id: 'a0', text: 'Done.' }];
 const sentRow = { kind: 'user', id: 'sub-1', text: 'next step' };
+
+test("a New task draft's follow-up the new session queues shows once, as its steering bubble below the running reply", async (t) => {
+  // A draft's submit never waits behind a turn: the session it joins does not exist yet.
+  const pane = await mountSendPane(t, { queuedAtSubmit: promptWaitsBehindActiveTurn(true, { busy: true }) });
+  await pane.show({ settledItems: [] });
+  let sending;
+  await act(async () => {
+    sending = pane.view.actions.composerSubmit('add a one-line summary', { id: 'sub-2', submittedAt: 10 });
+  });
+  await act(async () => {
+    pane.host.reply(true);
+    await sending;
+  });
+  // The draft became the session: its first prompt's turn streams and the follow-up waits in its queue.
+  await pane.show({
+    settledItems: [prompt],
+    busy: true,
+    queued: [{ id: 'sub-2', displayText: 'add a one-line summary', submittedAt: 10 }],
+    liveItem: streaming,
+  });
+  assert.deepEqual(
+    pane.view.rows.map((row) => row._tag),
+    ['UserMessage', 'AssistantPart', 'TurnGap', 'UserMessage', 'Thinking']
+  );
+  assert.equal(pane.view.rows[1].item.id, 'a1', 'the running reply stays under its own prompt');
+  assert.equal(pane.bubble('sub-2').item.steer, 'pending', 'the follow-up is the queued message, with its actions');
+  assert.equal(pane.view.clock, 0, 'the follow-up does not run a submit clock of its own');
+});
 
 test('an idle send: the bubble holds the band until the core states the running turn, in the state that brings its row', async (t) => {
   const pane = await mountSendPane(t);

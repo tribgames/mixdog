@@ -593,6 +593,25 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     *super::testing::lock(&rig.compaction.result) = None;
     assert_eq!(call(&handle, "thread/compact/start", json!({}), "k-4").await.expect("answered"), Value::Null);
 }
+/// A compaction a user asked for that changed nothing says so in the transcript; the idle auto-clear's does not.
+#[tokio::test(start_paused = true)]
+async fn a_requested_compaction_that_changed_nothing_tells_the_user() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let told = || {
+        rig.feeds
+            .frames(handle.id.as_str())
+            .into_iter()
+            .filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains("Nothing to compact"))
+            .count()
+    };
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": false, "reason": "nothing to compact" }));
+    call(&handle, "thread/compact/start", json!({ "options": { "requireReduction": true } }), "k-1").await.expect("answered");
+    assert_eq!(told(), 0, "an auto-clear is silent");
+    call(&handle, "thread/compact/start", json!({}), "k-2").await.expect("answered");
+    eventually_on!(&[&rig.feeds.published], || (told() == 1).then_some(())).await;
+}
 /// A user's `/compact` while a turn runs (`scheduleCompactForTurnEnd`): announced and answered `{changed: false, scheduled: true}`,
 /// a repeat is told it already is; it runs once, as a manual compaction, after the turn and the follow-up queued behind it, not
 /// between them.

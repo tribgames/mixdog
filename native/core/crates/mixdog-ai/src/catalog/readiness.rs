@@ -691,7 +691,7 @@ mod tests {
         ready.reinit_providers(|| Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
         assert_eq!(held(&ready), Held { custom: None, ..on(1) });
     }
-    /// Review point 1: an initialization whose build read a credential that fails is overtaken by a reinit that
+    /// An initialization whose build read a credential that fails is overtaken by a reinit that
     /// replaces the credential and leaves the runtime's providers as they are. The failed build is dropped and the
     /// provider is built again, so the caller returns with it registered; the reinit, which reads no stored decisions
     /// here, could not have added it.
@@ -787,7 +787,7 @@ mod tests {
         ready.ensure_providers_ready(Some(without_custom)).await.unwrap();
         assert_eq!(held(&ready), Held { custom: None, ..on(1) });
     }
-    /// Review point: a provider is turned off and the removal settles; it is turned on again, and when the reinit of
+    /// A provider is turned off and the removal settles; it is turned on again, and when the reinit of
     /// that decision returns it is registered for a route, with no ready call in between.
     #[tokio::test]
     async fn a_provider_turned_off_and_on_again_is_registered_when_the_second_reinit_returns() {
@@ -806,7 +806,7 @@ mod tests {
         assert!(ready.registry.registered_for_route(CUSTOM).is_some(), "turned on again");
         assert_eq!(held(&ready), on(1));
     }
-    /// Review point 2: with a provider registered, an initialization that adds another is overtaken by an edit of
+    /// With a provider registered, an initialization that adds another is overtaken by an edit of
     /// the registered one. Its caller returns with both on the newest config, the registered one rebuilt; so does a
     /// ready call that begins after an edit no reinit has followed yet.
     #[tokio::test]
@@ -834,7 +834,7 @@ mod tests {
         ready.ensure_providers_ready(None).await.unwrap();
         assert_eq!(held(&ready), on(3));
     }
-    /// Review point 4: the only caller of a flight is cancelled while the flight reads key ids under the registry's
+    /// The only caller of a flight is cancelled while the flight reads key ids under the registry's
     /// permit. The flight goes on with no caller polling it and releases the permit, so a ready call that needs
     /// another flight is not held up.
     #[tokio::test]

@@ -1,5 +1,6 @@
 // Local fixture pages (no public sites): a form page with no iframe, a page with a cross-origin iframe served from
-// localhost, a different origin from the 127.0.0.1 page on every OS (macOS has no 127.0.0.2) (as host-integration-fixtures.ts's /frames), a submit target and a slow page for the cancel case.
+// localhost (as host-integration-fixtures.ts's /frames), a different origin from the 127.0.0.1 page on every OS (macOS has no
+// 127.0.0.2), a submit target and a slow page for the cancel case.
 import { createServer } from 'node:http';
 
 const html = (title, body) =>

@@ -74,10 +74,7 @@ function SessionRailCategories(props: SessionRailProps) {
   const { openChanges, openChangeFile } = useSessionDiffOpeners(reviewSessionId, props.onOpenSessionDiff);
   // No branch or worktree switch while anything of the session still works (the island's rule).
   const locked =
-    props.reviewBusy ||
-    props.pendingInput ||
-    jobs.shellCount > 0 ||
-    jobs.agentRows.some((row) => !row.finished);
+    props.reviewBusy || props.pendingInput || jobs.shellCount > 0 || jobs.agentRows.some((row) => !row.finished);
   const gitCwd = workspace?.cwd || routeProject;
   const fold = (category: Parameters<typeof folds.toggle>[0]) => ({
     open: folds.isOpen(category),
@@ -132,28 +129,30 @@ function SessionRailCategories(props: SessionRailProps) {
         onOpenSession={props.onOpenAgentSession}
       />
     ),
-    shells: <ShellsSection {...fold('shells')} sessionId={sessionId} shells={jobs.jobRows} shellKeys={jobs.shellKeys} />,
+    shells: (
+      <ShellsSection {...fold('shells')} sessionId={sessionId} shells={jobs.jobRows} shellKeys={jobs.shellKeys} />
+    ),
     outputs: <OutputsSection {...fold('outputs')} sessionId={sessionId} />,
     changes: !agentMode && TurnReviewBar && (
-        <TurnReviewBar
-          variant="segment"
-          items={props.reviewItems}
-          active={props.reviewActive}
-          busy={props.reviewBusy}
-          sessionId={reviewSessionId}
-          cwd={routeProject}
-          onOpenChanges={openChanges}
-          onOpenChangeFile={openChangeFile}
-          renderSegment={(view) => (
-            <ChangesSection
-              {...fold('changes')}
-              view={view}
-              cwd={gitCwd}
-              onOpenChanges={openChanges}
-              onOpenChangeFile={openChangeFile}
-            />
-          )}
-        />
+      <TurnReviewBar
+        variant="segment"
+        items={props.reviewItems}
+        active={props.reviewActive}
+        busy={props.reviewBusy}
+        sessionId={reviewSessionId}
+        cwd={routeProject}
+        onOpenChanges={openChanges}
+        onOpenChangeFile={openChangeFile}
+        renderSegment={(view) => (
+          <ChangesSection
+            {...fold('changes')}
+            view={view}
+            cwd={gitCwd}
+            onOpenChanges={openChanges}
+            onOpenChangeFile={openChangeFile}
+          />
+        )}
+      />
     ),
     git: !agentMode && <GitSection {...fold('git')} sessionId={reviewSessionId} cwd={gitCwd} />,
   };

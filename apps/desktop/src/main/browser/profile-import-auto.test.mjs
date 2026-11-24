@@ -139,9 +139,9 @@ test('turned off: nothing is scheduled or watched and nothing runs', async () =>
 });
 
 test('before a key is saved no run, process check or watch exists, however long it takes', async () => {
-  for (const saved of [
-    { enabled: true, profileId: '' },
-    { enabled: true, profileId: 'Default' },
+  for (const [saved, asksForManualImport] of [
+    [{ enabled: true, profileId: '' }, false],
+    [{ enabled: true, profileId: 'Default' }, true],
   ]) {
     const { importer, clock, calls, world, chromeExits } = setup({ saved, chromeRunning: true });
     world.keySaved = false;
@@ -152,7 +152,7 @@ test('before a key is saved no run, process check or watch exists, however long 
     assert.equal(calls.chromeChecks, 0, 'no process check');
     assert.equal(calls.watches, 0, 'no watch');
     const status = await importer.status();
-    assert.equal(status.needsManualImport, saved.profileId !== '', 'asked for only once a profile is bound');
+    assert.equal(status.needsManualImport, asksForManualImport, 'asked for only once a profile is bound');
     assert.equal(status.lastError, undefined);
   }
 });
@@ -419,16 +419,16 @@ test('runs never overlap: an exit during a run joins it', async () => {
 
 test('legacy state without a bound, imported profile shows no stale error; bound, it asks for one manual import', async () => {
   // A state file from an earlier build: "needs one manual import" with no ready profile recorded.
-  for (const saved of [
-    { enabled: true, profileId: '' },
-    { enabled: true, profileId: 'Default' },
+  for (const [saved, asksForManualImport] of [
+    [{ enabled: true, profileId: '' }, false],
+    [{ enabled: true, profileId: 'Default' }, true],
   ]) {
     const { importer, state, world } = setup({ saved, ready: [] });
     world.keySaved = false;
     await state.update({ needsManualImport: true, lastError: 'old failure', lastImportAt: 7, lastCount: 2 });
     await importer.start();
     const status = await importer.status();
-    assert.equal(status.needsManualImport, saved.profileId !== '');
+    assert.equal(status.needsManualImport, asksForManualImport);
     assert.equal(status.lastError, undefined);
   }
   // Once the profile did work, the same flags are real and shown.

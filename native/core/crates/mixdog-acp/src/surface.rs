@@ -87,7 +87,10 @@ pub trait TurnSurface: Send + Sync {
     /// The window the agent says it holds its context in: the session's window from here on, in every field the
     /// session keeps a window in (the compaction boundary is the whole of it, as it is for a model's own window).
     async fn window(&self, size: u64) -> Result<(), RunError> {
-        let set = ["contextWindow", "rawContextWindow", "compactBoundaryTokens"].into_iter().map(|key| (key.to_owned(), serde_json::json!(size))).collect();
+        let set = ["contextWindow", "rawContextWindow", "compactBoundaryTokens", mixdog_core_session::session::turn_ops::AGENT_WINDOW]
+            .into_iter()
+            .map(|key| (key.to_owned(), serde_json::json!(size)))
+            .collect();
         self.save_header(HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await
     }
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution;
@@ -102,42 +105,6 @@ pub trait TurnSurface: Send + Sync {
     fn call_epoch(&self) -> u64;
     /// The surface a stopped turn is closed on: its waits outlive the turn's token.
     fn closing(&self) -> Arc<dyn TurnSurface>;
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_agent::compact::pressure::ContextSize;
-    use mixdog_agent::compact::pressure::context_size;
-
-    use super::*;
-
-    /// The session's reading of an agent's turn is what the agent says its context holds, never the turn's tokens: the
-    /// answer's usage sums every model call the agent made in the turn (the figures are the real CLI's, a turn of two
-    /// calls), and an agent that reports no context leaves no reading at all.
-    #[test]
-    fn a_turns_reading_is_the_agents_report_of_its_context_and_never_the_turns_token_sum() {
-        let turn = TurnUsage { input_tokens: 4_437, output_tokens: 144, cached_read_tokens: 14_487, total_tokens: Some(19_068), ..TurnUsage::default() };
-        let usage = |context| Usage {
-            input_tokens: turn.input_tokens,
-            output_tokens: turn.output_tokens,
-            cache_read_tokens: turn.cached_read_tokens,
-            raw: Some(context_evidence(context)),
-            ..Usage::default()
-        };
-        let excludes = input_excludes_cache(&turn);
-        assert!(excludes, "the answer's total is its input, cache reads and output together");
-        assert_eq!(context_size(&usage(Some(ContextUse { used: 9_606, size: 1_048_576 })), excludes), ContextSize::Occupancy(9_606));
-        assert_eq!(context_size(&usage(None), excludes), ContextSize::Unknown);
-        // An answer whose input already holds the cache reads is read as it is.
-        assert!(!input_excludes_cache(&TurnUsage {
-            input_tokens: 12,
-            output_tokens: 5,
-            cached_read_tokens: 2,
-            total_tokens: Some(17),
-            ..TurnUsage::default()
-        }));
-        assert!(!input_excludes_cache(&TurnUsage { input_tokens: 10, output_tokens: 5, cached_read_tokens: 2, ..TurnUsage::default() }));
-    }
 }
 
 #[async_trait]
@@ -229,5 +196,41 @@ impl TurnSurface for RunPort {
 
     fn closing(&self) -> Arc<dyn TurnSurface> {
         Arc::new(RunPort::closing(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_agent::compact::pressure::ContextSize;
+    use mixdog_agent::compact::pressure::context_size;
+
+    use super::*;
+
+    /// The session's reading of an agent's turn is what the agent says its context holds, never the turn's tokens: the
+    /// answer's usage sums every model call the agent made in the turn (the figures are the real CLI's, a turn of two
+    /// calls), and an agent that reports no context leaves no reading at all.
+    #[test]
+    fn a_turns_reading_is_the_agents_report_of_its_context_and_never_the_turns_token_sum() {
+        let turn = TurnUsage { input_tokens: 4_437, output_tokens: 144, cached_read_tokens: 14_487, total_tokens: Some(19_068), ..TurnUsage::default() };
+        let usage = |context| Usage {
+            input_tokens: turn.input_tokens,
+            output_tokens: turn.output_tokens,
+            cache_read_tokens: turn.cached_read_tokens,
+            raw: Some(context_evidence(context)),
+            ..Usage::default()
+        };
+        let excludes = input_excludes_cache(&turn);
+        assert!(excludes, "the answer's total is its input, cache reads and output together");
+        assert_eq!(context_size(&usage(Some(ContextUse { used: 9_606, size: 1_048_576 })), excludes), ContextSize::Occupancy(9_606));
+        assert_eq!(context_size(&usage(None), excludes), ContextSize::Unknown);
+        // An answer whose input already holds the cache reads is read as it is.
+        assert!(!input_excludes_cache(&TurnUsage {
+            input_tokens: 12,
+            output_tokens: 5,
+            cached_read_tokens: 2,
+            total_tokens: Some(17),
+            ..TurnUsage::default()
+        }));
+        assert!(!input_excludes_cache(&TurnUsage { input_tokens: 10, output_tokens: 5, cached_read_tokens: 2, ..TurnUsage::default() }));
     }
 }

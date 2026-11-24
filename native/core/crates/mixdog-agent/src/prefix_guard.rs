@@ -1,7 +1,8 @@
 //! `provider-prefix-guard.mjs`: the fingerprint of what a provider request carries (each message, the request prefix: provider,
-//! model and the tool lists) and how the next request differs from the one the session last settled on. A compaction intent
-//! accepts a rewritten prefix (an intentional break); outside one a rewritten or shrunk history is an unexpected break, and a
-//! changed request prefix is an intentional `request_configuration` break. Every break is handed to the cache-break trace.
+//! model and the tool lists) and how the next request differs from the one the session last settled on. A rewrite intent (a
+//! compaction, or a transcript the run rebuilt or took from another writer) accepts a rewritten prefix (an intentional break);
+//! outside one a rewritten or shrunk history is an unexpected break, and a changed request prefix is an intentional
+//! `request_configuration` break. Every break is handed to the cache-break trace.
 //!
 //! An unexpected break refuses the send, as Node's guard throws `ProviderPrefixMutationError` after tracing it (the loop,
 //! `send.rs` `prepare_prefix_guard`).
@@ -16,6 +17,15 @@ use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ToolDefinition;
 
 const COMPACTION_INTENTS: [&str; 4] = ["automatic_compaction", "deferred_body_compaction", "manual_compaction", "post_turn_compaction"];
+
+/// The intent of a rewrite that is no compaction: a repaired transcript, a history reloaded from the store, an attachment
+/// moved to a reference, rejected thinking dropped.
+pub(crate) const TRANSCRIPT_REBUILD: &str = "transcript_rebuild";
+
+/// Whether a send tagged `intent` carries a history the run rewrote on purpose.
+pub(crate) fn is_rewrite_intent(intent: &str) -> bool {
+    intent == TRANSCRIPT_REBUILD || COMPACTION_INTENTS.contains(&intent)
+}
 
 /// The fingerprint of one request (`snapshot`).
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -33,7 +43,7 @@ pub struct GuardOptions<'a> {
     pub provider: &'a str,
     pub model: &'a str,
     pub intent: Option<&'a str>,
-    /// `mutationSource`: `transcript_rebuild` when the transcript repair tagged the send.
+    /// `mutationSource`: the source an unexpected break is told under, when the caller names one.
     pub mutation_source: Option<&'a str>,
 }
 
@@ -120,14 +130,14 @@ pub fn compare(previous: Option<&Snapshot>, next: &Snapshot, options: &GuardOpti
         details
     };
     let hash_at = |hashes: &[String], index: Option<usize>| index.and_then(|i| hashes.get(i)).map_or(Value::Null, |h| json!(h));
-    if let Some(intent) = options.intent.filter(|intent| COMPACTION_INTENTS.contains(intent)) {
+    if let Some(intent) = options.intent.filter(|intent| is_rewrite_intent(intent)) {
         if changed.is_none() && !request_prefix_changed {
             return None;
         }
         return Some(base(
             "intentional",
             intent,
-            json!("compaction"),
+            json!(if intent == TRANSCRIPT_REBUILD { TRANSCRIPT_REBUILD } else { "compaction" }),
             changed,
             hash_at(previous_hashes, changed),
             hash_at(next_hashes, changed),

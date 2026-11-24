@@ -133,9 +133,12 @@ async fn a_legacy_only_browser_is_tried_directly_and_a_stranger_is_not_an_error(
     let rig = rig(&[("https://push.example/relay-a", "browserA")]).await;
     let p256dh = generate_claim_key_pair().public_key;
     rig.runtime
-        .register_push_subscription(&json!({
-            "endpoint": "https://push.invalid/legacy", "p256dh": p256dh, "auth": AUTH, "clientId": "browserB"
-        }))
+        .register_push_subscription(
+            "browserB",
+            &json!({
+                "endpoint": "https://push.invalid/legacy", "p256dh": p256dh, "auth": AUTH, "clientId": "browserB"
+            }),
+        )
         .await
         .unwrap();
     // `.invalid` never resolves, so the direct send fails and its sentence is what the user reads.

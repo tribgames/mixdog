@@ -36,8 +36,8 @@ fn tiered<'a>(model: &AgentModel, tiers: &'a [String]) -> Option<(&'a str, Strin
     })
 }
 
-/// The agent's models as they are listed, in the order the agent first names each.
-pub fn listed(models: &Models, tiers: &[String]) -> Vec<Listed> {
+/// The agent's models grouped by the id they share, each with every tier the agent lists it at.
+fn grouped(models: &Models, tiers: &[String]) -> Vec<Listed> {
     let mut rows: Vec<Listed> = Vec::new();
     for model in &models.available {
         // An id the agent also lists bare is that model's own, not a tier of it.
@@ -64,18 +64,45 @@ pub fn listed(models: &Models, tiers: &[String]) -> Vec<Listed> {
     rows
 }
 
+/// A model the agent lists at one tier only has no effort to choose: the tier is the model's own.
+fn without_lone_tier(mut row: Listed) -> Listed {
+    if row.efforts.len() == 1 {
+        row.efforts.clear();
+        row.default_effort = None;
+    }
+    row
+}
+
+/// The agent's models as they are listed, in the order the agent first names each.
+pub fn listed(models: &Models, tiers: &[String]) -> Vec<Listed> {
+    grouped(models, tiers).into_iter().map(without_lone_tier).collect()
+}
+
 /// The listed models a session is offered: all but the agent's own orchestration entries.
 pub fn offered(models: &Models, quirks: &Quirks) -> Vec<Listed> {
     let mut rows = listed(models, &quirks.effort_tiers);
-    rows.retain(|row| !quirks.own_orchestration.iter().any(|prefix| row.id.starts_with(prefix.as_str())));
+    rows.retain(|row| !is_orchestration(&row.id, quirks));
     rows
+}
+
+fn is_orchestration(id: &str, quirks: &Quirks) -> bool {
+    quirks.own_orchestration.iter().any(|prefix| id.starts_with(prefix.as_str()))
+}
+
+/// The offered model a route's `model` names: the listed id, or the agent's own id of one of its tiers (as a route
+/// saved before the list grouped them holds it).
+pub fn find(models: &Models, quirks: &Quirks, model: &str) -> Option<Listed> {
+    grouped(models, &quirks.effort_tiers)
+        .into_iter()
+        .find(|row| !is_orchestration(&row.id, quirks) && (row.id == model || row.efforts.iter().any(|(_, id)| id == model)))
+        .map(without_lone_tier)
 }
 
 /// The agent's model id a route on `model` at `effort` runs: the listed model's tier of that effort. A route that
 /// names no effort the model has runs the tier its `model` is, where it was saved under the agent's own id of one,
 /// else the model's default. A model the agent lists once, or not at all, is asked for as named.
 pub fn agent_model(models: &Models, tiers: &[String], model: &str, effort: Option<&str>) -> String {
-    let rows = listed(models, tiers);
+    let rows = grouped(models, tiers);
     let Some(row) = rows.iter().find(|row| row.id == model || row.efforts.iter().any(|(_, id)| id == model)) else { return model.to_owned() };
     let of = |effort: &str| row.efforts.iter().find(|(tier, _)| tier == effort).map(|(_, id)| id.clone());
     let saved_tier = || row.efforts.iter().any(|(_, id)| id == model).then(|| model.to_owned());
@@ -134,7 +161,8 @@ mod tests {
                 ("gemini-pro-orchestrator", "Orchestrator (Carbon)", vec![], None),
                 // The first tier the agent listed.
                 ("claude-opus-5-5", "Claude Opus 5.5", vec!["low", "medium", "high"], Some("low")),
-                ("gpt-oss-120b", "GPT-OSS 120B", vec!["medium"], Some("medium")),
+                // One tier only: nothing to choose.
+                ("gpt-oss-120b", "GPT-OSS 120B", vec![], None),
             ]
         );
     }
@@ -145,6 +173,7 @@ mod tests {
         let quirks = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset").quirks;
         let ids: Vec<String> = offered(&agy(), &quirks).into_iter().map(|row| row.id).collect();
         assert_eq!(ids, ["gemini-4-neon", "claude-opus-5-5", "gpt-oss-120b"]);
+        assert_eq!(find(&agy(), &quirks, "gemini-pro-orchestrator"), None);
         assert_eq!(agent_model(&agy(), &quirks.effort_tiers, "gemini-pro-orchestrator-neon", None), "gemini-pro-orchestrator-neon");
     }
 
@@ -171,5 +200,97 @@ mod tests {
         let both = models("m", &[("m", "M"), ("m-high", "M (High)")]);
         let rows = listed(&both, &tiers());
         assert_eq!(rows.iter().map(|row| (row.id.as_str(), row.efforts.len())).collect::<Vec<_>>(), [("m", 0), ("m-high", 0)]);
+    }
+
+    /// `agy` 1.5.15's `session/new` answer, as it gave it: tiered `models`, and a `model` option of bare ids beside a
+    /// `thought_level` option.
+    fn agy_answer() -> serde_json::Value {
+        let tiered = |bare: &str, name: &str, tiers: &[&str]| -> Vec<serde_json::Value> {
+            tiers.iter().map(|tier| serde_json::json!({ "modelId": format!("{bare}-{tier}"), "name": format!("{name} ({tier})") })).collect()
+        };
+        let mut available = Vec::new();
+        available.extend(tiered("gemini-4-neon", "Gemini 4 Neon", &["high", "xhigh", "medium", "low"]));
+        available.extend(tiered("gemini-4-hydrogen", "Gemini 4 Hydrogen", &["high", "xhigh", "medium", "low"]));
+        available.extend(tiered("gemini-4-carbon", "Gemini 4 Carbon", &["medium", "high", "low"]));
+        available.extend(tiered("gemini-4-argon", "Gemini 4 Argon", &["medium", "high", "low"]));
+        available.extend(tiered("gemini-3.8-flash", "Gemini 3.8 Flash", &["high", "medium", "low"]));
+        available.extend(tiered("claude-opus-5-5", "Claude Opus 5.5", &["low", "medium", "high"]));
+        available.extend(tiered("claude-sonnet-5-5", "Claude Sonnet 5.5", &["low", "medium", "high"]));
+        available.push(serde_json::json!({ "modelId": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)" }));
+        available.push(serde_json::json!({ "modelId": "gemini-pro-orchestrator-neon", "name": "Orchestrator (Neon)" }));
+        available.push(serde_json::json!({ "modelId": "gemini-pro-orchestrator", "name": "Orchestrator (Carbon)" }));
+        available.push(serde_json::json!({ "modelId": "gemini-pro-orchestrator-argon", "name": "Orchestrator (Argon)" }));
+        serde_json::json!({
+            "sessionId": "s",
+            "models": { "currentModelId": "gemini-4-neon-high", "availableModels": available },
+            "configOptions": [
+                { "id": "model", "category": "model", "type": "select", "currentValue": "gemini-4-neon", "options": [
+                    { "value": "gemini-4-neon", "name": "Gemini 4 Neon" }, { "value": "gemini-4-carbon", "name": "Gemini 4 Carbon" },
+                    { "value": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)" } ] },
+                { "id": "thought_level", "category": "thought_level", "type": "select", "currentValue": "high", "options": [
+                    { "value": "low" }, { "value": "medium" }, { "value": "high" }, { "value": "xhigh" } ] },
+            ],
+        })
+    }
+
+    #[test]
+    fn the_agents_session_answer_lists_each_model_once_with_the_efforts_it_runs_at() {
+        let answer = agy_answer();
+        let models = Models::of(&answer);
+        // The tiered list decides, and the model is set with `session/set_model`.
+        assert_eq!(models.config_option, None);
+        assert_eq!(models.current.as_deref(), Some("gemini-4-neon-high"));
+        let quirks = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset").quirks;
+        let rows = offered(&models, &quirks);
+        let read: Vec<(&str, Vec<&str>)> = rows.iter().map(|row| (row.id.as_str(), row.efforts.iter().map(|(tier, _)| tier.as_str()).collect())).collect();
+        assert_eq!(
+            read,
+            [
+                ("gemini-4-neon", vec!["low", "medium", "high", "xhigh"]),
+                ("gemini-4-hydrogen", vec!["low", "medium", "high", "xhigh"]),
+                ("gemini-4-carbon", vec!["low", "medium", "high"]),
+                ("gemini-4-argon", vec!["low", "medium", "high"]),
+                ("gemini-3.8-flash", vec!["low", "medium", "high"]),
+                ("claude-opus-5-5", vec!["low", "medium", "high"]),
+                ("claude-sonnet-5-5", vec!["low", "medium", "high"]),
+                ("gpt-oss-120b", vec![]),
+            ]
+        );
+        assert_eq!(rows[0].default_effort.as_deref(), Some("high"));
+        assert_eq!(rows[7].name, "GPT-OSS 120B");
+    }
+
+    #[test]
+    fn the_selection_sent_is_the_agents_tiered_id_of_the_models_effort() {
+        let models = Models::of(&agy_answer());
+        let tiers = tiers();
+        let sent = |model: &str, effort: Option<&str>| agent_model(&models, &tiers, model, effort);
+        assert_eq!(sent("gemini-4-neon", Some("low")), "gemini-4-neon-low");
+        assert_eq!(sent("gemini-4-neon", Some("xhigh")), "gemini-4-neon-xhigh");
+        assert_eq!(sent("gemini-4-carbon", Some("medium")), "gemini-4-carbon-medium");
+        assert_eq!(sent("gemini-4-carbon", Some("xhigh")), "gemini-4-carbon-medium");
+        // Routes saved earlier: a tiered id, and a bare id of the lone-tier model, with or without an effort.
+        assert_eq!(sent("gemini-4-hydrogen-low", None), "gemini-4-hydrogen-low");
+        assert_eq!(sent("gpt-oss-120b", Some("high")), "gpt-oss-120b-medium");
+        assert_eq!(sent("gpt-oss-120b-medium", None), "gpt-oss-120b-medium");
+    }
+
+    #[test]
+    fn an_answer_with_only_a_model_option_is_set_as_that_option() {
+        let mut answer = agy_answer();
+        answer.as_object_mut().expect("object").remove("models");
+        let models = Models::of(&answer);
+        assert_eq!(models.config_option.as_deref(), Some("model"));
+        assert_eq!(models.current.as_deref(), Some("gemini-4-neon"));
+        assert_eq!(models.available.len(), 3);
+        assert_eq!(agent_model(&models, &tiers(), "gemini-4-neon", Some("low")), "gemini-4-neon");
+    }
+
+    #[test]
+    fn a_saved_tiered_id_of_a_lone_tier_model_finds_its_row() {
+        let models = Models::of(&agy_answer());
+        let quirks = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset").quirks;
+        assert_eq!(find(&models, &quirks, "gpt-oss-120b-medium").map(|row| row.id), Some("gpt-oss-120b".to_owned()));
+        assert_eq!(find(&models, &quirks, "gemini-4-neon-xhigh").map(|row| row.id), Some("gemini-4-neon".to_owned()));
     }
 }

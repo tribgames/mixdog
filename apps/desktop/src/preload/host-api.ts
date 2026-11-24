@@ -42,6 +42,15 @@ export function createHostApi({
   ipcRenderer.on(DESKTOP_IPC.notificationOpenSession, (_event, sessionId: string) =>
     notificationOpenSessions.push(sessionId)
   );
+  // A quit asks before its teardown: the answer waits for the renderer's
+  // editor-backup flush, and is immediate while no editor ever registered one.
+  let editorBackupFlush: (() => Promise<void>) | null = null;
+  ipcRenderer.on(DESKTOP_IPC.flushEditorBackups, (_event, request: unknown) => {
+    void Promise.resolve()
+      .then(() => editorBackupFlush?.())
+      .catch(() => undefined)
+      .then(() => sendQuietly(DESKTOP_IPC.editorBackupsFlushed, request));
+  });
   // Each notice is raised once, so every one sent before the toast region
   // subscribes is held for it, not only the newest.
   const heldNotices: DesktopNotice[] = [];
@@ -237,5 +246,11 @@ export function createHostApi({
     },
     invokePcQuotaCapability: (request: DesktopCapabilityRequest) => invokeIpc(DESKTOP_IPC.pcQuotaInvoke, request),
     readPcQuotaCapabilities: (requests: DesktopCapabilityReadRequest[]) => invokeIpc(DESKTOP_IPC.pcQuotaRead, requests),
+    onEditorBackupFlush: (flush) => {
+      editorBackupFlush = flush;
+      return () => {
+        if (editorBackupFlush === flush) editorBackupFlush = null;
+      };
+    },
   };
 }

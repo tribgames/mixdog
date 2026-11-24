@@ -354,7 +354,7 @@ export function SourceControlDock({
     const targets = files.filter((file) => !file.conflicted);
     if (!targets.length) return;
     void confirmAction(
-      t('Discard all {{count}} working tree changes? This cannot be undone.', { count: targets.length }),
+      t('Discard all {{count}} changes, staged and unstaged? This cannot be undone.', { count: targets.length }),
       {
         key: `discard-all:${projectPath}`,
         danger: true,

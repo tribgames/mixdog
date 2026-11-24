@@ -506,19 +506,17 @@ export function ContextSection({
   const percent = usage.percent ?? (estimate === null ? null : (estimate / usage.limit) * 100);
   // Largest first: the kind filling the window leads, and the bar's segments stand in the rows' order.
   const held = mix ? [...mix.categories].sort((a, b) => b.tokens - a.tokens) : [];
-  // What the reading holds beyond the kinds' estimates: a row of its own, so the rows add up to the head's figure.
-  const other = mix && mix.unattributed > 0 ? [{ key: 'other', label: t('Other'), tokens: mix.unattributed }] : [];
-  // MCP tools keep their row with nothing loaded: whether they cost anything is what the row is read for.
-  const parts = mix
-    ? [
-        ...held.filter((category) => category.tokens > 0 || category.key === 'mcp'),
-        ...other,
-        { key: 'free', label: t('Free space'), tokens: mix.free },
-      ]
-    : [];
+  const segments = held.filter((category) => category.tokens > 0);
+  // MCP tools keep their row with nothing loaded: whether they cost anything is what the row is read for. A reading with
+  // no estimates to divide it has no rows: the head and the bar say what is known.
+  const parts =
+    mix && (mix.categorized > 0 || mix.held === 0)
+      ? [
+          ...held.filter((category) => category.tokens > 0 || category.key === 'mcp'),
+          { key: 'free', label: t('Free space'), tokens: mix.free },
+        ]
+      : [];
   const share = (tokens: number) => (mix && mix.windowTokens > 0 ? (tokens / mix.windowTokens) * 100 : 0);
-  // The bar is filled to the reading: estimates that overrun it share the reading's length in their proportions.
-  const fit = mix && mix.categorized > mix.held ? mix.held / mix.categorized : 1;
   return (
     <RailSection
       category="context"
@@ -568,14 +566,10 @@ export function ContextSection({
           aria-valuemax={100}
           aria-valuenow={percent ?? undefined}
         >
-          {mix ? (
+          {segments.length > 0 ? (
             // What the window holds, a colour for each kind; the track left over is free space.
-            [...held.filter((category) => category.tokens > 0), ...other].map((category) => (
-              <b
-                key={category.key}
-                data-context-key={category.key}
-                style={{ width: `${share(category.tokens) * (category.key === 'other' ? 1 : fit)}%` }}
-              />
+            segments.map((category) => (
+              <b key={category.key} data-context-key={category.key} style={{ width: `${share(category.tokens)}%` }} />
             ))
           ) : (
             <i style={{ width: `${Math.min(100, percent ?? 0)}%` }} />

@@ -27,6 +27,7 @@ async function fixture(t, api) {
   const snapshots = [];
   const closedPaneKeys = [];
   const opened = [];
+  const removalListeners = new Set();
   let current;
   function Harness() {
     const [sessions, setSessions] = useState([
@@ -40,7 +41,15 @@ async function fixture(t, api) {
         selection: { kind: 'session', id },
       }))
     );
-    const [selection, setSelection] = useState({ kind: 'session', id: 'session-a' });
+    // The app's selection: its ref is read at once, its state renders.
+    const [selection, setSelectionState] = useState({ kind: 'session', id: 'session-a' });
+    const selectionRef = useRef(selection);
+    const viewedSessionRef = useRef('session-a');
+    const unreadViewedSessionRef = useRef('session-a');
+    const setSelection = (next) => {
+      selectionRef.current = next;
+      setSelectionState(next);
+    };
     // The app's own pane workspace: it keeps its active tab apart from the
     // global selection (a focused file tab leaves the selection on a session).
     const workspace = usePaneWorkspace(null);
@@ -75,13 +84,26 @@ async function fixture(t, api) {
         const { leaves, focusedLeafId } = workspace.now();
         return closeSessionPaneTabs(id, leaves, focusedLeafId, tabs, setTabs, closePaneTab);
       },
+      // The app's openSession: the session's tab opens in the focused pane and is selected.
       openSession: (id) => {
         opened.push(id);
         focus({ kind: 'session', id });
+        setSelection({ kind: 'session', id });
       },
+      subscribeSessionsRemoved: (listener) => {
+        removalListeners.add(listener);
+        return () => removalListeners.delete(listener);
+      },
+      selectionRef,
+      viewedSessionRef,
+      unreadViewedSessionRef,
+      setSelection,
+      lastSessionStorageKey: 'test:last-session',
     });
     current = {
       ...actions,
+      viewedSessionRef,
+      unreadViewedSessionRef,
       leaves: workspace.leaves,
       focus,
       sessions,
@@ -106,7 +128,18 @@ async function fixture(t, api) {
     await act(async () => root.unmount());
     host.remove();
   });
-  return { state: () => current, deleted, snapshots, closedPaneKeys, opened };
+  return {
+    state: () => current,
+    deleted,
+    snapshots,
+    closedPaneKeys,
+    opened,
+    /** A host catalog that no longer lists these sessions (deleted elsewhere). */
+    removed: (ids) =>
+      act(async () => {
+        for (const listener of [...removalListeners]) listener(ids);
+      }),
+  };
 }
 
 for (const action of ['rename', 'archive']) {
@@ -171,7 +204,7 @@ test('favoriteSession applies optimistically, calls the bridge and rolls back on
 });
 
 for (const navigate of [false, true]) {
-  test(`session deletion ${navigate ? 'preserves a newer navigation' : 'opens a draft when its session is still selected'}`, async (t) => {
+  test(`session deletion ${navigate ? 'preserves a newer navigation' : 'opens the neighbour when its session is still selected'}`, async (t) => {
     const gate = Promise.withResolvers();
     const f = await fixture(t, { deleteSession: () => gate.promise });
     let pending;
@@ -192,10 +225,7 @@ for (const navigate of [false, true]) {
     });
     // Without a newer navigation the neighbour tab opens (not a draft); the
     // deleted session's pane tab closes either way.
-    assert.deepEqual(
-      f.state().selection,
-      navigate ? { kind: 'session', id: 'session-b' } : { kind: 'session', id: 'session-a' }
-    );
+    assert.deepEqual(f.state().selection, { kind: 'session', id: 'session-b' });
     assert.deepEqual(f.opened, navigate ? [] : ['session-b']);
     assert.deepEqual(f.closedPaneKeys, ['session:session-a']);
     assert.equal(f.state().requestedSessionId, navigate ? 'session-b' : '');
@@ -211,6 +241,29 @@ for (const navigate of [false, true]) {
     assert.deepEqual(f.snapshots, [{ sessionId: 'session-b' }]);
   });
 }
+
+test('a session deleted elsewhere gets the local teardown, and the selection leaves it with a file tab in front', async (t) => {
+  const f = await fixture(t, {});
+  const file = { kind: 'file', project: 'p', rel: 'notes.md' };
+  // The global selection stays on session A while the pane shows the file.
+  await act(async () => f.state().focus(file));
+  window.localStorage.setItem('test:last-session', 'session-a');
+
+  await f.removed(['session-a']);
+
+  assert.deepEqual(f.deleted, ['session-a'], 'its surfaces are released');
+  assert.deepEqual(f.closedPaneKeys, ['session:session-a']);
+  assert.deepEqual(
+    f.state().tabs.map(({ key }) => key),
+    ['session:session-b']
+  );
+  assert.equal(f.state().leaves[0].activeKey, navigationKey(file), 'the file stays in front');
+  assert.deepEqual(f.opened, []);
+  assert.deepEqual(f.state().selection, { kind: 'new' });
+  assert.equal(f.state().viewedSessionRef.current, '');
+  assert.equal(f.state().unreadViewedSessionRef.current, '');
+  assert.equal(window.localStorage.getItem('test:last-session'), null);
+});
 
 test('deleting a non-active session closes its pane tab without navigating', async (t) => {
   const f = await fixture(t, { deleteSession: async () => ({ sessionId: 'session-a' }) });

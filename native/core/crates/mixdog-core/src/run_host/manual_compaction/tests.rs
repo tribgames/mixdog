@@ -26,3 +26,14 @@ fn a_header_change_names_what_was_set_and_what_went() {
     assert_eq!(Value::Object(change.set), json!({ "b": 5, "d": 4 }));
     assert_eq!(change.unset, ["c"]);
 }
+
+/// A session whose agent holds the conversation is summarized whatever its stored rows measure; any other keeps its own threshold.
+#[test]
+fn a_manual_pass_on_an_agents_session_summarizes_whatever_the_stored_rows_measure() {
+    let held =
+        json!({ "acpSession": { "sessionId": "s-1" }, "compaction": { "timeoutMs": 9, "conversationThresholdTokens": 20000 } }).as_object().cloned().unwrap();
+    let header = pass_header(&held);
+    assert_eq!(header["compaction"], json!({ "timeoutMs": 9, "conversationThresholdTokens": 1 }));
+    let own = json!({ "compaction": { "conversationThresholdTokens": 20000 } }).as_object().cloned().unwrap();
+    assert_eq!(pass_header(&own), own);
+}

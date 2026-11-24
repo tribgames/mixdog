@@ -12,6 +12,7 @@ impl WorkspaceService {
             Some("file") => {
                 let root = self.root(req.ctx.origin, source).await?;
                 let rel = s(source, "rel")?.to_owned();
+                self.hide_from_device(req, vec![root.join(&rel)]).await?;
                 run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
             }
             Some("granted") => {
@@ -68,6 +69,7 @@ impl WorkspaceService {
                 return Err(WsError::invalid("length is invalid."));
             }
             let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
+            self.hide_from_device(req, vec![root.join(&rel)]).await?;
             return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
         }
         let id = s(params, "transferId")?.to_owned();
@@ -111,6 +113,7 @@ impl WorkspaceService {
             _ => None,
         };
         let given = row.project_path.as_deref().map(PathBuf::from);
+        let folders = (req.ctx.origin == mixdog_protocol::Origin::Relay).then(|| self.secret_folders());
         let mut left_out = None;
         let opened = match requested {
             crate::transfer::DownloadRequest::Export(mut input) => {
@@ -138,12 +141,16 @@ impl WorkspaceService {
             crate::transfer::DownloadRequest::Project(rel) => {
                 let root = project
                     .ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
-                run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
+                run_fallible(self.lanes.interactive, &cancel, move || {
+                    not_secret(crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))?, folders.as_deref())
+                })
+                .await?
             }
             crate::transfer::DownloadRequest::Session(path) => {
                 let cwd = row.cwd.clone();
                 run_fallible(self.lanes.interactive, &cancel, move || {
-                    crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                    let file = crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))?;
+                    not_secret(file, folders.as_deref())
                 })
                 .await?
             }
@@ -158,7 +165,8 @@ impl WorkspaceService {
                     .ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
                 let cwd = row.cwd.clone();
                 run_fallible(self.lanes.interactive, &cancel, move || {
-                    crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                    let file = crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))?;
+                    not_secret(file, folders.as_deref())
                 })
                 .await?
             }
@@ -176,10 +184,15 @@ impl WorkspaceService {
             crate::transfer::DownloadRequest::Folder(path) => {
                 // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
                 let cwd = row.cwd.clone();
-                let (root, given) = (project.clone(), given.clone());
-                let folder =
-                    run_fallible(self.lanes.maintenance, &cancel, move || crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref()))
-                        .await?;
+                let (root, given, kept) = (project.clone(), given.clone(), folders.clone());
+                let folder = run_fallible(self.lanes.maintenance, &cancel, move || {
+                    let folder = crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())?;
+                    match &kept {
+                        Some(kept) if crate::sensitive::is_sensitive(&folder, &crate::sensitive::scopes(kept)) => Err(download_gone()),
+                        _ => Ok(folder),
+                    }
+                })
+                .await?;
                 let scan = crate::zip::scan_folder(
                     self.tracked.as_ref(),
                     self.lanes,
@@ -191,13 +204,19 @@ impl WorkspaceService {
                 )
                 .await
                 .map_err(crate::transfer::phone_folder_refusal)?;
-                left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
+                let ignored = scan.ignored;
                 let (t, owner, session) = (self.transfers.clone(), owner.clone(), session.clone());
-                run_fallible(self.lanes.cpu_bulk, &cancel, move || {
-                    let (archive, name) = crate::transfer::folder_zip(&folder, &scan.files, &|point| t.point(point))?;
-                    t.stage(&owner, &session, &archive, name, "application/zip".into())
+                let (opened, secret) = run_fallible(self.lanes.cpu_bulk, &cancel, move || {
+                    // A paired device's archive leaves the secret files out and says how many.
+                    let scopes = folders.as_deref().map(crate::sensitive::scopes);
+                    let (secret, files): (Vec<_>, Vec<_>) =
+                        scan.files.into_iter().partition(|file| scopes.as_ref().is_some_and(|scopes| crate::sensitive::is_sensitive(&file.absolute, scopes)));
+                    let (archive, name) = crate::transfer::folder_zip(&folder, &files, &|point| t.point(point))?;
+                    Ok((t.stage(&owner, &session, &archive, name, "application/zip".into())?, secret.len() as u64))
                 })
-                .await?
+                .await?;
+                left_out = Some(crate::transfer::LeftOut { ignored, secret });
+                opened
             }
         };
         let t = self.transfers.clone();
@@ -372,6 +391,7 @@ impl WorkspaceService {
         }
         let path = s(params, "path")?.to_owned();
         let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.hide_from_device(req, vec![crate::pathguard::absolute_local_path(&path)?]).await?;
         let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
         let mut row = json!(entry);
         if !entry.dir {
@@ -406,5 +426,19 @@ impl WorkspaceService {
         let outcome = run_fallible(self.lanes.durability, &cancel, move || crate::servertrash::entry(&root, &rel, permanent)).await?;
         self.note_written(&note_root, &[&note_rel]);
         value(outcome)
+    }
+}
+
+/// What a paired device's download finds of a file that is not there.
+fn download_gone() -> WsError {
+    WsError::new(Reason::Download("file-download:not-found"), "The file no longer exists.")
+}
+
+/// A paired device's download of a secret file ([`crate::sensitive`], judged where the open file really is) finds no file; `folders`
+/// is `None` for a caller that is not judged.
+fn not_secret(file: crate::transfer::DownloadFile, folders: Option<&[PathBuf]>) -> WsResult<crate::transfer::DownloadFile> {
+    match folders {
+        Some(folders) if crate::sensitive::is_sensitive(&file.location, &crate::sensitive::scopes(folders)) => Err(download_gone()),
+        _ => Ok(file),
     }
 }

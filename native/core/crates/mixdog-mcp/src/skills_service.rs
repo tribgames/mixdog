@@ -166,10 +166,6 @@ fn expand_bare(list: Vec<String>, skills: &[Skill], name: &str, except: &str) ->
     list
 }
 
-fn name_key(name: &str) -> String {
-    js_trim(name).to_lowercase()
-}
-
 /// The skill a request names in `field`: a status row's key as given (trimmed), else a checked name.
 fn skill_reference(input: &Value, field: &str) -> Result<String, Failure> {
     let value = js_trim(&text_or_empty(input.get(field))).to_owned();
@@ -271,7 +267,7 @@ impl SkillsService {
                 let switchable = !skill.follows_feature() && !matches!(off_by, Some("feature" | "scope"));
                 let replaces_builtin = state == SkillState::InUse
                     && skill.source != SkillSource::Builtin
-                    && skills.iter().any(|other| other.source == SkillSource::Builtin && name_key(&other.name) == name_key(&skill.name));
+                    && skills.iter().any(|other| other.source == SkillSource::Builtin && entry_key(&other.name) == entry_key(&skill.name));
                 let owner = match skill.source {
                     SkillSource::Plugin => json!({"kind": "plugin", "id": skill.plugin}),
                     SkillSource::Builtin => json!({"kind": "builtin", "feature": skill.requires.first()}),

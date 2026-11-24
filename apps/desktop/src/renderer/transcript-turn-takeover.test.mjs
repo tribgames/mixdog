@@ -126,12 +126,23 @@ test('no working row is left once the session is idle with no end written and a 
 
 test('a reply still arriving when its turn’s end is written keeps the working row until it lands', async (t) => {
   const tail = { kind: 'assistant', id: 'a1', text: 'Done with', streaming: true, at: 3_000 };
-  const named = { kind: 'turndone', id: 'd1', status: 'done', verb: 'Thought', finalAssistantId: 'a1', elapsedMs: 30_000, at: 3_100 };
+  const named = {
+    kind: 'turndone',
+    id: 'd1',
+    status: 'done',
+    verb: 'Thought',
+    finalAssistantId: 'a1',
+    elapsedMs: 30_000,
+    at: 3_100,
+  };
   const view = await mountTranscriptPane(t);
   await view.render({ items: [prompt, tool], busy: true, activityAt: 1_000, liveItem: tail });
   await view.render({ items: [prompt, tool, named], busy: false, liveItem: tail });
   assert.equal(view.tags().at(-1), 'Thinking', 'the end names the reply: it is on its way');
-  await view.render({ items: [prompt, tool, { ...tail, streaming: false, text: 'Done with it.' }, named], busy: false });
+  await view.render({
+    items: [prompt, tool, { ...tail, streaming: false, text: 'Done with it.' }, named],
+    busy: false,
+  });
   assert.ok(!view.tags().includes('Thinking'));
 });
 

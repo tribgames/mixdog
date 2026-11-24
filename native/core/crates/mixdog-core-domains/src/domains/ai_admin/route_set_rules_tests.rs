@@ -236,6 +236,12 @@ impl RouteContext for Agents {
     async fn resolve_chain_entry(&self, entry: &Obj, _: &Obj) -> Result<Obj, String> {
         Ok(entry.clone())
     }
+    async fn ensure_ready(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+    async fn sender(&self, _: &str) -> Result<Option<super::chain::RouteSender>, String> {
+        Ok(None)
+    }
 }
 
 /// What the agents' chats were told: the agent and the route it takes from its next turn.

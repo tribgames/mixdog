@@ -1,7 +1,7 @@
 use mixdog_agent::compact::pressure::invalidate_provider_context_baseline;
 use mixdog_agent::env::Clock;
 use mixdog_store::schema::record::HeaderChange;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use super::thinking_binding::rebind_to_changed_prefix;
 use super::tool_exposure::TOOL_SURFACE_MIGRATION_INTENT;
@@ -20,7 +20,7 @@ fn unset(change: &mut HeaderChange, key: &str) {
 
 /// `invalidateForToolSurfaceMigration`: everything measured against the previous tool surface.
 pub fn invalidate_for_tool_surface_migration(clock: &dyn Clock) -> HeaderChange {
-    let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
+    let mut change = HeaderChange::default();
     unset(&mut change, "providerState");
     let baseline = invalidate_provider_context_baseline();
     for (key, value) in baseline.set {

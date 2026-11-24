@@ -11,8 +11,13 @@ use mixdog_core_config::config::{AgentRoutes, Config, ConfigLanes};
 use mixdog_core_ports::ports::domain_sessions::AgentRoutePublisher;
 use serde_json::{Value, json};
 
+use mixdog_core_ports::ports::route_facts::{AgentAnswer, AgentAsk};
+
 use super::agent_route_service::AgentRouteSetter;
-use super::chain::RouteContext;
+use super::chain::{RouteContext, RouteSender};
+
+/// The route provider an agent outside the loop serves.
+const AGENT: &str = "acp-agent";
 
 struct Context;
 
@@ -24,6 +29,38 @@ impl RouteContext for Context {
     async fn resolve_chain_entry(&self, requested: &Obj, _: &Obj) -> Result<Obj, String> {
         Ok(requested.clone())
     }
+    async fn ensure_ready(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+    async fn sender(&self, provider: &str) -> Result<Option<RouteSender>, String> {
+        Ok((provider == AGENT).then(|| RouteSender::Agent(Arc::new(Unasked))))
+    }
+}
+
+/// An agent a route save asks nothing.
+struct Unasked;
+
+#[async_trait]
+impl AgentAsk for Unasked {
+    async fn ask(&self, _: &str, _: &str, _: &str) -> Result<AgentAnswer, String> {
+        unreachable!("a route save asks no agent")
+    }
+}
+
+/// Explore runs its tools in Mixdog's loop: a route an agent serves is refused for it and nothing is saved or published,
+/// while a provider's model is saved for it and another agent's route may be an agent's.
+#[tokio::test]
+async fn explore_refuses_a_route_an_agent_serves() {
+    let (setter, published, _dir) = rig().await;
+    let refused = setter.set_agent_route("explore", &request(json!({ "provider": AGENT, "model": "m" }))).await.unwrap_err();
+    assert!(refused.starts_with("Explore cannot run on acp-agent/m"), "{refused}");
+    let fallback = json!({ "provider": "openai", "model": "gpt-5", "fallbacks": [{ "provider": AGENT, "model": "m" }] });
+    assert!(setter.set_agent_route("explore", &request(fallback)).await.unwrap_err().starts_with("Explore cannot run on acp-agent/m"));
+    assert!(published.0.lock().unwrap().is_empty());
+    let saved = setter.set_agent_route("explore", &request(json!({ "provider": "openai", "model": "gpt-5" }))).await.unwrap();
+    assert_eq!(saved["provider"], "openai");
+    let reviewer = setter.set_agent_route("reviewer", &request(json!({ "provider": AGENT, "model": "m" }))).await.unwrap();
+    assert_eq!(reviewer["provider"], AGENT);
 }
 
 #[derive(Default)]

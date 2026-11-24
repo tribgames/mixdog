@@ -863,13 +863,14 @@ impl ProviderAdmin {
         Ok(())
     }
 
-    pub async fn forget_provider_auth(&self, provider: &str, requested: Option<&str>) -> Result<Value, Failure> {
-        let result = self.forget_inner(provider, requested).await?;
+    /// `asker` names what the request came from (see [`super::account::asker_of`]); it only goes to the daemon log.
+    pub async fn forget_provider_auth(&self, provider: &str, requested: Option<&str>, asker: &str) -> Result<Value, Failure> {
+        let result = self.forget_inner(provider, requested, asker).await?;
         self.refresh.after_credential_change();
         Ok(result)
     }
 
-    async fn forget_inner(&self, provider: &str, requested: Option<&str>) -> Result<Value, Failure> {
+    async fn forget_inner(&self, provider: &str, requested: Option<&str>, asker: &str) -> Result<Value, Failure> {
         Self::require_local()?;
         let id = mixdog_js::js_trim(provider).to_owned();
         if let Some(oauth) = self.oauth(&id) {
@@ -885,6 +886,12 @@ impl ProviderAdmin {
                 }
             }
             let result = oauth.forget(&account).await.map_err(Failure::error)?;
+            mixdog_rt::node_console_warn!(
+                "[providers] sign-in forgotten: provider={id} account={account} removed={} asked by {asker}",
+                truthy(result.get("removed"))
+            );
+            // The next sign-in is another account's: nothing measured under this one may be served for it.
+            self.oauth_usage.invalidate(&id).await;
             let pool = self.accounts.remove(&id, &account).await.map_err(acct)?;
             self.update_provider(&id, patch([("enabled", json!(!pool.accounts.is_empty()))])).await?;
             return Ok(json!({
@@ -898,6 +905,7 @@ impl ProviderAdmin {
             return Err(Failure::error(format!("unknown provider \"{id}\"")));
         }
         self.vault.delete(&api_key_account(&id)).await.map_err(vault_failure)?;
+        mixdog_rt::node_console_warn!("[providers] api key forgotten: provider={id} asked by {asker}");
         self.update_provider(&id, patch([("enabled", json!(false))])).await?;
         Ok(json!({ "provider": id, "type": "api-key", "forgotten": true }))
     }

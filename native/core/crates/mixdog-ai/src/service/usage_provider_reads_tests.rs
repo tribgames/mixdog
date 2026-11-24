@@ -28,9 +28,9 @@ use crate::service::usage_opencode_go;
 use crate::service::usage_ports::ProviderUsageSource;
 use crate::transport::Exchange;
 use crate::transport::Redirect;
-use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
+use crate::transport::testing::Once;
 
 fn num(value: &Value, key: &str) -> f64 {
     value[key].as_f64().unwrap_or_else(|| panic!("{key} in {value}"))
@@ -103,7 +103,7 @@ async fn command_code_reads_its_credits_with_the_key_and_reports_a_window_per_li
     let world = command_code(json!([{ "url": CREDITS, "body": { "data": { "windowLimits": {
         "fiveHour": { "cap": 200, "used": 50, "resetAt": 1_900_000_000 },
         "weekly": { "cap": 100, "used": 95 } } } } }]));
-    let snapshot = world.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap().expect("a reading");
+    let snapshot = world.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap().expect("a reading");
 
     let (request, exchange) = only_request(&world);
     assert_eq!((request.method.as_str(), request.url.as_str()), ("GET", CREDITS));
@@ -151,7 +151,7 @@ fn a_command_code_window_needs_a_positive_cap_and_a_non_negative_use_and_is_capp
 #[tokio::test]
 async fn command_code_failures_read_as_their_status_with_the_key_scrubbed_from_the_detail() {
     let unauthorized = command_code(json!([{ "url": CREDITS, "status": 401, "body": format!("bad key {CC_KEY}") }]));
-    let error = unauthorized.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = unauthorized.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.status, Some(401));
     assert!(
         error.message.starts_with("[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: bad key "),
@@ -161,19 +161,19 @@ async fn command_code_failures_read_as_their_status_with_the_key_scrubbed_from_t
     assert!(!error.message.contains(CC_KEY), "the credential never reaches the message: {}", error.message);
 
     let down = command_code(json!([{ "url": CREDITS, "status": 502, "body": "" }]));
-    let error = down.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = down.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!((error.status, error.message.as_str()), (Some(502), "[command-code-oauth] /alpha/billing/credits 502"));
 
     let long = command_code(json!([{ "url": CREDITS, "status": 500, "body": "x".repeat(1000) }]));
-    let error = long.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = long.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.message, format!("[command-code-oauth] /alpha/billing/credits 500: {}", "x".repeat(300)), "the detail is cut at 300 characters");
 
     let garbled = command_code(json!([{ "url": CREDITS, "body": "{not json" }]));
-    let error = garbled.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = garbled.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!((error.status, error.message.as_str()), (None, "[command-code-oauth] /alpha/billing/credits returned invalid JSON"));
 
     let unreachable = command_code(json!([{ "url": CREDITS, "fail": true }]));
-    let error = unreachable.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = unreachable.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.message, "fetch failed");
 }
 
@@ -181,7 +181,7 @@ async fn command_code_failures_read_as_their_status_with_the_key_scrubbed_from_t
 async fn command_code_without_a_stored_key_is_signed_out_and_sends_nothing() {
     for creds in [None, Some(json!({ "apiKey": "   " }))] {
         let world = world(usage_command_code::PROVIDER_ID, creds, json!([]));
-        let error = world.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
+        let error = world.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
         assert_eq!(error.message, "[command-code-oauth] credentials not found — open /providers in mixdog to sign in first");
         assert_eq!(requests(&world), 0);
     }
@@ -291,7 +291,7 @@ async fn antigravity_posts_the_project_with_the_stored_token_and_reads_the_rows(
         Some(signed_in(4_000_000_000_000)),
         json!([{ "url": QUOTA, "body": { "groups": [{ "buckets": [bucket("gemini-5h", "5h", 0.9, None)] }] } }]),
     );
-    let snapshot = world.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap().unwrap();
+    let snapshot = world.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default", &mut None).await.unwrap().unwrap();
     assert_eq!(num(&snapshot["quotaWindows"][0], "usedPct"), 10.0);
     let (request, exchange) = only_request(&world);
     assert_eq!((request.method.as_str(), request.url.as_str()), ("POST", QUOTA));
@@ -314,7 +314,7 @@ async fn antigravity_exchanges_an_expiring_token_before_asking_for_the_quota_and
         ]),
     );
     world.pace.now.store(2_000_000_000_000, Ordering::SeqCst);
-    world.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap();
+    world.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default", &mut None).await.unwrap();
     let seen = world.net.seen.lock().unwrap();
     assert_eq!(seen.iter().map(|r| r.url.as_str()).collect::<Vec<_>>(), [token_url, QUOTA], "the refresh comes first");
     assert!(seen[1].headers.iter().any(|(n, v)| n == "Authorization" && v == "Bearer ag-fresh"));
@@ -334,19 +334,19 @@ async fn antigravity_failures_name_the_status_cut_the_detail_and_never_reflect_a
         Some(signed_in(4_000_000_000_000)),
         json!([{ "url": QUOTA, "status": 403, "body": "denied eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl" }]),
     );
-    let error = refused.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap_err();
+    let error = refused.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert!(error.message.starts_with("[antigravity-oauth] retrieveUserQuotaSummary failed: 403 denied "), "{}", error.message);
     assert!(!error.message.contains("eyJhbGci"), "a token in the body is redacted: {}", error.message);
 
     let long = antigravity(Some(signed_in(4_000_000_000_000)), json!([{ "url": QUOTA, "status": 500, "body": "y".repeat(900) }]));
-    let error = long.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap_err();
+    let error = long.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.message, format!("[antigravity-oauth] retrieveUserQuotaSummary failed: 500 {}", "y".repeat(300)));
 
     let garbled = antigravity(Some(signed_in(4_000_000_000_000)), json!([{ "url": QUOTA, "body": "<html>" }]));
-    assert!(garbled.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.is_err());
+    assert!(garbled.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default", &mut None).await.is_err());
 
     let signed_out = antigravity(None, json!([]));
-    let error = signed_out.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap_err();
+    let error = signed_out.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert!(error.message.starts_with("[antigravity-oauth]") && error.status.is_none(), "{error:?}");
     assert_eq!(requests(&signed_out), 0);
 }
@@ -436,7 +436,7 @@ fn opencode_go(replies: Value) -> World {
 #[tokio::test]
 async fn opencode_go_reads_the_status_for_the_organization_and_labels_the_account() {
     let world = opencode_go(json!([{ "url": STATUS, "body": meters(meter("1200000000", "300000000", Value::Null), Value::Null, Value::Null) }]));
-    let snapshot = world.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap().unwrap();
+    let snapshot = world.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap().unwrap();
     let (request, exchange) = only_request(&world);
     assert_eq!((request.method.as_str(), request.url.as_str()), ("GET", STATUS));
     let header = |name: &str| request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
@@ -453,18 +453,18 @@ async fn opencode_go_reads_the_status_for_the_organization_and_labels_the_accoun
 #[tokio::test]
 async fn opencode_go_failures_are_worded_by_status_and_by_missing_meters() {
     let down = opencode_go(json!([{ "url": STATUS, "status": 500, "body": "oops" }]));
-    let error = down.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err();
+    let error = down.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!((error.status, error.message.as_str()), (Some(500), "OpenCode Go usage fetch failed (500)"));
 
     let empty = opencode_go(json!([{ "url": STATUS, "body": { "access": {} } }]));
-    let error = empty.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err();
+    let error = empty.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.message, "OpenCode Go subscription meters were not found");
 
     let unreachable = opencode_go(json!([{ "url": STATUS, "fail": true }]));
-    assert_eq!(unreachable.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err().message, "fetch failed");
+    assert_eq!(unreachable.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err().message, "fetch failed");
 
     let signed_out = world(usage_opencode_go::PROVIDER_ID, None, json!([]));
-    let error = signed_out.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err();
+    let error = signed_out.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!((error.status, error.message.as_str()), (Some(401), "[opencode-go-oauth] credentials not found — open /providers in mixdog to sign in first"));
     assert_eq!(requests(&signed_out), 0);
 }
@@ -490,7 +490,7 @@ async fn a_rejected_opencode_go_token_is_refreshed_once_and_the_read_is_retried_
         { "url": REFRESH, "body": { "access_token": "oc-new", "refresh_token": "oc-refresh-2", "expires_in": 3600 } },
         { "url": STATUS, "body": one_meter() }
     ]));
-    let snapshot = world.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap().unwrap();
+    let snapshot = world.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap().unwrap();
     assert_eq!(num(&snapshot["quotaWindows"][0], "usedPct"), 25.0);
     assert_eq!(urls(&world), [STATUS, REFRESH, STATUS]);
     let seen = world.net.seen.lock().unwrap();
@@ -548,7 +548,7 @@ async fn a_sign_in_stored_since_the_read_is_not_refreshed(access: &str, refresh:
     pace.now.store(1_000_000, Ordering::SeqCst);
     let source = ProviderUsageSource::with_pace(store, http, pace).with_jitter(Arc::new(|| 0.5));
 
-    let snapshot = source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap().unwrap();
+    let snapshot = source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap().unwrap();
     assert_eq!(num(&snapshot["quotaWindows"][0], "usedPct"), 25.0);
     let seen = net.seen.lock().unwrap();
     let urls: Vec<&str> = seen.iter().map(|request| request.url.as_str()).collect();
@@ -562,7 +562,7 @@ async fn a_sign_in_stored_since_the_read_is_not_refreshed(access: &str, refresh:
 #[tokio::test]
 async fn opencode_go_asks_the_sign_in_again_when_the_refresh_is_rejected_and_does_not_loop() {
     let rejected = opencode_go(json!([{ "url": STATUS, "status": 401, "body": "" }, { "url": REFRESH, "status": 401, "body": "" }]));
-    let error = rejected.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err();
+    let error = rejected.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.status, Some(401));
     assert_eq!(error.message, "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (refresh rejected) — open /providers in mixdog to sign in again");
     assert_eq!(urls(&rejected), [STATUS, REFRESH]);
@@ -572,13 +572,13 @@ async fn opencode_go_asks_the_sign_in_again_when_the_refresh_is_rejected_and_doe
         { "url": REFRESH, "body": { "access_token": "oc-new", "refresh_token": "oc-refresh-2" } },
         { "url": STATUS, "status": 401, "body": "" }
     ]));
-    let error = again.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err();
+    let error = again.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.status, Some(401));
     assert_eq!(error.message, "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (console 401) — open /providers in mixdog to sign in again");
     assert_eq!(urls(&again), [STATUS, REFRESH, STATUS], "one refresh, one retry, then the error");
 
     let busy = opencode_go(json!([{ "url": STATUS, "status": 401, "body": "" }, { "url": REFRESH, "status": 503, "body": "busy" }]));
-    let error = busy.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap_err();
+    let error = busy.source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!((error.status, error.message.as_str()), (Some(503), "[opencode-go-oauth] token refresh 503: busy"));
     assert_eq!(urls(&busy).len(), 2);
 }
@@ -672,7 +672,7 @@ const KEY: &str = usage_muse_code::KEY_URL;
 #[tokio::test]
 async fn muse_code_posts_to_the_key_endpoint_with_the_account_token_never_the_inference_key() {
     let world = muse(json!([{ "url": KEY, "body": subs_payload() }]));
-    let snapshot = world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap().unwrap();
+    let snapshot = world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default", &mut None).await.unwrap().unwrap();
     let (request, exchange) = only_request(&world);
     assert_eq!((request.method.as_str(), request.url.as_str(), request.body.as_slice()), ("POST", KEY, b"{}".as_slice()));
     let header = |name: &str| request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
@@ -688,7 +688,7 @@ async fn muse_code_posts_to_the_key_endpoint_with_the_account_token_never_the_in
 #[tokio::test]
 async fn a_failed_muse_code_read_pauses_the_next_ones_for_five_minutes_and_keeps_the_last_good_reading() {
     let world = muse(json!([{ "url": KEY, "body": subs_payload() }, { "url": KEY, "status": 500, "body": "" }, { "url": KEY, "body": subs_payload() }]));
-    let read = || world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default");
+    let read = || async { world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default", &mut None).await };
     let good = read().await.unwrap().unwrap();
     // The server fails: the last good reading stands in, and the cooldown starts.
     world.pace.now.store(1_000_000 + 10_000, Ordering::SeqCst);
@@ -705,7 +705,7 @@ async fn a_failed_muse_code_read_pauses_the_next_ones_for_five_minutes_and_keeps
 #[tokio::test]
 async fn a_rejected_muse_code_session_is_an_error_that_is_not_retried_during_the_cooldown() {
     let world = muse(json!([{ "url": KEY, "body": subs_payload() }, { "url": KEY, "status": 401, "body": "" }]));
-    let read = || world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default");
+    let read = || async { world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default", &mut None).await };
     read().await.unwrap();
     world.pace.now.fetch_add(1, Ordering::SeqCst);
     let error = read().await.unwrap_err();
@@ -723,14 +723,14 @@ async fn an_inactive_muse_code_subscription_and_a_signed_out_account_are_reauth_
     let mut inactive = subs_payload();
     inactive["is_subs_active"] = false.into();
     let world = muse(json!([{ "url": KEY, "body": inactive }]));
-    let error = world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(
         (error.status, error.message.as_str()),
         (Some(403), "[muse-code-oauth] Muse Code subscription is inactive — open /providers in mixdog to sign in again")
     );
 
     let signed_out = world_without_muse_creds();
-    let error = signed_out.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap_err();
+    let error = signed_out.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default", &mut None).await.unwrap_err();
     assert_eq!(error.message, "[muse-code-oauth] credentials not found — open /providers in mixdog to sign in first");
     assert_eq!(requests(&signed_out), 0);
 }
@@ -742,7 +742,7 @@ fn world_without_muse_creds() -> World {
 #[tokio::test]
 async fn a_muse_code_answer_that_is_not_a_valid_payload_reads_as_the_last_good_one_or_nothing() {
     let world = muse(json!([{ "url": KEY, "body": { "is_subs_active": "yes" } }]));
-    assert_eq!(world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap(), None);
+    assert_eq!(world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default", &mut None).await.unwrap(), None);
 }
 
 // Cursor
@@ -778,21 +778,12 @@ struct Dashboard {
     seen: Mutex<Vec<(WireRequest, Exchange)>>,
 }
 
-struct Body(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Body {
-    async fn next(&mut self) -> Option<Result<Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
-
 #[async_trait]
 impl HttpSend for Dashboard {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
         let (status, body) = if request.url.ends_with(usage_cursor::USAGE_PATH) { self.usage.clone() } else { self.plan.clone() };
         self.seen.lock().unwrap().push((request, exchange));
-        Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Body(Some(Bytes::from(body)))) })
+        Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
     }
 }
 
@@ -828,7 +819,7 @@ fn plan_info() -> Vec<u8> {
 #[tokio::test]
 async fn cursor_reads_the_usage_and_plan_calls_and_reports_a_window_per_lane() {
     let (reading, net) = dashboard((200, period()), (200, plan_info()));
-    let snapshot = reading.read().await.unwrap();
+    let snapshot = reading.read(&mut None).await.unwrap();
     {
         let seen = net.seen.lock().unwrap();
         let mut urls: Vec<&str> = seen.iter().map(|(r, _)| r.url.as_str()).collect();
@@ -867,12 +858,12 @@ async fn cursor_reads_the_usage_and_plan_calls_and_reports_a_window_per_lane() {
 #[tokio::test]
 async fn a_cursor_plan_call_that_fails_costs_only_the_plan_block_but_a_failed_usage_call_fails_the_read() {
     let (reading, _) = dashboard((200, period()), (500, Vec::new()));
-    let snapshot = reading.read().await.unwrap();
+    let snapshot = reading.read(&mut None).await.unwrap();
     assert_eq!(snapshot["plan"]["name"], "");
     assert_eq!(snapshot["quotaWindows"].as_array().unwrap().len(), 2);
 
     let (reading, _) = dashboard((503, Vec::new()), (200, plan_info()));
-    let error = reading.read().await.unwrap_err();
+    let error = reading.read(&mut None).await.unwrap_err();
     assert_eq!(error.status, Some(503));
 }
 
@@ -881,10 +872,10 @@ async fn a_malformed_cursor_answer_fails_with_the_decoders_own_text() {
     // A length that runs past the end of the answer, and a varint that never ends.
     for (body, text) in [(vec![0x1a, 0x05, 0x08], "Truncated Cursor protobuf field"), (vec![0x10, 0x80, 0x80], "Truncated Cursor protobuf varint")] {
         let (reading, _) = dashboard((200, body), (200, plan_info()));
-        assert_eq!(reading.read().await.unwrap_err().message, text);
+        assert_eq!(reading.read(&mut None).await.unwrap_err().message, text);
     }
     let (reading, _) = dashboard((200, period()), (200, vec![0x0a, 0x09, 0x08]));
-    assert_eq!(reading.read().await.unwrap_err().message, "Truncated Cursor protobuf field", "a plan answer, once received, must decode");
+    assert_eq!(reading.read(&mut None).await.unwrap_err().message, "Truncated Cursor protobuf field", "a plan answer, once received, must decode");
 }
 
 fn normalized(usage: Value, plan: Value) -> Value {

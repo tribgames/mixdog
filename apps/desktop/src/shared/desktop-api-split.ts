@@ -466,6 +466,9 @@ export interface DesktopHostExtras {
   ): Promise<{ url: string; kind: 'pdf'; mime: string; format: string; mtimeMs: number; size: number }>;
   invokePcQuotaCapability(request: DesktopCapabilityRequest): Promise<DesktopCapabilityResult>;
   readPcQuotaCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]>;
+  /** The renderer's answer to a quit's request to write its editors' pending backups first (main/editor-backup-flush.ts):
+   *  the request is answered once `flush` settles, or at once while none is set. */
+  onEditorBackupFlush(flush: () => Promise<void>): () => void;
 }
 
 /** What window.mixdogDesktopHost exposes: the HOST half of DesktopApi plus the extras. */

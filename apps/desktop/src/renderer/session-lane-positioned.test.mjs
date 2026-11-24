@@ -9,7 +9,9 @@ import { createTranscriptSnapshotDecorator } from './snapshot-transcript-decorat
 const pos = (id) => `h1:0:${id}`;
 const unit = (id) => ({
   position: pos(id),
-  items: [{ type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { ext: { historyPosition: pos(id) } } }],
+  items: [
+    { type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { ext: { historyPosition: pos(id) } } },
+  ],
 });
 const tail = (ids) => ({ range: 'tail', units: ids.map(unit) });
 const cont = (id) => ({ kind: 'continuation', position: pos(id) });

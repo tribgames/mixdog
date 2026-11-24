@@ -4,17 +4,22 @@ import type { DesktopAgentPoolRow } from '../shared/contract';
 import { AgentRowElapsed, AgentRowFrame } from './agent-activity-groups';
 import { type AgentActivityNode, agentRoleLabel } from './agent-activity-model';
 import { useAgentRouteText } from './agent-row-parts';
-import { AgentTodoRing, agentTodoFigure, agentTodoLabel } from './AgentTodoMark';
+import { AgentTodoRing, type StepGlyph, agentTodoFigure, agentTodoLabel } from './AgentTodoMark';
 import { formatCompactTokens, tokensReadoutItem } from './composer-usage-readout';
 import { t } from './i18n';
 import { formatWorkClock, formatWorkElapsed, timeMs } from './transcript-primitives';
 import { plainFloorNote } from './usage-stats-model';
 
 /** An agent's own name under its kind's group: its tag, or its kind when the tag says no more (the Lead). */
-export function agentOwnName(agent: DesktopAgentPoolRow, lead: boolean): string {
+function agentOwnName(agent: DesktopAgentPoolRow, lead: boolean): string {
   const role = agentRoleLabel(agent.agent || agent.tag);
   const tag = String(agent.tag || '').trim();
   return !lead && tag && tag.toLowerCase() !== role.toLowerCase() ? tag : role;
+}
+
+function stepGlyph(state: DesktopAgentActivityState, finished: boolean): StepGlyph {
+  if (state === 'cancelled') return 'dropped';
+  return finished ? 'complete' : 'active';
 }
 
 /** How long a finished agent's last turn ran; 0 unless the pool still holds that turn's start. */
@@ -28,8 +33,8 @@ function workedMs(agent: DesktopAgentPoolRow): number {
  *  Agents section), built as a to-do row: one line under its kind's group
  *  (level 2 of the tree, whatever its depth in the pool), its step ring where
  *  a to-do's state circle stands, its own name, then its step figure and its
- *  state in two right-aligned columns. An agent at work is marked as the step
- *  in progress (data-working). Its tooltip and description say the rest: the
+ *  state in two right-aligned columns. An agent at work is marked data-working;
+ *  its name stays a row name. Its tooltip and description say the rest: the
  *  model, the step in hand, a finished agent's worked time and the ledger
  *  total. */
 export function AgentIslandRow({
@@ -87,11 +92,7 @@ export function AgentIslandRow({
     >
       {/* The ring in the column of a to-do's state circle, with or without a step list. */}
       <span className="agent-row-ring" aria-hidden="true">
-        <AgentTodoRing
-          todo={agent.todo}
-          glyph={state === 'cancelled' ? 'dropped' : finished ? 'complete' : 'active'}
-          size={14}
-        />
+        <AgentTodoRing todo={agent.todo} glyph={stepGlyph(state, finished)} size={12} />
       </span>
       <span className="schedules-row-copy agent-pool-heading">
         <b className="agent-pool-name">{agentOwnName(agent, node.sessionId === ownerSessionId)}</b>

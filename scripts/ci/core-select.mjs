@@ -103,7 +103,12 @@ export function readWorkspace({ root, metadata }) {
     deps: [...new Set(pkg.dependencies.map((dep) => dep.name).filter((name) => names.has(name)))],
     // What a build of the crate compiles: normal and build dependencies, optional ones included.
     buildDeps: [
-      ...new Set(pkg.dependencies.filter((dep) => dep.kind !== 'dev').map((dep) => dep.name).filter((name) => names.has(name))),
+      ...new Set(
+        pkg.dependencies
+          .filter((dep) => dep.kind !== 'dev')
+          .map((dep) => dep.name)
+          .filter((name) => names.has(name))
+      ),
     ],
     requiredFeatures: [...new Set((pkg.targets ?? []).flatMap((target) => target['required-features'] ?? []))],
   }));
@@ -264,9 +269,9 @@ function pgProfilesOf(selected) {
 }
 
 // The manifest folders of the packages whose rustdoc blocks a doctest leg runs (coverage/plan.json `rust.doctests`).
-const DOCTEST_DIRS = JSON.parse(readFileSync(new URL('./coverage/plan.json', import.meta.url), 'utf8')).rust.doctests.map(
-  (entry) => entry.manifestDir
-);
+const DOCTEST_DIRS = JSON.parse(
+  readFileSync(new URL('./coverage/plan.json', import.meta.url), 'utf8')
+).rust.doctests.map((entry) => entry.manifestDir);
 
 // core-real's systems, with the target of the shipped mixdogd the release's call boots (release.yml `mixdogd`).
 const REAL = {
@@ -294,6 +299,12 @@ function jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems 
   return { mixdogd, test, build };
 }
 
+// The crate that owns a path: the one with the deepest directory containing it.
+const ownerOf = (crates) => (path) =>
+  crates
+    .filter((crate) => path === crate.dir || path.startsWith(`${crate.dir}/`))
+    .sort((a, b) => b.dir.length - a.dir.length)[0];
+
 // The programs a job keeps in a store keyed by their inputs instead of building them again (release-gate.yml): the development
 // mixdogd with the two programs built beside it (jobs mixdogd-<os>), the release mixdogd (core-real), the relay (relay-rust).
 export const STORES = {
@@ -314,10 +325,7 @@ export const STORES = {
  */
 function storeKey({ root, crates, stage, packages }) {
   const byName = new Map(crates.map((crate) => [crate.name, crate]));
-  const owner = (path) =>
-    crates
-      .filter((crate) => path === crate.dir || path.startsWith(`${crate.dir}/`))
-      .sort((a, b) => b.dir.length - a.dir.length)[0];
+  const owner = ownerOf(crates);
   const paths = stage.map((entry) => entry.slice(entry.indexOf('\t') + 1));
   const tracked = new Set(paths);
   // A program's build compiles no file of a crate's tests/, benches/ or examples/ unless a compiled source includes it.
@@ -371,13 +379,18 @@ function storeKey({ root, crates, stage, packages }) {
  *   request: the crates the change can affect, on Linux)
  * @param {string[]} [options.stage] the tracked files (`git ls-files -s`), for the store keys
  */
-export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata, stage }) {
+export function selectCore({
+  root,
+  changed,
+  all = false,
+  mixdogdDev = false,
+  mixdogdWindows = false,
+  metadata,
+  stage,
+}) {
   const crates = readWorkspace({ root, metadata });
   const byName = new Map(crates.map((crate) => [crate.name, crate]));
-  const owner = (path) =>
-    crates
-      .filter((crate) => path === crate.dir || path.startsWith(`${crate.dir}/`))
-      .sort((a, b) => b.dir.length - a.dir.length)[0];
+  const owner = ownerOf(crates);
 
   const { textOf, readers } = crateReaders(root, crates);
   const { whole, direct, propagate, reasons } = classifyChanges({ changed, all, owner, readers });
@@ -413,7 +426,10 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
   const { mixdogd, test, build } = jobMatrices({ scope, tests, entry, mixdogdDev, mixdogdWindows, systems });
   const real = systems.map((os) => ({ os, ...REAL[os] }));
   // Clippy and the plain stable compile on the systems the archive is built for (the full gate's three, Linux otherwise).
-  const lint = scope === 'none' ? [] : SYSTEMS.filter((system) => systems.includes(system.os)).map(({ os, runner }) => ({ os, runner }));
+  const lint =
+    scope === 'none'
+      ? []
+      : SYSTEMS.filter((system) => systems.includes(system.os)).map(({ os, runner }) => ({ os, runner }));
   // The doctest packages (coverage/plan.json rust.doctests) the selection holds.
   const doctests = selected.filter((crate) => DOCTEST_DIRS.includes(crate.dir)).map((crate) => crate.name);
   return {

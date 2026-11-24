@@ -10,6 +10,7 @@ const EXTRAS = [
   'previewConvertedDocument',
   'invokePcQuotaCapability',
   'readPcQuotaCapabilities',
+  'onEditorBackupFlush',
 ];
 
 function makeDeps() {

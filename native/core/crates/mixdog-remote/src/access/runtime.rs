@@ -28,7 +28,7 @@ use crate::leg::caps::{NativePlatform, RelayCaps};
 use crate::leg::control::{ControlError, ControlRequests};
 use crate::leg::frame::{Payload, encode_binary_frame, json_frame};
 use crate::leg::inbound::Inbound;
-use crate::leg::socket::{LegConfig, LegEvent, Outgoing, run_leg, validated_relay_url};
+use crate::leg::socket::{LegConfig, LegEvent, Outgoing, revoke_registration, run_leg, validated_relay_url};
 use crate::leg::{MAX_WS_PAYLOAD_BYTES, open_envelopes};
 use crate::pair_code::{NotHeld, PairCode, PairCodeEffects, PairCodeView, PairOwner};
 use crate::push::native::{NativePushInput, NativePushStore, NativePushSubscription, bind_envelope, invalid_token_of, unbind_envelope};
@@ -48,6 +48,9 @@ const OUT_QUEUE: usize = 256;
 const RELAY_UNAVAILABLE: &str = "The relay is not connected right now.";
 /// The close reason of a phone whose frames the core is not taking as fast as it sends them.
 const BACKLOG_EXCEEDED: &str = "remote client backlog exceeded";
+/// The close reason of a client whose device is unpaired: the phones (1.4 and later, `isInvalidRemotePairingClose`) read it as a
+/// pairing that no longer authenticates, stop redialing and offer to pair again.
+const UNPAIRED_CLOSE: &str = "relay encryption authentication failed";
 /// How long a phone has to finish its end-to-end handshake after `client-open`.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// A device with no registration on any push path (push-notifier.ts `sendTest`, `outcome.targets === 0`).
@@ -298,6 +301,8 @@ struct Inner {
     roster: tokio::sync::OnceCell<Arc<Mutex<Roster>>>,
     /// Starts, rotations and stops run one at a time; a permit is held across the relay dial.
     gate: tokio::sync::Semaphore,
+    /// One drain of the replaced relay registrations at a time: every leg open runs one, after the one before it.
+    device_drain: tokio::sync::Semaphore,
     bridge: Bridge,
     /// Whether the relay leg is open, written wherever `State::connected` changes (the leg opening,
     /// being lost, being closed): what a caller waits on instead of polling `is_connected`.
@@ -832,6 +837,7 @@ impl RemoteRuntime {
                 }),
                 roster: tokio::sync::OnceCell::new(),
                 gate: tokio::sync::Semaphore::new(1),
+                device_drain: tokio::sync::Semaphore::new(1),
                 bridge: Bridge::new(dialer, sink),
                 link_up: tokio::sync::watch::Sender::new(false),
                 ice: crate::ice::RemoteIceServers::new(),
@@ -1088,15 +1094,21 @@ impl RemoteRuntime {
     }
 
     fn close_leg(&self) {
-        let (live, peers) = {
+        let (live, peers, prompts) = {
             let mut state = self.inner.state();
             let live = state.live.take();
             state.connected = false;
             state.listed = false;
             state.online.clear();
             state.native = None;
-            (live, state.table.close_all())
+            // A pairing prompt is answered through the registration and the leg it came on: with them gone no answer reaches the
+            // relay, and a later leg (a rotated identity) is one the relay does not take the claim's answer from.
+            state.claims = ClaimBindings::default();
+            (live, state.table.close_all(), std::mem::take(&mut state.pending_claims))
         };
+        for prompt in prompts.into_values() {
+            prompt.cancel.cancel();
+        }
         self.inner.link_up.send_replace(false);
         if let Some(live) = live {
             live.cancel.cancel();
@@ -1294,9 +1306,8 @@ impl RemoteRuntime {
         self.descriptor().await
     }
 
-    /// Every live connection of an unpaired credential loses its grants and screen access now, and stays connected: Node closes none
-    /// (`remote-relay.ts` `revokeClient`); the relay closes the phone once it removed the pairing (`relay-legs.mjs` `revokeClient`,
-    /// 4003), and a relay that did not leaves it open.
+    /// Every live connection of an unpaired credential loses its grants and screen access now, and is closed: the unpair does not
+    /// wait on a relay that is unreachable, refuses it or does not act on it (Node left the connection to the relay's 4003).
     fn drop_credential(&self, credential_id: &str) {
         let peers = self.inner.state().table.revoke(credential_id);
         // The table's revoke has set the capability every media delivery of these clients is committed under (relay lane and direct
@@ -1311,6 +1322,9 @@ impl RemoteRuntime {
             }
         }
         self.inner.cfg.events.device_unpaired(credential_id);
+        for (peer, generation) in peers {
+            self.close_client(&peer, generation, UNPAIRED_CLOSE);
+        }
     }
 
     /// The relay confirmed an unpair: the device's push registrations and notification preferences go with its credential
@@ -1392,12 +1406,13 @@ impl RemoteRuntime {
             (answer, state.claims.client_of(claim_id).map(str::to_owned))
         };
         let approving = answer.get("type").and_then(Value::as_str) == Some("claim-approve");
-        self.inner.cfg.link.send(&answer);
         if approving && let Some(client) = client {
             // Approving the device again is an explicit re-pair: an unpair still queued for it is
-            // withdrawn (the next drain would revoke the new pairing).
+            // withdrawn (the next drain would revoke the new pairing), before the approval leaves, so
+            // the device's first connection is not refused as unpaired.
             let _ = self.inner.with_roster(move |roster, lane| roster.repaired(lane, &client)).await;
         }
+        self.inner.cfg.link.send(&answer);
         self.inner.refresh();
         Ok(true)
     }
@@ -1654,9 +1669,17 @@ impl RemoteRuntime {
             if let Ok(Ok((rows, keys))) = listed {
                 let browsers: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.client_id.as_str()).collect();
                 let endpoints: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.endpoint.as_str()).collect();
+                let paired: std::collections::HashSet<String> = self.paired_devices().into_iter().collect();
                 let poster = crate::push::legacy::ReqwestPoster::new();
-                for row in rows.iter().filter(|row| row.client_id == push.device_id) {
+                for (at, row) in rows.iter().enumerate().filter(|(_, row)| row.client_id == push.device_id) {
                     if endpoints.contains(row.endpoint.as_str()) || (!row.client_id.is_empty() && browsers.contains(row.client_id.as_str())) {
+                        continue;
+                    }
+                    // A browser paired again keeps its endpoint: it hears through its latest registration by a device still paired.
+                    if rows[at + 1..]
+                        .iter()
+                        .any(|later| later.endpoint == row.endpoint && later.client_id != row.client_id && paired.contains(&later.client_id))
+                    {
                         continue;
                     }
                     tally.targets += 1;
@@ -1700,17 +1723,34 @@ impl RemoteRuntime {
         self.inner.durable(move |lane| store.public_key(lane)).await?.map_err(|e| RemoteError::Failed(e.to_string()))
     }
 
-    pub async fn register_push_subscription(&self, input: &Value) -> Result<bool, RemoteError> {
+    /// Where push is available, a caller with no paired device (`credential` empty) is refused.
+    fn paired_push(credential: &str) -> Result<(), RemoteError> {
+        if credential.is_empty() {
+            return Err(RemoteError::Invalid("Push notifications need a paired client.".into()));
+        }
+        Ok(())
+    }
+
+    /// The browser subscription of the paired device `credential` (the caller's authenticated one): the row is that credential's,
+    /// whatever `clientId` the input names, and replaces only that credential's earlier row.
+    pub async fn register_push_subscription(&self, credential: &str, input: &Value) -> Result<bool, RemoteError> {
         let store = self.legacy_push()?;
-        let input = input.clone();
+        Self::paired_push(credential)?;
+        let mut input = input.clone();
+        if let Some(record) = input.as_object_mut() {
+            record.insert("clientId".into(), Value::String(credential.to_owned()));
+        }
         self.inner.durable(move |lane| store.register(lane, &input, now_ms())).await?.map_err(Self::legacy_error)?;
         Ok(true)
     }
 
-    pub async fn remove_push_subscription(&self, endpoint: &Value) -> Result<bool, RemoteError> {
+    /// Removes the subscription of `endpoint` the paired device `credential` registered; another device's is untouched.
+    pub async fn remove_push_subscription(&self, credential: &str, endpoint: &Value) -> Result<bool, RemoteError> {
         let store = self.legacy_push()?;
+        Self::paired_push(credential)?;
         let endpoint = crate::push::legacy::required_string(Some(endpoint), "endpoint").map_err(Self::legacy_error)?;
-        self.inner.durable(move |lane| store.remove(lane, &endpoint)).await?.map_err(|e| RemoteError::Failed(e.to_string()))
+        let credential = credential.to_owned();
+        self.inner.durable(move |lane| store.remove_of(lane, &credential, &endpoint)).await?.map_err(|e| RemoteError::Failed(e.to_string()))
     }
 
     // ---- the leg's event loop ---------------------------------------------------------------
@@ -1766,6 +1806,31 @@ impl RemoteRuntime {
                 } => {}
             }
         });
+        let (runtime, cancel, leg) = (self.clone(), live.cancel.clone(), live.clone());
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                () = cancel.cancelled() => {}
+                () = runtime.drain_device_revocations(&leg) => {}
+            }
+        });
+    }
+
+    /// Deletes at the relay the registrations a rotation replaced (`createRevocationDrain`): each queued identity but the live one
+    /// asks for its own deletion on a leg of its own, which ends its pairing token, its paired browsers and their push
+    /// subscriptions, and one the relay confirmed leaves the queue. A queue that cannot be read waits for the next leg (a damaged
+    /// one is answered by the pairing reset before a leg opens).
+    async fn drain_device_revocations(&self, live: &Live) {
+        let Ok(_draining) = self.inner.device_drain.acquire().await else { return };
+        let Some(relay_url) = self.inner.cfg.relay_url.clone() else { return };
+        let dir = self.inner.cfg.dir.clone();
+        let Ok(Ok(queued)) = self.inner.durable(move |lane| DeviceFiles::new(dir).load_queue(lane)).await else { return };
+        for identity in queued.into_iter().filter(|identity| identity.device_id != live.device.device_id) {
+            if revoke_registration(&relay_url, &identity, MAX_WS_PAYLOAD_BYTES as usize).await {
+                let dir = self.inner.cfg.dir.clone();
+                let _ = self.inner.durable(move |lane| DeviceFiles::new(dir).remove_queued(lane, &identity.device_id)).await;
+            }
+        }
     }
 
     fn on_lost(&self, live: &Arc<Live>) {
@@ -1916,39 +1981,36 @@ impl RemoteRuntime {
 
     async fn on_client_open(&self, client_id: &str, credential_id: &str) {
         let roster = self.inner.roster().await.ok();
-        // A device whose unpair is recorded is admitted under its credential and revoked for the screen for the connection's lifetime,
-        // as Node does (`screen-access-publisher.ts` `admitted`).
-        let unpaired = roster.is_some_and(|roster| !credential_id.is_empty() && lock(&roster).pending().iter().any(|id| id == credential_id));
         // A repeated open of one id retires the first: its bridged socket and registry peer would otherwise keep running beside the new
         // client (the table ends the first's transport session itself).
-        let (text, challenge, retired) = {
+        let (text, challenge, retired, generation) = {
             let mut state = self.inner.state();
             let retired = state.table.generation_of(client_id);
             if let Some(generation) = retired {
                 self.inner.bridge.close_peer(client_id, generation);
             }
-            // The core owns the peers, so the transport is always on offer to a phone that can take binary frames.
-            let flags = challenge_flags(state.caps.binary_frames(), true, true);
-            let text = state.table.open(client_id, credential_id, &flags);
-            if text.is_some() && unpaired {
-                state.table.revoke_client(client_id);
-            }
-            let challenge = state.table.challenge_of(client_id);
-            (text, challenge, retired)
+            // The core owns the peers, so the transport is always on offer. Not on the relay's word that it carries binary frames
+            // (every relay does): the offer is what puts the handshake transcript in `e2ee-ready`, and that word is unauthenticated.
+            let text = state.table.open(client_id, credential_id, &challenge_flags(true, true, true));
+            (text, state.table.challenge_of(client_id), retired, state.table.generation_of(client_id))
         };
         if let Some(generation) = retired {
             self.inner.cfg.registry.detach_peer_in(generation, client_id);
         }
-        match text {
-            Some(text) => {
-                self.inner.cfg.link.send(&json_frame(client_id, &text));
-                if let Some(challenge) = challenge {
-                    self.arm_handshake_deadline(client_id, challenge);
-                }
-            }
-            None => {
-                self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": "remote client limit reached" }));
-            }
+        let (Some(text), Some(generation)) = (text, generation) else {
+            self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": "remote client limit reached" }));
+            return;
+        };
+        // Every pairing shares the E2EE secret, so the device is the credential the relay names: none (no relay admits a phone
+        // without one) or one whose unpair is recorded is refused here, whatever the relay did with the unpair. Read once the open
+        // is in the table: an unpair recorded after this read finds the client there and closes it.
+        let unpaired = credential_id.is_empty() || roster.is_some_and(|roster| lock(&roster).pending().iter().any(|id| id == credential_id));
+        if unpaired {
+            return self.close_client(client_id, generation, UNPAIRED_CLOSE);
+        }
+        self.inner.cfg.link.send(&json_frame(client_id, &text));
+        if let Some(challenge) = challenge {
+            self.arm_handshake_deadline(client_id, challenge);
         }
     }
 
@@ -2108,3 +2170,7 @@ impl RemoteRuntime {
         self.inner.cfg.registry.clone()
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod runtime_tests;

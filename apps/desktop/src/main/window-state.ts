@@ -99,9 +99,11 @@ export function persistWindowState(
   // maximize/fullscreen transition is still in flight (isMaximized() not yet
   // true), and getBounds() then reports the transitional geometry — which is
   // what restored as a ~400x600 window.
+  let lastMaximized = window.isMaximized();
   const captureNormalBounds = (): void => {
     if (window.isDestroyed()) return;
-    if (window.isMaximized() || window.isMinimized() || window.isFullScreen()) return;
+    lastMaximized = window.isMaximized();
+    if (lastMaximized || window.isMinimized() || window.isFullScreen()) return;
     lastNormalBounds = window.getBounds();
   };
 
@@ -109,7 +111,7 @@ export function persistWindowState(
     captureNormalBounds();
     const state: PersistedWindowState = {
       bounds: lastNormalBounds,
-      maximized: window.isMaximized(),
+      maximized: lastMaximized,
     };
     writes = writes
       .then(async () => {
@@ -132,6 +134,8 @@ export function persistWindowState(
   window.on('resize', schedule);
   window.on('maximize', schedule);
   window.on('unmaximize', schedule);
+  // The window is still alive here; by `closed` it is destroyed and cannot be asked.
+  window.on('close', captureNormalBounds);
 
   return {
     async flush(): Promise<void> {
@@ -150,6 +154,7 @@ export function persistWindowState(
       window.removeListener('resize', schedule);
       window.removeListener('maximize', schedule);
       window.removeListener('unmaximize', schedule);
+      window.removeListener('close', captureNormalBounds);
     },
   };
 }

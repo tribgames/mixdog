@@ -9,9 +9,9 @@ import { fileBaseName } from './text-format';
 import { useHighlightedRows } from './transcript-tool-panel';
 import { emptyStateHost } from './empty-state-host';
 
-export type DiffLineKind = 'ctx' | 'add' | 'del';
+type DiffLineKind = 'ctx' | 'add' | 'del';
 export type DiffLine = { kind: DiffLineKind; oldNo: number; newNo: number; text: string };
-export type DiffItem =
+type DiffItem =
   | { type: 'line'; key: string; line: DiffLine }
   | { type: 'fold'; key: string; lines: DiffLine[] }
   /** Unmodified lines that are not part of the patch (between hunks). */

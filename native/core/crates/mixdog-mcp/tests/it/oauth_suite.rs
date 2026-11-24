@@ -35,6 +35,7 @@ use mixdog_mcp::oauth::session::{McpOAuth, account_of};
 use mixdog_mcp::plugin_admin::GitRunner;
 use mixdog_mcp::plugin_admin::PluginAdmin;
 use mixdog_mcp::result::OutputPolicy;
+use mixdog_mcp::rpc::RpcClient;
 use mixdog_mcp::scope_runtime::Op;
 use mixdog_mcp::scope_runtime::with_request_scope;
 use mixdog_mcp::server::ConnectStep;
@@ -337,8 +338,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
 
     // Not signed in: the connect fails on the fact, and no browser is opened by itself.
     let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     assert!(server.state().describe().contains("reauthenticationRequired"), "{}", server.state().describe());
     assert!(!hub.oauth("acme").unwrap().has_stored_tokens().await.unwrap());
 
@@ -458,8 +458,7 @@ async fn a_server_that_refused_a_connect_is_still_dialled_and_connects_once_sign
     let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
     hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
     let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     let dialled = shared.lock().unwrap().dials;
     assert!(dialled > 0);
     assert!(hub.oauth("acme").unwrap().sign_in_required());
@@ -493,8 +492,7 @@ async fn a_catalog_connector_never_signed_in_needs_a_sign_in_before_any_connect(
     hub.set_oauth_env(env.clone());
     hub.apply(vec![McpServerConfig::from_entry("airtable", &entry, &Default::default()).unwrap()]);
     let server = hub.server("airtable").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     assert_eq!(server.state().describe(), "failed: MCP OAuth reauthenticationRequired: sign in to connect");
     hub.close_all().await;
 
@@ -532,10 +530,21 @@ fn needing_sign_in(port: u16) -> McpServerConfig {
     config
 }
 
-async fn failed(hub: &McpHub, scope: &str) -> Arc<McpServer> {
-    let server = hub.server_in(scope, "acme").unwrap();
+fn client_of(server: &McpServer) -> Arc<RpcClient> {
+    match &*server.state() {
+        ServerState::Ready(ready) => Arc::clone(&ready.client),
+        other => panic!("{}", other.describe()),
+    }
+}
+
+async fn until_failed(server: &McpServer) {
     let mut states = server.subscribe();
     mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+}
+
+async fn failed(hub: &McpHub, scope: &str) -> Arc<McpServer> {
+    let server = hub.server_in(scope, "acme").unwrap();
+    until_failed(&server).await;
     server
 }
 
@@ -655,8 +664,7 @@ async fn hub_refused_with_a_scope_challenge() -> (tempfile::TempDir, Arc<McpHub>
     let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
     hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
     let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     (dir, hub)
 }
 
@@ -854,19 +862,22 @@ fn two_accounts(port: u16) -> Value {
 async fn a_sign_in_of_an_account_beside_a_ready_one_starts_from_its_own_servers_refusal() {
     let _seams = crate::oauth_seams().await;
     let runtime = Runtime::new(two_accounts).await;
-    let connector = McpServerConfig::from_entry("linear", &two_accounts(runtime.port)["linear"], &Default::default()).unwrap();
-    let work = connector.accounts.iter().find(|account| account.server.name == "work").unwrap().server.oauth.clone().unwrap();
-    let session = McpOAuth::new(work, &runtime.env).unwrap().login_flow("work", AccountMode::Connect).start().await.unwrap();
-    authorize(session.as_ref(), &runtime.shared, runtime.port).await;
+    sign_in_work(&runtime, two_accounts).await;
 
     let linear = runtime.open("a", "linear").await;
     assert!(matches!(*linear.state(), ServerState::Ready(_)), "{}", linear.state().describe());
     let home = linear.account_server("home").unwrap();
-    let mut states = home.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&home).await;
     let earlier = runtime.glue.hub().oauth_in("a", "home").unwrap().refusal_challenge().expect("the account's startup was refused");
     assert!(earlier.contains(".well-known/oauth-protected-resource"), "{earlier}");
 
+    let authorize = begin_once_the_sign_in_waits(&runtime).await;
+    assert_eq!(authorize.path(), "/as/authorize", "the issuer only the held-back refusal names: {authorize}");
+    runtime.glue.hub().close_all().await;
+}
+
+/// `home`'s sign-in begun while its server's next refusal is held back, which is released once the sign-in waits for it.
+async fn begin_once_the_sign_in_waits(runtime: &Runtime) -> Url {
     let pause = Arc::new(RefreshPause::default());
     runtime.shared.lock().unwrap().held_refusal = Some(Arc::clone(&pause));
     let release = async {
@@ -877,8 +888,15 @@ async fn a_sign_in_of_an_account_beside_a_ready_one_starts_from_its_own_servers_
         pause.release.notify_one();
     };
     let (authorize, ()) = tokio::join!(runtime.begin("a", "home"), release);
-    assert_eq!(authorize.path(), "/as/authorize", "the issuer only the held-back refusal names: {authorize}");
-    runtime.glue.hub().close_all().await;
+    authorize
+}
+
+/// Signs account `work` of `linear` in.
+async fn sign_in_work(runtime: &Runtime, servers: fn(u16) -> Value) {
+    let connector = McpServerConfig::from_entry("linear", &servers(runtime.port)["linear"], &Default::default()).unwrap();
+    let work = connector.accounts.iter().find(|account| account.server.name == "work").unwrap().server.oauth.clone().unwrap();
+    let session = McpOAuth::new(work, &runtime.env).unwrap().login_flow("work", AccountMode::Connect).start().await.unwrap();
+    authorize(session.as_ref(), &runtime.shared, runtime.port).await;
 }
 
 /// The account is removed from the configuration while the sign-in waits for its server's answer: what signs in is read
@@ -887,15 +905,11 @@ async fn a_sign_in_of_an_account_beside_a_ready_one_starts_from_its_own_servers_
 async fn a_sign_in_of_an_account_removed_while_its_server_answers_starts_no_authorization() {
     let _seams = crate::oauth_seams().await;
     let runtime = Runtime::new(two_accounts).await;
-    let connector = McpServerConfig::from_entry("linear", &two_accounts(runtime.port)["linear"], &Default::default()).unwrap();
-    let work = connector.accounts.iter().find(|account| account.server.name == "work").unwrap().server.oauth.clone().unwrap();
-    let session = McpOAuth::new(work, &runtime.env).unwrap().login_flow("work", AccountMode::Connect).start().await.unwrap();
-    authorize(session.as_ref(), &runtime.shared, runtime.port).await;
+    sign_in_work(&runtime, two_accounts).await;
 
     let linear = runtime.open("a", "linear").await;
     let home = linear.account_server("home").unwrap();
-    let mut states = home.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&home).await;
     let registered = runtime.shared.lock().unwrap().registrations;
 
     let pause = Arc::new(RefreshPause::default());
@@ -919,10 +933,7 @@ async fn a_sign_in_of_an_account_removed_while_its_server_answers_starts_no_auth
 /// Signs account `work` of `linear` in and opens scope `a`: the connector as the scope holds it, once every other
 /// account of it failed its startup.
 async fn work_signed_in(runtime: &Runtime, servers: fn(u16) -> Value) -> Arc<McpServer> {
-    let connector = McpServerConfig::from_entry("linear", &servers(runtime.port)["linear"], &Default::default()).unwrap();
-    let work = connector.accounts.iter().find(|account| account.server.name == "work").unwrap().server.oauth.clone().unwrap();
-    let session = McpOAuth::new(work, &runtime.env).unwrap().login_flow("work", AccountMode::Connect).start().await.unwrap();
-    authorize(session.as_ref(), &runtime.shared, runtime.port).await;
+    sign_in_work(runtime, servers).await;
     let linear = runtime.open("a", "linear").await;
     // A scope whose servers have no startup budget opens without waiting for their first connect.
     let mut states = linear.subscribe();
@@ -930,8 +941,7 @@ async fn work_signed_in(runtime: &Runtime, servers: fn(u16) -> Value) -> Arc<Mcp
     mixdog_rt::time::timeout(std::time::Duration::from_secs(10), ready).await.expect("the connector's first connect in 10 s").unwrap();
     assert!(matches!(*linear.state(), ServerState::Ready(_)), "{}", linear.state().describe());
     if let Some(account) = linear.account_server("home") {
-        let mut states = account.subscribe();
-        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+        until_failed(&account).await;
     }
     linear
 }
@@ -946,16 +956,7 @@ async fn a_sign_in_beside_a_ready_account_waits_for_its_servers_refusal_with_no_
     let linear = work_signed_in(&runtime, two_accounts).await;
     assert_eq!(linear.account_server("home").unwrap().config().startup_timeout, None);
 
-    let pause = Arc::new(RefreshPause::default());
-    runtime.shared.lock().unwrap().held_refusal = Some(Arc::clone(&pause));
-    let release = async {
-        let ten = std::time::Duration::from_secs(10);
-        mixdog_rt::time::timeout(ten, pause.received.notified()).await.expect("the account's server is asked again");
-        // Answered only once the sign-in waits for it: one that did not wait has read the earlier refusal by now.
-        mixdog_rt::time::timeout(ten, runtime.glue.account_waits().notified()).await.expect("the sign-in waits for the account's server");
-        pause.release.notify_one();
-    };
-    let (authorize, ()) = tokio::join!(runtime.begin("a", "home"), release);
+    let authorize = begin_once_the_sign_in_waits(&runtime).await;
     assert_eq!(authorize.path(), "/as/authorize", "the issuer only the held-back refusal names: {authorize}");
     runtime.glue.hub().close_all().await;
 }
@@ -1184,15 +1185,10 @@ async fn a_call_in_flight_across_a_reconnect_returns_its_result() {
     let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
     hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
     let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     let session = hub.login_flow("acme", AccountMode::Connect).unwrap().start().await.unwrap();
     authorize(session.as_ref(), &shared, port).await;
     hub.reconnect("acme").await.unwrap();
-    let client_of = |server: &McpServer| match &*server.state() {
-        ServerState::Ready(ready) => Arc::clone(&ready.client),
-        other => panic!("{}", other.describe()),
-    };
     let call = |text: &'static str| {
         let server = Arc::clone(&server);
         async move { server.call_tool("t", "echo", json!({"text": text}), &CancellationToken::new(), None).await }
@@ -1257,21 +1253,27 @@ async fn an_installation_reads_the_sign_in_it_made_under_the_shared_name() {
     assert_eq!(again.token().await.unwrap(), None, "signed out: the shared entry is not read again");
 }
 
-/// An entry stored for another address is no entry of this server: its sign-in proceeds, and replaces it.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_sign_in_replaces_an_entry_stored_for_another_address() {
-    let _seams = crate::oauth_seams().await;
-    let store = Arc::new(MemoryStore::default());
-    let (_dir, hub, shared, port) = hub_at_the_test_server(store.clone()).await;
+/// `acme` at the test server, whose secret holds an entry bound to another address: the hub, the test server and its
+/// port, the secret's account name and that entry; `acme` has failed its connect.
+async fn acme_beside_an_entry_of_another_address(store: Arc<MemoryStore>) -> (tempfile::TempDir, Arc<McpHub>, Shared, u16, String, Value) {
+    let (dir, hub, shared, port) = hub_at_the_test_server(store.clone()).await;
     let url = format!("http://127.0.0.1:{port}/mcp");
     let config = McpServerConfig::from_entry("acme", &json!({"url": url}), &Default::default()).unwrap();
     let account = account_of(&config.oauth.as_ref().unwrap().credential_key);
     let elsewhere = json!({"url": "http://127.0.0.1:1/elsewhere", "revision": "r0", "tokens": {"access_token": "theirs"}});
     store.set(&account, &elsewhere.to_string()).await.unwrap();
     hub.apply(vec![config]);
-    let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&hub.server("acme").unwrap()).await;
+    (dir, hub, shared, port, account, elsewhere)
+}
+
+/// An entry stored for another address is no entry of this server: its sign-in proceeds, and replaces it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_replaces_an_entry_stored_for_another_address() {
+    let _seams = crate::oauth_seams().await;
+    let store = Arc::new(MemoryStore::default());
+    let (_dir, hub, shared, port, account, _) = acme_beside_an_entry_of_another_address(store.clone()).await;
+    let url = format!("http://127.0.0.1:{port}/mcp");
 
     let session = hub.login_flow("acme", AccountMode::Connect).unwrap().start().await.unwrap();
     authorize(session.as_ref(), &shared, port).await;
@@ -1287,16 +1289,8 @@ async fn a_sign_in_replaces_an_entry_stored_for_another_address() {
 async fn a_sign_in_rolled_back_puts_back_the_entry_of_another_address() {
     let _seams = crate::oauth_seams().await;
     let store = Arc::new(MemoryStore::default());
-    let (_dir, hub, shared, port) = hub_at_the_test_server(store.clone()).await;
+    let (_dir, hub, shared, port, account, elsewhere) = acme_beside_an_entry_of_another_address(store.clone()).await;
     let url = format!("http://127.0.0.1:{port}/mcp");
-    let config = McpServerConfig::from_entry("acme", &json!({"url": url}), &Default::default()).unwrap();
-    let account = account_of(&config.oauth.as_ref().unwrap().credential_key);
-    let elsewhere = json!({"url": "http://127.0.0.1:1/elsewhere", "revision": "r0", "tokens": {"access_token": "theirs"}});
-    store.set(&account, &elsewhere.to_string()).await.unwrap();
-    hub.apply(vec![config]);
-    let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
     let stored = || async { serde_json::from_str::<Value>(&store.get(&account).await.unwrap().expect("an entry is stored")).unwrap() };
 
     let oauth = hub.oauth("acme").unwrap();
@@ -1372,8 +1366,7 @@ async fn signed_in(store: Arc<dyn SecretStore>) -> (tempfile::TempDir, Arc<McpHu
     let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
     hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
     let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     let oauth = hub.oauth("acme").unwrap();
     let session = oauth.login_flow("acme", AccountMode::Connect).start().await.unwrap();
     authorize(session.as_ref(), &shared, port).await;
@@ -1635,8 +1628,7 @@ async fn a_sign_in_that_could_not_be_stored_is_still_the_one_connections_were_op
     let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
     hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
     let server = hub.server("acme").unwrap();
-    let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    until_failed(&server).await;
     let oauth = hub.oauth("acme").unwrap();
     let session = oauth.login_flow("acme", AccountMode::Connect).start().await.unwrap();
     authorize(session.as_ref(), &shared, port).await;
@@ -1668,10 +1660,7 @@ async fn a_signed_out_accounts_connection_is_ended_by_the_reconnect_that_follows
     let runtime = Runtime::new(one_account).await;
     let linear = work_signed_in(&runtime, one_account).await;
     let work = linear.account_server("work").unwrap();
-    let opened = match &*work.state() {
-        ServerState::Ready(ready) => Arc::clone(&ready.client),
-        other => panic!("{}", other.describe()),
-    };
+    let opened = client_of(&work);
 
     runtime.glue.hub().oauth_in("a", "work").unwrap().sign_out(false).await.unwrap();
     runtime.glue.scope_runtime().run("a", Op::Only("linear".to_owned(), true)).await;

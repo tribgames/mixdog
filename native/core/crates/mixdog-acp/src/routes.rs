@@ -1,5 +1,5 @@
-//! A route on an agent, for the services that adopt and list routes: the agent is no provider of
-//! the catalog, so what those services ask the catalog is answered here for an agent's route.
+//! A route on an agent, for every reader of a route: the agent is no provider of the catalog or the registry, so what
+//! those readers ask of a route's provider is answered here for an agent's route.
 
 use std::sync::Arc;
 
@@ -13,6 +13,9 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
 use mixdog_core_ports::ports::route::Route;
+use mixdog_core_ports::ports::route_facts::AgentAnswer;
+use mixdog_core_ports::ports::route_facts::AgentAsk;
+use mixdog_core_ports::ports::route_facts::RouteSender;
 use mixdog_core_ports::ports::route_write::RouteWriter;
 use mixdog_protocol::ThreadId;
 use mixdog_tools::orch::util::PortError;
@@ -20,6 +23,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 use crate::agents::Agents;
+use crate::preset::AgentPreset;
 
 /// [`RouteFacts`] that knows the agents' routes; every other provider is the catalog's.
 pub struct AgentRouteFacts {
@@ -35,9 +39,14 @@ impl RouteFacts for AgentRouteFacts {
         self.agents.preset_of_route(provider).is_some() || self.inner.is_known(provider, config)
     }
 
+    /// As a provider's readiness waits for its initialization, an agent's waits for the check of its CLI that runs, or
+    /// that it starts, and then says whether a route on it can be chosen.
     async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
         match self.agents.preset_of_route(provider) {
-            Some(preset) => self.agents.selectable(preset).map_err(|refusal| refusal.message(preset)),
+            Some(preset) => {
+                self.agents.ready_program(preset).await.map(drop).map_err(|refusal| refusal.message(preset))?;
+                self.agents.selectable(preset).map_err(|refusal| refusal.message(preset))
+            }
             None => self.inner.ensure_ready(config, provider).await,
         }
     }
@@ -74,10 +83,55 @@ impl RouteFacts for AgentRouteFacts {
     fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
         self.agents.preset_of_route(provider).is_none() && self.inner.ultrafast_capable(provider, meta)
     }
+
+    /// A one-shot request on an agent's route is the agent's to answer; the agent is readied by the question itself,
+    /// as a turn on it is.
+    async fn sender(&self, providers: Option<&Map<String, Value>>, provider: &str) -> Result<Option<RouteSender>, String> {
+        match self.agents.preset_of_route(provider) {
+            Some(preset) => Ok(Some(RouteSender::Agent(Arc::new(AgentQuestion { agents: self.agents.clone(), preset: preset.clone() })))),
+            None => self.inner.sender(providers, provider).await,
+        }
+    }
+
+    fn registered(&self, provider: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
+        self.agents.preset_of_route(provider).is_none().then(|| self.inner.registered(provider)).flatten()
+    }
+
+    fn init_error(&self, provider: &str) -> Option<String> {
+        self.agents.preset_of_route(provider).is_none().then(|| self.inner.init_error(provider)).flatten()
+    }
 }
 
-/// [`RouteWriter`] that leaves an agent's route as it was adopted: it has no effort, Fast or
-/// window fields to fill from a model row, and no provider usage to read.
+/// One question for the agent of a route, outside every conversation.
+struct AgentQuestion {
+    agents: Arc<Agents>,
+    preset: AgentPreset,
+}
+
+#[async_trait]
+impl AgentAsk for AgentQuestion {
+    async fn ask(&self, model: &str, system: &str, prompt: &str) -> Result<AgentAnswer, String> {
+        use mixdog_core_session::session::Clock as _;
+        let now_ms = Arc::new(|| mixdog_core_session::session::SystemClock.now_ms());
+        let answered = crate::runs::ask_once(&self.agents, &self.preset, model, system, prompt, now_ms).await?;
+        let input_excludes_cache = answered.usage.as_ref().is_some_and(crate::surface::input_excludes_cache);
+        Ok(AgentAnswer {
+            text: answered.text,
+            stop_reason: answered.stop_reason,
+            usage: answered.usage.map(|usage| mixdog_core_api::domain::provider::Usage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_read_tokens: usage.cached_read_tokens,
+                reasoning_tokens: usage.thought_tokens,
+                ..Default::default()
+            }),
+            input_excludes_cache,
+        })
+    }
+}
+
+/// [`RouteWriter`] for a session that may be on an agent's route: leaving the agent's route ends the agent's process,
+/// and an agent's route has no provider usage to read.
 pub struct AgentRouteWriter {
     pub inner: Arc<dyn RouteWriter>,
     pub agents: Arc<Agents>,
@@ -115,13 +169,6 @@ impl RouteWriter for AgentRouteWriter {
         guard_supersede: bool,
         lease: Option<u64>,
     ) -> Result<Option<Route>, PortError> {
-        let route = self.inner.route(thread);
-        // An agent's model with no efforts of its own has nothing to fill; one the agent runs at several is filled
-        // from its row as a provider's is.
-        let efforts = meta.as_ref().and_then(|meta| meta.get("reasoningLevels")).and_then(Value::as_array).is_some_and(|levels| !levels.is_empty());
-        if self.on_agent(&route) && !efforts {
-            return Ok(Some(route));
-        }
         self.inner.refresh_route_effort(thread, meta, guard_supersede, lease).await
     }
 

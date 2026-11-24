@@ -32,5 +32,9 @@ export function clientFailureText(detail: ClientErrorDetail, t: (key: string) =>
       return t('This content is damaged and could not be read.');
     case 'protocolViolation':
       return t('Mixdog sent an answer this app could not read. Try again.');
+    default: {
+      const unhandled: never = detail;
+      return unhandled;
+    }
   }
 }

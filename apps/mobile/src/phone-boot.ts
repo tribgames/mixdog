@@ -75,6 +75,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   let phone: PhoneClient | undefined;
   // The link of a first connection still being dialed: the page lifecycle reaches it before `phone` exists.
   let dialLink: PhoneClient['link'] | undefined;
+  const currentLink = (): PhoneClient['link'] | undefined => phone?.link ?? dialLink;
   let starting: Promise<PhoneClient> | undefined;
   let view: ViewManager | undefined;
   let lanes: LaneFeeds | undefined;
@@ -392,7 +393,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   let frozen = false;
   const beginBackgroundGrace = (): void => {
-    (phone?.link ?? dialLink)?.hidden();
+    currentLink()?.hidden();
     resyncOnWake = true;
     if (!env.suspendApplies()) return;
     if (!background) {
@@ -411,7 +412,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     ctx.backgroundSuspended = true;
     resyncOnWake = true;
     setRemoteConnectionState('connecting');
-    (phone?.link ?? dialLink)?.suspend();
+    currentLink()?.suspend();
   };
   const wake = (event?: Event): void => {
     if (versionRefused) return;
@@ -494,7 +495,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       lanes?.declare(lane, feedIds);
     },
     get link() {
-      return phone?.link;
+      return currentLink();
     },
   };
 }

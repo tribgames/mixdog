@@ -2,8 +2,15 @@
 //! (`vendor/statusline/bin/statusline-route.mjs`): `loadGatewayStatus` (the route a session shows: its own
 //! stored route, the config's gateway route or the one inherited from Claude Code, with the context window
 //! of the model and the cached provider quota), `compactBoundaryForStatus`, `cachedQuotaWindowsFallback` and
-//! `formatGatewayLimitSegments`. The files are read by the caller and handed in parsed.
+//! `formatGatewayLimitSegments`. The files are read by the caller and handed in parsed; the account credentials a cached
+//! quota is shown for are read through the caller's [`StatusWorld`].
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::Path;
+
+use mixdog_ai::accounts::slot_stamp;
+use mixdog_ai::service::oauth_usage::reading_belongs;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::json_number;
@@ -26,7 +33,7 @@ use super::statusline_claude::is_mixdog_model_selection;
 use super::statusline_claude::num;
 use super::statusline_claude::strip_claude_context_suffix;
 
-/// What the status reads of the model catalog, the cached model rosters and Claude Code.
+/// What the status reads of the model catalog, the cached model rosters, Claude Code and the account credentials.
 pub trait StatusWorld {
     /// `getModelMetadataSync(model, provider)`.
     fn catalog_meta(&self, model: &str, provider: &str) -> Option<Map<String, Value>>;
@@ -34,6 +41,10 @@ pub trait StatusWorld {
     fn cached_model(&self, provider: &str, model: &str) -> Option<Value>;
     /// `readClaudeCodeCurrentRoute()`.
     fn inherited_route(&self) -> ClaudeRoute;
+    /// The text of the file at `path`, an account slot's credential file; `None` when it cannot be read.
+    fn credential_text(&self, path: &Path) -> Option<String>;
+    /// The environment variable `name`: where a provider's own credential file is, and the credential standing in for one.
+    fn var(&self, name: &str) -> Option<String>;
 }
 
 /// `loadGatewayStatus`'s options and the files it reads.
@@ -56,6 +67,10 @@ pub struct StatusInput<'a> {
     pub active_context_tokens: Option<f64>,
     /// When this process started (epoch ms): a cached quota older than it is a previous launch's.
     pub process_started_at_ms: f64,
+    /// The data folder whose account credentials a cached quota is shown for.
+    pub data_dir: &'a Path,
+    /// `Date.now()`: whether a stored credential is still a sign-in.
+    pub now: f64,
 }
 
 fn clean(value: Option<&Value>) -> String {
@@ -403,9 +418,16 @@ fn statusline_display_for_model(provider: &str, model: &str, info: &Value, prefe
 
 /// `cachedQuotaWindowsFallback(provider, model)`: OAuth quota belongs to the account, not the model: the route's own
 /// cache entry, else the provider's, else the freshest entry of the same provider, so a model switch keeps showing
-/// the quota until the next live fetch. A snapshot older than this process is a previous launch's and is not shown.
-/// Returns the windows with the entry's `cachedAt`, for a caller that never lets an older snapshot displace a newer.
-pub fn cached_quota_windows_fallback(cache: Option<&Value>, provider: &str, model: &str, process_started_at_ms: f64) -> (Vec<Value>, f64) {
+/// the quota until the next live fetch. A snapshot older than this process is a previous launch's and is not shown, nor
+/// one `shown` refuses ([`quota_shown`]). Returns the windows with the entry's `cachedAt`, for a caller that never lets an
+/// older snapshot displace a newer.
+pub fn cached_quota_windows_fallback(
+    cache: Option<&Value>,
+    provider: &str,
+    model: &str,
+    process_started_at_ms: f64,
+    shown: &dyn Fn(&Value) -> bool,
+) -> (Vec<Value>, f64) {
     let none = (Vec::new(), 0.0);
     if provider.is_empty() || model.is_empty() {
         return none;
@@ -413,10 +435,12 @@ pub fn cached_quota_windows_fallback(cache: Option<&Value>, provider: &str, mode
     let Some(routes) = cache.and_then(|cache| cache.get("routes")).and_then(Value::as_object) else { return none };
     let provider_key = js_to_lowercase(provider);
     let route_key = format!("{provider_key}{model}");
-    let truthy_entry = |key: &str| routes.get(key).filter(|entry| truthy(Some(entry)));
+    let truthy_entry = |key: &str| routes.get(key).filter(|entry| truthy(Some(entry)) && shown(entry));
     let entry = truthy_entry(&route_key).or_else(|| truthy_entry(&provider_key)).or_else(|| {
-        let mut same: Vec<(&String, &Value)> =
-            routes.iter().filter(|(key, value)| key.starts_with(&provider_key) && value.get("quotaWindows").is_some_and(Value::is_array)).collect();
+        let mut same: Vec<(&String, &Value)> = routes
+            .iter()
+            .filter(|(key, value)| key.starts_with(&provider_key) && value.get("quotaWindows").is_some_and(Value::is_array) && shown(value))
+            .collect();
         mixdog_js::js_sort_by(&mut same, |a, b| {
             let at = |entry: &Value| {
                 let n = to_number(entry.get("cachedAt").unwrap_or(&Value::Null));
@@ -432,6 +456,19 @@ pub fn cached_quota_windows_fallback(cache: Option<&Value>, provider: &str, mode
         return none;
     }
     (windows.clone(), cached_at)
+}
+
+/// Whether a cached reading of `provider` may be shown: [`reading_belongs`] against the sign-in in force now for the slot
+/// it was measured for (its `accountId`), as this reader's own files and environment hold it ([`slot_stamp`]). `stamps`
+/// keeps each slot's for the rest of the status.
+fn quota_shown(world: &dyn StatusWorld, input: &StatusInput<'_>, provider: &str, entry: &Value, stamps: &RefCell<HashMap<String, Option<String>>>) -> bool {
+    let slot = entry.get("accountId").and_then(Value::as_str).unwrap_or("default");
+    let current = stamps
+        .borrow_mut()
+        .entry(slot.to_owned())
+        .or_insert_with(|| slot_stamp(input.data_dir, provider, slot, &|name| world.var(name), &|path| world.credential_text(path), input.now))
+        .clone();
+    reading_belongs(provider, entry, current.as_deref())
 }
 
 fn adopt_current_route(gateway: &mut Map<String, Value>, current: Option<&Value>, provider: &str, model: &str) {
@@ -605,7 +642,9 @@ pub fn load_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -> 
     let mut status = configured_gateway_status(world, input)?;
     let provider = clean(status.get("provider"));
     let model = clean(status.get("model"));
-    let (windows, cached_at) = cached_quota_windows_fallback(input.quota_cache, &provider, &model, input.process_started_at_ms);
+    let (quota_provider, stamps) = (js_to_lowercase(&provider), RefCell::default());
+    let shown = |entry: &Value| quota_shown(world, input, &quota_provider, entry, &stamps);
+    let (windows, cached_at) = cached_quota_windows_fallback(input.quota_cache, &provider, &model, input.process_started_at_ms, &shown);
     let boundary = compact_boundary_for_status(&Value::Object(status.clone()), &Value::Null);
     let used = pct_of(input.active_context_tokens, boundary);
     status.insert("contextUsedPct".into(), used.map_or(Value::Null, json_number));
@@ -670,9 +709,17 @@ mod tests {
     struct World {
         meta: Option<Map<String, Value>>,
         cached: Option<Value>,
+        /// The credential files, by path.
+        files: std::sync::Mutex<HashMap<std::path::PathBuf, String>>,
     }
 
     impl StatusWorld for World {
+        fn credential_text(&self, path: &Path) -> Option<String> {
+            self.files.lock().unwrap().get(path).cloned()
+        }
+        fn var(&self, _name: &str) -> Option<String> {
+            None
+        }
         fn catalog_meta(&self, _model: &str, _provider: &str) -> Option<Map<String, Value>> {
             self.meta.clone()
         }
@@ -695,7 +742,7 @@ mod tests {
     }
 
     fn world() -> World {
-        World { meta: None, cached: None }
+        World { meta: None, cached: None, files: Default::default() }
     }
 
     fn input<'a>(config: Option<&'a Value>, routes: &'a Value) -> StatusInput<'a> {
@@ -709,6 +756,8 @@ mod tests {
             current_route: None,
             active_context_tokens: None,
             process_started_at_ms: 1000.0,
+            data_dir: Path::new("data"),
+            now: 2000.0,
         }
     }
 
@@ -718,6 +767,7 @@ mod tests {
         let world = World {
             meta: Some(serde_json::from_value(json!({ "contextWindow": 400000 })).unwrap()),
             cached: Some(json!({ "contextWindow": 272000, "outputTokens": 128000 })),
+            files: Default::default(),
         };
         let routes = json!({});
         let mut input = input(Some(&config), &routes);
@@ -832,11 +882,38 @@ mod tests {
             "openai-oauthgpt-4": { "cachedAt": 6000, "quotaWindows": [{ "label": "OLD" }] },
             "openai-oauthgpt-3": { "cachedAt": 9000, "quotaWindows": [{ "label": "NEW" }] },
         } });
-        assert_eq!(cached_quota_windows_fallback(Some(&cache), "openai-oauth", "gpt-5", 1000.0), (vec![json!({ "label": "5H" })], 5000.0));
-        assert_eq!(cached_quota_windows_fallback(Some(&cache), "openai-oauth", "gpt-9", 1000.0).0, vec![json!({ "label": "NEW" })]);
+        let all = |_: &Value| true;
+        assert_eq!(cached_quota_windows_fallback(Some(&cache), "openai-oauth", "gpt-5", 1000.0, &all), (vec![json!({ "label": "5H" })], 5000.0));
+        assert_eq!(cached_quota_windows_fallback(Some(&cache), "openai-oauth", "gpt-9", 1000.0, &all).0, vec![json!({ "label": "NEW" })]);
         // A snapshot from before this process started is a previous launch's.
-        assert_eq!(cached_quota_windows_fallback(Some(&cache), "openai-oauth", "gpt-5", 5001.0), (Vec::new(), 0.0));
-        assert_eq!(cached_quota_windows_fallback(None, "openai-oauth", "gpt-5", 0.0), (Vec::new(), 0.0));
+        assert_eq!(cached_quota_windows_fallback(Some(&cache), "openai-oauth", "gpt-5", 5001.0, &all), (Vec::new(), 0.0));
+        assert_eq!(cached_quota_windows_fallback(None, "openai-oauth", "gpt-5", 0.0, &all), (Vec::new(), 0.0));
+    }
+
+    /// The footer's cached quota is the account's that is signed in on the slot now: another user signing in on the slot, or
+    /// the credential file deleted, leaves the previous account's figures unshown, by the stamp they were saved with.
+    #[test]
+    fn a_cached_quota_is_not_shown_after_another_sign_in_or_a_deleted_credential() {
+        let login = |user: &str| json!({ "claudeAiOauth": { "accessToken": format!("token-of-{user}"), "refreshToken": "r", "scopes": ["user:inference"], "identity": { "id": user } } });
+        let stamp = mixdog_ai::service::oauth_usage::credential_stamp("anthropic-oauth", login("user-1")["claudeAiOauth"].as_object().unwrap()).unwrap();
+        let cache = json!({ "routes": { "anthropic-oauth": {
+            "provider": "anthropic-oauth", "accountId": "default", "cachedAt": 1500, "credentialStamp": stamp, "quotaWindows": [{ "label": "5h", "usedPct": 40 }]
+        } } });
+        let world = world();
+        let file = Path::new("data").join("anthropic-oauth-credentials.json");
+        let routes = json!({});
+        let current = json!({ "provider": "anthropic-oauth", "model": "claude-x" });
+        let mut input = input(None, &routes);
+        input.current_route = Some(&current);
+        input.quota_cache = Some(&cache);
+        let windows = |world: &World| load_gateway_status(world, &input).unwrap()["quotaWindows"].clone();
+
+        world.files.lock().unwrap().insert(file.clone(), login("user-1").to_string());
+        assert_eq!(windows(&world), json!([{ "label": "5h", "usedPct": 40 }]), "the account the reading was measured for");
+        world.files.lock().unwrap().insert(file.clone(), login("user-2").to_string());
+        assert_eq!(windows(&world), json!([]), "another user signed in on the slot");
+        world.files.lock().unwrap().remove(&file);
+        assert_eq!(windows(&world), json!([]), "a deleted credential file");
     }
 
     fn plain<'a>(cols: u32, now: f64) -> SegmentFormat<'a> {

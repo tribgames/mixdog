@@ -1,8 +1,8 @@
-//! The `hop_host` seam of `SessionSeams`: [`HopHost`] over the provider registry and the wires,
+//! The `hop_host` seam of `SessionSeams`: [`HopHost`] over the route facts and the wires,
 //! the way Node's `advanceAgentRoute` (`session/loop/route-fallback.mjs`) resolves the next
 //! provider.
 //!
-//! What it reads: the next provider comes from the registry after `initProviders(
+//! What it reads: the next provider comes from the route facts after `initProviders(
 //! ensureProviderEnabled(config, name))`; a model's window from `resolveSessionContextMeta`; its
 //! name in a notice from `displayModelName`. What it writes goes through [`HopSession`], the
 //! session's own side (WP-SESSION): one header update carrying the new route and the four
@@ -19,7 +19,6 @@ use async_trait::async_trait;
 use mixdog_agent::effort::EffortWiring;
 use mixdog_agent::text_only::TextOnlyInput;
 use mixdog_ai::catalog::CatalogService;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::admin_route::ensure_provider_enabled;
 use mixdog_core_api::domain::provider::{ProviderAdapter, ProviderError, WireRouteContext};
 use mixdog_core_api::ids::ThreadId;
@@ -32,6 +31,7 @@ use super::route_chain::BotRoutes;
 use super::route_fallback::{HopHost, HopWrite, RouteEligibility};
 use super::session_context_meta::session_context_meta;
 use mixdog_core_ports::ports::domain_sessions::Obj;
+use mixdog_core_ports::ports::route_facts::{RouteFacts, RouteSender};
 
 /// The session side of a hop, bound to one thread. Owner: WP-SESSION.
 #[async_trait]
@@ -70,7 +70,8 @@ pub type ErrorText = Arc<dyn Fn(&ProviderError) -> String + Send + Sync>;
 /// Everything a hop reads that is not the session.
 #[derive(Clone)]
 pub struct HopDeps {
-    pub registry: Arc<ProviderRegistry>,
+    /// What a route's provider is, an agent's route included: the hop reaches no provider but through these.
+    pub facts: Arc<dyn RouteFacts>,
     pub catalog: Arc<CatalogService>,
     pub config: ConfigSnapshot,
     pub bots: Arc<dyn BotRoutes + Send + Sync>,
@@ -86,17 +87,18 @@ pub trait RouteEligibilitySource: Send + Sync {
 }
 
 /// Read the same adapter and account selection policy that would send the route. A cold or
-/// superseded registration is not evidence about the configured destination.
-pub struct RegistryEligibility(pub Arc<ProviderRegistry>);
+/// superseded registration is not evidence about the configured destination, and a route an agent
+/// serves has no adapter to read.
+pub struct RegisteredEligibility(pub Arc<dyn RouteFacts>);
 
 #[async_trait]
-impl RouteEligibilitySource for RegistryEligibility {
+impl RouteEligibilitySource for RegisteredEligibility {
     async fn eligibility(&self, provider: &str, model: &str) -> RouteEligibility {
-        let Some(adapter) = self.0.registered_for_route(provider) else {
+        let Some(adapter) = self.0.registered(provider) else {
             return RouteEligibility::Unknown;
         };
         let verdict = adapter.quota_eligibility(model).await;
-        if !self.0.registered_for_route(provider).is_some_and(|current| Arc::ptr_eq(&current, &adapter)) {
+        if !self.0.registered(provider).is_some_and(|current| Arc::ptr_eq(&current, &adapter)) {
             return RouteEligibility::Unknown;
         }
         match verdict {
@@ -234,15 +236,15 @@ impl HopHost for RegistryHopHost {
         (self.deps.errors)(error)
     }
 
-    /// `await initProviders(...)` (`route-fallback.mjs:78,107`) has no catch: its error escapes.
+    /// `await initProviders(...)` (`route-fallback.mjs:78,107`) has no catch: its error escapes. A route an agent
+    /// serves has no provider a run in the loop can take, so the hop passes over it as over one that is not there.
     async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
         let providers = ensure_provider_enabled(&self.config(), provider);
-        self.deps.registry.init_providers(&providers).await.map_err(|e| e.message)?;
-        self.deps.registry.try_get(provider).await.map_err(|e| e.message)
+        Ok(self.deps.facts.sender(Some(&providers), provider).await?.and_then(RouteSender::adapter))
     }
 
     async fn unavailable_cause(&self, provider: &str) -> (Option<String>, bool) {
-        (self.deps.registry.init_errors().get(provider).cloned(), mixdog_ai::service::admin_route::provider_switched_off(&self.config(), provider))
+        (self.deps.facts.init_error(provider), mixdog_ai::service::admin_route::provider_switched_off(&self.config(), provider))
     }
 
     fn raw_context_window(&self, provider: &str, model: &str, route: &Value) -> Option<u64> {
@@ -259,7 +261,7 @@ impl HopHost for RegistryHopHost {
             return Ok(None);
         };
         let mut updated = Value::Object(written);
-        if let Some(adapter) = self.deps.registry.registered(&provider)
+        if let Some(adapter) = self.deps.facts.registered(&provider)
             && let Some(pin) = self.wire_pin(&updated, &*adapter).await
         {
             self.session.write_wire_pin(pin.clone()).await.map_err(|e| port_message(&e))?;

@@ -9,6 +9,8 @@ use std::sync::Mutex;
 use std::sync::Weak;
 
 use async_trait::async_trait;
+use mixdog_acp::agents::AccountEvent;
+use mixdog_acp::agents::AccountTold;
 use mixdog_acp::agents::Agents;
 use mixdog_acp::agents::report_windows;
 use mixdog_acp::preset::AgentPreset;
@@ -48,6 +50,9 @@ pub trait AgentQuotas: Send + Sync {
     fn reports(&self, preset: &AgentPreset) -> bool;
     /// The CLI's report (its `command.data`); `None` while it cannot be asked.
     async fn read(&self, preset: &AgentPreset) -> Option<Result<Value, String>>;
+    /// `told` is called with an agent's preset id when the account its CLI is signed in with may no longer be the
+    /// one its quota was read of (a sign-in, a sign-out, the feature turned off), and when its CLI becomes askable.
+    fn on_account_change(&self, told: Arc<AccountTold>);
 }
 
 #[async_trait]
@@ -62,6 +67,10 @@ impl AgentQuotas for Arc<Agents> {
 
     async fn read(&self, preset: &AgentPreset) -> Option<Result<Value, String>> {
         self.usage(preset).await
+    }
+
+    fn on_account_change(&self, told: Arc<AccountTold>) {
+        self.bind_account_change(told);
     }
 }
 
@@ -78,6 +87,9 @@ pub struct AgentUsage {
     known: Mutex<HashMap<String, Known>>,
     /// The providers' dashboard last answered: a read that ends later is published with it.
     providers: Mutex<Option<Value>>,
+    /// How many reads have ended, their answers dealt with.
+    #[cfg(test)]
+    reads_ended: tokio::sync::watch::Sender<usize>,
 }
 
 /// What is known of one agent's quota.
@@ -89,6 +101,8 @@ struct Known {
     failure: Option<String>,
     /// A read of the CLI's report runs; no other is started meanwhile.
     asking: bool,
+    /// Counts the account changes: a read begun under an earlier count is of an account that was left.
+    epoch: u64,
 }
 
 /// Whether a dashboard asks an agent's CLI for its report.
@@ -157,7 +171,65 @@ impl AgentUsage {
         now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
         publisher: Arc<dyn StatePublisher>,
     ) -> Arc<Self> {
-        Arc::new_cyclic(|me| Self { inner, quotas, history, now_ms, publisher, me: me.clone(), known: Mutex::default(), providers: Mutex::default() })
+        let usage = Arc::new_cyclic(|me| Self {
+            inner,
+            quotas,
+            history,
+            now_ms,
+            publisher,
+            me: me.clone(),
+            known: Mutex::default(),
+            providers: Mutex::default(),
+            #[cfg(test)]
+            reads_ended: tokio::sync::watch::channel(0).0,
+        });
+        let me = Arc::downgrade(&usage);
+        usage.quotas.on_account_change(Arc::new(move |id, event| {
+            if let Some(usage) = me.upgrade() {
+                usage.account_changed(id, event);
+            }
+        }));
+        usage
+    }
+
+    /// The agent `id`'s account, or its CLI's readiness, changed. `Left` and `SignedIn`: what is known of the account
+    /// before is withdrawn and published and the reads begun before are not kept; `SignedIn` and `Askable` read the
+    /// quota now (a CLI found ready is asked at once, not at the next dashboard).
+    fn account_changed(&self, id: &str, event: AccountEvent) {
+        if event != AccountEvent::Askable {
+            let withdrawn = {
+                let mut known = self.known();
+                let known = known.entry(id.to_owned()).or_default();
+                known.epoch += 1;
+                known.asking = false;
+                known.reading.take().is_some() | known.failure.take().is_some()
+            };
+            if withdrawn {
+                self.publish();
+            }
+        }
+        if event != AccountEvent::Left
+            && let Some(preset) = self.quotas.presets().into_iter().find(|preset| preset.id == id)
+        {
+            self.retake(&preset);
+        }
+    }
+
+    /// Starts a read of `preset` if it has a quota to report and none is running.
+    fn retake(&self, preset: &AgentPreset) {
+        if preset.usage.is_none() || !self.quotas.reports(preset) {
+            return;
+        }
+        let epoch = {
+            let mut known = self.known();
+            let known = known.entry(preset.id.clone()).or_default();
+            if known.asking {
+                return;
+            }
+            known.asking = true;
+            known.epoch
+        };
+        self.ask(preset, epoch);
     }
 
     /// A reading enters the quota history the usage window draws, as a provider account's does. The CLI holds one
@@ -225,78 +297,89 @@ impl AgentUsage {
     }
 
     /// `preset`'s entry for a dashboard whose provider rows are `rows`, from what is known now; `None` for an agent
-    /// with no quota to show (off, signed out, nothing read yet) and for an account a provider's entry already shows.
+    /// with no quota to show (nothing read yet, or withdrawn when the account was left). An account a provider's entry already shows is
+    /// marked with that provider's id as `sameQuotaAs`.
     fn entry(&self, preset: &AgentPreset, ask: Ask, rows: &[Value]) -> Option<Value> {
         let report = preset.usage.as_ref()?;
         let reports = self.quotas.reports(preset);
-        let (start, read, failure) = {
+        let (start, epoch, read, failure) = {
             let mut known = self.known();
             let known = known.entry(preset.id.clone()).or_default();
-            if !reports {
-                // A read still running is not doubled when the agent comes back; it ends with nothing to keep.
-                (known.reading, known.failure) = (None, None);
-                return None;
-            }
-            let wanted = match ask {
-                Ask::Nobody => false,
-                Ask::Once => known.reading.is_none() && known.failure.is_none(),
-                Ask::Again => true,
-            };
+            // What is held belongs to the account until an event says it left (`account_changed`): a CLI that cannot
+            // be asked for a moment leaves the entry as it was, and only a CLI that can be asked is read.
+            let wanted = reports
+                && match ask {
+                    Ask::Nobody => false,
+                    Ask::Once => known.reading.is_none() && known.failure.is_none(),
+                    Ask::Again => true,
+                };
             let start = wanted && !known.asking;
             known.asking |= start;
-            (start, known.reading.clone(), known.failure.clone())
+            (start, known.epoch, known.reading.clone(), known.failure.clone())
         };
         if start {
-            self.ask(preset);
+            self.ask(preset, epoch);
         }
         if read.is_none() && failure.is_none() {
             return None;
         }
         let (read_at, windows) = read.map_or((None, Vec::new()), |(at, windows)| (Some(at), windows));
-        let shown_by_provider = report.same_quota_as.as_deref().is_some_and(|provider| {
+        let shown_by = report.same_quota_as.as_deref().filter(|provider| {
             let theirs =
                 rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(provider)).and_then(|row| row.get("windows")).and_then(Value::as_array);
             theirs.is_some_and(|theirs| same_account(&windows, theirs))
         });
-        (!shown_by_provider).then(|| entry(preset, windows, read_at, failure.as_deref()))
+        let mut row = entry(preset, windows, read_at, failure.as_deref());
+        if let (Some(provider), Some(row)) = (shown_by, row.as_object_mut()) {
+            row.insert("sameQuotaAs".to_owned(), provider.into());
+        }
+        Some(row)
     }
 
     /// Reads `preset`'s report on its own task; what it finds is published when it ends.
-    fn ask(&self, preset: &AgentPreset) {
+    fn ask(&self, preset: &AgentPreset, epoch: u64) {
         let (me, preset) = (self.me.clone(), preset.clone());
         drop(mixdog_rt::spawn("acp.usage", TaskClass::Work, async move {
             let Some(usage) = me.upgrade() else { return };
             let answer = usage.quotas.read(&preset).await;
-            usage.answered(&preset, answer).await;
+            usage.answered(&preset, epoch, answer).await;
+            #[cfg(test)]
+            usage.reads_ended.send_modify(|ended| *ended += 1);
         }));
     }
 
-    async fn answered(&self, preset: &AgentPreset, answer: Option<Result<Value, String>>) {
+    /// The end of a read begun under `epoch`: kept only if the account has not changed since.
+    async fn answered(&self, preset: &AgentPreset, epoch: u64, answer: Option<Result<Value, String>>) {
         let found = match answer {
             Some(Ok(report)) => Some(Ok(((self.now_ms)(), windows_of(&report)))),
             Some(Err(why)) => {
                 tracing::warn!("[usage] {} did not report its quota: {why}", preset.label);
                 Some(Err(why))
             }
-            // The CLI could not be asked (off, signed out, being checked): nothing was learned.
-            None => None,
+            // The CLI could not be asked (off, signed out, being checked): nothing was learned, and the read that
+            // makes it askable follows the check that ends (`AccountEvent::Askable`).
+            None => {
+                tracing::info!("[usage] {} could not be asked its quota now", preset.label);
+                None
+            }
         };
-        // An agent turned off or signed out meanwhile keeps nothing of the account it left.
-        let reports = self.quotas.reports(preset);
         let kept = {
             let mut known = self.known();
             let known = known.entry(preset.id.clone()).or_default();
+            if known.epoch != epoch {
+                return;
+            }
             known.asking = false;
             match &found {
-                Some(Ok(read)) if reports => {
+                Some(Ok(read)) => {
                     (known.reading, known.failure) = (Some(read.clone()), None);
                     true
                 }
-                Some(Err(why)) if reports => {
+                Some(Err(why)) => {
                     known.failure = Some(why.clone());
                     true
                 }
-                _ => false,
+                None => false,
             }
         };
         if !kept {
@@ -381,7 +464,6 @@ impl DomainService for AgentUsage {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
@@ -419,8 +501,11 @@ mod tests {
     struct Cli {
         signed_in: AtomicBool,
         report: Mutex<Result<Value, String>>,
-        asked: AtomicUsize,
+        /// Reads asked, each counted once it has taken the report it answers.
+        asked: watch::Sender<usize>,
         answers: watch::Sender<bool>,
+        /// What the core told to hear of an account change.
+        told: Mutex<Option<Arc<AccountTold>>>,
     }
 
     #[async_trait]
@@ -434,9 +519,14 @@ mod tests {
         }
 
         async fn read(&self, _: &AgentPreset) -> Option<Result<Value, String>> {
-            self.asked.fetch_add(1, Ordering::SeqCst);
+            let report = self.report.lock().unwrap().clone();
+            self.asked.send_modify(|asked| *asked += 1);
             let _ = self.answers.subscribe().wait_for(|open| *open).await;
-            Some(self.report.lock().unwrap().clone())
+            Some(report)
+        }
+
+        fn on_account_change(&self, told: Arc<AccountTold>) {
+            *self.told.lock().unwrap() = Some(told);
         }
     }
 
@@ -501,8 +591,13 @@ mod tests {
 
     fn rig(providers: Vec<Value>) -> Rig {
         mixdog_rt::testing::tokens();
-        let cli =
-            Arc::new(Cli { signed_in: AtomicBool::new(true), report: Mutex::new(Ok(report())), asked: AtomicUsize::new(0), answers: watch::channel(true).0 });
+        let cli = Arc::new(Cli {
+            signed_in: AtomicBool::new(true),
+            report: Mutex::new(Ok(report())),
+            asked: watch::channel(0).0,
+            answers: watch::channel(true).0,
+            told: Mutex::new(None),
+        });
         let history = Arc::new(History::default());
         let section = Arc::new(Section(watch::channel(Vec::new()).0));
         let providers = Arc::new(Providers(Mutex::new(json!({ "rows": providers }))));
@@ -512,7 +607,27 @@ mod tests {
 
     impl Rig {
         fn asked(&self) -> usize {
-            self.cli.asked.load(Ordering::SeqCst)
+            *self.cli.asked.borrow()
+        }
+
+        /// The core is told the agent's account may have changed.
+        fn account_changed(&self, event: AccountEvent) {
+            let told = self.cli.told.lock().unwrap().clone().expect("the core to ask to be told");
+            told("antigravity", event);
+        }
+
+        /// Waits until `n` reads have been asked of the CLI.
+        async fn asked_to_reach(&self, n: usize) {
+            let mut asked = self.cli.asked.subscribe();
+            let reached = mixdog_rt::time::timeout(Duration::from_secs(10), asked.wait_for(|asked| *asked >= n)).await;
+            reached.expect("the reads to start").expect("the CLI");
+        }
+
+        /// Waits until `n` reads have ended, each with its answer dealt with.
+        async fn ended_to_reach(&self, n: usize) {
+            let mut ended = self.usage.reads_ended.subscribe();
+            let reached = mixdog_rt::time::timeout(Duration::from_secs(10), ended.wait_for(|ended| *ended >= n)).await;
+            reached.expect("the reads to end").expect("the usage");
         }
 
         /// Whether a read of the agent's report runs now.
@@ -574,26 +689,32 @@ mod tests {
         assert_eq!(rig.asked(), 2);
 
         rig.cli.signed_in.store(false, Ordering::SeqCst);
+        assert!(agent_row(&dashboard(&rig.usage, json!({})).await).is_some(), "a CLI that cannot be asked for a moment keeps its entry");
+        rig.account_changed(AccountEvent::Left);
         assert!(agent_row(&dashboard(&rig.usage, json!({})).await).is_none(), "an agent that is off or signed out has no entry");
     }
 
-    /// The account a provider's entry already shows is not shown a second time under the agent; another account is.
+    /// The agent's entry is there whichever account the provider shows; one the provider already shows is marked with
+    /// the provider's id as `sameQuotaAs`, another account's is not.
     #[tokio::test]
-    async fn an_account_the_provider_already_shows_is_not_shown_again_under_the_agent() {
+    async fn an_account_the_provider_already_shows_is_marked_on_the_agents_entry_not_left_out() {
         let provider = |weekly_reset: f64| json!({ "id": "antigravity-oauth", "windows": [{ "label": "7D", "usedPct": 25.2, "resetAt": weekly_reset }] });
         let read = |providers: Value| async move {
             let rig = rig(vec![providers]);
             dashboard(&rig.usage, json!({})).await;
             rig.section.nth(1).await;
-            agent_row(&dashboard(&rig.usage, json!({})).await).is_some()
+            let rows = dashboard(&rig.usage, json!({})).await;
+            let row = agent_row(&rows).expect("the agent's entry is always there while a reading is held");
+            assert_eq!(row["windows"].as_array().map(Vec::len), Some(3));
+            row.get("sameQuotaAs").cloned()
         };
 
-        assert!(!read(provider(1_894_060_800_000.0)).await, "the same account: its weekly window ends at the same instant");
-        assert!(read(provider(1_894_000_000_000.0)).await, "another account's window ends at another instant");
+        assert_eq!(read(provider(1_894_060_800_000.0)).await, Some(json!("antigravity-oauth")), "the same account: its weekly window ends at the same instant");
+        assert_eq!(read(provider(1_894_000_000_000.0)).await, None, "another account's window ends at another instant");
         // A window nothing was used of ends a fixed time after it is read: two accounts read in the same second agree
         // on it, and are still two accounts.
         let unused = json!({ "id": "antigravity-oauth", "windows": [{ "label": "7D Claude/GPT", "usedPct": 0, "resetAt": 1_894_071_600_000.0_f64 }] });
-        assert!(read(unused).await);
+        assert_eq!(read(unused).await, None);
     }
 
     /// A report that fails leaves the entry connected, with the CLI's words and no windows; the CLI is asked again on
@@ -652,13 +773,7 @@ mod tests {
             let rows = answered.expect("the dashboard waited on the agent's CLI");
             assert_eq!(rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>(), [json!("openai-oauth")]);
         }
-        mixdog_rt::time::timeout(Duration::from_secs(10), async {
-            while rig.asked() == 0 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the read to start");
+        rig.asked_to_reach(1).await;
         assert!(rig.asking());
         assert_eq!(rig.section.count(), 0, "nothing is published before the CLI answers");
 
@@ -667,5 +782,91 @@ mod tests {
         assert!(agent_row(&rows).is_some_and(|row| row["windows"].as_array().is_some_and(|windows| windows.len() == 3)), "{rows:?}");
         assert_eq!(rig.asked(), 1, "one read ran for the three dashboards");
         assert!(agent_row(&dashboard(&rig.usage, json!({})).await).is_some());
+    }
+
+    /// The report of another account: its five-hour window is 90 % used.
+    fn other_accounts_report() -> Value {
+        serde_json::from_str(&report().to_string().replace("\"remaining_fraction\":0.5", "\"remaining_fraction\":0.1")).expect("JSON")
+    }
+
+    fn five_hour_used(row: &Value) -> Option<f64> {
+        row["windows"].as_array()?.iter().find(|window| window["label"] == "5H")?["usedPct"].as_f64()
+    }
+
+    /// A sign-in to another account ends the read of the one before: the reading is withdrawn and published at once,
+    /// the read that was running is neither shown nor written to the quota history, and the next reading is the new
+    /// account's, taken without a refresh.
+    #[tokio::test]
+    async fn a_read_of_the_account_left_by_a_sign_in_is_neither_shown_nor_recorded() {
+        let rig = rig(Vec::new());
+        dashboard(&rig.usage, json!({})).await;
+        rig.section.nth(1).await;
+        rig.cli.answers.send_replace(false);
+        dashboard(&rig.usage, json!({ "refresh": true })).await;
+        rig.asked_to_reach(2).await;
+
+        *rig.cli.report.lock().unwrap() = Ok(other_accounts_report());
+        rig.account_changed(AccountEvent::SignedIn);
+        assert!(agent_row(&rig.section.nth(2).await).is_none(), "the reading of the account left is withdrawn when it is left");
+        rig.asked_to_reach(3).await;
+
+        rig.cli.answers.send_replace(true);
+        let rows = rig.section.nth(3).await;
+        assert_eq!(agent_row(&rows).and_then(five_hour_used), Some(90.0));
+        rig.ended_to_reach(3).await;
+        let recorded: Vec<f64> = rig.history.0.lock().unwrap().iter().filter(|sample| sample.label == "5H").map(|sample| sample.used_pct).collect();
+        assert_eq!(recorded, [50.0, 90.0], "the read of the account left was not recorded");
+        assert_eq!(rig.section.count(), 3);
+    }
+
+    /// An agent that was turned off or signed out and is back serves no reading from before: it is withdrawn when the
+    /// agent goes, not when a dashboard happens to be built while it is gone.
+    #[tokio::test]
+    async fn a_reading_does_not_outlive_the_agent_being_turned_off_or_signed_out() {
+        let rig = rig(Vec::new());
+        dashboard(&rig.usage, json!({})).await;
+        rig.section.nth(1).await;
+
+        rig.cli.signed_in.store(false, Ordering::SeqCst);
+        rig.account_changed(AccountEvent::Left);
+        assert!(agent_row(&rig.section.nth(2).await).is_none(), "the withdrawn state is published");
+        rig.cli.signed_in.store(true, Ordering::SeqCst);
+        assert!(agent_row(&dashboard(&rig.usage, json!({ "preview": true })).await).is_none(), "the reading from before is not served");
+        assert_eq!(rig.asked(), 1);
+
+        *rig.cli.report.lock().unwrap() = Ok(other_accounts_report());
+        rig.account_changed(AccountEvent::SignedIn);
+        let rows = rig.section.nth(3).await;
+        assert_eq!(agent_row(&rows).and_then(five_hour_used), Some(90.0));
+        assert_eq!(rig.asked(), 2);
+    }
+
+    /// After a core start the first dashboard is built before the agent's CLI has been checked, so nothing can be
+    /// asked and there is no entry; the entry comes with the reading taken when the check finds the CLI ready, with
+    /// no dashboard asked after it. A CLI that cannot be asked afterwards does not take the entry away, and a check
+    /// that finds it ready again reads it anew without the entry going.
+    #[tokio::test]
+    async fn the_entry_follows_the_check_that_makes_the_agent_askable_and_stays_while_the_account_does() {
+        let rig = rig(vec![json!({ "id": "openai-oauth", "windows": [] })]);
+        rig.cli.signed_in.store(false, Ordering::SeqCst);
+        assert!(agent_row(&dashboard(&rig.usage, json!({ "refresh": true })).await).is_none());
+        assert_eq!(rig.asked(), 0, "a CLI not checked yet is not asked");
+
+        rig.cli.signed_in.store(true, Ordering::SeqCst);
+        rig.account_changed(AccountEvent::Askable);
+        let rows = rig.section.nth(1).await;
+        assert_eq!(agent_row(&rows).and_then(five_hour_used), Some(50.0), "the reading follows the check, with no dashboard asked");
+
+        rig.cli.signed_in.store(false, Ordering::SeqCst);
+        assert!(agent_row(&dashboard(&rig.usage, json!({ "preview": true })).await).is_some(), "a CLI that cannot be asked keeps the entry");
+        rig.cli.signed_in.store(true, Ordering::SeqCst);
+        *rig.cli.report.lock().unwrap() = Ok(other_accounts_report());
+        rig.cli.answers.send_replace(false);
+        rig.account_changed(AccountEvent::Askable);
+        rig.asked_to_reach(2).await;
+        assert!(agent_row(&dashboard(&rig.usage, json!({ "preview": true })).await).is_some(), "the entry is there while the next reading is taken");
+        assert_eq!(rig.section.count(), 1, "nothing was withdrawn");
+        rig.cli.answers.send_replace(true);
+        assert_eq!(agent_row(&rig.section.nth(2).await).and_then(five_hour_used), Some(90.0));
     }
 }

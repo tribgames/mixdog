@@ -4,9 +4,9 @@ import { carriedLast } from './list-carry';
 import { clockText } from './time-format-preference';
 
 /** Provider kinds the composer banner speaks to; only the first can be resumed at a reset. */
-export type QuotaFailureKind = 'quota_exhausted' | 'entitlement' | 'billing';
+type QuotaFailureKind = 'quota_exhausted' | 'entitlement' | 'billing';
 
-export type QuotaFailure = {
+type QuotaFailure = {
   turnKey: string;
   kind: QuotaFailureKind;
   quota: { provider: string; model: string; resetAt: number | null };

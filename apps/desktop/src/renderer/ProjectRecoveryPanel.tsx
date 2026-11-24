@@ -59,6 +59,8 @@ export function ProjectRecoveryPanel({
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const failed = failure !== null;
+  const failureCode = failed ? recoveryFailureCode(failure) : null;
+  const failureLabel = (failureCode && labels.failures?.[failureCode]) || labels.failure;
   const epoch = useRef(0);
   const lock = useRef(false);
   const currentProject = useRef(projectPath);
@@ -161,7 +163,7 @@ export function ProjectRecoveryPanel({
           {labels.busy}
         </p>
       )}
-      {failed && <p role="alert">{labels.failures?.[recoveryFailureCode(failure)!] ?? labels.failure}</p>}
+      {failed && <p role="alert">{failureLabel}</p>}
       {!pending && !failed && !records.length && (
         <p className="mx-empty-state" ref={emptyStateHost}>
           {labels.empty}

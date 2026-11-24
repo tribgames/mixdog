@@ -121,7 +121,7 @@ impl SessionActor {
             self.retry_due |= self.outbox.awaits_retry();
             return;
         };
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
         self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(marked)]);
     }
 
@@ -324,12 +324,16 @@ impl SessionActor {
     /// the runtime whose close barrier did not land (`session-close.mjs` `finishClose`). So an unloaded session leaves nothing
     /// to write behind a reopen.
     pub(super) fn unload(&mut self) {
+        if self.end_prunes() {
+            self.unload_due = true;
+            return;
+        }
         // The transcript-cache book leaves memory with the session: what it learned since its last write is committed
         // first, with everything else the session holds, so the next load judges by it.
         if let Some(book) = self.deps.cache_tail.unsaved(self.id.as_str()) {
             let mut set = serde_json::Map::new();
             set.insert("cacheTailBook".to_owned(), book);
-            self.accept_header(Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() }));
+            self.accept_header(Some(HeaderChange { set, ..Default::default() }));
         }
         if !self.outbox.is_empty() {
             self.unload_due = true;

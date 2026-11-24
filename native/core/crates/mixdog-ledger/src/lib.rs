@@ -8,7 +8,6 @@
 #![allow(clippy::disallowed_types, reason = "mixdog-store::sqlite does not re-export rusqlite::Connection")]
 
 pub mod append;
-pub mod backup;
 pub mod bucket;
 pub mod db;
 #[cfg(test)]

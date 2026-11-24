@@ -50,8 +50,7 @@ extraResources:
   # The core this app starts (`mixdogd`, built for the app's own platform) and
   # the per-platform servers the SSH install uploads (servers.json + one
   # binary per Linux/macOS x64/arm64). scripts/stage-core.mjs stages both from
-  # the release builds; the installed `resources/core/mixdogd` is also what
-  # the fast-deploy script stops the running core with.
+  # the release builds.
   - from: .runtime/core
     to: core
   - from: .runtime/server-cores

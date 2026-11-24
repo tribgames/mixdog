@@ -574,13 +574,15 @@ async fn every_request_of_a_turn_extends_the_one_before_it_unchanged() {
 // Dispatch: a call starts with its stream; edits, shell and the repeat guard
 // ---------------------------------------------------------------------------
 
-/// A tool that logs when a call starts and ends, can hold the call whose key it is given until opened, and can fail.
+/// A tool that logs when a call starts and ends, can hold the call whose key it is given until opened, and can fail, every
+/// call or the one whose key it is given.
 struct Logged {
     spec: ToolSpec,
     log: Arc<Mutex<Vec<String>>>,
     tick: watch::Sender<usize>,
     hold: Option<(String, watch::Receiver<bool>)>,
     fail: bool,
+    fail_on: Option<String>,
 }
 
 impl Logged {
@@ -588,7 +590,7 @@ impl Logged {
         let mut spec = Echo::tool().spec().clone();
         spec.name = name.into();
         spec.annotations = ToolAnnotations::default();
-        Self { spec, log: log.clone(), tick: tick.clone(), hold: None, fail: false }
+        Self { spec, log: log.clone(), tick: tick.clone(), hold: None, fail: false, fail_on: None }
     }
 }
 
@@ -608,7 +610,7 @@ impl Tool for Logged {
             let _ = gate.clone().wait_for(|open| *open).await;
         }
         self.log.lock().unwrap().push(format!("end {name}:{key}"));
-        if self.fail {
+        if self.fail || self.fail_on.as_ref() == Some(&key) {
             return Err(ToolError::new(ToolErrorCode::Failed { reason: "failed".into() }, "Error: failed"));
         }
         Ok(ToolOutput { parts: vec![ToolPart::Text("ok".into())], ..ToolOutput::default() })
@@ -694,6 +696,39 @@ async fn a_shell_call_waits_for_the_edit_before_it_and_is_skipped_when_that_edit
     }
 }
 
+/// A clean session's reply `[edit, edit, edit, edit, shell]`, streamed or returned whole, the edits of one file and one
+/// argument shape: three failed validations before the fourth edit would let the shape guard answer it, so it is not started
+/// ahead of the batch, and neither is the shell behind it. Once the batch starts the fourth edit, the shell waits for it,
+/// and when it fails the shell is skipped, never run.
+#[tokio::test]
+async fn a_changing_call_held_back_from_an_early_start_holds_back_the_changing_calls_after_it() {
+    for streamed in [true, false] {
+        let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
+        let mut edit = Logged::new("edit", &log, &tick);
+        edit.fail_on = Some("e4".into());
+        let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(edit), Arc::new(Logged::new("shell", &log, &tick))];
+        let of = |id: &str, name: &str, args: JsonValue| ToolCall { id: id.into(), name: name.into(), arguments: args, native_type: None };
+        let mut calls: Vec<ToolCall> = (1..=4).map(|n| of(&format!("c{n}"), "edit", json!({ "file_path": "a.txt", "k": format!("e{n}") }))).collect();
+        calls.push(of("c5", "shell", json!({ "command": "cargo test", "k": "s" })));
+        let mut reply: Vec<Step> = if streamed {
+            calls.into_iter().map(|call| Step::Event(StreamEvent::ToolCallDone(call))).collect()
+        } else {
+            vec![Step::Event(StreamEvent::ReturnedCalls(calls))]
+        };
+        reply.push(done(StopReason::ToolUse));
+        let h = Harness::new(vec![turn(reply), turn(vec![text("fin"), done(StopReason::EndTurn)])]);
+        let output = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+        let ran = log.lock().unwrap().clone();
+        assert!(ran.contains(&"end edit:e4".to_owned()), "streamed={streamed}: {ran:?}");
+        assert!(!ran.iter().any(|line| line.starts_with("start shell")), "streamed={streamed}: the shell never runs: {ran:?}");
+        let dumped = dump(&output.transcript);
+        assert!(
+            dumped.iter().any(|l| l.starts_with("tool#c5(Skipped):[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c4;")),
+            "streamed={streamed}: {dumped:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_identical_failing_call_is_not_run_again_after_three_failures_and_paths_are_compared_normalized() {
     let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
@@ -727,6 +762,193 @@ async fn a_failing_tool_does_not_stop_a_turn_that_never_gets_a_new_result() {
     let output = finish(h.run(config(), vec![Arc::new(probe)], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "my own answer");
     assert_eq!(h.provider.requests().len(), 46);
+}
+
+/// A `Logged` tool that reads (`readOnlyHint`) or writes.
+fn logged(name: &str, read_only: bool, log: &Arc<Mutex<Vec<String>>>, tick: &watch::Sender<usize>) -> Arc<dyn Tool> {
+    let mut tool = Logged::new(name, log, tick);
+    tool.spec.annotations.read_only_hint = read_only.then_some(true);
+    Arc::new(tool)
+}
+
+/// A clean session's batch of four reads of one tool and argument shape starts all four while the reply still streams.
+#[tokio::test]
+async fn a_clean_batch_of_four_reads_starts_them_all_while_its_reply_streams() {
+    let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
+    let read = |id: &str, k: &str| call(id, "read", json!({ "k": k }));
+    let h = Harness::new(vec![
+        turn(vec![
+            read("r1", "a"),
+            read("r2", "b"),
+            read("r3", "c"),
+            read("r4", "d"),
+            Step::Until(tick.subscribe(), 4, "all four reads to start before the reply ended"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("fin"), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(h.run(config(), vec![logged("read", true, &log, &tick)], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "fin");
+}
+
+/// Two unrelated failures are recorded, then a reply makes two calls of one tool and argument shape: neither failure is
+/// the second call's and one earlier call cannot make a run of three, so no guard could answer it, and both calls start
+/// while the reply streams, reads or writes alike.
+#[tokio::test]
+async fn calls_after_unrelated_failures_start_while_their_reply_streams() {
+    for read_only in [true, false] {
+        let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
+        let (failures, _) = watch::channel(0usize);
+        let mut probe = Logged::new("probe", &log, &failures);
+        probe.fail = true;
+        let failing = |id: &str, k: &str| turn(vec![call(id, "probe", json!({ "k": k })), done(StopReason::ToolUse)]);
+        let touch = |id: &str, k: &str| call(id, "touch", json!({ "k": k }));
+        let h = Harness::new(vec![
+            failing("p1", "x"),
+            failing("p2", "y"),
+            turn(vec![
+                touch("t1", "a"),
+                touch("t2", "b"),
+                Step::Until(tick.subscribe(), 2, "both calls to start before the reply ended"),
+                done(StopReason::ToolUse),
+            ]),
+            turn(vec![text("fin"), done(StopReason::EndTurn)]),
+        ]);
+        let tools = vec![Arc::new(probe) as Arc<dyn Tool>, logged("touch", read_only, &log, &tick)];
+        let output = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+        assert_eq!(output.response.content, "fin", "read_only={read_only}");
+    }
+}
+
+/// `[probe, shell, scan, probe]` on a clean session: the shell and the scan record outcomes between the two probes, which
+/// breaks any run the first probe could start, so no guard could answer the last one, a read or a write, and all four
+/// start while the reply streams.
+#[tokio::test]
+async fn a_call_whose_run_the_calls_between_break_starts_while_its_reply_streams() {
+    for read_only in [true, false] {
+        let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
+        let h = Harness::new(vec![
+            turn(vec![
+                call("c1", "probe", json!({ "k": "a" })),
+                call("c2", "shell", json!({ "k": "s" })),
+                call("c3", "scan", json!({ "k": "q" })),
+                call("c4", "probe", json!({ "k": "b" })),
+                Step::Until(tick.subscribe(), 4, "all four calls to start before the reply ended"),
+                done(StopReason::ToolUse),
+            ]),
+            turn(vec![text("fin"), done(StopReason::EndTurn)]),
+        ]);
+        let tools = vec![logged("probe", read_only, &log, &tick), logged("shell", false, &log, &tick), logged("scan", true, &log, &tick)];
+        let output = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+        assert_eq!(output.response.content, "fin", "read_only={read_only}");
+    }
+}
+
+/// A `Logged` read that fails.
+fn failing_read(name: &str, log: &Arc<Mutex<Vec<String>>>, tick: &watch::Sender<usize>) -> Arc<dyn Tool> {
+    let mut tool = Logged::new(name, log, tick);
+    tool.spec.annotations.read_only_hint = Some(true);
+    tool.fail = true;
+    Arc::new(tool)
+}
+
+/// A read that failed three times in earlier turns is refused by the repeat guard before its step begins: it is not started
+/// while its reply streams, where the read beside it is.
+#[tokio::test]
+async fn a_read_the_repeat_guard_already_refuses_is_never_started() {
+    let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
+    let peek = |id: &str| call(id, "peek", json!({ "k": "x" }));
+    let failing = |id: &str| turn(vec![peek(id), done(StopReason::ToolUse)]);
+    let h = Harness::new(vec![
+        failing("c1"),
+        failing("c2"),
+        failing("c3"),
+        turn(vec![
+            peek("c4"),
+            call("c5", "scan", json!({ "k": "q" })),
+            Step::Until(tick.subscribe(), 4, "a call of the step to start before the reply ended"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("fin"), done(StopReason::EndTurn)]),
+    ]);
+    let tools = vec![failing_read("peek", &log, &tick), logged("scan", true, &log, &tick)];
+    let output = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+    let ran = log.lock().unwrap().clone();
+    assert_eq!(ran.iter().filter(|line| *line == "start peek:x").count(), 3, "{ran:?}");
+    let refused = output.transcript.iter().find(|m| m.tool_call_id() == Some("c4")).expect("the read is answered");
+    assert!(refused.text().starts_with("[repeat-failure-guard] Identical normalized `peek` call failed 3 times"), "{}", refused.text());
+}
+
+/// Denies every call of `denied` on the session's surface.
+struct DeniesOne;
+#[async_trait]
+impl ToolGate for DeniesOne {
+    async fn check_call(&self, _call_id: &str, _call: &GateCall) -> GateDecision {
+        GateDecision::Allow
+    }
+    fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
+        (call.name == "denied").then(|| "Error: `denied` is off this surface.".to_owned())
+    }
+}
+
+/// Two failures of a read are recorded and the next step repeats it twice with a denied call between, which records
+/// nothing: once the first repeat's failure is in, the repeat guard answers the second. The guard did not refuse it before,
+/// so it started while its reply streamed; the batch takes back what that run told and keeps the guard's answer for the
+/// call, in the transcript and, when the turn is cancelled while a call beside it still runs, in what the interruption
+/// recovers.
+#[tokio::test]
+async fn a_streamed_read_the_batch_answers_unrun_keeps_the_batch_s_answer() {
+    for cancelled in [false, true] {
+        let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
+        let peek = |id: &str| call(id, "peek", json!({ "k": "x" }));
+        let failing = |id: &str| turn(vec![peek(id), done(StopReason::ToolUse)]);
+        let mut step = vec![peek("c3"), call("c4", "denied", json!({ "k": "d" })), peek("c5")];
+        if cancelled {
+            step.push(call("c6", "hang", json!({})));
+        }
+        step.push(Step::Until(tick.subscribe(), 4, "both repeats to start before the reply ended"));
+        step.push(done(StopReason::ToolUse));
+        let mut h = Harness::new(vec![failing("c1"), failing("c2"), turn(step), turn(vec![text("fin"), done(StopReason::EndTurn)])]);
+        h.gate = Arc::new(DeniesOne);
+        let tools = vec![failing_read("peek", &log, &tick), logged("denied", false, &log, &tick), Hang::tool()];
+        let run = h.run(config(), tools, vec![AgentMessage::user("go")]);
+        let transcript = if cancelled {
+            let task = tokio::spawn(run.run());
+            let mut answered = h.observer.replacements.subscribe();
+            tokio::time::timeout(Duration::from_secs(30), answered.wait_for(|n| *n >= 1))
+                .await
+                .expect("the batch answers the second repeat within 30 s")
+                .expect("the observer lives");
+            h.cancel.cancel();
+            let failure = task.await.unwrap().expect_err("aborted");
+            assert!(matches!(failure.error, AgentError::Aborted));
+            mixdog_agent::interrupt::finalize_interrupted_turn(mixdog_agent::interrupt::Interrupted {
+                transcript: failure.transcript,
+                current_user_text: "go".into(),
+                response_started: true,
+                partial_assistant: String::new(),
+                partial_reasoning: String::new(),
+                observed_tool_calls: Vec::new(),
+                observed_tool_results: h.observer.kept.lock().unwrap().clone(),
+                phase: mixdog_agent::interrupt::Phase::Tools,
+                reason: mixdog_agent::interrupt::AbortReason::UserCancel,
+            })
+            .transcript
+        } else {
+            finish(run).await.transcript
+        };
+        let ran = log.lock().unwrap().clone();
+        assert_eq!(ran.iter().filter(|line| *line == "start peek:x").count(), 4, "cancelled={cancelled}: {ran:?}");
+        assert!(!ran.iter().any(|line| line.starts_with("start denied")), "cancelled={cancelled}: {ran:?}");
+        let answer = "[repeat-failure-guard] Identical normalized `peek` call failed 3 times";
+        let replaced = h.observer.replaced.lock().unwrap().clone();
+        assert!(
+            matches!(replaced.as_slice(), [(id, Some(text))] if id == "c5" && text.starts_with(answer)),
+            "cancelled={cancelled}: the streamed run's result is taken back for the guard's answer: {replaced:?}"
+        );
+        let row = transcript.iter().find(|m| m.tool_call_id() == Some("c5")).expect("the second repeat has a row");
+        assert!(row.text().starts_with(answer), "cancelled={cancelled}: {}", row.text());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,6 +1232,7 @@ fn a_changed_prefix_names_what_changed_and_an_anthropic_deferred_tool_does_not_m
 fn korean_lead() -> RuleTailReminder {
     RuleTailReminder {
         context: TailContext { provider: "anthropic".into(), language: Some(TailLanguage { id: "ko".into(), name: "Korean".into() }), role: TailRole::Lead },
+        rules: crate::feature_rules::KOREAN_ON_OPUS,
     }
 }
 

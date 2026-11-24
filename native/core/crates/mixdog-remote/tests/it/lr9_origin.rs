@@ -211,6 +211,7 @@ async fn a_phone_is_a_relay_connection_and_methods_outside_that_origin_are_refus
 
     let withheld: Vec<&str> = CLIENT_METHODS.iter().filter(|spec| !spec.allows(Origin::Relay)).map(|spec| spec.method).collect();
     assert!(withheld.contains(&"agent/recordAgentApprovalAudit"), "the audit write is not offered over the relay");
+    assert!(withheld.contains(&"projectFs/workspaceFile/write"), "a workspace file is not written over the relay");
     for (index, method) in withheld.iter().enumerate() {
         phone.send(&json!({ "id": index + 1, "method": method, "params": {} }).to_string());
     }

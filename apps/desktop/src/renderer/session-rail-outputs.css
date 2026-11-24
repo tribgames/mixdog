@@ -26,7 +26,8 @@
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  /* The panel rows' 6px after the mark column (a left sidebar session row's), so the name starts 22px in. */
+  gap: 6px;
   padding: 0;
   border: 0;
   background: none;
@@ -46,8 +47,10 @@
 .session-outputs-close:focus-visible {
   outline: none;
 }
-/* The kind's ink on the heads' left line, as the panel's other row marks. */
+/* The kind's mark as every row's: a 14px glyph in the 16px mark column, its ink on the heads' left line. */
 .session-outputs-open > .session-rail-ic {
+  width: 16px;
+  height: 14px;
   align-self: center;
   transform: translateX(-2px);
 }

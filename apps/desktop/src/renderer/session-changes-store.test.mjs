@@ -1614,7 +1614,7 @@ test('the completion digest tells two calls that traded places apart, next to ea
     const placed = base.with(13, left).with(318, right);
     const traded = base.with(13, right).with(318, left);
     if (completionDigest(placed) === completionDigest(traded)) same += 1;
-    assert.notEqual(completionDigest(base.with(13, left)), completionDigest(base), 'a call in another one\'s place');
+    assert.notEqual(completionDigest(base.with(13, left)), completionDigest(base), "a call in another one's place");
   }
   assert.equal(same, 0);
   // A list carried on from another gives the digest of the list read whole.

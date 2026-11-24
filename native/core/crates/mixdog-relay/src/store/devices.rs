@@ -189,6 +189,12 @@ impl Devices {
         self.client_token_index.get(hash).map(|(device_id, client_id)| ClientAccess { device_id: device_id.clone(), client_id: Some(client_id.clone()) })
     }
 
+    /// The digest of the credential a browser id holds now.
+    pub(super) fn client_token_hash(&self, device_id: &str, client_id: &str) -> Option<String> {
+        let client = self.row(device_id).and_then(clients_of)?.get(client_id)?.as_object()?;
+        Some(text(client, "tokenHash"))
+    }
+
     pub(super) fn has_client(&self, device_id: &str, client_id: &str) -> bool {
         self.row(device_id).and_then(clients_of).is_some_and(|clients| clients.contains_key(client_id))
     }

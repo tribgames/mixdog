@@ -164,7 +164,10 @@ const CASES = [
       'Edit 1 file, Find files for 6 patterns, Run Git command, Search code',
       'File editing failed, File lookup failed, Git command failed, Content search failed',
     ],
-    ['파일 1개 수정, 패턴 6개로 파일 찾기, Git 명령 실행, 코드 검색', '파일 수정 실패, 파일 찾기 실패, Git 명령 실패, 내용 검색 실패'],
+    [
+      '파일 1개 수정, 패턴 6개로 파일 찾기, Git 명령 실행, 코드 검색',
+      '파일 수정 실패, 파일 찾기 실패, Git 명령 실패, 내용 검색 실패',
+    ],
   ],
   [
     'a change claims only the files it changed; a failure among them closes the list',
@@ -226,7 +229,10 @@ const CASES = [
   ],
   [
     'a failure and a stop of the same unit are both said',
-    [failed('edit', { file_path: 'a.css', old_string: 'x', new_string: 'y' }, 'e1'), halted('edit', { file_path: 'b.css', old_string: 'x', new_string: 'y' }, 'e2')],
+    [
+      failed('edit', { file_path: 'a.css', old_string: 'x', new_string: 'y' }, 'e1'),
+      halted('edit', { file_path: 'b.css', old_string: 'x', new_string: 'y' }, 'e2'),
+    ],
     ['Edit 2 files', 'File editing failed, File editing stopped'],
     ['파일 2개 수정', '파일 수정 실패, 파일 수정 중지됨'],
   ],
@@ -244,7 +250,10 @@ const CASES = [
   ],
   [
     'a stopped fetch fetched no page',
-    [finished('web_fetch', { url: 'https://a.example' }, 'f1'), halted('web_fetch', { url: 'https://b.example' }, 'f2')],
+    [
+      finished('web_fetch', { url: 'https://a.example' }, 'f1'),
+      halted('web_fetch', { url: 'https://b.example' }, 'f2'),
+    ],
     ['Fetch 2 pages', 'Fetched page, 1 stopped'],
     ['웹페이지 2개 가져오기', '웹페이지 가져오기, 1회 중지됨'],
   ],
@@ -286,7 +295,11 @@ const CASES = [
     'a path lookup and a symbol search that matched nothing found none',
     [
       answered('find', { query: 'zzz' }, '(no fuzzy match for "zzz")'),
-      answered('code_graph', { mode: 'find_symbol', symbols: 'zzz' }, '(no symbol matches in cwd=C:/repo)\ngraph: nodes=12'),
+      answered(
+        'code_graph',
+        { mode: 'find_symbol', symbols: 'zzz' },
+        '(no symbol matches in cwd=C:/repo)\ngraph: nodes=12'
+      ),
     ],
     ['Find path, Find symbol', 'Found no paths, Found no symbols'],
     ['경로 찾기, 심볼 찾기', '찾은 경로 없음, 찾은 심볼 없음'],

@@ -1,7 +1,7 @@
 //! `statusline/read` (client -> core): what a front end's footer shows of a thread's route (`loadGatewayStatus`: the route, its
 //! cached quota windows and the context share) and of the limits of that route (`buildGatewayLimits`: quota windows, balance and
 //! the route's spend). The readers and the rules are `mixdog_core_session::session::statusline_*`; this service reads the files
-//! they work on (the data directory's config, session routes, quota cache, usage log and Claude Code's own status files) and
+//! they work on (the data directory's config, session routes, quota cache, account credentials, usage log and Claude Code's own status files) and
 //! answers the two values, so every front end shows the same footer.
 
 use std::path::Path;
@@ -87,8 +87,12 @@ impl StatuslineService {
 }
 
 #[allow(clippy::disallowed_methods, reason = "StatuslineService::call runs this private file reader inside its awaited InteractiveIo job.")]
+fn read_text(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path).ok()
+}
+
 fn read_json(path: &Path) -> Option<Value> {
-    mixdog_js::json_parse(&std::fs::read_to_string(path).ok()?).ok()
+    mixdog_js::json_parse(&read_text(path)?).ok()
 }
 
 /// A status file with its modification time (epoch ms).
@@ -129,6 +133,14 @@ impl StatusWorld for World<'_> {
             now: self.now,
         };
         read_claude_code_current_route(self, &sources)
+    }
+
+    fn credential_text(&self, path: &Path) -> Option<String> {
+        read_text(path)
+    }
+
+    fn var(&self, name: &str) -> Option<String> {
+        ClaudeWorld::env(self, name)
     }
 }
 
@@ -223,6 +235,8 @@ impl Inner {
             current_route: params.current_route.as_ref(),
             active_context_tokens: params.active_context_tokens,
             process_started_at_ms: self.started_ms,
+            data_dir: &self.data_dir,
+            now,
         };
         let Some(status) = load_gateway_status(&world, &input) else { return StatuslineReadResult::default() };
         let empty = json!({});
@@ -239,6 +253,66 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Unpriced;
+
+    impl mixdog_ai::registry::accounting::UsagePricing for Unpriced {
+        fn price_usage(&self, _: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
+            mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
+        }
+    }
+
+    /// Never runs what is scheduled on it: nothing here writes the usage log.
+    struct NeverFires;
+
+    impl mixdog_core_session::session::gateway_usage::Scheduler for NeverFires {
+        fn after(&self, _: u64, _: Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send> {
+            Box::new(|| {})
+        }
+    }
+
+    /// `statusline/read` shows the cached quota of the account signed in on the slot now: after another user signs in on
+    /// it, or its credential file is deleted, the previous account's figures are not shown.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes fixture files synchronously")]
+    async fn the_status_line_does_not_show_a_previous_accounts_quota_after_a_new_sign_in_or_a_deleted_credential() {
+        use mixdog_ai::catalog::{CatalogSnapshot, ModelsDevSource};
+
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let catalog = Arc::new(
+            CatalogService::cold_start(
+                CatalogSnapshot::default(),
+                Vec::new(),
+                ModelsDevSource::new(crate::compose_test_support::offline_http(), dir.path().to_path_buf(), io),
+            )
+            .await,
+        );
+        let usage =
+            GatewayUsage::new(dir.path(), tokens.durability_io, Arc::new(mixdog_core_session::session::SystemClock), Arc::new(Unpriced), Arc::new(NeverFires));
+        let service = StatuslineService::new(dir.path().to_path_buf(), dir.path().join("claude"), catalog, usage, 0.0, tokens.interactive_io);
+        let login = |user: &str| json!({ "claudeAiOauth": { "accessToken": format!("token-of-{user}"), "refreshToken": "r", "scopes": ["user:inference"], "identity": { "id": user } } });
+        let stamp = mixdog_ai::service::oauth_usage::credential_stamp("anthropic-oauth", login("user-1")["claudeAiOauth"].as_object().unwrap()).unwrap();
+        let cache = json!({ "routes": { "anthropic-oauth": {
+            "provider": "anthropic-oauth", "accountId": "default", "cachedAt": now_ms(), "credentialStamp": stamp, "quotaWindows": [{ "label": "5h", "usedPct": 40 }]
+        } } });
+        std::fs::write(dir.path().join(QUOTA_CACHE_FILE), cache.to_string()).unwrap();
+        let credential = dir.path().join("anthropic-oauth-credentials.json");
+        let params = StatuslineReadParams {
+            session_id: "sess_footer01".into(),
+            current_route: Some(json!({ "provider": "anthropic-oauth", "model": "claude-x" })),
+            ..Default::default()
+        };
+        let windows = || service.inner.read(&params).status.expect("the route")["quotaWindows"].clone();
+
+        std::fs::write(&credential, login("user-1").to_string()).unwrap();
+        assert_eq!(windows(), json!([{ "label": "5h", "usedPct": 40 }]), "the account the reading was measured for");
+        std::fs::write(&credential, login("user-2").to_string()).unwrap();
+        assert_eq!(windows(), json!([]), "another user signed in on the slot");
+        std::fs::remove_file(&credential).unwrap();
+        assert_eq!(windows(), json!([]), "a deleted credential file");
+    }
 
     #[test]
     fn status_files_dir_is_the_mixdog_variable_else_the_dot_mixdog_of_the_home() {

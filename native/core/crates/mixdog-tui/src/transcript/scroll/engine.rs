@@ -23,9 +23,6 @@ pub trait ScrollHost {
     fn restore_older(&mut self) -> bool;
     /// `restoreNewerTranscript`; whether a page was restored.
     fn restore_newer(&mut self) -> bool;
-    /// Called before a scroll that moves, with the target the viewport is at: a live selection snapshots the rows under it so
-    /// they survive scrolling off.
-    fn selection_before_scroll(&mut self, _target_before: f64) {}
     /// Called after a scroll that moved by `applied_delta` rows to `target`: a live selection follows its content.
     fn selection_after_scroll(&mut self, _applied_delta: f64, _target: f64) {}
 }
@@ -222,9 +219,6 @@ impl TranscriptScroll {
             self.pending_readback_rows += delta_rows;
         } else if delta_rows < 0.0 || applied_delta != 0.0 {
             self.pending_readback_rows = 0.0;
-        }
-        if applied_delta != 0.0 {
-            host.selection_before_scroll(self.target);
         }
         // A manual scroll wins over an in-flight follow.
         if applied_delta != 0.0 || blocked_readback {

@@ -501,6 +501,7 @@ impl Proc {
             if root.wait_without_reaping() {
                 #[cfg(all(feature = "core-test", any(target_os = "linux", target_os = "macos")))]
                 crate::testing::root_exit_window();
+                self.containment.root_exited();
                 let mut life = self.life();
                 // A group signal reaches the members of that instant. A child the root was forking then joins the
                 // group afterwards with nothing pending (macOS; Linux fails a fork that a signal overtakes). The root
@@ -2073,5 +2074,74 @@ mod node_pty_exit {
         ended(&end, false);
         tokio::time::advance(Duration::from_millis(1)).await;
         ended(&end, true);
+    }
+}
+
+/// What a finished command left running ends with the manager's shutdown, as a Windows job's members do.
+#[cfg(all(test, feature = "core-test", any(target_os = "linux", target_os = "macos")))]
+mod leftovers {
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::process::CommandSpec;
+    use mixdog_core_api::domain::process::EnvSpec;
+
+    use super::*;
+
+    const WAIT: Duration = Duration::from_secs(60);
+
+    /// `sh -c "server &"`: the shell ends at once, its exit is published, and the server it started stays in its group. The
+    /// server holds a FIFO open, so a read of it ends exactly when the server does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_shutdown_ends_what_a_finished_command_left_in_its_group() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mixdog-spawn-leftover-{}-{stamp}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let fifo = dir.join("held");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("leftover-{}", std::process::id()));
+        let script = format!("sleep 90 >/dev/null 2>&1 3>'{}' & echo CHILD=$!", fifo.display());
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command: CommandSpec::Shell { script, shell: None },
+                cwd: AbsPath::new(dir.clone()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: false,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let mut events = manager.subscribe(&handle, Some(0)).unwrap();
+        let mut out = Vec::new();
+        loop {
+            match tokio::time::timeout(WAIT, events.next()).await.expect("the shell's exit is published").expect("the feed is open") {
+                ProcessEvent::Output { bytes, .. } => out.extend(bytes),
+                ProcessEvent::Exited { .. } => break,
+            }
+        }
+        let printed = String::from_utf8_lossy(&out).into_owned();
+        let server: libc::pid_t = printed.split("CHILD=").nth(1).and_then(|rest| rest.split_whitespace().next()).and_then(|pid| pid.parse().ok()).unwrap();
+        // Returns once the server has opened the FIFO for writing.
+        let opened = tokio::task::spawn_blocking({
+            let fifo = fifo.clone();
+            move || std::fs::File::open(fifo)
+        });
+        let mut held = tokio::time::timeout(WAIT, opened).await.unwrap().unwrap().unwrap();
+        manager.shutdown().await;
+        let read = tokio::time::timeout(WAIT, tokio::task::spawn_blocking(move || held.read(&mut [0u8; 1]))).await;
+        let ended = matches!(read, Ok(Ok(Ok(0))));
+        if !ended {
+            unsafe { libc::kill(server, libc::SIGKILL) };
+        }
+        std::fs::remove_file(&fifo).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+        assert!(ended, "the server outlived the shutdown: {read:?}");
     }
 }

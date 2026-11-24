@@ -24,6 +24,9 @@ use super::actor::ForkSource;
 /// How many times the removal of a refused carry's "being copied" mark is tried before it is given up.
 const UNMARK_TRIES: usize = 3;
 
+/// The refusal of a carry into a session that holds a conversation: found so, or taken since the carry looked.
+pub(super) const HELD_CONVERSATION: &str = "inheritFrom: this session already holds a conversation";
+
 /// A carry that failed, and whether its append was attempted (rows of it may be in the heir's log).
 struct Carry {
     error: CoreError,
@@ -212,13 +215,15 @@ impl SessionDirectory {
         }
         let ctx = CallContext::internal("inheritance");
         let handle = self.open_handle(heir, &ctx).await?;
+        // Counted before the heir is read: a row it takes after the count refuses the commit, one before is read here.
+        let seen = handle.conversation_rows().await?;
         let live = handle.turn_messages_snapshot();
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
-            return Err(refused("inheritFrom: this session already holds a conversation"));
+            return Err(refused(HELD_CONVERSATION));
         }
         self.deps().sensitive.carry(source, heir);
         let mark = CopyMark::stored_before_any_row(&handle, heir, &snapshot.header, source).await?;
-        let (count, compacted) = match self.carry_rows(source_handle, &handle, snapshot, mode).await {
+        let (count, compacted) = match self.carry_rows(source_handle, &handle, snapshot, mode, seen).await {
             Ok(done) => done,
             Err(Carry { error, appended: false }) => {
                 mark.withdraw().await;
@@ -236,15 +241,30 @@ impl SessionDirectory {
         })))
     }
 
-    async fn carry_rows(&self, source: &SessionHandle, handle: &SessionHandle, snapshot: &ForkSource, mode: CarryMode) -> Result<(usize, bool), Carry> {
+    /// `seen`: the heir's conversation rows when it was found empty; its commit is refused once it took another.
+    async fn carry_rows(
+        &self,
+        source: &SessionHandle,
+        handle: &SessionHandle,
+        snapshot: &ForkSource,
+        mode: CarryMode,
+        seen: u64,
+    ) -> Result<(usize, bool), Carry> {
         let existing = matches!(mode, CarryMode::Existing { .. });
         let (carried, set, compacted) = self.fit_rows(source, handle, snapshot, mode).await.map_err(|error| Carry { error, appended: false })?;
         let ctx = CallContext::internal(if existing { "inheritance" } else { "inheritance-durable" });
         let count = carried.len();
-        let params = json!({ "messages": carried, "set": set, "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT] });
+        let params = json!({
+            "messages": carried,
+            "set": set,
+            "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT],
+            "conversationRows": seen,
+        });
         match handle.request(CoreRequest { method: Method("thread/inheritedRows/append"), params, op: None, ctx }).await {
             Ok(_) => Ok((count, compacted)),
             Err(CoreError::BarrierFailed { .. }) if existing => Ok((count, compacted)),
+            // The heir's refusal comes before anything of the commit is written.
+            Err(error) if matches!(&error, CoreError::DomainError { domain, .. } if &**domain == "inheritance") => Err(Carry { error, appended: false }),
             Err(error) => Err(Carry { error, appended: true }),
         }
     }

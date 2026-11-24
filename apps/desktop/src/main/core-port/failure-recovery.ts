@@ -70,7 +70,7 @@ export function watchRecovery({
     }
   };
 
-  /** Watches the runtime directory (made sure to exist first). A watch that stops is replaced. */
+  /** Watches the runtime directory (made sure to exist first). */
   const install = (failure: BootFailure): void => {
     stopWatching();
     try {
@@ -82,7 +82,8 @@ export function watchRecovery({
         },
         () => {
           if (watching !== own || !live || standing !== failure) return;
-          install(failure);
+          // Not replaced here: a watch that fails at once would fail again at once. The next report for the failure replaces it.
+          stopWatching();
           void look(failure);
         }
       );
@@ -103,7 +104,13 @@ export function watchRecovery({
       stopWatching();
       return;
     }
-    if (standing === report.failure) return;
+    if (standing === report.failure) {
+      if (!watching) {
+        install(report.failure);
+        void look(report.failure);
+      }
+      return;
+    }
     standing = report.failure;
     install(report.failure);
     // Once the watch is in place: a core that came up before it, or between, is seen.

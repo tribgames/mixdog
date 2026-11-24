@@ -18,6 +18,8 @@ struct Agent {
     call: Option<ToolCall>,
     /// Each turn it ran: the header and the input row it was handed.
     turns: Mutex<Vec<(mixdog_store::schema::record::Header, Value)>>,
+    /// Woken when it is handed a turn: a wait for that cannot count on the session committing or stepping after it.
+    handed: tokio::sync::Notify,
     /// The text of each call's result, and whether it failed.
     results: Mutex<Vec<(String, bool)>>,
     /// Why each turn that never reached it was not run.
@@ -41,6 +43,10 @@ struct Agent {
     silent: bool,
     /// The usage it reports for each turn.
     usage: Option<mixdog_core_api::domain::provider::Usage>,
+    /// It begins to answer, then goes quiet for hours of this clock.
+    stalls: Option<Arc<Moving>>,
+    /// Its turn's token fires as it finishes: a stop that lands once the turn is done.
+    stopped_as_it_ends: bool,
 }
 
 /// The header key the stand-in agent's own session is kept under.
@@ -72,6 +78,15 @@ impl OutsideAgents for Agent {
         lock(&self.turns).push((turn.header.clone(), turn.input.clone()));
         if let Some(liveness) = &self.liveness {
             lock(&self.routes).push(liveness.request_route(turn.thread.as_str()).map(|route| Value::Object((*route).clone())));
+        }
+        self.handed.notify_waiters();
+        if let Some(clock) = &self.stalls {
+            let now = clock.now_ms();
+            turn.progress.send_modify(|progress| {
+                progress.ask_start(now);
+                progress.stream_delta(mixdog_core_run::run_host::progress::StreamKind::Text, now);
+            });
+            clock.0.fetch_add(3 * 3_600_000, Ordering::SeqCst);
         }
         if self.hold {
             let _ = turn.port.input_durable().await;
@@ -108,6 +123,9 @@ impl OutsideAgents for Agent {
             lock(&self.results).push((handed.message.text(), handed.failed));
         }
         let _ = turn.port.input_durable().await;
+        if self.stopped_as_it_ends {
+            turn.cancel.cancel();
+        }
         RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult {
             content: if self.silent { String::new() } else { "done".into() },
             report_content: None,
@@ -269,6 +287,79 @@ async fn an_outside_agents_turn_that_reported_no_usage_settles_nothing() {
     assert!(recorded_asks(&world).await.is_empty());
 }
 
+/// A stop whose token fires as an outside agent's turn finishes takes nothing from the finished turn: its result is kept
+/// for its owner and its ask is settled with the usage the agent reported.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_landing_as_an_outside_agents_turn_finishes_keeps_its_settlement() {
+    let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 1_200, output_tokens: 300, ..Default::default() };
+    let agent = Arc::new(Agent { usage: Some(usage), stopped_as_it_ends: true, ..Agent::default() });
+    let (world, id, handle) = on_agents_route(&agent, &[], json!({ "provider": "outside", "model": "default", "owner": "agent" })).await;
+
+    start_turn(&id, &handle, "go").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let header = handle.live_header().header();
+    assert_eq!(header["lastHandoff"], "done", "{header:?}");
+    assert_eq!(recorded_asks(&world).await.len(), 1, "the finished ask is settled");
+}
+
+struct NoRelease;
+
+impl mixdog_core_session::session::agent_registry::RuntimeRelease for NoRelease {
+    fn release(&self, _: &ThreadId, _: &str) {}
+}
+
+/// An unattended turn (a sub-agent's) on an agent's route whose agent goes quiet after it began to answer is stopped as a
+/// stalled turn of the loop is: the watchdog reads the progress the agent's turn marks, and the turn fails with its
+/// sentence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stalled_unattended_turn_on_an_agents_route_is_stopped_by_the_watchdog() {
+    use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind, TurnRequest, TurnSessions};
+    let clock = Arc::new(Moving(AtomicI64::new(1_700_000_000_000)));
+    let agent = Arc::new(Agent { hold: true, stalls: Some(clock.clone()), ..Agent::default() });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let world = turn_world_at(
+        scripted(&[]),
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        clock,
+        Arc::new(Config),
+        false,
+        None,
+    )
+    .await;
+    let (id, _handle) = started_thread(&world, json!({ "provider": "outside", "model": "default" })).await;
+    let turns = mixdog_core_session::session::agent_registry::SessionTurns::new(world.directory.clone(), Arc::new(NoRelease));
+    let request = TurnRequest {
+        kind: TurnKind::Spawn,
+        session_id: id.as_str().to_owned(),
+        prompt: "go".to_owned(),
+        attachments: Vec::new(),
+        context: None,
+        cwd: String::new(),
+        skill_selection: None,
+        hooks: TurnHooks {
+            submission_id: "sub-1".into(),
+            notify: Arc::new(|_, _| true),
+            on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
+            on_terminal_result: None,
+            on_submitted: None,
+            on_stage: None,
+        },
+        slot: None,
+        cancel: None,
+    };
+    let ended = mixdog_core_session::session::testing::awaiting(|| "the stalled turn's end".to_owned(), turns.run_turn(request)).await;
+    let error = ended.err().expect("the stalled turn fails");
+    assert!(mixdog_agent::agent_tool::watchdog::is_watchdog_abort(&error.message), "{}", error.message);
+    assert_eq!(lock(&agent.turns).len(), 1, "the agent ran the turn");
+}
+
 /// A user's stop that keeps the prompt of an outside agent's turn that produced nothing closes it as the loop closes such
 /// a turn: the prompt stays, followed by the interruption line.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -280,7 +371,7 @@ async fn an_outside_agents_stopped_turn_that_keeps_its_prompt_is_followed_by_the
     assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
     eventually_on_awaiting(
         || "the agent's turn".to_owned(),
-        &[&world.rig.store.committed, handle.stepped()],
+        &[&world.rig.store.committed, handle.stepped(), &agent.handed],
         || (!lock(&agent.turns).is_empty()).then_some(()),
     )
     .await;
@@ -309,7 +400,7 @@ async fn an_outside_agents_stopped_turn_that_produced_nothing_takes_its_prompt_o
     assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
     eventually_on_awaiting(
         || "the agent's turn".to_owned(),
-        &[&world.rig.store.committed, handle.stepped()],
+        &[&world.rig.store.committed, handle.stepped(), &agent.handed],
         || (!lock(&agent.turns).is_empty()).then_some(()),
     )
     .await;

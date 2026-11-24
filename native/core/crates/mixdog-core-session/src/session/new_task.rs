@@ -52,6 +52,22 @@ type Outcome = Result<Started, CoreError>;
 struct Active {
     signature: String,
     done: watch::Receiver<Option<Outcome>>,
+    /// The cut the attempt began under.
+    cut: Cut,
+}
+
+/// One stop request's cut of the attempts: `token` ends each attempt begun under it, and `withdrawn` is cancelled once the stop is
+/// withdrawn (its drain cancelled, [`NewTaskReceipts::reopen`]). A cut that is never withdrawn ends with the process.
+#[derive(Clone)]
+struct Cut {
+    token: CancellationToken,
+    withdrawn: CancellationToken,
+}
+
+impl Cut {
+    fn new() -> Self {
+        Self { token: CancellationToken::new(), withdrawn: CancellationToken::new() }
+    }
 }
 
 /// The receipts folder and the requests in flight.
@@ -59,8 +75,9 @@ pub struct NewTaskReceipts {
     folder: PathBuf,
     io: DurabilityIo,
     active: Mutex<HashMap<String, Active>>,
-    /// Cancelled at shutdown: each attempt ends as Node's does at quit ([`SessionDirectory::start_new_task`]), and no new one starts.
-    closing: CancellationToken,
+    /// The cut in effect: cancelled by a stop request and at shutdown, so each attempt ends as Node's does at quit
+    /// ([`SessionDirectory::start_new_task`]) and no new one starts; replaced by a fresh one when the stop is withdrawn.
+    cut: Mutex<Cut>,
     /// A read hold per running attempt, shared by each receipt write it began; `shutdown` takes the write hold, so it returns
     /// once every attempt has ended and every write that began has ended whole.
     #[allow(clippy::disallowed_types, reason = "a read hold is kept across an attempt's awaits and shutdown waits for the write hold")]
@@ -87,6 +104,8 @@ pub struct Request {
     gate: Arc<NewTaskReceipts>,
     /// The attempt's hold on `alive`, which each of its writes keeps until it has ended whole.
     hold: Hold,
+    /// Cancelled when a stop request cuts the attempt.
+    closing: CancellationToken,
     path: PathBuf,
     signature: String,
     receipt: Mutex<Receipt>,
@@ -118,13 +137,6 @@ impl Default for WriteStall {
     fn default() -> Self {
         Self { entered: tokio::sync::Notify::new(), release: tokio::sync::Semaphore::new(0) }
     }
-}
-
-/// What a caller gets once the receipts are shut down: no answer. Node's quit does not answer or refuse a new-task request (its
-/// attempt ends with the process); the core's callers are disconnected before the directory shuts down (the release's
-/// `closeConnections` comes before `closeDataHandles`), so the request ends with its connection, as in Node.
-async fn unanswered() -> Outcome {
-    std::future::pending().await
 }
 
 /// An attempt's place in `active`, given up however the attempt ends (an answer, a panic, the cut at shutdown): a later request
@@ -378,7 +390,7 @@ impl NewTaskReceipts {
             folder: user_data.join("new-task-receipts"),
             io,
             active: Mutex::default(),
-            closing: CancellationToken::new(),
+            cut: Mutex::new(Cut::new()),
             alive: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             joined: tokio::sync::Notify::new(),
@@ -397,8 +409,8 @@ impl NewTaskReceipts {
     /// ([`SessionDirectory::start_new_task`]: cut where it stands, or refused while it applies its draft to a created session),
     /// before the directory closes (a write that began ends whole first, within `bound`); none runs on with a closed directory.
     /// The next start resumes each receipt as it resumes it after a crash or a refusal (an atomic rename leaves the receipt
-    /// before or after a write that outlives `bound`). The callers in flight and later requests get no answer ([`unanswered`]).
-    /// `Err` when a write outlived `bound`.
+    /// before or after a write that outlives `bound`). The callers in flight and later requests get no answer: this cut is never withdrawn
+    /// ([`Self::run`]). `Err` when a write outlived `bound`.
     pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
         self.cut();
         match mixdog_rt::time::timeout(bound, self.alive.write()).await {
@@ -410,12 +422,21 @@ impl NewTaskReceipts {
     /// The stop request (Node's host dispose): every attempt in flight ends now, as [`Self::shutdown`] ends it, and no new one starts;
     /// the writes they begin are waited for by [`Self::shutdown`].
     pub fn cut(&self) {
-        self.closing.cancel();
+        lock(&self.cut).token.cancel();
     }
 
-    /// Cancelled when the receipts shut down.
+    /// The drain of the stop request that cut the attempts was cancelled: attempts start again, and each request the cut left unanswered is
+    /// made again, as its resubmission would be (its receipt resumes where the cut left it). Nothing to do when no cut is in effect.
+    pub fn reopen(&self) {
+        let mut cut = lock(&self.cut);
+        if cut.token.is_cancelled() {
+            std::mem::replace(&mut *cut, Cut::new()).withdrawn.cancel();
+        }
+    }
+
+    /// The token of the cut in effect.
     pub(super) fn closing(&self) -> CancellationToken {
-        self.closing.clone()
+        lock(&self.cut).token.clone()
     }
 
     /// How many requests are in flight.
@@ -450,11 +471,11 @@ impl NewTaskReceipts {
     }
 
     /// `readReceipt`: what is no receipt binds nothing; only an I/O error fails.
-    async fn read(&self, path: &Path) -> Result<Option<Receipt>, CoreError> {
+    async fn read(&self, path: &Path, closing: &CancellationToken) -> Result<Option<Receipt>, CoreError> {
         use mixdog_core_base::support::FsFailure;
         use mixdog_core_base::support::FsStep;
         let path = path.to_owned();
-        let bytes = on_lane_wait(self.io, &self.closing, move |lane| {
+        let bytes = on_lane_wait(self.io, closing, move |lane| {
             mixdog_statefile::read_content(&path).map_err(|error| {
                 // Node's `open` takes a folder and its read fails (`EISDIR: illegal operation on a directory, read`, libuv on
                 // every system); Windows refuses the open itself. Any other failure is the open's, as Node words it.
@@ -501,42 +522,49 @@ impl NewTaskReceipts {
             .map_err(|error| failed("session", error.to_string()))
     }
 
-    /// `run`: `execute` runs once for the id, whoever asks; the same content joins it, other content is refused.
+    /// `run`: `execute` runs once for the id, whoever asks; the same content joins it, other content is refused. A request that a cut
+    /// ends is not answered while the stop may still end the process (Node's quit answers nobody); once the stop is withdrawn
+    /// ([`Self::reopen`]) it is made again.
     pub async fn run<F, Fut>(self: &Arc<Self>, id: &str, input: &Value, execute: F) -> Outcome
     where
-        F: FnOnce(Arc<Request>) -> Fut + Send + 'static,
+        F: FnOnce(Arc<Request>) -> Fut + Clone + Send + 'static,
         Fut: Future<Output = Outcome> + Send + 'static,
     {
         let key = sha256_hex(id.as_bytes());
         let signature = sha256_hex(mixdog_js::json_stringify(&sorted(input)).as_bytes());
-        // `None`: the receipts are shut down, and the request gets no answer.
-        let done = {
-            let mut active = lock(&self.active);
-            if let Some(existing) = active.get(&key) {
-                if existing.signature != signature {
-                    return Err(reused());
+        loop {
+            // `None`: a cut is in effect, and no attempt starts.
+            let (cut, done) = {
+                let mut active = lock(&self.active);
+                if let Some(existing) = active.get(&key) {
+                    if existing.signature != signature {
+                        return Err(reused());
+                    }
+                    #[cfg(any(test, feature = "test-support"))]
+                    self.joined.notify_one();
+                    (existing.cut.clone(), Some(existing.done.clone()))
+                } else {
+                    if active.len() >= MAX_ACTIVE {
+                        return Err(failed("session", "Too many new task requests are in progress."));
+                    }
+                    let cut = lock(&self.cut).clone();
+                    match self.alive.clone().try_read_owned() {
+                        Ok(alive) if !cut.token.is_cancelled() => {
+                            let done = self.begin(&mut active, key.clone(), signature.clone(), alive, cut.clone(), execute.clone());
+                            (cut, Some(done))
+                        }
+                        _ => (cut, None),
+                    }
                 }
-                #[cfg(any(test, feature = "test-support"))]
-                self.joined.notify_one();
-                Some(existing.done.clone())
-            } else {
-                if active.len() >= MAX_ACTIVE {
-                    return Err(failed("session", "Too many new task requests are in progress."));
-                }
-                match self.alive.clone().try_read_owned() {
-                    Ok(alive) if !self.closing.is_cancelled() => Some(self.begin(&mut active, key, signature, alive, execute)),
-                    _ => None,
+            };
+            if let Some(mut done) = done {
+                match done.wait_for(Option::is_some).await.map(|settled| settled.clone().expect("waited for an answer")) {
+                    Ok(outcome) => return outcome,
+                    Err(_) if !cut.token.is_cancelled() => return Err(failed("session", "The new task request ended without an answer.")),
+                    Err(_) => {}
                 }
             }
-        };
-        let Some(mut done) = done else { return unanswered().await };
-        let outcome = done.wait_for(Option::is_some).await.map(|settled| settled.clone().expect("waited for an answer"));
-        match outcome {
-            Ok(outcome) => outcome,
-            // Cut at shutdown: no answer, as the process ends.
-            Err(_) if self.closing.is_cancelled() => unanswered().await,
-            // The attempt panicked.
-            Err(_) => Err(failed("session", "The new task request ended without an answer.")),
+            cut.withdrawn.cancelled().await;
         }
     }
 
@@ -547,6 +575,7 @@ impl NewTaskReceipts {
         key: String,
         signature: String,
         alive: tokio::sync::OwnedRwLockReadGuard<()>,
+        cut: Cut,
         execute: F,
     ) -> watch::Receiver<Option<Outcome>>
     where
@@ -556,28 +585,28 @@ impl NewTaskReceipts {
         #[cfg(any(test, feature = "test-support"))]
         self.attempts.send_modify(|n| *n += 1);
         let (settled, done) = watch::channel(None);
-        active.insert(key.clone(), Active { signature: signature.clone(), done: done.clone() });
+        active.insert(key.clone(), Active { signature: signature.clone(), done: done.clone(), cut: cut.clone() });
         let gate = self.clone();
         drop(mixdog_rt::spawn("new-task-request", TaskClass::Work, async move {
             let leave = Leave { gate: gate.clone(), key: key.clone() };
-            let outcome = gate.attempt(&key, signature, Arc::new(alive), execute).await;
+            let outcome = gate.attempt(&key, signature, Arc::new(alive), cut.token.clone(), execute).await;
             drop(leave);
-            // At shutdown nobody is answered, as Node's quit answers nobody.
-            if !gate.closing.is_cancelled() {
+            // A cut attempt answers nobody, as Node's quit answers nobody: its requests are made again if the stop is withdrawn.
+            if !cut.token.is_cancelled() {
                 let _ = settled.send(Some(outcome));
             }
         }));
         done
     }
 
-    async fn attempt<F, Fut>(self: &Arc<Self>, key: &str, signature: String, hold: Hold, execute: F) -> Outcome
+    async fn attempt<F, Fut>(self: &Arc<Self>, key: &str, signature: String, hold: Hold, closing: CancellationToken, execute: F) -> Outcome
     where
         F: FnOnce(Arc<Request>) -> Fut + Send + 'static,
         Fut: Future<Output = Outcome> + Send + 'static,
     {
-        self.secure(&self.closing).await?;
+        self.secure(&closing).await?;
         let path = self.folder.join(format!("{key}.json"));
-        let stored = self.read(&path).await?;
+        let stored = self.read(&path, &closing).await?;
         // Only a recorded refusal frees the id for other content; any other receipt, a `reserved` one left by an interrupted
         // attempt included, keeps it.
         let refused = stored.as_ref().is_some_and(Receipt::refused);
@@ -600,10 +629,15 @@ impl NewTaskReceipts {
                 receipt
             }
         };
-        execute(Arc::new(Request { gate: self.clone(), hold, path, signature, receipt: Mutex::new(receipt) })).await
+        execute(Arc::new(Request { gate: self.clone(), hold, closing, path, signature, receipt: Mutex::new(receipt) })).await
     }
 }
 impl Request {
+    /// Cancelled when a stop request cuts the attempt.
+    pub(super) fn closing(&self) -> CancellationToken {
+        self.closing.clone()
+    }
+
     pub fn session_id(&self) -> ThreadId {
         ThreadId::from(lock(&self.receipt).session_id().to_owned())
     }
@@ -640,7 +674,7 @@ impl SessionDirectory {
         // must not cancel it, or a retry that joins it would get the cancellation instead of the task.
         let mut req = req;
         req.ctx.cancel = CancellationToken::new();
-        let (directory, receipts) = (self.share(), self.deps().new_tasks.clone());
+        let (directory, receipts) = (Arc::new(self.share()), self.deps().new_tasks.clone());
         let started =
             receipts.run(&submission.clone(), &input, move |request| async move { directory.new_task(&request, &req, params, &submission).await }).await?;
         // Every caller of the request, the first or one that joined, takes its own subscription on the thread.
@@ -664,7 +698,7 @@ impl SessionDirectory {
         // refused.
         let first = request.phase() == Phase::Reserved;
         let enters = params.draft.as_ref().is_some_and(|draft| draft.worktree.is_some());
-        let closing = self.deps().new_tasks.closing();
+        let closing = request.closing();
         let step = StepCell::new(Step::Creating);
         let started = {
             let phases = self.new_task_phases(request, req, params, submission, &id, &step);
@@ -723,7 +757,7 @@ impl SessionDirectory {
         id: &ThreadId,
         step: &StepCell,
     ) -> Outcome {
-        let closing = &self.deps().new_tasks.closing();
+        let closing = &request.closing();
         let go_on = || if closing.is_cancelled() { Err(cut()) } else { Ok(()) };
         // `client.create`: the reservation is made again at its address when the session is not there; a session that is there
         // is opened (Node's daemon opens the session at the address it is given, `getOrCreateSessionEntry`). The core's creation
@@ -775,5 +809,59 @@ impl SessionDirectory {
             tracing::warn!("project recency update failed (non-fatal): {error}");
         }
         Ok(Started { thread: id.clone(), summary, turn })
+    }
+}
+
+#[cfg(test)]
+mod reopen_tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+
+    /// The bound of each wait, in real time.
+    const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn started(thread: &str) -> Outcome {
+        Ok(Started { thread: ThreadId::from(thread.to_owned()), summary: Value::Null, turn: None })
+    }
+
+    /// The drain of the stop request that cut an attempt is cancelled: the request it cut is made again once the cut is withdrawn and
+    /// answered, and a request made after it starts.
+    #[tokio::test]
+    async fn a_withdrawn_cut_answers_the_request_it_cut_and_new_requests_start() {
+        let data = tempfile::tempdir().expect("a folder");
+        let receipts = NewTaskReceipts::new(&data.path().join("userdata"), mixdog_rt::testing::tokens().durability_io);
+        let (entered, runs, reopened) = (Arc::new(tokio::sync::Notify::new()), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
+        let cut_request = tokio::spawn({
+            let (receipts, entered, runs, reopened) = (receipts.clone(), entered.clone(), runs.clone(), reopened.clone());
+            async move {
+                receipts
+                    .run("sub-cut", &serde_json::json!({ "n": 1 }), move |request| async move {
+                        if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                            entered.notify_one();
+                            request.closing().cancelled().await;
+                            return Err(cut());
+                        }
+                        if !reopened.load(Ordering::SeqCst) {
+                            return Err(failed("session", "made again before the cut was withdrawn"));
+                        }
+                        started("t-cut")
+                    })
+                    .await
+            }
+        });
+        mixdog_rt::time::timeout(BOUND, entered.notified()).await.expect("the attempt runs");
+        receipts.cut();
+        reopened.store(true, Ordering::SeqCst);
+        receipts.reopen();
+        let answer = mixdog_rt::time::timeout(BOUND, cut_request).await.expect("the cut request is answered").expect("joined");
+        assert_eq!(answer.expect("started").thread, ThreadId::from("t-cut".to_owned()));
+        assert_eq!(runs.load(Ordering::SeqCst), 2, "made once more");
+        let later = mixdog_rt::time::timeout(BOUND, receipts.run("sub-later", &serde_json::json!({ "n": 2 }), |_| async { started("t-later") }))
+            .await
+            .expect("a later request is answered");
+        assert_eq!(later.expect("started").thread, ThreadId::from("t-later".to_owned()));
     }
 }

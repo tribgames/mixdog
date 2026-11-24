@@ -50,7 +50,7 @@ test('a place lives as long as its pane holds a tab of the session, and a save t
   keepReaderPlaces(tabs({}));
 });
 
-test("the row a list put its reader on keeps its top while it crosses the top of the view: its size settling is not compensated at its lower edge", () => {
+test('the row a list put its reader on keeps its top while it crosses the top of the view: its size settling is not compensated at its lower edge', () => {
   const list = {};
   const row = { key: 'r7', start: 700, end: 838 };
   assert.equal(holdsReaderTop(list, row, 811), false, 'no reader was put on it');
@@ -93,7 +93,11 @@ test('rows of sessions no pane shows are kept for an entry at their end: none wi
   store.sweepHidden();
   assert.equal(store.get('closed'), null, 'no pane holds a tab of it');
   assert.equal(store.get('end').items.length, 200, 'the rows held fit the budget');
-  assert.equal(store.get('read'), null, `a tail of more than ${HIDDEN_SESSION_ROW_BUDGET} rows is read again, a reader's place in it or not`);
+  assert.equal(
+    store.get('read'),
+    null,
+    `a tail of more than ${HIDDEN_SESSION_ROW_BUDGET} rows is read again, a reader's place in it or not`
+  );
   assert.equal(store.hiddenRows(), 200);
   // A session a pane shows is not swept.
   const off = store.subscribe('shown', () => {});

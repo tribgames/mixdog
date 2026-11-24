@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 
+use mixdog_core_ports::ports::threads::ThreadState;
+use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
@@ -1659,6 +1661,13 @@ impl restart::ProcessProbe for AllAlive {
     }
 }
 
+struct Dead;
+impl restart::ProcessProbe for Dead {
+    fn alive(&self, _: u64) -> bool {
+        false
+    }
+}
+
 /// For random sequences of every kind of write (this process's and another's, the exit flush, the restart's settlement, a
 /// restart that restores the index, the scans), expiries, loads and reads, every public read of the registry, every refresh
 /// and every listing (scanning ones too) answers what the reads made before the views answered over the same index.
@@ -2481,12 +2490,6 @@ fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::Jo
 }
 #[tokio::test]
 async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_delivery() {
-    struct Dead;
-    impl restart::ProcessProbe for Dead {
-        fn alive(&self, _: u64) -> bool {
-            false
-        }
-    }
     let (rig, registry, board) = lost_task_world();
     for n in 0..8 {
         let id = format!("s-{n}");
@@ -4265,12 +4268,6 @@ async fn a_settle_identity_is_fixed_once_per_turn_and_a_scan_of_that_turn_does_n
 async fn a_worker_recovered_twice_gets_a_later_settle_identity_for_its_second_restart_failure() {
     use crate::session::TurnStarts;
     use mixdog_core_agents::agents::SettleFix;
-    struct Dead;
-    impl restart::ProcessProbe for Dead {
-        fn alive(&self, _: u64) -> bool {
-            false
-        }
-    }
     let rig = Rig::new();
     let registry = rig.registry();
     registry.reload().await.unwrap();
@@ -4440,18 +4437,21 @@ async fn a_release_leaves_the_member_a_turn_started_on_since_its_close() {
     assert!(registry.is_released("sess_a"));
 }
 
-/// A tree is counted closed only when every member the cleanup planned to release has a receipt. A descendant a direct
-/// turn started on after its close stamp landed and before the tree was released is spared by the turn fence and has
-/// none: the tree is partial, the member is named, and the root that did close is released as in any partial tree.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_tree_whose_descendant_started_a_turn_before_its_release_is_not_counted_closed() {
-    use mixdog_agent::agent_tool::host::Registry;
+/// A cleanup over a tree of the first worker and a descendant `sess_kid` (whose header stamp `refused_stamp` names, if any is
+/// refused), run until the root's close stamp waits: the descendant's has landed. The world, the root, the cleanup and the
+/// release of the root's stamp.
+async fn cleanup_held_at_the_root_stamp(
+    refused_stamp: Option<&str>,
+) -> (CleanupWorld, String, tokio::task::JoinHandle<Result<mixdog_agent::agent_tool::dispatch::CleanupReport, String>>, tokio::sync::oneshot::Sender<()>) {
     let (world, arrived, go) = cleanup_world(0).await;
     let parent = world.workers[0].0.clone();
     let below = json!({ "parentSessionId": parent, "ownerSessionId": parent });
     world.rig.store.sessions.lock().unwrap().push(session("sess_kid", "kid", &at(NOW - HOUR), below.clone()));
     world.rig.store.write_row("sess_kid", Some(worker_row("sess_kid", "kid", below)));
     world.rig.store.touch_sessions();
+    if let Some(id) = refused_stamp {
+        world.threads.refused.lock().unwrap().insert(id.to_owned());
+    }
     // The root is stamped last: while its stamp waits, the descendant's has landed and the tree is not released yet.
     let (root_told, root_arrived) = tokio::sync::oneshot::channel();
     let (root_go, root_held) = tokio::sync::oneshot::channel();
@@ -4460,6 +4460,16 @@ async fn a_tree_whose_descendant_started_a_turn_before_its_release_is_not_counte
     arrived.await.expect("the first close stamps");
     go.send(()).unwrap();
     root_arrived.await.expect("the root's close stamps");
+    (world, parent, cleanup, root_go)
+}
+
+/// A tree is counted closed only when every member the cleanup planned to release has a receipt. A descendant a direct
+/// turn started on after its close stamp landed and before the tree was released is spared by the turn fence and has
+/// none: the tree is partial, the member is named, and the root that did close is released as in any partial tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tree_whose_descendant_started_a_turn_before_its_release_is_not_counted_closed() {
+    use mixdog_agent::agent_tool::host::Registry;
+    let (world, parent, cleanup, root_go) = cleanup_held_at_the_root_stamp(None).await;
     assert!(world.threads.stamps.lock().unwrap().contains(&"sess_kid".to_owned()), "the descendant's stamp landed first");
     crate::session::TurnStarts::turn_started(&*world.registry, &ThreadId::from("sess_kid"), &"direct".into());
     root_go.send(()).unwrap();
@@ -4483,20 +4493,7 @@ async fn a_tree_whose_descendant_started_a_turn_before_its_release_is_not_counte
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tree_reports_the_member_that_failed_and_the_member_that_started_another_turn() {
     use mixdog_agent::agent_tool::host::Registry;
-    let (world, arrived, go) = cleanup_world(0).await;
-    let parent = world.workers[0].0.clone();
-    let below = json!({ "parentSessionId": parent, "ownerSessionId": parent });
-    world.rig.store.sessions.lock().unwrap().push(session("sess_kid", "kid", &at(NOW - HOUR), below.clone()));
-    world.rig.store.write_row("sess_kid", Some(worker_row("sess_kid", "kid", below)));
-    world.rig.store.touch_sessions();
-    world.threads.refused.lock().unwrap().insert("sess_kid".to_owned());
-    let (root_told, root_arrived) = tokio::sync::oneshot::channel();
-    let (root_go, root_held) = tokio::sync::oneshot::channel();
-    *world.threads.hold_of.lock().unwrap() = Some((parent.clone(), root_told, root_held));
-    let cleanup = world.cleanup(mixdog_rt::CancellationToken::new());
-    arrived.await.expect("the first close stamps");
-    go.send(()).unwrap();
-    root_arrived.await.expect("the root's close stamps");
+    let (world, parent, cleanup, root_go) = cleanup_held_at_the_root_stamp(Some("sess_kid")).await;
     crate::session::TurnStarts::turn_started(&*world.registry, &ThreadId::from(parent.as_str()), &"direct".into());
     root_go.send(()).unwrap();
     let report = cleanup.await.unwrap().unwrap();
@@ -4628,12 +4625,6 @@ async fn the_stale_rows_a_cleanups_refresh_tombstones_are_announced_with_its_clo
 /// restart's settlement of it: the reader waits, and then reads the worker as the settlement left it.
 #[tokio::test]
 async fn held_worker_rows_are_read_only_as_the_restart_settled_them() {
-    struct Dead;
-    impl restart::ProcessProbe for Dead {
-        fn alive(&self, _: u64) -> bool {
-            false
-        }
-    }
     let rig = Rig::new();
     let registry = Arc::new(rig.registry());
     registry.reload().await.unwrap();
@@ -4658,12 +4649,6 @@ async fn held_worker_rows_are_read_only_as_the_restart_settled_them() {
 /// answer its failure and still take no tag, whether or not the registry had loaded the rows before; when it succeeds, the
 /// pool lists the worker, `t` is refused as taken and the next tag is another.
 async fn spawns_and_the_pool_over_held_worker_rows(fails: bool, warm: bool) {
-    struct Dead;
-    impl restart::ProcessProbe for Dead {
-        fn alive(&self, _: u64) -> bool {
-            false
-        }
-    }
     let rig = Rig::new();
     rig.store.write("s-t", Some(worker_row("s-t", "t", json!({}))));
     rig.store.sessions.lock().unwrap().push(session("s-t", "t", &at(NOW - HOUR), json!({})));

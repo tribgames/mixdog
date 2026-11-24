@@ -36,6 +36,9 @@ export const adapter: PhoneProtocolAdapter = {
     removePushSubscription: ([endpoint], host) =>
       rpc(host, 'remoteAccess/removePushSubscription', { endpoint: requiredString(endpoint, 'endpoint') }),
     registerNativePush: ([input], host) => rpc(host, 'remoteAccess/registerNativePush', { input: input ?? null }),
+    // remote-shim-pairing.ts `deliverControllerKey`: the core binds the key to the credential of this connection.
+    deliverScreenControllerKey: ([publicKey], host) =>
+      rpc(host, 'remoteAccess/deliverScreenControllerKey', { input: publicKey ?? null }),
     // A notification's Allow / Deny (native-push-bridge.ts `answerApproval`). Which Allow is taken, and with which decision, is the
     // core's rule (`thread/approval/answerNotification`, remote-session-methods.ts:200-215), never the phone's.
     answerApprovalNotification: async ([sessionId, approvalId, action], host) =>

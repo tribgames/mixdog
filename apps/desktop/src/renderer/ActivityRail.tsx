@@ -37,11 +37,11 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Capsule tops in the 23x7 meter under the mark: one 3px capsule, or two a
- *  pixel apart with the short window on top. */
 const METER_LENGTH = 23;
 const METER_HEIGHT = 7;
 const CAPSULE_HEIGHT = 3;
+/** Capsule tops in the 23x7 meter under the mark: one 3px capsule, or two a
+ *  pixel apart with the short window on top. */
 const SINGLE_BAR = [0];
 const STACKED_BARS = [0, 4];
 

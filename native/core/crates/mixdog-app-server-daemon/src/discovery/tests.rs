@@ -241,9 +241,8 @@ fn an_error_that_cannot_clear_is_not_retried() {
 }
 #[test]
 fn runtime_root_is_named_as_1_4_5_names_it() {
-    let root = runtime_root().unwrap();
+    let root = runtime_root();
     if std::env::var_os("MIXDOG_RUNTIME_ROOT").is_none() {
-        assert!(root.starts_with(node_tmpdir()));
         #[cfg(windows)]
         assert_eq!(root.file_name().unwrap(), "mixdog");
         #[cfg(unix)]

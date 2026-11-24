@@ -313,7 +313,7 @@ impl DurabilityTask {
         if std::mem::take(&mut self.redact) && self.queue.is_empty() {
             let (store, thread, slot) = (self.store.clone(), self.thread.clone(), self.log.clone());
             let job = queued(self.lane, move |lane| redact(lane, &*store, &thread, &mut lock(&slot)));
-            *in_flight = Some(Box::pin(async move { Done::Redact(job.await) }));
+            *in_flight = Some(Box::pin(async move { Done::Redact(job.await.and_then(|done| done)) }));
             return;
         }
         let Some(generation) = self.queue.front().map(|front| front.generation) else { return };
@@ -366,7 +366,8 @@ impl DurabilityTask {
             // An unrun rewrite left the log as it was; the mark's journal entry stays and the next start redoes it.
             Done::Redact(result) => {
                 if let Err(error) = result {
-                    tracing::warn!(thread = %self.thread, "the log's sensitive rewrite gave no result on the io-durability lane: {error:?}");
+                    tracing::warn!(thread = %self.thread, "the log's sensitive rewrite did not run: {error:?}");
+                    return;
                 }
                 FromDurability::Redacted
             }
@@ -401,22 +402,26 @@ async fn requested(retiring: &mut Option<oneshot::Receiver<oneshot::Sender<Retir
 
 /// One io-durability job: the log's owed rewrite with nothing to append; a log not opened yet is opened for it (as at a
 /// first write), one never created holds nothing.
-fn redact(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, thread: &ThreadId, log: &mut Log) {
+fn redact(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, thread: &ThreadId, log: &mut Log) -> Result<(), BarrierError> {
     match std::mem::replace(log, Log::Lost) {
         Log::Ready(mut writer) => {
             writer.redact(lane);
             *log = Log::Ready(writer);
         }
-        Log::Init(LogInit::Open(at)) => match store.open_log(lane, thread, at) {
+        Log::Init(LogInit::Open(at)) => match store.open_log(lane, thread, at.clone()) {
             Ok(mut writer) => {
                 writer.redact(lane);
                 *log = Log::Ready(writer);
             }
-            // As a failed open at a first write: the writer is lost and the next batch fails indeterminate.
-            Err(error) => tracing::warn!(%thread, "the log could not be opened for its sensitive rewrite: {error:?}"),
+            // The log stays unopened: the next write or redaction opens it again.
+            Err(error) => {
+                *log = Log::Init(LogInit::Open(at));
+                return Err(error);
+            }
         },
         other => *log = other,
     }
+    Ok(())
 }
 
 /// One io-durability job: open or create the writer at the first write, then the barrier.
@@ -427,7 +432,13 @@ fn commit(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, threa
     match std::mem::replace(log, Log::Lost) {
         Log::Lost | Log::Ready(_) => Err(lost()),
         Log::Init(LogInit::Open(at)) => {
-            let mut writer = store.open_log(lane, thread, at)?;
+            let mut writer = match store.open_log(lane, thread, at.clone()) {
+                Ok(writer) => writer,
+                Err(error) => {
+                    *log = Log::Init(LogInit::Open(at));
+                    return Err(error);
+                }
+            };
             let result = writer.commit(lane, batch);
             *log = Log::Ready(writer);
             result
@@ -766,6 +777,35 @@ mod lane_cause_tests {
             assert_eq!(a.await, Ok(()));
             assert_eq!(b.await, Ok(()));
         });
+    }
+
+    /// A first write whose log fails to open (a transient lock) fails as not applied, and the next write opens the log again.
+    #[test]
+    fn a_failed_open_at_the_first_write_leaves_the_log_to_open_at_the_next() {
+        let (executors, tokens) = mixdog_rt::exec::boot(RtConfig::for_cores(8)).expect("boot");
+        let rt = executors.handle(TaskClass::Work);
+        let store = Arc::new(MemStore::default());
+        store.fail_open_next.store(true, std::sync::atomic::Ordering::SeqCst);
+        let thread = ThreadId::from("open-twice");
+        let (to_tx, to_rx) = mpsc::channel(8);
+        let (from_tx, mut from_rx) = mpsc::channel(8);
+        let at = super::super::seams::AppendPosition(Arc::new(()));
+        let task = DurabilityTask::new(thread, store, tokens.durability_io, 1 << 20, LogInit::Open(at), to_rx, from_tx);
+        let _task = rt.spawn(task.run());
+        let mut next = || loop {
+            match rt.block_on(async { mixdog_rt::time::timeout(WAIT, from_rx.recv()).await }).expect("the task answers").expect("open") {
+                FromDurability::Pending(_) => continue,
+                other => break other,
+            }
+        };
+        let (record, bytes) = session_record();
+        rt.block_on(to_tx.send(ToDurability::Append { generation: 1, records: vec![(1, record.clone(), bytes)] })).unwrap();
+        match next() {
+            FromDurability::Failed { error, .. } => assert_eq!(error, not_applied("openLocked")),
+            _ => panic!("the first batch fails"),
+        }
+        rt.block_on(to_tx.send(ToDurability::Append { generation: 2, records: vec![(2, record, bytes)] })).unwrap();
+        assert!(matches!(next(), FromDurability::Acked { generation: 2, .. }), "the log opens at the next write");
     }
 
     /// Each way the lane gives no result reaches the actor as its own cause; a job that may have run is indeterminate.

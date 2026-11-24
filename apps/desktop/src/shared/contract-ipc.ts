@@ -196,6 +196,9 @@ export const DESKTOP_IPC = {
   pcQuotaInvoke: 'desktop:pcQuotaInvoke',
   pcQuotaRead: 'desktop:pcQuotaRead',
   quit: 'mixdog:quit',
+  // A quit's request that the window write its editors' pending backups, and its answer (main/editor-backup-flush.ts).
+  flushEditorBackups: 'mixdog:flush-editor-backups',
+  editorBackupsFlushed: 'mixdog:editor-backups-flushed',
   state: 'mixdog:state',
   sessionState: 'mixdog:session-state',
   sessionStateResync: 'mixdog:session-state-resync',

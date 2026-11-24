@@ -1165,7 +1165,11 @@ test('a thumb dragged to the end and back up in one press holds corrections thro
     // The thumb reaches the end: following re-arms under the press.
     await harness.act(async () => state.hook.arm());
     state.now += 5_000;
-    assert.equal(state.hook.holdsScrollCorrections(), true, 'the press is still down: no offset is written under the thumb');
+    assert.equal(
+      state.hook.holdsScrollCorrections(),
+      true,
+      'the press is still down: no offset is written under the thumb'
+    );
     // Dragged back up in the same press.
     await harness.scroll(1700);
     assert.equal(state.hook.holdsScrollCorrections(), true);
@@ -1315,7 +1319,15 @@ test('an arrow key in a question card that moves the focus to an option above th
   const { restore, window } = installTestDom(null, {
     html: "<div id='root'></div>",
     jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLButtonElement', 'Node', 'navigator'],
+    expose: [
+      'Element',
+      'HTMLElement',
+      'HTMLInputElement',
+      'HTMLTextAreaElement',
+      'HTMLButtonElement',
+      'Node',
+      'navigator',
+    ],
   });
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   window.Element.prototype.scrollIntoView = () => {};
@@ -1329,7 +1341,9 @@ test('an arrow key in a question card that moves the focus to an option above th
       import('./QuestionCard.tsx'),
     ]);
   const scrollToEndRef = { current: () => (state.restores += 1) };
-  const questions = [{ question: 'Which?', header: 'W', options: ['A', 'B', 'C'].map((label) => ({ label, description: '' })) }];
+  const questions = [
+    { question: 'Which?', header: 'W', options: ['A', 'B', 'C'].map((label) => ({ label, description: '' })) },
+  ];
   let follow = null;
   function Harness() {
     const viewport = React.useRef(null);
@@ -1804,7 +1818,11 @@ test('the distance changing with no scroll event: into the band shows the jump c
     assert.deepEqual(h.shown(), { following: false, jump: true });
     // A row below folds: the end comes 100px below the view, though the reader did not scroll there.
     await h.resize(2100);
-    assert.deepEqual(h.shown(), { following: false, jump: true }, 'in the band: the jump control says the end is not kept');
+    assert.deepEqual(
+      h.shown(),
+      { following: false, jump: true },
+      'in the band: the jump control says the end is not kept'
+    );
     // A scroll event that moves nothing (a layout pass) does not count as the reader coming back.
     await h.scroll(1600);
     assert.deepEqual(h.shown(), { following: false, jump: true }, 'resting in the band is not coming back');
@@ -1814,7 +1832,11 @@ test('the distance changing with no scroll event: into the band shows the jump c
     await h.scroll(1850);
     state.now += 1_000;
     await h.scroll(1850);
-    assert.deepEqual(h.shown(), { following: false, jump: true }, "the timeline's own write is not the reader coming back");
+    assert.deepEqual(
+      h.shown(),
+      { following: false, jump: true },
+      "the timeline's own write is not the reader coming back"
+    );
     // The dock closes and the window grows: the view stands at the end. It follows, and nothing is shown.
     await h.resize(2250);
     assert.deepEqual(h.shown(), { following: true, jump: false }, 'standing at the end is following');
@@ -1834,7 +1856,11 @@ test('a search hit opened from the end: follow waits while the place is opened, 
       openReaderPlace('hit-pane', 'hit-session', { position: 'p1', top: 'center' });
     });
     for (let frame = 0; frame < 3; frame += 1) await h.frame();
-    assert.deepEqual(h.shown(), { following: false, jump: false }, 'the place being opened is the reader’s, still in flight');
+    assert.deepEqual(
+      h.shown(),
+      { following: false, jump: false },
+      'the place being opened is the reader’s, still in flight'
+    );
     // The hit's row lies at the end: the list puts the reader there (the place is taken).
     await h.act(async () => voidReaderPlace('hit-pane', 'hit-session'));
     await h.scroll(2000);

@@ -30,6 +30,9 @@ use crate::oauth::device::Schedule;
 use crate::oauth::http::Reply;
 use crate::oauth::http::call_under;
 use crate::oauth::http::failed;
+use crate::oauth::lease::LockProcess;
+use crate::oauth::lease::REFRESH_LEASE;
+use crate::oauth::lease::refresh_lock_path;
 use crate::oauth::scrub::scrubbed_excerpt;
 use crate::oauth::scrub::scrubbed_prefix;
 use crate::oauth::start_session;
@@ -320,12 +323,22 @@ impl OpenCodeGoAuth {
         if same_login(held, &current) || renewed_here { Ok(current) } else { Err(login_changed()) }
     }
 
-    /// Concurrent callers holding one credential share a refresh POST. Unpinned callers can follow a replacement login;
-    /// a send validates the shared answer against its first credential in `renew_for_send`.
+    /// Concurrent callers holding one credential share a refresh POST, made on the account's file the flight was pinned
+    /// to and holding the cross-process refresh lease beside it: another process (or another handle in this one) that
+    /// refreshes first has stored its pair before this one reads the file, and this one never spends the old token.
+    /// Unpinned callers can follow a replacement login; a send validates the shared answer against its first credential
+    /// in `renew_for_send`.
     async fn refresh(&self, held: OpenCodeGoCredentials, force: bool, pinned: bool) -> Result<RefreshAnswer, RefreshError> {
-        let this = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.clone() };
+        let (http, pace) = (self.http.clone(), self.pace.clone());
         self.file
-            .refresh_once(&held.refresh_token.clone(), async move { this.refresh_unshared(held, force, pinned).await })
+            .refresh_once(&held.refresh_token.clone(), move |file| async move {
+                let this = Self { http, pace, file };
+                let (lock, process) = (refresh_lock_path(this.file.path()), LockProcess::this_process());
+                this.file
+                    .lease(&lock, &process, &*this.pace, REFRESH_LEASE, this.refresh_unshared(held, force, pinned))
+                    .await
+                    .unwrap_or_else(|error| Err(RefreshError::Failed(format!("token refresh: {error}"), None)))
+            })
             .await
             .unwrap_or_else(|expired| Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None)))
     }
@@ -412,6 +425,7 @@ mod tests {
     use crate::oauth::http::testing::Scripted;
     use crate::oauth::http::testing::finish;
     use crate::oauth::pace::FakePace;
+    use crate::oauth::pace::Parked;
     use serde_json::json;
 
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"WXYZ","verification_uri_complete":"/device?code=WXYZ","interval":3,"expires_in":900}"#;
@@ -570,6 +584,96 @@ mod tests {
             assert_eq!(call.await.unwrap().unwrap().access_token, "A2");
         }
         assert_eq!(http.seen.lock().unwrap().len(), 1, "one refresh POST");
+    }
+
+    /// The Console answering each refresh from its script once the test lets it through, announcing each that arrives.
+    struct Gated {
+        reply: Arc<Scripted>,
+        arrived: tokio::sync::Semaphore,
+        gate: tokio::sync::Semaphore,
+    }
+
+    #[async_trait]
+    impl crate::transport::HttpSend for Gated {
+        async fn send(
+            &self,
+            request: mixdog_core_api::domain::provider::WireRequest,
+            exchange: crate::transport::Exchange,
+        ) -> Result<crate::transport::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+            self.arrived.add_permits(1);
+            self.gate.acquire().await.expect("an open gate").forget();
+            crate::transport::HttpSend::send(self.reply.as_ref(), request, exchange).await
+        }
+    }
+
+    /// The selection moves to another account while a refresh of the first one's pair is at the Console: the pair
+    /// granted for the spent refresh token is stored in the first account's file, and the other account's file stays.
+    #[tokio::test]
+    async fn a_refresh_stores_its_grant_in_the_account_it_started_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let (first, second) = (CredentialFile::new(dir.path().join("first.json"), io), CredentialFile::new(dir.path().join("second.json"), io));
+        first.save(&stored("A1", "R1", 1_000)).await.unwrap();
+        second.save(&stored("B1", "RB", 0)).await.unwrap();
+        let moved = Arc::new(AtomicBool::new(false));
+        let (to_first, to_second, selection) = (first.path().to_owned(), second.path().to_owned(), moved.clone());
+        let following = CredentialFile::new(dir.path().join("opencode-go-oauth.json"), io).following(Arc::new(move || {
+            let path = if selection.load(std::sync::atomic::Ordering::SeqCst) { to_second.clone() } else { to_first.clone() };
+            Box::pin(async move { path })
+        }));
+        let reply = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600}"#)]);
+        let http = Arc::new(Gated { reply, arrived: tokio::sync::Semaphore::new(0), gate: tokio::sync::Semaphore::new(0) });
+        let pace = Arc::new(FakePace::default());
+        pace.now.store(2_000, std::sync::atomic::Ordering::SeqCst);
+        let auth = OpenCodeGoAuth::new(http.clone(), pace, following);
+        let refreshing = tokio::spawn(async move { auth.ensure_fresh(false).await });
+        http.arrived.acquire().await.unwrap().forget();
+        moved.store(true, std::sync::atomic::Ordering::SeqCst);
+        http.gate.add_permits(1);
+        assert_eq!(refreshing.await.unwrap().unwrap().access_token, "A2");
+        let Probe::Present(kept) = first.load::<OpenCodeGoCredentials>().await else { panic!("the first account's sign-in is stored") };
+        assert_eq!((kept.access_token.as_str(), kept.refresh_token.as_str()), ("A2", "R2"), "the spent refresh token stayed stored");
+        let Probe::Present(other) = second.load::<OpenCodeGoCredentials>().await else { panic!("the other account's sign-in is stored") };
+        assert_eq!(other.access_token, "B1");
+    }
+
+    /// Another process holds the refresh lease of the account's file when this one finds its pair expired: this one
+    /// waits for the lease, and under it takes the pair the other stored, posting nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refresh_waits_for_another_processs_lease_and_takes_the_pair_it_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = store(&dir);
+        let now = crate::oauth::pace::SystemPace.now_ms();
+        file.save(&stored("A1", "R1", now - 1)).await.unwrap();
+        let (taken, release) = (Arc::new(tokio::sync::Semaphore::new(0)), Arc::new(tokio::sync::Semaphore::new(0)));
+        let holding = tokio::spawn({
+            let (file, taken, release) = (file.clone(), taken.clone(), release.clone());
+            async move {
+                let other = LockProcess::new(mixdog_statefile::LockOwner::another_in_process());
+                let held = async move {
+                    taken.add_permits(1);
+                    release.acquire().await.expect("an open gate").forget();
+                };
+                file.lease(&refresh_lock_path(file.path()), &other, &crate::oauth::pace::SystemPace, REFRESH_LEASE, held).await.is_ok()
+            }
+        });
+        taken.acquire().await.unwrap().forget();
+        let http = Scripted::new(&[(200, r#"{"access_token":"A9","refresh_token":"R9","expires_in":3600}"#)]);
+        let parked = Arc::new(Parked::new());
+        let auth = OpenCodeGoAuth::new(http.clone(), parked.clone(), file.clone());
+        let mut refreshing = tokio::spawn(async move { auth.ensure_fresh(false).await });
+        let waited = tokio::select! {
+            _ = parked.waiting.acquire() => true,
+            _ = &mut refreshing => false,
+        };
+        assert!(waited, "the refresh went ahead while another process held the lease");
+        file.save(&stored("A2", "R2", now + 3_600_000)).await.unwrap();
+        release.add_permits(1);
+        parked.go.add_permits(1_000);
+        assert!(holding.await.unwrap());
+        assert_eq!(refreshing.await.unwrap().unwrap().access_token, "A2");
+        assert!(http.seen.lock().unwrap().is_empty(), "the refresh token the other process renewed was posted again");
     }
 
     /// A Console post and the account reads after a grant, never answered, fail their step after a timer.

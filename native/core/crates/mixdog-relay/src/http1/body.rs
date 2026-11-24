@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::mpsc;
 
-use super::head::Framing;
+use super::head::{Framing, MAX_HEADER_BYTES};
 
 /// The longest chunk-size or trailer line the decoder keeps waiting for.
 const MAX_LINE: usize = 16 * 1024;
@@ -60,7 +60,8 @@ enum State {
     Size,
     Data(u64),
     DataEnd,
-    Trailer,
+    /// The bytes of trailer lines read so far.
+    Trailer(usize),
 }
 
 #[derive(Debug)]
@@ -88,7 +89,7 @@ impl ChunkedDecoder {
                     };
                     let line = buf.split_to(end + 1);
                     let Some(size) = chunk_size(&line[..end]) else { return Decoded::Bad };
-                    self.state = if size == 0 { State::Trailer } else { State::Data(size) };
+                    self.state = if size == 0 { State::Trailer(0) } else { State::Data(size) };
                 }
                 State::Data(remaining) => {
                     if buf.is_empty() {
@@ -109,10 +110,16 @@ impl ChunkedDecoder {
                     let _ = buf.split_to(2);
                     self.state = State::Size;
                 }
-                State::Trailer => {
+                State::Trailer(seen) => {
+                    // A trailer section is a header section: it gets the header limit in total, not only per line.
                     let Some(end) = buf.iter().position(|&b| b == b'\n') else {
-                        return if buf.len() > MAX_LINE { Decoded::Bad } else { Decoded::Need };
+                        return if buf.len() > MAX_LINE || seen + buf.len() > MAX_HEADER_BYTES { Decoded::Bad } else { Decoded::Need };
                     };
+                    let seen = seen + end + 1;
+                    if seen > MAX_HEADER_BYTES {
+                        return Decoded::Bad;
+                    }
+                    self.state = State::Trailer(seen);
                     let line = buf.split_to(end + 1);
                     if line.strip_suffix(b"\n").map(|l| l.strip_suffix(b"\r").unwrap_or(l)).is_some_and(<[u8]>::is_empty) {
                         return Decoded::Done;
@@ -295,6 +302,16 @@ mod tests {
             assert_eq!((body.as_slice(), last), (&b"hello world"[..], Step::Done), "split {split}");
             assert_eq!(&rest[..], b"NEXT", "split {split}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_trailer_section_is_bounded_in_total_not_only_per_line() {
+        let mut wire = b"0\r\n".to_vec();
+        for _ in 0..(MAX_HEADER_BYTES / 10 + 2) {
+            wire.extend_from_slice(b"X-T: abcd\r\n");
+        }
+        wire.extend_from_slice(b"\r\n");
+        assert_eq!(run(Framing::Chunked, &wire, 64).await.1, Step::Bad);
     }
 
     #[tokio::test]

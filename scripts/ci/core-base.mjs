@@ -61,7 +61,8 @@ export function coreProven(jobs) {
 export function coreBase({ runs, repository, jobsOf, limit = 10 }) {
   let read = 0;
   for (const run of runs) {
-    if (run.status !== 'completed' || run.event === 'pull_request' || run.head_repository?.full_name !== repository) continue;
+    if (run.status !== 'completed' || run.event === 'pull_request' || run.head_repository?.full_name !== repository)
+      continue;
     if (run.conclusion === 'success') return run.head_sha;
     if (run.conclusion !== 'failure') continue;
     if (++read > limit) break;
@@ -78,7 +79,8 @@ function parseArgs(argv) {
     else if (argv[i] === '--branch') out.branch = argv[++i];
     else throw new Error(`unknown argument ${argv[i]}`);
   }
-  if (!out.repository || !out.branch) throw new Error('usage: core-base.mjs --repository <owner/name> --branch <branch>');
+  if (!out.repository || !out.branch)
+    throw new Error('usage: core-base.mjs --repository <owner/name> --branch <branch>');
   return out;
 }
 

@@ -263,7 +263,10 @@ test('a file the turn’s record does not list says so the same way on every ent
   assert.deepEqual(view.paths(), [PLAN, NOTES]);
   await view.open('src/gone.ts', { cwd: ROOT });
   shownAsUnrecorded();
-  assert.ok(view.patchReads().every((read) => read.file === undefined), 'only the list’s patches were read');
+  assert.ok(
+    view.patchReads().every((read) => read.file === undefined),
+    'only the list’s patches were read'
+  );
 });
 
 test('a turn opened in a pane not shown before reads none of the source: the source reads once the turn is left', async (t) => {

@@ -97,6 +97,22 @@ fn retire(w: &mut Writer, session: &str, base: Option<&str>, frames: Vec<Project
     answer
 }
 
+fn fork_base(session: &str, end: u64) -> crate::schema::record::Base {
+    serde_json::from_value(json!({"session": session, "log_id": LOG_ID, "end_ordinal_exclusive": end})).expect("base")
+}
+
+/// Runs the view steps, each followed by its append transaction, until no retirement is left waiting.
+fn viewed(w: &mut Writer) {
+    for _ in 0..1000 {
+        if w.retires.is_empty() {
+            break;
+        }
+        w.views = true;
+        w.view_step();
+        w.append_answered();
+    }
+}
+
 fn dirty(w: &Writer, session: &str) -> bool {
     w.conn.query_row("SELECT dirty FROM sessions WHERE id = ?1", [session], |r| r.get(0)).expect("the row")
 }
@@ -131,7 +147,7 @@ fn a_retirement_whose_fork_view_cannot_run_is_refused_at_once() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut w = writer(&dir);
     created(&mut w, BASE, None, vec![frame(0, FrameKind::Session { base: None }), item(1)]);
-    let base: crate::schema::record::Base = serde_json::from_value(json!({"session": BASE, "log_id": LOG_ID, "end_ordinal_exclusive": 5})).expect("base");
+    let base = fork_base(BASE, 5);
     created(&mut w, FORK, Some(BASE), vec![frame(5, FrameKind::Session { base: Some(base) })]);
     let mut retired = retire(&mut w, FORK, Some(BASE), Vec::new(), end_after(5));
     appended(&mut w);
@@ -150,9 +166,9 @@ fn a_retirement_waits_while_its_parents_view_is_still_being_computed() {
     let mut w = writer(&dir);
     w.step_rows = 1;
     created(&mut w, BASE, None, vec![frame(0, FrameKind::Session { base: None }), item(1), item(2), item(3)]);
-    let base: crate::schema::record::Base = serde_json::from_value(json!({"session": BASE, "log_id": LOG_ID, "end_ordinal_exclusive": 3})).expect("base");
+    let base = fork_base(BASE, 3);
     created(&mut w, FORK, Some(BASE), vec![frame(3, FrameKind::Session { base: Some(base) })]);
-    let parent: crate::schema::record::Base = serde_json::from_value(json!({"session": FORK, "log_id": LOG_ID, "end_ordinal_exclusive": 4})).expect("base");
+    let parent = fork_base(FORK, 4);
     created(&mut w, GRANDCHILD, Some(FORK), vec![frame(4, FrameKind::Session { base: Some(parent) })]);
     let pending: i64 = w.conn.query_row("SELECT count(*) FROM message_views WHERE state = 'pending'", [], |r| r.get(0)).expect("views");
     assert_eq!(pending, 2, "the fork's view and its own fork's are both still to be computed");
@@ -160,14 +176,7 @@ fn a_retirement_waits_while_its_parents_view_is_still_being_computed() {
     appended(&mut w);
     assert!(retired.try_recv().is_err(), "the retirement was answered while its parent's view was being computed");
     assert!(dirty(&w, GRANDCHILD));
-    for _ in 0..1000 {
-        if w.retires.is_empty() {
-            break;
-        }
-        w.views = true;
-        w.view_step();
-        w.append_answered();
-    }
+    viewed(&mut w);
     retired.try_recv().expect("the retirement is answered once both views are done").expect("clean");
     assert!(!dirty(&w, GRANDCHILD));
 }
@@ -180,7 +189,7 @@ fn a_failed_view_step_refuses_the_retirements_waiting_for_a_view() {
     let mut w = writer(&dir);
     w.step_rows = 1;
     created(&mut w, BASE, None, vec![frame(0, FrameKind::Session { base: None }), item(1), item(2), item(3)]);
-    let base: crate::schema::record::Base = serde_json::from_value(json!({"session": BASE, "log_id": LOG_ID, "end_ordinal_exclusive": 3})).expect("base");
+    let base = fork_base(BASE, 3);
     created(&mut w, FORK, Some(BASE), vec![frame(3, FrameKind::Session { base: Some(base) })]);
     let mut retired = retire(&mut w, FORK, Some(BASE), Vec::new(), end_after(3));
     appended(&mut w);
@@ -389,20 +398,13 @@ fn a_retirement_waits_for_the_fork_view_its_row_needs() {
     w.step_rows = 1;
     created(&mut w, BASE, None, vec![frame(0, FrameKind::Session { base: None }), item(1), item(2), item(3)]);
     // Forked below the base's end: the base is ahead of the fork point, so the view is computed by maintenance steps.
-    let base: crate::schema::record::Base = serde_json::from_value(json!({"session": BASE, "log_id": LOG_ID, "end_ordinal_exclusive": 3})).expect("base");
+    let base = fork_base(BASE, 3);
     created(&mut w, FORK, Some(BASE), vec![frame(3, FrameKind::Session { base: Some(base) })]);
     let mut retired = retire(&mut w, FORK, Some(BASE), Vec::new(), end_after(3));
     appended(&mut w);
     assert!(retired.try_recv().is_err(), "the retirement was answered before the fork's view was computed");
     assert!(dirty(&w, FORK));
-    for _ in 0..1000 {
-        if w.retires.is_empty() {
-            break;
-        }
-        w.views = true;
-        w.view_step();
-        w.append_answered();
-    }
+    viewed(&mut w);
     retired.try_recv().expect("the retirement is answered once the view is done").expect("clean");
     assert!(!dirty(&w, FORK));
 }

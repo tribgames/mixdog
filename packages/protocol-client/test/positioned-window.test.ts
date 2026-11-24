@@ -9,24 +9,25 @@ import { MockNetwork } from '../src/mock.ts';
 import { desktopSessionState, sessionReducer, sessionStateOf } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
 import { moveTranscriptWindow, windowWant, WINDOW_TAIL_MAX_ROWS } from '../src/transcript-window.ts';
+import { at, cont, end, pos } from './positioned-fixtures.ts';
 
 type O = Record<string, any>;
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 
-const pos = (id: string) => `h1:0:${id}`;
 const user = (id: string, text = id) => ({
   type: 'userMessage',
   id,
   content: [{ type: 'text', text }],
   meta: { ext: { historyPosition: pos(id) } },
 });
-const reply = (id: string, text = id) => ({ type: 'agentMessage', id, text, meta: { ext: { historyPosition: pos(id) } } });
+const reply = (id: string, text = id) => ({
+  type: 'agentMessage',
+  id,
+  text,
+  meta: { ext: { historyPosition: pos(id) } },
+});
 const unit = (item: O) => ({ position: pos(item.id), items: [item] });
 const units = (ids: string[]) => ids.map((id, at) => unit(at % 2 ? reply(id) : user(id)));
-const cont = (position: string) => ({ kind: 'continuation', position });
-const end = { kind: 'end' };
-const at = (s: SessionFold, method: string, params: O) =>
-  sessionReducer.apply(s, { method, params: { threadId: 't', ...params } } as never);
 const ids = (rows: readonly O[]) => rows.map((row) => row.id);
 const snapshot = (tail: string[], loose: O[] = [], older = true) =>
   sessionReducer.initial({
@@ -57,7 +58,10 @@ test('a positioned snapshot shows the tail records it carries, then the rows no 
 
 test('a stored record joins the followed tail and takes the place of the rows shown for it', () => {
   let s = snapshot(['r1', 'r2']);
-  s = at(s, 'item/started', { turnId: 'x', item: { type: 'agentMessage', id: 'r3', text: '', meta: { status: 'inProgress' } } });
+  s = at(s, 'item/started', {
+    turnId: 'x',
+    item: { type: 'agentMessage', id: 'r3', text: '', meta: { status: 'inProgress' } },
+  });
   s = at(s, 'item/agentMessage/delta', { itemId: 'r3', delta: 'stream' });
   // The record's own `item/completed` reaches a positioned subscription as a change with no row.
   s = at(s, 'thread/transcript/changed', { lineage: 1 });
@@ -85,8 +89,14 @@ test('a stored record joins the followed tail and takes the place of the rows sh
   assert.deepEqual(ids(s.items), ['r1', 'r2', 'r3']);
   assert.deepEqual(s.loose ?? [], []);
   // Another lineage's change, and a replace of a record not held, change nothing.
-  assert.equal(at(s, 'thread/transcript/changed', { lineage: 2, change: { op: 'replace', unit: unit(reply('r3', 'x')) } }), s);
-  assert.equal(at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: unit(reply('r9')) } }), s);
+  assert.equal(
+    at(s, 'thread/transcript/changed', { lineage: 2, change: { op: 'replace', unit: unit(reply('r3', 'x')) } }),
+    s
+  );
+  assert.equal(
+    at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: unit(reply('r9')) } }),
+    s
+  );
   s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: unit(reply('r2', 'amended')) } });
   assert.equal(s.items[1]!.text, 'amended');
 });
@@ -147,7 +157,11 @@ test('a followed tail past its bound is read anew: alone for a reader at the end
   const ids = (count: number) => Array.from({ length: count }, (_, i) => `g${String(i).padStart(4, '0')}`);
   const long = snapshot(ids(WINDOW_TAIL_MAX_ROWS + 300));
   const anew = { ranges: [], followTail: true, pinned: [] };
-  assert.deepEqual(windowWant(long.held!, { kind: 'follow' }), anew, 'no tail range is retained: the core reads the newest records');
+  assert.deepEqual(
+    windowWant(long.held!, { kind: 'follow' }),
+    anew,
+    'no tail range is retained: the core reads the newest records'
+  );
   assert.deepEqual(windowWant(long.held!, { kind: 'read', first: 'g2300', last: 'g2347', end: true }), anew);
   // A reader in the tail's stretch off its end keeps the rows in view and a page on each side.
   assert.deepEqual(windowWant(long.held!, { kind: 'read', first: 'g1000', last: 'g1010' }), {
@@ -210,7 +224,10 @@ test('the moves a reader asks for: a page above, a bounded stretch, a hit opened
   // Fewer rows than the lead lie above the reader's view: the page above is asked for. A row no record holds stands at
   // the newest end.
   assert.deepEqual(windowWant(s.held!, { kind: 'read', first: 'r20', last: 'not-stored-yet' }), {
-    ranges: [{ at: 'retain', id: 'tail' }, { at: 'before', position: pos('r20'), rows: 96 }],
+    ranges: [
+      { at: 'retain', id: 'tail' },
+      { at: 'before', position: pos('r20'), rows: 96 },
+    ],
     followTail: true,
     pinned: [],
   });
@@ -253,13 +270,20 @@ test('the moves a reader asks for: a page above, a bounded stretch, a hit opened
   };
   for (let page = 0; page < 6; page++) grow(page);
   assert.equal(keptAt(oldest[2]!), null, 'in the middle of the rows held, nothing is asked for');
-  assert.deepEqual(keptAt(oldest[5]!), ['tail', 'q:0', 'q:1', 'q:2', 'q:3', 'q:4', 'q:5'], 'at the top, everything read stays');
+  assert.deepEqual(
+    keptAt(oldest[5]!),
+    ['tail', 'q:0', 'q:1', 'q:2', 'q:3', 'q:4', 'q:5'],
+    'at the top, everything read stays'
+  );
   // Past the bound, the pages farthest from the reader's view are let go; those within its lead and a page stay.
   for (let page = 6; page < 24; page++) grow(page);
   const kept = keptAt(oldest[23]!)!;
   assert.ok(kept.includes('tail'));
   assert.ok(!kept.includes('q:0'), 'the page next to the tail is let go first');
-  assert.ok(['q:21', 'q:22', 'q:23'].every((id) => kept.includes(id)), 'the pages around the reader are kept');
+  assert.ok(
+    ['q:21', 'q:22', 'q:23'].every((id) => kept.includes(id)),
+    'the pages around the reader are kept'
+  );
 });
 
 test('a positioned client resumes with positionedWindow, takes window frames at the position they stand at, and sends the moves', async () => {
@@ -309,7 +333,11 @@ test('a positioned client resumes with positionedWindow, takes window frames at 
     },
   });
   // A unit at the position the feed reached: no gap, no seq of its own.
-  feed('thread/transcript/changed', { threadId: 't', lineage: 0, change: { op: 'insert', unit: unit(user('r10')) } }, seq);
+  feed(
+    'thread/transcript/changed',
+    { threadId: 't', lineage: 0, change: { op: 'insert', unit: unit(user('r10')) } },
+    seq
+  );
   feed('thread/runtime/updated', { threadId: 't', value: { busy: true } });
   await settle();
   assert.deepEqual(ids((sessionStateOf(client, 't') as O).items), ['r8', 'r9', 'r10']);
@@ -350,15 +378,23 @@ test('a positioned client resumes with positionedWindow, takes window frames at 
 
 test('a held record sent again with a compaction divider shows the divider after it, before the rows of the running turn', () => {
   let s = snapshot(['r1', 'r2']);
-  s = at(s, 'item/started', { turnId: 'x', item: { type: 'agentMessage', id: 'live', text: '', meta: { status: 'inProgress' } } });
+  s = at(s, 'item/started', {
+    turnId: 'x',
+    item: { type: 'agentMessage', id: 'live', text: '', meta: { status: 'inProgress' } },
+  });
   s = at(s, 'item/agentMessage/delta', { itemId: 'live', delta: 'working' });
   // The divider's own event reaches a positioned subscription with no row.
   s = at(s, 'thread/transcript/changed', { lineage: 1 });
   const divided = {
     ...reply('r2'),
-    meta: { ext: { historyPosition: pos('r2'), dividersAfter: [{ type: 'contextCompaction', id: 'divider:c1', meta: {} }] } },
+    meta: {
+      ext: { historyPosition: pos('r2'), dividersAfter: [{ type: 'contextCompaction', id: 'divider:c1', meta: {} }] },
+    },
   };
-  s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: { position: pos('r2'), items: [divided] } } });
+  s = at(s, 'thread/transcript/changed', {
+    lineage: 1,
+    change: { op: 'replace', unit: { position: pos('r2'), items: [divided] } },
+  });
   assert.deepEqual(ids(s.items), ['r1', 'r2', 'divider:c1']);
   assert.equal(s.live?.id, 'live', 'the reply still streams under it');
   // A snapshot taken then carries the divider twice: on the record it follows and as the core's live row. It is shown once.

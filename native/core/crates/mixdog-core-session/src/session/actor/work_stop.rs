@@ -346,7 +346,8 @@ impl SessionActor {
         self.cell.stop_latches.release(&self.id, |identity| work_stops::stopped(header, identity).is_some());
     }
 
-    /// A run whose end is in but parked behind a row being read ([`Self::run_ended`]): it is over, a Stop finds nothing to abort.
+    /// A run whose end is in but parked behind a row being read, or behind the save of the prompt row it hands back
+    /// ([`Self::run_ended`]): it is over, a Stop finds nothing to abort.
     pub(super) fn end_parked(&self) -> bool {
         matches!((&self.ended_run, &self.run), (Some((ended, _)), Some(run)) if *ended == run.turn)
     }
@@ -479,7 +480,7 @@ impl SessionActor {
         // The fixed order of the refusals: the first that applies is the one named.
         let refusal = match self.run.as_ref() {
             None => Some(TakeoverRefusal::NoRunningTurn),
-            Some(_) if self.compactions > 0 || self.compaction_held() || self.core_hold() != StartHold::Open => Some(TakeoverRefusal::TurnNotTakeable),
+            Some(_) if self.compacting() || self.compaction_held() || self.core_hold() != StartHold::Open => Some(TakeoverRefusal::TurnNotTakeable),
             Some(_) if withdrawn => Some(TakeoverRefusal::StopClaimed),
             Some(_) if named_runs && taken => Some(TakeoverRefusal::TakenOver),
             Some(run) if named_runs && (run.stop.is_some() || run.interrupt_end.is_some() || run.cancel.is_aborted()) => Some(TakeoverRefusal::StopClaimed),

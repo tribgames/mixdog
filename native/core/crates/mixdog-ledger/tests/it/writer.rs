@@ -116,6 +116,65 @@ async fn the_refresh_reprices_only_what_changed() {
 }
 
 #[tokio::test]
+async fn a_record_written_with_an_earlier_time_after_a_check_is_repriced_by_the_next_refresh() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ledger.sqlite");
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+    let table = Arc::new(Table { revision: Mutex::new("r1".into()), calls: 0.into() });
+    let refresher = UsageRefresher::new(table, tokens.cpu_bulk);
+
+    writer.record_queued(record("new", 500, "unpriced", None)).await.unwrap();
+    writer.settle_writes().await.unwrap();
+    assert!(matches!(refresher.refresh(&writer, &reader, 10_000).await.unwrap(), Refresh::Repaired(_)));
+
+    writer.record_queued(record("older", 50, "unpriced", None)).await.unwrap();
+    writer.settle_writes().await.unwrap();
+    let Refresh::Repaired(report) = refresher.refresh(&writer, &reader, 10_000).await.unwrap() else {
+        panic!("the older record is examined");
+    };
+    assert_eq!(report.repriced, 1);
+    assert_eq!(query::<i64>(&path, "SELECT COUNT(*) FROM usage_events WHERE cost_usd IS NULL"), 0);
+}
+
+#[tokio::test]
+async fn the_write_ahead_log_returns_to_its_bound_after_a_burst_even_with_a_reader_in_the_way() {
+    let rig = rig();
+    rig.writer.record_queued(record("first", TS, "catalog", Some(0.1))).await.unwrap();
+    rig.writer.sums_built().await.unwrap();
+    let wal = rig.path.with_file_name("ledger.sqlite-wal");
+    let len = || std::fs::metadata(&wal).map_or(0, |m| m.len());
+    // What the automatic checkpoint keeps the log at: its pages of the file's page size.
+    let bound = (query::<i64>(&rig.path, "PRAGMA page_size") * query::<i64>(&rig.path, "PRAGMA wal_autocheckpoint")) as u64;
+
+    // A reader's snapshot held across the burst keeps any checkpoint from finishing.
+    let reader = Connection::open(&rig.path).unwrap();
+    reader.execute_batch("BEGIN").unwrap();
+    reader.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get::<_, i64>(0)).unwrap();
+
+    let burst: Vec<_> = (0..600_i64)
+        .map(|i| {
+            let mut row = record(&format!("b{i}"), TS + 1 + i, "catalog", Some(0.1));
+            row.model = format!("{i}-{}", "x".repeat(16_384));
+            rig.writer.record_queued(row)
+        })
+        .collect();
+    for write in burst {
+        write.await.unwrap();
+    }
+    assert!(len() > bound, "the burst grew the log past its bound ({} <= {bound})", len());
+
+    // Once the reader lets go, the commits that follow checkpoint the log and the next one truncates it.
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    for i in 0..2_i64 {
+        rig.writer.record_queued(record(&format!("after{i}"), TS + 10_000 + i, "catalog", Some(0.1))).await.unwrap();
+    }
+    assert!(len() <= bound, "the log is back within its bound ({} > {bound})", len());
+}
+
+#[tokio::test]
 async fn the_writer_signals_a_change_once_idle_after_a_commit() {
     use mixdog_ledger::writer::UsageChanged;
 

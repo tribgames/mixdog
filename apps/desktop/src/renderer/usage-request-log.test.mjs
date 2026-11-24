@@ -37,10 +37,13 @@ function harness(context) {
   });
   return {
     render: async (props) => act(async () => root.render(React.createElement(CommandSurface, props))),
-    scrollToEnd: async () =>
+    // `sightings` intersections land back to back, before React commits any of them.
+    scrollToEnd: async (sightings = 1) =>
       act(async () => {
-        for (const observer of observers) {
-          if (observer.target?.isConnected) observer.callback([{ isIntersecting: true }]);
+        for (let sighting = 0; sighting < sightings; sighting += 1) {
+          for (const observer of observers) {
+            if (observer.target?.isConnected) observer.callback([{ isIntersecting: true }]);
+          }
         }
       }),
   };
@@ -56,10 +59,11 @@ const SESSIONS = {
 function pagedLog(rows) {
   const generatedAt = Date.now();
   const asked = [];
-  const control = { failFirstPage: false };
+  const control = { failFirstPage: false, failPage: false };
   const answer = (question) => {
     asked.push(question);
     if (control.failFirstPage && !question.cursor) throw new Error('first page failed');
+    if (control.failPage && question.cursor) throw new Error('page failed');
     const matching = rows.filter(
       (row) => (!question.status || row.status === question.status) && (!question.model || row.model === question.model)
     );
@@ -133,6 +137,7 @@ function sessionKindsApi(_context, kinds) {
 }
 const tab = (label) => [...document.querySelectorAll('[role="tab"]')].find((node) => node.textContent === t(label));
 const bodyRows = () => [...document.querySelectorAll('.request-log-table tbody tr:not(.request-log-more)')];
+const retry = () => [...document.querySelectorAll('.stats-error button')].find((node) => node.textContent === t('Retry'));
 // Under `table-layout: fixed` a row that spans more or fewer columns than the
 // header adds a phantom column, or leaves one short: a blank band on the right.
 function assertRowsSpanTheHeader() {
@@ -297,6 +302,50 @@ test('a failed first page of a new filter clears the old rows and pages nothing 
   assert.equal(bodyRows().filter((row) => !row.querySelector('.usage-empty')).length, 0, 'the old rows are gone');
   await scrollToEnd();
   assert.equal(asked.length, count, 'no page is read with the old cursor');
+});
+
+test('a failed first page of a filter offers Retry, which reads that first page again', async (context) => {
+  const { render } = harness(context);
+  window.localStorage.clear();
+  const { api, asked, control } = requestApi(context, 60);
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  await act(async () => tab('Request log').click());
+  assert.equal(bodyRows().length, 50);
+
+  control.failFirstPage = true;
+  await openFilter(0);
+  await act(async () => option(t('Failed')).click());
+  assert.ok(retry(), 'the failed first page can be read again');
+  const count = asked.length;
+  control.failFirstPage = false;
+  await act(async () => retry().click());
+  assert.equal(asked.length, count + 1);
+  assert.deepEqual(asked.at(-1), { view: 'hour', status: 'failed', limit: 50 }, 'the same question, from its start');
+  assert.equal(bodyRows().length, 1);
+  assert.equal(document.querySelector('.stats-error'), null);
+});
+
+test('two sightings of the list end read the next page once, and a failed page offers Retry', async (context) => {
+  const { render, scrollToEnd } = harness(context);
+  window.localStorage.clear();
+  const { api, asked, control } = requestApi(context, 150);
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  await act(async () => tab('Request log').click());
+  assert.equal(bodyRows().length, 50);
+  await scrollToEnd(2);
+  assert.equal(asked.length, 2, 'one read for the next page');
+  assert.equal(bodyRows().length, 100, 'the page is shown once');
+
+  control.failPage = true;
+  await scrollToEnd();
+  assert.equal(asked.length, 3);
+  assert.ok(retry(), 'the failed page can be read again');
+  control.failPage = false;
+  await act(async () => retry().click());
+  assert.equal(asked.length, 4);
+  assert.deepEqual(asked[3].cursor, asked[2].cursor, 'Retry reads the page that failed');
+  assert.equal(bodyRows().length, 150);
+  assert.equal(document.querySelector('.stats-error'), null);
 });
 
 test('a host that does not advertise the request log shows no tab, and a stored choice opens token usage', async (context) => {

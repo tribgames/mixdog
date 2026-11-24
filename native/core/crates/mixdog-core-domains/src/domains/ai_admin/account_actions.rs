@@ -48,7 +48,7 @@ impl AccountOps for ProviderAdmin {
     }
 
     async fn forget(&self, id: &str, account: Option<&str>) -> Result<Value, String> {
-        self.forget_provider_auth(id, account).await.map_err(|failure| failure.message().to_owned())
+        self.forget_provider_auth(id, account, "agent tool call (setup tool)").await.map_err(|failure| failure.message().to_owned())
     }
 
     async fn update(&self, id: &str, change: &Value) -> Result<Value, String> {

@@ -171,8 +171,7 @@ pub trait HopHost: Send + Sync {
     /// the hop as it is).
     async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String>;
     /// Why `provider` is not available: the cause its readiness recorded, and whether the user switched it off.
-    async fn unavailable_cause(&self, provider: &str) -> (Option<String>, bool) {
-        let _ = provider;
+    async fn unavailable_cause(&self, _provider: &str) -> (Option<String>, bool) {
         (None, false)
     }
     /// `resolveSessionContextMeta(provider, model, route).rawContextWindow`, with the route's own
@@ -568,6 +567,17 @@ impl RouteHop {
         Ok(Some(provider))
     }
 
+    /// The run was assembled on the route the preflight switch ([`Self::unavailable`]) landed on: the switch it seats carries
+    /// what the assembly built there (the request with the first request's judged effort and the cache-tail gate judged from
+    /// the session's sends, the effort wiring over the stored rows, the text-only handling), so seating it leaves them so.
+    pub fn assembled(&self, request: RouteSwitchRequest, effort: Option<EffortWiring>, text_only: Option<TextOnlyInput>) {
+        if let Some(switch) = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
+            switch.request = request;
+            switch.effort = effort;
+            switch.text_only = text_only;
+        }
+    }
+
     /// Ends the left model's share of the turn: `usage`, the running total at the switch, bounds it so each model's tokens are booked at its own rates.
     fn book_usage(&self, left: &Value, usage: Option<Usage>) {
         self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
@@ -669,12 +679,7 @@ impl RouteHop {
     /// ([`Self::put_back`]); `Err` only when that fails too.
     pub async fn reconsider(&self, last_usage: Option<&Usage>) -> Result<Option<RouteSwitch>, String> {
         let pending = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-        if let Some(mut switch) = pending {
-            // Its request is built from the session as it stands now: what the assembly stored after the hop (the landing
-            // provider's wire identity) is the destination's.
-            if let (Some(build), Some(Value::Object(fields))) = (&self.request_for_route, self.host.session()) {
-                switch.request = build(&fields);
-            }
+        if let Some(switch) = pending {
             return Ok(Some(switch));
         }
         let Some(session) = self.host.session().filter(has_agent) else { return Ok(None) };
@@ -923,6 +928,20 @@ mod reconsider_tests {
         assert!(route.reconsider(None).await.unwrap().is_none(), "the held switch is seated once");
         let segments = route.usage_segments(&Usage { input_tokens: 7, ..Usage::default() }, ("openai-oauth", "astra"));
         assert_eq!(segments.iter().map(|s| (s.model.as_str(), s.usage.input_tokens)).collect::<Vec<_>>(), [("astra", 7)]);
+    }
+
+    /// The run was assembled on the route a preflight switch landed on: seating that switch leaves the request the assembly
+    /// built there (its judged first effort), not one rebuilt from the session.
+    #[tokio::test]
+    async fn a_preflight_switch_seats_the_request_the_run_was_assembled_with() {
+        use mixdog_core_api::domain::provider::RequestOptions;
+        let effort = |effort: &str| RouteSwitchRequest { options: RequestOptions { effort: Some(effort.into()), ..Default::default() }, ..Default::default() };
+        let (route, _) = hop(fresh(), &[]);
+        let route = route.with_request_for_route(move |_| effort("rebuilt"));
+        assert!(route.unavailable("Provider \"anthropic-oauth\" not available").await.expect("the hop runs").is_some());
+        route.assembled(effort("judged"), None, None);
+        let switch = route.reconsider(None).await.unwrap().expect("the run seats the written switch");
+        assert_eq!(switch.request.options.effort.as_deref(), Some("judged"));
     }
 
     /// No other available route keeps the caller's refusal and writes nothing; a hop that fails after its write is that

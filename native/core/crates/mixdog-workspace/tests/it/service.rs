@@ -268,21 +268,198 @@ async fn without_a_grant_a_relay_connection_reads_no_absolute_path() {
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
+/// `readLocalFile` of a paired device (a file dragged from the Files tree into the composer): a file of a registered project, or
+/// one the device holds a grant for; any other path of this PC is refused, read whole or paged.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_one_file_permission_writes_its_file_and_refuses_another() {
+async fn a_relay_connection_reads_a_local_file_of_a_project_or_of_its_grant_alone() {
+    let (env, outside) = granted_env("granted-local");
+    let other = outside.join("other.txt").to_string_lossy().into_owned();
+    for params in [json!({ "path": other }), json!({ "path": other, "paged": true })] {
+        let refused = call(&env, "projectFs/readLocal", params).await;
+        assert!(unavailable(&refused), "{refused:?}");
+    }
+    let project = call(&env, "projectFs/readLocal", json!({ "path": env.root.join("a.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!((project["name"].clone(), project["data"].clone()), (json!("a.txt"), json!("b25lCg==")));
+    mint_token(&env, &outside, "note.txt").await;
+    let granted = call(&env, "projectFs/readLocal", json!({ "path": outside.join("note.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!(granted["data"], "aGkK");
+}
+
+/// A one-file permission reads its file and never saves it: the save is refused before the token is looked at, and the file
+/// stays as it was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_file_permission_reads_its_file_and_never_saves_it() {
     let (env, outside) = granted_env("granted-calls");
     let note = mint_token(&env, &outside, "note.txt").await;
     let mut write = granted_target(&outside, "note.txt", &note);
     write["content"] = json!("changed\n");
     write["expectedContent"] = json!("hi\n");
-    call(&env, "projectFs/writeText", write).await.unwrap();
-    assert_eq!(std::fs::read_to_string(outside.join("note.txt")).unwrap(), "changed\n");
-    let mut aside = granted_target(&outside, "other.txt", &note);
-    aside["content"] = json!("x");
-    aside["expectedContent"] = json!("secret\n");
-    let refused = call(&env, "projectFs/writeText", aside).await;
-    assert!(format!("{refused:?}").contains(WRONG_PATH), "{refused:?}");
-    assert_eq!(std::fs::read_to_string(outside.join("other.txt")).unwrap(), "secret\n");
+    let refused = call(&env, "projectFs/writeText", write).await;
+    assert!(matches!(refused, Err(CoreError::PermissionDenied { .. })), "{refused:?}");
+    assert_eq!(std::fs::read_to_string(outside.join("note.txt")).unwrap(), "hi\n");
+    let read = call(&env, "projectFs/readText", granted_target(&outside, "note.txt", &note)).await.unwrap();
+    assert_eq!(read["content"], "hi\n");
+}
+
+/// A conversation the catalog lists, whose folder and project are `0`: what a paired device's downloads name.
+struct Listed(PathBuf);
+
+#[async_trait::async_trait]
+impl mixdog_workspace::grants::SessionCatalog for Listed {
+    async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
+        Ok(true)
+    }
+    async fn row(&self, _: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        let folder = self.0.to_string_lossy().into_owned();
+        Ok(Some(mixdog_workspace::grants::SessionRow { project: true, project_path: Some(folder.clone()), cwd: folder }))
+    }
+}
+
+const SECRET: &str = "{\"apiKey\":\"SECRET-KEY\"}\n";
+const PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 1, 2, 3, 4];
+
+/// A paired device on `phone-1`, its conversation's project the folder holding the project and this service's data folder
+/// (`userData`) when `home_project` (as a home folder registered as a project holds Mixdog's), else the project. The data folder
+/// holds its config, and `kit/` one more config and an ordinary file; `.ssh/` holds an image; `outside/` is in no project.
+async fn paired_env(home_project: bool) -> (Env, PathBuf) {
+    let env = env();
+    let home = env.root.parent().unwrap().to_path_buf();
+    let conversation = if home_project { home.clone() } else { env.root.clone() };
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(Listed(conversation)))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let data = home.join("userData");
+    std::fs::create_dir_all(data.join("kit")).unwrap();
+    std::fs::write(data.join("mixdog-config.json"), SECRET).unwrap();
+    std::fs::write(data.join("kit/mixdog-config.json"), SECRET).unwrap();
+    std::fs::write(data.join("kit/notes.txt"), "notes\n").unwrap();
+    std::fs::create_dir_all(home.join(".ssh")).unwrap();
+    std::fs::write(home.join(".ssh/pic.png"), PNG).unwrap();
+    std::fs::write(env.root.join("pic.png"), PNG).unwrap();
+    std::fs::create_dir_all(home.join("outside")).unwrap();
+    std::fs::write(home.join("outside/note.txt"), "hi\n").unwrap();
+    if home_project {
+        let row = mixdog_store::state::ProjectRow {
+            path: home.to_string_lossy().into_owned(),
+            alias: None,
+            hidden: false,
+            hidden_rank: None,
+            last_used_at: None,
+            name: None,
+        };
+        env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+    }
+    (env, home)
+}
+
+fn download(source: Value) -> Value {
+    json!({ "source": source, "purpose": "save", "sessionId": "s1" })
+}
+
+/// The bytes a paired device's authorized download holds, redeemed and read whole.
+async fn downloaded(env: &Env, authorized: &Value) -> Vec<u8> {
+    use base64::Engine;
+    let leased = call(env, "transfer/redeemGrant", json!({ "grantId": authorized["grantId"] })).await.unwrap();
+    let range = json!({ "transferId": leased["transferId"], "offset": 0, "length": leased["size"], "version": leased["version"] });
+    let read = call(env, "transfer/readRange", range).await.unwrap();
+    base64::engine::general_purpose::STANDARD.decode(read["data"].as_str().unwrap()).unwrap()
+}
+
+/// Every route that hands a paired device a file's content, a grant for it or a change to it answers a secret file
+/// (`sensitive-path-rules`: here the data folder's config and a `.ssh` folder's file, reached through a registered project that holds
+/// them) as a file that is not there; a folder's archive leaves it out and counts it. The desktop's window still reads it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_device_reaches_no_secret_file_by_any_route() {
+    let (env, home) = paired_env(true).await;
+    let config = home.join("userData").join("mixdog-config.json");
+    let config_path = config.to_string_lossy().into_owned();
+    let root = home.to_string_lossy().into_owned();
+    let rel = "userData/mixdog-config.json";
+    let not_there = |result: &Result<Value, CoreError>| {
+        matches!(result, Err(CoreError::DomainError { code, message, .. })
+            if code.as_deref() == Some("ENOENT") && message.as_deref().is_some_and(|text| text.starts_with("ENOENT: no such file or directory, stat '")))
+    };
+    let gone =
+        |result: &Result<Value, CoreError>| matches!(result, Err(CoreError::DomainError { code, .. }) if code.as_deref() == Some("file-download:not-found"));
+    let edit = json!({ "root": root, "rel": rel, "content": "{}", "expectedContent": SECRET });
+    let routes = [
+        ("transfer/grant/mint", json!({ "path": config_path })),
+        ("transfer/grant/mint", json!({ "path": config_path, "sessionId": "s1" })),
+        ("projectFs/readLocal", json!({ "path": config_path })),
+        ("projectFs/readLocal", json!({ "path": config_path, "paged": true })),
+        ("projectFs/readText", json!({ "root": root, "rel": rel })),
+        ("projectFs/stat", json!({ "root": root, "rel": rel })),
+        ("projectFs/entryPath", json!({ "root": root, "rel": rel })),
+        ("projectFs/previewFile", json!({ "root": root, "rel": ".ssh/pic.png" })),
+        ("projectFs/previewRange", json!({ "root": root, "rel": ".ssh/pic.png", "offset": 0, "length": 4 })),
+        ("projectFs/backup/read", json!({ "sourcePath": config_path })),
+        ("transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": rel } })),
+        ("transfer/readRange", json!({ "root": root, "rel": rel, "offset": 0, "length": 4 })),
+        ("projectFs/writeText", edit),
+        ("projectFs/writeTextBatch", json!({ "root": root, "files": [{ "relPath": rel, "content": "{}", "expectedContent": SECRET }] })),
+        ("projectFs/create", json!({ "root": root, "relDir": "userData", "name": "provider-accounts.json" })),
+        ("projectFs/rename", json!({ "root": root, "rel": rel, "newName": "plain.json" })),
+        ("projectFs/copy", json!({ "root": root, "rel": rel, "targetDirRel": "." })),
+        ("projectFs/move", json!({ "root": root, "rel": rel, "targetDirRel": "." })),
+    ];
+    for (method, params) in routes {
+        let answer = call(&env, method, params.clone()).await;
+        assert!(not_there(&answer), "{method} {params}: {answer:?}");
+    }
+    let stat = call(&env, "projectFs/statLocal", json!({ "paths": [config_path] })).await.unwrap();
+    assert_eq!(stat, json!([{ "error": format!("ENOENT: no such file or directory, stat '{}'", config.display()) }]));
+    let found = call(&env, "projectFs/searchText", json!({ "root": root, "options": { "query": "SECRET-KEY" } })).await.unwrap();
+    assert_eq!((found["files"].clone(), found["matchCount"].clone()), (json!([]), json!(0)), "{found}");
+    let replaced = call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "SECRET-KEY" }, "replacement": "x" })).await.unwrap();
+    assert_eq!(replaced["filesChanged"], 0);
+    for source in [
+        json!({ "kind": "sessionFile", "path": config_path }),
+        json!({ "kind": "link", "itemId": "i1", "href": config_path }),
+        json!({ "kind": "file", "rel": rel }),
+        json!({ "kind": "folder", "path": home.join(".ssh").to_string_lossy() }),
+    ] {
+        let answer = call(&env, "transfer/authorizeRead", download(source.clone())).await;
+        assert!(gone(&answer), "{source}: {answer:?}");
+    }
+    let kit = call(&env, "transfer/authorizeRead", download(json!({ "kind": "folder", "path": home.join("userData/kit").to_string_lossy() }))).await.unwrap();
+    assert_eq!(kit["leftOut"]["secret"], 1, "{kit}");
+    let archive = downloaded(&env, &kit).await;
+    let holds = |name: &[u8]| archive.windows(name.len()).any(|window| window == name);
+    assert!(holds(b"notes.txt") && !holds(b"mixdog-config.json"));
+    for file in [&config, &home.join("userData/kit/mixdog-config.json")] {
+        assert_eq!(std::fs::read_to_string(file).unwrap(), SECRET, "{}", file.display());
+    }
+    for made in ["userData/plain.json", "mixdog-config.json", "userData/provider-accounts.json"] {
+        assert!(!home.join(made).exists(), "{made}");
+    }
+    let desktop = call_local(&env, "projectFs/readText", json!({ "root": root, "rel": rel })).await.unwrap();
+    assert_eq!(desktop["content"], SECRET);
+}
+
+/// What a paired device keeps: an ordinary project file and a granted file outside every project read, stat, search, preview and
+/// download as before, and a folder's archive leaves nothing out.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_device_still_reaches_an_ordinary_project_file_and_a_granted_file() {
+    let (env, home) = paired_env(false).await;
+    let root = env.root.to_string_lossy().into_owned();
+    let file = env.root.join("a.txt");
+    assert_eq!(call(&env, "projectFs/readText", json!({ "root": root, "rel": "a.txt" })).await.unwrap()["content"], "one\n");
+    assert_eq!(call(&env, "projectFs/readLocal", json!({ "path": file.to_string_lossy() })).await.unwrap()["data"], "b25lCg==");
+    let stat = call(&env, "projectFs/statLocal", json!({ "paths": [file.to_string_lossy()] })).await.unwrap();
+    assert_eq!((stat[0]["name"].clone(), stat[0]["size"].clone()), (json!("a.txt"), json!(4)));
+    let preview = call(&env, "projectFs/previewFile", json!({ "root": root, "rel": "pic.png" })).await.unwrap();
+    assert_eq!(preview["kind"], "image");
+    let found = call(&env, "projectFs/searchText", json!({ "root": root, "options": { "query": "one", "matchCase": true } })).await.unwrap();
+    assert_eq!(found["files"][0]["relPath"], "a.txt", "{found}");
+    let outside = home.join("outside");
+    let token = mint_token(&env, &outside, "note.txt").await;
+    assert_eq!(call(&env, "projectFs/readText", granted_target(&outside, "note.txt", &token)).await.unwrap()["content"], "hi\n");
+    assert_eq!(call(&env, "projectFs/readLocal", json!({ "path": outside.join("note.txt").to_string_lossy() })).await.unwrap()["data"], "aGkK");
+    let authorized = call(&env, "transfer/authorizeRead", download(json!({ "kind": "sessionFile", "path": file.to_string_lossy() }))).await.unwrap();
+    assert_eq!(downloaded(&env, &authorized).await, b"one\n");
+    let src = call(&env, "transfer/authorizeRead", download(json!({ "kind": "folder", "path": env.root.join("src").to_string_lossy() }))).await.unwrap();
+    assert_eq!(src["leftOut"]["secret"], 0, "{src}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

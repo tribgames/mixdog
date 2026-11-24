@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import {
   pendingPromptTranscriptItems,
   steerPromptItems,
+  turnPromptItems,
   unsettledQueueEntries,
   type PendingPromptItem,
 } from './conversation-prompt-items';
@@ -23,9 +24,9 @@ export function useConversationSteering(
   // Nothing pending is one shared empty list: a fresh `[]` on every settled
   // change (each session switch) re-rendered the memoised composer.
   const transcriptPendingPromptItems = useMemo(() => {
-    const items = pendingPromptItems.filter((item) => !item.queuedBehindTurn);
+    const items = turnPromptItems(pendingPromptItems, unsettledSessionQueue);
     return items.length ? items : NO_PENDING_PROMPTS;
-  }, [pendingPromptItems]);
+  }, [pendingPromptItems, unsettledSessionQueue]);
   const pendingPromptIds = useMemo(
     () => (transcriptPendingPromptItems.length ? transcriptPendingPromptItems.map((item) => item.id) : NO_PROMPT_IDS),
     [transcriptPendingPromptItems]

@@ -40,13 +40,19 @@ async function mountPanel(t, setup = SETUP, saveKey = async () => true) {
   window.mixdogDesktop = { getQuotaAutoResume: async () => true, setQuotaAutoResume: async (next) => next };
   const runs = [];
   let root = null;
+  // Every answer the daemon gave; `settle` waits for them.
+  const answers = [];
   const api = {
-    async invokeCapability({ capability, args }) {
-      if (capability === 'getProviderAccounts') return { value: structuredClone(ROSTERS[args[0]]) };
-      return { value: { rows: [] } };
+    invokeCapability({ capability, args }) {
+      const answer = Promise.resolve(
+        capability === 'getProviderAccounts' ? { value: structuredClone(ROSTERS[args[0]]) } : { value: { rows: [] } }
+      );
+      answers.push(answer);
+      return answer;
     },
   };
-  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  // The act commits what the answered reads set.
+  const settle = () => act(async () => void (await Promise.all(answers.splice(0))));
   const unmount = async () => {
     if (!root) return;
     const current = root;
@@ -402,6 +408,43 @@ test('a provider moves between the groups when its accounts change, also across 
   assert.ok(connected('layout-flip-a'), 'a remount revalidates the cached empty roster');
   assert.deepEqual(emptyNames(), []);
 });
+test('a provider signed in from another window leaves the empty group on the core roster push', async (t) => {
+  ROSTERS['layout-push'] = { selectedId: null, auto: true, accounts: [] };
+  const { settle, mount, unmount } = await mountPanel(t, {
+    oauth: [{ id: 'layout-push', name: 'Push OAuth' }],
+    api: [],
+  });
+  await unmount();
+  // The window's sections feed; reads are still the test daemon's (no core endpoint behind it).
+  let push = null;
+  window.mixdogDesktop.sections = {
+    core: async () => false,
+    snapshot: async () => ({ status: 'ready', entries: [] }),
+    subscribe: (listener) => {
+      push = listener;
+      return () => {
+        push = null;
+      };
+    },
+  };
+  await mount();
+  const emptyNames = () => [...document.querySelectorAll('.provider-accounts-empty-row b')].map((el) => el.textContent);
+  assert.deepEqual(emptyNames(), ['Push OAuth']);
+
+  ROSTERS['layout-push'] = {
+    selectedId: 'p1',
+    auto: true,
+    accounts: [{ id: 'p1', label: 'P', authenticated: true }],
+  };
+  const entry = { section: 'providerAccounts', key: 'layout-push', revision: 1, value: ROSTERS['layout-push'] };
+  await act(async () =>
+    push({ kind: 'sections', changes: [{ section: 'providerAccounts', key: 'layout-push', entry }] })
+  );
+  await settle();
+  assert.deepEqual(emptyNames(), []);
+  assert.ok(document.querySelector('[data-account-provider="layout-push"]'));
+});
+
 test('the custom provider add action sits in the header and an empty list says so', async (t) => {
   await mountPanel(t);
   const section = document.querySelector('.settings-custom-providers');

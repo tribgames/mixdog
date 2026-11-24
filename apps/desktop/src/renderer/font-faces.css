@@ -25,18 +25,6 @@
   font-display: block;
 }
 
-/* Session sidebar scroll fades (desktop/10-rail-pages.css). */
-@property --sidebar-fade-top {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@property --sidebar-fade-bottom {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-
 /* A scroller's position (scroll-progress.ts), in place of CSS scroll
    timelines (renderer crash on Electron 43, frozen Android WebView flings). Not
    inherited: a write restyles the scroller and its fade hosts only, and the

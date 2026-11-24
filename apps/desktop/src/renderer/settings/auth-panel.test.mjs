@@ -523,15 +523,15 @@ test('automatic cookie import on by default shows no status line before the firs
 });
 
 const COOKIE_STATUS_WITH_HISTORY = {
-    enabled: true,
-    profileId: 'Default',
-    keySaved: false,
-    keyStorageAvailable: true,
-    running: false,
-    lastImportAt: Date.UTC(2026, 8, 9),
-    lastCount: 7,
-    needsManualImport: true,
-    skippedChromeRunning: false,
+  enabled: true,
+  profileId: 'Default',
+  keySaved: false,
+  keyStorageAvailable: true,
+  running: false,
+  lastImportAt: Date.UTC(2026, 8, 9),
+  lastCount: 7,
+  needsManualImport: true,
+  skippedChromeRunning: false,
 };
 
 async function cookieStatusLine(t, status) {

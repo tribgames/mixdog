@@ -22,6 +22,7 @@ mod patch_redirect;
 mod patch_review;
 mod patch_unified;
 mod patch_window;
+mod path_admit;
 mod read;
 mod read_batch;
 mod read_legacy;

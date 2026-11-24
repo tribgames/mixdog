@@ -670,8 +670,8 @@ export const ModelSelector = memo(function ModelSelector({
   );
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
-  let triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
-  if (agentRoute) triggerModel = agentRoute.display;
+  const knownModelName = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
+  const triggerModel = agentRoute ? agentRoute.display : knownModelName;
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;

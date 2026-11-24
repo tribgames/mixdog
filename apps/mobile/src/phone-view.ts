@@ -6,7 +6,8 @@ import type {
   StoreChange,
 } from '../../../packages/protocol-client/src/index.ts';
 import { armCallWatch } from '../../desktop/src/renderer/remote-shim-call-watch.ts';
-import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';import { createViewSync } from './phone-view-sync.ts';
+import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
+import { createViewSync } from './phone-view-sync.ts';
 import { firstFrame, scopeClient } from './phone-send-scope.ts';
 
 /** Threads open per pane: the same window `thread/resume` is asked for everywhere on the phone. */
@@ -69,6 +70,69 @@ export interface ViewManager {
   stop(): void;
 }
 
+/** Threads the client follows that the view never opened and no pane names (a prefetch from the list, a resume made to read a
+ *  state or answer an approval): the library resumes each again on every reconnect and the core keeps a followed thread loaded,
+ *  so one that stayed unwanted for `STRAY_FOLLOW_RELEASE_MS` is let go, as the desktop's lane does (service-route.ts).
+ *  `forget` starts a thread's age over (a pane named it); `stop` ends the sweep. */
+function releaseStrays(
+  client: ViewClient,
+  view: { wants(id: string): boolean; live(): boolean; stopped(): boolean }
+): { forget(id: string): void; stop(): void } {
+  const library = client as unknown as {
+    threadSubscription?(threadId: string): {
+      readonly followed: boolean;
+      readonly held: boolean;
+      readonly restoring: boolean;
+    };
+    readonly store: { readonly threads?: { keys(): Iterable<string> } };
+  };
+  // The sweep a follow was first seen unwanted at. The age is that follow's: a thread the view took meanwhile (a pane named
+  // it, the view opened it) or whose subscription the library reported on starts over when it is seen unwanted again.
+  const strays = new Map<string, number>();
+  const offStore = client.store.subscribe((change: StoreChange) => {
+    if (change.type === 'subscription') strays.delete(change.feedId);
+  });
+  let sweeps = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const sweep = (): void => {
+    if (view.stopped()) return;
+    sweeps += 1;
+    const followed = new Set<string>();
+    if (view.live() && library.threadSubscription) {
+      for (const id of library.store.threads?.keys() ?? []) {
+        const subscription = library.threadSubscription(id);
+        if (subscription.followed && !subscription.held && !view.wants(id)) followed.add(id);
+      }
+    }
+    for (const id of [...strays.keys()]) if (!followed.has(id)) strays.delete(id);
+    for (const id of followed) {
+      const since = strays.get(id);
+      if (since === undefined) strays.set(id, sweeps);
+      else if (sweeps - since >= 2) {
+        // The library's resume of it after a reconnect is still out: the core may attach the thread after an unsubscribe it
+        // already answered, and the client would then follow nothing while the core keeps it loaded. A later sweep lets it go.
+        if (library.threadSubscription?.(id).restoring) continue;
+        strays.delete(id);
+        void client.unsubscribeThread(id).catch(() => undefined);
+      }
+    }
+    arm();
+  };
+  const arm = (): void => {
+    timer = setTimeout(sweep, STRAY_FOLLOW_RELEASE_MS / 2);
+    // Node's test runner: the sweep keeps no process alive.
+    (timer as { unref?(): void }).unref?.();
+  };
+  arm();
+  return {
+    forget: (id) => void strays.delete(id),
+    stop: () => {
+      clearTimeout(timer);
+      offStore();
+    },
+  };
+}
+
 export function createViewManager(
   client: ViewClient,
   options: {
@@ -93,6 +157,8 @@ export function createViewManager(
   const open = new Set<string>();
   let wanted: readonly string[] = [...new Set(options.wanted)];
   let restored = [...options.restored];
+  // Threads the core answered `threadNotFound` for (deleted on the PC): no sync asks for them again until the page names one anew.
+  const gone = new Set<string>();
   let appOpen = false;
   let refresh = false;
   // The library's re-attachment of what was open on the connection that is up: owed by every sync until each restore was answered,
@@ -106,7 +172,7 @@ export function createViewManager(
   let stopped = false;
   const live = (): boolean => opened;
   const readyWaiters = new Set<() => void>();
-  const target = (): Set<string> => new Set([...wanted, ...restored]);
+  const target = (): Set<string> => new Set([...wanted, ...restored].filter((id) => !gone.has(id)));
   const keyOf = (ids: Iterable<string>): string => JSON.stringify([...new Set(ids)].sort());
   let requestedKey = keyOf(target());
 
@@ -126,7 +192,8 @@ export function createViewManager(
         if (change.state === 'lost') {
           if (change.feedId === APP_FEED) appOpen = false;
           else open.delete(change.feedId);
-          refused ??= change.error;
+          if (change.feedId !== APP_FEED && threadGone(change.error)) gone.add(change.feedId);
+          else refused ??= change.error;
         }
         if (pending.size === 0) finish();
       });
@@ -138,56 +205,11 @@ export function createViewManager(
     });
   };
 
-  // Threads the client follows that the view never opened and no pane names (a prefetch from the list, a resume made to read a
-  // state or answer an approval): the library resumes each again on every reconnect and the core keeps a followed thread loaded,
-  // so one that stayed unwanted for `STRAY_FOLLOW_RELEASE_MS` is let go, as the desktop's lane does (service-route.ts).
-  const library = client as unknown as {
-    threadSubscription?(threadId: string): {
-      readonly followed: boolean;
-      readonly held: boolean;
-      readonly restoring: boolean;
-    };
-    readonly store: { readonly threads?: { keys(): Iterable<string> } };
-  };
-  // The sweep a follow was first seen unwanted at. The age is that follow's: a thread the view took meanwhile (a pane named
-  // it, the view opened it) or whose subscription the library reported on starts over when it is seen unwanted again.
-  const strays = new Map<string, number>();
-  const offStrayStore = client.store.subscribe((change: StoreChange) => {
-    if (change.type === 'subscription') strays.delete(change.feedId);
+  const strays = releaseStrays(client, {
+    wants: (id) => target().has(id) || open.has(id),
+    live,
+    stopped: () => stopped,
   });
-  let sweeps = 0;
-  let strayTimer: ReturnType<typeof setTimeout> | undefined;
-  const sweepStrays = (): void => {
-    if (stopped) return;
-    sweeps += 1;
-    const want = target();
-    const followed = new Set<string>();
-    if (live() && library.threadSubscription) {
-      for (const id of library.store.threads?.keys() ?? []) {
-        const subscription = library.threadSubscription(id);
-        if (subscription.followed && !subscription.held && !want.has(id) && !open.has(id)) followed.add(id);
-      }
-    }
-    for (const id of [...strays.keys()]) if (!followed.has(id)) strays.delete(id);
-    for (const id of followed) {
-      const since = strays.get(id);
-      if (since === undefined) strays.set(id, sweeps);
-      else if (sweeps - since >= 2) {
-        // The library's resume of it after a reconnect is still out: the core may attach the thread after an unsubscribe it
-        // already answered, and the client would then follow nothing while the core keeps it loaded. A later sweep lets it go.
-        if (library.threadSubscription?.(id).restoring) continue;
-        strays.delete(id);
-        void client.unsubscribeThread(id).catch(() => undefined);
-      }
-    }
-    armStraySweep();
-  };
-  const armStraySweep = (): void => {
-    strayTimer = setTimeout(sweepStrays, STRAY_FOLLOW_RELEASE_MS / 2);
-    // Node's test runner: the sweep keeps no process alive.
-    (strayTimer as { unref?(): void }).unref?.();
-  };
-  armStraySweep();
 
   // The app feed's attach of the connection that is up, apart from its threads': the list needs nothing else.
   let appGate = newGate();
@@ -221,8 +243,10 @@ export function createViewManager(
             open.add(id);
           },
           (error: unknown) => {
-            // A remembered thread deleted on the PC is gone, not a failed sync: the rest is delivered and it is marked gone.
-            if (wanted.includes(id) || !restored.includes(id) || !threadGone(error)) throw error;
+            // A thread deleted on the PC is gone, not a failed sync: the rest is delivered.
+            if (!threadGone(error)) throw error;
+            gone.add(id);
+            open.delete(id);
             restored = restored.filter((kept) => kept !== id);
           }
         )
@@ -358,7 +382,8 @@ export function createViewManager(
   return {
     async set(threadIds) {
       wanted = [...new Set(threadIds)];
-      for (const id of wanted) strays.delete(id);
+      for (const id of wanted) strays.forget(id);
+      for (const id of [...gone]) if (!wanted.includes(id)) gone.delete(id);
       await connected();
       const key = keyOf(target());
       // Already named by the latest sync: wait for it instead of asking again (remote-shim-api.ts:306-307).
@@ -403,8 +428,7 @@ export function createViewManager(
       for (const wake of readyWaiters) wake();
       readyWaiters.clear();
       clearTimeout(firstTurn);
-      clearTimeout(strayTimer);
-      offStrayStore();
+      strays.stop();
       watchApp?.();
       appGate.shut(remoteConnectionInterruptedError());
       offStatus();

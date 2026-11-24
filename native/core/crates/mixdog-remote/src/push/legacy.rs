@@ -3,11 +3,13 @@
 //! identity, keeps every browser that registered under it in `remote-push.json`, signs the
 //! RFC 8292 header itself and posts the RFC 8291 body (push/web.rs) to the push service.
 
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use mixdog_js::ssrf_guard::is_public;
 use mixdog_js::{is_js_space, js_trim, slice_utf16};
 use mixdog_rt::InLane;
 use mixdog_store::fsio::WriteLane;
@@ -281,15 +283,18 @@ impl LegacyPushStore {
             "endpoint": endpoint, "p256dh": p256dh, "auth": auth,
             "clientId": client_id, "label": label, "createdAt": now_ms,
         });
-        // Re-subscribing replaces the old row: a browser may rotate its endpoint at any time.
-        let mut rows: Vec<Value> = shape
-            .subscriptions
-            .into_iter()
-            .filter(|row| {
-                row.get("endpoint").and_then(Value::as_str) != Some(endpoint.as_str())
-                    && (client_id.is_empty() || row.get("clientId").and_then(Value::as_str) != Some(client_id.as_str()))
-            })
-            .collect();
+        // A client holds one row: re-subscribing replaces its own (a browser may rotate its endpoint at any time), never another's.
+        let mut rows: Vec<Value> =
+            shape.subscriptions.into_iter().filter(|row| row.get("clientId").and_then(Value::as_str) != Some(client_id.as_str())).collect();
+        // An endpoint is one browser subscription with fixed keys: only that browser, paired again, names it with the same keys.
+        let decoded = |row: &Value, name: &str| node_base64_decode(row.get(name).and_then(Value::as_str).unwrap_or_default());
+        let foreign = rows.iter().any(|row| {
+            row.get("endpoint") == entry.get("endpoint")
+                && (decoded(row, "p256dh") != decoded(&entry, "p256dh") || decoded(row, "auth") != decoded(&entry, "auth"))
+        });
+        if foreign {
+            return invalid("This push endpoint is registered with other keys.");
+        }
         rows.push(entry.clone());
         let overflow = rows.len().saturating_sub(MAX_SUBSCRIPTIONS);
         shape.subscriptions = rows.split_off(overflow);
@@ -310,6 +315,13 @@ impl LegacyPushStore {
 
     pub fn remove<L: WriteLane>(&self, lane: &InLane<L>, endpoint: &str) -> Result<bool, SecretError> {
         self.drop_where(lane, |row| row.get("endpoint").and_then(Value::as_str) == Some(endpoint))
+    }
+
+    /// `removePushSubscription` of the client `client_id`: its own row of `endpoint` goes, another client's stays.
+    pub fn remove_of<L: WriteLane>(&self, lane: &InLane<L>, client_id: &str, endpoint: &str) -> Result<bool, SecretError> {
+        self.drop_where(lane, |row| {
+            row.get("endpoint").and_then(Value::as_str) == Some(endpoint) && row.get("clientId").and_then(Value::as_str) == Some(client_id)
+        })
     }
 
     /// Revoking a browser's access must also stop its notifications.
@@ -387,12 +399,38 @@ pub async fn send_web_push(poster: &dyn PushPoster, subscription: &LegacySubscri
     }
 }
 
-/// The production transport: a 10-second POST.
+/// The resolver of the push transport: a push service is a public host, so its name is dialled only at its public addresses
+/// (`ssrf_guard`), and a name with none is refused.
+struct PublicResolver;
+
+impl reqwest::dns::Resolve for PublicResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async move {
+            let found = tokio::net::lookup_host((name.as_str(), 0)).await?;
+            let public: Vec<SocketAddr> = found.filter(|address| is_public(address.ip())).collect();
+            if public.is_empty() {
+                return Err(format!("{} has no public address", name.as_str()).into());
+            }
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(Box::new(public.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// The production transport: a 10-second POST to a public address (a name through [`PublicResolver`], a literal checked before
+/// the send), dialled directly as Node's was (a proxy would resolve the name itself), following no redirect.
 pub struct ReqwestPoster(reqwest::Client);
 
 impl ReqwestPoster {
     pub fn new() -> Self {
-        Self(reqwest::Client::builder().timeout(std::time::Duration::from_millis(SEND_TIMEOUT_MS)).build().unwrap_or_default())
+        Self(
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(SEND_TIMEOUT_MS))
+                .redirect(reqwest::redirect::Policy::none())
+                .dns_resolver(std::sync::Arc::new(PublicResolver))
+                .no_proxy()
+                .build()
+                .unwrap_or_default(),
+        )
     }
 }
 
@@ -405,10 +443,36 @@ impl Default for ReqwestPoster {
 #[async_trait]
 impl PushPoster for ReqwestPoster {
     async fn post(&self, endpoint: &str, headers: &[(&str, String)], body: Vec<u8>) -> Result<u16, String> {
+        // A literal address is dialled without a lookup, so the resolver never sees it.
+        let literal = url::Url::parse(endpoint).ok().and_then(|url| match url.host() {
+            Some(url::Host::Ipv4(ip)) => Some(IpAddr::V4(ip)),
+            Some(url::Host::Ipv6(ip)) => Some(IpAddr::V6(ip)),
+            _ => None,
+        });
+        if literal.is_some_and(|ip| !is_public(ip)) {
+            return Err("the push endpoint is not a public address".to_owned());
+        }
         let mut request = self.0.post(endpoint).body(body);
         for (name, value) in headers {
             request = request.header(*name, value);
         }
         request.send().await.map(|response| response.status().as_u16()).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A registered endpoint that names this PC, by address or by a name resolving to it, is refused before any connection.
+    #[tokio::test]
+    async fn a_push_is_never_posted_to_a_loopback_host() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let poster = ReqwestPoster::new();
+        for endpoint in [format!("https://127.0.0.1:{port}/push"), format!("https://localhost:{port}/push")] {
+            assert!(poster.post(&endpoint, &[], Vec::new()).await.is_err(), "{endpoint}");
+        }
+        assert!(futures::poll!(Box::pin(listener.accept())).is_pending(), "nothing connected to the host");
     }
 }

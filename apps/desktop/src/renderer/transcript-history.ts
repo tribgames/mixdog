@@ -166,11 +166,14 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
   /** A page next to `row`, or from `cursor` (the continuation the page before it named) when there is one. */
   private request(row: T, older: boolean, cursor: string | undefined): DesktopTranscriptHistoryRequest {
     const position = historyPositionOf(row, older ? 'before' : 'after') ?? this.positions.get(row);
+    let resume: { cursor?: string; position?: string } = {};
+    if (cursor) resume = { cursor };
+    else if (position) resume = { position };
     return {
       ...(older ? { before: String(row.id) } : { after: String(row.id) }),
       limit: TRANSCRIPT_HISTORY_PAGE_ITEMS,
       byteBudget: TRANSCRIPT_HISTORY_PAGE_BYTES,
-      ...(cursor ? { cursor } : position ? { position } : {}),
+      ...resume,
     };
   }
 
@@ -276,9 +279,9 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
   async later(): Promise<TranscriptPagingOutcome> {
     const window = this.window;
     if (!window?.hasNewer || this.pending || this.unsupported) return 'idle';
-    const row = window?.items.at(-1);
+    const row = window.items.at(-1);
     const boundary = row?.id;
-    if (!window || !row || typeof boundary !== 'string' || !boundary) return this.toLive();
+    if (!row || typeof boundary !== 'string' || !boundary) return this.toLive();
     const cursor = this.cursors.newer;
     const page = await this.fetch(row, false, cursor);
     if (page === null || page === 'unsupported') return 'idle';
@@ -332,6 +335,7 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
 function goesOn(more: boolean, rows: readonly unknown[], next: string | undefined, from: string | undefined): boolean {
   return more && (rows.length > 0 || (next !== undefined && next !== from));
 }
+
 /** Older items loaded per scroll-to-top when the host serves tail windows. */
 export const TRANSCRIPT_TAIL_PAGE_ITEMS = 64;
 /** History pages back to the session's first row: no item ceiling. */

@@ -222,11 +222,10 @@
      make the running clock bolder than the settled one. The gauge is read,
      not emphasised, and has to match the settled row's timestamp exactly. */
   font-weight: var(--mx-weight-regular);
-  /* Same size and line box as the verb beside it (and as the settled row's
-     clock): a smaller face centred in the same row cannot share the verb's
-     baseline, and the leftover fraction snapped visibly at 125%/150%. */
+  /* Same size as the verb beside it (and as the settled row's clock): a
+     smaller face centred in the same row cannot share the verb's baseline,
+     and the leftover fraction snapped visibly at 125%/150%. */
   font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -237,8 +236,6 @@
 .live-activity-status > [data-component="text-shimmer"],
 .live-activity-meta {
   min-height: 24px;
-  display: inline-flex;
-  align-items: center;
 }
 .live-activity-meta::before,
 .live-activity-quiet::before {

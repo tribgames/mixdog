@@ -276,6 +276,36 @@ fn unowned_logs(names: &[String]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    /// Two writers are both inside the window between writing the temp file and renaming it:
+    /// with one shared temp name the second rename finds nothing to move.
+    #[test]
+    fn launchers_written_together_do_not_share_a_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = std::sync::Arc::new(super::LauncherPlan { dir: dir.path().to_owned(), files: vec![("run".into(), "echo hi".into())] });
+        *super::launcher_gate::GATE.lock().unwrap() = Some((dir.path().to_owned(), std::sync::Arc::new(std::sync::Barrier::new(2))));
+        let threads: Vec<_> = (0..2)
+            .map(|_| {
+                let plan = plan.clone();
+                std::thread::spawn(move || super::write_launchers(&plan))
+            })
+            .collect();
+        let results: Vec<_> = threads.into_iter().map(|thread| thread.join().unwrap()).collect();
+        *super::launcher_gate::GATE.lock().unwrap() = None;
+        assert!(results.iter().all(Result::is_ok), "{results:?}");
+        assert_eq!(std::fs::read_to_string(dir.path().join("run")).unwrap(), "echo hi");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_launcher_that_cannot_be_published_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("run").join("held")).unwrap();
+        let plan = super::LauncherPlan { dir: dir.path().to_owned(), files: vec![("run".into(), "echo hi".into())] };
+        assert!(super::write_launchers(&plan).is_err());
+        let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["run"]);
+    }
+
     /// Counting the logs without an ownership record looks each one up once: 20,000 jobs' names (half of them owned)
     /// take milliseconds, where searching every name for each log takes 2 × 10^9 comparisons.
     #[test]
@@ -835,16 +865,51 @@ fn write_launchers(plan: &LauncherPlan) -> std::io::Result<()> {
         if std::fs::read_to_string(&file).is_ok_and(|current| current == *content) {
             continue;
         }
-        let temp = plan.dir.join(format!("{name}.tmp-{}", std::process::id()));
-        std::fs::write(&temp, content.as_bytes())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o700))?;
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let temp = plan.dir.join(format!("{name}.tmp-{}-{}", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
+        let published = (|| {
+            std::fs::write(&temp, content.as_bytes())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o700))?;
+            }
+            publish_launcher(&temp, &file)
+        })();
+        if published.is_err() {
+            let _ = std::fs::remove_file(&temp);
         }
-        std::fs::rename(&temp, &file)?;
+        published?;
     }
     Ok(())
+}
+
+fn publish_launcher(temp: &Path, file: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    launcher_gate::pass(file);
+    std::fs::rename(temp, file)
+}
+
+/// Holds each launcher writer of one directory before its rename until a test has all of them
+/// there, so the test shows their temp files are separate.
+#[cfg(test)]
+pub(crate) mod launcher_gate {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::sync::Mutex;
+
+    pub(crate) static GATE: Mutex<Option<(PathBuf, Arc<Barrier>)>> = Mutex::new(None);
+
+    pub(super) fn pass(file: &Path) {
+        let gate = GATE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some((dir, barrier)) = gate
+            && file.starts_with(&dir)
+        {
+            barrier.wait();
+        }
+    }
 }
 
 /// Writes or refreshes the skill launcher files of the installation (best effort) and answers
@@ -861,10 +926,11 @@ pub async fn ensure_launchers(lane: SpawnIo, cancel: &CancellationToken, kept: &
     plan.dir.clone()
 }
 
-/// Removes a file; best effort (an unconfirmed kill may keep it locked). Whether it is gone.
-pub async fn remove_file(lane: impl LaneToken, cancel: &CancellationToken, path: &Path) -> bool {
+/// Removes a file; best effort (an unconfirmed kill may keep it locked). Whether it is gone. Never
+/// the cancellable work of a call: a file the tool made goes when its command is over, stopped or not.
+pub async fn remove_file(lane: impl LaneToken, path: &Path) -> bool {
     let path = path.to_owned();
-    let Ok(job) = lane.submit(cancel, move |_| std::fs::remove_file(&path)) else {
+    let Ok(job) = lane.submit_wait(&CancellationToken::new(), move |_| std::fs::remove_file(&path)).await else {
         return false;
     };
     match job.await {

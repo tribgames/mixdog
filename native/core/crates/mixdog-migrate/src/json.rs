@@ -49,6 +49,30 @@ pub fn parse_source_narrowed(text: &[u8], keep: &[&str]) -> Result<Parsed, Strin
     Ok(Parsed { value, replaced_surrogates })
 }
 
+/// The `Visitor` methods of a scalar (`bool`, numbers, string, null), each answering `$value`.
+macro_rules! scalars_as {
+    ($ty:ty, $value:expr) => {
+        fn visit_bool<E>(self, _: bool) -> Result<$ty, E> {
+            Ok($value)
+        }
+        fn visit_i64<E>(self, _: i64) -> Result<$ty, E> {
+            Ok($value)
+        }
+        fn visit_u64<E>(self, _: u64) -> Result<$ty, E> {
+            Ok($value)
+        }
+        fn visit_f64<E>(self, _: f64) -> Result<$ty, E> {
+            Ok($value)
+        }
+        fn visit_str<E>(self, _: &str) -> Result<$ty, E> {
+            Ok($value)
+        }
+        fn visit_unit<E>(self) -> Result<$ty, E> {
+            Ok($value)
+        }
+    };
+}
+
 /// Any JSON value, parsed and dropped.
 struct Skipped;
 
@@ -61,24 +85,7 @@ impl<'de> serde::Deserialize<'de> for Skipped {
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.write_str("any JSON value")
             }
-            fn visit_bool<E>(self, _: bool) -> Result<Skipped, E> {
-                Ok(Skipped)
-            }
-            fn visit_i64<E>(self, _: i64) -> Result<Skipped, E> {
-                Ok(Skipped)
-            }
-            fn visit_u64<E>(self, _: u64) -> Result<Skipped, E> {
-                Ok(Skipped)
-            }
-            fn visit_f64<E>(self, _: f64) -> Result<Skipped, E> {
-                Ok(Skipped)
-            }
-            fn visit_str<E>(self, _: &str) -> Result<Skipped, E> {
-                Ok(Skipped)
-            }
-            fn visit_unit<E>(self) -> Result<Skipped, E> {
-                Ok(Skipped)
-            }
+            scalars_as!(Skipped, Skipped);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Skipped, A::Error> {
                 while seq.next_element::<Skipped>()?.is_some() {}
                 Ok(Skipped)
@@ -104,24 +111,7 @@ impl<'de> serde::Deserialize<'de> for Counted {
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.write_str("any JSON value")
             }
-            fn visit_bool<E>(self, _: bool) -> Result<Counted, E> {
-                Ok(Counted(Value::Null))
-            }
-            fn visit_i64<E>(self, _: i64) -> Result<Counted, E> {
-                Ok(Counted(Value::Null))
-            }
-            fn visit_u64<E>(self, _: u64) -> Result<Counted, E> {
-                Ok(Counted(Value::Null))
-            }
-            fn visit_f64<E>(self, _: f64) -> Result<Counted, E> {
-                Ok(Counted(Value::Null))
-            }
-            fn visit_str<E>(self, _: &str) -> Result<Counted, E> {
-                Ok(Counted(Value::Null))
-            }
-            fn visit_unit<E>(self) -> Result<Counted, E> {
-                Ok(Counted(Value::Null))
-            }
+            scalars_as!(Counted, Counted(Value::Null));
             fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Counted, A::Error> {
                 let mut count = 0usize;
                 while seq.next_element::<Skipped>()?.is_some() {
@@ -165,24 +155,7 @@ impl<'de> serde::de::Visitor<'de> for Narrowed<'_> {
     fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("any JSON value")
     }
-    fn visit_bool<E>(self, _: bool) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_i64<E>(self, _: i64) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_u64<E>(self, _: u64) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_f64<E>(self, _: f64) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_str<E>(self, _: &str) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_unit<E>(self) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
+    scalars_as!(Value, Value::Null);
     fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
         while seq.next_element::<Skipped>()?.is_some() {}
         Ok(Value::Null)

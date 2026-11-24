@@ -1,5 +1,6 @@
 //! A session's tool calls made by an agent that runs the turn outside the loop. Each call is a tool batch of one in
-//! a run of the loop ([`Run::process_tool_batch`]): what the loop does with a batch (its projection of `call_tool`
+//! a run of the loop ([`Run::process_tool_batch`]), and calls the agent made together that change nothing are one
+//! batch: what the loop does with a batch (its projection of `call_tool`
 //! onto the target, the repeat guard, the gate and approval wait, the deadline, the hooks, the error kind, the
 //! offload of a large result, the result cache and the after-batch hook) is done here by the loop itself. The run
 //! sends no request: its transcript is the turn's handed calls, and what it would commit is given back to the caller.
@@ -32,6 +33,7 @@ use mixdog_core_api::domain::retry::JitterSamples;
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::retry::RetryState;
+use mixdog_core_api::domain::retry::Verdict;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::ProviderId;
 use tokio_util::sync::CancellationToken;
@@ -50,8 +52,11 @@ use crate::env::ToolGate;
 use crate::env::ToolHooks;
 use crate::env::TranscriptSink;
 use crate::env::TurnGuards;
+use crate::env::Yielder;
 use crate::message::AgentMessage;
 use crate::message::ToolKind;
+use crate::offload::ArtifactStore;
+use crate::offload::ImageCompactor;
 use crate::run::Run;
 use crate::run::RunCarry;
 use crate::run::RunConfig;
@@ -74,15 +79,15 @@ pub struct HandedParts {
     pub mcp: Option<Arc<dyn McpCatalog>>,
     pub live_cwd: Option<LiveCwd>,
     /// Where a large result is stored; without one it stays inline.
-    pub artifacts: Option<Arc<dyn crate::offload::ArtifactStore>>,
-    pub images: Option<Arc<dyn crate::offload::ImageCompactor>>,
+    pub artifacts: Option<Arc<dyn ArtifactStore>>,
+    pub images: Option<Arc<dyn ImageCompactor>>,
     pub failures: Option<Arc<dyn ToolFailureLog>>,
     /// The session's repeat guards, as its record holds them.
     pub repeat: RepeatGuards,
     /// The turn's token.
     pub cancel: CancellationToken,
     /// The agent lane's admission lease of an agent-owned turn, which a call's wait on the user gives up as the loop's does.
-    pub slot: Option<Arc<dyn crate::env::Yielder>>,
+    pub slot: Option<Arc<dyn Yielder>>,
     /// The approvals the turn's gate asks on where the gate holds its own (`PolicyGate` waits inside its judgement),
     /// made with [`JudgedAsks::over`]. `None` for a gate that asks on the calls' own approvals.
     pub asks: Option<Arc<JudgedAsks>>,
@@ -261,15 +266,15 @@ impl RetryWait for Unsent {
 
 impl RetryDecider for Unsent {
     fn verdict(&self, error: &ProviderError, state: &RetryState, _: &RetryPolicy, _: JitterSamples) -> Decision {
-        Decision { verdict: mixdog_core_api::domain::retry::Verdict::Surface, next: state.after_failure(error.kind) }
+        Decision { verdict: Verdict::Surface, next: state.after_failure(error.kind) }
     }
 }
 
 /// The calls of one turn.
 #[allow(clippy::disallowed_types, reason = "see HandedCalls::run")]
 pub struct HandedCalls {
-    /// One turn's calls run one at a time over the same run, each holding it for as long as it runs. Only a call and
-    /// the turn's end wait here; a judgement reads `env` and never does.
+    /// One turn's calls run one at a time over the same run (calls made together as one), each holding it for as long as
+    /// it runs. Only a call and the turn's end wait here; a judgement reads `env` and never does.
     run: tokio::sync::Mutex<Run>,
     env: Arc<crate::tools::CallEnv>,
     kept: Arc<Kept>,
@@ -306,20 +311,49 @@ impl HandedCalls {
 
     /// Runs `call` as a batch of one: a `call_tool` as its target, any other call as itself.
     pub async fn call(&self, call: ToolCall) -> Handed {
+        self.calls(std::slice::from_ref(&call)).await.pop().expect("an outcome for every call")
+    }
+
+    /// Runs `calls`, made together, in their order, each as [`Self::call`] runs one: each stretch of consecutive calls
+    /// that change nothing as one batch, whose calls the loop runs at the same time, and each other call as a batch of
+    /// its own once every call before it has ended. A refused or failed call does not stop the calls after it. The
+    /// outcomes are in the calls' order; what a batch adds beside its results is given with its last call's.
+    pub async fn calls(&self, calls: &[ToolCall]) -> Vec<Handed> {
         let mut run = self.run.lock().await;
-        let id = call.id.clone();
-        // The batch reads the call in the transcript it belongs to, as the loop's batch reads its response's.
-        run.messages.push(AgentMessage::assistant("", vec![call.clone()]));
-        let ended = run.process_tool_batch(std::slice::from_ref(&call), 1).await;
-        let told = std::mem::take(&mut *self.kept.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        let (results, others): (Vec<AgentMessage>, Vec<AgentMessage>) = told.into_iter().partition(|message| message.tool_call_id() == Some(id.as_str()));
-        match (ended, results.into_iter().next()) {
-            (Ok(()), Some(message)) => {
-                Handed { failed: message.tool_kind == Some(ToolKind::Error), follow_ups: others.iter().map(AgentMessage::text).collect(), message }
+        let (targets, _, _) = run.execution_view(calls);
+        let cancelled =
+            |id: &str| Handed { message: AgentMessage::tool_text(id, "Error: tool call cancelled", ToolKind::Error), follow_ups: Vec::new(), failed: true };
+        let mut outcomes = Vec::with_capacity(calls.len());
+        let mut stopped = false;
+        let mut start = 0;
+        while start < calls.len() {
+            let unchanging = targets[start..].iter().take_while(|target| run.tools.read_only(&target.name)).count();
+            let batch = &calls[start..start + unchanging.max(1)];
+            start += batch.len();
+            // The turn was stopped under an earlier batch, between two or before the first: nothing from here on runs.
+            stopped |= self.env.cancel.is_cancelled();
+            if stopped {
+                outcomes.extend(batch.iter().map(|call| cancelled(&call.id)));
+                continue;
             }
-            // The turn was stopped under the call.
-            _ => Handed { message: AgentMessage::tool_text(&id, "Error: tool call cancelled", ToolKind::Error), follow_ups: Vec::new(), failed: true },
+            // The batch reads its calls in the transcript they belong to, as the loop's batch reads its response's.
+            run.messages.push(AgentMessage::assistant("", batch.to_vec()));
+            let ended = run.process_tool_batch(batch, batch.len() as u64).await;
+            stopped = ended.is_err();
+            let mut told = std::mem::take(&mut *self.kept.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            let results: Vec<Option<AgentMessage>> =
+                batch.iter().map(|call| told.iter().position(|message| message.tool_call_id() == Some(call.id.as_str())).map(|at| told.remove(at))).collect();
+            let mut follow_ups: Vec<String> = told.iter().map(AgentMessage::text).collect();
+            for (index, (call, result)) in batch.iter().zip(results).enumerate() {
+                let follow_ups = if index + 1 == batch.len() { std::mem::take(&mut follow_ups) } else { Vec::new() };
+                outcomes.push(match result.filter(|_| !stopped) {
+                    Some(message) => Handed { failed: message.tool_kind == Some(ToolKind::Error), follow_ups, message },
+                    // The turn was stopped under the call.
+                    None => cancelled(&call.id),
+                });
+            }
         }
+        outcomes
     }
 
     /// The session's answer to a call of its tool `name` that is not run here (an outside agent runs the same kind of
@@ -490,6 +524,11 @@ mod tests {
     }
 
     fn calls_with(seen: &Seen, gate: Arc<dyn ToolGate>, approvals: Arc<MockApprovalGate>) -> HandedCalls {
+        calls_under(seen, gate, approvals, CancellationToken::new())
+    }
+
+    /// [`calls_with`], for a turn whose token is `cancel`.
+    fn calls_under(seen: &Seen, gate: Arc<dyn ToolGate>, approvals: Arc<MockApprovalGate>, cancel: CancellationToken) -> HandedCalls {
         let tokens = mixdog_rt::testing::tokens();
         HandedCalls::new(HandedParts {
             tools: ToolSet::new(vec![Arc::new(CallTool(spec("call_tool"))), Arc::new(Target(spec("edit"), seen.clone())), Arc::new(Refuses(spec("Skill")))]),
@@ -519,7 +558,7 @@ mod tests {
             images: None,
             failures: None,
             repeat: RepeatGuards::default(),
-            cancel: CancellationToken::new(),
+            cancel,
             slot: None,
             asks: None,
         })
@@ -637,5 +676,37 @@ mod tests {
         assert_eq!((handed.message.tool_kind, handed.message.message.is_error), (Some(ToolKind::Error), true));
         assert_eq!(handed.follow_ups, ["<system-reminder>\nthe user's after-batch word\n</system-reminder>"]);
         assert!(seen.lock().unwrap().contains(&"batch of 1".to_owned()));
+    }
+
+    /// Refuses every call on the session's surface, noting the file it names, and stops the turn as it refuses.
+    struct StopsTheTurn(Seen, CancellationToken);
+
+    #[async_trait::async_trait]
+    impl ToolGate for StopsTheTurn {
+        async fn check_call(&self, _: &str, _: &GateCall) -> GateDecision {
+            GateDecision::Allow
+        }
+        fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
+            self.0.lock().unwrap().push(format!("judge {}", call.args["file_path"].as_str().unwrap_or_default()));
+            self.1.cancel();
+            Some("Error: off this surface".to_owned())
+        }
+    }
+
+    /// Two edits handed together are two batches. The turn is stopped while the first is refused, which its batch answers
+    /// without a run: the second is never judged, started or reported, and its outcome is the cancellation.
+    #[tokio::test]
+    async fn a_call_handed_behind_a_stop_of_the_turn_is_cancelled_unjudged() {
+        let seen: Seen = Arc::default();
+        let cancel = CancellationToken::new();
+        let calls = calls_under(&seen, Arc::new(StopsTheTurn(seen.clone(), cancel.clone())), Arc::default(), cancel);
+        let edit = |id: &str, file: &str| ToolCall { id: id.into(), name: "edit".into(), arguments: json!({ "file_path": file }), native_type: None };
+
+        let handed = calls.calls(&[edit("c1", "a.txt"), edit("c2", "b.txt")]).await;
+
+        assert_eq!(*seen.lock().unwrap(), ["judge a.txt", "batch of 1"]);
+        assert_eq!(handed[0].message.text(), "Error: off this surface");
+        assert_eq!(handed[1].message.text(), "Error: tool call cancelled");
+        assert!(handed[1].failed);
     }
 }

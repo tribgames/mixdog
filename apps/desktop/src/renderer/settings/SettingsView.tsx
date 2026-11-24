@@ -232,7 +232,12 @@ export const SettingsView = memo(function SettingsView({
     if (!open) return undefined;
     const handleKey = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
-      const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
+      // A nested dialog sits inside Settings or is portaled to document.body
+      // (a saved-login editor, a confirmation); the last live one is on top.
+      const nestedDialog =
+        Array.from(document.querySelectorAll<HTMLElement>('[data-settings-nested-dialog]'))
+          .filter((node) => !node.closest('[inert]'))
+          .at(-1) ?? null;
       if (event.key === 'Escape') {
         if (portaledMenuOpen(dialog) || isImeKey(event)) return;
         event.preventDefault();

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { PendingPromptItem } from './conversation-prompt-items';
+import { transcriptTurnKeys } from './renderer-logic.mjs';
 import type { Snapshot } from './desktop-types';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { commandActivityStartedAt, commandShowsActivity } from './transcript-status';
@@ -22,14 +23,13 @@ import {
 } from './transcript-list-reader-place';
 import { useTranscriptJump } from './transcript-jump';
 
-const firstItemId = (row: TranscriptRowModel | undefined): string | undefined => {
-  const item = row?._tag === 'ToolActivity' ? row.items[0] : row && 'item' in row ? row.item : undefined;
-  return item?.id === undefined || item.id === null ? undefined : String(item.id);
-};
-const lastItemId = (row: TranscriptRowModel | undefined): string | undefined => {
-  const item = row?._tag === 'ToolActivity' ? row.items.at(-1) : row && 'item' in row ? row.item : undefined;
-  return item?.id === undefined || item.id === null ? undefined : String(item.id);
-};
+const idOf = (item: { id?: unknown } | undefined | null): string | undefined =>
+  item?.id === undefined || item.id === null ? undefined : String(item.id);
+const singleItem = (row: TranscriptRowModel | undefined) => (row && 'item' in row ? row.item : undefined);
+const firstItemId = (row: TranscriptRowModel | undefined): string | undefined =>
+  idOf(row?._tag === 'ToolActivity' ? row.items[0] : singleItem(row));
+const lastItemId = (row: TranscriptRowModel | undefined): string | undefined =>
+  idOf(row?._tag === 'ToolActivity' ? row.items.at(-1) : singleItem(row));
 
 /** The ids of the first and last transcript items in the reader's view: the rows the viewport crosses where it is
  *  scrolled to now (the list's own sizes say which; the rows it draws follow a frame later), from the first row downward
@@ -65,6 +65,7 @@ export function useConversationTimeline({
     ConversationTranscriptSource,
     | 'transcriptIdentity'
     | 'settledItems'
+    | 'liveSettledItems'
     | 'settledRowItems'
     | 'activeStreamingTail'
     | 'showTranscriptTimeline'
@@ -89,18 +90,20 @@ export function useConversationTimeline({
   onTranscriptHiddenChange?: (hidden: boolean) => void;
 }) {
   const { viewport, content, conversation, follow, scrollToEndRef } = view;
-  const { settledItems, settledRowItems, requestEarlierTranscript, resetTranscriptToLive } = source;
+  const { settledItems, liveSettledItems, settledRowItems, requestEarlierTranscript, resetTranscriptToLive } = source;
   const identity = source.transcriptIdentity.current;
   const liveItem = source.activeStreamingTail;
   const showTimeline = source.showTranscriptTimeline;
   const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow } = follow;
+  // The state's own turn keys are the live rows': a history window, or rows read above the live ones, makes its own.
+  const ownTurnKeys = settledItems === liveSettledItems ? snapshot.transcriptTurnKeys : undefined;
   const { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd } = useTranscriptRows({
     identity,
     sessionKey,
     settledItems,
     settledRowItems,
     failedTurnKeys: snapshot.failedTurnKeys,
-    precomputedTurnKeys: snapshot.transcriptTurnKeys,
+    precomputedTurnKeys: ownTurnKeys,
     pendingItems,
     steerItems,
     liveItem,
@@ -111,6 +114,13 @@ export function useConversationTimeline({
     optimisticActivityStartedAt,
     room,
   });
+  const liveTurnKeys = useMemo(() => {
+    if (settledItems === liveSettledItems) return settledTurnKeys;
+    const stated = snapshot.transcriptTurnKeys;
+    return Array.isArray(stated) && stated.length === liveSettledItems.length
+      ? (stated as string[])
+      : (transcriptTurnKeys(liveSettledItems) as string[]);
+  }, [liveSettledItems, settledItems, settledTurnKeys, snapshot.transcriptTurnKeys]);
   // A reader handed a place off the end (a return, a record opened from outside) is shown no list until the rows
   // hold that place's record: the list mounts once, over the rows its reader is put on. A list already mounted stays.
   const pane = usePaneKey();
@@ -187,6 +197,7 @@ export function useConversationTimeline({
     window.addEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
     return () => window.removeEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
   }, [jumpToLatest, sessionKey]);
+  const windowGeneration = typeof snapshot.transcriptGeneration === 'number' ? snapshot.transcriptGeneration : 0;
   const shouldAnchorTranscriptBottom = useConversationFollowEffects({
     armFollow,
     following,
@@ -195,16 +206,18 @@ export function useConversationTimeline({
     transcriptRows,
     transcriptSessionKey: sessionKey,
     viewport,
-    windowGeneration: readerAt
-      ? typeof snapshot.transcriptGeneration === 'number'
-        ? snapshot.transcriptGeneration
-        : 0
-      : undefined,
+    windowGeneration: readerAt ? windowGeneration : undefined,
   });
   // A jump the entry brings opens its place after the entry's arm, so it is called here, after it.
   useTranscriptJump({ sessionId: draftMode || sessionKey === 'new-task' ? '' : sessionKey, leaveTail: follow.pause });
   return {
+    /** The turn keys of the rows shown (`source.settledItems`, a history window's while the reader is in one). */
     settledTurnKeys,
+    /** The turn keys of the live rows (`source.liveSettledItems`). */
+    liveTurnKeys,
+    /** What the row renderer reads (useConversationRowRenderer): the rows shown with their own turn keys, and the live
+     *  rows. */
+    rowItems: { settledItems, settledTurnKeys, liveItems: liveSettledItems },
     /** What runs is past the last turn's end and has settled no row yet (use-conversation-rows.ts). */
     turnPastEnd,
     /** What runs is past the last turn's end, whether or not it has settled rows since. */

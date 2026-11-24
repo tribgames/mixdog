@@ -327,6 +327,7 @@ impl Run {
     pub(crate) fn repair_thinking_replay(&mut self) -> bool {
         let repaired_any = repair_rejected_thinking(&mut self.messages);
         if repaired_any {
+            self.rewrote_transcript();
             self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
         }
         repaired_any

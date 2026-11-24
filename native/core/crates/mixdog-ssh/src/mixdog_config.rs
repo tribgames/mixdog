@@ -8,14 +8,12 @@ use mixdog_fsio::{DirBuilder, OpenOptions, Unlaned};
 
 use crate::context::{SshConfigFiles, SshEnv};
 use crate::diagnostics::DiagnosticKind;
-use crate::private_dir::{lock_to_user, resolve_plain_dir, resolve_plain_dir_with};
+use crate::private_dir::{ensure_private_dir, resolve_plain_dir, resolve_plain_dir_with};
 
 const DEFAULT_USER_FILES: [&str; 2] = ["~/.ssh/known_hosts", "~/.ssh/known_hosts2"];
 const MAX_EXTRA_FILES: usize = 16;
 /// Written beside Mixdog's known_hosts once the desktop's own file was merged in.
 const LEGACY_MARKER: &str = ".legacy-imported";
-/// Written inside the folder once `icacls` locked it to the account it names: a later start finds the folder locked and runs nothing.
-const LOCKED_MARKER: &str = ".locked-to-user";
 
 static CURRENT: Mutex<Option<Arc<MixdogSshConfig>>> = Mutex::new(None);
 
@@ -160,8 +158,8 @@ pub struct MixdogSshConfig {
 }
 
 impl MixdogSshConfig {
-    /// Prepares the folder (a plain path, this user only; on Windows `icacls` runs once, then a marker in the folder says it is
-    /// locked), Mixdog's known_hosts and the config, merges the desktop's
+    /// Prepares the folder (a plain path, this user only; on Windows its owner and access list are checked at every start and `icacls`
+    /// runs only for a folder that fails, which is refused when it still fails), Mixdog's known_hosts and the config, merges the desktop's
     /// old known_hosts in when `MIXDOG_DESKTOP_USER_DATA` names its folder, and makes this the configuration
     /// [`current`] returns. `env` is the machine as it is before this config exists (its `config_files` are not asked).
     pub async fn configure(env: &SshEnv) -> io::Result<Arc<Self>> {
@@ -173,13 +171,7 @@ impl MixdogSshConfig {
             mixdog_fsio::set_permissions(&Unlaned, &dir, std::fs::Permissions::from_mode(0o700))?;
         }
         if env.platform.is_windows() {
-            let user = account(env);
-            let marker = dir.join(LOCKED_MARKER);
-            if env.files.read_text(&marker).is_none_or(|locked| locked.trim() != user) {
-                lock_to_user(env, &dir, &user).await?;
-                // Without the marker the next start locks again: nothing else is lost.
-                let _ = mixdog_fsio::write(&Unlaned, &marker, &user);
-            }
+            ensure_private_dir(env, &dir).await?;
         }
         let known_hosts_file = dir.join("known_hosts");
         let config = Arc::new(Self {

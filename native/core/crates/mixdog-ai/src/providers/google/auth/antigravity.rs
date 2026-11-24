@@ -131,8 +131,7 @@ pub struct AntigravityAuth {
 #[async_trait]
 impl RequestAuth for AntigravityAuth {
     async fn authorize(&self) -> Result<Authorization, ProviderError> {
-        let tokens = self.tokens(false).await?;
-        Ok(Authorization { headers: vec![("authorization".into(), format!("Bearer {}", tokens.access_token))], identity: tokens.project_id })
+        self.authorized().await.map(|(authorization, _)| authorization)
     }
 
     /// A typed 401 says this access token is no longer accepted whatever the
@@ -299,6 +298,7 @@ fn no_tier(payload: &Value, email: &str) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transport::testing::Once;
 
     /// The changelist is sent only for the build it is known for; any other version goes without one, not under an old build's.
     #[test]
@@ -382,13 +382,6 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn onboarding_shares_one_thirty_second_budget() {
         struct Pending;
-        struct Once(Option<bytes::Bytes>);
-        #[async_trait]
-        impl crate::transport::BodyStream for Once {
-            async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-                self.0.take().map(Ok)
-            }
-        }
         #[async_trait]
         impl HttpSend for Pending {
             async fn send(&self, wire: WireRequest, _: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
@@ -560,6 +553,15 @@ impl AntigravityAuth {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn current(&self) -> Result<TokenDoc, ProviderError> {
         self.store.load().await.ok_or_else(|| reauth("not signed in — run /login"))
+    }
+
+    /// [`RequestAuth::authorize`] with the sign-in it authorises.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    pub(crate) async fn authorized(&self) -> Result<(Authorization, TokenDoc), ProviderError> {
+        let tokens = self.tokens(false).await?;
+        let authorization =
+            Authorization { headers: vec![("authorization".into(), format!("Bearer {}", tokens.access_token))], identity: tokens.project_id.clone() };
+        Ok((authorization, tokens))
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]

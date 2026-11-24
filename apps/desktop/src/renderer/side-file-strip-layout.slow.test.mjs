@@ -140,7 +140,8 @@ test('dock tab strips: names ellipsize inside their tabs, the strip ends before 
     }),
     build({
       stdin: {
-        contents: '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
+        contents:
+          '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
         resolveDir,
         loader: 'css',
       },
@@ -165,12 +166,13 @@ test('dock tab strips: names ellipsize inside their tabs, the strip ends before 
     `<!doctype html><html><head><style>${css.map((out) => out.text).join('\n')}</style></head><body style="margin:0"><div id="host" style="display:flex;flex-direction:column"></div></body></html>`
   );
   await tab.addScriptTag({ content: js });
-  // Pretendard loads its Latin and Hangul in unicode-range slices on first use.
+  // Pretendard loads in unicode-range slices on first use, and the ellipsis has a slice of its own: every glyph the
+  // strips draw is loaded before the first measure, or that measure reads the ellipsis in a system face.
   const fontLoaded = await tab.evaluate(async (text) => {
     await document.fonts.load('14px "Pretendard Variable"', text);
     await document.fonts.ready;
     return document.fonts.check('14px "Pretendard Variable"', text);
-  }, 'attachments/image-1a2061b028c4dab01234567.png 변경 사항 Save');
+  }, 'attachments/image-1a2061b028c4dab01234567.png 변경 사항 Save …');
   assert.equal(fontLoaded, true, 'the shipped UI font is loaded');
 
   const out = process.env.SIDE_FILE_STRIP_OUT;
@@ -192,11 +194,16 @@ test('dock tab strips: names ellipsize inside their tabs, the strip ends before 
                 width
               );
               // The strip's resize observer reveals the active tab and marks its fades.
-              await tab.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+              await tab.evaluate(
+                () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+              );
               const geometry = await tab.evaluate(readStrip);
               if (out) {
                 report.push({ name, ...geometry });
-                await tab.screenshot({ path: join(out, `${name.replace(/[^\w]+/g, '-')}.png`), clip: { x: 0, y: 0, width, height: 48 } });
+                await tab.screenshot({
+                  path: join(out, `${name.replace(/[^\w]+/g, '-')}.png`),
+                  clip: { x: 0, y: 0, width, height: 48 },
+                });
               }
               assert.deepEqual(errors, []);
               assert.equal(geometry.tabs.length, files + (changes ? 1 : 0));
@@ -226,10 +233,14 @@ test('dock tab strips: names ellipsize inside their tabs, the strip ends before 
                   geometry.tabs.every((cell) => cell.width <= (cell.active ? 136.5 : 88.5)),
                   `scrolls before the floors: ${geometry.tabs.map((cell) => cell.width).join(', ')}`
                 );
-                if (strip === 'file') assert.ok(geometry.tabs.find((cell) => cell.active).visible, 'the open file is in view');
+                if (strip === 'file')
+                  assert.ok(geometry.tabs.find((cell) => cell.active).visible, 'the open file is in view');
                 assert.ok(geometry.masked && (geometry.fadeStart || geometry.fadeEnd), 'a scrolling edge fades');
               } else {
-                assert.ok(!geometry.fadeStart && !geometry.fadeEnd && !geometry.masked, 'a strip that fits does not fade');
+                assert.ok(
+                  !geometry.fadeStart && !geometry.fadeEnd && !geometry.masked,
+                  'a strip that fits does not fade'
+                );
               }
             });
           }

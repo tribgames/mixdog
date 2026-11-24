@@ -6,17 +6,14 @@ import type { DesktopPromptContent, DesktopSubmitOptions, DesktopTurnTakeoverRec
 import type { ComposerProps } from './Composer';
 import { restoreAttachmentsFromRecord } from './composer-attachment-restore';
 import { composerSubmitErrorText } from './composer-submit-error';
-import {
-  composerScopeHasContent,
-  rejectComposerSubmissionRecovery,
-  retainComposerSubmissionRecovery,
-} from './composer-draft';
+import { composerScopeHasContent } from './composer-draft';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
 import { queuedPlainAnswer, steerQueuedAsAnswer } from './question-card-logic';
 import { useComposerCapability } from './use-composer-capability';
+import { parkComposerRecovery } from './use-composer-submission';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 
 /** The composer's side of a message taken back from the transcript. */
@@ -30,8 +27,13 @@ export type ComposerDraftHandoff = {
   /** Puts the message (its text and attachments) into the editor, before
    *  what it holds. `ifEmpty`: only when the editor holds nothing. Returns
    *  whether it did. `replace`: the message takes the place of the whole
-   *  draft and its chips (editing a previous message). */
-  restore(value: RecordValue, options?: { ifEmpty?: boolean; replace?: boolean; notice?: string }): boolean;
+   *  draft and its chips (editing a previous message). `submissionId`: the
+   *  message went out under it and may have landed, so a resend of it
+   *  unchanged keeps it. */
+  restore(
+    value: RecordValue,
+    options?: { ifEmpty?: boolean; replace?: boolean; notice?: string; submissionId?: string }
+  ): boolean;
 };
 
 export type SteerActions = {
@@ -93,8 +95,6 @@ function promptRestoreRecord(content: DesktopPromptContent, options?: DesktopSub
   };
 }
 
-let parkedSequence = 0;
-
 /** The id of one press of "Send now", an operation id as the core takes them (a UUIDv7): every send of that press
  *  carries it. */
 const newOperationId = (): string => uuidv7(Date.now());
@@ -119,14 +119,7 @@ function restoreDraft(
   });
   if (!restored.text.trim() && !restored.attachments.length) return;
   if (options.ifEmpty && composerScopeHasContent(origin.scope)) return;
-  const id = `steer-restore-${++parkedSequence}`;
-  retainComposerSubmissionRecovery({
-    id,
-    scope: origin.recoveryScope,
-    text: restored.text,
-    attachments: restored.attachments,
-  });
-  rejectComposerSubmissionRecovery(id);
+  parkComposerRecovery(origin.recoveryScope, restored.text, restored.attachments);
 }
 
 /** A press of "Send now", by the session it was made in and the message. */
@@ -214,8 +207,13 @@ export function useSteerActions({
       const item = find(id);
       if (item?.steer !== 'pending' || item.steerLocal) return;
       // What the user saw when they pressed: the session, and the turn it ran.
-      const { invokeCapability: invoke, invokeResult: run, onTaken: taken, sessionId: pressedIn, turnId: seen } =
-        latest.current;
+      const {
+        invokeCapability: invoke,
+        invokeResult: run,
+        onTaken: taken,
+        sessionId: pressedIn,
+        turnId: seen,
+      } = latest.current;
       const origin = originScope();
       const press = pressOf(pressedIn, id);
       const answer = answerQuestion.current;
@@ -303,6 +301,7 @@ export function useSteerActions({
       if (accepted !== true) {
         restoreDraft(draft, origin, promptRestoreRecord(content, options), {
           notice: refusal || t('The message was not sent. It has been kept for retry.'),
+          ...(options?.id ? { submissionId: options.id } : {}),
         });
       }
     };

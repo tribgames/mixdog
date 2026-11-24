@@ -6411,7 +6411,11 @@ context?: string,
  * The stored files' sizes by `attachmentRef`, which the message's attachment records take
  * in place of a part's claimed `sizeBytes` (`attachmentBlobSize`). Host-only, like `context`.
  */
-attachmentSizes?: { [key in string]?: number }, };
+attachmentSizes?: { [key in string]?: number },
+/**
+ * A follow-up that only joins a running turn's queue; an idle session refuses it instead of starting a turn. Host-only.
+ */
+queueOnly?: boolean, };
 
 /**
  * The core's attach decision, the same object for every subscribing method.
@@ -17065,8 +17069,7 @@ export const methodTable = {
       },
       "origins": [
         "local",
-        "ssh",
-        "relay"
+        "ssh"
       ],
       "params": "ProjectFsWorkspaceFileWriteParams",
       "result": "JsonValue",

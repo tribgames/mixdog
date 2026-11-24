@@ -109,6 +109,8 @@ pub struct CoreWiring {
     pub cancel: Arc<CancelRegistry>,
     /// Ends the new-task attempts in flight at a stop request (`SessionDirectory::cut_new_tasks`).
     pub cut_new_tasks: Hook,
+    /// Starts them again once the drain of the stop request that cut them is cancelled (`SessionDirectory::reopen_new_tasks`).
+    pub reopen_new_tasks: Hook,
     pub final_barriers: Hook,
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
@@ -176,6 +178,10 @@ impl CorePort for RuntimeCore {
 
     fn cut_new_tasks(&self) {
         (self.wiring.cut_new_tasks)();
+    }
+
+    fn reopen_new_tasks(&self) {
+        (self.wiring.reopen_new_tasks)();
     }
 
     fn release_decision(&self, pid: u32) {

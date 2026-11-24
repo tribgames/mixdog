@@ -170,7 +170,10 @@ test('a finished turn keeps its footer and cards while activity is reported arou
   assert.equal(finished.lastRow, 1);
   assert.notEqual(rows.at(-1).turnKey, rows[1].turnKey);
   assert.equal(ended, true, 'nothing of the running turn is placed: the trailing changed-files card is not its own');
-  await render({ items: [prompt, reply, done, { kind: 'user', id: 'next', text: 'More', at: 9_100 }], activityStartedAt: 9_000 });
+  await render({
+    items: [prompt, reply, done, { kind: 'user', id: 'next', text: 'More', at: 9_100 }],
+    activityStartedAt: 9_000,
+  });
   assert.deepEqual(tags(), ['UserMessage', 'AssistantPart', 'TurnGap', 'UserMessage', 'Thinking']);
   assert.equal(ended, false);
 });

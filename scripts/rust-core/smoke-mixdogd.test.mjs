@@ -12,7 +12,13 @@ const CLEAN = { code: 0, signal: null };
 
 test('a boot passes on its steps, their order and its exit, whatever it took', () => {
   assert.deepEqual(judgeBoot(BOOT, CLEAN), []);
-  assert.deepEqual(judgeBoot(BOOT.map((mark) => ({ ...mark, ms: mark.ms * 100 })), CLEAN), []);
+  assert.deepEqual(
+    judgeBoot(
+      BOOT.map((mark) => ({ ...mark, ms: mark.ms * 100 })),
+      CLEAN
+    ),
+    []
+  );
 });
 
 test('a missing, repeated or reordered step, or an unclean exit, fails the boot', () => {

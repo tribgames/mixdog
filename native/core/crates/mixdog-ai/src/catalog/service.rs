@@ -5,6 +5,7 @@
 //! listings as they are; models.dev stays its own layer, read by
 //! [`CatalogService::traits`] and the metadata lookup. Reads never refresh.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -70,6 +71,8 @@ pub struct CatalogService {
     providers: arc_swap::ArcSwapOption<RouteProviders>,
     /// `scheduleProviderModelWarmup`, bound by the provider-models cache that performs the warm-up.
     warmup: arc_swap::ArcSwapOption<Box<dyn Fn() + Send + Sync>>,
+    /// The providers whose usage is priced as another's ([`Self::bind_shared_quotas`]).
+    pub(super) shared_quotas: ArcSwap<BTreeMap<String, String>>,
 }
 
 impl CatalogService {
@@ -102,9 +105,16 @@ impl CatalogService {
             load_seq: arc_swap::ArcSwapOption::empty(),
             providers: arc_swap::ArcSwapOption::empty(),
             warmup: arc_swap::ArcSwapOption::empty(),
+            shared_quotas: ArcSwap::from_pointee(BTreeMap::new()),
         };
         service.publish_listing();
         service
+    }
+
+    /// Binds the providers whose usage is priced as another provider's: each ACP agent's route, by the provider of
+    /// Mixdog's own whose account and quota it runs on. A provider not named is priced as itself.
+    pub fn bind_shared_quotas(&self, routes: BTreeMap<String, String>) {
+        self.shared_quotas.store(Arc::new(routes));
     }
 
     /// Binds `catalogRevision(reg())`: the provider registry's catalog revision. The route-meta memo is dropped
@@ -375,20 +385,20 @@ impl CatalogService {
     /// One refresh: model listings and models.dev (fetched only when its
     /// cache is stale or a retry is due), published as one snapshot.
     pub async fn refresh(&self) -> RefreshOutcome {
-        self.refresh_asking(Ask::All, None).await
+        self.refresh_asking(Ask::All, None, true).await
     }
 
     /// [`Self::refresh`] asking `sources`, the providers read when the refresh began (`refreshCatalogs` walks the
     /// registry once, before its listings wait for the metadata, registry.mjs:762-766).
     pub async fn refresh_of(&self, sources: Arc<Vec<ModelSource>>) -> RefreshOutcome {
-        self.refresh_asking(Ask::All, Some(sources)).await
+        self.refresh_asking(Ask::All, Some(sources), true).await
     }
 
     /// A non-forced refresh: asks only the providers that are due (never
     /// listed, or failed with their backoff passed), or every provider once the registry's catalog revision moved
     /// since the last full listing began (`sharedProviderCatalog` keys its answer by `catalogRevision(reg())`).
     pub async fn refresh_due(&self) -> RefreshOutcome {
-        self.refresh_asking(Ask::Due, None).await
+        self.refresh_asking(Ask::Due, None, false).await
     }
 
     /// A provider-scoped forced refresh (`catalog-load.mjs` `prepare`, `forceRefresh && provider`):
@@ -453,8 +463,11 @@ impl CatalogService {
     }
 
     /// `sources`: the providers the caller read when its refresh began; `None` reads them now.
-    async fn refresh_asking(&self, ask: Ask, sources: Option<Arc<Vec<ModelSource>>>) -> RefreshOutcome {
+    /// `forced`: a refresh the user or the 24 h timer asked for, which asks each provider again whatever its saved roster
+    /// holds (`refreshCodexCatalog`); otherwise a saved roster within its TTL answers.
+    async fn refresh_asking(&self, ask: Ask, sources: Option<Arc<Vec<ModelSource>>>, forced: bool) -> RefreshOutcome {
         let sources = sources.unwrap_or_else(|| self.sources());
+        let sources = if forced { Arc::new(sources.iter().cloned().map(ModelSource::bypassing_cache).collect::<Vec<_>>()) } else { sources };
         let revision = self.catalog_revision();
         let ask = {
             let mut listed = self.listed_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

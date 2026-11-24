@@ -124,7 +124,7 @@ export function AgentRowFrame({
   title?: string;
   /** Its tree level when its list nests by something other than the pool's depth (a kind's group). */
   level?: number;
-  /** The agent is at work: the row is marked as the To-do step in progress (data-working). */
+  /** The agent is at work: the row is marked data-working. */
   working?: boolean;
   children: React.ReactNode;
 }): React.ReactElement {

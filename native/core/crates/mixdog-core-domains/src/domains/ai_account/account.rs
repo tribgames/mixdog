@@ -46,6 +46,20 @@ use mixdog_core_base::support::wrong_method;
 
 const DOMAIN: &str = "account";
 
+/// What a request came over, as far as its context tells: a desktop window, a paired phone, an SSH forward, any other
+/// local connection (CLI or TUI) or an internal producer.
+pub(super) fn asker_of(ctx: &mixdog_core_api::CallContext) -> String {
+    use mixdog_core_api::Caller;
+    use mixdog_protocol::Origin;
+    match (&ctx.caller, ctx.origin, &ctx.window) {
+        (Caller::Internal(name), _, _) => format!("internal producer {name}"),
+        (_, Origin::Relay, _) => "remote connection (paired phone)".to_owned(),
+        (_, Origin::Ssh, _) => "remote connection (ssh forward)".to_owned(),
+        (_, Origin::Local, Some(_)) => "desktop window".to_owned(),
+        (_, Origin::Local, None) => "local connection (CLI or TUI)".to_owned(),
+    }
+}
+
 /// What wakes the `providerSetup` and `providerAccounts` sections besides this service's own
 /// methods: a change of the config (`Config::changes`), and of the credential files in the data
 /// folder, whoever wrote them.
@@ -254,7 +268,7 @@ impl AccountService {
         history
     }
 
-    async fn dispatch(&self, method: &str, params: &Value, body_lone_units: usize, local: bool) -> Result<Value, CoreError> {
+    async fn dispatch(&self, method: &str, params: &Value, body_lone_units: usize, local: bool, asker: &str) -> Result<Value, CoreError> {
         let admin = &self.admin;
         let provider = str_param(params, "providerId");
         let ok = Value::Bool(true);
@@ -287,7 +301,7 @@ impl AccountService {
             "account/cancelOAuthProviderLogin" => self.flows.cancel(str_param(params, "flowId")).await.map_err(into)?,
             "account/forgetProviderAuth" => {
                 let account = params.get("accountId").and_then(Value::as_str);
-                admin.forget_provider_auth(provider, account).await.map_err(into)?;
+                admin.forget_provider_auth(provider, account, asker).await.map_err(into)?;
                 ok
             }
             "account/updateProviderAccounts" => admin.update_provider_accounts(provider, params.get("change").unwrap_or(&Value::Null)).await.map_err(into)?,
@@ -342,6 +356,7 @@ impl DomainService for AccountService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let method = req.method.as_str();
         let local = req.ctx.origin == mixdog_protocol::Origin::Local;
+        let asker = asker_of(&req.ctx);
         // The lone surrogates a custom provider's `requestBody` held (only its top-level values are free text): its size limit
         // counts each as Node's `JSON.stringify` writes it.
         let body_lone_units = req
@@ -352,13 +367,13 @@ impl DomainService for AccountService {
             .count();
         match method {
             "account/getOAuthProviderLoginStatus" | "account/listWebSearchModels" | "account/getQuotaHistory" => {
-                Ok(Reply::Value(self.dispatch(method, &req.params, body_lone_units, local).await?))
+                Ok(Reply::Value(self.dispatch(method, &req.params, body_lone_units, local, &asker).await?))
             }
             m if m.starts_with("account/") => {
                 let external = external_effect(method, &req.params);
                 let reply = self
                     .ops
-                    .run(&req, external, || async { self.dispatch(method, &req.params, body_lone_units, local).await }, || async { Ok(Value::Null) })
+                    .run(&req, external, || async { self.dispatch(method, &req.params, body_lone_units, local, &asker).await }, || async { Ok(Value::Null) })
                     .await?;
                 if !leaves_sections(method) {
                     self.publish_sections().await;

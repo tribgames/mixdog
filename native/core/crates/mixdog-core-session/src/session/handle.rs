@@ -269,6 +269,13 @@ impl SessionHandle {
         Ok(rx)
     }
 
+    /// The user conversation rows the actor has taken so far ([`Inbox::ConversationRows`]).
+    pub(crate) async fn conversation_rows(&self) -> Result<u64, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::ConversationRows { tx }).await.map_err(|_| self.closing())?;
+        rx.await.map_err(|_| self.closing())
+    }
+
     /// A call on the thread scope's op store, answered by the actor.
     pub(crate) async fn op_call(&self, call: super::thread_ops::OpCall) -> Result<Reply, CoreError> {
         let (tx, rx) = oneshot::channel();
@@ -669,6 +676,10 @@ impl SessionHandle {
         let mut params = json!({ "rows": rows, "set": set, "unset": unset });
         if let Some(view) = req.params.get("roomView") {
             params["roomView"] = view.clone();
+        }
+        // An inheritance's: the heir as it was found empty, which the actor holds the commit to.
+        if let Some(seen) = req.params.get("conversationRows") {
+            params["conversationRows"] = seen.clone();
         }
         let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/commit"), params, op: None, ctx: req.ctx };
         self.to_actor_cancellable(append).await

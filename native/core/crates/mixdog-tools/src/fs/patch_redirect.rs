@@ -68,8 +68,13 @@ fn header_path(base: &Path, full: &Path) -> String {
     }
 }
 
-async fn is_file(ctx: &ToolContext, path: &Path) -> Option<AbsPath> {
-    let abs = AbsPath::new(path.to_path_buf())?;
+/// `path` once it is admitted as a path inside the patch root `base`; a candidate the guard refuses is not one.
+async fn admitted(ctx: &ToolContext, base: &AbsPath, path: &Path) -> Option<AbsPath> {
+    admit(ctx, base, &path.to_string_lossy(), Access::Write).await.ok()?.ok()
+}
+
+async fn is_file(ctx: &ToolContext, base: &AbsPath, path: &Path) -> Option<AbsPath> {
+    let abs = admitted(ctx, base, path).await?;
     let stat = ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok()?;
     (stat.kind == EntryKind::File).then_some(abs)
 }
@@ -89,7 +94,7 @@ async fn suffix_strip(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Op
             break;
         }
         let candidate = tail.iter().fold(base.as_path().to_path_buf(), |acc, part| acc.join(part));
-        let abs = AbsPath::new(candidate.clone())?;
+        let Some(abs) = admitted(ctx, base, &candidate).await else { continue };
         if let Ok(stat) = ctx.files.stat(ctx.io.interactive, abs).await
             && matches!(stat.kind, EntryKind::File | EntryKind::Dir)
         {
@@ -118,6 +123,9 @@ async fn basename_hits(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> R
             break;
         }
         scanned += 1;
+        if !followable(ctx, &dir).await {
+            continue;
+        }
         let Ok(entries) = ctx.files.list_dir(ctx.io.interactive, dir).await else { continue };
         for entry in entries {
             let path = entry.path.as_path();
@@ -148,13 +156,13 @@ async fn unique_existing_target(ctx: &ToolContext, base: &AbsPath, requested: &A
         return Ok(None);
     }
     if let Some(rel) = suffix_strip(ctx, base, requested.as_path()).await
-        && let Some(found) = is_file(ctx, &base.as_path().join(rel)).await
+        && let Some(found) = is_file(ctx, base, &base.as_path().join(rel)).await
     {
         return Ok(Some(found));
     }
     let hits = basename_hits(ctx, base, requested.as_path()).await?;
     match hits.as_slice() {
-        [only] => Ok(is_file(ctx, only).await),
+        [only] => Ok(is_file(ctx, base, only).await),
         _ => Ok(None),
     }
 }
@@ -163,6 +171,7 @@ async fn unique_existing_target(ctx: &ToolContext, base: &AbsPath, requested: &A
 /// exactly one candidate; `None` when it exists or no twin is found.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn relocated_header(ctx: &ToolContext, base: &AbsPath, requested: &AbsPath) -> Result<Option<String>, ToolError> {
+    admit(ctx, base, &requested.as_path().to_string_lossy(), Access::Write).await?.map_err(|text| crate::orch::util::refused("write-path-guard", text))?;
     if ctx.files.stat(ctx.io.interactive, requested.clone()).await.is_ok() {
         return Ok(None);
     }

@@ -1172,30 +1172,34 @@ impl LogWriter {
     /// the log's only one, with or without a frame to append: a pending rollback is run first, and a fence refuses.
     pub fn close(&mut self, _lane: &InLane<DurabilityIo>) -> Result<Option<BatchAck>, AppendError> {
         // Before anything else: a pending rollback cuts and syncs the file, which a writer that lost the log must not.
-        if !matches!(self.state, WriterState::Fenced(_))
-            && let Err(reason) = self.deps.ownership.revalidate()
-        {
-            self.state = WriterState::Fenced(reason);
-            return Err(AppendError::Fenced { reason, outcome: Outcome::NotApplied });
+        if !matches!(self.state, WriterState::Fenced(_)) {
+            self.revalidated()?;
         }
         if self.last_is_anchor || self.sealed {
             let _writing = crate::log_epoch::writing_dir(&self.dir);
             let end = self.ready()?;
             self.alone(end)?;
             // As a barrier ends: this writer may have lost the log since its last one, and then closed nothing.
-            if let Err(reason) = self.deps.ownership.revalidate() {
-                self.state = WriterState::Fenced(reason);
-                return Err(AppendError::Fenced { reason, outcome: Outcome::NotApplied });
-            }
+            self.revalidated()?;
             return Ok(None);
         }
         self.append(Vec::new(), true).map(Some)
+    }
+
+    /// Fences the writer when it no longer owns the log; nothing was applied.
+    fn revalidated(&mut self) -> Result<(), AppendError> {
+        if let Err(reason) = self.deps.ownership.revalidate() {
+            self.state = WriterState::Fenced(reason);
+            return Err(AppendError::Fenced { reason, outcome: Outcome::NotApplied });
+        }
+        Ok(())
     }
 
     fn ready(&mut self) -> Result<u64, AppendError> {
         match self.state.clone() {
             WriterState::Clean { end } => Ok(end),
             WriterState::PendingRollback { target, .. } => {
+                self.revalidated()?;
                 let file = self.file_handle().map_err(AppendError::Refused)?;
                 match truncate_fault().and_then(|()| file.truncate(target)).and_then(|()| file.sync()) {
                     Ok(()) => {

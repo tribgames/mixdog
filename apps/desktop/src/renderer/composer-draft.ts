@@ -115,6 +115,13 @@ export function stashedComposerDraft(scope: string): string {
   return composerDraftsByScope.get(scope) ?? '';
 }
 
+/** Text that was sent or cleared, or that a draft held when it became a session,
+ *  stays parked nowhere. Storage is rewritten now: a restart may come before any hide. */
+export function dropComposerDraft(scope: string): void {
+  loadPersistedDrafts();
+  if (composerDraftsByScope.delete(scope)) persistComposerDrafts();
+}
+
 const composerAttachmentsByScope = new Map<string, ComposerAttachment[]>();
 const PARKED_ATTACHMENT_SCOPES_LIMIT = 20;
 
@@ -191,26 +198,24 @@ export function composerScopeHasContent(scope: string): boolean {
 export function composerDraftAfterScopeChange({
   currentDraft,
   liveDomDraft,
-  freshDraft,
   typingLive,
   stashedDraft = '',
-  switchingSessions = false,
+  sameConversation = false,
 }: {
   currentDraft: string;
   liveDomDraft: string;
-  freshDraft: boolean;
   typingLive: boolean;
   /** Text the target tab parked when the user left it; it wins because the
    *  user is RETURNING to that tab, not opening a new one. */
   stashedDraft?: string;
-  /** One existing session to another: the text typed in the first stays
-   *  parked with it, even with the textarea focused across the switch. */
-  switchingSessions?: boolean;
+  /** The identity moved within one conversation: a New Task draft became its
+   *  session. Any other move opens another conversation, which never shows
+   *  the text of the one left, focused, typed live or loaded or not. */
+  sameConversation?: boolean;
 }): string {
   if (stashedDraft.trim()) return stashedDraft;
-  if (freshDraft || switchingSessions) return '';
-  const candidate = typingLive ? liveDomDraft : currentDraft;
-  return typingLive && candidate.trim() ? candidate : '';
+  if (!sameConversation) return '';
+  return typingLive ? liveDomDraft : currentDraft;
 }
 
 const promotedDraftSessions = new Map<string, string>();
@@ -227,6 +232,7 @@ function remember(record: Map<string, string>, scope: string, sessionId: string)
 export function noteDraftPromotion(draftId: string, sessionId: string): void {
   if (!sessionId) return;
   const scope = `draft:${draftId || 'default'}`;
+  dropComposerDraft(scope);
   remember(promotedDraftSessions, scope, sessionId);
   remember(draftSessions, scope, sessionId);
 }

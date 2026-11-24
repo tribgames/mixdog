@@ -119,10 +119,11 @@ export function useSourceControlFiles({ projectPath, status, active }: SourceCon
       return next;
     });
   }, []);
+  // A conflicted row is resolved, never discarded: the selection's action leaves it out.
   const selectedActionFiles = useCallback(
     (file: DesktopGitFile): DesktopGitFile[] => {
       if (!selected.has(file.path)) return [file];
-      const rows = filteredFiles.filter((candidate) => selected.has(candidate.path));
+      const rows = filteredFiles.filter((candidate) => selected.has(candidate.path) && !candidate.conflicted);
       return rows.length ? rows : [file];
     },
     [filteredFiles, selected]

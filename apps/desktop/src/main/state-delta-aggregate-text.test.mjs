@@ -47,7 +47,10 @@ test('a card equal to the held one is found so without a copy of the outputs of 
   assert.equal(merged, held, 'the projection held stands');
   const grown = (await heldBytes()) - before;
   assert.ok(held.items[0].rawResult.length > MEMBERS * TEXT_BYTES * 0.9 && brought.items[0].rawResult.length > 0);
-  assert.ok(grown < TEXT_BYTES, `comparing the cards held ${grown} more bytes (their joined outputs are ${MEMBERS * TEXT_BYTES})`);
+  assert.ok(
+    grown < TEXT_BYTES,
+    `comparing the cards held ${grown} more bytes (their joined outputs are ${MEMBERS * TEXT_BYTES})`
+  );
 });
 
 test('a card whose member changed, or whose join differs in length, is not the held one', () => {

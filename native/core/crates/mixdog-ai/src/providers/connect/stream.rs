@@ -17,6 +17,28 @@ use mixdog_core_api::domain::provider::WireDecoder;
 
 use crate::transport::http::BodyStream;
 
+/// A read of a body as its decoder answered it ([`decode_read`]): the events, then the failure held back behind them.
+pub(crate) type Decoded = Result<(Vec<StreamEvent>, Option<ProviderError>), ProviderError>;
+
+/// What `decoder` makes of one read of a body, `unit` (`None`: the body's end), with the failure it holds back behind that
+/// read's events. A decoder that fails after events of the same read hands those out and keeps the failure for its next call
+/// (an empty `feed` returns it); asked here at once, the failure follows the events, so neither a deadline on a read that
+/// never comes nor the end of the body can replace or drop it.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+pub(crate) fn decode_read(decoder: &mut dyn WireDecoder, unit: Option<&[u8]>) -> Decoded {
+    let mut events = match unit {
+        Some(unit) => decoder.feed(unit),
+        None => decoder.finish(),
+    }?;
+    match decoder.feed(&[]) {
+        Ok(more) => {
+            events.extend(more);
+            Ok((events, None))
+        }
+        Err(held) => Ok((events, Some(held))),
+    }
+}
+
 pub struct DecodedStream {
     body: Box<dyn BodyStream>,
     decoder: Box<dyn WireDecoder>,
@@ -99,33 +121,40 @@ impl DecodedStream {
         self.queue.push_back(Err(err));
     }
 
-    fn push(&mut self, result: Result<Vec<StreamEvent>, ProviderError>) {
-        match result {
-            Ok(events) => {
-                if let Some(billed) = self.billed.as_mut() {
-                    let mut reported = None;
-                    let mut output = Vec::new();
-                    for event in events {
-                        match event {
-                            StreamEvent::Usage(usage) => reported = Some(usage),
-                            StreamEvent::ServedModel(ref model) => {
-                                billed.model.clone_from(model);
-                                output.push(event);
-                            }
-                            _ => output.push(event),
-                        }
+    fn push(&mut self, events: Vec<StreamEvent>) {
+        if let Some(billed) = self.billed.as_mut() {
+            let mut reported = None;
+            let mut output = Vec::new();
+            for event in events {
+                match event {
+                    StreamEvent::Usage(usage) => reported = Some(usage),
+                    StreamEvent::ServedModel(ref model) => {
+                        billed.model.clone_from(model);
+                        output.push(event);
                     }
-                    // A sink can cancel upon seeing output. Give the ledger this chunk's cumulative bill first.
-                    if let Some(usage) = reported {
-                        billed.last_usage = Some(usage.clone());
-                        self.queue.push_back(Ok(StreamEvent::Usage(usage)));
-                    }
-                    if let Some(usage) = billed.last_usage.as_ref() {
-                        crate::registry::accounted::observe_attempt_usage(usage.clone(), Some(billed.model.clone()));
-                    }
-                    self.queue.extend(output.into_iter().map(Ok));
-                } else {
-                    self.queue.extend(events.into_iter().map(Ok));
+                    _ => output.push(event),
+                }
+            }
+            // A sink can cancel upon seeing output. Give the ledger this chunk's cumulative bill first.
+            if let Some(usage) = reported {
+                billed.last_usage = Some(usage.clone());
+                self.queue.push_back(Ok(StreamEvent::Usage(usage)));
+            }
+            if let Some(usage) = billed.last_usage.as_ref() {
+                crate::registry::accounted::observe_attempt_usage(usage.clone(), Some(billed.model.clone()));
+            }
+            self.queue.extend(output.into_iter().map(Ok));
+        } else {
+            self.queue.extend(events.into_iter().map(Ok));
+        }
+    }
+
+    fn settle(&mut self, decoded: Decoded) {
+        match decoded {
+            Ok((events, held)) => {
+                self.push(events);
+                if let Some(err) = held {
+                    self.fail(err);
                 }
             }
             Err(err) => self.fail(err),
@@ -146,15 +175,15 @@ impl ModelStream for DecodedStream {
             match self.body.next().await {
                 Some(Ok(chunk)) => {
                     self.mark_transport();
-                    let result = self.decoder.feed(&chunk);
-                    if let Ok(events) = &result {
+                    let decoded = decode_read(self.decoder.as_mut(), Some(&chunk));
+                    if let Ok((events, _)) = &decoded {
                         self.report(events);
                     }
-                    self.push(result);
+                    self.settle(decoded);
                     if self.billed.is_some() && !self.ended && self.decoder.terminal_seen() {
                         self.ended = true;
-                        let result = self.decoder.finish();
-                        self.push(result);
+                        let decoded = decode_read(self.decoder.as_mut(), None);
+                        self.settle(decoded);
                     }
                 }
                 Some(Err(fault)) => {
@@ -173,15 +202,8 @@ impl ModelStream for DecodedStream {
                 }
                 None => {
                     self.ended = true;
-                    let result = self.decoder.finish();
-                    // A decoder that ends in failure but still owes events (the leak guard's held-back text) hands them
-                    // out first and keeps the failure for the next call.
-                    let owes_failure = matches!(&result, Ok(events) if !events.is_empty()) && !self.decoder.terminal_seen();
-                    self.push(result);
-                    if owes_failure {
-                        let failure = self.decoder.finish();
-                        self.push(failure);
-                    }
+                    let decoded = decode_read(self.decoder.as_mut(), None);
+                    self.settle(decoded);
                 }
             }
         }
@@ -196,12 +218,84 @@ impl ModelStream for DecodedStream {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use bytes::Bytes;
+    use mixdog_core_api::domain::provider::ErrorKind;
     use mixdog_core_api::domain::provider::Exposure;
     use mixdog_core_api::domain::provider::TransportFault;
 
     use super::*;
+
+    /// A body that gives its chunks and then ends: cleanly, or held open until the driver's stall deadline ends it.
+    pub(crate) struct Scripted {
+        chunks: VecDeque<Bytes>,
+        stalls: bool,
+    }
+
+    impl Scripted {
+        pub(crate) fn ending(chunks: &[&str]) -> Self {
+            Self { chunks: chunks.iter().map(|chunk| Bytes::from(chunk.to_string())).collect(), stalls: false }
+        }
+
+        pub(crate) fn stalling(chunks: &[&str]) -> Self {
+            Self { stalls: true, ..Self::ending(chunks) }
+        }
+    }
+
+    #[async_trait]
+    impl BodyStream for Scripted {
+        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+            match self.chunks.pop_front() {
+                Some(chunk) => Some(Ok(chunk)),
+                None => self.stalls.then_some(Err(TransportFault::Closed)),
+            }
+        }
+
+        fn expired(&self, exposure: Exposure) -> Option<ProviderError> {
+            self.stalls.then(|| {
+                let mut stall = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+                stall.code = Some("ESTREAMSTALL".into());
+                stall.timed_out = true;
+                stall.exposure = exposure;
+                stall
+            })
+        }
+    }
+
+    /// Every item of `stream` to its end: the events, and the failure that ended it.
+    pub(crate) async fn read_out(stream: &mut dyn ModelStream) -> (Vec<StreamEvent>, Option<ProviderError>) {
+        let mut events = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(event) => events.push(event),
+                Err(err) => {
+                    assert!(stream.next().await.is_none(), "the failure ends the stream");
+                    return (events, Some(err));
+                }
+            }
+        }
+        (events, None)
+    }
+
+    /// A refusal a custom provider sends behind text in the same read ends the turn with that refusal, though the body
+    /// stays open until the stall deadline ends it.
+    #[tokio::test]
+    async fn a_refusal_decoded_behind_text_ends_the_stream_before_the_next_read() {
+        use crate::providers::compat::CompatProfile;
+        use crate::providers::compat::chat::ChatDecoder;
+        use crate::providers::compat::profile::CredentialKind;
+        let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
+        let decoder = ChatDecoder::new(profile, mixdog_protocol::ProviderId::from("groq"));
+        let body = Scripted::stalling(&[concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
+            "data: {\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"slow\"}}\n\n",
+        )]);
+        let mut stream = DecodedStream::new(Box::new(body), Box::new(decoder));
+        let (events, failure) = read_out(&mut stream).await;
+        assert!(events.contains(&StreamEvent::TextDelta("hi".into())));
+        let failure = failure.expect("the refusal");
+        assert_eq!((failure.kind, failure.timed_out, failure.exposure.text_emitted), (ErrorKind::RateLimited, false, true));
+    }
 
     /// A body whose socket fails before its first chunk.
     struct Cut(Option<TransportFault>);

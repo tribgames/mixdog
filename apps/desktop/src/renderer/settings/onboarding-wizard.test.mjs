@@ -315,6 +315,23 @@ test('a star confirmed while earlier steps are open shows Starred at once on the
   assert.equal(probes, 1);
 });
 
+test('Escape closes the skip confirmation when its close label is translated', async (t) => {
+  const { default: i18next } = await import('../i18n.ts');
+  i18next.addResourceBundle('ko', 'translation', { 'Close skip confirmation': '건너뛰기 확인 닫기' });
+  await i18next.changeLanguage('ko');
+  t.after(() => i18next.changeLanguage('en'));
+  await mount(t);
+  await click(document.querySelector('.onboarding-top-actions button[aria-label="Skip setup"]'));
+  assert.ok(document.querySelector('[data-settings-nested-dialog]'), 'the skip confirmation is open');
+  await act(async () =>
+    document.activeElement.dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    )
+  );
+  assert.equal(document.querySelector('[data-settings-nested-dialog]'), null, 'Escape closed it');
+  assert.ok(document.querySelector('.onboarding-dialog'), 'the wizard stays open');
+});
+
 test('API provider detail from the backend is shown literally even when it matches a catalog key', async (t) => {
   const { default: i18next } = await import('../i18n.ts');
   i18next.addResourceBundle('ko', 'translation', { History: 'HISTORY-KO', 'API key required': 'KEY-KO' });

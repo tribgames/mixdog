@@ -17,7 +17,6 @@ use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_agent::todo::{TodoGuards, TodoView};
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{RunCarry, RunConfig};
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::FileService;
@@ -35,6 +34,7 @@ use serde_json::{Value, json};
 use super::factory::{AssembleInput, Assembled, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
+use super::turn_settings::TurnSettings;
 use mixdog_core_ports::ports::gate::GateEnv;
 use mixdog_core_ports::ports::gate::SessionGate;
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
@@ -847,8 +847,8 @@ impl HostRunParts {
         )
     }
 
-    /// The route's provider, readied; `Ok(None)` when it is not available. `Err` is a readiness failure, which says
-    /// nothing about the provider's availability.
+    /// The route's provider, readied; `Ok(None)` when it is not available, as for a route an agent serves. `Err` is a
+    /// readiness failure, which says nothing about the provider's availability.
     #[allow(
         clippy::result_large_err,
         reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
@@ -865,8 +865,8 @@ impl HostRunParts {
         if host.as_ref().is_some_and(|host| mixdog_ai::service::admin_route::provider_switched_off(&host.config(), provider_id)) {
             return Ok(None);
         }
-        Ok(match s.registry.get(provider_id).await {
-            Some(provider) => Some(provider),
+        Ok(match s.facts.sender(None, provider_id).await.ok().flatten() {
+            Some(sender) => sender.adapter(),
             None => match host {
                 Some(host) => host.provider(provider_id).await.or_else(|message| unserved_provider(provider_id, message))?,
                 None => None,
@@ -1133,7 +1133,8 @@ fn live_cwd(directory: &SessionDirectory, thread: &ThreadId) -> mixdog_agent::to
 pub struct HostServices {
     /// The agents that run turns outside the loop; `None` runs every turn in it.
     pub outside: Option<Arc<dyn super::factory::OutsideAgents>>,
-    pub registry: Arc<ProviderRegistry>,
+    /// What a route's provider is, an agent's route included.
+    pub facts: Arc<dyn mixdog_core_ports::ports::route_facts::RouteFacts>,
     pub clock: Arc<dyn Clock>,
     pub files: Arc<dyn FileService>,
     pub processes: Arc<dyn ProcessManager>,
@@ -1268,28 +1269,23 @@ async fn pin_wire_route(
 #[async_trait]
 impl RunParts for HostRunParts {
     async fn reconcile_turn(&self, thread: &ThreadId, admitted: Header, conversation: bool) -> Result<Header, TurnError> {
-        use super::turn_settings::TurnSettings;
         self.services.turn_settings.reconcile_admitted(thread, conversation, admitted.get("pendingRoute")).await.map_err(refuse)
     }
 
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), TurnError> {
-        use super::turn_settings::TurnSettings;
         self.services.turn_settings.refresh_mcp(thread).await.map_err(refuse)
     }
 
     async fn fold_compacted(&self, thread: &ThreadId) -> Result<Option<Vec<mixdog_agent::message::AgentMessage>>, TurnError> {
-        use super::turn_settings::TurnSettings;
         let folded = self.services.turn_settings.fold_compacted(thread).await.map_err(refuse)?;
         Ok(folded.map(|header| super::factory::system_messages(&header)))
     }
 
     async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, TurnError> {
-        use super::turn_settings::TurnSettings;
         self.services.turn_settings.current_agents(thread, header).await.map_err(refuse)
     }
 
     async fn orchestration_instructions(&self, mode: &str) -> Result<String, TurnError> {
-        use super::turn_settings::TurnSettings;
         self.services.turn_settings.orchestration_instructions(mode).await.map_err(refuse)
     }
 
@@ -1302,7 +1298,6 @@ impl RunParts for HostRunParts {
     }
 
     async fn migrate_exposure(&self, thread: &ThreadId, rows: Vec<Value>) -> Result<Option<Vec<mixdog_agent::message::AgentMessage>>, TurnError> {
-        use super::turn_settings::TurnSettings;
         let migrated = self.services.turn_settings.migrate_exposure(thread, &rows).await.map_err(refuse)?;
         Ok(migrated.map(|header| super::factory::system_messages(&header)))
     }
@@ -1350,7 +1345,6 @@ impl RunParts for HostRunParts {
     async fn assemble_outside(&self, input: AssembleInput<'_>) -> Result<super::factory::OutsideAssembled, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
-        use super::turn_settings::TurnSettings;
         let thread = input.thread;
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         // `migrateToolExposureAtBoundary`, which the loop runs at its first request boundary: a session that came from a
@@ -1410,13 +1404,14 @@ impl RunParts for HostRunParts {
             Some(_) => None,
             None => self.ready_provider(thread, header).await?,
         };
-        let (header, provider) = match ready {
-            Some(provider) => (header, provider),
+        let (header, provider, landed) = match ready {
+            Some(provider) => (header, provider, false),
             None => {
                 let provider_id = text(header, "provider");
                 let switched_off =
                     seams.hop_host(thread, header).is_some_and(|host| mixdog_ai::service::admin_route::provider_switched_off(&host.config(), provider_id));
-                let mut refusal = not_available(provider_id, input.agent_refusal, s.registry.init_errors().get(provider_id).map(String::as_str), switched_off);
+                let cause = s.facts.init_error(provider_id);
+                let mut refusal = not_available(provider_id, input.agent_refusal, cause.as_deref(), switched_off);
                 // An agent that is signed out fails as a provider whose sign-in does not hold.
                 if input.agent_refusal.is_some() && s.outside.as_ref().is_some_and(|agents| agents.signed_out(header)) {
                     refusal = mixdog_core_session::session::failure_record::auth_turn_error(refusal.message, provider_id, refusal.data);
@@ -1425,7 +1420,7 @@ impl RunParts for HostRunParts {
                 let Some(provider) = route.unavailable(&refusal.message).await.map_err(refuse)? else { return Err(refusal) };
                 let landed = directory.live_header(thread).header();
                 live = ensure_codex_wire_id(&directory, thread, &landed).await?.unwrap_or(landed);
-                (&*live, provider)
+                (&*live, provider, true)
             }
         };
         let provider_id = text(header, "provider");
@@ -1516,7 +1511,19 @@ impl RunParts for HostRunParts {
             provider: provider.clone(),
             agent_owner: super::compaction_world::is_agent_owner(header),
         });
+        if let Some(route) = route.as_ref().filter(|_| landed) {
+            let request = mixdog_agent::env::RouteSwitchRequest {
+                options: config.options.clone(),
+                compact: config.compact.clone(),
+                header: header.clone(),
+                escalated_max_output_tokens: config.escalated_max_output_tokens,
+                tail_gate: None,
+                system: None,
+            };
+            route.assembled(request, config.effort.clone(), config.text_only.clone());
+        }
         Ok(Assembled {
+            header: header.clone(),
             rows: rows.clone(),
             provider,
             tools: tool_set,

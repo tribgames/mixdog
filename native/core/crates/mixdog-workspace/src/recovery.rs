@@ -258,7 +258,13 @@ fn sync_directory(path: &Path) -> io::Result<()> {
 fn require_directory(path: &Path) -> WsResult<()> {
     let meta = fs::symlink_metadata(path)?;
     let regular = meta.is_dir() && !meta.file_type().is_symlink();
-    if !regular || comparable(&canonical(path)?) != comparable(&lexical(path)) {
+    // The folder itself must be its parent's real child (no link or junction planted in its place); a link above the
+    // data folder (a redirected home, another volume) is the user's own layout.
+    let real_child = match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => canonical(parent)?.join(name),
+        _ => lexical(path),
+    };
+    if !regular || comparable(&canonical(path)?) != comparable(&real_child) {
         return Err(recovery_err("RECOVERY_STORAGE", "Recovery storage is not a regular private directory."));
     }
     Ok(())
@@ -1160,6 +1166,34 @@ mod tests {
     /// A temporary folder at its real path: the store refuses a folder it reaches through a link or a short name.
     fn tempdir() -> tempfile::TempDir {
         tempfile::Builder::new().tempdir_in(canonical(&std::env::temp_dir()).unwrap()).unwrap()
+    }
+
+    /// A data folder reached through a linked ancestor works; a link planted as the recovery folder itself is refused.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_ancestor_of_the_data_folder_is_allowed_but_a_linked_store_is_not() {
+        let real = tempdir();
+        let project = tempdir();
+        let root = canonical(project.path()).unwrap();
+        let file = || PreparedFile {
+            rel_path: "a.txt".to_owned(),
+            destination: root.join("a.txt"),
+            parent: identity_of(&root).unwrap(),
+            mode: 0o644,
+            before: b"before".to_vec(),
+            after: b"after".to_vec(),
+        };
+        let through = real.path().join("through");
+        std::os::unix::fs::symlink(real.path(), &through).unwrap();
+        let store = RecoveryStore::new(through.join("data").join(JOURNALS_DIR));
+        fs::create_dir_all(through.join("data")).unwrap();
+        store.begin(&root, vec![file()]).unwrap();
+
+        let planted = tempdir();
+        let elsewhere = tempdir();
+        std::os::unix::fs::symlink(elsewhere.path(), planted.path().join(JOURNALS_DIR)).unwrap();
+        let refused = RecoveryStore::new(planted.path().join(JOURNALS_DIR)).begin(&root, vec![file()]);
+        assert!(refused.is_err());
     }
 
     /// A journal of the old app's interrupted save, left by an earlier migration under `desktop/editor-recovery`, is found by the

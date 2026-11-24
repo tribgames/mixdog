@@ -4,4 +4,4 @@
 pub mod listener;
 pub mod tls;
 
-pub use listener::{Server, bind_error_message};
+pub use listener::{MAX_CONNECTIONS, Server, bind_error_message};

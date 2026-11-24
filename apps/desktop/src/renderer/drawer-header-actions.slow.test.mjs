@@ -163,6 +163,9 @@ test("on a 412px phone, the Bots page's header buttons take the Sessions header'
   // Search, ⋯ and + in the Sessions header's order, each on its box and glyph.
   assert.deepEqual(bots.map(place), sessions.map(place), report);
   assert.deepEqual(place(bots.at(-1)), place(projects[0]), report);
-  assert.ok(bots.every(({ box }) => box[2] === 44 && box[3] === 44), report);
+  assert.ok(
+    bots.every(({ box }) => box[2] === 44 && box[3] === 44),
+    report
+  );
   assert.deepEqual(errors, []);
 });

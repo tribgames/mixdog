@@ -1,6 +1,8 @@
 //! What a turn's input carries to whoever answers it, the loop's model or an agent outside the loop: the session's
 //! fallback title and its scheduled generated one, the turn's context ahead of the prompt and its reminders behind it.
 
+use super::super::lifecycle_hooks;
+use super::super::turn_reminders;
 use super::*;
 
 /// What [`carry_turn`] reads of the turn.
@@ -92,25 +94,25 @@ pub(super) async fn carry_turn(carry: Carry<'_>) -> Result<(Value, bool), RunOut
     let current_agents = parts.current_agents(thread, header).await.map_err(RunOutcome::Failed)?;
     // A retried failed turn resends its own message as it is (`retainedUserTurn`, `ask-turn-execute.mjs:38-69`): it
     // keeps the reminders it was built with, learns the agents changed since, and acknowledges its settings notice only.
-    let retried = super::super::turn_reminders::is_retained(&input_body);
+    let retried = turn_reminders::is_retained(&input_body);
     let (mut carried, revisions) = if retried {
-        match super::super::turn_reminders::resubmit(&input_body, header, prior, current_agents.as_deref()) {
+        match turn_reminders::resubmit(&input_body, header, prior, current_agents.as_deref()) {
             Ok(resent) => resent,
             Err(text) => return Err(failed(text, input_body)),
         }
     } else {
-        let mode_instructions = match super::super::turn_reminders::carried_mode(header) {
+        let mode_instructions = match turn_reminders::carried_mode(header) {
             Some(mode) => Some(parts.orchestration_instructions(&mode).await.map_err(RunOutcome::Failed)?),
             None => None,
         };
         // `promptContentText(prompt)`: a stored text attachment is read from the store; one that cannot be read fails the turn.
         let prompt_content = input_body.get("content").cloned().unwrap_or(Value::Null);
-        let prompt_text = match with_blobs_if_read(&**blobs, move |store| super::super::turn_reminders::prompt_content_text(&prompt_content, store)).await {
+        let prompt_text = match with_blobs_if_read(&**blobs, move |store| turn_reminders::prompt_content_text(&prompt_content, store)).await {
             Ok(Ok(text)) => text,
             Ok(Err(text)) => return Err(failed(text, input_body)),
             Err(error) => return Err(failed(error.to_string(), input_body)),
         };
-        let facts = super::super::turn_reminders::Facts {
+        let facts = turn_reminders::Facts {
             header,
             prior,
             prompt_text: &prompt_text,
@@ -121,13 +123,13 @@ pub(super) async fn carry_turn(carry: Carry<'_>) -> Result<(Value, bool), RunOut
             hidden_agent,
             now_ms: clock.now_ms() as f64,
         };
-        let reminders = match super::super::turn_reminders::build(&facts) {
+        let reminders = match turn_reminders::build(&facts) {
             Ok(reminders) => reminders,
             Err(text) => return Err(failed(text, input_body)),
         };
         // `prefixUserTurnContent(prompt, contextBlock)` (`buildUserTurn`): the turn's context leads the prompt, the reminders
         // trail it. A retried turn resends its message as it was built (`retainedUserTurn` reads no context).
-        let Some(carried) = super::super::lifecycle_hooks::with_turn_context(&input_body, turn_context).and_then(|message| reminders.carry(&message)) else {
+        let Some(carried) = lifecycle_hooks::with_turn_context(&input_body, turn_context).and_then(|message| reminders.carry(&message)) else {
             return Err(failed("the turn's input row cannot carry the turn's reminders".to_owned(), input_body));
         };
         (carried, reminders.revisions)

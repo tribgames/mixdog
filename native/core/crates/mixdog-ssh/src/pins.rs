@@ -390,12 +390,21 @@ pub(crate) fn can_rotate(bytes: &[u8], spec: &str, key_type: &str) -> bool {
 pub(crate) fn rotate(bytes: &[u8], claim: &Claim, old_key: &str) -> Result<Vec<u8>, StateError> {
     let mut lines = parse(bytes)?;
     let manual = || StateError::Manual(String::new());
-    let index = rotation_target(&lines, &claim.spec, &claim.key_type).ok_or_else(manual)?;
+    // The pin being replaced is found by its key (which names its type): the new key may be of another type.
+    let old_type = lines
+        .iter()
+        .find_map(|line| match &line.kind {
+            Kind::Managed(m) if m.spec == claim.spec && m.key == old_key => Some(m.key_type.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| claim.key_type.clone());
+    let index = rotation_target(&lines, &claim.spec, &old_type).ok_or_else(manual)?;
     let line = &mut lines[index];
     if let Kind::Managed(managed) = &mut line.kind {
         if managed.key != old_key {
             return Err(StateError::Conflict);
         }
+        managed.key_type = claim.key_type.clone();
         managed.key = claim.key.clone();
         line.content = managed.text().into_bytes();
     }

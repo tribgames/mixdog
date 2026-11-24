@@ -7,10 +7,13 @@ use mixdog_ai::service::admin_route::{Obj, clean, normalize_workflow_route, trut
 use mixdog_ai::service::routes::{route_chain, route_identity, validate_route_chain_providers};
 use serde_json::Value;
 
-use super::chain::RouteContext;
+use super::chain::{RouteContext, RouteSender};
 use mixdog_core_config::config::AgentRoutes;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::RouteHome;
+
+/// The settings agent the `explore` tool runs on.
+const EXPLORE: &str = "explore";
 
 pub struct AgentRouteSetter {
     pub routes: AgentRoutes,
@@ -59,6 +62,21 @@ fn fill_from_current(requested: &mut Obj, current: &Obj) {
 }
 
 impl AgentRouteSetter {
+    /// Explore runs its read-only tools in Mixdog's own loop; an agent's route runs the agent's loop and sends no request
+    /// of Mixdog's, so no route of Explore's may be one.
+    async fn refuse_agent_routes(&self, chain: &[Value]) -> Result<(), String> {
+        for entry in chain {
+            let provider = clean(entry.get("provider"));
+            if let Some(RouteSender::Agent(_)) = self.context.sender(&provider).await? {
+                return Err(format!(
+                    "Explore cannot run on {provider}/{}: an agent's route runs the agent's own loop, not Explore's tools. Pick a provider's model.",
+                    clean(entry.get("model"))
+                ));
+            }
+        }
+        Ok(())
+    }
+
     async fn own_route(&self, id: &str) -> Result<Obj, String> {
         Ok(object(self.routes.own_route(id).await.map_err(text)?))
     }
@@ -180,6 +198,9 @@ impl AgentRouteSetter {
         }
         let chain = route_chain(&Value::Object(head))?;
         validate_route_chain_providers(&chain, !explicit_fallbacks)?;
+        if id == EXPLORE {
+            self.refuse_agent_routes(&chain).await?;
+        }
         let with_fallbacks = self.resolve_chain(&chain, &stored).await?;
         let route_to_save = normalized(&Value::Object(with_fallbacks))?.map(object).ok_or_else(|| "agent route requires provider and model".to_owned())?;
         if only_if_empty && self.routes.home(&id).await.map_err(text)? == RouteHome::Config {

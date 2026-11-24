@@ -74,7 +74,7 @@ use crate::flow_scenarios::settle;
 /// 2026-03-01T10:00:00.000Z
 const START: i64 = 1_772_359_200_000;
 
-struct TestClock(AtomicI64);
+pub(crate) struct TestClock(pub(crate) AtomicI64);
 impl Clock for TestClock {
     fn now_ms(&self) -> i64 {
         self.0.load(Ordering::SeqCst)

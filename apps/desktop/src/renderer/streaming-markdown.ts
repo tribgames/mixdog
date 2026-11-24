@@ -9,7 +9,7 @@ export function healStreamingMarkdownTail(text: string): string {
 
 interface StreamingMarkdownCache {
   stableText: string;
-  /** Counts resets (frozenGeneration). */
+  /** Counts resets. */
   generation: number;
   sourceText: string;
   scanOffset: number;
@@ -40,6 +40,7 @@ interface StreamingMarkdownParts {
 
 export const MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS = 64 * 1024;
 const STREAM_APPEND_PROBE_CHARS = 128;
+
 export function createStreamingMarkdownCache(): StreamingMarkdownCache {
   return {
     stableText: '',
@@ -649,12 +650,9 @@ class MarkdownBlockScanner {
         this.offset = line.length;
         return 2;
       }
-      const fence =
-        c === '`' || c === '~'
-          ? matchAt(reCodeFence, line, start)
-          : c === '$'
-            ? matchAt(reMathFence, line, start)
-            : null;
+      let fence: RegExpExecArray | null = null;
+      if (c === '`' || c === '~') fence = matchAt(reCodeFence, line, start);
+      else if (c === '$') fence = matchAt(reMathFence, line, start);
       if (fence) {
         this.closeUnmatchedBlocks();
         const code = this.addChild('code', start);

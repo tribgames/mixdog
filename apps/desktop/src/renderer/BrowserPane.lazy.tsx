@@ -397,7 +397,6 @@ function DesktopBrowserPane({
       mainTab || isRemoteHostRenderer()
         ? undefined
         : () => requestBrowserInMain({ sessionId, url: currentUrl, title: activeTabTitle }),
-    // Opens Settings › 인증 관리.
     onSignedInSites: desktopApi?.browserSignedInSites ? () => openAuthSettings() : undefined,
   });
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;

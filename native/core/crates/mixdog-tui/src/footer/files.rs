@@ -1,5 +1,5 @@
 //! The files the footer is built from, read and handed to the rules of `mixdog-core-session` (`statusline_status`,
-//! `statusline_claude`, `statusline_limits`): the data directory's config, gateway session routes, quota cache and usage log,
+//! `statusline_claude`, `statusline_limits`): the data directory's config, gateway session routes, quota cache, account credentials and usage log,
 //! the config directory's `settings.json` and the two status files of the Claude-current route, and the shell-job and memory-cycle state the second row counts.
 //! The rules are not repeated here; this reads what they decide on.
 
@@ -84,7 +84,7 @@ impl StatusFiles {
         fn borrowed(file: &Option<(Value, f64)>) -> Option<AgedFile<'_>> {
             file.as_ref().map(|(value, mtime_ms)| AgedFile { value, mtime_ms: *mtime_ms })
         }
-        let world = World { host, settings: settings.as_ref(), own: borrowed(&own), last: borrowed(&last), now };
+        let world = World { host, io: &*self.io, settings: settings.as_ref(), own: borrowed(&own), last: borrowed(&last), now };
         let host_pid = Value::from(request.client_host_pid);
         let input = StatusInput {
             config: config.as_ref(),
@@ -96,6 +96,8 @@ impl StatusFiles {
             current_route: Some(&request.current_route),
             active_context_tokens: request.active_context_tokens,
             process_started_at_ms,
+            data_dir: &self.paths.data_dir,
+            now,
         };
         load_gateway_status(&world, &input)
     }
@@ -115,9 +117,11 @@ impl StatusFiles {
     }
 }
 
-/// The catalog, the environment and Claude Code's files, as the status and the Claude route resolution read them.
+/// The catalog, the environment, Claude Code's files and the account credentials, as the status and the Claude route
+/// resolution read them.
 struct World<'a> {
     host: &'a dyn StatusHost,
+    io: &'a dyn StatusIo,
     settings: Option<&'a Value>,
     own: Option<AgedFile<'a>>,
     last: Option<AgedFile<'a>>,
@@ -160,6 +164,14 @@ impl StatusWorld for World<'_> {
         };
         read_claude_code_current_route(self, &sources)
     }
+
+    fn credential_text(&self, path: &Path) -> Option<String> {
+        self.io.read_text(path)
+    }
+
+    fn var(&self, name: &str) -> Option<String> {
+        self.host.env(name)
+    }
 }
 
 /// The shell-jobs directory and the memory-cycle state file of the data directory, for the second row's segments.
@@ -198,5 +210,92 @@ impl SegmentSource for DataDirSegments {
 
     fn pid_alive(&self, pid: u64) -> bool {
         self.io.pid_alive(pid)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use mixdog_core_session::session::statusline_agents::RuntimeEntry;
+
+    use super::super::io::FileStat;
+    use super::*;
+
+    /// The files in memory, by path.
+    #[derive(Default)]
+    struct Files(Mutex<HashMap<PathBuf, String>>);
+
+    impl StatusIo for Files {
+        fn read_text(&self, path: &Path) -> Option<String> {
+            self.0.lock().unwrap().get(path).cloned()
+        }
+        fn stat(&self, path: &Path) -> Option<FileStat> {
+            self.read_text(path).map(|text| FileStat { len: text.len() as u64, created_ms: 0, mtime_ms: 0.0 })
+        }
+        fn read_range(&self, _: &Path, _: u64, _: usize) -> Option<Vec<u8>> {
+            None
+        }
+        fn list_dir(&self, _: &Path) -> Option<Vec<String>> {
+            None
+        }
+        fn pid_alive(&self, _: u64) -> bool {
+            false
+        }
+    }
+
+    /// A process with no catalog, rosters or sessions, and no environment variables.
+    struct Bare;
+
+    impl StatusHost for Bare {
+        fn catalog_meta(&self, _: &str, _: &str) -> Option<Map<String, Value>> {
+            None
+        }
+        fn cached_models(&self, _: &str) -> Vec<Value> {
+            Vec::new()
+        }
+        fn cached_oauth_usage(&self, _: &Value, _: bool) -> Option<Value> {
+            None
+        }
+        fn agent_runtimes(&self) -> Vec<RuntimeEntry> {
+            Vec::new()
+        }
+        fn hidden_agent_names(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn env(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+
+    /// The footer shows the cached quota of the account signed in on the slot now: after another user signs in on it, or
+    /// its credential file is deleted, the previous account's figures are not shown.
+    #[test]
+    fn the_footer_does_not_show_a_previous_accounts_quota_after_a_new_sign_in_or_a_deleted_credential() {
+        let login = |user: &str| json!({ "claudeAiOauth": { "accessToken": format!("token-of-{user}"), "refreshToken": "r", "scopes": ["user:inference"], "identity": { "id": user } } });
+        let stamp = mixdog_ai::service::oauth_usage::credential_stamp("anthropic-oauth", login("user-1")["claudeAiOauth"].as_object().unwrap()).unwrap();
+        let data = PathBuf::from("data");
+        let credential = data.join("anthropic-oauth-credentials.json");
+        let files = Arc::new(Files::default());
+        let cache = json!({ "routes": { "anthropic-oauth": {
+            "provider": "anthropic-oauth", "accountId": "default", "cachedAt": 1500, "credentialStamp": stamp, "quotaWindows": [{ "label": "5h", "usedPct": 40 }]
+        } } });
+        files.0.lock().unwrap().insert(data.join(QUOTA_CACHE_FILE), cache.to_string());
+        let status = StatusFiles::new(files.clone(), StatusPaths { data_dir: data, config_dir: PathBuf::from("config") });
+        let request = StatusRequest {
+            session_id: String::new(),
+            client_host_pid: 0.0,
+            active_context_tokens: None,
+            current_route: json!({ "provider": "anthropic-oauth", "model": "claude-x" }),
+        };
+        let windows = || status.load_status(&Bare, &request, 1000.0, 2000.0).expect("the route")["quotaWindows"].clone();
+
+        files.0.lock().unwrap().insert(credential.clone(), login("user-1").to_string());
+        assert_eq!(windows(), json!([{ "label": "5h", "usedPct": 40 }]), "the account the reading was measured for");
+        files.0.lock().unwrap().insert(credential.clone(), login("user-2").to_string());
+        assert_eq!(windows(), json!([]), "another user signed in on the slot");
+        files.0.lock().unwrap().remove(&credential);
+        assert_eq!(windows(), json!([]), "a deleted credential file");
     }
 }

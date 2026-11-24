@@ -14,11 +14,13 @@ use mixdog_agent::agent_tool::host::*;
 use mixdog_agent::agent_tool::model_select::ListOptions as ModelListOptions;
 use mixdog_agent::agent_tool::model_select::ModelCatalog;
 use mixdog_agent::agent_tool::model_select::ModelRow;
+use mixdog_agent::agent_tool::resume::resolve_prompt;
 use mixdog_agent::agent_tool::scope::Caller;
 use mixdog_agent::agent_tool::scope::Owner;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::SessionFacts;
 use mixdog_agent::agent_tool::scope::TagRecord;
+use mixdog_agent::agent_tool::scope::resolve_path;
 use mixdog_tools::orch::agent::AgentReply;
 use mixdog_tools::orch::agent::JobRow;
 use mixdog_tools::orch::agent::TaskResult;
@@ -275,6 +277,12 @@ impl Sessions for Fakes {
         self.0.log(json!(["closeSession", session_id, reason, opts]));
         self.0.json.get("closeOk") == Some(&Value::Bool(true))
     }
+    async fn try_close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        if self.0.names("closeFails", session_id) {
+            return Err(format!("agent session {session_id} could not be durably closed"));
+        }
+        Ok(self.close_session(session_id, reason, options).await)
+    }
     // The recorder runs no turn: it has none to close.
     async fn close_turn(&self, session_id: &str, turn_id: &str, reason: &str) -> bool {
         self.0.log(json!(["closeTurn", session_id, turn_id, reason]));
@@ -426,7 +434,7 @@ impl Environment for Fakes {
         false
     }
     async fn read_text(&self, path: &str) -> Result<String, String> {
-        Err(format!("no file {path}"))
+        self.0.json.get("files").and_then(|files| files.get(path)).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| format!("no file {path}"))
     }
     fn current_dir(&self) -> String {
         "/work".into()
@@ -444,6 +452,11 @@ impl CallerScopes for Caller1 {
 }
 
 fn runtime(world: &Arc<World>) -> AgentRuntime {
+    runtime_with(world, Arc::new(Fakes(Arc::clone(world))))
+}
+
+/// The agent tool over `world`, its jobs on `tasks`.
+pub(crate) fn runtime_with(world: &Arc<World>, tasks: Arc<dyn Tasks>) -> AgentRuntime {
     let fakes = Arc::new(Fakes(Arc::clone(world)));
     AgentRuntime::new(AgentDeps {
         registry: fakes.clone(),
@@ -451,7 +464,7 @@ fn runtime(world: &Arc<World>) -> AgentRuntime {
         spawn_flow: fakes.clone(),
         terminal_trace: fakes.clone(),
         sessions: fakes.clone(),
-        tasks: fakes.clone(),
+        tasks,
         views: fakes.clone(),
         env: fakes.clone(),
         catalog: world.json.get("catalog").map(|_| fakes.clone() as Arc<dyn ModelCatalog>),
@@ -461,11 +474,11 @@ fn runtime(world: &Arc<World>) -> AgentRuntime {
     })
 }
 
-/// A spawn reuses an existing session only if the request fits it (same agent, same cwd where given): the live path
-/// and the resume path ask the same question (`TagResume::request_fits`). A decided departure from Node, whose live
-/// path never asked.
-fn world_with(json: Value, tags: &[(&str, &str)]) -> Arc<World> {
-    Arc::new(World { json, tags: Mutex::new(tags.iter().map(|(t, id)| ((*t).to_owned(), (*id).to_owned())).collect()), ..World::default() })
+/// A world over `json`, its `tags` bound in order; the tags of `json.tagAgents` name an agent.
+pub(crate) fn world_with(json: Value, tags: &[(&str, &str)]) -> Arc<World> {
+    let tag_agents = json.get("tagAgents").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+    let tags = tags.iter().map(|(t, id)| ((*t).to_owned(), (*id).to_owned())).collect();
+    Arc::new(World { json, tags: Mutex::new(tags), tag_agents: Mutex::new(tag_agents), ..World::default() })
 }
 
 async fn spawn_on(world: &Arc<World>, args: Value) -> (String, Vec<Value>) {
@@ -478,6 +491,9 @@ fn names(trace: &[Value], op: &str) -> bool {
     trace.iter().any(|entry| entry[0] == op)
 }
 
+/// A spawn reuses an existing session only if the request fits it (same agent, same cwd where given): the live path
+/// and the resume path ask the same question (`TagResume::request_fits`). A decided departure from Node, whose live
+/// path never asked.
 #[tokio::test]
 async fn a_spawn_on_a_live_tag_reuses_it_only_when_the_request_fits() {
     let live = json!({ "live": { "s1": { "id": "s1", "agent": "worker", "cwd": "/work", "parentSessionId": "lead1" } } });
@@ -524,4 +540,27 @@ async fn a_spawn_on_a_reaped_tag_whose_record_cannot_be_read_starts_nothing() {
     assert!(answer.contains("the header of session sx could not be read"), "{answer}");
     assert!(names(&trace, "resumableTagSession"), "the reaped session was asked for: {trace:?}");
     assert!(!names(&trace, "dispatch") && !names(&trace, "startSpawn"), "nothing is resumed or started: {trace:?}");
+}
+
+/// A send whose prompt is a file, to a tag whose session is gone, respawns the tag with the text it read: the spawn is
+/// handed that prompt alone, so reading its prompt does not also find the file.
+#[tokio::test]
+async fn a_send_from_a_file_to_a_dead_tag_respawns_with_the_text_it_read() {
+    let mut json = json!({
+        "lastSessions": { "w1": { "tag": "w1", "sessionId": "sx", "agent": "worker", "cwd": "/work", "parentSessionId": "lead1" } },
+    });
+    json["files"][resolve_path("/work", "brief.md").as_str()] = json!("the brief");
+    let dead = json!({ "err": "agent send: tag \"w1\" not found" });
+    let world = Arc::new(World { json, prepare: Mutex::new(VecDeque::from([dead.clone(), dead])), ..World::default() });
+    let (answer, trace) = spawn_on(&world, json!({ "type": "send", "tag": "w1", "file": "brief.md" })).await;
+    let spawned = trace.iter().find(|entry| entry[0] == "startSpawn").unwrap_or_else(|| panic!("the tag is respawned: {answer} {trace:?}"));
+    assert_eq!(resolve_prompt(&spawned[1], "/work", &Fakes(Arc::clone(&world))).await, Ok("the brief".to_owned()), "{spawned}");
+}
+
+/// Closing an agent whose session was deleted cancels the jobs bound to it, as closing a live one does.
+#[tokio::test]
+async fn closing_an_agent_whose_session_is_gone_cancels_its_jobs() {
+    let world = world_with(json!({ "gone": ["s1"], "tasks": [{ "task_id": "t1", "sessionId": "s1", "tag": "w1" }] }), &[("w1", "s1")]);
+    let (answer, trace) = spawn_on(&world, json!({ "type": "close", "tag": "w1" })).await;
+    assert!(trace.contains(&json!(["cancelTask", "t1"])), "{answer} {trace:?}");
 }

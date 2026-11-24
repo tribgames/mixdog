@@ -170,6 +170,8 @@ mod project_move;
 mod prompt_start_tests;
 mod prompts;
 mod queue;
+#[cfg(test)]
+mod race_tests;
 mod recovery;
 mod run_end;
 #[cfg(test)]
@@ -934,7 +936,7 @@ pub(crate) fn stale_compacting_change(header: &mixdog_store::schema::record::Hea
     next.insert("lastCheckedAt".into(), json!(now));
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), Value::Object(next));
-    Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() })
+    Some(HeaderChange { set, ..Default::default() })
 }
 
 /// A request routed to the actor.
@@ -1038,6 +1040,10 @@ pub(crate) enum Inbox {
     /// The model rows of records not yet stored, in order (`session.messages` holds them in memory): a body by item id.
     UnsavedRows {
         tx: oneshot::Sender<Vec<(String, Value, bool)>>,
+    },
+    /// The count of user conversation rows the actor has taken ([`SessionActor::room_rows_commit`]).
+    ConversationRows {
+        tx: oneshot::Sender<u64>,
     },
     /// What `scheduleQuotaResume` reads of the session.
     QuotaFacts {
@@ -1167,6 +1173,13 @@ pub(crate) enum JobDone {
     SubmissionSettled {
         id: String,
         answer: Option<Value>,
+    },
+    /// The answer a retry `req` with an op of its own joined a pending send for (`None`: the send's waiter was dropped):
+    /// its op settles with it before the retry hears it.
+    SubmissionJoined {
+        req: CoreRequest,
+        tx: Waiter,
+        answer: Option<Result<Value, CoreError>>,
     },
     /// The store's receipt of submission `id`, read for the send `req` ([`SessionActor::look_up_submission`]).
     SubmissionLooked {
@@ -1328,15 +1341,18 @@ pub(crate) enum JobDone {
         tx: Waiter,
         result: Result<Value, CoreError>,
     },
-    /// A manual compaction ran and its PostCompact hook did: the actor re-marks the Goal reminder.
+    /// Manual compaction `id` ran and its PostCompact hook did: one that changed the history re-marks the Goal reminder.
+    /// `requested`: a user's own request (`is_user_compaction`), which is told when nothing changed.
     Compacted {
+        id: u64,
         op: Option<OpId>,
         tx: Waiter,
         result: Value,
         recover: bool,
+        requested: bool,
     },
-    /// A manual compaction ended (its answer follows).
-    CompactionEnded,
+    /// Manual compaction `id` ended (its answer follows).
+    CompactionEnded(u64),
     /// The compaction the session tool scheduled answered.
     ScheduledCompactionEnded,
     /// The idle auto-clear's check of the thread's context meter answered: whether the turn waiting to start is to be
@@ -1370,8 +1386,12 @@ pub(crate) enum JobDone {
     CompactionReminder(Box<compaction_reminder::ReminderRead>),
     /// A durable compaction's prune starts (`pruneCompactedOffloads`): told when done.
     PruneOffloads(oneshot::Sender<()>),
-    /// The prune's old tool-result sidecars, listed: the actor decides and deletes; told when done.
-    PruneListed(Vec<std::path::PathBuf>, oneshot::Sender<()>),
+    /// The old tool-result sidecars of the prune under way, listed: the actor decides, the scan and the deletes run off it.
+    PruneListed(Vec<std::path::PathBuf>),
+    /// The prune under way asks for its deletes: answered with what the session holds now, or none.
+    PruneGrant(oneshot::Sender<Option<offload_prune::Held>>),
+    /// The prune under way ended.
+    Pruned,
 }
 
 /// A manual compaction's result and the context read to reconcile it with.
@@ -1428,16 +1448,17 @@ impl Submissions {
 
     /// A retry of a send still waiting for its answer joins it, or hears the answer it got. Gives the waiter back when no
     /// send of `id` is pending or the pending one failed (the retry is a new attempt).
-    fn join(&mut self, id: &str, waiter: Waiter) -> Option<Waiter> {
+    /// `joined` makes the waiter that takes part.
+    fn join(&mut self, id: &str, waiter: Waiter, joined: impl FnOnce(Waiter) -> Waiter) -> Option<Waiter> {
         let Some(pending) = self.pending.get(id) else { return Some(waiter) };
         let mut pending = pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match &mut *pending {
-            PendingSubmission::Waiting(joined) => {
-                joined.push(waiter);
+            PendingSubmission::Waiting(waiters) => {
+                waiters.push(joined(waiter));
                 None
             }
             PendingSubmission::Settled(Some(answer)) => {
-                let _ = waiter.send(Ok(Reply::Value(answer.clone())));
+                let _ = joined(waiter).send(Ok(Reply::Value(answer.clone())));
                 None
             }
             PendingSubmission::Settled(None) => Some(waiter),
@@ -1803,8 +1824,9 @@ pub(crate) struct SessionActor {
     /// The draft write running is a run's own step (it has the producer's ack): no record is handed on until it lands.
     draft_busy_fenced: bool,
     producers: ProducerPlaces,
-    /// The run's end, taken while rows it sent before it were still being prepared: it is applied
-    /// ([`Self::run_ended`]) once they are accepted, as if it came after them.
+    /// The run's end, taken while rows it sent before it were still being prepared, or while the prompt row its Stop hands back
+    /// was still being saved: it is applied ([`Self::run_ended`]) once they are accepted, or that save landed or failed, as if
+    /// it came after them.
     ended_run: Option<(TurnId, RunOutcome)>,
     /// Runs whose draft could neither be redacted nor removed: nothing more of them is written (`failClosed`,
     /// `turn-checkpoint.mjs:310`).
@@ -1886,6 +1908,14 @@ pub(crate) struct SessionActor {
     quota_answered: Option<u64>,
     /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
     compactions: u32,
+    /// The number the last compaction started took ([`JobDone::CompactionEnded`]).
+    compaction_seq: u64,
+    /// The compaction the idle auto-clear waits on, until it ends or the wait gives up ([`Self::idle_clear_ended`]).
+    idle_clear_compaction: Option<u64>,
+    /// Compactions still running that no longer own the session: an idle clear's whose wait gave up at its bound
+    /// (`compactWithinTimeout` bounds the wait, not the compaction). They hold nothing back, and the next compaction to
+    /// start aborts them ([`Self::compacting`]).
+    given_up: Vec<u64>,
     /// `pendingCompactSessionIds` holds this session: the session tool scheduled a compaction for
     /// when the turn settles.
     compact_scheduled: bool,
@@ -1910,6 +1940,11 @@ pub(crate) struct SessionActor {
     prefix_guard: Arc<super::seams::PrefixGuardSlot>,
     /// A compaction's prune a running turn stopped: it runs once that turn has ended (`offload_prune`).
     prune_deferred: bool,
+    /// The prunes that run off the actor, one at a time, each ended before the actor ends (`offload_prune`).
+    prunes: offload_prune::Prunes,
+    /// The user conversation rows this actor has taken (a prompt, a carried or posted user row): an inheritance decided on
+    /// an empty heir writes only while the count still stands ([`Inbox::ConversationRows`]).
+    conversation_rows: u64,
     /// `None`: not read yet; `Some(None)`: the failed turn has none.
     retry_provenance: Option<Option<Value>>,
     /// The failed message a retained retry resends (`retainedUserTurn`): the retry row keeps its id and carries its
@@ -2268,6 +2303,9 @@ impl SessionActor {
             quota_pending: None,
             quota_answered: None,
             compactions: 0,
+            compaction_seq: 0,
+            idle_clear_compaction: None,
+            given_up: Vec::new(),
             compact_scheduled: false,
             manual_compact_due: false,
             drain_handbacks: None,
@@ -2277,6 +2315,8 @@ impl SessionActor {
             transcript_rewritten: false,
             prefix_guard: Arc::default(),
             prune_deferred: false,
+            prunes: Default::default(),
+            conversation_rows: 0,
             retry_provenance: None,
             retry_prior: None,
             runs_begun: 0,
@@ -2304,13 +2344,7 @@ impl SessionActor {
                 Some(ctl) = self.ch.ctl_rx.recv() => { self.stepping(); self.on_ctl(ctl) }
                 go = mark_go(&mut self.delete_mark), if marking => { self.stepping(); self.mark_deleted(go.ok()) }
                 Some(msg) = self.ch.dur_rx.recv() => { self.stepping(); self.on_durability(msg) }
-                Some(done) = self.jobs_rx.recv() => {
-                    self.stepping();
-                    match done {
-                        JobDone::PruneListed(candidates, told) => self.prune_listed(candidates, told).await,
-                        done => self.on_job(done),
-                    }
-                }
+                Some(done) = self.jobs_rx.recv() => { self.stepping(); self.on_job(done) }
                 // The core's hold moved while a queue drain waits on it: the pump below drains once it is open (a release, a
                 // cancelled drain).
                 Ok(()) = self.start_hold.changed(), if self.drain_held => self.stepping(),
@@ -2323,7 +2357,7 @@ impl SessionActor {
                     self.publish_frame(flushed);
                 }
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => { self.stepping(); self.on_producer(msg) }
-                Some(msg) = self.ch.inbox_rx.recv(), if !self.recovering && !self.submission_lookup => { self.stepping(); self.take_inbox(msg).await }
+                Some(msg) = self.ch.inbox_rx.recv(), if !self.recovering && !self.submission_lookup && !self.prune_holds() => { self.stepping(); self.take_inbox(msg).await }
                 else => break,
             }
             self.apply_ready_producers();
@@ -2332,15 +2366,22 @@ impl SessionActor {
             {
                 self.run_ended(turn, outcome);
             }
+            // Under the inbox's own hold: a lookup, the recovery or a prune's granted deletes hold every write behind them.
             while self.route_move.is_none()
+                && !self.recovering
+                && !self.submission_lookup
+                && !self.prune_holds()
                 && let Some(msg) = self.route_queue.pop_front()
             {
                 self.take_inbox(msg).await;
             }
             self.pump();
+            if self.take_landed_end() {
+                self.pump();
+            }
             let flushed = if self.outbox.is_empty() { self.frames.chain_end() } else { None };
             self.publish_frame(flushed);
-            if self.unload_due && self.outbox.is_empty() && self.save_risk.unknown.is_empty() {
+            if self.unload_due && self.outbox.is_empty() && self.save_risk.unknown.is_empty() && !self.pruning() {
                 self.unload_due = false;
                 if self.tombstoned {
                     self.try_unload();
@@ -2357,7 +2398,13 @@ impl SessionActor {
             self.hold_core_while_busy();
             self.publish_flags();
             self.stepped();
-            if self.cell.closed.load(SeqCst) && self.outbox.is_empty() && !self.unload_due && self.delete_closed.is_none() && self.delete_mark.is_none() {
+            if self.cell.closed.load(SeqCst)
+                && self.outbox.is_empty()
+                && !self.unload_due
+                && self.delete_closed.is_none()
+                && self.delete_mark.is_none()
+                && !self.end_prunes()
+            {
                 break;
             }
         }
@@ -2430,6 +2477,9 @@ impl SessionActor {
             self.cell
                 .drafts_settled
                 .store(self.draft_queue.is_empty() && !self.draft_busy && self.drafts_removing.is_empty() && self.sweep_due.is_none(), SeqCst);
+            // A job's sender is dropped only after its report is sent: read first, so an empty inbox is not one read before
+            // the report arrived.
+            self.cell.jobs_settled.store(self.jobs_tx.strong_count() == 1 && self.jobs_rx.is_empty(), SeqCst);
             self.cell.unacked.store(self.outbox.unacked(), SeqCst);
             self.cell.handed.store(self.outbox.handed().len(), SeqCst);
             self.cell.stepped.notify_waiters();
@@ -2475,6 +2525,17 @@ impl SessionActor {
         {
             self.calls_entered = true;
         }
+        if let Record::Item(item) = &*record
+            && item.model
+            && item.form == Form::Message
+            && item.role.as_ref().is_some_and(|role| role.as_str() == "user")
+            && match &item.body {
+                Slot::Inline(body) => super::route_session::has_user_conversation(std::slice::from_ref(body)),
+                Slot::Blob(_) => true,
+            }
+        {
+            self.conversation_rows += 1;
+        }
         let shown = !matches!(display, Display::Suppressed);
         let moves = HeaderMoves::of(&record, &self.projected.header);
         let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
@@ -2517,7 +2578,7 @@ impl SessionActor {
         }
         let mut set = serde_json::Map::new();
         set.insert(CALL_EPOCH_KEY.into(), json!(epoch));
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
         self.accept_record(meta, class, Display::None, Vec::new(), Vec::new());
     }
 
@@ -2631,7 +2692,7 @@ impl SessionActor {
         let Some(change) = change else { return };
         let meta = Arc::new(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change.clone()) }));
         self.projected.apply(&Change::Record { record: meta, display: Display::None }, None);
-        let unsaved = self.usage_unsaved.get_or_insert_with(|| HeaderChange { set: Default::default(), unset: Vec::new(), patch: Default::default() });
+        let unsaved = self.usage_unsaved.get_or_insert_with(HeaderChange::default);
         for key in change.unset {
             unsaved.set.shift_remove(&key);
             if !unsaved.unset.contains(&key) {
@@ -2803,6 +2864,7 @@ impl SessionActor {
         match done {
             JobDone::Recovered(ended) => self.recovered(ended),
             JobDone::SubmissionSettled { id, answer } => self.submissions.settled(&id, answer),
+            JobDone::SubmissionJoined { req, tx, answer } => self.submission_joined(req, tx, answer),
             JobDone::SubmissionLooked { id, req, tx, found } => self.lookup_answered(id, req, tx, found),
             JobDone::StoredLooked { req, tx, attempt, found } => self.stored_looked(req, tx, attempt, found),
             // An encode is pure and its entry's id is never reused: a result whose entry a failed barrier dropped finds
@@ -2925,10 +2987,14 @@ impl SessionActor {
             JobDone::StopDurable { sid, result } => self.stop_durable(&sid, result),
             JobDone::RetryProvenance(wait) => self.retry_provenance_read(wait),
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
-            JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
-            JobDone::CompactionEnded => {
+            JobDone::Compacted { id, op, tx, result, recover, requested } => self.compacted(id, op, tx, result, recover, requested),
+            JobDone::CompactionEnded(id) => {
                 self.compactions = self.compactions.saturating_sub(1);
-                if self.compactions == 0 {
+                self.given_up.retain(|given_up| *given_up != id);
+                if self.idle_clear_compaction == Some(id) {
+                    self.idle_clear_compaction = None;
+                }
+                if !self.compacting() {
                     self.end_command_status();
                     // What queued behind the command goes on (`drain.mjs`: the commandBusy release re-kicks the queue).
                     self.start_next_queued();
@@ -2953,7 +3019,9 @@ impl SessionActor {
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
             JobDone::CompactionReminder(read) => self.compaction_reminder_read(*read),
             JobDone::PruneOffloads(told) => self.prune_offloads(told),
-            JobDone::PruneListed(..) => unreachable!("the run loop awaits it"),
+            JobDone::PruneListed(candidates) => self.prune_listed(candidates),
+            JobDone::PruneGrant(grant) => self.prune_grant(grant),
+            JobDone::Pruned => self.pruned(),
             JobDone::QuotaUnresumable(turn) => {
                 self.notice(Some(&turn), super::quota_lane::UNRESUMABLE, "warn");
             }
@@ -2998,7 +3066,7 @@ impl SessionActor {
         match found {
             Ok(Some(answer)) => {
                 self.submissions.remember(&id, answer.clone());
-                let _ = tx.send(Ok(Reply::Value(answer)));
+                self.answer_op(&req, tx, answer);
             }
             Ok(None) => {
                 self.submission_looked = Some(id);
@@ -4256,13 +4324,13 @@ impl SessionActor {
     /// A Project move being carried out holds an admitted start; one only recorded does not: the move waits for the start
     /// ([`Self::begin_due_move`]), and a prompt sent while it is recorded queues ([`Self::drain_gated`]).
     fn starts_gated(&self) -> bool {
-        self.turn_unsettled() || self.compaction_held() || self.idle_clearing || self.clear_holds > 0 || self.carrying()
+        self.turn_unsettled() || self.compaction_held() || self.idle_clearing || self.clear_holds > 0 || self.carrying() || self.prune_holds()
     }
 
     fn drain_gated(&self) -> bool {
         // A manual compaction holds the queue too (`commandBusy`, `drain.mjs` `mayStartDrain`); a turn already admitted goes on.
         // So does a Project move, recorded or under way: what queued behind it runs where the session is wanted.
-        self.starts_gated() || self.move_held() || self.compactions > 0 || self.core_hold() != StartHold::Open
+        self.starts_gated() || self.move_held() || self.compacting() || self.core_hold() != StartHold::Open
     }
 
     /// The core's hold on new turn starts as it reads now.
@@ -4322,7 +4390,7 @@ impl SessionActor {
             set.insert("providerCacheOpts".into(), opts);
         }
         if !set.is_empty() {
-            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }));
+            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, ..Default::default() }));
         }
     }
 
@@ -4982,6 +5050,9 @@ impl SessionActor {
                     }
                 }
             }
+            Inbox::ConversationRows { tx } => {
+                let _ = tx.send(self.conversation_rows);
+            }
             Inbox::UnsavedRows { tx } => {
                 let rows = self
                     .outbox
@@ -5216,10 +5287,7 @@ impl SessionActor {
         // MarkAck fails rather than reporting an unsaved receipt as consumed.
         if mixdog_store::completion_receipts::contains(&self.projected.header, &qid) {
             if let Some(durable) = durable {
-                let marker = Record::Meta(MetaRecord {
-                    op: None,
-                    change: Slot::Inline(HeaderChange { set: Default::default(), unset: Vec::new(), patch: Default::default() }),
-                });
+                let marker = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange::default()) });
                 self.accept_record(marker, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(durable)]);
             }
             return;
@@ -5272,6 +5340,11 @@ impl SessionActor {
     /// The scheduled compaction runs (`afterCompaction`): what holds an ask back as a queued prompt.
     fn compaction_held(&self) -> bool {
         self.after_compaction.is_some()
+    }
+
+    /// A compaction owns the session (`commandBusy`): one runs that is not given up ([`Self::given_up`]).
+    fn compacting(&self) -> bool {
+        self.compactions as usize > self.given_up.len()
     }
 
     /// Whether a completion may wake this idle thread: the session did not turn
@@ -5485,7 +5558,7 @@ impl SessionActor {
             self.transcript_rewritten = false;
             let mut set = serde_json::Map::new();
             set.insert("transcriptEpoch".into(), json!(new_id()));
-            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
     }

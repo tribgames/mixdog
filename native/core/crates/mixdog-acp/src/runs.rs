@@ -30,6 +30,7 @@ use crate::agents::Agents;
 use crate::agents::DEFAULT_MODEL;
 use crate::agents::Readiness;
 use crate::agents::Refusal;
+use crate::agents::lock;
 use crate::preset::AgentPreset;
 use crate::surface::TurnSurface;
 use crate::turn::Ask;
@@ -597,7 +598,7 @@ impl TurnSurface for Unshown {
         Ok(())
     }
     async fn usage(&self, usage: crate::surface::TurnUsage) -> Result<(), mixdog_core_session::session::run::RunError> {
-        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(usage);
+        *lock(&self.0) = Some(usage);
         Ok(())
     }
     async fn draft(&self, _: Value) -> Result<(), mixdog_core_session::session::run::RunError> {
@@ -685,7 +686,7 @@ pub async fn ask_once(
         account_learned(agents, preset, &end).await;
         match end {
             TurnEnd::Completed { text, stop_reason, .. } => {
-                let usage = surface.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+                let usage = lock(&surface.0).take();
                 Ok(Answered { text, stop_reason, usage })
             }
             TurnEnd::Interrupted => Err(format!("{} stopped before it answered.", preset.label)),

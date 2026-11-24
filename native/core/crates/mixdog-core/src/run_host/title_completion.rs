@@ -15,6 +15,7 @@ use serde_json::{Map, Value, json};
 use crate::run_host::retry::{RandomJitter, TimerWait};
 use crate::run_host::session_cache_opts::call_cache_opts;
 use crate::run_host::summary_host::{NoApprovals, SummaryDeps};
+use mixdog_core_ports::ports::route_facts::RouteSender;
 
 const MAINTAINER_ROLE: &str = "maintainer";
 const TITLE_AGENT: &str = "title-agent";
@@ -132,7 +133,7 @@ fn title_options(provider_name: &str, model: &str, wire: Option<&str>, session_i
     }
 }
 
-/// The title model over the process's providers.
+/// The title model over the process's providers; a route on an agent is served by that agent, as a summary on it is.
 pub struct TitleCompletion {
     deps: Arc<SummaryDeps>,
 }
@@ -162,9 +163,13 @@ impl TitleModel for TitleCompletion {
             Route::Complete { provider, model, effort, fast } => (provider, model, effort, fast),
         };
         let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-        deps.registry.init_providers(&providers).await.map_err(|error| TitleError::Failed(error.message))?;
-        let Some(provider) = deps.registry.get(&provider_name).await else {
-            return Err(TitleError::Failed(format!("Error: Session title provider is unavailable: {provider_name}")));
+        let provider = match deps.facts.sender(Some(&providers), &provider_name).await.map_err(TitleError::Failed)? {
+            Some(RouteSender::Provider(provider)) => provider,
+            Some(RouteSender::Agent(agent)) => {
+                let answer = agent.ask(&model, &system_prompt(locale), text).await.map_err(|error| TitleError::Failed(format!("Error: {error}")))?;
+                return Ok(mixdog_js::js_trim(&answer.text).to_owned());
+            }
+            None => return Err(TitleError::Failed(format!("Error: Session title provider is unavailable: {provider_name}"))),
         };
         let tool_env = title_tool_env(deps, session_id);
         let wire = call_wire(&*provider, &model).await;

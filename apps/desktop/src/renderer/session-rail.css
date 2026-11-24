@@ -180,7 +180,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   margin-right: 2px;
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
@@ -368,8 +368,18 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: var(--mx-font-meta);
+}
+/* A button's mark, in a head or a foot: the left sidebar's row glyph, 14px and 8px from its label, resting in the
+   icon ink as the sidebar's action icons do and taking the label's ink pointed at. */
+:is(.session-rail-hd, .session-rail-ft) .composer-island-button > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--mx-icon-muted);
+}
+:is(.session-rail-hd, .session-rail-ft) .composer-island-button:hover:not(:disabled, [aria-disabled="true"]) > svg {
+  color: inherit;
 }
 .session-rail-ft .composer-island-button[aria-disabled="true"] {
   opacity: var(--mx-op-disabled);
@@ -384,19 +394,21 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-lg);
   background: none;
-  color: inherit;
+  /* A row's name in the left sidebar's row ink, pressable or not; a pressable one lifts below. */
+  color: var(--mx-row-title-ink);
   font: inherit;
   font-weight: var(--mx-weight-regular);
   text-align: left;
   list-style: none;
 }
-/* A row's mark: one 16px column, so every row's text starts on one line. */
+/* A row's mark: one 16px column and the left sidebar's 6px after it (a session row's slot), so every row's text
+   starts on one line, 22px in. */
 .session-rail-row > .session-rail-ic {
   width: 16px;
 }
@@ -414,7 +426,6 @@ button.session-rail-row[aria-disabled="true"] {
    and the active title ink, the open one the selected wash, keyboard focus
    the neutral inner line. */
 button.session-rail-row {
-  color: var(--mx-row-title-ink);
   transition: background-color var(--mx-motion-ink);
 }
 button.session-rail-row:not(:disabled):hover {
@@ -459,6 +470,7 @@ button.session-rail-row:focus-visible {
   flex: none;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -495,6 +507,7 @@ button.session-rail-row:focus-visible {
   flex: none;
   margin-left: auto;
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -550,6 +563,7 @@ button.session-rail-row:focus-visible {
   color: inherit;
   font: inherit;
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
   cursor: pointer;
 }
 .session-rail-text-button:not(:disabled):hover {
@@ -626,12 +640,12 @@ button.session-rail-row:focus-visible {
 }
 .session-rail .session-rail-select > .mx-select-trigger {
   height: var(--session-rail-row);
-  gap: 8px;
+  gap: 6px;
   padding: 0 8px;
   border-radius: var(--mx-radius-lg);
   background: none;
   box-shadow: none;
-  color: inherit;
+  color: var(--mx-row-title-ink);
   font: inherit;
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -640,6 +654,7 @@ button.session-rail-row:focus-visible {
   .session-rail-select
   > .mx-select-trigger:is(:hover:not(:disabled), :focus-visible, [aria-expanded="true"]) {
   background: var(--mx-hover);
+  color: var(--mx-row-title-ink-active);
 }
 .session-rail .session-rail-select > .mx-select-trigger:disabled {
   cursor: default;
@@ -781,8 +796,6 @@ button.session-rail-row:focus-visible {
 }
 .session-rail-part {
   height: 26px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
 }
 .session-rail-swatch {
   flex: none;
@@ -828,8 +841,9 @@ button.session-rail-row:focus-visible {
   align-items: center;
   gap: var(--readout-gap, 8px);
   overflow: hidden;
-  color: var(--mx-text);
+  color: inherit;
   font-size: var(--mx-font-supporting);
+  line-height: var(--mx-line-meta);
 }
 .session-rail-usage .composer-readout-sep {
   color: var(--mx-text-muted);
@@ -845,7 +859,6 @@ button.session-rail-row:focus-visible {
   background: none;
   font-family: inherit;
   font-weight: inherit;
-  line-height: inherit;
   text-align: start;
   cursor: pointer;
 }
@@ -854,6 +867,9 @@ button.session-rail-row:focus-visible {
 }
 .session-rail-usage:has(> button.composer-usage-readout:hover) {
   background: var(--mx-hover);
+}
+.session-rail-usage:has(> button.composer-usage-readout:is(:hover, :focus-visible)) {
+  color: var(--mx-row-title-ink-active);
 }
 .session-rail-usage:has(> button.composer-usage-readout:focus-visible) {
   box-shadow: var(--mx-list-focus-ring);
@@ -880,7 +896,7 @@ button.session-rail-row:focus-visible {
 .session-rail-goal-title > .session-rail-ic,
 .session-rail-goal-marked > .session-rail-ic {
   width: 16px;
-  margin-right: 4px;
+  margin-right: 2px;
 }
 .session-rail-goal-title[data-whole] > .session-rail-ic,
 .session-rail-goal-marked > .session-rail-ic {
@@ -898,7 +914,7 @@ button.session-rail-row:focus-visible {
     .session-rail-note,
     .session-rail-goal-confirm
   ) {
-  padding-left: 24px;
+  padding-left: 22px;
 }
 .session-rail-goal-text {
   margin: 0 0 4px;
@@ -910,6 +926,8 @@ button.session-rail-row:focus-visible {
   align-items: center;
   gap: 6px;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
 }
 .session-rail-goal-line .session-rail-icon {
@@ -937,12 +955,16 @@ button.session-rail-row:focus-visible {
    through. */
 .session-rail-group > .session-rail-row > svg {
   flex: none;
-  /* A 14px mark in the rows' 16px mark column. */
-  margin-inline: 1px;
-  color: var(--mx-text-faint);
+  /* A 12px mark in the rows' 16px mark column. */
+  margin-inline: 2px;
+  /* A waiting step's ring is quieter than any text beside it. */
+  color: color-mix(in srgb, var(--mx-text) 30%, transparent);
 }
 .session-rail-group > .session-rail-row[data-status="completed"] > svg {
   color: var(--mx-success);
+}
+.session-rail-group > .session-rail-row[data-status="abandoned"] > svg {
+  color: var(--mx-text-faint);
 }
 /* A step rests in the left sidebar's row title ink; the one in progress
    takes the active ink. */
@@ -1010,19 +1032,15 @@ button.session-rail-row:focus-visible {
   --island-row-bleed: 8px;
   --island-row-bleed-end: var(--session-rail-list-end, 8px);
 }
-/* The island's rows on the panel's type ramp: a shell's name at the item size
-   in the label weight, its state in the regular weight (the state's ink alone
-   says running, done or failed). */
-.session-rail ul.composer-island-jobs .agent-pool-name {
-  font-weight: var(--mx-weight-label);
-}
+/* The island's rows on the panel's type ramp: a state in the regular weight
+   (the state's ink alone says running, done or failed). */
 .session-rail .composer-island-jobs .agent-activity-elapsed {
   font-weight: var(--mx-weight-regular);
 }
-/* Their names start on the panel rows' text line (a 16px mark, 8px). */
+/* Their names start on the panel rows' text line (a 16px mark, 6px). */
 .session-rail .composer-island-jobs,
 .session-rail .composer-island-jobs :is(.agent-pool-row, .composer-island-row) {
-  column-gap: 8px;
+  column-gap: 6px;
 }
 
 /* A fold's name gives way before its chevron and count. */
@@ -1041,27 +1059,29 @@ button.session-rail-row:focus-visible {
 .session-rail ul.composer-island-jobs {
   grid-template-columns: 6px minmax(0, 1fr) auto auto;
 }
-/* Stop and Dismiss: the 16px mark in a 24px button, its ink ending on the
-   head's right line (the list's content edge). The ink stands inside the
-   button by the 4px beside the mark and the glyph's own margin in its
-   24-unit box: Stop's square ends at 22, the X at 19 (the stroke's half
-   included). The button reaches past the content edge only as far as the
-   list's end padding (past it the scrollbar's gutter clips the press area);
-   the mark covers what is left. */
+/* Stop and Dismiss: the mark (Stop's 12px square, Dismiss's 16px X) centred
+   in a 24px button, its ink ending on the head's right line (the list's
+   content edge). The ink stands inside the button by the room beside the
+   mark and the glyph's own margin in its 24-unit box: Stop's square ends at
+   22, the X at 19 (the stroke's half included). The button reaches past the
+   content edge only as far as the list's end padding (past it the
+   scrollbar's gutter clips the press area); the mark covers what is left. */
 .session-rail ul.composer-island-jobs .composer-island-row-dismiss[data-icon] {
   width: 24px;
 }
 .session-rail ul.composer-island-jobs .composer-island-row-dismiss[data-icon="stop"] {
+  --session-rail-mark-size: 12px;
   --session-rail-mark-margin: 2;
 }
 .session-rail ul.composer-island-jobs .composer-island-row-dismiss[data-icon="close-small"] {
+  --session-rail-mark-size: var(--mx-icon-md);
   --session-rail-mark-margin: 5;
 }
 .session-rail ul.composer-island-jobs .composer-island-row-actions > [data-icon]:last-child {
   --session-rail-mark-reach: calc(
-    (24px - var(--mx-icon-md)) /
+    (24px - var(--session-rail-mark-size)) /
     2 +
-    var(--mx-icon-md) *
+    var(--session-rail-mark-size) *
     var(--session-rail-mark-margin) /
     24
   );
@@ -1146,9 +1166,17 @@ button.session-rail-row:focus-visible {
   box-shadow: var(--mx-list-focus-ring);
 }
 .session-rail .composer-island-git-label {
-  gap: 8px;
   padding: 0;
-  color: var(--mx-row-title-ink);
+}
+/* The mark as every panel row's: the 14px glyph centred in the 16px mark column, its ink on the heads' left line.
+   Commit · push's arrow keeps more margin in its box, so it is drawn a pixel further left. */
+.session-rail .composer-island-git-label > svg {
+  width: 16px;
+  height: 14px;
+  margin-right: 0;
+}
+.session-rail .composer-island-git-row[data-action="commit-push"] > .composer-island-git-label > svg {
+  transform: translateX(-3px);
 }
 .session-rail .composer-island-git-row[aria-checked="true"] > .composer-island-git-label {
   color: var(--mx-row-title-ink-active);

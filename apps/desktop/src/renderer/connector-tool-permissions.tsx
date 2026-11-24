@@ -3,7 +3,7 @@ import { t } from './i18n';
 import { createKeyedReadCache } from './keyed-read-cache';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
-export type ConnectorToolsApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
+type ConnectorToolsApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
 export type ConnectorToolPermission = 'auto' | 'needs_approval' | 'disabled';
 export interface ConnectorToolRow {
   connector: string;

@@ -113,21 +113,28 @@ pub type CurrentPath = std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'st
 
 type Document = Map<String, Value>;
 
-fn read_document(path: &Path) -> Probe<Document> {
+/// The file's document, with what [`Probe::Unreadable`] holds told apart: `Ok(Probe::Unreadable)` is content that was
+/// read and is broken (not JSON, or not a JSON object), `Err` a file that could not be read at all now (a sharing
+/// violation, a permission error), which may pass.
+fn read_checked(path: &Path) -> io::Result<Probe<Document>> {
     #[cfg(feature = "count-work")]
     crate::work::credential_read();
     match fs::read(path) {
-        Ok(bytes) => match mixdog_statefile::parse_json_text(&bytes) {
+        Ok(bytes) => Ok(match mixdog_statefile::parse_json_text(&bytes) {
             Ok(Value::Object(map)) => Probe::Present(map),
             _ => Probe::Unreadable,
-        },
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Probe::Absent,
-        Err(error) => {
-            // Node's watched-file cache logs the re-read of a watched input that failed (`watched-file-cache.mjs`), and keeps going.
-            tracing::warn!("[watch] re-read of {} failed: {error}", path.display());
-            Probe::Unreadable
-        }
+        }),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Probe::Absent),
+        Err(error) => Err(error),
     }
+}
+
+fn read_document(path: &Path) -> Probe<Document> {
+    read_checked(path).unwrap_or_else(|error| {
+        // Node's watched-file cache logs the re-read of a watched input that failed (`watched-file-cache.mjs`), and keeps going.
+        tracing::warn!("[watch] re-read of {} failed: {error}", path.display());
+        Probe::Unreadable
+    })
 }
 
 /// Node's token files: `writeJsonAtomicAsync({ lock, fsyncDir, mode: 0o600, secret })`; the
@@ -197,6 +204,18 @@ impl CredentialFile {
         &self.path
     }
 
+    /// One daemon-log line for a refresh that marked this file's sign-in as needing a new login: the provider, the
+    /// account (its id under `provider-accounts/<provider>/`, else `default`) and the status of the answer; no token.
+    pub async fn note_marked_reauth(&self, provider: &str, status: u16) {
+        let path = self.path_now().await;
+        let in_pool = path.parent().and_then(Path::parent).and_then(Path::file_name).is_some_and(|name| name == "provider-accounts");
+        let account = match path.file_stem().and_then(|stem| stem.to_str()) {
+            Some(id) if in_pool => id,
+            _ => "default",
+        };
+        mixdog_rt::node_console_warn!("[providers] sign-in marked reauth_required: provider={provider} account={account} status={status}");
+    }
+
     /// The credentials this file's account holds now, as its provider read or wrote them: each is a credential the process
     /// redacts from then on (`carried::keep`, the file naming the account).
     pub fn keep(&self, values: &[&str]) {
@@ -214,6 +233,16 @@ impl CredentialFile {
 
     pub async fn load_document(&self) -> Probe<Document> {
         self.read_job().await
+    }
+
+    /// [`Self::load_document`] with what its `Unreadable` holds told apart: `Ok(Probe::Unreadable)` is content that was
+    /// read and is broken, `Err` a file that could not be read now (or a read its lane did not run), which may pass.
+    pub async fn load_document_checked(&self) -> io::Result<Probe<Document>> {
+        if self.remote_client {
+            return Ok(Probe::Absent);
+        }
+        let path = self.path_now().await;
+        self.io.read_job(move |_| read_checked(&path)).await
     }
 
     /// The typed view of the file; a document that does not fit `T` is
@@ -297,16 +326,21 @@ impl CredentialFile {
         .await
     }
 
-    /// Runs `refresh` of the credential `held` (the refresh token the caller read from this file), or joins the one
-    /// already running for that same credential (any handle on the same file) and returns its result. Re-read the
-    /// credential at the start of `refresh`: it may just have been renewed. A refresh that outlives its deadline ends
-    /// for every joiner as `Expired`.
-    pub async fn refresh_once<T, F>(&self, held: &str, refresh: F) -> Result<T, mixdog_rt::Expired>
+    /// Runs the refresh `refresh` makes of the credential `held` (the refresh token the caller read from this file), or
+    /// joins the one already running for that same credential in the file this handle reads now (one that follows the
+    /// selected account and one bound to that account's file alike) and returns its result. `refresh` is handed that
+    /// file pinned: the refresh reads and writes the account's file it started on whatever the selection does
+    /// meanwhile. Re-read the credential at the start of the refresh: it may just have been renewed. A refresh that
+    /// outlives its deadline ends for every joiner as `Expired`.
+    pub async fn refresh_once<T, R, F>(&self, held: &str, refresh: R) -> Result<T, mixdog_rt::Expired>
     where
         T: Clone + Send + Sync + 'static,
-        F: std::future::Future<Output = T> + Send + 'static,
+        R: FnOnce(CredentialFile) -> F,
+        F: Future<Output = T> + Send + 'static,
     {
-        super::single_flight::refresh_once(&self.path, held, refresh).await
+        let pinned = self.pinned().await;
+        let path = pinned.path.clone();
+        super::single_flight::refresh_once(&path, held, refresh(pinned)).await
     }
 
     /// Stores `document` as the whole file for a refresh of the stored login, only if `unchanged` accepts the stored
@@ -402,6 +436,60 @@ mod tests {
         assert!(futures::poll!(read.as_mut()).is_pending(), "the read waits for the lane");
         drop(full);
         assert_eq!(read.await.expect("answered once the lane has room"), 7);
+    }
+
+    /// A handle that follows the selected account and one bound to that account's file hold one credential: the bound
+    /// handle joins the refresh the following one started, so the single-use refresh token is spent once.
+    #[tokio::test]
+    async fn a_following_handle_and_one_bound_to_the_file_it_reads_share_one_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let account = dir.path().join("provider-accounts").join("x-oauth").join("selected.json");
+        let selected = account.clone();
+        let following = CredentialFile::new(dir.path().join("x-oauth.json"), io).following(std::sync::Arc::new(move || {
+            let selected = selected.clone();
+            Box::pin(async move { selected })
+        }));
+        let bound = CredentialFile::new(account, io);
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let mut first = std::pin::pin!(following.refresh_once("r", |_| async move {
+            released.await.ok();
+            1u32
+        }));
+        assert!(futures::poll!(first.as_mut()).is_pending(), "the following handle's refresh is under way");
+        let mut second = std::pin::pin!(bound.refresh_once("r", |_| async { 2u32 }));
+        assert!(futures::poll!(second.as_mut()).is_pending());
+        release.send(()).ok();
+        assert_eq!((first.await, second.await), (Ok(1), Ok(1)), "the bound handle got the running refresh's result, not one of its own");
+    }
+
+    /// The refresh is handed the account's file the handle read when it started: the selection moving to another
+    /// account meanwhile does not make it read that account's file.
+    #[tokio::test]
+    async fn a_refresh_reads_the_file_selected_when_it_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let (first, second) = (dir.path().join("first.json"), dir.path().join("second.json"));
+        fs::write(&first, r#"{"account":"first"}"#).unwrap();
+        fs::write(&second, r#"{"account":"second"}"#).unwrap();
+        let moved = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let selection = moved.clone();
+        let following = CredentialFile::new(dir.path().join("x-oauth.json"), io).following(std::sync::Arc::new(move || {
+            let path = if selection.load(std::sync::atomic::Ordering::SeqCst) { second.clone() } else { first.clone() };
+            Box::pin(async move { path })
+        }));
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let mut refresh = std::pin::pin!(following.refresh_once("r", |file| async move {
+            released.await.ok();
+            file.load_document().await
+        }));
+        assert!(futures::poll!(refresh.as_mut()).is_pending(), "the refresh is under way");
+        moved.store(true, std::sync::atomic::Ordering::SeqCst);
+        release.send(()).ok();
+        let Ok(Probe::Present(read)) = refresh.await else { panic!("the refresh read a document") };
+        assert_eq!(read["account"], "first");
     }
 
     /// A refresh writes one spelling of a field: the other, imported one does not stay beside it.

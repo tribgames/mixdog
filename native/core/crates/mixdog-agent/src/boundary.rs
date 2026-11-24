@@ -304,27 +304,26 @@ mod tests {
     /// and keeps what it had.
     #[test]
     fn the_runs_reading_of_a_turns_summed_usage_is_the_measured_occupancy() {
-        let raw = |raw: serde_json::Value| Some(raw);
-        let batch = Usage { output_tokens: 134, raw: raw(serde_json::json!({ "input_tokens_known": false, "context_tokens": 8_000 })), ..Usage::default() };
+        let batch = Usage { output_tokens: 134, raw: Some(serde_json::json!({ "input_tokens_known": false, "context_tokens": 8_000 })), ..Usage::default() };
         let ended = Usage {
             input_tokens: 37_108,
             cache_read_tokens: 19_933,
             output_tokens: 377,
-            raw: raw(serde_json::json!({ "input_tokens_known": true, "input_tokens_scope": "turn", "context_tokens": 9_000 })),
+            raw: Some(serde_json::json!({ "input_tokens_known": true, "input_tokens_scope": "turn", "context_tokens": 9_000 })),
             ..Usage::default()
         };
-        let unmeasured = Usage { raw: raw(serde_json::json!({ "input_tokens_scope": "turn", "context_tokens": null })), ..ended.clone() };
+        let unmeasured = Usage { raw: Some(serde_json::json!({ "input_tokens_scope": "turn", "context_tokens": null })), ..ended.clone() };
         let one_prompt = Usage { input_tokens: 700, output_tokens: 30, ..Usage::default() };
         // A call of several hops bills their sum; the context it was sent with is the first hop's prompt.
         let hops = Usage {
             input_tokens: 1_000,
             cache_read_tokens: 900,
             output_tokens: 50,
-            raw: raw(serde_json::json!({ "initialPromptTokenCount": 300, "initialCachedContentTokenCount": 400 })),
+            raw: Some(serde_json::json!({ "initialPromptTokenCount": 300, "initialCachedContentTokenCount": 400 })),
             ..Usage::default()
         };
         assert_eq!(Baseline::of(&hops, false, 0).map(|baseline| baseline.tokens), Some(350), "the first hop's prompt and the reply");
-        let one_hop = Usage { raw: raw(serde_json::json!({ "initialPromptTokenCount": 1_000 })), ..hops.clone() };
+        let one_hop = Usage { raw: Some(serde_json::json!({ "initialPromptTokenCount": 1_000 })), ..hops.clone() };
         assert_eq!(Baseline::of(&one_hop, false, 0).map(|baseline| baseline.tokens), Some(1_050), "a call of one hop is its own prompt");
         // `(the record, the in-run reading, the pressure the baseline gives a transcript nothing was appended to)`
         for (usage, reading, pressure) in [
@@ -448,7 +447,7 @@ impl Run {
             if repair_before_send(&mut self.messages) {
                 // Provider readings belong to the old transcript.
                 self.baseline = None;
-                self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
+                self.rewrote_transcript();
                 self.calls_leave();
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
@@ -461,6 +460,7 @@ impl Run {
                 // messages and leave the server holding the full attachment.
                 self.provider_state = None;
                 self.provider_state_changed = true;
+                self.rewrote_transcript();
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;
@@ -805,8 +805,17 @@ impl Run {
         if let Some(reuse) = &self.env.reuse {
             reuse.after_compaction();
         }
-        self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
+        self.rewrote_transcript();
         self.config.options.tail_generation = Some(generation);
+    }
+
+    /// The history the next request carries is one the run rewrote, or took from another writer that rewrote it: the send is
+    /// tagged so the prefix guard reads the changed history as that rewrite, never as a mutation. A rewrite the send is
+    /// already tagged with (a compaction) keeps its tag.
+    pub(crate) fn rewrote_transcript(&mut self) {
+        if !self.cache_break_intent.as_deref().is_some_and(crate::prefix_guard::is_rewrite_intent) {
+            self.cache_break_intent = Some(crate::prefix_guard::TRANSCRIPT_REBUILD.to_owned());
+        }
     }
 
     fn compact_error(&self, error: CompactError, policy: &CompactPolicy, budget: u64, pressure: u64) -> AgentError {

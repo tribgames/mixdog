@@ -29,7 +29,8 @@ pub fn session_id_key(id: &str) -> Vec<u8> {
         b'_' => 0x01,
         b'-' => 0x02,
         b'0'..=b'9' => 0x10 + (b - b'0'),
-        _ => 0x20 + (b.to_ascii_lowercase() - b'a'),
+        b'a'..=b'z' | b'A'..=b'Z' => 0x20 + (b.to_ascii_lowercase() - b'a'),
+        _ => 0xFF,
     });
     let tertiary = id.bytes().map(|b| if b.is_ascii_uppercase() { 0x02 } else { 0x01 });
     primary.chain([0x00]).chain(tertiary).collect()

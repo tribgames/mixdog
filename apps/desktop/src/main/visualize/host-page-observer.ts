@@ -29,12 +29,11 @@ function frameChain(start: WebFrameMain | null | undefined): RequesterFrame[] {
   return chain;
 }
 
-/** The session is shared by every webContents using it, so a request counts
- *  only when `contents` made it: the URLs of its requesting frame and that
- *  frame's ancestors (and the referrer). Another webContents' requests yield
- *  none and are never judged or reported. */
-function requesterOrigins(contentsId: number, details: RequestDetails): RequesterFrame[] {
-  if (details.webContentsId !== contentsId) return [];
+/** The session is shared by every webContents using it (and a window opened
+ *  later is a new one), so a request is judged by its requesting frame's URL
+ *  and that frame's ancestors (and the referrer); a frame that is no lease
+ *  page yields no blocking lease. */
+function requesterOrigins(details: RequestDetails): RequesterFrame[] {
   const chain = frameChain(details.frame);
   if (details.referrer) chain.push(details.referrer);
   return chain;
@@ -67,28 +66,25 @@ function guardNavigations(contents: WebContents, service: Pick<PageProblemSink, 
 
 /** Chromium logs a failed subresource load to the devtools console only, never
  *  to `console-message`, so failures are read from the network layer. */
-function watchRequests(
-  contents: WebContents,
+export function watchPageRequests(
+  requests: Pick<WebContents['session']['webRequest'], 'onBeforeRequest' | 'onCompleted' | 'onErrorOccurred'>,
   service: Pick<PageProblemSink, 'guardRequest' | 'reportAssetFailure'>
 ): void {
-  const requests = contents.session.webRequest;
   requests.onBeforeRequest({ urls: OUTSIDE_NETWORK_URL_PATTERNS }, (details, callback) => {
+    // A request naming no window or frame belongs to no Visualize page (workers cannot run there) and passes untouched.
     callback({
-      cancel: service.guardRequest(requesterOrigins(contents.id, details), {
-        url: details.url,
-        resourceType: details.resourceType,
-      }),
+      cancel: service.guardRequest(requesterOrigins(details), { url: details.url, resourceType: details.resourceType }),
     });
   });
   requests.onCompleted({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
     if (details.statusCode >= 400 && isAsset(details.resourceType)) {
-      service.reportAssetFailure(details.url, `${details.statusCode}`, requesterOrigins(contents.id, details));
+      service.reportAssetFailure(details.url, `${details.statusCode}`, requesterOrigins(details));
     }
   });
   requests.onErrorOccurred({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
     // An aborted request is a navigation or a removed element, not a missing file.
     if (isAsset(details.resourceType) && details.error !== 'net::ERR_ABORTED') {
-      service.reportAssetFailure(details.url, details.error, requesterOrigins(contents.id, details));
+      service.reportAssetFailure(details.url, details.error, requesterOrigins(details));
     }
   });
 }
@@ -103,10 +99,15 @@ function watchLoads(contents: WebContents, service: Pick<PageProblemSink, 'repor
   });
 }
 
-/** Wires `contents`' page problems into `service`. Call once per webContents. */
-export function watchPageProblems(contents: WebContents, service: PageProblemSink): void {
+/** Wires one webContents' console, frame navigations and loads into `service`. Call once per webContents. */
+export function watchPageContents(contents: WebContents, service: PageProblemSink): void {
   watchConsole(contents, service);
   guardNavigations(contents, service);
-  watchRequests(contents, service);
   watchLoads(contents, service);
+}
+
+/** Wires `contents`' page problems and its session's requests into `service`. */
+export function watchPageProblems(contents: WebContents, service: PageProblemSink): void {
+  watchPageContents(contents, service);
+  watchPageRequests(contents.session.webRequest, service);
 }

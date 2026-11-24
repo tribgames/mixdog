@@ -362,6 +362,7 @@ async fn a_lost_nested_body_marks_the_session_damaged_at_rebuild() {
     assert!(damage.contains(lost_entry.as_str()) && damage.contains(lost_detail.as_str()), "{damage}");
     drop(rebuilt);
 }
+
 /// A data dir holding three closed sessions' logs and blobs and no index.
 async fn three_sessions_without_an_index() -> tempfile::TempDir {
     let env = Env::new();

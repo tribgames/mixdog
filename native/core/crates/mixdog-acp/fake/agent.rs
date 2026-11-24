@@ -1,9 +1,10 @@
 //! A stdio ACP agent for the integration suite. `--version` prints `FAKE_AGENT_VERSION`; `acp`
 //! serves the protocol, and the first word of a prompt chooses what the turn does: `stream`
 //! (thought, text, two tool calls, a plan), `permission` (asks before a call), `hang` (works until
-//! cancelled), `background` (ends its turn with a call running, then replies on its own), `read
-//! <path>` (reads a file through the client), `whoami` (reports how it was started), and `servers`,
-//! `tools` and `tool <name> <json>` (what the session's MCP server hands it).
+//! cancelled), `mute` (answers nothing until cancelled), `background` (ends its turn with a call
+//! running, then replies on its own), `read <path>` (reads a file through the client), `whoami`
+//! (reports how it was started), and `servers`, `tools` and `tool <name> <json>` (what the session's
+//! MCP server hands it).
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -33,6 +34,8 @@ struct Agent {
     asked: Option<Value>,
     /// The prompt that works until it is cancelled.
     hanging: Option<Value>,
+    /// The prompt taken and answered nothing until it is cancelled.
+    muted: Option<Value>,
     /// A permission was asked for with no prompt open.
     unprompted: bool,
     /// The MCP servers the session was opened or reopened with.
@@ -262,6 +265,7 @@ impl Agent {
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Save notes", "kind": "edit", "status": "completed" }));
                 self.end(&id);
             }
+            "mute" => self.muted = Some(id),
             "hang" => {
                 self.say("working");
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "h1", "title": "Long build", "kind": "execute", "status": "in_progress" }));
@@ -301,6 +305,12 @@ impl Agent {
             // What the session was handed: its MCP servers, the tools the first one lists, and a call of one.
             "servers" => {
                 self.say(&format!("servers={}", self.servers));
+                self.end(&id);
+            }
+            // The agent definition the CLI finds in the folder it was started in.
+            "definition" => {
+                let text = std::fs::read_to_string(".agents/agents/mixdog/agent.md").unwrap_or_default();
+                self.say(&format!("definition={text}"));
                 self.end(&id);
             }
             "tools" => {
@@ -462,6 +472,9 @@ impl Agent {
             "session/cancel" => {
                 if let Some(prompt) = self.hanging.take() {
                     self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "h1", "status": "failed" }));
+                    answer(&prompt, json!({ "stopReason": "cancelled" }));
+                }
+                if let Some(prompt) = self.muted.take() {
                     answer(&prompt, json!({ "stopReason": "cancelled" }));
                 }
             }

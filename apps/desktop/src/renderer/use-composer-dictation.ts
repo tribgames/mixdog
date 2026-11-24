@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { stashComposerDraft, stashedComposerDraft } from './composer-draft';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { subscribeSetupChanges } from './setup-change-refresh';
@@ -121,6 +122,11 @@ function warmTranscription(): void {
     });
 }
 
+function withTranscript(draft: string, text: string): string {
+  if (!draft) return text;
+  return `${draft}${/\s$/.test(draft) ? '' : ' '}${text}`;
+}
+
 function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -214,6 +220,7 @@ function useRecordingElapsed(state: DictationState, since: number): number {
 }
 
 export function useComposerDictation({
+  identityScope,
   transitioningRef,
   textarea,
   setDraft,
@@ -227,6 +234,8 @@ export function useComposerDictation({
    *  its take (a window capture listener would otherwise take them from the
    *  pane the user is typing in). */
   keysActive?: boolean;
+  /** The conversation the composer shows when it mounts; `moveTo` follows it from then on. */
+  identityScope: string;
   transitioningRef: MutableRefObject<boolean>;
   textarea: MutableRefObject<HTMLTextAreaElement | null>;
   setDraft: Dispatch<SetStateAction<string>>;
@@ -254,6 +263,7 @@ export function useComposerDictation({
   const dictationAvailable = voiceStatus?.installed === true && voiceStatus.enabled === true;
   const voiceAvailableRef = useRef(false);
   const voiceGeneration = useRef(0);
+  const conversation = useRef(identityScope);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
@@ -264,7 +274,11 @@ export function useComposerDictation({
     meter: DictationMeter | null;
     /** Audio is actually being captured (state `recording`). */
     live: boolean;
+    /** The conversation the take was started in: its words land in that one's draft. */
+    home: string;
   } | null>(null);
+  // The latest take, kept until its words land (the recording session above ends when the recorder stops).
+  const latestTake = useRef<{ home: string } | null>(null);
 
   /** Discards a take whose microphone is still opening; true when one was. */
   const cancelPendingAttempt = useCallback((): boolean => {
@@ -298,6 +312,7 @@ export function useComposerDictation({
     if (dictationAttempt.current) return;
     const attempt = { cancelled: false };
     dictationAttempt.current = attempt;
+    let opened: MediaStream | null = null;
     try {
       // Installation status is already refreshed on mount and runtime changes.
       // Never put a server round trip ahead of microphone capture: on remote
@@ -325,6 +340,7 @@ export function useComposerDictation({
         for (const track of stream.getTracks()) track.stop();
         return;
       }
+      opened = stream;
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
@@ -338,8 +354,8 @@ export function useComposerDictation({
         stopTimer: 0,
         meter: null as DictationMeter | null,
         live: false,
+        home: conversation.current,
       };
-      dictationSession.current = session;
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) session.chunks.push(event.data);
       };
@@ -379,12 +395,14 @@ export function useComposerDictation({
             );
             if (generation !== voiceGeneration.current) return;
             const text = String(result?.value ?? '').trim();
+            // The composer shows another conversation now: the words wait in the parked draft of the one they were
+            // spoken in, and nothing is sent.
+            if (text && session.home !== conversation.current) {
+              stashComposerDraft(session.home, withTranscript(stashedComposerDraft(session.home), text));
+              return;
+            }
             if (text) {
-              setDraft((current) => {
-                if (!current) return text;
-                const separator = /\s$/.test(current) ? '' : ' ';
-                return `${current}${separator}${text}`;
-              });
+              setDraft((current) => withTranscript(current, text));
               // Editing a transcript needs the caret; sending it directly does
               // not (and must not reopen the mobile keyboard).
               if (!session.submitOnStop) {
@@ -403,9 +421,13 @@ export function useComposerDictation({
         })();
       };
       recorder.start();
+      dictationSession.current = session;
+      latestTake.current = session;
       session.meter = startLevelMeter(stream, dictationLevelRef);
       session.stopTimer = window.setTimeout(() => stopRecorder(recorder), 120_000);
     } catch (reason) {
+      // Recording never started: the mic it opened is released, so the next tap starts a new take.
+      for (const track of opened?.getTracks() ?? []) track.stop();
       // A cancelled attempt already went idle; a newer take may own the state.
       if (attempt.cancelled) return;
       showNotice(microphoneFailureText(reason), 'error');
@@ -441,6 +463,23 @@ export function useComposerDictation({
     active.cancelled = true;
     stopRecorder(active.recorder);
   }, [cancelPendingAttempt]);
+
+  /** The composer now shows `next`. A draft that became that session (`sameConversation`) keeps its take; any other
+   *  move ends the take in the conversation it was started in: the mic is released and its words wait there. */
+  const moveTo = useCallback(
+    (next: string, sameConversation: boolean) => {
+      const left = conversation.current;
+      conversation.current = next;
+      if (sameConversation) {
+        if (latestTake.current?.home === left) latestTake.current.home = next;
+        return;
+      }
+      cancelPendingAttempt();
+      const active = dictationSession.current;
+      if (active) stopRecorder(active.recorder);
+    },
+    [cancelPendingAttempt]
+  );
 
   useEffect(() => {
     if (!keysActive || !surfaceActive) return undefined;
@@ -491,6 +530,7 @@ export function useComposerDictation({
     toggleDictation,
     stopDictationAndSend,
     cancelDictation,
+    moveTo,
     recordingElapsedMs,
     dictationLevelRef,
   };

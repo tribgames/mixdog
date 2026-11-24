@@ -431,12 +431,10 @@ export function runQueued<T>(
     };
     const sideSessionId = (params[0] as { sessionId?: unknown } | null | undefined)?.sessionId;
     const latest = searchLatestKey(method, params);
-    const call =
-      typeof sideSessionId === 'string' && sideSessionId
-        ? { sessionId: sideSessionId, superseded: async () => reject(new Error(SIDE_QUESTION_CANCELED)) }
-        : latest === undefined
-          ? undefined
-          : { latest, superseded: async () => reject(new Error(SEARCH_SUPERSEDED)) };
+    let call: SideQuestionCall | LatestCall | undefined;
+    if (typeof sideSessionId === 'string' && sideSessionId)
+      call = { sessionId: sideSessionId, superseded: async () => reject(new Error(SIDE_QUESTION_CANCELED)) };
+    else if (latest !== undefined) call = { latest, superseded: async () => reject(new Error(SEARCH_SUPERSEDED)) };
     callQueueFor(connection)
       .run(remoteCallQueueKey(method, remoteCallStatName(method, params)), run, call)
       .catch(reject);

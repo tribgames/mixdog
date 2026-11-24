@@ -650,7 +650,11 @@ test('a core that exits at boot with the same recorded outcome again is a start 
   assert.equal(reports.current().failure.stderrPath, 'd');
   assert.match(reports.current().failure.message, /pid 4002/, "the launcher's sentence is the detail shown");
   const unrelated = new Error('EACCES: daemon.json');
-  assert.equal(outcome(unrelated), unrelated, "an error that is neither an exit nor the launcher's verdict is not confirmed");
+  assert.equal(
+    outcome(unrelated),
+    unrelated,
+    "an error that is neither an exit nor the launcher's verdict is not confirmed"
+  );
   reports.attempt().succeeded();
   assert.equal(reports.current().failure, null, 'a core observed serving supersedes it');
   reports.attempt().failed(exited('e0'));

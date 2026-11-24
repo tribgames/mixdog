@@ -17,6 +17,8 @@ use chrono::DateTime;
 use mixdog_js::slice_utf16;
 use serde_json::Map;
 use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
 
 use super::oauth_usage::UsageError;
 use super::oauth_usage::UsageHttp;
@@ -273,15 +275,42 @@ impl ApiUsageService {
             .then(|| snapshot.clone())
     }
 
-    /// `readCachedApiUsageSnapshot`.
-    pub async fn cached(&self, provider: &str, allow_stale: bool) -> Option<Value> {
-        let raw = self.read_cache_file().await;
-        let snapshot = raw.as_ref().and_then(|r| r.get("snapshots")).and_then(|s| s.get(cache_key(provider)));
-        self.fresh_snapshot(snapshot, if allow_stale { STALE_TTL_MS } else { LIVE_TTL_MS })
+    /// A digest of every credential the lookup of `id` is made with: a reading belongs to the keys it was measured under.
+    async fn credential_digest(&self, id: &str) -> String {
+        let parts: Vec<Option<String>> = match id {
+            "deepseek" | "gemini" => vec![self.agent_key(id).await],
+            "openai" => vec![self.agent_key(id).await, self.usage_session_key().await],
+            "anthropic" => vec![
+                self.env_text("ANTHROPIC_ADMIN_API_KEY"),
+                self.env_text("MIXDOG_ANTHROPIC_ADMIN_API_KEY"),
+                self.env_text("ANTHROPIC_ADMIN_KEY"),
+                self.agent_key(id).await,
+            ],
+            "xai" => vec![self.env_text("XAI_MANAGEMENT_API_KEY"), self.env.var("XAI_TEAM_ID"), self.agent_key(id).await],
+            _ => Vec::new(),
+        };
+        let mut hash = Sha256::new();
+        for part in parts {
+            hash.update(part.unwrap_or_default().as_bytes());
+            hash.update([0]);
+        }
+        hash.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect()
     }
 
-    /// `writeCachedApiUsageSnapshot`: the read-modify-write under the file's lock; best effort.
-    async fn write_cache(&self, provider: &str, snapshot: &Value) {
+    /// `readCachedApiUsageSnapshot`: only a reading measured under the keys in use now.
+    pub async fn cached(&self, provider: &str, allow_stale: bool) -> Option<Value> {
+        let id = cache_key(provider);
+        let raw = self.read_cache_file().await?;
+        let measured_under = raw.get("keys").and_then(|k| k.get(&id)).and_then(Value::as_str)?;
+        if measured_under != self.credential_digest(&id).await {
+            return None;
+        }
+        self.fresh_snapshot(raw.get("snapshots").and_then(|s| s.get(&id)), if allow_stale { STALE_TTL_MS } else { LIVE_TTL_MS })
+    }
+
+    /// `writeCachedApiUsageSnapshot`: the read-modify-write under the file's lock; best effort. `digest` is of the keys the
+    /// lookup was made under.
+    async fn write_cache(&self, provider: &str, snapshot: &Value, digest: String) {
         let (key, snapshot, now) = (cache_key(provider), snapshot.clone(), self.now());
         let path = self.cache_path();
         let written: Arc<Mutex<Option<Value>>> = Arc::default();
@@ -291,11 +320,14 @@ impl ApiUsageService {
             .write_job(move |lane| {
                 update_json_atomic(lane, &path, |current| {
                     let mut snapshots = current.as_ref().and_then(|c| c.get("snapshots")).and_then(Value::as_object).cloned().unwrap_or_default();
+                    let mut keys = current.as_ref().and_then(|c| c.get("keys")).and_then(Value::as_object).cloned().unwrap_or_default();
+                    keys.insert(key.clone(), Value::String(digest));
                     snapshots.insert(key, snapshot);
                     let mut doc = Map::new();
                     doc.insert("version".into(), Value::from(1));
                     doc.insert("updatedAt".into(), Value::from(now));
                     doc.insert("snapshots".into(), Value::Object(snapshots));
+                    doc.insert("keys".into(), Value::Object(keys));
                     let doc = Value::Object(doc);
                     *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(doc.clone());
                     doc
@@ -666,6 +698,7 @@ impl ApiUsageService {
         if !force && let Some(fresh) = self.cached(&id, false).await {
             return Ok(Some(fresh));
         }
+        let digest = self.credential_digest(&id).await;
         let looked_up = match id.as_str() {
             "deepseek" => self.deepseek().await,
             "openai" => self.openai().await,
@@ -680,7 +713,7 @@ impl ApiUsageService {
             Err(error) => return Err(error),
         };
         if let Some(snapshot) = &snapshot {
-            self.write_cache(&id, snapshot).await;
+            self.write_cache(&id, snapshot, digest).await;
         }
         Ok(snapshot)
     }

@@ -136,11 +136,6 @@ impl TuiSession {
         held(&self.shared.0).raw.len()
     }
 
-    /// The bytes written after the first `mark` bytes.
-    pub fn raw_since(&self, mark: usize) -> Vec<u8> {
-        held(&self.shared.0).raw.get(mark..).unwrap_or_default().to_vec()
-    }
-
     /// Waits until `read` finds what it looks for in the bytes written after the first `mark` (read again as each chunk
     /// arrives, so a sequence split across chunks is found whole); what it found, or `None` at the limit.
     pub fn try_wait_raw<T>(&self, mark: usize, limit: Duration, read: impl Fn(&[u8]) -> Option<T>) -> Option<T> {

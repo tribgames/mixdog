@@ -22,6 +22,8 @@ use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_protocol::JsonValue;
 use mixdog_rt::LaneToken;
 
+pub(crate) use super::path_admit::Access;
+
 /// Model-facing byte cap of one tool result (`TOOL_OUTPUT_MAX_BYTES`, `MIXDOG_TOOL_OUTPUT_MAX_BYTES`).
 pub(crate) fn output_max_bytes() -> usize {
     static MAX: std::sync::LazyLock<usize> =
@@ -254,19 +256,14 @@ fn real_target(full: &Path) -> Option<PathBuf> {
     Some(real.join(full.strip_prefix(probe).ok()?))
 }
 
-/// Node `guardWritePath`'s refusal of `p`, which it shows as `normalizeOutputPath` does.
-fn write_path_refusal(p: &str) -> Option<String> {
-    super::read_paths::write_guard(p).map(|reason| format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(p)))
-}
-
 /// Node `guardRealTarget`: when the nearest existing ancestor of the target (the target itself when it exists) is not
 /// its own real path (a link lies on the way), the real path meets `guardWritePath`; a special file is refused.
-#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (resolve_write_target)")]
-fn guard_real_target(full: &Path) -> Option<String> {
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (admit)")]
+fn guard_real_target(roots: &[String], full: &Path) -> Option<String> {
     if let Some(probe) = existing_probe(full)
         && let Ok(real) = mixdog_workspace::pathguard::node_realpath(probe)
         && real != probe
-        && let Some(refusal) = write_path_refusal(&real.to_string_lossy())
+        && let Some(refusal) = super::path_admit::string_refusal(roots, &real.to_string_lossy(), Access::Write)
     {
         return Some(format!("{refusal} (symlink target of {})", super::patch_guard::normalize_output_path(&probe.to_string_lossy())));
     }
@@ -279,30 +276,53 @@ fn guard_real_target(full: &Path) -> Option<String> {
     })
 }
 
-/// Node `resolveTargetPath` of the edit adapter: the spelling given (normalized) and its
-/// resolution against the cwd each meet `guardWritePath`, then [`guard_real_target`], before
-/// anything else touches the path. A blank spelling is the cwd.
+/// The one entry of every file tool's path: `raw`, resolved against `base` (the root the call runs in), is judged before
+/// the OS sees it. The spelling given and its resolution are judged as strings against the root, every link on the way
+/// is read with `lstat` (nothing is opened or stat'ed through one), and a write target then proves reachable and meets
+/// Node's `guardRealTarget`. `Ok(Err(text))` is the refusal.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(crate) async fn admit(ctx: &ToolContext, base: &AbsPath, raw: &str, access: Access) -> Result<Result<AbsPath, String>, ToolError> {
+    let roots = super::path_admit::roots_of(base.as_path());
+    let spelled = if access == Access::Write { super::normalize_input_path(raw) } else { raw.to_owned() };
+    if let Some(text) = super::path_admit::string_refusal(&roots, &spelled, access) {
+        return Ok(Err(text));
+    }
+    let abs = lexical_path(base, raw)?;
+    if let Some(text) = super::path_admit::string_refusal(&roots, &abs.as_path().to_string_lossy(), access) {
+        return Ok(Err(text));
+    }
+    let (full, root, shown) = (abs.as_path().to_path_buf(), base.as_path().to_path_buf(), raw.to_owned());
+    let linked = on_interactive(ctx, move || symlink_target_refusal(&super::path_admit::lane_roots(&root), &full, &shown)).await?;
+    if let Some(text) = linked {
+        return Ok(Err(if access == Access::Write { text.replacen("Error: cannot read ", "Error: cannot write ", 1) } else { text }));
+    }
+    if access == Access::Write {
+        assert_reachable(ctx, &abs).await?;
+        let (full, root) = (abs.as_path().to_path_buf(), base.as_path().to_path_buf());
+        if let Some(text) = on_interactive(ctx, move || guard_real_target(&super::path_admit::lane_roots(&root), &full)).await? {
+            return Ok(Err(text));
+        }
+    }
+    Ok(Ok(abs))
+}
+
+/// Whether the OS may be asked to follow `path`, a path the caller did not name (a walked entry, a joined candidate):
+/// the same judgement as [`admit`], and a refused one is left out as an entry that cannot be read is.
+pub(crate) async fn followable(ctx: &ToolContext, path: &AbsPath) -> bool {
+    matches!(admit(ctx, &ctx.cwd, &path.as_path().to_string_lossy(), Access::Read).await, Ok(Ok(_)))
+}
+
+/// Node `resolveTargetPath` of the edit adapter: [`admit`] for a write, a refusal rather than malformed arguments (Node's
+/// `_isToolArgShapeFailure` does not count it). A blank spelling is the cwd.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result<AbsPath, ToolError> {
-    // A refusal, not malformed arguments: Node's `_isToolArgShapeFailure` does not count it.
     let refuse = |text: String| crate::orch::util::refused("write-path-guard", text);
-    // `urlAsPathMessage`: a URL is no path, and the guards below would word it as a trailing-dot or stream refusal.
+    // `urlAsPathMessage`: a URL is no path, and the guards would word it as a trailing-dot or stream refusal.
     if url_as_path(raw) {
         return Err(refuse(URL_AS_PATH.to_owned()));
     }
-    if let Some(text) = write_path_refusal(&super::normalize_input_path(raw)) {
-        return Err(refuse(text));
-    }
-    let abs = if mixdog_js::js_trim(raw).is_empty() { ctx.cwd.clone() } else { resolve_path(&ctx.cwd, raw)? };
-    if let Some(text) = write_path_refusal(&abs.as_path().to_string_lossy()) {
-        return Err(refuse(text));
-    }
-    assert_reachable(ctx, &abs).await?;
-    let full = abs.as_path().to_path_buf();
-    match on_interactive(ctx, move || guard_real_target(&full)).await? {
-        Some(text) => Err(refuse(text)),
-        None => Ok(abs),
-    }
+    let raw = if mixdog_js::js_trim(raw).is_empty() { "." } else { raw };
+    admit(ctx, &ctx.cwd, raw, Access::Write).await?.map_err(refuse)
 }
 
 fn link_spelling(target: &Path) -> String {
@@ -321,8 +341,8 @@ fn link_spelling(target: &Path) -> String {
     }
 }
 
-fn refused_link_target(path: &Path, refusal: &str, shown: &str) -> Option<String> {
-    target_refusal(path, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {}", fwd(path))))
+fn refused_link_target(roots: &[String], path: &Path, refusal: &str, shown: &str) -> Option<String> {
+    target_refusal(roots, path, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {}", fwd(path))))
 }
 
 /// Node `symlinkTargetGuard` (read-single-guards.mjs): where `full` really lives, when that is a UNC share, a Windows
@@ -331,7 +351,8 @@ fn refused_link_target(path: &Path, refusal: &str, shown: &str) -> Option<String
 /// own resolver as Node's `fsPromises.realpath` does: a file on a mapped drive is then the share it lives on. The
 /// refusal names the link and its target.
 #[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (symlink_refusal)")]
-fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
+fn symlink_target_refusal(roots: &[String], full: &Path, shown: &str) -> Option<String> {
+    let judge = |text: &str| super::path_admit::judge(roots, text, Access::Read);
     // Inspect ancestors before the leaf; probing through a refused directory link already crosses it.
     let mut full = full.to_path_buf();
     let mut followed = false;
@@ -349,13 +370,13 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
                     return Some(format!("Error: cannot verify symbolic link for read: {shown}"));
                 };
                 let spelling = link_spelling(&target);
-                if let Some(refusal) = super::read_paths::string_guard(&spelling) {
-                    return refused_link_target(Path::new(&spelling), refusal, shown);
+                if let Some(refusal) = judge(&spelling) {
+                    return refused_link_target(roots, Path::new(&spelling), refusal, shown);
                 }
                 let target = path.parent().unwrap_or(path).join(if cfg!(windows) { PathBuf::from(spelling) } else { target });
                 let target = mixdog_workspace::pathguard::lexical(&target);
-                if let Some(refusal) = super::read_paths::string_guard(&fwd(&target)) {
-                    return refused_link_target(&target, refusal, shown);
+                if let Some(refusal) = judge(&fwd(&target)) {
+                    return refused_link_target(roots, &target, refusal, shown);
                 }
                 next_link = Some(target.join(full.strip_prefix(path).ok()?));
                 break;
@@ -367,12 +388,12 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
                 full = path;
             }
             None => {
-                if let Some(reason) = super::read_paths::string_guard(&fwd(&full)) {
-                    return refused_link_target(&full, reason, shown);
+                if let Some(reason) = judge(&fwd(&full)) {
+                    return refused_link_target(roots, &full, reason, shown);
                 }
                 // Native canonicalization also identifies a mapped share when the path was reached through a link.
                 if followed && let Ok(real) = mixdog_workspace::pathguard::canonical(&full) {
-                    return target_refusal(&real, shown);
+                    return target_refusal(roots, &real, shown);
                 }
                 return None;
             }
@@ -383,13 +404,15 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
 
 /// The refusal a link's real path `real` earns, in Node's order: blocked device, UNC, Windows device, special file.
 #[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (symlink_refusal)")]
-pub(super) fn target_refusal(real: &Path, shown: &str) -> Option<String> {
+pub(super) fn target_refusal(roots: &[String], real: &Path, shown: &str) -> Option<String> {
     let target = real.to_string_lossy().into_owned();
+    // What a link's target adds below the root is no share: a root may itself be one.
+    let added = super::path_admit::judged(roots, &target);
     let what = if super::read_paths::is_blocked_device_path(&target) {
         "device file via symlink (would block or produce infinite output)"
-    } else if super::read_paths::is_unc_path(&target) {
+    } else if super::read_paths::is_unc_path(&added) {
         "UNC / SMB path via symlink (network credential leak risk)"
-    } else if super::read_paths::is_windows_device_path(&target) {
+    } else if super::read_paths::is_windows_device_path(&added) {
         "Windows device path via symlink (reserved name or raw-device namespace)"
     } else if std::fs::metadata(real).is_ok_and(|meta| mixdog_js::device_paths::is_special_file(&meta)) {
         "special file via symlink (FIFO / character / block device / socket)"
@@ -397,14 +420,6 @@ pub(super) fn target_refusal(real: &Path, shown: &str) -> Option<String> {
         return None;
     };
     Some(format!("Error: cannot read {what}: {} → {}", super::patch_guard::normalize_output_path(shown), super::patch_guard::normalize_output_path(&target)))
-}
-
-/// [`symlink_target_refusal`] as a job on the interactive lane: `read`'s refusal for a path whose link leads somewhere
-/// it may not open, `None` for any other path.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(crate) async fn symlink_refusal(ctx: &ToolContext, abs: &AbsPath, shown: &str) -> Result<Option<String>, ToolError> {
-    let (full, shown) = (abs.as_path().to_path_buf(), shown.to_owned());
-    on_interactive(ctx, move || symlink_target_refusal(&full, &shown)).await
 }
 
 /// Runs a step of the call as a job on the interactive lane. A busy lane is waited for, in order. A step that did not run
@@ -527,9 +542,19 @@ pub(crate) async fn pull_all<T: Send>(ctx: &ToolContext, source: &mut dyn EventS
 
 // ---- paths ----
 
-/// Resolves a model-supplied path against the call's cwd, lexically.
+/// Resolves a model-supplied path against the root `cwd`, lexically, and refuses what it adds to that root as a share or
+/// a device ([`admit`] is the entry of a path that is then opened: it also reads the links on the way).
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) fn resolve_path(cwd: &AbsPath, raw: &str) -> Result<AbsPath, ToolError> {
+    let abs = lexical_path(cwd, raw)?;
+    match super::path_admit::string_refusal(&super::path_admit::roots_of(cwd.as_path()), &abs.as_path().to_string_lossy(), Access::Read) {
+        Some(text) => Err(crate::orch::util::refused("path-guard", text)),
+        None => Ok(abs),
+    }
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(super) fn lexical_path(cwd: &AbsPath, raw: &str) -> Result<AbsPath, ToolError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(invalid("path", "empty", "Error: path must not be empty"));

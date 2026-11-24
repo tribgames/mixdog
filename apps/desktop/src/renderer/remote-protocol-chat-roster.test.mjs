@@ -60,6 +60,24 @@ test('edges reach the phone on the catalog clock: 400 ms after the first, no soo
   ]);
 });
 
+/** What the chat adapter is handed for a call's scoped client: the desktop's own lane over it, with nothing folded. */
+const sharedOf = (handed) => ({
+  routeService,
+  lane: createCapabilityLane({
+    protocol: {
+      call: (method, params) => handed.call(method, params),
+      snapshot: () => ({ entries: [] }),
+      noteUserInput() {},
+      respond() {},
+      pendingServerRequests: () => [],
+    },
+  }),
+  coreErrorForWindow,
+  normalizedProviderModels,
+  sessionStateOf: () => undefined,
+  foldRows: () => [],
+});
+
 // ── PH-1: a wired chat call's requests carry that call's transmission claim ─────────────────────────────────────────────────────────
 /** Every request of four chat calls through the real router; `wire` may replace what the adapter is handed. */
 async function writtenThrough(wire = (adapter) => adapter) {
@@ -82,22 +100,7 @@ async function writtenThrough(wire = (adapter) => adapter) {
   const adapter = createChatAdapter({
     sharedFor: (handed) => {
       made.push(handed);
-      const protocol = {
-        call: (method, params) => handed.call(method, params),
-        snapshot: () => ({ entries: [] }),
-        noteUserInput() {},
-        respond() {},
-        pendingServerRequests: () => [],
-      };
-      return {
-        routeService,
-        lane: createCapabilityLane({ protocol }),
-        coreErrorForWindow,
-        normalizedProviderModels,
-        sessionStateOf: () => undefined,
-        remoteToolOutput,
-        foldRows: () => [],
-      };
+      return { ...sharedOf(handed), remoteToolOutput };
     },
     remoteSession: () => undefined,
     roster: { summaries: (rows) => summariesOfThreadRows(rows) },
@@ -161,23 +164,7 @@ test("getSnapshot is null until a start, then the start's blank snapshot with th
     server: { connection: { device: 'Phone' } },
   };
   const adapter = createChatAdapter({
-    sharedFor: (handed) => {
-      const protocol = {
-        call: (method, params) => handed.call(method, params),
-        snapshot: () => ({ entries: [] }),
-        noteUserInput() {},
-        respond() {},
-        pendingServerRequests: () => [],
-      };
-      return {
-        routeService,
-        lane: createCapabilityLane({ protocol }),
-        coreErrorForWindow,
-        normalizedProviderModels,
-        sessionStateOf: () => undefined,
-        foldRows: () => [],
-      };
-    },
+    sharedFor: sharedOf,
     remoteSession: () => remote,
     roster: { summaries: (rows) => summariesOfThreadRows(rows) },
   });
@@ -196,11 +183,40 @@ test("getSnapshot is null until a start, then the start's blank snapshot with th
   assert.equal(await adapter.calls.getSnapshot([], other), null, 'another page holds its own shell');
 });
 
+test("a pool the core publishes as a stub is read through the router: listAgentPool answers agent/pool/list's rows", async () => {
+  const rows = [{ sessionId: 'w1', state: 'running' }];
+  const written = [];
+  const client = {
+    call: async (method, params) => {
+      written.push({ method, params });
+      return method === 'agent/pool/list' ? rows : {};
+    },
+    resumeThread: async () => ({}),
+    unsubscribeThread: async () => undefined,
+    server: { connection: { device: 'Phone' } },
+  };
+  const adapter = createChatAdapter({
+    sharedFor: sharedOf,
+    remoteSession: () => undefined,
+    roster: { summaries: (list) => summariesOfThreadRows(list) },
+  });
+  const host = { ctx: { sessionsCatalog: { publish() {} } }, client: () => client, declareLane() {} };
+  const router = createProtocolRouter([adapter], {
+    host,
+    started: async () => undefined,
+    synced: async () => undefined,
+    appSynced: async () => undefined,
+    probe() {},
+    silentSince: () => false,
+  });
+  assert.deepEqual(await router.call('listAgentPool', []), rows);
+  assert.deepEqual(written, [{ method: 'agent/pool/list', params: {} }]);
+});
+
 // The session calls of the desktop API (DIRECT_KEYS.sessions) that other phone adapters or the page itself serve, not this one.
 const SESSION_CALLS_ELSEWHERE = [
   'deleteAgentMemory',
   'listAgentMemory',
-  'listAgentPool',
   'previewSession',
   'readSessionAttachment',
   'resyncSessionState',
@@ -230,7 +246,7 @@ test('the adapter the switch point loads claims exactly the chat calls the deskt
     ...DIRECT_KEYS.sessions.filter((name) => !SESSION_CALLS_ELSEWHERE.includes(name)),
     ...CHAT_CALLS_BESIDES,
   ];
-  assert.equal(expected.length, 42);
+  assert.equal(expected.length, 43);
   for (const name of expected) assert.equal(typeof adapter.calls[name], 'function', name);
   assert.deepEqual(Object.keys(adapter.calls).sort(), [...expected].sort());
 });

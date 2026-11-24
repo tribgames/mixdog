@@ -161,7 +161,8 @@ pub struct Authorized {
     pub left_out: Option<LeftOut>,
 }
 
-/// Node's `FolderLeftOut` of a folder's zip: the ignored files it left out; `secret` is always 0 on this host.
+/// Node's `FolderLeftOut` of a folder's zip: the ignored files it left out, and the secret files ([`crate::sensitive`]) a paired
+/// device's zip leaves out.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LeftOut {
     pub ignored: u64,
@@ -313,8 +314,6 @@ struct Read {
     // Declared after `file`, so the handle is closed before the removal (Windows cannot remove a
     // folder that holds an open file).
     _cleanup: Option<Cleanup>,
-    #[allow(dead_code)]
-    opened: Instant,
 }
 
 /// What a transfer removes when it ends: a staged file, or the folder its source owns.
@@ -1005,7 +1004,6 @@ impl Transfers {
                 lease: Some(times),
                 ends: EndOnDrop::new(),
                 _cleanup: cleanup,
-                opened: Instant::now(),
             },
         );
         drop(reads);
@@ -1113,7 +1111,6 @@ impl Transfers {
                 lease: None,
                 ends: EndOnDrop::new(),
                 _cleanup: cleanup.map(Cleanup),
-                opened: Instant::now(),
             },
         );
         Ok(Opened { transfer_id: id, size, mime_type: mime.to_owned(), name, version, range_max_bytes: RANGE_MAX_BYTES })

@@ -49,6 +49,7 @@ pub fn run() -> Option<Result<(), String>> {
             Ok(())
         }
         "stack-overflow" => {
+            #[allow(unconditional_recursion, reason = "the fault under test: a stack overflow")]
             fn deeper(n: u64) -> u64 {
                 let frame = [n; 512];
                 std::hint::black_box(&frame);

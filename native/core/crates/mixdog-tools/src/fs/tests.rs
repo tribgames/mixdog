@@ -273,10 +273,188 @@ fn card_of(output: &ToolOutput) -> Option<&str> {
 fn a_link_to_a_unc_share_or_a_device_namespace_is_refused_by_read() {
     use super::common::target_refusal;
     assert_eq!(
-        target_refusal(Path::new("//srv/share/f.txt"), "docs/f.txt").as_deref(),
+        target_refusal(&[], Path::new("//srv/share/f.txt"), "docs/f.txt").as_deref(),
         Some("Error: cannot read UNC / SMB path via symlink (network credential leak risk): docs/f.txt → //srv/share/f.txt")
     );
-    assert_eq!(target_refusal(Path::new("/tmp/ordinary"), "p"), None);
+    assert_eq!(target_refusal(&[], Path::new("/tmp/ordinary"), "p"), None);
+}
+
+/// A project on a share or a mapped drive: a link's target inside the project's roots (in either form) is no leak, one
+/// that leaves them for another share still is.
+#[test]
+fn a_link_target_below_a_share_root_is_allowed_and_another_share_is_not() {
+    use super::common::target_refusal;
+    use super::path_admit::roots_of;
+    let roots = [roots_of(Path::new("Z:\\proj")), roots_of(Path::new("\\\\srv\\share\\proj"))].concat();
+    assert_eq!(target_refusal(&roots, Path::new("\\\\srv\\share\\proj\\src\\a.rs"), "src/l"), None);
+    assert!(target_refusal(&roots, Path::new("\\\\evil\\share\\a.rs"), "src/l").is_some());
+}
+
+/// The file port a tool's call reached: every stat and read it recorded.
+fn port_calls(control: &StatControl) -> usize {
+    let reads = control.reads.as_ref().unwrap().lock().unwrap();
+    // `read` settles whether it runs under WSL from the kernel's version file, once per process, before any path.
+    control.stats.as_ref().unwrap().lock().unwrap().len() + reads.iter().filter(|p| p.as_path() != Path::new("/proc/version")).count()
+}
+
+/// Every file tool refuses a share, a device name and an alternate stream before its file port is called at all, whichever
+/// of its paths (the scope, a fan-out's second path, a patch's section or base) names it.
+#[tokio::test]
+async fn every_file_tool_refuses_a_share_before_any_stat() {
+    let (_dir, root) = small_dir();
+    let control = Arc::new(StatControl::record_locator_io());
+    let files = Arc::new(StatFails(local_ctx_files(), &[], &[], control.clone()));
+    let ctx = context_seeded(&root, files, vec![("a.txt".to_owned(), b"a\n".to_vec())]).await;
+    control.stats.as_ref().unwrap().lock().unwrap().clear();
+    control.reads.as_ref().unwrap().lock().unwrap().clear();
+    let share = "//host/share";
+    let patch = |header: &str| format!("*** Begin Patch\n*** Add File: {header}\n+x\n*** End Patch");
+    let calls: Vec<(&str, serde_json::Value)> = vec![
+        ("read", serde_json::json!({ "file_path": share })),
+        ("edit", serde_json::json!({ "file_path": format!("{share}/x"), "old_string": "a", "new_string": "b" })),
+        ("write", serde_json::json!({ "file_path": format!("{share}/x"), "contents": "x" })),
+        ("list", serde_json::json!({ "path": share })),
+        ("list-tree", serde_json::json!({ "path": share, "mode": "tree" })),
+        ("list-find", serde_json::json!({ "path": share, "mode": "find", "name": "*.rs" })),
+        ("find", serde_json::json!({ "query": "a", "path": share })),
+        ("glob", serde_json::json!({ "pattern": "*", "path": share })),
+        ("glob-absolute", serde_json::json!({ "pattern": format!("{share}/*.rs") })),
+        ("grep", serde_json::json!({ "pattern": "a", "path": share })),
+        ("grep-paths", serde_json::json!({ "pattern": "a", "path": ["a.txt", share] })),
+        ("grep-patterns", serde_json::json!({ "pattern": ["a", "b"], "path": share })),
+        ("grep-patterns-paths", serde_json::json!({ "pattern": ["a", "b"], "path": [".", share], "mode": "files" })),
+        ("patch-base", serde_json::json!({ "patch": patch("x.txt"), "base_path": share })),
+        ("patch-section", serde_json::json!({ "patch": patch(&format!("{share}/x.txt")) })),
+    ];
+    for (name, args) in calls {
+        let (_, text) = match name.split('-').next().unwrap() {
+            "read" => text_of(ReadTool::new(None, None).call(&ctx, args).await),
+            "edit" => text_of(EditTool::new().call(&ctx, args).await),
+            "write" => text_of(WriteTool::new().call(&ctx, args).await),
+            "list" => text_of(ListTool::new().call(&ctx, args).await),
+            "find" => text_of(FindTool::new().call(&ctx, args).await),
+            "glob" => text_of(GlobTool::new().call(&ctx, args).await),
+            "grep" => text_of(GrepTool::new().call(&ctx, args).await),
+            _ => text_of(ApplyPatchTool::new().call(&ctx, args).await),
+        };
+        assert!(text.contains("UNC") || text.contains("SMB"), "{name}: {text}");
+        assert_eq!(port_calls(&control), 0, "{name} reached the file port: {text}");
+    }
+}
+
+/// An entry a walk or a join produced is judged like a named path before the OS follows it: a link in the project that points
+/// at a share is left out of `list` in find mode, of `glob`'s default (mtime) order and of an absolute glob's direct
+/// expansion, and never stat'ed.
+#[cfg(unix)]
+#[tokio::test]
+async fn walked_and_joined_entries_are_judged_before_they_are_followed() {
+    let (_dir, root) = small_dir();
+    let control = Arc::new(StatControl::record_locator_io());
+    let files = Arc::new(StatFails(local_ctx_files(), &[], &[], control.clone()));
+    let ctx = context_seeded(&root, files, vec![("a.txt".to_owned(), b"a\n".to_vec()), ("node_modules/x.txt".to_owned(), b"x\n".to_vec())]).await;
+    let (top, hidden) = (root.as_path().join("link"), root.as_path().join("node_modules").join("link"));
+    std::os::unix::fs::symlink("//host/share", &top).unwrap();
+    std::os::unix::fs::symlink("//host/share", &hidden).unwrap();
+    for (name, links) in [("list-find", &top), ("glob", &top), ("glob-absolute", &hidden)] {
+        control.stats.as_ref().unwrap().lock().unwrap().clear();
+        let text = match name {
+            "list-find" => text_of(ListTool::new().call(&ctx, serde_json::json!({ "path": ".", "mode": "find", "name": "*" })).await).1,
+            "glob" => text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*" })).await).1,
+            _ => text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": format!("{}/node_modules/*", root.as_path().display()) })).await).1,
+        };
+        let stats = control.stats.as_ref().unwrap().lock().unwrap();
+        assert!(!stats.iter().any(|p| p.as_path() == links.as_path()), "{name} followed {}: {text}", links.display());
+    }
+}
+
+/// What lies below the root is judged as a relative path: `a:stream` is a stream of `a`, not the drive `a:`.
+#[test]
+fn an_alternate_stream_below_the_root_is_refused_as_the_whole_spelling_was() {
+    use super::path_admit::{Access, judge, roots_of};
+    let roots = roots_of(Path::new("C:\\proj"));
+    for spelling in ["C:\\proj\\a:stream", "C:\\proj\\src\\b:s", "\\\\?\\C:\\proj\\a:stream"] {
+        assert_eq!(judge(&roots, spelling, Access::Read).is_some(), cfg!(windows), "{spelling}");
+    }
+    assert!(judge(&roots, "C:\\proj\\a.txt", Access::Read).is_none());
+}
+
+/// A `path` that is blank is the current directory, and a blank among an array's entries is the array guard's error, as
+/// before paths were admitted.
+#[tokio::test]
+async fn a_blank_grep_scope_is_normalised_before_it_is_admitted() {
+    let (_dir, root) = small_dir();
+    let ctx = context_over(&root, local_ctx_files()).await;
+    for blank in ["", "  "] {
+        let (error, text) = text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": ".", "path": blank })).await);
+        assert!(!error && !text.contains("must not be empty"), "{text}");
+    }
+    let (error, text) = text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": ".", "path": ["a.txt", ""] })).await);
+    assert!(error && text.contains("non-empty path strings"), "{text}");
+}
+
+/// A workspace link to a share is refused by `edit` and `write` before the target is stat'ed through it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_write_through_a_link_to_a_share_is_refused_before_any_stat() {
+    let (_dir, root) = small_dir();
+    let control = Arc::new(StatControl::record_locator_io());
+    let files = Arc::new(StatFails(local_ctx_files(), &[], &[], control.clone()));
+    let ctx = context_seeded(&root, files, vec![("a.txt".to_owned(), b"a\n".to_vec())]).await;
+    std::os::unix::fs::symlink("//host/share/x", root.as_path().join("link")).unwrap();
+    control.stats.as_ref().unwrap().lock().unwrap().clear();
+    let (_, text) = text_of(WriteTool::new().call(&ctx, serde_json::json!({ "file_path": "link", "contents": "x" })).await);
+    assert!(text.contains("UNC / SMB"), "{text}");
+    let (_, text) = text_of(EditTool::new().call(&ctx, serde_json::json!({ "file_path": "link", "old_string": "a", "new_string": "b" })).await);
+    assert!(text.contains("UNC / SMB"), "{text}");
+    assert_eq!(port_calls(&control), 0);
+}
+
+/// The redirect of a missing patch target strips its leading segments and stats the tail under the root: a tail that goes
+/// through a link to a share is not stat'ed (the header itself names no link, so it passes the guard).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_patch_redirect_candidate_through_a_link_to_a_share_is_not_stat_ed() {
+    let (_dir, root) = small_dir();
+    let control = Arc::new(StatControl::record_locator_io());
+    let files = Arc::new(StatFails(local_ctx_files(), &[], &[], control.clone()));
+    let ctx = context_seeded(&root, files, vec![("a.txt".to_owned(), b"a\n".to_vec())]).await;
+    std::os::unix::fs::symlink("//host/share", root.as_path().join("link")).unwrap();
+    control.stats.as_ref().unwrap().lock().unwrap().clear();
+    let patch = "*** Begin Patch\n*** Update File: gone/link/a.txt\n@@\n-a\n+b\n*** End Patch";
+    let _ = ApplyPatchTool::new().call(&ctx, serde_json::json!({ "patch": patch })).await;
+    let through_link = root.as_path().join("link").join("a.txt");
+    assert!(!control.stats.as_ref().unwrap().lock().unwrap().iter().any(|p| p.as_path() == through_link), "stat'ed through the link");
+}
+
+/// A project whose own root is an extended-length path: a relative path through every tool works.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_project_root_spelled_as_an_extended_length_path_is_not_refused() {
+    let (_dir, plain) = small_dir();
+    let root = AbsPath::new(format!("\\\\?\\{}", plain.as_path().display())).unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), vec![("src/a.txt".to_owned(), b"needle\n".to_vec())]).await;
+    for (name, text) in [
+        ("read", text_of(ReadTool::new(None, None).call(&ctx, serde_json::json!({ "file_path": "src/a.txt" })).await).1),
+        ("list", text_of(ListTool::new().call(&ctx, serde_json::json!({ "path": "." })).await).1),
+        ("list-src", text_of(ListTool::new().call(&ctx, serde_json::json!({ "path": "src" })).await).1),
+        ("find", text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "a.txt" })).await).1),
+        ("glob", text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "src/*.txt" })).await).1),
+        ("grep", text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": "needle" })).await).1),
+        ("grep-path", text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": "needle", "path": "src" })).await).1),
+        ("write", text_of(WriteTool::new().call(&ctx, serde_json::json!({ "file_path": "src/b.txt", "contents": "x" })).await).1),
+        ("edit", text_of(EditTool::new().call(&ctx, serde_json::json!({ "file_path": "src/a.txt", "old_string": "needle", "new_string": "pin" })).await).1),
+        (
+            "patch",
+            text_of(
+                ApplyPatchTool::new()
+                    .call(&ctx, serde_json::json!({ "patch": "*** Begin Patch\n*** Add File: src/c.txt\n+c\n*** End Patch", "base_path": "." }))
+                    .await,
+            )
+            .1,
+        ),
+    ] {
+        assert!(!text.contains("cannot ") && !text.contains("refuses"), "{name}: {text}");
+    }
 }
 
 // ---- locks, renames, rollback bounds ----
@@ -1236,6 +1414,18 @@ async fn edit_records_a_replacement_and_a_created_file_in_the_turn_review() {
     assert_eq!(calls[1].3[0].before, ReviewContent::Absent);
     assert_eq!(calls[1].3[0].after, ReviewContent::bytes(&b"hi\n"[..]));
 }
+/// A file the session never read through `read` (an agent's own reader read it) is edited all the same: the edit's
+/// precondition is the file as the edit itself reads it, not an earlier read of the session's.
+#[tokio::test]
+async fn an_edit_of_a_file_the_session_never_read_applies_with_a_read_state_attached() {
+    let (_dir, root, _review, ctx) = reviewed_workspace().await;
+    let state = Arc::new(ReadState::default());
+    let edit = serde_json::json!({ "file_path": "old.txt", "old_string": "me", "new_string": "you" });
+    let (is_error, text) = text_of(EditTool::new().with_state(Arc::clone(&state)).call(&ctx, edit).await);
+    assert!(!is_error, "{text}");
+    assert_eq!(std::fs::read_to_string(root.as_path().join("old.txt")).unwrap(), "keep\nyou\n");
+}
+
 /// `edit(real/a.txt)` and `apply_patch(alias/a.txt)` reach one file through a junction: run
 /// together they serialize and both edits land, whichever way each is spelled.
 #[tokio::test]
@@ -1843,6 +2033,37 @@ async fn whole_file_write_reads_previous_contents_only_for_review() {
     assert_eq!(change.before, mixdog_core_api::turn_review::ReviewContent::bytes(&b"first\n"[..]));
     assert_eq!(change.after, mixdog_core_api::turn_review::ReviewContent::bytes(&b"second\n"[..]));
     assert_eq!(std::fs::read(root.as_path().join("a.txt")).unwrap().as_slice(), b"second\n");
+}
+
+#[tokio::test]
+async fn a_write_over_a_file_it_could_not_read_is_never_recorded_as_an_addition() {
+    let (_dir, root) = small_dir();
+    let control = Arc::new(StatControl { fail_first_read: std::sync::atomic::AtomicBool::new(true), ..StatControl::default() });
+    let files = Arc::new(StatFails(local_ctx_files(), &[], &[], control));
+    // `StatFails` fails the first read of a file named `tail.txt`: the seam the write tool's pre-image read goes through.
+    let mut ctx = context_seeded(&root, files, vec![("tail.txt".to_owned(), b"old\n".to_vec())]).await;
+    let review = Arc::new(FakeReview::default());
+    ctx.review = Some(review.clone());
+    WriteTool::new().call(&ctx, serde_json::json!({ "file_path": "tail.txt", "contents": "new\n" })).await.unwrap();
+    assert_eq!(std::fs::read(root.as_path().join("tail.txt")).unwrap().as_slice(), b"new\n");
+    let calls = review.calls.lock().unwrap();
+    assert!(matches!(calls[0].3[0].before, mixdog_core_api::turn_review::ReviewContent::Omitted { .. }), "{:?}", calls[0].3[0].before);
+}
+
+#[tokio::test]
+async fn list_find_grep_and_apply_patch_refuse_a_share_before_touching_it() {
+    let ctx = list_modes_context().await;
+    for share in ["//host/share", "\\\\host\\share"] {
+        let (_, listed) = text_of(ListTool::new().call(&ctx, serde_json::json!({ "path": share })).await);
+        let (_, tree) = text_of(ListTool::new().call(&ctx, serde_json::json!({ "path": share, "mode": "tree" })).await);
+        let (_, found) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "a", "path": share })).await);
+        let (_, grepped) = text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": "a", "path": share })).await);
+        let patch = "*** Begin Patch\n*** Add File: x.txt\n+x\n*** End Patch";
+        let (_, patched) = text_of(ApplyPatchTool::new().call(&ctx, serde_json::json!({ "patch": patch, "base_path": share })).await);
+        for text in [listed, tree, found, grepped, patched] {
+            assert!(text.contains("UNC / SMB"), "{share}: {text}");
+        }
+    }
 }
 
 #[tokio::test]

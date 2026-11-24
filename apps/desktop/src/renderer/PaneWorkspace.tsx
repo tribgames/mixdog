@@ -82,6 +82,11 @@ function UnansweredPresentation(): null {
   return null;
 }
 
+function handOverOf(entry: { preparing?: boolean; outgoing?: boolean }): 'incoming' | 'outgoing' | null {
+  if (entry.preparing) return 'incoming';
+  return entry.outgoing ? 'outgoing' : null;
+}
+
 const RetainedConversation = memo(
   function RetainedConversation({ children }: { retained: boolean; children: React.ReactNode }) {
     return <>{children}</>;
@@ -298,7 +303,9 @@ export function PaneWorkspace({
           new Set(leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : []))),
         ])
       );
-  const paneTabsKey = paneTabs ? [...paneTabs].map(([leaf, ids]) => `${leaf}\0${[...ids].join('\0')}`).join('\x01') : null;
+  const paneTabsKey = paneTabs
+    ? [...paneTabs].map(([leaf, ids]) => `${leaf}\0${[...ids].join('\0')}`).join('\x01')
+    : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: paneTabsKey is the content signature of paneTabs
   useLayoutEffect(() => {
     if (paneTabs) keepReaderPlaces(paneTabs);
@@ -373,9 +380,7 @@ export function PaneWorkspace({
               <PanePresentationContext.Provider
                 value={presentationFor(owner, entry.preparing === true, entry.visit ?? 0)}
               >
-                <PaneHandOverContext.Provider
-                  value={entry.preparing ? 'incoming' : entry.outgoing ? 'outgoing' : null}
-                >
+                <PaneHandOverContext.Provider value={handOverOf(entry)}>
                   <RetainedConversation retained={retained}>
                     <PaneKeyContext.Provider value={leaf.id}>
                       {renderConversation(active, focused && shown, focusPane, leaf.id, warm, !parked && !retained)}

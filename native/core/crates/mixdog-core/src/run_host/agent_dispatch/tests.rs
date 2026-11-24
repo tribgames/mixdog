@@ -1,3 +1,15 @@
+/// A hidden role's configured fallback chain survives the route's normalization into the preset the session is made from.
+#[test]
+fn a_hidden_roles_fallback_chain_reaches_its_preset() {
+    let route = serde_json::json!({
+        "provider": "openai", "model": "gpt",
+        "fallbacks": [{ "provider": "anthropic", "model": "opus" }, { "provider": "openai", "model": "gpt" }]
+    });
+    let candidate = super::normalize_candidate(&route).expect("a complete route");
+    let preset = super::route_to_preset(&candidate, "explore").expect("a preset");
+    assert_eq!(preset["fallbacks"], serde_json::json!([{ "provider": "anthropic", "model": "opus" }]));
+}
+
 /// The factory's permission wins for a public agent, a hidden role asks for its own (`read` when it
 /// declares none) and an empty option is as good as none.
 #[test]

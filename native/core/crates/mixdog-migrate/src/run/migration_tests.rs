@@ -61,6 +61,43 @@ impl IndexProjector for TestProjector {
     }
 }
 
+/// A catalog writer behind a serving core: `adopt` records the session and gives it a row of the core's own index.
+struct ServingProjector {
+    adopted: Mutex<Vec<String>>,
+}
+
+impl IndexProjector for ServingProjector {
+    fn project(&self, _data: &Path, _db: &Path, _sessions: &[String]) -> std::result::Result<(), String> {
+        unreachable!("a serving index builds no database of its own")
+    }
+
+    fn serving(&self) -> Option<&dyn crate::index::ServingIndex> {
+        Some(self)
+    }
+}
+
+impl crate::index::ServingIndex for ServingProjector {
+    fn adopt(&self, data: &Path, session: &str) -> std::result::Result<(), String> {
+        self.adopted.lock().unwrap().push(session.to_owned());
+        let db = data.join(crate::index::INDEX_PATH);
+        std::fs::create_dir_all(db.parent().unwrap()).map_err(|e| e.to_string())?;
+        let conn = rusqlite::Connection::open(db).map_err(|e| e.to_string())?;
+        let made: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'sessions'", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        if made == 0 {
+            conn.execute_batch(INDEX_DDL).map_err(|e| e.to_string())?;
+        }
+        conn.execute(
+            "INSERT OR IGNORE INTO sessions (id, dirty, status, deleted, log_id, newest_file_no, projected_file_no,
+                projected_offset, projected_ordinal, history_rev, row_count, visible_count, activity, closed,
+                archived, id_key, title_fold, id_fold, summary)
+             VALUES (?1, 0, 'ok', 0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?2, '', ?1, '{}')",
+            rusqlite::params![session, session_id_key(session)],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 pub(crate) fn drivers() -> Vec<Arc<dyn ItemDriver>> {
     product_drivers(Arc::new(TestProjector), crate::session::context_blobs::testing::office(Arc::default()))
 }
@@ -192,6 +229,11 @@ pub(crate) fn fixture(root: &Path) -> MigrationRoots {
     write(&data, "usage-rollup.local.json", b"{}");
     write(&home, "projects.json", b"{}");
     MigrationRoots { data, home, profile: None }
+}
+
+/// The entries `want` and `got` do not hold alike.
+fn tree_diff<'a>(want: &'a BTreeMap<String, String>, got: &'a BTreeMap<String, String>) -> Vec<&'a String> {
+    want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect()
 }
 
 pub(crate) fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
@@ -441,6 +483,29 @@ fn disposal_keeps_a_session_source_that_is_not_the_journaled_one() {
     }
 }
 
+/// A session the user deletes after it was converted, while the rest convert behind the serving core, is not brought
+/// into the index and does not keep the migration from completing.
+#[test]
+fn a_session_deleted_during_the_background_migration_is_not_adopted_and_does_not_block_completion() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let projector = Arc::new(ServingProjector { adopted: Mutex::default() });
+    let drivers = product_drivers(projector.clone(), crate::session::context_blobs::testing::office(Arc::default()));
+    let data = roots.data.clone();
+    let verified: VerifiedHook = Arc::new(move |id: &str| {
+        if id == "sess_b" {
+            std::fs::remove_dir_all(data.join("sessions").join(id)).unwrap();
+        }
+    });
+    let options = MigrateOptions { workers: 1, fault: None, verified: Some(verified), retention: None };
+
+    Migrator::new(roots.clone(), drivers, options).run().unwrap();
+
+    assert!(roots.data.join(COMPLETE_PATH).exists(), "the migration completes");
+    let adopted = projector.adopted.lock().unwrap().clone();
+    assert!(!adopted.is_empty() && !adopted.iter().any(|id| id == "sess_b"), "{adopted:?}");
+}
+
 /// A session opened while the others wait is converted ahead of them, to the bytes it gets in its turn: the whole tree,
 /// the journaled sources included, is the one a run that converts it last leaves.
 #[test]
@@ -468,7 +533,7 @@ fn a_session_asked_for_first_is_converted_to_the_bytes_of_its_turn() {
     let last = in_turn.last().unwrap().clone();
     let (asked, got) = serving(Some(&last));
     assert_eq!(asked[0], last, "the session asked for is converted first");
-    let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
+    let diff = tree_diff(&want, &got);
     assert!(diff.is_empty(), "{last} converted first and last differ in {diff:?}");
 }
 
@@ -893,7 +958,7 @@ fn resume_after_each_crash(base: &Path, points: &[String], part: usize) {
         assert_eq!(&point, expected, "point {stop_at}");
         migrator(&roots, None).run().unwrap_or_else(|e| panic!("resume after {point}: {e}"));
         let got = tree_digest(&roots);
-        let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
+        let diff = tree_diff(&want, &got);
         assert!(diff.is_empty(), "after a crash at {point}: {diff:?}");
         std::fs::remove_dir_all(base).unwrap();
     }
@@ -969,74 +1034,68 @@ fn disposal_kills(serving: bool, part: usize) {
         tree_digest(&roots)
     });
 
-    {
-        let roots = disposal_fixture(&base);
-        let met = Arc::new(Mutex::new((BTreeMap::<String, usize>::new(), Vec::<(String, String)>::new())));
-        let record = met.clone();
-        let hook: FaultHook = Arc::new(move |point: &str| {
-            let mut guard = record.lock().unwrap();
-            if let Some(found) = disposal_point(point, &mut guard.0) {
-                guard.1.push(found);
-            }
-            Ok(())
-        });
-        Migrator::new(roots.clone(), drivers(), disposal_options(serving, Some(hook))).run().unwrap();
-        let want = tree_digest(&roots);
-        if let Some(one) = &one {
-            assert_eq!(&want, one, "an uninterrupted run with two converters");
+    let roots = disposal_fixture(&base);
+    let met = Arc::new(Mutex::new((BTreeMap::<String, usize>::new(), Vec::<(String, String)>::new())));
+    let record = met.clone();
+    let hook: FaultHook = Arc::new(move |point: &str| {
+        let mut guard = record.lock().unwrap();
+        if let Some(found) = disposal_point(point, &mut guard.0) {
+            guard.1.push(found);
         }
-        let mut by_session: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (key, labelled) in met.lock().unwrap().1.clone() {
-            by_session.entry(key).or_default().push(labelled);
-        }
-        assert!(by_session.len() > 2, "the fixture disposes of {:?}", by_session.keys());
-        assert!(by_session.values().flatten().any(|p| p.starts_with("move:")), "a quarantine move is among the points: {by_session:?}");
-        assert!(by_session.values().flatten().any(|p| p.ends_with("#2")), "a session removes more than one source: {by_session:?}");
+        Ok(())
+    });
+    Migrator::new(roots.clone(), drivers(), disposal_options(serving, Some(hook))).run().unwrap();
+    let want = tree_digest(&roots);
+    if let Some(one) = &one {
+        assert_eq!(&want, one, "an uninterrupted run with two converters");
+    }
+    let mut by_session: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (key, labelled) in met.lock().unwrap().1.clone() {
+        by_session.entry(key).or_default().push(labelled);
+    }
+    assert!(by_session.len() > 2, "the fixture disposes of {:?}", by_session.keys());
+    assert!(by_session.values().flatten().any(|p| p.starts_with("move:")), "a quarantine move is among the points: {by_session:?}");
+    assert!(by_session.values().flatten().any(|p| p.ends_with("#2")), "a session removes more than one source: {by_session:?}");
 
-        // Every point of each session against the first and the last of the next one; the last session (the quarantined one,
-        // whose move or copy points lie inside it) against the first and the last of the one before, so its every point is
-        // a kill point too.
-        let sessions: Vec<&Vec<String>> = by_session.values().collect();
-        let ends = |points: &Vec<String>| [points[0].clone(), points[points.len() - 1].clone()];
-        let mut pairs: Vec<(String, String)> = Vec::new();
-        for pair in sessions.windows(2) {
-            pairs.extend(pair[0].iter().flat_map(|a| ends(pair[1]).map(|b| (a.clone(), b))));
-        }
-        let (before, last) = (sessions[sessions.len() - 2], sessions[sessions.len() - 1]);
-        // The ends of the last session against the ends of the one before are among the pairs above already.
-        let last_ends = ends(last);
-        pairs.extend(last.iter().filter(|a| !last_ends.contains(a)).flat_map(|a| ends(before).map(|b| (a.clone(), b))));
-        let killed_at = |prefix: &str| pairs.iter().any(|(a, b)| a.starts_with(prefix) || b.starts_with(prefix));
-        assert!(killed_at("move:"), "no kill at a quarantine move (serving {serving}): {pairs:?}");
+    // Every point of each session against the first and the last of the next one; the last session (the quarantined one,
+    // whose move or copy points lie inside it) against the first and the last of the one before, so its every point is
+    // a kill point too.
+    let sessions: Vec<&Vec<String>> = by_session.values().collect();
+    let ends = |points: &Vec<String>| [points[0].clone(), points[points.len() - 1].clone()];
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for pair in sessions.windows(2) {
+        pairs.extend(pair[0].iter().flat_map(|a| ends(pair[1]).map(|b| (a.clone(), b))));
+    }
+    let (before, last) = (sessions[sessions.len() - 2], sessions[sessions.len() - 1]);
+    // The ends of the last session against the ends of the one before are among the pairs above already.
+    let last_ends = ends(last);
+    pairs.extend(last.iter().filter(|a| !last_ends.contains(a)).flat_map(|a| ends(before).map(|b| (a.clone(), b))));
+    let killed_at = |prefix: &str| pairs.iter().any(|(a, b)| a.starts_with(prefix) || b.starts_with(prefix));
+    assert!(killed_at("move:"), "no kill at a quarantine move (serving {serving}): {pairs:?}");
+    if serving {
+        assert!(killed_at("quarantine-copy:"), "no kill at a quarantine copy behind a serving core: {pairs:?}");
+    }
+    assert!(pairs.len() > DISPOSAL_PARTS, "{} pairs for {DISPOSAL_PARTS} parts", pairs.len());
+    for (a, b) in pairs.iter().skip(part).step_by(DISPOSAL_PARTS) {
+        disposal_fixture(&base);
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args(["--exact", "run::tests::disposal_kill_child", "--test-threads=1"])
+            .env("DISPOSAL_KILL_BASE", &base)
+            .env("DISPOSAL_KILL_FIRST", a)
+            .env("DISPOSAL_KILL_SECOND", b)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
         if serving {
-            assert!(killed_at("quarantine-copy:"), "no kill at a quarantine copy behind a serving core: {pairs:?}");
+            child.env("DISPOSAL_KILL_SERVING", "1");
         }
-        assert!(pairs.len() > DISPOSAL_PARTS, "{} pairs for {DISPOSAL_PARTS} parts", pairs.len());
-        {
-            for (a, b) in pairs.iter().skip(part).step_by(DISPOSAL_PARTS) {
-                {
-                    disposal_fixture(&base);
-                    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-                    child
-                        .args(["--exact", "run::tests::disposal_kill_child", "--test-threads=1"])
-                        .env("DISPOSAL_KILL_BASE", &base)
-                        .env("DISPOSAL_KILL_FIRST", a)
-                        .env("DISPOSAL_KILL_SECOND", b)
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null());
-                    if serving {
-                        child.env("DISPOSAL_KILL_SERVING", "1");
-                    }
-                    assert_eq!(child.status().unwrap().code(), Some(DISPOSAL_KILLED), "{a} with {b} (serving {serving}) was not reached");
-                    Migrator::new(roots.clone(), drivers(), disposal_options(serving, None))
-                        .run()
-                        .unwrap_or_else(|e| panic!("resume after a kill at {a} with {b} (serving {serving}): {e}"));
-                    let got = tree_digest(&roots);
-                    let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
-                    assert!(diff.is_empty(), "after a kill at {a} with {b} (serving {serving}): {diff:?}");
-                }
-            }
-        }
+        assert_eq!(child.status().unwrap().code(), Some(DISPOSAL_KILLED), "{a} with {b} (serving {serving}) was not reached");
+        Migrator::new(roots.clone(), drivers(), disposal_options(serving, None))
+            .run()
+            .unwrap_or_else(|e| panic!("resume after a kill at {a} with {b} (serving {serving}): {e}"));
+        let got = tree_digest(&roots);
+        let diff = tree_diff(&want, &got);
+        assert!(diff.is_empty(), "after a kill at {a} with {b} (serving {serving}): {diff:?}");
     }
 }
 

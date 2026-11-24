@@ -93,7 +93,7 @@ impl SessionActor {
                 self.manual_compact_due = false;
                 // Nobody waits on the answer: the request was answered when it was scheduled.
                 let (tx, _answered) = oneshot::channel();
-                self.compact_start(None, tx, Some(json!({ "recoverAgent": true })));
+                self.compact_start(None, tx, Some(json!({ "recoverAgent": true })), true);
             }
             return;
         };

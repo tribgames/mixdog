@@ -3,7 +3,8 @@
 //!
 //! - route: `resolveMaintenanceRoute({ agent: 'explore-agent', config, includeDefault: false })`,
 //!   i.e. the saved `agents.explore` route (never Main's), none while Explore is switched off;
-//!   then `initProviders(config.providers)` and `getProvider(route.provider)`.
+//!   then `initProviders(config.providers)` and `getProvider(route.provider)`. Explore runs its tools in
+//!   Mixdog's loop, so a route an agent serves is refused (its settings refuse to save one).
 //! - tools: `readOnlyFilesystemTools()`, one list for the process (identical schema bytes for
 //!   every explorer).
 
@@ -14,10 +15,10 @@ use async_trait::async_trait;
 use mixdog_agent::explorer::ExplorerHost;
 use mixdog_agent::explorer::ExplorerRoute;
 use mixdog_agent::tools::ToolSet;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::admin_route::{ensure_provider_enabled, provider_switched_off};
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_config::config::agent_disabled;
+use mixdog_core_ports::ports::route_facts::{RouteFacts, RouteSender};
 use mixdog_core_run::run_host::hop_host::ConfigSnapshot;
 use serde_json::Map;
 use serde_json::Value;
@@ -77,14 +78,14 @@ pub(crate) fn choose(config: &Map<String, Value>) -> Chosen {
 
 pub struct ConfigExplorerHost {
     config: ConfigSnapshot,
-    registry: Arc<ProviderRegistry>,
+    facts: Arc<dyn RouteFacts>,
     /// Bound once the pool exists: the pool holds the `explore` tool, which holds this host.
     tools: OnceLock<ToolSet>,
 }
 
 impl ConfigExplorerHost {
-    pub fn new(config: ConfigSnapshot, registry: Arc<ProviderRegistry>) -> Self {
-        Self { config, registry, tools: OnceLock::new() }
+    pub fn new(config: ConfigSnapshot, facts: Arc<dyn RouteFacts>) -> Self {
+        Self { config, facts, tools: OnceLock::new() }
     }
 
     /// Takes the read-only filesystem tools out of `pool`, the registry the session tool sets
@@ -98,6 +99,11 @@ fn not_ready(provider: &str) -> String {
     format!("provider \"{provider}\" is not ready")
 }
 
+/// A route an agent serves runs the agent's own loop, which sends no request of Mixdog's: Explore's tools cannot run there.
+fn on_agent(provider: &str, model: &str) -> String {
+    format!("Explore cannot run on {provider}/{model}: an agent's route runs the agent's own loop, not Explore's tools. {NO_MODEL}")
+}
+
 #[async_trait]
 impl ExplorerHost for ConfigExplorerHost {
     async fn route(&self) -> Result<ExplorerRoute, String> {
@@ -108,7 +114,7 @@ impl ExplorerHost for ConfigExplorerHost {
         };
         let Chosen::Route(route) = chosen else {
             let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-            self.registry.init_providers(&providers).await.map_err(|error| error.message)?;
+            self.facts.sender(Some(&providers), "undefined").await?;
             return Err(not_ready("undefined"));
         };
         // A provider the user switched off is not there, though it may still be registered from before.
@@ -117,9 +123,10 @@ impl ExplorerHost for ConfigExplorerHost {
         }
         // As a turn's hop does: a key-only provider has no enabled entry in the stored map.
         let providers = ensure_provider_enabled(&config, &route.provider);
-        self.registry.init_providers(&providers).await.map_err(|error| error.message)?;
-        let Some(provider) = self.registry.get(&route.provider).await else {
-            return Err(not_ready(&route.provider));
+        let provider = match self.facts.sender(Some(&providers), &route.provider).await? {
+            Some(RouteSender::Provider(provider)) => provider,
+            Some(RouteSender::Agent(_)) => return Err(on_agent(&route.provider, &route.model)),
+            None => return Err(not_ready(&route.provider)),
         };
         Ok(ExplorerRoute {
             model: route.model,
@@ -139,12 +146,20 @@ impl ExplorerHost for ConfigExplorerHost {
 
 #[cfg(test)]
 mod key_provider_tests {
-    use mixdog_ai::registry::providers::ProviderBuilder;
+    use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
     use mixdog_core_api::domain::mock::MockProvider;
     use mixdog_core_api::domain::provider::ProviderAdapter;
     use serde_json::json;
 
     use super::*;
+    use crate::run_host::compaction_world::tests::facts_in;
+
+    /// The host over `config`, its providers built by `registry`; the directory holds the facts' files.
+    async fn host_over(config: Map<String, Value>, registry: Arc<ProviderRegistry>) -> (tempfile::TempDir, ConfigExplorerHost) {
+        let dir = tempfile::tempdir().unwrap();
+        let facts = facts_in(dir.path(), registry).await;
+        (dir, ConfigExplorerHost::new(Arc::new(move || config.clone()), facts))
+    }
 
     /// Builds a provider only from an entry the config enables, and only when its key is stored.
     struct StoredKey;
@@ -172,16 +187,26 @@ mod key_provider_tests {
     async fn an_api_key_provider_with_no_enabled_entry_resolves_on_a_cold_registry() {
         let config = json!({ "enabledAgents": ["explore"], "agents": { "explore": { "provider": "openrouter", "model": "some/model" } }, "providers": {} });
         let config = config.as_object().expect("config").clone();
-        let host = ConfigExplorerHost::new(Arc::new(move || config.clone()), Arc::new(ProviderRegistry::new(Arc::new(StoredKey))));
+        let (_dir, host) = host_over(config, Arc::new(ProviderRegistry::new(Arc::new(StoredKey)))).await;
         let route = host.route().await.expect("the explorer's provider is initialised from the stored key");
         assert_eq!(route.model, "some/model");
+    }
+
+    /// Explore runs its read-only tools in Mixdog's loop: a saved route an agent serves is refused, saying so, and
+    /// no provider of that name is asked of the registry.
+    #[tokio::test]
+    async fn a_route_an_agent_serves_is_refused_without_asking_the_registry() {
+        let config = json!({ "enabledAgents": ["explore"], "agents": { "explore": { "provider": "acp-agent", "model": "m" } }, "providers": {} });
+        let config = config.as_object().expect("config").clone();
+        let (_dir, host) = host_over(config, Arc::new(ProviderRegistry::new(Arc::new(StoredKey)))).await;
+        assert_eq!(host.route().await.err(), Some(on_agent("acp-agent", "m")));
     }
 
     #[tokio::test]
     async fn an_explicitly_disabled_provider_stays_disabled_even_with_its_key_stored() {
         let config = json!({ "enabledAgents": ["explore"], "agents": { "explore": { "provider": "openrouter", "model": "some/model" } }, "providers": { "openrouter": { "enabled": false } } });
         let config = config.as_object().expect("config").clone();
-        let host = ConfigExplorerHost::new(Arc::new(move || config.clone()), Arc::new(ProviderRegistry::new(Arc::new(StoredKey))));
+        let (_dir, host) = host_over(config, Arc::new(ProviderRegistry::new(Arc::new(StoredKey)))).await;
         let error = host.route().await.err().expect("a provider the user switched off gives no route");
         assert_eq!(error, not_ready("openrouter"));
     }
@@ -193,12 +218,13 @@ mod key_provider_tests {
         let config = json!({ "enabledAgents": ["explore"], "agents": { "explore": { "provider": "openrouter", "model": "some/model" } }, "providers": {} });
         let config = Arc::new(std::sync::Mutex::new(config.as_object().expect("config").clone()));
         let registry = Arc::new(ProviderRegistry::new(Arc::new(StoredKey)));
+        let dir = tempfile::tempdir().unwrap();
         let host = ConfigExplorerHost::new(
             Arc::new({
                 let config = config.clone();
                 move || config.lock().unwrap().clone()
             }),
-            registry.clone(),
+            facts_in(dir.path(), registry.clone()).await,
         );
         host.route().await.expect("registered while on");
         config.lock().unwrap()["providers"] = json!({ "openrouter": { "enabled": false }, "anthropic": { "enabled": true } });

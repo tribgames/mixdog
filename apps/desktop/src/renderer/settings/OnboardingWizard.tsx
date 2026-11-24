@@ -311,7 +311,7 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: { onCancel(): void;
       >
         <header>
           <h3 id="onboarding-skip-title">{t('Skip Mixdog setup?')}</h3>
-          <button type="button" aria-label={t('Close skip confirmation')} onClick={onCancel}>
+          <button type="button" aria-label={t('Close skip confirmation')} data-settings-nested-close onClick={onCancel}>
             <X aria-hidden="true" size={16} />
           </button>
         </header>

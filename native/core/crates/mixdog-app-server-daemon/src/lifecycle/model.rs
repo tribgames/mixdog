@@ -257,6 +257,8 @@ pub enum Effect {
     CancelRunning(Vec<Running>),
     /// A stop was requested: the new-task attempts in flight end now, as Node's host dispose ends them ([`super::CorePort::cut_new_tasks`]).
     CutNewTasks,
+    /// The drain whose stop request cut the new-task attempts was cancelled: they start again ([`super::CorePort::reopen_new_tasks`]).
+    ReopenNewTasks,
     ReleaseDecision {
         pid: u32,
     },

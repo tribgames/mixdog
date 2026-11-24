@@ -49,7 +49,6 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     sessions,
     sessionCatalogReady,
     refreshSessions,
-    subscribeSessionsRemoved,
     clearNewTaskPreferences,
     invoke,
     setSessionCatalogReady,
@@ -110,7 +109,6 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     setTabs,
     refreshSessions,
     setSessionCatalogReady,
-    subscribeSessionsRemoved,
     closePaneTab: paneWorkspace.closeTabByKey,
   });
   useAppStartupRestore({

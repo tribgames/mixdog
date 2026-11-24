@@ -42,13 +42,8 @@ pub(super) fn with_card_diff(ctx: &ToolContext, mut output: ToolOutput) -> ToolO
 }
 
 /// A committed `edit`: one file, `before` absent for a created file.
-pub(super) async fn committed_edit(ctx: &ToolContext, abs: &AbsPath, before: Option<Vec<u8>>, after: Vec<u8>, output: ToolOutput) -> ToolOutput {
-    let change = CallChange {
-        path: text_of(abs),
-        new_path: None,
-        before: before.map_or(ReviewContent::Absent, ReviewContent::bytes),
-        after: ReviewContent::bytes(after),
-    };
+pub(super) async fn committed_edit(ctx: &ToolContext, abs: &AbsPath, before: ReviewContent, after: Vec<u8>, output: ToolOutput) -> ToolOutput {
+    let change = CallChange { path: text_of(abs), new_path: None, before, after: ReviewContent::bytes(after) };
     record(ctx, vec![change]).await;
     with_card_diff(ctx, output)
 }

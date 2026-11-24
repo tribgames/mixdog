@@ -529,11 +529,63 @@ async fn a_record_still_encoding_when_a_barrier_fails_is_written_with_the_held_o
     let texts: Vec<String> = stored(&rig, &handle.id).into_iter().filter(|text| !text.is_empty()).collect();
     assert_eq!(texts, ["first task", "A", "B", "second task"]);
 }
-/// A recovery at open that cannot read the model context leaves the crashed run open for the next open, instead of ending it
-/// as interrupted with nothing of its draft.
+/// A recovery at open that cannot read the model context closes the crashed run without what it left, its draft given up,
+/// ahead of anything the session writes next: the turn sent after the open follows the close, and no later open finalizes
+/// the run behind that turn.
 #[tokio::test(start_paused = true)]
-async fn a_recovery_that_cannot_read_the_context_leaves_the_run_for_the_next_open() {
+async fn a_recovery_that_cannot_read_the_context_closes_the_run_ahead_of_the_next_turn() {
     use mixdog_store::schema::record::RunPhase;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let (signal, crashing) = (started.clone(), Arc::new(std::sync::atomic::AtomicBool::new(true)));
+    rig.set_script(Arc::new(move |run| {
+        let (signal, crashes) = (signal.clone(), crashing.swap(false, SeqCst));
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if !crashes {
+                return RunOutcome::Completed(Default::default());
+            }
+            run.port.draft(json!({ "text": "streamed before" })).await.expect("drafted");
+            signal.notify_one();
+            // The process dies here: the run never ends.
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    turn(&handle, "first task", "op-1").await;
+    crate::session::testing::awaiting(|| "the run's start".to_owned(), started.notified()).await;
+    let crashed = rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+        Record::Run(run) if run.phase == RunPhase::Started => Some(run.rid.as_str().to_owned()),
+        _ => None,
+    });
+    let crashed = crashed.expect("the run started");
+
+    rig.store.fail_context.store(true, SeqCst);
+    let second = SessionDirectory::new(rig.deps());
+    let reopened = second.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
+    crate::eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
+    turn(&reopened, "second task", "op-2").await;
+    crate::eventually_on!(&[&reopened.cell.stepped], || (idle(&reopened) && !reopened.turn_busy() && reopened.recovered()).then_some(())).await;
+    let records = rig.store.records(&handle.id);
+    let closed = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.rid.as_str() == crashed && run.phase == RunPhase::Interrupted));
+    let next = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.rid.as_str() != crashed && run.phase == RunPhase::Started));
+    assert!(matches!((closed, next), (Some(closed), Some(next)) if closed < next), "the run is closed ahead of the next turn: {closed:?} {next:?}");
+    crate::eventually_on!(&[&reopened.cell.stepped], || rig.store.draft_files(&handle.id).is_empty().then_some(())).await;
+
+    let third = SessionDirectory::new(rig.deps());
+    let again = third.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
+    crate::eventually_on!(&[&again.cell.stepped], || again.recovered().then_some(())).await;
+    assert!(rig.runs.crashed.lock().unwrap().is_empty(), "no open finalizes the closed run");
+}
+/// A recovery at open that finalizes nothing (the model context unreadable) gives the crashed run up: it closes, the provider
+/// continuation goes with its draft, and the session opens idle.
+#[tokio::test(start_paused = true)]
+async fn a_recovery_that_finalizes_nothing_drops_the_provider_state_and_opens_idle() {
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::call::CoreRequest;
+    use mixdog_core_api::ids::Method;
     let rig = Rig::new();
     let started = Arc::new(tokio::sync::Notify::new());
     let signal = started.clone();
@@ -548,22 +600,20 @@ async fn a_recovery_that_cannot_read_the_context_leaves_the_run_for_the_next_ope
     }));
     let first = SessionDirectory::new(rig.deps());
     let handle = start_thread(&first).await;
+    let state = json!({ "xaiResponses": { "previousResponseId": "r1" } });
+    let patch = json!({ "threadId": handle.id, "set": { "providerState": state } });
+    handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
     turn(&handle, "first task", "op-1").await;
     crate::session::testing::awaiting(|| "the run's start".to_owned(), started.notified()).await;
-    let ended = |rig: &Rig| {
-        rig.store.records(&handle.id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase != RunPhase::Started)).count()
-    };
 
     rig.store.fail_context.store(true, std::sync::atomic::Ordering::SeqCst);
     let second = SessionDirectory::new(rig.deps());
-    let reopened = second.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
+    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
     crate::eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
-    assert_eq!(ended(&rig), 0, "the run is not ended");
-
-    let third = SessionDirectory::new(rig.deps());
-    let again = third.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
-    crate::eventually_on!(&[&again.cell.stepped], || (again.recovered() && ended(&rig) == 1).then_some(())).await;
-    assert_eq!(rig.runs.crashed.lock().unwrap().len(), 1, "recovered by the next open");
+    let runtime = reopened.cell.view.load_full().state.runtime.clone().unwrap_or_default();
+    assert!(!runtime.busy && runtime.turn_id.is_none(), "no turn runs in the opened session: {runtime:?}");
+    let header = rig.store.stored_header(&handle.id).expect("the stored header");
+    assert_eq!(header.get("providerState"), None, "the provider continuation goes with the run given up");
 }
 /// A log an earlier build wrote holds an open run's draft as `draft` records: the next open recovers the run from them, and
 /// writes no draft of it again (its old records go with the log's redaction pass, not with a second rewrite here).
@@ -703,10 +753,11 @@ async fn a_closing_thread_writes_a_held_row_and_a_kept_post_in_accept_order() {
     .await;
     assert_eq!(texts(&rig, &handle.id), ["first task", "A", "b0", "b1"]);
 }
-/// A recovery at open whose save fails: the open ends (nothing waits for a save that cannot come), nothing of the recovery is
-/// shown, and the run stays open for the next open, which recovers it.
+/// A recovery at open whose save fails: the open ends (nothing waits for a save that cannot come) idle, nothing of the recovery
+/// is shown or written, and its run is closed without it, ahead of the session's next write: no later open finalizes the run
+/// behind that write.
 #[tokio::test(start_paused = true)]
-async fn a_recovery_whose_save_fails_opens_without_it_and_the_next_open_recovers() {
+async fn a_recovery_whose_save_fails_closes_its_run_ahead_of_the_next_write() {
     use mixdog_store::schema::record::RunPhase;
     let rig = Rig::new();
     let committed = Arc::new(tokio::sync::Notify::new());
@@ -729,29 +780,32 @@ async fn a_recovery_whose_save_fails_opens_without_it_and_the_next_open_recovers
     turn(&handle, "read a", "op-1").await;
     crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
     let shown = |handle: &SessionHandle| format!("{:?}", handle.cell.view.load_full().items);
-    // The log as stored, shown by an open whose recovery cannot run (the context unreadable).
-    rig.store.fail_context.store(true, std::sync::atomic::Ordering::SeqCst);
-    let reference = SessionDirectory::new(rig.deps());
-    let as_stored = shown(&reference.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open"));
-    rig.store.fail_context.store(false, std::sync::atomic::Ordering::SeqCst);
-    let ended = |rig: &Rig| {
-        rig.store.records(&handle.id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase != RunPhase::Started)).count()
-    };
+    let before = stored(&rig, &handle.id);
 
     *rig.store.failing.lock().unwrap() = Some("EIO: injected".into());
     let second = SessionDirectory::new(rig.deps());
     let reopened = second.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("the open ends");
-    assert_eq!(shown(&reopened), as_stored, "nothing unsaved of the recovery is shown");
-    // Nor is any of it kept to be written behind the next open's own recovery.
-    crate::eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
-    assert_eq!(ended(&rig), 0);
+    let at_open = shown(&reopened);
+    crate::eventually_on!(&[&reopened.cell.stepped], || {
+        reopened.cell.view.load_full().state.runtime.as_ref().is_none_or(|runtime| !runtime.busy).then_some(())
+    })
+    .await;
 
     *rig.store.failing.lock().unwrap() = None;
+    reopened.request(internal_title(&reopened, "after")).await.expect("the next write lands");
+    let records = rig.store.records(&handle.id);
+    let closed = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Interrupted));
+    let titled = records.iter().position(
+        |(_, record)| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.get("title") == Some(&json!("after")))),
+    );
+    assert!(matches!((closed, titled), (Some(closed), Some(titled)) if closed < titled), "the run is closed ahead of the next write: {closed:?} {titled:?}");
+    assert_eq!(stored(&rig, &handle.id), before, "nothing of the failed recovery is written");
+
     let third = SessionDirectory::new(rig.deps());
     let again = third.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
-    crate::eventually_on!(&[&again.cell.stepped], || (again.recovered() && ended(&rig) == 1).then_some(())).await;
-    assert_eq!(rig.runs.crashed.lock().unwrap().len(), 2, "recovered again by the next open");
-    assert_ne!(shown(&again), as_stored, "the recovery shows once it is saved");
+    crate::eventually_on!(&[&again.cell.stepped], || again.recovered().then_some(())).await;
+    assert_eq!(rig.runs.crashed.lock().unwrap().len(), 1, "no open finalizes the closed run again");
+    assert_eq!(shown(&again), at_open, "nothing unsaved of the recovery was shown");
 }
 
 /// Whether the warning stands for `session`: its last save event, raised and not since withdrawn.
@@ -902,4 +956,36 @@ async fn a_failed_commit_and_its_resolution_are_logged_without_bodies() {
     assert!(text.contains("a commit was acknowledged while earlier records were unsaved"), "{text}");
     assert!(text.contains("the session's warning is withdrawn"), "{text}");
     assert!(!text.contains("first task") && !text.contains("second task"), "no message body in the log: {text}");
+}
+
+/// A whole draft write that fails drops the writes queued behind it for its run; the drafts those writes carried were
+/// asked for by a live turn, which goes on: they answer as written, never as a closed run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_draft_write_does_not_end_the_live_turn_through_the_drafts_queued_behind_it() {
+    let rig = Rig::new();
+    let (release, hold) = std::sync::mpsc::channel::<()>();
+    *rig.store.draft_fail_on_release.lock().unwrap() = Some(hold);
+    let answers: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = answers.clone();
+    let release = Arc::new(Mutex::new(Some(release)));
+    rig.set_script(Arc::new(move |run| {
+        let (seen, release) = (seen.clone(), release.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = run.port.queue_draft(json!({ "text": "one\n" })).await.expect("queued");
+            let second = run.port.queue_draft(json!({ "text": "two\n" })).await.expect("queued");
+            // Producer messages are taken in order: once this answers, both drafts are in the session's write queue.
+            let _ = run.port.applied_skills(Vec::new()).await;
+            drop(release.lock().unwrap().take());
+            let (first, second) = (run.port.saved(first).await, run.port.saved(second).await);
+            seen.lock().unwrap().push(format!("{first:?} {second:?}"));
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    assert_eq!(*answers.lock().unwrap(), ["Ok(()) Ok(())"]);
+    directory.shutdown().await;
 }

@@ -853,5 +853,24 @@ test('the shared toggle reaches the browser pill and every panel at once', async
   );
   setZoomBarVisible(true);
   assert.equal(typeof BrowserZoomPill, 'function');
+});
+
+test('a network-off page frame carries a policy that allows no worker; an allowed one carries none', async () => {
+  const frameWith = async (networkAllowed) => {
+    putTab({
+      id: 'w1',
+      label: 'page.html',
+      revision: 0,
+      networkAllowed,
+      panes: [{ kind: 'html', label: 'page.html', target: 'page.html', url: 'http://127.0.0.1:1/tok/page.html' }],
+    });
+    const root = await mount();
+    const frame = document.querySelector('.visualize-pane-content iframe');
+    const policy = frame.getAttribute('csp');
+    await act(async () => root.unmount());
+    return policy;
+  };
+  assert.equal(await frameWith(false), "worker-src 'none'");
+  assert.equal(await frameWith(true), null);
   restore();
 });

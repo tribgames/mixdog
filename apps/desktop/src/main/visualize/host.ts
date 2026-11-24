@@ -38,7 +38,7 @@ import {
   windowAccess,
 } from './host-frames';
 import { inlinePageUrl, panePreviewUrl } from './host-pane-preview';
-import { watchPageProblems } from './host-page-observer';
+import { watchPageContents, watchPageRequests } from './host-page-observer';
 import { actPane, annotatePanes, inspectPanes, requireShownWindow, shownHtmlFrames } from './host-page-ops';
 import { watchVisualizeZoomInput } from './host-zoom-input';
 import { preparePaneFrame } from './host-pane-frame';
@@ -234,10 +234,10 @@ export function createDesktopVisualize(options: {
   // Console output and frame navigations of the displayed pages arrive on the
   // main window's webContents; observed once per webContents.
   const observed = new WeakSet<WebContents>();
-  const observePageProblems = (contents: WebContents) => {
+  const observeContents = (contents: WebContents) => {
     if (observed.has(contents)) return;
     observed.add(contents);
-    watchPageProblems(contents, service);
+    watchPageContents(contents, service);
     // A pane page that loaded again within its revision gets the tab's marks
     // back (the overlay lives on the page's window).
     contents.on('did-frame-finish-load', (_event, isMainFrame, processId, routingId) => {
@@ -247,6 +247,15 @@ export function createDesktopVisualize(options: {
         if (frame) void preparePaneFrame(frame, service);
       });
     });
+  };
+  // The request filter belongs to the session, not a window, and goes on only
+  // once a page exists to be held to it (the first page prepared).
+  const filtered = new WeakSet<object>();
+  const observePageProblems = (contents: WebContents) => {
+    observeContents(contents);
+    if (filtered.has(contents.session)) return;
+    filtered.add(contents.session);
+    watchPageRequests(contents.session.webRequest, service);
   };
 
   /** PNG of the displayed tab body, as it is on screen. */
@@ -273,6 +282,7 @@ export function createDesktopVisualize(options: {
   function publishToWindow(event: DesktopVisualizeEvent): void {
     const contents = liveWindow()?.webContents;
     if (!contents) return;
+    observeContents(contents);
     watchVisualizeZoomInput(contents);
     contents.send(DESKTOP_IPC.visualizeChanged, event);
   }
@@ -383,7 +393,15 @@ export function createDesktopVisualize(options: {
         files && { files, renderers: { ...exportRenderers, documentPages }, onPagesCut }
       ),
   });
+  // `Object.assign` below writes over the service's own `snapshot`, so the guarded one keeps a hold of it first.
+  const serviceSnapshot = service.snapshot.bind(service);
   return Object.assign(service, createFeedbackHost(service, { live: liveWindow, require: requireWindow }), {
+    /** A window opened after the tabs were made reads them here before it mounts their frames: guarded from that moment. */
+    snapshot: (...args: Parameters<VisualizeService['snapshot']>) => {
+      const contents = liveWindow()?.webContents;
+      if (contents) observeContents(contents);
+      return serviceSnapshot(...args);
+    },
     /** A web URL the core's agent opened (`ui/openRequested`): handed to the window exactly as the service's own
      *  `openUrl` publish is. */
     openRequested: publishToWindow,

@@ -15,7 +15,6 @@ use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
-use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Value;
 use serde_json::json;
@@ -30,19 +29,10 @@ use super::super::policy;
 use super::super::traits::ModelTraits;
 use super::super::traits::ThinkingControl;
 use super::*;
-use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
+use crate::transport::testing::Once;
 const ANTIGRAVITY_ORIGIN: &str = "https://daily-cloudcode-pa.googleapis.com";
-
-struct Once(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Once {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
 
 /// Serves the scripted answers in order and keeps what was sent.
 struct Scripted {

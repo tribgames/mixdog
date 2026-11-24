@@ -113,8 +113,7 @@ impl SessionActor {
                         None
                     }
                 };
-                // A recovery that could not run leaves the run open, its draft kept: the next open recovers it (Node sets an
-                // unrecovered checkpoint aside, `setAsideUnrecoveredCheckpoint`).
+                // A recovery that could not run closes the run without what it left ([`SessionActor::close_unfinalized`]).
                 match crashed {
                     Some(job) => match job.await {
                         Ok(rows) => {
@@ -122,10 +121,13 @@ impl SessionActor {
                             ended.push((rid, super::super::seams::CrashedRows { context_tokens, ..rows }, end));
                         }
                         Err(error) => {
-                            tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open: {error:?}", thread.as_str())
+                            tracing::error!(
+                                "session {}: the crashed turn {rid} was not finalized, it is closed without what it left: {error:?}",
+                                thread.as_str()
+                            )
                         }
                     },
-                    None => tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open", thread.as_str()),
+                    None => tracing::error!("session {}: the crashed turn {rid} was not finalized, it is closed without what it left", thread.as_str()),
                 }
             }
             let _ = jobs.send(JobDone::Recovered(ended));
@@ -137,10 +139,13 @@ impl SessionActor {
     pub(super) fn recovered(&mut self, ended: Vec<super::RecoveredRun>) {
         let at = self.deps.clock.now_ms();
         // The recovery is one unit, written whole or failed whole: a failed save shows nothing of it (the open is served the
-        // log as it stands) and leaves the runs open, their drafts kept, for the next open, as an unreadable context does.
+        // log as it stands), and its runs are closed without it ([`Self::recovery_ended`]).
         let first = self.outbox.next_id();
         self.outbox.begin_unit(false);
-        if let Some(reset) = self.provider_state_change(None) {
+        // A finalized run drops the provider continuation; one given up drops it too ([`Self::close_unfinalized`]).
+        if !ended.is_empty()
+            && let Some(reset) = self.provider_state_change(None)
+        {
             self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
         }
         // A queued entry the crashed run already took (a steered row naming it) was delivered: its dequeue did not land
@@ -217,10 +222,11 @@ impl SessionActor {
             if let Some(tokens) = left.context_tokens {
                 set.insert("lastContextTokens".into(), json!(tokens));
             }
-            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
             let end = self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             self.remove_draft_when_durable(&rid, Some(end));
         }
+        self.close_unfinalized();
         self.outbox.end_unit();
         // The recovery's records are durable (or failed) before the session is served: its last entry carries the ack, which a
         // failed save fails rather than holds (a held recovery would be served unsaved).
@@ -241,6 +247,8 @@ impl SessionActor {
     pub(super) fn recovery_ended(&mut self) {
         self.recovering = false;
         if let Some(ready) = self.opened.take() {
+            // A recovery whose save failed left its runs open: they are closed now, ahead of anything the session takes next.
+            self.close_unfinalized();
             // The crashed runs are finalized: an owed Stop outcome is finished, never its work run.
             self.recover_stops();
             let _ = ready.send(());
@@ -250,5 +258,34 @@ impl SessionActor {
             self.schedule_goal_continuation();
         }
         self.receipts_due();
+    }
+
+    /// The crashed runs this open did not finalize (their context unreadable, their finalization or the recovery's save failed)
+    /// end where the log stands, their drafts given up: no run of this process is any of them, and no later open finalizes
+    /// them behind what the session writes after. Each close is accepted ahead of anything the session takes next; one a
+    /// failed save holds is written again before it.
+    fn close_unfinalized(&mut self) {
+        let open: Vec<String> = self.projected.runs.keys().cloned().collect();
+        // What a run given up saved of the provider continuation may cover output only its draft held.
+        if !open.is_empty()
+            && let Some(reset) = self.provider_state_change(None)
+        {
+            self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
+        let at = self.deps.clock.now_ms();
+        for rid in open {
+            let record = Record::Run(RunRecord {
+                rid: id(&rid),
+                phase: RunPhase::Interrupted,
+                attribution: None,
+                attempt: None,
+                end: None,
+                at: Some(at),
+                op: None,
+                detail: None,
+            });
+            let close = self.accept_record_entry(record, Class::Control, Display::None, Vec::new(), Vec::new());
+            self.remove_draft_when_durable(&rid, Some(close));
+        }
     }
 }

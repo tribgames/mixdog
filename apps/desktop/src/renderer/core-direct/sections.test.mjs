@@ -201,9 +201,10 @@ test('replaced_connection_swaps_the_whole_store', async () => {
   await store.ready();
   assert.equal(store.get('projects')?.value, 'gone');
   const next = fakeClient();
-  next.put({ section: 'config', key: null, revision: 1, value: 'new' });
   clients.push(next);
   await connection.reopen();
+  assert.equal(store.get('config')?.value, 'old', 'the new client holds nothing before it folds its snapshot');
+  next.refold([{ section: 'config', key: null, revision: 1, value: 'new' }]);
   assert.equal(store.get('config')?.value, 'new', 'a restarted core numbers its revisions again');
   assert.equal(store.get('projects'), undefined, 'what the new store lacks is dropped');
   store.dispose();
@@ -221,6 +222,23 @@ test('a leg that came back to a restarted core hands the window the whole store'
   assert.equal(store.get('config')?.value, 'new', 'lower revisions of a restarted core are taken');
   assert.equal(store.get('projects'), undefined);
   assert.equal(store.status(), 'ready');
+  store.dispose();
+});
+
+test('a window composed before the first open learns its core, so a leg that came back tells what was told meanwhile', async () => {
+  const client = fakeClient();
+  const connection = createRendererConnection({ open: async () => client });
+  const store = createSectionStore(createSectionsApi(createDirectContext(connection)).sections);
+  await store.ready();
+  await connection.start();
+  // The first app snapshot is folded after the open answered.
+  client.refold([{ section: 'reviewDiff', key: null, revision: 1, value: {} }]);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  client.refold([{ section: 'reviewDiff', key: null, revision: 2, value: {} }]);
+  assert.deepEqual(heard, ['reviewDiff']);
   store.dispose();
 });
 

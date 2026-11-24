@@ -123,6 +123,17 @@ struct Inner {
     marks: Arc<mixdog_rt::WriteMarks>,
 }
 
+/// The size the automatic checkpoint already keeps the log at (`wal_autocheckpoint` pages), as the file's bound: once
+/// a checkpoint has emptied the log the engine truncates the file to it at the next commit. A burst's peak does not
+/// outlive it, and the writer never waits for a reader to get there: a checkpoint a reader obstructs is repeated by
+/// the following commits.
+fn bound_log(conn: &Connection) -> Result<()> {
+    let pages: i64 = conn.pragma_query_value(None, "wal_autocheckpoint", |r| r.get(0))?;
+    let page_size: i64 = conn.pragma_query_value(None, "page_size", |r| r.get(0))?;
+    conn.pragma_update(None, "journal_size_limit", pages * page_size)?;
+    Ok(())
+}
+
 pub struct UsageWriter {
     inner: Arc<Inner>,
 }
@@ -443,6 +454,7 @@ impl UsageWriter {
         let mut conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL")?;
         prepare(&mut conn)?;
+        bound_log(&conn)?;
         let (commands, receiver) = mpsc::sync_channel(QUEUE);
         let marks = Arc::new(mixdog_rt::WriteMarks::new("the usage ledger"));
         let inner = Arc::new(Inner { commands, marks: marks.clone() });

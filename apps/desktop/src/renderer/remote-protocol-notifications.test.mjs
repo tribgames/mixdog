@@ -36,6 +36,12 @@ test("push registrations are the core's requests; the phone adds only the argume
   ]);
 });
 
+test("a newly paired phone's PC-access key is the core's request, answered with the core's answer", async () => {
+  const { sent, call } = scripted({ 'remoteAccess/deliverScreenControllerKey': true });
+  assert.equal(await call('deliverScreenControllerKey', ['BPubKey']), true);
+  assert.deepEqual(sent, [{ method: 'remoteAccess/deliverScreenControllerKey', params: { input: 'BPubKey' } }]);
+});
+
 test('a token that is not a string and a blank endpoint are refused before anything is sent', async () => {
   const { sent, call } = scripted();
   await assert.rejects(call('removeNativePush', [5]), { message: 'token must be a string.' });

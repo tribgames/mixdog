@@ -19,14 +19,16 @@ const DRAFT = { kind: 'new', draftId: 'd1' };
 
 const NO_PICK = { modelSelection: null };
 
-function mountRouting(desktop, modelPrefs = NO_PICK) {
+function mountRouting(desktop, modelPrefs = NO_PICK, app = {}) {
   window.mixdogDesktop = desktop;
   let routing = null;
+  const refs = {};
   function Harness() {
     const selectionRef = useRef(DRAFT);
     const focusedLeafIdRef = useRef('leaf-1');
     const paneLeavesRef = useRef([{ type: 'leaf', id: 'leaf-1', tabs: [DRAFT], activeKey: 'new:d1' }]);
     const navigationEpoch = useRef(0);
+    Object.assign(refs, { selectionRef, focusedLeafIdRef, paneLeavesRef, navigationEpoch });
     routing = useAppSubmitRouting({
       selectionRef,
       focusedLeafIdRef,
@@ -46,6 +48,7 @@ function mountRouting(desktop, modelPrefs = NO_PICK) {
       promoteSelectionInLeaf: () => {},
       registerWorkspaceSelection: () => {},
       seedCreatedSessionLane: () => {},
+      ...app,
     });
     return null;
   }
@@ -53,8 +56,9 @@ function mountRouting(desktop, modelPrefs = NO_PICK) {
   document.body.append(container);
   const root = createRoot(container);
   return {
+    refs,
     render: () => act(async () => root.render(React.createElement(Harness, null))),
-    submitDraft: (text) => routing.paneDraftSubmitFor(DRAFT, 'leaf-1')(text, { id: `submit-${text}` }),
+    submitDraft: (text, leafId = 'leaf-1') => routing.paneDraftSubmitFor(DRAFT, leafId)(text, { id: `submit-${text}` }),
     cleanup: async () => {
       await act(async () => root.unmount());
       container.remove();
@@ -93,6 +97,60 @@ test('a prompt sent before the draft promotes joins the session it is minting', 
     assert.equal(await mounted.submitDraft('third prompt'), true);
     assert.equal(calls.creations, 1);
     assert.deepEqual(calls.submits.at(-1), ['s1', 'third prompt']);
+  } finally {
+    await mounted.cleanup();
+  }
+});
+
+test('a draft moved to another pane and left and returned to while its first prompt is in flight promotes there', async () => {
+  let releaseCreation = () => {};
+  const creation = new Promise((resolve) => {
+    releaseCreation = resolve;
+  });
+  const calls = { creations: 0, submits: [], activated: [], promoted: [], cleared: 0 };
+  const mounted = mountRouting(
+    {
+      async submitNewTask() {
+        calls.creations += 1;
+        await creation;
+        return { accepted: true, sessionId: 's1', snapshot: { sessionId: 's1' } };
+      },
+      async submitToSession(sessionId, content) {
+        calls.submits.push([sessionId, content]);
+        return true;
+      },
+    },
+    NO_PICK,
+    {
+      activateSelection: (selection, _title, replaceKey) => calls.activated.push([selection.id, replaceKey]),
+      promoteSelectionInLeaf: (leafId, selection, replaceKey) =>
+        calls.promoted.push([leafId, selection.id, replaceKey]),
+      clearNewTaskPreferences: () => {
+        calls.cleared += 1;
+      },
+    }
+  );
+  try {
+    await mounted.render();
+    const first = mounted.submitDraft('first prompt');
+    // The draft's tab is split off into a pane of its own; the user visits
+    // another session and comes back to the draft before the session exists.
+    const { paneLeavesRef, focusedLeafIdRef, navigationEpoch } = mounted.refs;
+    paneLeavesRef.current = [
+      { type: 'leaf', id: 'leaf-1', tabs: [{ kind: 'session', id: 'other' }], activeKey: 'session:other' },
+      { type: 'leaf', id: 'leaf-2', tabs: [DRAFT], activeKey: 'new:d1' },
+    ];
+    focusedLeafIdRef.current = 'leaf-2';
+    navigationEpoch.current += 2;
+    releaseCreation();
+    assert.equal(await first, true);
+    assert.deepEqual(calls.activated, [['s1', 'new:d1']], 'the shown draft becomes the selected session');
+    assert.deepEqual(calls.promoted, []);
+    assert.equal(calls.cleared, 1, 'the draft hands its preferences back');
+
+    assert.equal(await mounted.submitDraft('second prompt', 'leaf-2'), true);
+    assert.equal(calls.creations, 1, 'the moved draft keeps its one session');
+    assert.deepEqual(calls.submits, [['s1', 'second prompt']]);
   } finally {
     await mounted.cleanup();
   }

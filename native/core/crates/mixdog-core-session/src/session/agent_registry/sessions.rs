@@ -185,6 +185,7 @@ impl AgentSessions {
             self.cancel_descendants(owner, reason, board),
         )
         .await;
+        board.forget_session(owner);
     }
 }
 

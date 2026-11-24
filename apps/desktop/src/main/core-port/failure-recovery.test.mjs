@@ -96,7 +96,7 @@ test('a watch that cannot be installed is recorded in the diagnostics log with i
   await tick();
   assert.match(failing[0], /EACCES/, 'a directory that cannot be made is recorded too');
 });
-test('a watch that stops is replaced, and the replacement looks at what it missed', async () => {
+test('a watch that stops is not replaced at once; the next report replaces it, and the replacement looks at what it missed', async () => {
   const reports = confirmedReports();
   const ends = [];
   let installed = 0;
@@ -116,10 +116,14 @@ test('a watch that stops is replaced, and the replacement looks at what it misse
   });
   await tick();
   assert.equal(installed, 1);
-  discovery = serving; // the change that the stopped watch could not tell of
+  ends[0]();
   ends[0]();
   await tick();
-  assert.equal(installed, 2, 'replaced');
+  assert.equal(installed, 1, 'a watch that ended is not reinstalled on its own failure');
+  discovery = serving; // the change that the stopped watch could not tell of
+  reports.attempt().progress({ done: 1, total: 2 }, 5);
+  await tick();
+  assert.equal(installed, 2, 'replaced when the next report arrives');
   assert.equal(reports.confirmed(), null, 'and what happened meanwhile is seen');
 });
 

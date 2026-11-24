@@ -24,7 +24,9 @@ const open = (id: string, name: string, live: boolean): Obj => ({
 const closed = (call: Obj, status = 'completed'): Obj => ({
   ...call,
   output: `out ${String(call.id)}`,
-  ...(call.run ? { run: { ...(call.run as Obj), result: `out ${String(call.id)}`, completedAt: 4, completedCount: 1 } } : {}),
+  ...(call.run
+    ? { run: { ...(call.run as Obj), result: `out ${String(call.id)}`, completedAt: 4, completedCount: 1 } }
+    : {}),
   meta: { ...(call.meta as Obj), status },
 });
 
@@ -52,7 +54,11 @@ test('a transcript carried on from the one held is the transcript merged whole, 
       item = closed(call!, random() < 0.1 ? 'interrupted' : 'completed');
     }
     fold = apply(fold, item);
-    assert.deepEqual(shown(fold), mergeToolRows(fold.items), `after step ${step} (${String(item.type)} ${String(item.id)})`);
+    assert.deepEqual(
+      shown(fold),
+      mergeToolRows(fold.items),
+      `after step ${step} (${String(item.type)} ${String(item.id)})`
+    );
   }
   assert.ok(shown(fold).some((row) => row.aggregate === true));
 });
@@ -90,7 +96,10 @@ test('a reader is told which leading rows of a transcript are the rows of the on
   for (let index = 0; index < editedKept; index += 1) assert.equal(editedRows[index], rows[index]);
   assert.equal(editedRows[3]!.text, 'edited');
   // Another fold of the same thread is not this list carried on.
-  assert.equal(rowsHeldFrom(shown(sessionReducer.initial({ thread: { id: 't' }, state: {}, items: [] })), held), undefined);
+  assert.equal(
+    rowsHeldFrom(shown(sessionReducer.initial({ thread: { id: 't' }, state: {}, items: [] })), held),
+    undefined
+  );
 });
 
 test('a prompt the core shows again replaces the row of its id where it is, however long the fold has run', () => {
@@ -128,4 +137,3 @@ test('a compaction that re-sends every row it archived is one merge, at the next
   assert.equal(kept, 40, 'the rows above the first one archived are the rows held');
   for (let index = 0; index < 40; index += 1) assert.equal(rows[index], held[index]);
 });
-

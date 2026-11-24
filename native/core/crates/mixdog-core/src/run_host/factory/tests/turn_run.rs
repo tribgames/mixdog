@@ -655,6 +655,119 @@ async fn an_automatic_compaction_sends_a_full_request_without_the_retired_contin
     assert_eq!(system(1), system(0), "the next turn's request carries the system prompt once");
 }
 
+/// [`CompactsOnce`] on the turn whose prompt is `turn-two`: the turns before it are sent their whole history.
+#[derive(Default)]
+struct CompactsTurnTwo(AtomicBool);
+
+#[async_trait]
+impl Compactor for CompactsTurnTwo {
+    fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
+        let due = !self.0.load(Ordering::SeqCst) && messages.iter().any(|m| m.role() == Role::User && m.text().contains("turn-two"));
+        if due { 1_000_000 } else { 10 }
+    }
+
+    async fn reduces(&self, _: &CompactRequest<'_>) -> bool {
+        !self.0.load(Ordering::SeqCst)
+    }
+
+    async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
+        self.0.store(true, Ordering::SeqCst);
+        CompactsOnce::default().compact(request).await
+    }
+}
+
+/// A turn stopped after its automatic compaction closes on the compacted context: the next turn is sent the summary and
+/// none of the history the compaction dropped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_stopped_after_its_compaction_leaves_the_compacted_context() {
+    use mixdog_store::schema::record::RunPhase;
+    let stop = |stop: StopReason| StreamEvent::Completed { stop: Some(stop), pricing_model: None, request_ms: None };
+    let provider = Arc::new(Scripted {
+        id: ProviderId::from("scripted"),
+        policy: RetryPolicy::codex_default(),
+        keepalive: KeepaliveSchedule::SPEC,
+        codec: MockCodec,
+        script: Mutex::new(VecDeque::from([
+            vec![StreamEvent::TextDelta("first answer".into()), stop(StopReason::EndTurn)],
+            vec![
+                StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "holder".into(), arguments: json!({}), native_type: None }),
+                stop(StopReason::ToolUse),
+            ],
+            vec![StreamEvent::TextDelta("third answer".into()), stop(StopReason::EndTurn)],
+        ])),
+        requests: Mutex::new(Vec::new()),
+        fail_first: std::sync::atomic::AtomicBool::new(false),
+    });
+    let spec = ToolSpec {
+        name: "holder".into(),
+        title: None,
+        trigger: None,
+        public: true,
+        aliases: Vec::new(),
+        description: "holder".into(),
+        input_schema: json!({ "type": "object" }),
+        annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+        parallel_safe: true,
+        exclusive_with: Vec::new(),
+    };
+    let (blocked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let workspace = tempfile::tempdir().unwrap();
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    let parts = Compacting {
+        inner: Parts {
+            provider: provider.clone(),
+            workspace: workspace.path().to_path_buf(),
+            more: vec![Arc::new(Blocker(spec, blocked.clone(), release))],
+            settle: None,
+            effort: None,
+        },
+        compactor: Arc::new(CompactsTurnTwo::default()),
+        settings: mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(1_000), token_calibration: 1.0, ..Default::default() },
+    };
+    deps.runs = Arc::new(RunHostFactory::new(
+        mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+        mixdog_tools::web::NativeSearchUsageSinks::new(),
+        Arc::new(parts),
+    ));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let reply = directory
+        .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    let completed = || rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Completed)).count();
+
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "turn-one" } }), "op-1")).await.expect("turn/start");
+    eventually_on_awaiting(
+        || "the first turn's end".to_owned(),
+        &[&rig.store.committed, handle.stepped()],
+        || (completed() == 1 && !handle.turn_busy()).then_some(()),
+    )
+    .await;
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "turn-two" } }), "op-2")).await.expect("turn/start");
+    mixdog_core_session::session::testing::awaiting(|| "the compacted turn's call".to_owned(), blocked.notified()).await;
+    let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+    handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(false), submission_id: None, ctx }).await.expect("stop");
+    eventually_on_awaiting(|| "the stopped turn's end".to_owned(), &[handle.stepped()], || (!handle.turn_busy()).then_some(())).await;
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-3", "input": { "prompt": "turn-three" } }), "op-3")).await.expect("turn/start");
+    eventually_on_awaiting(
+        || "the third turn's end".to_owned(),
+        &[&rig.store.committed, handle.stepped()],
+        || (completed() == 2 && !handle.turn_busy()).then_some(()),
+    )
+    .await;
+
+    let requests = lock(&provider.requests).clone();
+    assert_eq!(requests.len(), 3, "each turn asked the model once");
+    assert!(format!("{:?}", requests[1].messages).contains("[summary]"), "the second turn compacted before its request");
+    let after = format!("{:?}", requests[2].messages);
+    assert!(after.contains("[summary]"), "the stop kept the compaction's summary: {after}");
+    assert!(!after.contains("turn-one") && !after.contains("first answer"), "the stop brought back what the compaction dropped: {after}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_large_scanned_pdf_goes_by_reference_before_send_even_with_auto_compaction_off() {
     use super::super::super::assemble::CompactorInput;

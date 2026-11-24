@@ -7,13 +7,17 @@ import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigati
 import { forgetTranscriptVirtualSnapshot, rememberTranscriptVirtualMeasurements } from './transcript-virtual-cache';
 import { PaneKeyContext } from './pane-key-context';
 import { openReaderPlace, readerPlace, useSessionEntry } from './transcript-list-reader-place';
+import { transcriptTurnKeys } from './renderer-logic.mjs';
+import { turnPromptText } from './transcript-rows';
+import { useConversationRowRenderer } from './use-conversation-row-renderer';
 
 const ITEMS = [
   { id: 'u1', kind: 'user', text: 'hello' },
   { id: 'a1', kind: 'assistant', text: 'hi' },
 ];
 
-function mount(t, { showTimeline = true, items = ITEMS, pane = '' } = {}) {
+/** `submit`: the rows are also rendered, as Conversation.tsx renders them, and a row's retry submits through it. */
+function mount(t, { showTimeline = true, items = ITEMS, pane = '', live = items, snapshot = {}, submit } = {}) {
   let now = 0;
   let frameId = 0;
   const frames = new Map();
@@ -64,6 +68,7 @@ function mount(t, { showTimeline = true, items = ITEMS, pane = '' } = {}) {
     source: {
       transcriptIdentity: identity,
       settledItems: items,
+      liveSettledItems: live,
       settledRowItems: items,
       activeStreamingTail: null,
       showTranscriptTimeline: showTimeline,
@@ -72,7 +77,7 @@ function mount(t, { showTimeline = true, items = ITEMS, pane = '' } = {}) {
     },
     sessionKey: 'session-a',
     draftMode: false,
-    snapshot: {},
+    snapshot,
     pendingItems: [],
     optimisticActivityStartedAt: 0,
     onEntryRevealed: (key) => calls.revealed.push(key),
@@ -81,8 +86,26 @@ function mount(t, { showTimeline = true, items = ITEMS, pane = '' } = {}) {
   // In the order Conversation.tsx calls them: the entry, then the timeline.
   function Timeline() {
     useSessionEntry(props.sessionKey);
-    calls.anchored.push(useConversationTimeline(props).shouldAnchorTranscriptBottom);
-    return null;
+    calls.timeline = useConversationTimeline(props);
+    calls.anchored.push(calls.timeline.shouldAnchorTranscriptBottom);
+    return submit ? React.createElement(Rows, { timeline: calls.timeline }) : null;
+  }
+  function Rows({ timeline }) {
+    const { renderTranscriptRow } = useConversationRowRenderer({
+      snapshot: props.snapshot,
+      disclosureScope: props.sessionKey,
+      readOnly: false,
+      transitioning: false,
+      onOpenSettings() {},
+      ...timeline.rowItems,
+      optimisticActivityStartedAt: 0,
+      submit,
+      questionCard: null,
+    });
+    const rows = timeline.transcriptRows;
+    return rows.map((row, index) =>
+      React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows))
+    );
   }
   const Harness = () => React.createElement(PaneKeyContext.Provider, { value: pane }, React.createElement(Timeline));
   act(() => root.render(React.createElement(Harness)));
@@ -175,6 +198,43 @@ test('entering a session follows its end: the place its reader left in the pane 
   assert.ok(entry.calls.armed > 0, 'the entry arms follow');
   assert.equal(entry.calls.paused, 0, 'and never lets go of it');
   assert.equal(readerPlace('pane-1', 'session-a'), null, 'the old place is gone');
+});
+
+test('a history window and the live rows are each read with their own turn keys', (t) => {
+  const history = [
+    { id: 'u0', kind: 'user', text: 'an older prompt' },
+    { id: 'a0', kind: 'assistant', text: 'an older reply' },
+  ];
+  // The state's keys are the live rows', here as many as the window's rows.
+  const entry = mount(t, { items: history, live: ITEMS, snapshot: { transcriptTurnKeys: transcriptTurnKeys(ITEMS) } });
+  const { settledTurnKeys, liveTurnKeys } = entry.calls.timeline;
+  assert.deepEqual(settledTurnKeys, transcriptTurnKeys(history));
+  assert.deepEqual(liveTurnKeys, transcriptTurnKeys(ITEMS));
+  assert.equal(turnPromptText(history, settledTurnKeys, settledTurnKeys[0]), 'an older prompt');
+  assert.equal(turnPromptText(ITEMS, liveTurnKeys, liveTurnKeys.at(-1)), 'hello');
+});
+
+test('an error only a history window holds offers Retry, which resubmits its own prompt', (t) => {
+  const history = [
+    { id: 'u0', kind: 'user', text: 'an older prompt' },
+    { id: 'd0', kind: 'turndone', status: 'failed', message: 'The model stopped.' },
+  ];
+  const submitted = [];
+  const entry = mount(t, {
+    items: history,
+    live: ITEMS,
+    snapshot: { failedTurnKeys: [transcriptTurnKeys(history)[0]] },
+    submit: async (prompt, options) => {
+      submitted.push([prompt, options]);
+      return true;
+    },
+  });
+  const retry = [...entry.window.document.querySelectorAll('#root button')].find(
+    (button) => button.textContent === 'Retry'
+  );
+  assert.ok(retry, 'the failed turn offers Retry');
+  act(() => retry.click());
+  assert.deepEqual(submitted, [['an older prompt', { retryFailedTurn: true }]]);
 });
 
 test('a tapped notification for this session returns the pane to its latest row; others do not', (t) => {

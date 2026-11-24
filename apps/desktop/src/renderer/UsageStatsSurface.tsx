@@ -228,8 +228,14 @@ function useUsageStatsReload(request: StatsRequest, loaded: Row) {
   const sequence = useRef(0);
   const reload = (nextView: StatsView, anchor?: string, dates?: { startDay: string; endDay: string }) => {
     const ticket = ++sequence.current;
-    setBusy(true);
     setError('');
+    // The last 24 hours is the live figure the surface is handed: follow it again.
+    if (nextView === 'hour' && !anchor && !dates) {
+      setSelection(null);
+      setBusy(false);
+      return;
+    }
+    setBusy(true);
     void request('getUsageStats', [{ view: nextView, ...(anchor ? { anchor } : {}), ...dates }])
       .then((value) => {
         if (sequence.current === ticket) {

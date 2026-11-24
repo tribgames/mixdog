@@ -121,7 +121,7 @@ struct Inner {
     /// changing what belongs to a peer names the generation it was made for, and is decided here, with the change. Absent for a peer
     /// attached without one (`attach_peer`).
     generations: HashMap<String, u64>,
-    /// Relay peers revoked for their lifetime: live at an unpair, or admitted while one was in force. Only the screen reads it
+    /// Relay peers revoked for their lifetime: live at an unpair, until the runtime closes them. Only the screen reads it
     /// (Node's `revoked` set in `screen-access-publisher.ts`); the peer keeps its credential and everything else it holds.
     screen_revoked: HashSet<String>,
     /// Phones whose leg is a transport session: the last authenticated liveness (ms on `clock`)

@@ -3,13 +3,14 @@
 // of the window's own core connection.
 import type { App, Shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { DESKTOP_IPC, type DesktopLocalPathEntry } from '../shared/contract';
 import { requiredRepositoryCwd } from './git-contract.mjs';
 import { attachmentImageBaseName, requiredAttachmentImage, requiredString } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
 import { launchFile } from './file-launch';
+import { projectEntryPathIn } from './project-entry-path';
 import { putBlobRef } from './core-blob-ref';
 import { coreErrorForWindow } from './protocol/core-error';
 import type { ProtocolConnection } from './protocol/connection';
@@ -40,18 +41,10 @@ export function registerSourceControlIpc({
   stageAttachment,
   core,
 }: SourceControlIpcOptions): void {
-  const resolveInsideProject = (cwd: unknown, path: unknown): string => {
-    const root = resolve(requiredRepositoryCwd(cwd));
-    const absolute = resolve(root, requiredString(path, 'file path', 4_096));
-    if (absolute !== root && !absolute.startsWith(root + sep)) {
-      throw new TypeError('The file path escapes the project directory.');
-    }
-    return absolute;
-  };
   const targetFile = async (cwd: unknown, path: unknown, accessToken: unknown): Promise<string> =>
     typeof accessToken === 'string' && accessToken
       ? (await grantedFile(accessToken, cwd, path)).absolute
-      : resolveInsideProject(cwd, path);
+      : projectEntryPathIn(requiredRepositoryCwd(cwd), requiredString(path, 'file path', 4_096));
   handle(DESKTOP_IPC.revealFile, async (_event, cwd, path, accessToken) => {
     const absolute = await targetFile(cwd, path, accessToken);
     shell.showItemInFolder(absolute);
@@ -64,8 +57,8 @@ export function registerSourceControlIpc({
     const image = requiredAttachmentImage(dataUrl);
     const temp = typeof app.getPath === 'function' ? app.getPath('temp') : '';
     if (!temp) throw new Error('Unable to open image: no temporary directory.');
-    const directory = join(temp, 'mixdog-attachments');
-    await mkdir(directory, { recursive: true });
+    // A fresh private folder: a shared temp folder's fixed name could be pre-created, or hold a link, by another local user.
+    const directory = await mkdtemp(join(temp, 'mixdog-attachments-'));
     const digest = createHash('sha256').update(image.bytes).digest('hex').slice(0, 16);
     const file = join(directory, `${attachmentImageBaseName(name)}-${digest}.${image.extension}`);
     await writeFile(file, image.bytes, { mode: 0o600 });

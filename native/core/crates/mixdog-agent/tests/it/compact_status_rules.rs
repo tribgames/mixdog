@@ -10,6 +10,7 @@ use mixdog_agent::compact::estimate::MessageMeter;
 use mixdog_agent::compact::estimate::PartMeter;
 use mixdog_agent::compact::pressure::Books;
 use mixdog_agent::compact::pressure::COMPACT_NO_WINDOW;
+use mixdog_agent::compact::pressure::ContextSize;
 use mixdog_agent::compact::pressure::Header;
 use mixdog_agent::compact::pressure::HeaderPatch;
 use mixdog_agent::compact::pressure::ImageDescriptor;
@@ -22,13 +23,18 @@ use mixdog_agent::compact::pressure::TerminalUsage;
 use mixdog_agent::compact::pressure::TranscriptSigner;
 use mixdog_agent::compact::pressure::check_change;
 use mixdog_agent::compact::pressure::compaction_plan;
+use mixdog_agent::compact::pressure::context_size;
 use mixdog_agent::compact::pressure::context_status;
+use mixdog_agent::compact::pressure::first_hop;
 use mixdog_agent::compact::pressure::forced_target_budget;
 use mixdog_agent::compact::pressure::iteration_metrics;
+use mixdog_agent::compact::pressure::measured_context_tokens;
 use mixdog_agent::compact::pressure::pass_change;
+use mixdog_agent::compact::pressure::settled_change;
 use mixdog_agent::compact::pressure::terminal_usage;
 use mixdog_agent::compact::pressure::turn_started;
-use mixdog_agent::compact::pressure::{settled_change, usage_change, with_prompt_cache_evidence};
+use mixdog_agent::compact::pressure::usage_change;
+use mixdog_agent::compact::pressure::with_prompt_cache_evidence;
 use mixdog_agent::compact::tool_schema::RequestTools;
 use mixdog_agent::env::CompactPass;
 use mixdog_agent::env::CompactTrigger;
@@ -43,14 +49,14 @@ use mixdog_core_api::domain::provider::Usage;
 use serde_json::Value;
 use serde_json::json;
 
-struct TextOnly;
+pub(crate) struct TextOnly;
 impl MediaMeter for TextOnly {
     fn part(&self, part: &ContentPart) -> PartMeter {
         panic!("media part in a text-only transcript: {part:?}")
     }
 }
 
-struct NoImages;
+pub(crate) struct NoImages;
 impl ImageIdentities for NoImages {
     fn images(&self, _: &AgentMessage) -> Vec<ImageDescriptor> {
         Vec::new()
@@ -414,7 +420,7 @@ fn provider_usage_reaches_pressure_status_as_prompt_and_output_evidence() {
         let base = header(json!({ "id": "s1", "provider": provider, "contextWindow": 200_000 }));
         let mut live = delta(reported.input_tokens, reported.cache_read_tokens, reported.cache_write_tokens, reported.output_tokens, 1);
         live["contextOutputTokens"] = json!(reported.output_tokens);
-        live["contextMeasuredTokens"] = json!(mixdog_agent::compact::pressure::measured_context_tokens(&reported));
+        live["contextMeasuredTokens"] = json!(measured_context_tokens(&reported));
         let evidence = with_prompt_cache_evidence(&base, &live, &reported);
         let after_call = applied(&base, usage_change(&base, &evidence, &[], &[], None, excludes_cache, 100.0, 200.0));
         let settled = Settled { transcript: &[], usage: &reported, last_turn_usage: &reported, tool_calls_total: 0, send_tools: &[] };
@@ -461,7 +467,7 @@ fn a_turns_summed_usage_never_anchors_the_pressure_baseline_or_the_meter() {
         live["contextInputTokens"] = json!(reported.input_tokens);
         live["contextPromptTokens"] = json!(reported.input_tokens);
         live["contextOutputTokens"] = json!(reported.output_tokens);
-        live["contextMeasuredTokens"] = json!(mixdog_agent::compact::pressure::measured_context_tokens(reported));
+        live["contextMeasuredTokens"] = json!(measured_context_tokens(reported));
         let evidence = with_prompt_cache_evidence(header, &live, reported);
         applied(header, usage_change(header, &evidence, &[], &[], Some(&books), false, 100.0, 200.0))
     };
@@ -511,16 +517,16 @@ fn a_multi_hop_call_reads_the_same_in_the_run_as_in_the_session() {
         raw: Some(json!({ "promptTokenCount": 1_000, "initialPromptTokenCount": 300, "initialCachedContentTokenCount": 400 })),
         ..Usage::default()
     };
-    let (first_hop, cached) = mixdog_agent::compact::pressure::first_hop(&hops).expect("several hops");
-    assert_eq!((first_hop, cached), (300, 300));
+    let (first, cached) = first_hop(&hops).expect("several hops");
+    assert_eq!((first, cached), (300, 300));
 
     // The session's side: the delta as the run host records it, its context fields the first hop's.
     let base = header(json!({ "id": "s1", "provider": "gemini", "contextWindow": 200_000 }));
     let mut live = delta(hops.input_tokens, hops.cache_read_tokens, 0, hops.output_tokens, 1);
     live["source"] = json!("provider_send");
     live["deltaPrompt"] = json!(1_000);
-    live["contextInputTokens"] = json!(first_hop);
-    live["contextPromptTokens"] = json!(first_hop);
+    live["contextInputTokens"] = json!(first);
+    live["contextPromptTokens"] = json!(first);
     live["contextCachedReadTokens"] = json!(cached);
     live["contextOutputTokens"] = json!(hops.output_tokens);
     let evidence = with_prompt_cache_evidence(&base, &live, &hops);
@@ -532,8 +538,8 @@ fn a_multi_hop_call_reads_the_same_in_the_run_as_in_the_session() {
     let mut reading = ContextReading::default();
     reading.measure(&hops, false);
     assert_eq!(reading.tokens.map(|tokens| json!(tokens)), Some(session["lastContextTokens"].clone()));
-    assert_eq!(mixdog_agent::compact::pressure::context_size(&hops, false), mixdog_agent::compact::pressure::ContextSize::Prompt(300));
-    assert_eq!(json!(first_hop + hops.output_tokens), session["contextPressureBaselineTokens"], "the run's baseline is the first hop's prompt and the reply");
+    assert_eq!(context_size(&hops, false), ContextSize::Prompt(300));
+    assert_eq!(json!(first + hops.output_tokens), session["contextPressureBaselineTokens"], "the run's baseline is the first hop's prompt and the reply");
 }
 
 #[test]
@@ -575,7 +581,7 @@ fn pass(request: &[AgentMessage], stage: PassStage) -> CompactPass {
 #[test]
 fn a_pass_records_its_stages_and_an_adopted_one_restarts_the_metrics_and_voids_the_old_reading() {
     books!(meter, signer);
-    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &compact_support::NoVars };
+    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &NoVars };
     let before = small_conversation();
     let mut session = header(json!({
         "id": "s1", "provider": "openai", "model": "m", "contextWindow": 100_000,

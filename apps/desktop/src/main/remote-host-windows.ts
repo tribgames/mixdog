@@ -14,6 +14,7 @@ import type { CoreCaller } from './connections/server-window-record';
 import { nativeT } from './native-i18n';
 import { REMOTE_HOST_ARGUMENT, REMOTE_WINDOW_IPC, type RemoteWindowHostEntry } from '../shared/remote-window';
 import { notifyHostListsChanged } from './host-lists-changed';
+import { hostNavigationGuards } from './remote-host-navigation';
 import {
   externalLinkTarget,
   isRemoteHostNavigation,
@@ -80,12 +81,18 @@ export function createRemoteHostWindows(
     });
   };
 
-  const hostWindowId = (sender: Electron.WebContents): string | null => {
-    for (const [id, window] of windows) if (!window.isDestroyed() && window.webContents.id === sender.id) return id;
+  const hostUrls = new Map<string, string>();
+  // The bridge belongs to the saved host's own page: a frame that is elsewhere (a redirect, a navigation) gets nothing.
+  const hostWindowId = (event: Electron.IpcMainInvokeEvent): string | null => {
+    for (const [id, window] of windows) {
+      if (window.isDestroyed() || window.webContents.id !== event.sender.id) continue;
+      const url = hostUrls.get(id);
+      return url && event.senderFrame && isRemoteHostNavigation(url, event.senderFrame.url) ? id : null;
+    }
     return null;
   };
   ipcMain.handle(REMOTE_WINDOW_IPC.list, async (event): Promise<RemoteWindowHostEntry[]> => {
-    const current = hostWindowId(event.sender);
+    const current = hostWindowId(event);
     if (!current) return [];
     return (await snapshot()).map((host) => ({
       id: host.id,
@@ -96,23 +103,27 @@ export function createRemoteHostWindows(
     }));
   });
   ipcMain.handle(REMOTE_WINDOW_IPC.open, async (event, id) => {
-    if (!hostWindowId(event.sender) || typeof id !== 'string') return false;
+    if (!hostWindowId(event) || typeof id !== 'string') return false;
     const host = await savedHost(id);
     if (!host) return false;
     await openWindow(host);
     return true;
   });
   ipcMain.handle(REMOTE_WINDOW_IPC.manage, (event) => {
-    if (!hostWindowId(event.sender)) return false;
+    if (!hostWindowId(event)) return false;
     options.showConnectionSettings();
     return true;
   });
 
-  const prepareSession = (partition: string) => {
+  const prepareSession = (partition: string, hostUrl: string) => {
     const ses = session.fromPartition(partition);
     ses.setUserAgent(remoteWindowUserAgent(ses.getUserAgent(), app.getName()));
-    ses.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
-    ses.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+    const allowed = (permission: string, origin: string) =>
+      ALLOWED_PERMISSIONS.has(permission) && isRemoteHostNavigation(hostUrl, origin);
+    ses.setPermissionRequestHandler((_contents, permission, callback, details) =>
+      callback(allowed(permission, details.requestingUrl))
+    );
+    ses.setPermissionCheckHandler((_contents, permission, requestingOrigin) => allowed(permission, requestingOrigin));
     return ses;
   };
 
@@ -126,7 +137,7 @@ export function createRemoteHostWindows(
       return;
     }
     const partition = remoteHostPartition(id);
-    prepareSession(partition);
+    prepareSession(partition, host.url);
     const title = remoteWindowTitle(host.name);
     const window = new BrowserWindow({
       width: 1280,
@@ -149,13 +160,17 @@ export function createRemoteHostWindows(
     });
     tagRendererSurface(window, 'remote-host');
     windows.set(id, window);
+    hostUrls.set(id, host.url);
     notifyHostListsChanged();
     window.setMenuBarVisibility(false);
     // The page sets its own <title>; the window must keep saying which
     // computer it is driving.
     window.on('page-title-updated', (event) => event.preventDefault());
     window.on('closed', () => {
-      if (windows.get(id) === window) windows.delete(id);
+      if (windows.get(id) === window) {
+        windows.delete(id);
+        hostUrls.delete(id);
+      }
       notifyHostListsChanged();
     });
     const contents = window.webContents;
@@ -170,12 +185,9 @@ export function createRemoteHostWindows(
       if (target) void shell.openExternal(target);
       return { action: 'deny' };
     });
-    contents.on('will-navigate', (event, url) => {
-      if (isRemoteHostNavigation(host.url, url)) return;
-      event.preventDefault();
-      const target = externalLinkTarget(url);
-      if (target) void shell.openExternal(target);
-    });
+    const guards = hostNavigationGuards(host.url, (target) => void shell.openExternal(target));
+    contents.on('will-navigate', (event, url) => guards.onNavigate(event, url));
+    contents.on('will-redirect', (event, url) => guards.onRedirect(event, url));
     contents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
       // -3 is a navigation that was superseded, not a failure.
       if (!isMainFrame || code === -3 || window.isDestroyed()) return;
@@ -221,6 +233,7 @@ export function createRemoteHostWindows(
     async forget(id) {
       const window = windows.get(id);
       windows.delete(id);
+      hostUrls.delete(id);
       if (window && !window.isDestroyed()) window.destroy();
       const ses = session.fromPartition(remoteHostPartition(id));
       await ses.clearStorageData();

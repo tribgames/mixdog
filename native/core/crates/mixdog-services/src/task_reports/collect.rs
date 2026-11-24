@@ -100,17 +100,6 @@ fn within(root: &Path, path: &Path) -> bool {
     target == base || target.starts_with(&prefix)
 }
 
-/// `realOrSelf`: the canonical path, or the canonical parent with the missing tail put back.
-fn real_or_self(path: &Path) -> PathBuf {
-    if let Ok(real) = mixdog_workspace::pathguard::canonical(path) {
-        return real;
-    }
-    match (path.parent(), path.file_name()) {
-        (Some(parent), Some(name)) if parent != path => real_or_self(parent).join(name),
-        _ => path.to_path_buf(),
-    }
-}
-
 #[cfg(unix)]
 fn file_number(info: &std::fs::Metadata) -> (u64, u64) {
     use std::os::unix::fs::MetadataExt;
@@ -571,27 +560,7 @@ pub fn session_roots(candidates: &[String]) -> Vec<PathBuf> {
     }
     roots
 }
-/// `mixdogSensitiveScopes`: the segments of each folder (home, data, extra), as written and as
-/// their links resolve.
-pub fn sensitive_scopes(folders: &[PathBuf]) -> Vec<Vec<String>> {
-    let mut scopes = Vec::new();
-    for folder in folders.iter().filter(|f| !f.as_os_str().is_empty()) {
-        let resolved = resolve(&std::env::current_dir().unwrap_or_default(), &folder.to_string_lossy());
-        let mut forms = vec![resolved.clone()];
-        let real = real_or_self(&resolved);
-        if real != resolved {
-            forms.push(real);
-        }
-        scopes.extend(forms.iter().map(|form| sensitive::segments_of(&form.to_string_lossy())));
-    }
-    scopes
-}
-/// `isSensitiveLocalPath(path)`: the path as written or what its links lead to is a secret file.
-fn is_sensitive_local_path(path: &Path, scopes: &[Vec<String>]) -> bool {
-    let absolute = resolve(&std::env::current_dir().unwrap_or_default(), &path.to_string_lossy());
-    sensitive::matches_sensitive_path(&absolute.to_string_lossy(), scopes)
-        || sensitive::matches_sensitive_path(&real_or_self(&absolute).to_string_lossy(), scopes)
-}
+pub use sensitive::scopes as sensitive_scopes;
 /// The identity of an opened file: its device and file number where the OS gives them, and its
 /// creation time.
 #[derive(PartialEq)]
@@ -640,7 +609,7 @@ fn read_contained<L: IoLane>(lane: &InLane<L>, raw: &str, options: &Options) -> 
     if !options.roots.iter().any(|root| within(root, &real)) {
         return Err(format!("attachment \"{value}\" is outside this session's folders"));
     }
-    if is_sensitive_local_path(&absolute, &options.scopes) || is_sensitive_local_path(&real, &options.scopes) {
+    if sensitive::is_sensitive(&absolute, &options.scopes) || sensitive::is_sensitive(&real, &options.scopes) {
         return Err(format!("attachment \"{value}\" can hold credentials or secrets and is never attached"));
     }
     if !same_path_and_handle(lane, &real, &opened) {

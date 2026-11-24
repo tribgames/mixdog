@@ -253,11 +253,11 @@ unenforced replacement, and each way of switching off the verdict or moving a re
 
 What each part of `release-gate.yml` runs, and when, and which run proves what:
 
-| Run | Rust core | Other lanes | Reconciliation |
-|---|---|---|---|
-| Pull request | the crates the change can affect, built, linted and tested on Linux | by changed path | no |
-| Push to main | the crates the change can affect, as for a pull request (every crate for a core input outside the crates), on Linux | every lane but `rustfmt`, which follows its files | no |
-| Full gate: every `workflow_call` (the release, a deploy's native assets, the mirror, the runtime refresh), the nightly `schedule` on main, a manual run with `full_gate` | every crate on Linux, macOS and Windows | every lane | yes |
+| Run                                                                                                                                                                      | Rust core                                                                                                           | Other lanes                                       | Reconciliation |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------- |
+| Pull request                                                                                                                                                             | the crates the change can affect, built, linted and tested on Linux                                                 | by changed path                                   | no             |
+| Push to main                                                                                                                                                             | the crates the change can affect, as for a pull request (every crate for a core input outside the crates), on Linux | every lane but `rustfmt`, which follows its files | no             |
+| Full gate: every `workflow_call` (the release, a deploy's native assets, the mirror, the runtime refresh), the nightly `schedule` on main, a manual run with `full_gate` | every crate on Linux, macOS and Windows                                                                             | every lane                                        | yes            |
 
 A pull request and a push prove that the crates the change can affect build and their tests pass on Linux. Only the full gate
 compiles the macOS and Windows code and proves the core's tests there, and only the full gate is a release: a call is a

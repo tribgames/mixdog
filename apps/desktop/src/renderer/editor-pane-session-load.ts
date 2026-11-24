@@ -29,6 +29,7 @@ export function useEditorSessionLoad({
   readModel,
   markDirty,
   deleteBackup,
+  held,
   loadedRef,
   readOnlyRef,
   savedMtime,
@@ -63,6 +64,8 @@ export function useEditorSessionLoad({
   readModel: () => import('monaco-editor').editor.ITextModel | null;
   markDirty: (next: boolean) => void;
   deleteBackup: () => Promise<unknown>;
+  /** Whether Rich holds an edit the model lacks (unsaved like a model edit). */
+  held?: RefObject<boolean>;
   loadedRef: RefObject<boolean>;
   readOnlyRef: RefObject<boolean>;
   savedMtime: RefObject<number>;
@@ -97,8 +100,18 @@ export function useEditorSessionLoad({
       setError(t('Desktop file access is unavailable.'));
       return;
     }
+    // A later reload supersedes this read, and an edit made to a shown buffer
+    // while it is in flight is newer than the disk text it returns.
+    const generation = documentGeneration.current;
+    const shownText = loadedRef.current ? (readModel()?.getValue() ?? null) : null;
+    const shownHeld = Boolean(held?.current);
     void takeEditorFileLoad(api, projectPath, relPath, accessToken, !loadedRef.current, true)
       .then(({ file: result, backup }) => {
+        if (generation !== documentGeneration.current) return;
+        if (shownText !== null && (readModel()?.getValue() !== shownText || (Boolean(held?.current) && !shownHeld))) {
+          if (result.content !== savedDiskText.current) setDiskChanged(true);
+          return;
+        }
         readOnlyRef.current = Boolean(result.readOnly);
         // A read-only file has no save path, so a stale backup never applies.
         // The baseline is normalized like Monaco's model text, or mixed line
@@ -128,6 +141,7 @@ export function useEditorSessionLoad({
         setContentRevision((revision) => revision + 1);
       })
       .catch((reason) => {
+        if (generation !== documentGeneration.current) return;
         setError(fileAccessError(reason));
         if (loadedRef.current) setDiskChanged(true);
       });
@@ -135,6 +149,8 @@ export function useEditorSessionLoad({
     accessToken,
     api,
     deleteBackup,
+    documentGeneration,
+    held,
     readModel,
     markDirty,
     projectPath,
@@ -243,11 +259,12 @@ export function useEditorSessionLoad({
       void api
         .previewProjectFile(projectPath, relPath, accessToken)
         .then((result) => {
+          if (generation !== documentGeneration.current) return;
           setPreview(result);
           if (!svg) previewOpened(result);
         })
         .catch((reason) => {
-          if (svg) return;
+          if (svg || generation !== documentGeneration.current) return;
           setLoad(null);
           setError(fileAccessError(reason));
         });

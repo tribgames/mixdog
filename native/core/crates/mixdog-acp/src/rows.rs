@@ -67,21 +67,53 @@ impl AgentTool {
     /// line it runs. `None` for a kind Mixdog has no such tool for, and for a call that names no file or no command
     /// line: there is nothing to judge it on.
     pub fn as_session_call(&self) -> Option<(&'static str, Vec<Value>)> {
-        let input = |keys: &[&str]| keys.iter().find_map(|key| self.input.get(*key).and_then(Value::as_str)).filter(|text| !text.is_empty()).map(str::to_owned);
-        let files = || {
-            let mut files = self.locations.clone();
-            if let Some(file) = input(&["file_path", "path", "Path", "AbsolutePath", "TargetFile"])
-                && !files.contains(&file)
-            {
-                files.push(file);
-            }
-            Some(files.into_iter().map(|file| json!({ "file_path": file })).collect::<Vec<_>>()).filter(|files| !files.is_empty())
-        };
+        let files = || Some(self.files().into_iter().map(|file| json!({ "file_path": file })).collect::<Vec<_>>()).filter(|files| !files.is_empty());
         match self.kind.as_str() {
             "read" => Some(("read", files()?)),
             "edit" => Some(("edit", files()?)),
-            "execute" => Some(("shell", vec![json!({ "command": input(&["command", "CommandLine", "cmd"])? })])),
+            "execute" => Some(("shell", vec![json!({ "command": self.input_text(&["command", "CommandLine", "cmd"])? })])),
             _ => None,
+        }
+    }
+
+    fn input_text(&self, keys: &[&str]) -> Option<String> {
+        keys.iter().find_map(|key| self.input.get(*key).and_then(Value::as_str)).filter(|text| !text.is_empty()).map(str::to_owned)
+    }
+
+    /// The files the call touches: the ones the agent lists, then the one its input names.
+    fn files(&self) -> Vec<String> {
+        let mut files = self.locations.clone();
+        if let Some(file) = self.input_text(&["file_path", "path", "Path", "AbsolutePath", "TargetFile"])
+            && !files.contains(&file)
+        {
+            files.push(file);
+        }
+        files
+    }
+
+    /// The card the call is shown as: the Mixdog tool that does the same work (`read`, `shell`, `grep`) with that tool's
+    /// arguments, so the transcript shows it as that tool's card; any other call is shown as the agent's own
+    /// ([`Self::name`], [`Self::arguments`]). A call that names no file, command or pattern is shown as the agent's.
+    pub fn card(&self, agent: &str) -> (String, Value) {
+        let mixdog = match self.kind.as_str() {
+            "read" => match self.files().as_slice() {
+                [] => None,
+                [file] => Some(("read", json!({ "file_path": file }))),
+                files => Some(("read", json!({ "file_path": files }))),
+            },
+            "execute" => self.input_text(&["command", "CommandLine", "cmd"]).map(|command| ("shell", json!({ "command": command }))),
+            "search" => self.input_text(&["pattern", "Pattern", "query", "Query", "regex"]).map(|pattern| {
+                let mut arguments = json!({ "pattern": pattern });
+                if let Some(path) = self.files().into_iter().next() {
+                    arguments["path"] = json!(path);
+                }
+                ("grep", arguments)
+            }),
+            _ => None,
+        };
+        match mixdog {
+            Some((name, arguments)) => (name.to_owned(), arguments),
+            None => (self.name(agent), self.arguments()),
         }
     }
 
@@ -123,12 +155,12 @@ impl AgentTool {
         Value::Object(arguments)
     }
 
-    /// The arguments of the item that shows this call's result in a later turn than the call: the call's own, and
-    /// `resultOf`, the id the call has in the turn that made it.
-    pub fn late_arguments(&self, earlier: &str) -> Value {
-        let mut arguments = self.arguments();
+    /// [`Self::card`] for the item that shows this call's result in a later turn than the call: the card's own
+    /// arguments, and `resultOf`, the id the call has in the turn that made it.
+    pub fn late_card(&self, agent: &str, earlier: &str) -> (String, Value) {
+        let (name, mut arguments) = self.card(agent);
         arguments["resultOf"] = json!(earlier);
-        arguments
+        (name, arguments)
     }
 
     /// The text of the result: the call's text content, else its raw output, else its title.
@@ -226,4 +258,39 @@ pub fn plan(update: &Value) -> (Value, String) {
         .collect::<Vec<_>>()
         .join("\n");
     (json!({ "op": "set", "items": items }), text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn call(kind: &str, input: Value, locations: &[&str]) -> AgentTool {
+        AgentTool { kind: kind.into(), input, locations: locations.iter().map(|path| (*path).to_owned()).collect(), ..AgentTool::default() }
+    }
+
+    #[test]
+    fn the_agents_read_command_and_search_are_shown_as_mixdogs_cards() {
+        let read = call("read", json!({ "Path": "/w/a.txt" }), &["/w/a.txt"]);
+        assert_eq!(read.card("antigravity"), ("read".to_owned(), json!({ "file_path": "/w/a.txt" })));
+        let several = call("read", Value::Null, &["/w/a.txt", "/w/b.txt"]);
+        assert_eq!(several.card("antigravity"), ("read".to_owned(), json!({ "file_path": ["/w/a.txt", "/w/b.txt"] })));
+        let shell = call("execute", json!({ "CommandLine": "echo hi" }), &[]);
+        assert_eq!(shell.card("antigravity"), ("shell".to_owned(), json!({ "command": "echo hi" })));
+        let search = call("search", json!({ "Query": "needle" }), &["/w/src"]);
+        assert_eq!(search.card("antigravity"), ("grep".to_owned(), json!({ "pattern": "needle", "path": "/w/src" })));
+    }
+
+    #[test]
+    fn a_call_with_no_mixdog_equivalent_or_no_target_stays_the_agents_own_card() {
+        for tool in [
+            call("edit", json!({ "Path": "/w/a.txt" }), &["/w/a.txt"]),
+            call("read", Value::Null, &[]),
+            call("execute", json!({}), &[]),
+            call("search", json!({}), &[]),
+        ] {
+            assert_eq!(tool.card("antigravity"), (tool.name("antigravity"), tool.arguments()), "{tool:?}");
+        }
+        let late = call("read", Value::Null, &["/w/a.txt"]).late_card("antigravity", "turn-1.t1");
+        assert_eq!(late, ("read".to_owned(), json!({ "file_path": "/w/a.txt", "resultOf": "turn-1.t1" })));
+    }
 }

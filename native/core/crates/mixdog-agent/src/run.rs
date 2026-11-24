@@ -391,6 +391,8 @@ pub struct RunFailure {
     pub carried_report: String,
     pub transcript: Vec<AgentMessage>,
     pub carry: RunCarry,
+    /// The provider the run stood on when it failed: the one a route switch moved it to, if any.
+    pub provider: String,
 }
 
 /// The ask result: the terminal response plus the loop's aggregate usage.
@@ -501,13 +503,10 @@ pub struct Run {
     pub(crate) eager_settles: std::collections::HashMap<String, crate::batch::SettleSlot>,
     /// Whether a streamed edit's ambiguous settlement may be acted on now (`crate::batch::settle_gate`).
     pub(crate) settle_gate: tokio::sync::watch::Sender<bool>,
-    pub(crate) eager_sigs: std::collections::HashSet<String>,
     /// The calls started while the response streams, in call order: what a later conflicting call waits for.
     pub(crate) eager_started: Vec<crate::batch::EagerStarted>,
     /// The ordering barriers of the turn's started calls (eager-dispatch/barriers.mjs).
     pub(crate) barriers: crate::barriers::Barriers,
-    /// The first call of each one-per-turn tool the stream handed over (`_singleCallFirstIdByName`).
-    pub(crate) eager_single: std::collections::HashMap<String, String>,
     /// The ids of the complete calls the stream of the request in flight handed over ([`Run::stream_dispatched`]).
     pub(crate) streamed_ids: std::collections::HashSet<String>,
     /// Whether a call handed to [`Run::try_eager`] so far in this turn changes files (`is_mutation`) or invalidates a
@@ -676,10 +675,8 @@ impl Run {
             eager: std::collections::HashMap::new(),
             eager_settles: std::collections::HashMap::new(),
             settle_gate: tokio::sync::watch::Sender::new(true),
-            eager_sigs: std::collections::HashSet::new(),
             eager_started: Vec::new(),
             barriers: crate::barriers::Barriers::default(),
-            eager_single: std::collections::HashMap::new(),
             streamed_ids: std::collections::HashSet::new(),
             streamed_changes: (false, false),
             streamed_behind: std::collections::HashMap::new(),
@@ -777,7 +774,13 @@ impl Run {
         self.emit(RunEvent::TurnEffort(seeded));
         match self.drive().await {
             Ok(()) => Ok(self.finish()),
-            Err(error) => Err(RunFailure { error, carried_report: self.no_tool.ended_report(), transcript: self.messages, carry: self.carry }),
+            Err(error) => Err(RunFailure {
+                error,
+                carried_report: self.no_tool.ended_report(),
+                provider: self.provider.id().as_str().to_owned(),
+                transcript: self.messages,
+                carry: self.carry,
+            }),
         }
     }
 

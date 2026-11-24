@@ -383,9 +383,10 @@ export function ConnectorsPanel(context: PanelContext) {
           onClose={() => setEditor(null)}
           onConnect={(name) => void startConnectorLogin(name, name)}
           onDisconnect={(name) => void run('signOutMcpServer', [name], `mcp-oauth-signout-${name}`)}
-          onSave={(payload) => {
+          onSave={async (payload) => {
+            await run('saveMcpServer', [payload], 'saveMcpServer', true, false, 'throw');
             setEditor(null);
-            void run('saveMcpServer', [payload]).then(announceConnectorsChanged);
+            announceConnectorsChanged();
           }}
           onToggle={() => void run('setMcpServerEnabled', [editorName, editorServer.enabled === false])}
           onRemove={() =>

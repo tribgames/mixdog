@@ -284,78 +284,80 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
           />,
           railHost
         )}
-    <ComposerDock
-      sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
-      goalIsland={goalIsland}
-      goalSubmissionId={submission.goalSubmissionId}
-      approval={island.approval}
-      islandFlash={island.islandFlash}
-      quotaCard={island.quotaCard}
-      quotaResume={island.quotaResume}
-      onOpenSessionDiff={onOpenSessionDiff}
-      onOpenAgentSession={onOpenAgentSession}
-      workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
-      pendingInput={pendingInput}
-      showProjectSelector={showProjectSelector && !agentMode}
-      agentMode={agentMode}
-      reviewItems={submission.reviewItems}
-      reviewActive={reviewActive}
-      reviewBusy={reviewBusy}
-      reviewSessionId={reviewSessionId}
-      reviewCwd={routeProject}
-      islandHidden={railShown}
-    >
-      <Composer
-        onOpenFile={props.openFile}
-        turnBusy={Boolean(snapshot.busy)}
-        commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
-        transitioning={transitioning}
-        focusRequest={composerFocusRequest}
-        historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}` : routeScope}
-        identityScope={draftMode ? `draft:${draftId || 'default'}` : routeScope}
-        recoveryScope={props.recoveryScope}
-        projectScope={draftMode ? activeProjectPath : routeProject}
-        sessionId={routeSessionId}
-        hasConversation={props.hasConversation}
-        promptHistoryList={routeSnapshot.promptHistoryList}
-        {...route}
-        bare={railShown}
-        draftMode={draftMode}
-        onDraftModelSelection={onDraftModelSelection}
-        onRoutePreferenceApplied={onRoutePreferenceApplied}
-        modelAside={modelAside}
-        sessionChoices={sessionChoices}
-        // Before the first message the pickers stand in for the readout; the panel's Info rows, while it shows.
-        contextBar={
-          contextControls && !railShown ? (
-            <div className="composer-model-line-context">{conversationContextBar(props)}</div>
-          ) : undefined
-        }
-        usageReadout={draftMode ? undefined : usageReadout}
+      <ComposerDock
+        sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
+        goalIsland={goalIsland}
+        goalSubmissionId={submission.goalSubmissionId}
+        approval={island.approval}
+        islandFlash={island.islandFlash}
+        quotaCard={island.quotaCard}
+        quotaResume={island.quotaResume}
+        onOpenSessionDiff={onOpenSessionDiff}
+        onOpenAgentSession={onOpenAgentSession}
+        workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
+        pendingInput={pendingInput}
+        showProjectSelector={showProjectSelector && !agentMode}
         agentMode={agentMode}
-        steerItems={submission.steerItems}
-        pendingSubmissionIds={submission.pendingPromptIds}
-        onQueuedRestored={actions.composerQueuedRestored}
-        onSlashHeld={submission.holdSlashCommand}
-        promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
-        userMessages={userMessages}
-        submit={submit}
-        placeholderOverride={island.answerHint}
-        abort={actions.composerAbort}
-        invokeResult={actions.composerInvokeResult}
-        applySnapshot={actions.composerApplySnapshot}
-        onNewTask={actions.composerOnNewTask}
-        onClearToNewTask={onClearToNewTask ? actions.composerOnClearToNewTask : undefined}
-        onResumeSession={actions.composerOnResumeSession}
-        onOpenSessions={actions.composerOnOpenSessions}
-        onOpenProjects={actions.composerOnOpenProjects}
-        onOpenSettings={actions.composerOnOpenSettings}
-        onOpenCommandSurface={actions.composerOnOpenCommandSurface}
-        onInherit={onInheritSession ? actions.composerOnInherit : undefined}
-        paneActive={reviewActive}
-        dropTargetRef={dropTargetRef}
-      />
-    </ComposerDock>
+        reviewItems={submission.reviewItems}
+        reviewActive={reviewActive}
+        reviewBusy={reviewBusy}
+        reviewSessionId={reviewSessionId}
+        reviewCwd={routeProject}
+        islandHidden={railShown}
+      >
+        <Composer
+          onOpenFile={props.openFile}
+          turnBusy={Boolean(snapshot.busy)}
+          commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
+          transitioning={transitioning}
+          focusRequest={composerFocusRequest}
+          historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}` : routeScope}
+          // The pane's session from its first frame: until its lane is read the route
+          // falls back to a scope every such pane shares.
+          identityScope={draftMode ? `draft:${draftId || 'default'}` : sessionAddress || routeScope}
+          recoveryScope={props.recoveryScope}
+          projectScope={draftMode ? activeProjectPath : routeProject}
+          sessionId={routeSessionId}
+          hasConversation={props.hasConversation}
+          promptHistoryList={routeSnapshot.promptHistoryList}
+          {...route}
+          bare={railShown}
+          draftMode={draftMode}
+          onDraftModelSelection={onDraftModelSelection}
+          onRoutePreferenceApplied={onRoutePreferenceApplied}
+          modelAside={modelAside}
+          sessionChoices={sessionChoices}
+          // Before the first message the pickers stand in for the readout; the panel's Info rows, while it shows.
+          contextBar={
+            contextControls && !railShown ? (
+              <div className="composer-model-line-context">{conversationContextBar(props)}</div>
+            ) : undefined
+          }
+          usageReadout={draftMode ? undefined : usageReadout}
+          agentMode={agentMode}
+          steerItems={submission.steerItems}
+          pendingSubmissionIds={submission.pendingPromptIds}
+          onQueuedRestored={actions.composerQueuedRestored}
+          onSlashHeld={submission.holdSlashCommand}
+          promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
+          userMessages={userMessages}
+          submit={submit}
+          placeholderOverride={island.answerHint}
+          abort={actions.composerAbort}
+          invokeResult={actions.composerInvokeResult}
+          applySnapshot={actions.composerApplySnapshot}
+          onNewTask={actions.composerOnNewTask}
+          onClearToNewTask={onClearToNewTask ? actions.composerOnClearToNewTask : undefined}
+          onResumeSession={actions.composerOnResumeSession}
+          onOpenSessions={actions.composerOnOpenSessions}
+          onOpenProjects={actions.composerOnOpenProjects}
+          onOpenSettings={actions.composerOnOpenSettings}
+          onOpenCommandSurface={actions.composerOnOpenCommandSurface}
+          onInherit={onInheritSession ? actions.composerOnInherit : undefined}
+          paneActive={reviewActive}
+          dropTargetRef={dropTargetRef}
+        />
+      </ComposerDock>
     </>
   );
 }

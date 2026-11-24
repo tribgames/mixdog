@@ -42,12 +42,9 @@ const { CategoryPanel } = await import('./capability-panels.tsx');
 
 /** A `skillsStatus` row: one source's skill, with the source key the switch writes. */
 function skillRow(name, sourceKey, extra = {}) {
-  const owner =
-    sourceKey === 'global'
-      ? { kind: 'user' }
-      : sourceKey === 'builtin'
-        ? { kind: 'builtin' }
-        : { kind: 'plugin', id: sourceKey.slice('plugin:'.length) };
+  let owner = { kind: 'plugin', id: sourceKey.slice('plugin:'.length) };
+  if (sourceKey === 'global') owner = { kind: 'user' };
+  else if (sourceKey === 'builtin') owner = { kind: 'builtin' };
   return {
     name,
     key: `${sourceKey}:${name}`,
@@ -925,9 +922,15 @@ test('the row switch, the row menu and the editor switch each ask the core to sw
 
     const row = skillRowElement('plugin:acme:lint');
     await act(async () =>
-      row.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 4, clientY: 4 }))
+      row.dispatchEvent(
+        new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 4, clientY: 4 })
+      )
     );
-    assert.equal(document.querySelector('[role="menuitem"][data-action-id="remove"]'), null, 'a plugin skill is not deleted here');
+    assert.equal(
+      document.querySelector('[role="menuitem"][data-action-id="remove"]'),
+      null,
+      'a plugin skill is not deleted here'
+    );
     await act(async () => document.querySelector('[role="menuitem"][data-action-id="toggle"]').click());
     assert.deepEqual(switched().at(-1), ['setSkillEnabled', ['plugin:acme:lint', false]]);
 
@@ -943,7 +946,7 @@ test('the row switch, the row menu and the editor switch each ask the core to sw
   }
 });
 
-test('saving a plugin row\'s required tools names that row, not the own skill of its name', async () => {
+test("saving a plugin row's required tools names that row, not the own skill of its name", async () => {
   const calls = [];
   const rendered = await renderSourceSkills(sourceSkills(), [], calls);
   try {
@@ -958,11 +961,35 @@ test('saving a plugin row\'s required tools names that row, not the own skill of
         .querySelector('.extensions-skill-dialog form')
         .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     });
-    assert.deepEqual(calls.findLast(([capability]) => capability === 'saveSkill'), [
-      'saveSkill',
-      [{ originalName: 'plugin:acme:review', dependenciesOnly: true, toolDependencies: [] }],
-    ]);
+    assert.deepEqual(
+      calls.findLast(([capability]) => capability === 'saveSkill'),
+      ['saveSkill', [{ originalName: 'plugin:acme:review', dependenciesOnly: true, toolDependencies: [] }]]
+    );
   } finally {
+    await rendered.cleanup();
+  }
+});
+
+test("the saved notice of a read-only skill's required tools names that skill", async () => {
+  const toasts = [];
+  const onToast = (event) => toasts.push(event.detail.text);
+  window.addEventListener('mixdog:desktop-toast', onToast);
+  const rendered = await renderSourceSkills(sourceSkills(), [], []);
+  try {
+    await act(async () => skillRowElement('plugin:acme:review').querySelector('.skills-row-open').click());
+    const add = [...document.querySelectorAll('.extensions-skill-dialog .extensions-mcp-list-add')].find(
+      (button) => button.textContent === '+ Add'
+    );
+    await act(async () => add.click());
+    globalThis.FormData = window.FormData;
+    await act(async () => {
+      document
+        .querySelector('.extensions-skill-dialog form')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+    assert.deepEqual(toasts, ['Saved "review".']);
+  } finally {
+    window.removeEventListener('mixdog:desktop-toast', onToast);
     await rendered.cleanup();
   }
 });
@@ -1000,9 +1027,15 @@ test('a row the core marks not switchable has no working switch, menu toggle or 
     try {
       const row = skillRowElement('plugin:acme:lint');
       assert.equal(row.querySelector('input').disabled, true, `${state}/${offBy}`);
-      assert.equal(skillRowElement('plugin:acme:setup').querySelector('input').disabled, false, 'a switchable row stays live');
+      assert.equal(
+        skillRowElement('plugin:acme:setup').querySelector('input').disabled,
+        false,
+        'a switchable row stays live'
+      );
       await act(async () =>
-        row.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 4, clientY: 4 }))
+        row.dispatchEvent(
+          new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 4, clientY: 4 })
+        )
       );
       assert.equal(document.querySelector('[role="menuitem"][data-action-id="toggle"]'), null, `${state}/${offBy}`);
       await act(async () => document.querySelector('[role="menuitem"][data-action-id="open"]').click());
@@ -1058,7 +1091,9 @@ test('a built-in turned back on while a plugin skill of its name stays off is st
   const rendered = await renderSourceSkills(skills, ['plugin:acme:setup'], calls);
   try {
     assert.deepEqual(
-      [...document.querySelectorAll('[data-skill-source="builtin"] [data-skill-key]')].map((row) => row.dataset.skillKey),
+      [...document.querySelectorAll('[data-skill-source="builtin"] [data-skill-key]')].map(
+        (row) => row.dataset.skillKey
+      ),
       ['builtin:setup']
     );
     assert.deepEqual(rowStatus('builtin:setup'), { tag: 'In use', tone: 'ok', note: null });
@@ -1077,7 +1112,9 @@ test('after the core replies the switch shows the refreshed row, not the value i
   );
   // The key is gone from the list, but the plugin's scope still leaves this folder out.
   const offByScope = sourceSkills().map((skill) =>
-    skill.key === 'plugin:acme:lint' ? { ...skill, state: 'off', offBy: 'scope', enabled: false, switchable: false } : skill
+    skill.key === 'plugin:acme:lint'
+      ? { ...skill, state: 'off', offBy: 'scope', enabled: false, switchable: false }
+      : skill
   );
   let reply;
   const host = document.createElement('main');

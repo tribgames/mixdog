@@ -105,13 +105,20 @@ export interface CoreStatus {
 
 type StopMode = 'whenIdle' | 'abortConfirmed';
 
+/** The build an update installs: the feed names only its version, which stands for the revision too. */
+export interface ReplacementBuild {
+  revision: string;
+  version: string;
+}
+
 /** The management path of one core. A new discovery is read per call: the
  *  token and the port change with every core. */
 export interface CoreControl {
   /** Null when no core runs (no discovery file, or its process is gone). Throws when a core may run but cannot be asked. */
   status(): Promise<{ status: CoreStatus; discovery: DaemonDiscovery } | null>;
   hold(on: boolean): Promise<void>;
-  stop(mode: StopMode, confirmToken?: string): Promise<void>;
+  /** `update` is a replacement stop: the core refuses it unless it names the build that replaces it. */
+  stop(mode: StopMode, replacement: ReplacementBuild, confirmToken?: string): Promise<void>;
   cancelDrain(drainId: string): Promise<void>;
 }
 
@@ -255,9 +262,14 @@ export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
     async hold(on) {
       await running((discovery) => call(discovery, 'POST', '/mgmt/hold', { on }));
     },
-    async stop(mode, confirmToken) {
+    async stop(mode, replacement, confirmToken) {
       await running((discovery) =>
-        call(discovery, 'POST', '/mgmt/stop', { mode, reason: 'update', ...(confirmToken ? { confirmToken } : {}) })
+        call(discovery, 'POST', '/mgmt/stop', {
+          mode,
+          reason: 'update',
+          ...(confirmToken ? { confirmToken } : {}),
+          replacement,
+        })
       );
     },
     async cancelDrain(drainId) {
@@ -277,7 +289,7 @@ export interface CoreUpdateGate {
   release(): Promise<void>;
   /** Wind the core down for the update and wait for its process to exit. With
    *  `abort`, the user confirmed the running work they were shown. */
-  stop(options: { abort: boolean }): Promise<void>;
+  stop(options: { abort: boolean; version: string }): Promise<void>;
 }
 
 export interface CoreUpdateGateDeps {
@@ -318,14 +330,15 @@ export function createCoreUpdateGate(deps: CoreUpdateGateDeps): CoreUpdateGate {
       if (drain && !drain.releasing) await control.cancelDrain(drain.drainId);
       await control.hold(false);
     },
-    async stop({ abort }) {
+    async stop({ abort, version }) {
       const before = await control.status();
       if (!before) return;
-      await control.stop('whenIdle');
+      const replacement = { revision: version, version };
+      await control.stop('whenIdle', replacement);
       if (abort) {
         const draining = await control.status();
         if (draining?.status.drain && draining.status.running.length > 0) {
-          await control.stop('abortConfirmed', draining.status.drain.confirmToken);
+          await control.stop('abortConfirmed', replacement, draining.status.drain.confirmToken);
         }
       }
       // Exit is an OS event, not a core claim: the installer may replace the

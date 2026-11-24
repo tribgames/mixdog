@@ -40,6 +40,9 @@ const isAbsentFeed = (error: unknown): boolean => {
   const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
   return detail?.kind === 'rpc' && detail.data?.reason === 'invalidParams';
 };
+/** The core answered the request with a refusal; any other failure (the connection ended first) brought no answer. */
+const isRefusal = (error: unknown): boolean =>
+  (error as { detail?: { kind?: unknown } } | null)?.detail?.kind === 'rpc';
 const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
   [...route.held.values()].map(({ section, key }) => ({ section, key, entry: null }));
 const toStatus = (state: string): DesktopProtocolStatus => {
@@ -252,7 +255,12 @@ export function createRendererConnection({
           () => {
             settled.restored += 1;
           },
-          () => {
+          (error: unknown) => {
+            // Only a watch the core refused is gone; one whose request found no answer is sent again at the next ready.
+            if (!isRefusal(error)) {
+              settled.failed += 1;
+              return;
+            }
             fsWatches.delete(watchId);
             settled.lost += 1;
           }

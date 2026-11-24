@@ -390,8 +390,11 @@ const NO_TURNS: ReadonlySet<string> = new Set();
  *  a card no longer trailing once a prompt follows it. A row those reach is placed again from its turn's first item. A
  *  failed turn is always placed whole. Every row placed before the mark is the row of the projection before. */
 export function createSettledProjector(): { project(input: SettledTranscriptInput): SettledTranscriptProjection } {
-  let held: { input: SettledTranscriptInput; rows: readonly TranscriptRowModel[]; output: SettledTranscriptProjection } | null =
-    null;
+  let held: {
+    input: SettledTranscriptInput;
+    rows: readonly TranscriptRowModel[];
+    output: SettledTranscriptProjection;
+  } | null = null;
   let version = 0;
   let rowKeys = new Set<string>();
   let toolGroupKeys = new Set<string>();
@@ -874,7 +877,10 @@ export function appendLiveTranscriptRows({
 }
 
 /** The settled rows a live list was appended to, and the row it shows open (-1: none), by the list. */
-const settledUnder = new WeakMap<readonly TranscriptRowModel[], { rows: readonly TranscriptRowModel[]; opened: number }>();
+const settledUnder = new WeakMap<
+  readonly TranscriptRowModel[],
+  { rows: readonly TranscriptRowModel[]; opened: number }
+>();
 
 function pushLiveAssistantRow(
   builder: TranscriptRowBuilder,

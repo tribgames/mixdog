@@ -559,11 +559,12 @@ impl RemoteAccessService {
 
     async fn register_push(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: RemoteAccessRegisterPushSubscriptionParams = decode(req)?;
+        let credential = self.credential_id(req);
         self.ops
             .run(
                 req,
                 None,
-                || async { Ok(json!(self.runtime.register_push_subscription(&params.input).await.map_err(refused)?)) },
+                || async { Ok(json!(self.runtime.register_push_subscription(&credential, &params.input).await.map_err(refused)?)) },
                 || async { Ok(json!(true)) },
             )
             .await
@@ -571,11 +572,12 @@ impl RemoteAccessService {
 
     async fn remove_push(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: RemoteAccessRemovePushSubscriptionParams = decode(req)?;
+        let credential = self.credential_id(req);
         self.ops
             .run(
                 req,
                 None,
-                || async { Ok(json!(self.runtime.remove_push_subscription(&json!(params.endpoint)).await.map_err(refused)?)) },
+                || async { Ok(json!(self.runtime.remove_push_subscription(&credential, &json!(params.endpoint)).await.map_err(refused)?)) },
                 || async { Ok(json!(false)) },
             )
             .await

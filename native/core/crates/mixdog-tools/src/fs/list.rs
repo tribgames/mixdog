@@ -304,7 +304,9 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
                 break;
             }
         }
-        if let Some(dir) = below {
+        if let Some(dir) = below
+            && super::common::followable(ctx, &dir).await
+        {
             match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, dir.clone())).await? {
                 Ok(children) => stack.push(visible_counting(children, hidden, include_noise, &mut out.noise).into_iter()),
                 Err(e) => out.warnings.push(format!("[warning] readdir failed ({}): {}", readdir_code(&e.kind), fwd(dir.as_path()))),
@@ -374,7 +376,7 @@ async fn row_stat(ctx: &ToolContext, path: &AbsPath) -> Option<LocatorStat> {
 }
 
 async fn line_count(ctx: &ToolContext, path: &AbsPath, len: u64) -> Option<u64> {
-    if len > LINE_COUNT_MAX_BYTES {
+    if len > LINE_COUNT_MAX_BYTES || !super::common::followable(ctx, path).await {
         return None;
     }
     let bytes = ctx.files.read(ctx.io.interactive, path.clone(), ReadRange::default()).await.ok()?.bytes;
@@ -554,7 +556,10 @@ impl ListTool {
         if !arg_str(&args, "name").is_some_and(|name| !name.is_empty()) && has_glob_magic(raw) {
             return find_files(ctx, &args).await;
         }
-        let abs = resolve_path(&ctx.cwd, raw)?;
+        let abs = match super::read::guarded_target(ctx, raw).await? {
+            Ok(abs) => abs,
+            Err(refusal) => return Ok(text_output(refusal)),
+        };
         let stat = match guarded(ctx, "list", ctx.files.stat_for_locator(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
             Err(e) => return stat_failure(ctx, &e, &abs, raw).await,
@@ -661,9 +666,6 @@ async fn empty_message(ctx: &ToolContext, abs: &AbsPath, raw: &str, offset: usiz
     filters.push(if has_hidden { "hidden=false (dotfiles present — pass hidden:true to include)" } else { "hidden=false" }.to_owned());
     format!("(no entries match filter) {} path={raw}", filters.join(", "))
 }
-
-#[allow(dead_code)]
-fn _assert_err(_: ToolError) {}
 
 // ---- a glob-shaped path: Node's `list` answers it with its name search (`executeFindFilesTool`) ----
 
@@ -884,14 +886,19 @@ async fn stat_candidates(ctx: &ToolContext, entries: Vec<DirEntry>, filter: &Fin
     use futures::StreamExt as _;
     guarded(ctx, "list", async {
         let mut stats = futures::stream::iter(entries.into_iter().map(|entry| async move {
+            // An entry the guard refuses to follow is left out, as one that cannot be read is.
+            if !super::common::followable(ctx, &entry.path).await {
+                return (entry, None);
+            }
             let stat = mixdog_rt::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat_for_locator(ctx.io.interactive, entry.path.clone())).await;
-            (entry, stat.ok().and_then(Result::ok))
+            (entry, Some(stat.ok().and_then(Result::ok)))
         }))
         .buffered(64);
         let mut rows = Vec::new();
         let mut unstatted = 0usize;
         let mut cache_safe = cache_safe;
         while let Some((entry, stat)) = stats.next().await {
+            let Some(stat) = stat else { continue };
             // Filtering and ordering use stat, which follows even links that do not survive the final filter.
             cache_safe &= entry.kind != EntryKind::Symlink;
             let (kind, size, mtime, known) = if let Some(s) = stat {
@@ -1024,7 +1031,10 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     let (hidden, include_noise) = (arg_bool(args, "hidden"), arg_bool(args, "include_noise"));
     let depth = args.get("depth").filter(|v| !v.is_null()).map(|v| js_parse_int(v).filter(|n| *n != 0).unwrap_or(1).max(1) as usize);
     let name = NameMatch::new(name_pattern.as_deref())?;
-    let root = resolve_path(&ctx.cwd, &input)?;
+    let root = match super::read::guarded_target(ctx, &input).await? {
+        Ok(root) => root,
+        Err(refusal) => return Ok(text_output(refusal)),
+    };
     let stat = match guarded(ctx, "list", ctx.files.stat_for_locator(ctx.io.interactive, root.clone())).await? {
         Ok(s) => s,
         Err(e) => return stat_failure(ctx, &e, &root, &input).await,
@@ -1146,7 +1156,7 @@ async fn walk_tree(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>, limit: u64
         if limit != 0 && body.len() >= gather_cap {
             break;
         }
-        if is_dir && stack.len() < depth {
+        if is_dir && stack.len() < depth && super::common::followable(ctx, &entry.path).await {
             let child_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
             match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, entry.path.clone())).await? {
                 Ok(children) => stack.push(tree_level(visible_counting(children, hidden, include_noise, &mut noise), child_prefix)),
@@ -1166,7 +1176,10 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     let (hidden, include_noise) = (arg_bool(args, "hidden"), arg_bool(args, "include_noise"));
     let limit = head_limit(args)?.unwrap_or(env_default_limit("MIXDOG_LIST_DEFAULT_HEAD_LIMIT", 200) as u64);
     let offset = page_offset(args)?;
-    let abs = resolve_path(&ctx.cwd, raw)?;
+    let abs = match super::read::guarded_target(ctx, raw).await? {
+        Ok(abs) => abs,
+        Err(refusal) => return Ok(text_output(refusal)),
+    };
     let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
         Ok(s) => s,
         Err(e) => return stat_failure(ctx, &e, &abs, raw).await,

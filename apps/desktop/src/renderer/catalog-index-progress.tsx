@@ -9,7 +9,7 @@ interface CatalogIndexState {
 }
 
 /** `{done, total}` while the core is still indexing its sessions; `null` once it is done or when it rebuilt nothing. */
-export function useCatalogIndexBuilding(): { done: number; total: number } | null {
+function useCatalogIndexBuilding(): { done: number; total: number } | null {
   const state = useSection<CatalogIndexState>('catalogIndex');
   if (state?.building !== true) return null;
   const total = Number(state.total);

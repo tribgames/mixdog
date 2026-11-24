@@ -968,7 +968,10 @@ test('a thread that keeps failing leaves a report at the third failure and every
     await settled();
   }
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /^\[mixdog-lane\] follow failing thread=fgh-0123 resume failures=3 retryMs=2000 kind=rpc error=bad$/);
+  assert.match(
+    lines[0],
+    /^\[mixdog-lane\] follow failing thread=fgh-0123 resume failures=3 retryMs=2000 kind=rpc error=bad$/
+  );
   assert.match(lines[1], /failures=23 retryMs=30000/);
   assert.equal(m.timers.size, 1, 'and keeps retrying');
 });

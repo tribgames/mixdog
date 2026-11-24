@@ -22,7 +22,10 @@ test('the mounted margin is a viewport height on each side, whatever the rows ar
   const tall = transcriptMountMargin(rows(50, 1500), { startIndex: 20, endIndex: 20, count: 50 }, 600);
   assert.deepEqual(tall, { from: 19, to: 21 });
   // The ends of the list.
-  assert.deepEqual(transcriptMountMargin(rows(5, 100), { startIndex: 0, endIndex: 4, count: 5 }, 600), { from: 0, to: 4 });
+  assert.deepEqual(transcriptMountMargin(rows(5, 100), { startIndex: 0, endIndex: 4, count: 5 }, 600), {
+    from: 0,
+    to: 4,
+  });
 });
 
 test('rows that take no room do not extend the margin without end', () => {

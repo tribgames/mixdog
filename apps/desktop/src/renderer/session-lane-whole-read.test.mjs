@@ -23,7 +23,12 @@ const call = (id, name, input, output, live = false) => ({
 const read = (id, path = 'f') => call(id, 'read', { path }, 'out');
 /** A skill load: hidden until its result lands, and for good when the result names a built-in skill. */
 const skill = (id, output, live = false) => call(id, 'skill', { name: 'notes' }, output, live);
-const agent = (id, status = 'completed') => ({ type: 'subAgentActivity', id, agent: 'worker', meta: { status, at: 3 } });
+const agent = (id, status = 'completed') => ({
+  type: 'subAgentActivity',
+  id,
+  agent: 'worker',
+  meta: { status, at: 3 },
+});
 
 /** Two lanes of one thread: `carried` is handed each fold's own state, `whole` a copy whose item array is new. Each
  *  publication travels under what `envelope` gives for it: the lane it came by (`frameSource`, live when unsaid) and the
@@ -310,7 +315,10 @@ test('through sessions of every kind of frame the product has, the lane shows wh
       } else if (roll < 0.3 && revision > 0) {
         // The generation shown again as a replay, or an older one: the lane refuses both.
         const stale = random.chance(0.5) && revision > 1;
-        under = { frameSource: random.chance(0.5) || !stale ? 'replay' : 'live', contentRevision: revision - (stale ? 1 : 0) };
+        under = {
+          frameSource: random.chance(0.5) || !stale ? 'replay' : 'live',
+          contentRevision: revision - (stale ? 1 : 0),
+        };
         seen.framesRefused += 1;
       }
       trace.push(`  under ${JSON.stringify(under)}`);
@@ -390,11 +398,10 @@ test('through sessions of every kind of frame the product has, the lane shows wh
           // streamed under.
           const settlesOwn = streaming !== null && random.chance(0.7);
           const settlesLive = !settlesOwn && live !== null && random.chance(0.7);
-          const item = settlesOwn
-            ? reply(id('a'), streaming)
-            : settlesLive
-              ? reply(live.id, live.text)
-              : finished();
+          let item;
+          if (settlesOwn) item = reply(id('a'), streaming);
+          else if (settlesLive) item = reply(live.id, live.text);
+          else item = finished();
           if (settlesOwn) seen.repliesSettledUnderOwnId += 1;
           if (settlesLive) seen.repliesSettledUnderStreamedId += 1;
           if (settlesOwn) streaming = null;

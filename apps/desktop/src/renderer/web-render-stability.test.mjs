@@ -17,15 +17,24 @@ import {
 } from './composer-draft.ts';
 import { isRemoteBrowserRenderer } from './remote-ui-projection.ts';
 
-test('focused web composer keeps the native value across a scope snapshot', () => {
+test('a draft that becomes its session keeps its text, the native value while typing', () => {
   assert.equal(
     composerDraftAfterScopeChange({
       currentDraft: '입력',
       liveDomDraft: '입력 중',
-      freshDraft: false,
       typingLive: true,
+      sameConversation: true,
     }),
     '입력 중'
+  );
+  assert.equal(
+    composerDraftAfterScopeChange({
+      currentDraft: '입력',
+      liveDomDraft: '입력',
+      typingLive: false,
+      sameConversation: true,
+    }),
+    '입력'
   );
 });
 
@@ -34,9 +43,7 @@ test('a focused composer leaves its text behind when switching to another existi
     composerDraftAfterScopeChange({
       currentDraft: 'A-only draft',
       liveDomDraft: 'A-only draft',
-      freshDraft: false,
       typingLive: true,
-      switchingSessions: true,
     }),
     ''
   );
@@ -45,9 +52,7 @@ test('a focused composer leaves its text behind when switching to another existi
     composerDraftAfterScopeChange({
       currentDraft: 'A-only draft',
       liveDomDraft: 'A-only draft',
-      freshDraft: false,
       typingLive: true,
-      switchingSessions: true,
       stashedDraft: stashedComposerDraft('session-b'),
     }),
     'B draft'
@@ -60,7 +65,6 @@ test('inactive composer still clears a draft when its scope changes', () => {
     composerDraftAfterScopeChange({
       currentDraft: 'old session',
       liveDomDraft: 'old session',
-      freshDraft: false,
       typingLive: false,
     }),
     ''
@@ -72,7 +76,6 @@ test('a fresh New Task pane opens clean even while the user is typing', () => {
     composerDraftAfterScopeChange({
       currentDraft: '이전 작업 입력',
       liveDomDraft: '이전 작업 입력 중',
-      freshDraft: true,
       typingLive: true,
     }),
     ''
@@ -85,7 +88,6 @@ test('returning to a tab hands back the text typed there before leaving', () => 
     composerDraftAfterScopeChange({
       currentDraft: '다른 탭 입력',
       liveDomDraft: '다른 탭 입력',
-      freshDraft: true,
       typingLive: false,
       stashedDraft: stashedComposerDraft('draft:task-1'),
     }),
@@ -98,7 +100,6 @@ test('returning to a tab hands back the text typed there before leaving', () => 
     composerDraftAfterScopeChange({
       currentDraft: '다른 탭 입력',
       liveDomDraft: '다른 탭 입력',
-      freshDraft: true,
       typingLive: false,
       stashedDraft: stashedComposerDraft('draft:task-1'),
     }),

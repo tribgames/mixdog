@@ -71,7 +71,6 @@ export function useAppSubmitRouting({
 }) {
   type SubmitRoute = {
     selection: NavigationSelection;
-    leafId: string;
   };
   const draftSubmissions = useRef(new Map<string, Promise<string>>());
   /** Claims the draft's creation slot before the first await, so a same-tick
@@ -110,18 +109,19 @@ export function useAppSubmitRouting({
       const draftPrefsKey = routeSelection.kind === 'new' ? routeSelection.draftId || 'default' : '';
       const draftPrefs = draftPrefsKey ? resolvedDraftPrefsFor(draftPrefsKey) : null;
       const draftRoute = submittedDraftRoute(draftPrefs);
-      const submitEpoch = navigationEpoch.current;
-      const draftRouteStillExists = () =>
-        Boolean(draftKey) &&
-        paneLeavesRef.current.some(
-          (leaf) => leaf.id === route.leafId && leaf.tabs.some((tab) => navigationKey(tab) === draftKey)
-        );
+      // The pane holding the draft's tab now: a tab dragged to another pane
+      // or split off while its prompt is in flight promotes where it went.
+      const draftLeafId = () =>
+        draftKey
+          ? (paneLeavesRef.current.find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === draftKey))?.id ?? '')
+          : '';
+      const draftRouteStillExists = () => Boolean(draftLeafId());
+      // Shown now, however the user got back to it.
       const draftStillSelected = () =>
         draftRouteStillExists() &&
-        focusedLeafIdRef.current === route.leafId &&
+        focusedLeafIdRef.current === draftLeafId() &&
         selectionRef.current.kind === 'new' &&
-        navigationKey(selectionRef.current) === draftKey &&
-        navigationEpoch.current === submitEpoch;
+        navigationKey(selectionRef.current) === draftKey;
       let startedSessionId = '';
       let accepted: unknown;
       const submittedProjectPath =
@@ -198,7 +198,7 @@ export function useAppSubmitRouting({
               // The ACK belongs to the pane/draft that dispatched it. A focus
               // change while it was in flight may not redirect the promotion or
               // pull the user back from the pane they moved to.
-              promoteSelectionInLeaf(route.leafId, sessionSelection, draftKey);
+              promoteSelectionInLeaf(draftLeafId(), sessionSelection, draftKey);
               registerWorkspaceSelection(sessionSelection, displaySessionTitle(title), draftKey);
             }
           }
@@ -222,17 +222,10 @@ export function useAppSubmitRouting({
   );
   const submitFromRouteRef = useRef(submitFromRoute);
   submitFromRouteRef.current = submitFromRoute;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selection/leaf refs are read at call time so submit keeps a stable identity
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the selection ref is read at call time so submit keeps a stable identity
   const submit = useCallback(
     (content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> =>
-      submitFromRouteRef.current(
-        {
-          selection: selectionRef.current,
-          leafId: focusedLeafIdRef.current,
-        },
-        content,
-        options
-      ),
+      submitFromRouteRef.current({ selection: selectionRef.current }, content, options),
     []
   );
   const paneSessionSubmitCache = useRef(new Map<string, SubmitFn>());
@@ -246,7 +239,7 @@ export function useAppSubmitRouting({
   const paneDraftSubmitFor = (draftSelection: Extract<NavigationSelection, { kind: 'new' }>, leafId: string) => {
     const key = `${leafId}\u0000${navigationKey(draftSelection)}`;
     return cachedSubmit(paneDraftSubmitCache.current, key, (content, options) =>
-      submitFromRouteRef.current({ selection: draftSelection, leafId }, content, options)
+      submitFromRouteRef.current({ selection: draftSelection }, content, options)
     );
   };
 

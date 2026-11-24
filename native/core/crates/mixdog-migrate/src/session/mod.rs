@@ -619,8 +619,12 @@ impl ItemDriver for SessionDriver {
         if item.kind != ItemKind::Session {
             return Ok(0);
         }
-        let folded =
-            target::read_session(cx, &target_dir(cx, session_id(item))).map_err(|detail| Blocked::journal(format!("{}: {detail}", item.key.as_str())))?;
+        let dir = target_dir(cx, session_id(item));
+        // A session the user deleted behind the serving core has nothing left to dangle.
+        if !durable::exists(&dir)? {
+            return Ok(0);
+        }
+        let folded = target::read_session(cx, &dir).map_err(|detail| Blocked::journal(format!("{}: {detail}", item.key.as_str())))?;
         let mut refs: BTreeSet<String> = folded.rows.iter().flat_map(|r| r.refs.iter().cloned()).collect();
         for (_, entry) in &folded.queue {
             observe::attachment_refs(entry, &mut refs);

@@ -132,6 +132,8 @@ pub struct TestCompaction {
     pub pruned: Mutex<Vec<(String, String)>>,
     /// How many of its candidates each `prune_offloads` deleted, recorded before its `pruned` entry.
     pub pruned_deleted: Mutex<Vec<usize>>,
+    /// The next `prune_offloads` tells `.0` it arrived, then waits for `.1`.
+    pub prune_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     /// The data dir whose `tool-results/<thread>` sidecars the host's own listing and prune
     /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on, and the clock's now (ms) they age at, as the host's
     /// `parts.clock` (`manual_compaction.rs`). None lists nothing.
@@ -216,6 +218,11 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     }
     #[allow(clippy::disallowed_methods, reason = "test counts the sidecars the prune deleted")]
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: super::turn_ops::OffloadCopies) {
+        let gate = lock(&self.prune_gate).take();
+        if let Some((arrived, release)) = gate {
+            arrived.notify_one();
+            release.notified().await;
+        }
         let offloads = lock(&self.offloads).clone();
         let listed: Vec<std::path::PathBuf> = candidates.iter().filter(|path| path.exists()).cloned().collect();
         if let Some((data, now)) = offloads {
@@ -380,6 +387,10 @@ type Log = Arc<Mutex<Vec<(u64, Record)>>>;
 pub struct MemStore {
     logs: Mutex<HashMap<ThreadId, Log>>,
     pub head_reads: AtomicU64,
+    /// The next `open_log` fails (a transient lock).
+    pub fail_open_next: AtomicBool,
+    /// The next whole draft write waits until this is signalled or dropped, then fails.
+    pub draft_fail_on_release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
     /// The next barrier returns an unknown outcome; a subsequent retry or append finds nothing had landed.
@@ -758,7 +769,7 @@ impl ThreadStore for MemStore {
             next_ordinal: records.last().map_or(0, |(ordinal, _)| ordinal + 1),
             tail: records,
             drafts,
-            append: AppendPosition(Box::new(())),
+            append: AppendPosition(std::sync::Arc::new(())),
         })
     }
 
@@ -871,6 +882,9 @@ impl ThreadStore for MemStore {
     }
 
     fn open_log(&self, _lane: &InLane<DurabilityIo>, id: &ThreadId, _at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
+        if self.fail_open_next.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::failed("openLocked"));
+        }
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
@@ -915,6 +929,12 @@ impl ThreadStore for MemStore {
 
     fn draft_write(&self, _lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
         use super::turn_draft::DraftWrite;
+        if matches!(write, DraftWrite::Replace { .. })
+            && let Some(release) = lock(&self.draft_fail_on_release).take()
+        {
+            let _ = release.recv();
+            return Err(CoreError::Internal { incident_id: "test-draft-failed".into() });
+        }
         let thread = id.as_str().to_owned();
         let mut drafts = lock(&self.drafts);
         match write {

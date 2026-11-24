@@ -41,17 +41,26 @@ impl UsageHttp for FakeHttp {
     }
 }
 
+/// The credential stored for a slot now, as a source hands it to the request it authorises: Anthropic's login without
+/// the file's envelope.
+async fn stored_credential(store: &AccountStore, provider: &str, slot: &str) -> Option<UsageAuth> {
+    let crate::oauth::Probe::Present(mut doc) = store.credential_file(provider, slot).unwrap().load_document().await else { return None };
+    Some(UsageAuth::plain(doc.shift_remove("claudeAiOauth").unwrap_or(Value::Object(doc))))
+}
+
+/// A source that authorises each request with the slot's stored credential.
 struct FakeSource {
     forced: Mutex<Vec<bool>>,
+    store: AccountStore,
 }
 
 #[async_trait]
 impl UsageSource for FakeSource {
-    async fn ensure_auth(&self, _: &str, _: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
+    async fn ensure_auth(&self, provider: &str, account_id: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
         self.forced.lock().unwrap().push(rejected.is_some());
-        Ok(Some(UsageAuth::plain(serde_json::json!({"accessToken": "tok"}))))
+        Ok(stored_credential(&self.store, provider, account_id).await)
     }
-    async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         Ok(None)
     }
 }
@@ -89,7 +98,7 @@ async fn cursor_plan_cache_and_inflight_are_scoped_to_the_resolved_key() {
         async fn ensure_auth(&self, _: &str, _: &str, _: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
             Ok(None)
         }
-        async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+        async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
             Ok(None)
         }
         async fn cursor_api_plan(&self) -> Result<Option<Arc<dyn CursorApiPlan>>, UsageError> {
@@ -99,16 +108,7 @@ async fn cursor_plan_cache_and_inflight_are_scoped_to_the_resolved_key() {
 
     let rig = rig().await;
     let keys = Arc::new(Keys { key: AtomicU8::new(1), gate: Arc::new(tokio::sync::Semaphore::new(0)) });
-    let service = OAuthUsage::new(UsageDeps {
-        http: rig.http.clone(),
-        source: keys.clone(),
-        grok: Arc::new(NoGrok),
-        history: rig.history.clone(),
-        store: rig.store.clone(),
-        io: rig.usage.deps.io,
-        log: Arc::new(|_| {}),
-        data_dir: rig.dir.path().to_owned(),
-    });
+    let service = service_over(&rig, keys.clone(), rig.dir.path().to_owned());
     let route = RouteInfo { provider: "cursor-api".into(), model: "m".into(), account_id: "default".into() };
     let mut old = std::pin::pin!(service.fetch_snapshot(&route, false));
     assert!(futures::poll!(old.as_mut()).is_pending());
@@ -158,8 +158,12 @@ async fn rig() -> Rig {
     let tokens = mixdog_rt::testing::tokens();
     let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     store.register("anthropic-oauth", ID, "A", false).await.unwrap();
+    for slot in [ID, "default"] {
+        store.credential_file("anthropic-oauth", slot).unwrap().save(&anthropic_login("tok", None)).await.unwrap();
+    }
+    store.credential_file("openai-oauth", ID).unwrap().save(&serde_json::json!({ "access_token": "tok", "refresh_token": "r" })).await.unwrap();
     let http = Arc::new(FakeHttp::default());
-    let source = Arc::new(FakeSource { forced: Mutex::default() });
+    let source = Arc::new(FakeSource { forced: Mutex::default(), store: store.clone() });
     let history = Arc::new(History::default());
     let logs = Arc::new(Mutex::new(Vec::new()));
     let logged = logs.clone();
@@ -174,6 +178,30 @@ async fn rig() -> Rig {
         data_dir: dir.path().join("data"),
     });
     Rig { usage, http, source, history, store, dir, logs }
+}
+
+/// A service over `source`, sharing the rig's network, history and accounts, caching under `data_dir`.
+fn service_over(r: &Rig, source: Arc<dyn UsageSource>, data_dir: PathBuf) -> Arc<OAuthUsage> {
+    OAuthUsage::new(UsageDeps {
+        http: r.http.clone(),
+        source,
+        grok: Arc::new(NoGrok),
+        history: r.history.clone(),
+        store: r.store.clone(),
+        io: r.usage.deps.io,
+        log: Arc::new(|_| {}),
+        data_dir,
+    })
+}
+
+fn anthropic_login(access: &str, identity: Option<&str>) -> Value {
+    let mut login = serde_json::json!({
+        "claudeAiOauth": { "accessToken": access, "refreshToken": "r", "expiresAt": 4_102_444_800_000u64, "scopes": ["user:inference"] }
+    });
+    if let Some(id) = identity {
+        login["claudeAiOauth"]["identity"] = serde_json::json!({ "id": id });
+    }
+    login
 }
 
 fn route() -> RouteInfo {
@@ -204,6 +232,215 @@ async fn a_reading_is_recorded_cached_and_served_without_a_second_request() {
     assert_eq!(cached["quotaWindows"][0]["usedPct"], 40);
     r.usage.cache.saved().await;
     assert!(r.dir.path().join("data/gateway-oauth-usage-cache.json").exists());
+}
+
+/// The reading is served only for the sign-in it was measured under, decided where it is read: another user signing in on
+/// the slot, or the credential deleted, leaves no cached reading for either reader and no negative answer standing in.
+#[tokio::test]
+async fn a_cached_reading_is_not_served_after_another_sign_in_or_a_deleted_credential() {
+    let r = rig().await;
+    let file = r.store.credential_file("anthropic-oauth", ID).unwrap();
+    let slot = RouteInfo { model: String::new(), ..route() };
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(40))));
+    assert_eq!(r.usage.fetch_snapshot(&route(), false).await.unwrap()["quotaWindows"][0]["usedPct"], 40);
+    assert_eq!(r.usage.read_cached(&slot, true).await.unwrap()["quotaWindows"][0]["usedPct"], 40);
+
+    file.save(&anthropic_login("other-token", Some("user-2"))).await.unwrap();
+    assert!(r.usage.read_cached(&slot, true).await.is_none(), "another user's sign-in on the slot");
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(7))));
+    assert_eq!(r.usage.fetch_snapshot(&route(), false).await.unwrap()["quotaWindows"][0]["usedPct"], 7, "measured again, not served");
+    assert_eq!(r.http.urls().len(), 2);
+
+    file.remove().await.unwrap();
+    assert!(r.usage.read_cached(&slot, true).await.is_none(), "a deleted credential");
+    assert!(r.usage.fetch_snapshot(&route(), false).await.is_none(), "nothing is signed in to measure for");
+    assert_eq!(r.http.urls().len(), 2);
+}
+
+/// A provider source that reports one meter (`used`, or nothing while negative) on the slot's stored credential and
+/// counts its measurements.
+struct Meter {
+    used: std::sync::atomic::AtomicI64,
+    calls: std::sync::atomic::AtomicU32,
+    store: AccountStore,
+}
+
+#[async_trait]
+impl UsageSource for Meter {
+    async fn ensure_auth(&self, _: &str, _: &str, _: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
+        Ok(None)
+    }
+    async fn provider_snapshot(&self, provider: &str, account_id: &str, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+        use std::sync::atomic::Ordering;
+        *sent = stored_credential(&self.store, provider, account_id).await;
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let used = self.used.load(Ordering::SeqCst);
+        Ok((used >= 0)
+            .then(|| serde_json::json!({ "provider": provider, "quotaWindows": [{ "label": "5h", "usedPct": used, "resetAt": 4_070_908_800_000_i64 }] })))
+    }
+}
+
+/// A service over [`Meter`], a slot of `provider` registered under `ID`, and the slot's credential file.
+async fn metered(provider: &str, login: Value) -> (Arc<OAuthUsage>, Arc<Meter>, crate::oauth::CredentialFile, RouteInfo, tempfile::TempDir) {
+    let r = rig().await;
+    r.store.register(provider, ID, "A", false).await.unwrap();
+    let file = r.store.credential_file(provider, ID).unwrap();
+    file.save(&login).await.unwrap();
+    let meter = Arc::new(Meter { used: 10.into(), calls: 0.into(), store: r.store.clone() });
+    let usage = service_over(&r, meter.clone(), r.dir.path().to_owned());
+    (usage, meter, file, RouteInfo { provider: provider.into(), model: String::new(), account_id: ID.into() }, r.dir)
+}
+
+fn used_of(reading: Option<Value>) -> Option<u64> {
+    reading.as_ref().and_then(used)
+}
+
+#[tokio::test]
+async fn a_command_code_reading_follows_the_account_its_key_belongs_to() {
+    use std::sync::atomic::Ordering;
+    let (usage, meter, file, route, _dir) = metered("command-code-oauth", serde_json::json!({ "apiKey": "k1", "userId": "u1", "userName": "n1" })).await;
+    assert_eq!(used_of(usage.fetch_snapshot(&route, false).await), Some(10));
+    assert_eq!(used_of(usage.read_cached(&route, true).await), Some(10));
+
+    file.save(&serde_json::json!({ "apiKey": "k2", "userId": "u2", "userName": "n2" })).await.unwrap();
+    meter.used.store(20, Ordering::SeqCst);
+    assert!(usage.read_cached(&route, true).await.is_none(), "another user signed in on the slot");
+    assert_eq!(used_of(usage.fetch_snapshot(&route, false).await), Some(20), "measured for the new account, not served");
+    assert_eq!(meter.calls.load(Ordering::SeqCst), 2);
+
+    file.save(&serde_json::json!({ "apiKey": "k3" })).await.unwrap();
+    assert_eq!(used_of(usage.read_cached(&route, true).await), Some(20), "the same account under a new key keeps its reading");
+
+    file.remove().await.unwrap();
+    assert!(usage.read_cached(&route, true).await.is_none(), "a deleted credential");
+}
+
+#[tokio::test]
+async fn a_cursor_reading_on_a_named_slot_survives_a_token_refresh_and_not_another_account_or_a_deleted_file() {
+    let (usage, _meter, file, route, _dir) =
+        metered("cursor-oauth", serde_json::json!({ "access_token": "t1", "refresh_token": "r", "email": "a@example.test" })).await;
+    assert_eq!(used_of(usage.fetch_snapshot(&route, false).await), Some(10));
+
+    file.save(&serde_json::json!({ "access_token": "t2" })).await.unwrap();
+    assert_eq!(used_of(usage.read_cached(&route, true).await), Some(10), "a refreshed token is the same account");
+    assert_eq!(used_of(usage.fetch_snapshot(&route, false).await), Some(10));
+
+    file.save(&serde_json::json!({ "access_token": "t3", "email": "b@example.test" })).await.unwrap();
+    assert!(usage.read_cached(&route, true).await.is_none(), "another account");
+
+    file.remove().await.unwrap();
+    assert!(usage.read_cached(&route, true).await.is_none(), "no environment override on a named slot: nothing is served");
+}
+
+#[tokio::test]
+async fn an_empty_answer_of_one_account_does_not_stand_in_for_the_next() {
+    use std::sync::atomic::Ordering;
+    let (usage, meter, file, route, _dir) = metered("command-code-oauth", serde_json::json!({ "apiKey": "k1", "userId": "u1" })).await;
+    meter.used.store(-1, Ordering::SeqCst);
+    assert!(usage.fetch_snapshot(&route, false).await.is_none());
+    assert!(usage.fetch_snapshot(&route, false).await.is_none());
+    assert_eq!(meter.calls.load(Ordering::SeqCst), 1, "the empty answer stands for the account that gave it");
+
+    file.save(&serde_json::json!({ "apiKey": "k2", "userId": "u2" })).await.unwrap();
+    meter.used.store(30, Ordering::SeqCst);
+    assert_eq!(used_of(usage.fetch_snapshot(&route, false).await), Some(30), "the next account is measured");
+}
+
+/// A source that stops each measurement twice until the test lets it go: before it reads the slot's stored credential,
+/// and after it took that credential for the request, before the request goes out. Each stop is announced.
+struct Switching {
+    store: AccountStore,
+    arrived: [tokio::sync::Semaphore; 2],
+    gates: [tokio::sync::Semaphore; 2],
+}
+
+#[async_trait]
+impl UsageSource for Switching {
+    async fn ensure_auth(&self, provider: &str, account_id: &str, _: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
+        self.arrived[0].add_permits(1);
+        self.gates[0].acquire().await.expect("an open gate").forget();
+        let sent = stored_credential(&self.store, provider, account_id).await;
+        self.arrived[1].add_permits(1);
+        self.gates[1].acquire().await.expect("an open gate").forget();
+        Ok(sent)
+    }
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+        Ok(None)
+    }
+}
+
+/// A service over [`Switching`], its slot [`route`] signed in as `user-a`, and that account's and `user-b`'s logins.
+async fn switching() -> (Rig, Arc<OAuthUsage>, Arc<Switching>, [Value; 2]) {
+    let r = rig().await;
+    let logins = [anthropic_login("token-a", Some("user-a")), anthropic_login("token-b", Some("user-b"))];
+    r.store.credential_file("anthropic-oauth", ID).unwrap().save(&logins[0]).await.unwrap();
+    let gates = || [tokio::sync::Semaphore::new(0), tokio::sync::Semaphore::new(0)];
+    let source = Arc::new(Switching { store: r.store.clone(), arrived: gates(), gates: gates() });
+    let usage = service_over(&r, source.clone(), r.dir.path().join("switching"));
+    (r, usage, source, logins)
+}
+
+fn stamp_of(login: &Value) -> String {
+    credential_stamp("anthropic-oauth", login["claudeAiOauth"].as_object().unwrap()).unwrap()
+}
+
+/// The stamps the slot's roster row holds its windows under.
+async fn row_stamps(r: &Rig) -> Vec<Option<String>> {
+    let row = r.store.pool("anthropic-oauth").await.unwrap().account(ID).unwrap().usage.clone();
+    row.map_or_else(Vec::new, |usage| usage.windows.iter().map(|w| w.extra.get("credential").and_then(Value::as_str).map(str::to_owned)).collect())
+}
+
+/// Another user signs in on the slot while a measurement waits to authorise its request: the request goes out on that
+/// account's credential, and its figures are recorded, cached and served as that account's alone. Nothing carries the
+/// stamp of the account stored when the measurement began.
+#[tokio::test]
+async fn a_measurement_authorised_after_another_sign_in_is_the_new_accounts() {
+    let (r, usage, source, [_, second]) = switching().await;
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(70))));
+    let measuring = tokio::spawn({
+        let usage = usage.clone();
+        async move { usage.fetch_snapshot(&route(), false).await }
+    });
+    source.arrived[0].acquire().await.unwrap().forget();
+    r.store.credential_file("anthropic-oauth", ID).unwrap().save(&second).await.unwrap();
+    source.gates[0].add_permits(1);
+    source.gates[1].add_permits(1);
+
+    let measured = measuring.await.unwrap().expect("the new account's reading");
+    let own = stamp_of(&second);
+    assert_eq!((used(&measured), measured[CREDENTIAL_STAMP].as_str()), (Some(70), Some(own.as_str())));
+    assert_eq!(row_stamps(&r).await, [Some(own.clone())], "the roster row holds the new account's figures under its stamp");
+    let served = usage.read_cached(&route(), true).await.expect("served for the account signed in");
+    assert_eq!((used(&served), served[CREDENTIAL_STAMP].as_str()), (Some(70), Some(own.as_str())));
+}
+
+/// A measurement's request goes out on one account's credential and another user signs in on the slot before its answer
+/// is taken: the figures are the replaced account's, so they reach neither the roster row, the history nor the cache, and
+/// the caller is not given them as the slot's usage. The next reading is measured for the account signed in now.
+#[tokio::test]
+async fn a_reading_of_an_account_replaced_during_its_measurement_is_neither_recorded_nor_served() {
+    let (r, usage, source, [_, second]) = switching().await;
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(40))));
+    let measuring = tokio::spawn({
+        let usage = usage.clone();
+        async move { usage.fetch_snapshot(&route(), false).await }
+    });
+    source.gates[0].add_permits(1);
+    source.arrived[1].acquire().await.unwrap().forget();
+    r.store.credential_file("anthropic-oauth", ID).unwrap().save(&second).await.unwrap();
+    source.gates[1].add_permits(1);
+
+    assert!(measuring.await.unwrap().is_none(), "the replaced account's figures were given as the slot's");
+    assert!(row_stamps(&r).await.is_empty(), "the roster row");
+    assert!(r.history.0.lock().unwrap().is_empty(), "the history");
+    assert!(usage.read_cached(&route(), true).await.is_none(), "the cache");
+
+    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(7))));
+    source.gates[0].add_permits(1);
+    source.gates[1].add_permits(1);
+    let next = usage.fetch_snapshot(&route(), false).await.expect("measured for the account signed in now");
+    assert_eq!((used(&next), next[CREDENTIAL_STAMP].as_str()), (Some(7), Some(stamp_of(&second).as_str())));
+    assert_eq!(row_stamps(&r).await, [Some(stamp_of(&second))]);
 }
 
 #[tokio::test]
@@ -257,6 +494,29 @@ async fn the_reset_credit_redeem_checks_its_arguments_then_replays_once() {
     assert_eq!(codex_reset_outcome(Some(&Value::from("no_credit"))).unwrap(), "noCredit");
     assert_eq!(codex_reset_outcome(None).unwrap_err().message, "Unknown Codex reset outcome: missing");
 }
+
+#[tokio::test]
+async fn a_reset_credit_is_spent_only_on_the_offer_that_was_shown() {
+    const OFFER: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
+    const CONSUME: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume";
+    let offer = |count: u32| format!(r#"{{"available_count":{count},"credits":[{{"status":"available","expires_at":4070908800}}]}}"#);
+    let shown = norm::normalize_codex_reset_credits(Some(&serde_json::from_str(&offer(1)).unwrap()), "", now_ms()).unwrap()["offerRevision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let r = rig().await;
+    r.http.queue(OFFER, Ok((200, offer(2))));
+    let stale = r.usage.consume_codex_reset_credit(ID, &shown, ID).await.unwrap_err();
+    assert_eq!(stale.message, "Codex reset offer changed; refresh and try again");
+    assert!(!r.http.urls().contains(&CONSUME.to_owned()), "nothing was redeemed");
+
+    r.http.queue(OFFER, Ok((200, offer(1))));
+    r.http.queue(CONSUME, Ok((200, r#"{"code":"reset"}"#.into())));
+    r.http.queue(OFFER, Ok((200, offer(0))));
+    let done = r.usage.consume_codex_reset_credit(ID, &shown, ID).await.unwrap();
+    assert_eq!(done.outcome, "reset");
+}
+
 /// One locked edit of a cache file's routes ([`update_json_atomic`]) as a durability-lane job.
 fn cache_update(path: &std::path::Path, edit: impl FnOnce(&mut Obj) + Send + 'static) -> std::io::Result<()> {
     use mixdog_rt::LaneToken;
@@ -476,6 +736,11 @@ impl Barrier {
     }
 }
 
+/// The stamp of the sign-in the rig stores for its anthropic slots: what a reading measured under it carries.
+fn own_stamp() -> String {
+    credential_stamp("anthropic-oauth", anthropic_login("tok", None)["claudeAiOauth"].as_object().unwrap()).unwrap()
+}
+
 /// The slot of [`route`] in the cache: the provider and the account.
 fn slot() -> String {
     format!("anthropic-oauth\u{2}{ID}")
@@ -518,7 +783,7 @@ fn used(reading: &Value) -> Option<u64> {
 #[tokio::test]
 async fn the_first_cached_reading_asked_over_a_full_read_lane_waits_and_is_answered() {
     let r = rig().await;
-    write_routes(&r, serde_json::json!({ slot(): held("anthropic-oauth", ID, 40, None, now_ms()) }));
+    write_routes(&r, serde_json::json!({ slot(): held("anthropic-oauth", ID, 40, Some(&own_stamp()), now_ms()) }));
     let route = route();
     let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
     let mut read = std::pin::pin!(r.usage.read_cached(&route, false));
@@ -537,9 +802,9 @@ async fn the_read_of_the_file_at_start_orders_before_every_edit() {
     write_routes(
         &r,
         serde_json::json!({
-            slot(): held("anthropic-oauth", ID, 11, Some("s1"), now),
-            format!("{}\u{1}claude-x", slot()): held("anthropic-oauth", ID, 11, Some("s1"), now),
-            "anthropic-oauth": held("anthropic-oauth", "default", 11, Some("s1"), now),
+            slot(): held("anthropic-oauth", ID, 11, Some(&own_stamp()), now),
+            format!("{}\u{1}claude-x", slot()): held("anthropic-oauth", ID, 11, Some(&own_stamp()), now),
+            "anthropic-oauth": held("anthropic-oauth", "default", 11, Some(&own_stamp()), now),
         }),
     );
     let barrier = Arc::new(Barrier::default());
@@ -573,7 +838,7 @@ async fn the_read_of_the_file_at_start_orders_before_every_edit() {
         let found = r.usage.read_cached(&lookup, stale).await;
         assert!(found.as_ref().is_none_or(|reading| used(reading) == Some(41)), "{} (stale {stale}): {found:?}", lookup.model);
     }
-    assert!(r.usage.read_bound("anthropic-oauth", "s1").await.is_none(), "the bound reading was retired with the provider");
+    assert!(r.usage.read_bound("anthropic-oauth", &own_stamp()).await.is_none(), "the bound reading was retired with the provider");
     let default = RouteInfo { provider: "anthropic-oauth".into(), model: String::new(), account_id: "default".into() };
     assert!(r.usage.read_cached(&default, true).await.is_none());
     r.usage.cache.saved().await;
@@ -659,7 +924,7 @@ impl UsageSource for HeldSource {
         self.gate.acquire().await.expect("an open gate").forget();
         Ok(Some(UsageAuth::plain(serde_json::json!({"accessToken": "tok"}))))
     }
-    async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         Ok(None)
     }
 }
@@ -672,16 +937,7 @@ async fn a_measurement_overtaken_by_an_invalidation_publishes_nothing_and_leaves
     for old_answer in [five_hour(40), "{}".to_owned()] {
         let rig = rig().await;
         let source = Arc::new(HeldSource { arrived: Default::default(), gate: tokio::sync::Semaphore::new(0) });
-        let usage = OAuthUsage::new(UsageDeps {
-            http: rig.http.clone(),
-            source: source.clone(),
-            grok: Arc::new(NoGrok),
-            history: rig.history.clone(),
-            store: rig.store.clone(),
-            io: rig.usage.deps.io,
-            log: Arc::new(|_| {}),
-            data_dir: rig.dir.path().join("held"),
-        });
+        let usage = service_over(&rig, source.clone(), rig.dir.path().join("held"));
         let arrived = || source.arrived.load(std::sync::atomic::Ordering::SeqCst);
         rig.http.queue(ANTHROPIC_URL, Ok((200, old_answer.clone())));
         rig.http.queue(ANTHROPIC_URL, Ok((200, five_hour(41))));
@@ -726,7 +982,7 @@ impl UsageSource for GatedSource {
         self.gates[turn].acquire().await.expect("an open gate").forget();
         Ok(Some(UsageAuth::plain(serde_json::json!({"accessToken": "tok"}))))
     }
-    async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+    async fn provider_snapshot(&self, _: &str, _: &str, _: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         Ok(None)
     }
 }
@@ -740,16 +996,7 @@ async fn a_completion_overtaken_by_an_invalidation_changes_nothing_anywhere() {
     for old_answer in [five_hour(40), "{}".to_owned()] {
         let r = rig().await;
         let source = Arc::new(GatedSource { arrived: Default::default(), gates: [tokio::sync::Semaphore::new(0), tokio::sync::Semaphore::new(0)] });
-        let usage = OAuthUsage::new(UsageDeps {
-            http: r.http.clone(),
-            source: source.clone(),
-            grok: Arc::new(NoGrok),
-            history: r.history.clone(),
-            store: r.store.clone(),
-            io: r.usage.deps.io,
-            log: Arc::new(|_| {}),
-            data_dir: r.dir.path().join("data"),
-        });
+        let usage = service_over(&r, source.clone(), r.dir.path().join("data"));
         let arrived = || source.arrived.load(std::sync::atomic::Ordering::SeqCst);
         // Answered in the order the measurements pass their gates: the newer one first.
         r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(41))));
@@ -791,30 +1038,31 @@ async fn ticket(r: &Rig) -> cache::Ticket {
 
 /// A sign-in's readings of one slot are retired though they are dated in the future, as after the clock was moved
 /// back: no time decides what is removed. They leave memory at once and the file with the erase; another sign-in's
-/// and unstamped readings of the slot, another slot and another provider stay.
+/// and unstamped readings of the slot, another slot and another provider stay in the file. The sign-in is the one stored
+/// for the slot, so what is served is decided by its credential file, as the retirement is.
 #[tokio::test]
 async fn a_stamped_retirement_removes_the_slots_matching_readings_whatever_their_date() {
     let r = rig().await;
     let ahead = now_ms() + 3_600_000;
+    let own = own_stamp();
     let model = |name: &str| format!("{}\u{1}{name}", slot());
     write_routes(
         &r,
         serde_json::json!({
-            slot(): held("anthropic-oauth", ID, 11, Some("s1"), ahead),
-            model("claude-x"): held("anthropic-oauth", ID, 11, Some("s1"), ahead),
-            model("claude-other"): held("anthropic-oauth", ID, 22, Some("s2"), ahead),
+            slot(): held("anthropic-oauth", ID, 11, Some(&own), ahead),
+            model("claude-x"): held("anthropic-oauth", ID, 11, Some(&own), ahead),
+            model("claude-other"): held("anthropic-oauth", ID, 22, Some("another-sign-in"), ahead),
             model("claude-plain"): held("anthropic-oauth", ID, 33, None, ahead),
-            "anthropic-oauth": held("anthropic-oauth", "default", 44, Some("s1"), ahead),
-            "openai-oauth": held("openai-oauth", "default", 55, Some("s1"), ahead),
+            "anthropic-oauth": held("anthropic-oauth", "default", 44, Some(&own), ahead),
+            "openai-oauth": held("openai-oauth", "default", 55, Some("elsewhere"), ahead),
         }),
     );
     assert_eq!(r.usage.read_cached(&route(), true).await.as_ref().and_then(used), Some(11));
     r.usage.cache.retire_stamped(&ticket(&r).await, "nobody").expect("a current ticket").await.unwrap();
     assert_eq!(r.usage.read_cached(&route(), true).await.as_ref().and_then(used), Some(11), "a sign-in that measured none of them retires nothing");
 
-    let erasing = r.usage.cache.retire_stamped(&ticket(&r).await, "s1").expect("a current ticket");
-    let left = r.usage.read_cached(&route(), true).await;
-    assert!(left.as_ref().is_some_and(|reading| matches!(used(reading), Some(22 | 33))), "another sign-in's or an unstamped reading: {left:?}");
+    let erasing = r.usage.cache.retire_stamped(&ticket(&r).await, &own).expect("a current ticket");
+    assert!(r.usage.read_cached(&route(), true).await.is_none(), "the stored sign-in's readings are gone; the others are not its own");
     erasing.await.unwrap();
 
     let routes = routes_of(&r);
@@ -826,7 +1074,7 @@ async fn a_stamped_retirement_removes_the_slots_matching_readings_whatever_their
     assert_eq!(kept, expected);
     let default = |provider: &str| RouteInfo { provider: provider.into(), model: String::new(), account_id: "default".into() };
     assert_eq!(r.usage.read_cached(&default("anthropic-oauth"), true).await.as_ref().and_then(used), Some(44));
-    assert_eq!(r.usage.read_cached(&default("openai-oauth"), true).await.as_ref().and_then(used), Some(55));
+    assert!(r.usage.read_cached(&default("openai-oauth"), true).await.is_none(), "no stored sign-in, nothing served");
 }
 
 /// A route another process wrote to the cache file after this one read it.

@@ -5,7 +5,38 @@ import React, { act } from 'react';
 import { installTestDom } from '../test-support/test-dom.mjs';
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'Event'] };
-const { useOnboardingSetup } = await import('./onboarding-wizard-state.ts');
+const { useOnboardingRun, useOnboardingSetup } = await import('./onboarding-wizard-state.ts');
+
+test("a throwing caller gets the failure instead of the wizard's banner, and later mutations still run", async (t) => {
+  const dom = installTestDom(t, DOM);
+  const calls = [];
+  const api = {
+    invokeCapability: async ({ capability }) => {
+      calls.push(capability);
+      if (capability === 'completeOAuthProviderLogin') throw new Error('The authorization code is invalid.');
+      return { value: { saved: true } };
+    },
+  };
+  const seen = { hook: null };
+  function Probe() {
+    seen.hook = useOnboardingRun(api);
+    return null;
+  }
+  await act(async () => dom.root.render(React.createElement(Probe)));
+  await act(async () => {
+    await assert.rejects(
+      seen.hook.run('completeOAuthProviderLogin', ['flow-1', 'bad'], 'oauth-complete', false, false, 'throw'),
+      /The authorization code is invalid\./
+    );
+  });
+  assert.equal(seen.hook.error, '', 'the wizard banner behind the sign-in dialog stays empty');
+  let saved;
+  await act(async () => {
+    saved = await seen.hook.run('setProfile', [{ title: 'Dev' }]);
+  });
+  assert.deepEqual(saved, { saved: true });
+  assert.deepEqual(calls, ['completeOAuthProviderLogin', 'setProfile']);
+});
 
 async function mountSetup(t, readCapabilities) {
   const dom = installTestDom(t, DOM);

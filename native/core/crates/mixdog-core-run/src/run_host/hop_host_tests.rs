@@ -1,14 +1,17 @@
 use std::sync::Mutex;
 
-use mixdog_ai::catalog::{CatalogSnapshot, ModelsDevSource};
+use mixdog_ai::catalog::{CatalogSnapshot, ModelsDevSource, ProviderReadiness};
 use mixdog_ai::oauth::CredentialIo;
-use mixdog_ai::registry::providers::ProviderBuilder;
+use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
 use mixdog_core_api::domain::keepalive::{KeepaliveSchedule, TransportKind};
 use mixdog_core_api::domain::provider::{
     DeliveryState, ErrorKind, ErrorResponse, ModelRequest, ModelStream, WireCodec, WireDecoder, WireRequest, WireRoute, WireRouting,
 };
 use mixdog_core_api::domain::retry::RetryPolicy;
+use mixdog_core_api::mock::MockStatePublisher;
+use mixdog_core_config::config::{Config, ConfigLanes};
+use mixdog_core_ports::ports::route_facts::{AgentAnswer, AgentAsk, CatalogFacts};
 use mixdog_protocol::ProviderId;
 
 use crate::run_host::hop_host::*;
@@ -194,18 +197,82 @@ async fn catalog() -> Arc<CatalogService> {
     Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await)
 }
 
-async fn harness(script: Arc<Script>, header: Value) -> (RegistryHopHost, Arc<Session>) {
+/// The route provider an agent outside the loop serves.
+const AGENT: &str = "acp-agent";
+
+/// The facts the composition hands the hop: the PC's catalog and registry, with an agent outside the loop serving
+/// [`AGENT`] (as `mixdog_acp::routes::AgentRouteFacts` answers for one).
+struct Facts {
+    inner: CatalogFacts,
+    _config_dir: tempfile::TempDir,
+}
+
+#[async_trait]
+impl RouteFacts for Facts {
+    fn is_known(&self, provider: &str, config: &Obj) -> bool {
+        provider == AGENT || self.inner.is_known(provider, config)
+    }
+    async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String> {
+        if provider == AGENT { Ok(()) } else { self.inner.ensure_ready(config, provider).await }
+    }
+    fn model_meta(&self, provider: &str, model: &str) -> Value {
+        self.inner.model_meta(provider, model)
+    }
+    fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+        self.inner.window_meta(provider, model, meta)
+    }
+    fn catalog_knows(&self, model: &str, provider: &str) -> bool {
+        self.inner.catalog_knows(model, provider)
+    }
+    fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
+        self.inner.fast_capable(provider, meta, effort, params)
+    }
+    fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
+        self.inner.ultrafast_capable(provider, meta)
+    }
+    async fn sender(&self, providers: Option<&Obj>, provider: &str) -> Result<Option<RouteSender>, String> {
+        if provider == AGENT { Ok(Some(RouteSender::Agent(Arc::new(Unasked)))) } else { self.inner.sender(providers, provider).await }
+    }
+    fn registered(&self, provider: &str) -> Option<Arc<dyn ProviderAdapter>> {
+        (provider != AGENT).then(|| self.inner.registered(provider)).flatten()
+    }
+    fn init_error(&self, provider: &str) -> Option<String> {
+        (provider != AGENT).then(|| self.inner.init_error(provider)).flatten()
+    }
+}
+
+/// An agent a hop asks nothing.
+struct Unasked;
+
+#[async_trait]
+impl AgentAsk for Unasked {
+    async fn ask(&self, _: &str, _: &str, _: &str) -> Result<AgentAnswer, String> {
+        unreachable!("a hop asks no agent anything")
+    }
+}
+
+async fn facts(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Arc<dyn RouteFacts> {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let readiness = ProviderReadiness::new(registry.clone(), catalog.clone());
+    Arc::new(Facts { inner: CatalogFacts { catalog, readiness, registry, config }, _config_dir: dir })
+}
+
+async fn harness(script: Arc<Script>, header: Value) -> (RegistryHopHost, Arc<Session>, Arc<ProviderRegistry>) {
     let registry = Arc::new(ProviderRegistry::new(Arc::new(Builder { script, fail_init: false, ghost: false })));
     let session = Arc::new(Session { header: header.as_object().cloned().unwrap(), log: Mutex::default(), pins: Mutex::default(), fail: Mutex::new("") });
+    let catalog = catalog().await;
     let deps = HopDeps {
-        registry,
-        catalog: catalog().await,
+        facts: facts(registry.clone(), catalog.clone()).await,
+        catalog,
         config: Arc::new(Obj::new),
         bots: Arc::new(NoBots),
         errors: Arc::new(|e| e.message.clone()),
         wiring: Arc::new(NoWiring),
     };
-    (RegistryHopHost { deps, session: session.clone(), eligibility: None }, session)
+    (RegistryHopHost { deps, session: session.clone(), eligibility: None }, session, registry)
 }
 
 fn route_of(header: &Value) -> Obj {
@@ -227,29 +294,43 @@ async fn the_hop_writes_then_pins_then_rebuilds_a_lead_surface() {
         ..Script::default()
     });
     let header = json!({ "provider": "openrouter", "model": "m", "wireRoute": null });
-    let (host, session) = harness(script.clone(), header.clone()).await;
-    host.deps.registry.init_providers(&ensure_provider_enabled(&Obj::new(), "openrouter")).await.unwrap();
+    let (host, session, registry) = harness(script.clone(), header.clone()).await;
+    registry.init_providers(&ensure_provider_enabled(&Obj::new(), "openrouter")).await.unwrap();
     host.apply_hop(route_of(&header), write()).await.unwrap().expect("updated");
     assert_eq!(*session.log.lock().unwrap(), ["hop m index 1", "pin", "surface openrouter"]);
 
     let agent = json!({ "provider": "openrouter", "model": "m", "wireRoute": null, "owner": " Agent " });
-    let (host, session) = harness(script, agent.clone()).await;
-    host.deps.registry.init_providers(&ensure_provider_enabled(&Obj::new(), "openrouter")).await.unwrap();
+    let (host, session, registry) = harness(script, agent.clone()).await;
+    registry.init_providers(&ensure_provider_enabled(&Obj::new(), "openrouter")).await.unwrap();
     host.apply_hop(route_of(&agent), write()).await.unwrap().expect("updated");
     assert_eq!(*session.log.lock().unwrap(), ["hop m index 1", "pin"]);
 }
 
 #[tokio::test]
 async fn the_next_provider_comes_from_the_registry_once_enabled() {
-    let (host, _) = harness(Arc::new(Script::default()), json!({})).await;
+    let (host, _, _) = harness(Arc::new(Script::default()), json!({})).await;
     assert!(host.provider("openrouter").await.unwrap().is_some());
     // `initProviders` throws for a provider that cannot be built; its message escapes.
     assert_eq!(host.provider("broken").await.err().as_deref(), Some("[provider] Failed to init \"broken\": cannot build"));
 }
 
+/// A fallback route an agent outside the loop serves is no provider a run in the loop can land on: the hop passes over
+/// it as over one that is not there, readies nothing under its name and finds no failure recorded for it.
+#[tokio::test]
+async fn a_route_an_agent_serves_is_passed_over_without_readying_it() {
+    let calls: Calls = Arc::default();
+    let (host, _, registry) = harness(Arc::new(Script { calls: Some(calls.clone()), ..Script::default() }), json!({})).await;
+    assert!(host.provider(AGENT).await.unwrap().is_none());
+    assert_eq!(host.unavailable_cause(AGENT).await, (None, false));
+    assert!(calls.lock().unwrap().is_empty(), "{:?}", calls.lock().unwrap());
+    assert!(registry.registered(AGENT).is_none());
+    assert!(registry.init_errors().is_empty());
+    assert!(host.provider("openrouter").await.unwrap().is_some(), "a provider's route is readied as before");
+}
+
 #[tokio::test]
 async fn names_and_windows_read_as_a_notice_needs_them() {
-    let (host, _) = harness(Arc::new(Script::default()), json!({ "provider": "openai", "model": "gpt-5" })).await;
+    let (host, _, _) = harness(Arc::new(Script::default()), json!({ "provider": "openai", "model": "gpt-5" })).await;
     assert_eq!(host.model_label("openai", "gpt-5.4-2026-01-02"), "GPT-5.4");
     assert_eq!(host.model_label("custom", "custom-model-x"), "custom-model-x");
     assert!(host.raw_context_window("openai", "gpt-5", &json!({})).is_some_and(|w| w > 0));
@@ -274,8 +355,8 @@ async fn a_failed_step_escapes_the_hop_as_node_throws_it() {
         ("pin", Err("cancelled"), vec!["hop m index 1", "pin"]),
         ("rebuild", Err("surface rebuild failed"), vec!["hop m index 1", "pin", "surface openrouter"]),
     ] {
-        let (host, session) = harness(script.clone(), header.clone()).await;
-        host.deps.registry.init_providers(&ensure_provider_enabled(&Obj::new(), "openrouter")).await.unwrap();
+        let (host, session, registry) = harness(script.clone(), header.clone()).await;
+        registry.init_providers(&ensure_provider_enabled(&Obj::new(), "openrouter")).await.unwrap();
         *session.fail.lock().unwrap() = fail;
         let got = host.apply_hop(route_of(&header), write()).await;
         let expect: Result<bool, &str> = expect;

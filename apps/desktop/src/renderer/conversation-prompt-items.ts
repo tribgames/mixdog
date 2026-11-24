@@ -113,6 +113,21 @@ function heldForTurnEnd(text: string, entry: Record<string, unknown> | null): bo
   return entry?.skipSlashCommands !== true && recognisedSlashToken(text) !== null;
 }
 
+/** A session runtime queue entry's id: the submission id of the prompt it holds. */
+const queueEntryId = (entry: unknown) => String(asRecord(entry)?.id ?? '').trim();
+
+/** This pane's prompts that open a turn of their own: those not sent behind a
+ *  running turn, less any the session runtime's queue holds. A New task
+ *  draft's follow-up is submitted before its session exists, so its submit
+ *  cannot know it will wait; the queue entry is its bubble. */
+export function turnPromptItems(
+  pending: readonly PendingPromptItem[],
+  sessionQueue: readonly unknown[]
+): PendingPromptItem[] {
+  const queued = new Set(sessionQueue.map(queueEntryId));
+  return pending.filter((item) => !item.queuedBehindTurn && !queued.has(String(item.id)));
+}
+
 /**
  * The messages sent while a turn runs that the model has not read yet, in
  * order: the session runtime's queue (whatever surface typed them), then this
@@ -121,13 +136,14 @@ function heldForTurnEnd(text: string, entry: Record<string, unknown> | null): bo
  * transcript until its durable row lands.
  */
 export function steerPromptItems(sessionQueue: readonly unknown[], pending: readonly PendingPromptItem[]) {
-  const local = new Map(pending.filter((item) => item.queuedBehindTurn).map((item) => [String(item.id), item]));
+  const twins = new Map(pending.map((item) => [String(item.id), item]));
+  const local = new Map([...twins].filter(([, item]) => item.queuedBehindTurn));
   const rows: PendingPromptItem[] = [];
   for (const entry of sessionQueue) {
     const record = asRecord(entry);
-    const id = String(record?.id ?? '').trim();
+    const id = queueEntryId(entry);
     if (!record || !id) continue;
-    const twin = local.get(id);
+    const twin = twins.get(id);
     local.delete(id);
     const text = String(record.displayText || record.text || twin?.text || '').trim();
     const images = Array.isArray(record.images) && record.images.length ? record.images : twin?.images;

@@ -34,7 +34,10 @@ async function mountApp(initialLeaves, initialFocus) {
   const dirtyFileKeys = new Set();
   const Icon = () => React.createElement('span');
   const descriptors = new Map(
-    ['session-diff', 'terminal', 'visualize', 'routines', 'room', 'browser'].map((id) => [id, { id, label: id, icon: Icon }])
+    ['session-diff', 'terminal', 'visualize', 'routines', 'room', 'browser'].map((id) => [
+      id,
+      { id, label: id, icon: Icon },
+    ])
   );
   const api = {};
   function App() {
@@ -75,7 +78,7 @@ async function mountApp(initialLeaves, initialFocus) {
       dirtyFileKeys,
       handleFileDirty: () => {},
       confirmSideFileExit: (_key, _target, proceed) => proceed(),
-      openFileTabRaw: (project, rel) => mainTabs.push(rel),
+      openFileTabRaw: (_project, rel) => mainTabs.push(rel),
     });
     const context = {
       paneWorkspace: { focusLeaf: () => {} },
@@ -116,8 +119,9 @@ async function mountApp(initialLeaves, initialFocus) {
     api,
     /** The editor surface `rel` has in pane `leafId` (null when none is mounted there). */
     editor: (leafId, rel) =>
-      document.getElementById(`side-file-slot:${leafId}:${fileKey(rel)}`)?.querySelector('.side-file-persistent-surface') ??
-      null,
+      document
+        .getElementById(`side-file-slot:${leafId}:${fileKey(rel)}`)
+        ?.querySelector('.side-file-persistent-surface') ?? null,
     /** Every side editor mounted anywhere, by its host element. */
     editors: () => document.querySelectorAll('.side-file-persistent-surface').length,
     /** The editor of `rel` reports unsaved edits. */
@@ -223,7 +227,7 @@ test("another tab's file keeps an editor only while it holds unsaved edits", asy
     // Clean behind s2: nothing of it stays mounted.
     await app.show([paneOf('L1', tabs, 'session:s2')], 'L1');
     await app.settle();
-    assert.equal(app.editors(), 0, "a clean held file costs nothing");
+    assert.equal(app.editors(), 0, 'a clean held file costs nothing');
     // In front again it opens as a file tab opens.
     await app.show([paneOf('L1', tabs, 'session:s1')], 'L1');
     await app.settle();
@@ -269,7 +273,7 @@ test("an unsaved file's editor is never remounted when its draft becomes the ses
   }
 });
 
-test("a clean file keeps its slot and editor through its draft becoming the session", async () => {
+test('a clean file keeps its slot and editor through its draft becoming the session', async () => {
   const draft = { kind: 'new', draftId: 'd3' };
   const app = await mountApp([paneOf('L1', [draft], 'new:d3')], 'L1');
   try {
@@ -290,7 +294,7 @@ test("a clean file keeps its slot and editor through its draft becoming the sess
   }
 });
 
-test("a later draft of the same scope keeps its file out of the session an earlier one became", async () => {
+test('a later draft of the same scope keeps its file out of the session an earlier one became', async () => {
   const draft = { kind: 'new' };
   const app = await mountApp([paneOf('L1', [draft], 'new:default')], 'L1');
   try {
@@ -331,7 +335,9 @@ test("an unsaved file's editor is kept when its folded tab moves into a pane who
     await app.settle();
     assert.equal(document.querySelector('.pane-side-file-tab'), null, 'no pane draws a slot for it');
     // The user opens the file in its new pane: the same editor, edit included.
-    await act(async () => app.api.sideDocks.paneSideDocks.activateFile('L2', sideFileKey({ project: 'C:/p', rel: 'a.ts' })));
+    await act(async () =>
+      app.api.sideDocks.paneSideDocks.activateFile('L2', sideFileKey({ project: 'C:/p', rel: 'a.ts' }))
+    );
     await app.settle();
     assert.strictEqual(app.editor('L2', 'a.ts'), editor);
     assert.strictEqual(editor.firstElementChild, body);
@@ -413,7 +419,10 @@ test("a draft's file becomes the session's: Changes picked after it leads it", a
 });
 
 test('a tab dragged to another pane keeps Changes ahead of its file', async () => {
-  const app = await mountApp([paneOf('L1', [session('s1')], 'session:s1'), paneOf('L2', [session('s2')], 'session:s2')], 'L1');
+  const app = await mountApp(
+    [paneOf('L1', [session('s1')], 'session:s1'), paneOf('L2', [session('s2')], 'session:s2')],
+    'L1'
+  );
   try {
     await app.pick('session-diff', 'L1');
     await app.open('L1', 'image.png');

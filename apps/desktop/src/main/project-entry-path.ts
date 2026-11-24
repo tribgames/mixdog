@@ -1,19 +1,34 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { basename, dirname, resolve, sep } from 'node:path';
 
 export const comparablePath = (path: string): string =>
   process.platform === 'win32' ? path.toLocaleLowerCase() : path;
 
-function canonicalPathThroughExistingAncestor(path: string): string {
+/** A link that does not resolve is judged by where it points, not by where it sits. */
+function canonicalPathThroughExistingAncestor(path: string, followed: Set<string> = new Set()): string {
   let existing = path;
   const missing: string[] = [];
   while (!existsSync(existing)) {
+    if (isLink(existing)) {
+      if (followed.has(existing)) throw new Error('Path has a link cycle.');
+      followed.add(existing);
+      const pointsTo = resolve(dirname(existing), readlinkSync(existing));
+      return canonicalPathThroughExistingAncestor(resolve(pointsTo, ...missing), followed);
+    }
     const parent = dirname(existing);
     if (parent === existing) break;
     missing.unshift(basename(existing));
     existing = parent;
   }
   return resolve(realpathSync(existing), ...missing);
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /** `path` is `root` or under it. A drive or filesystem root already ends in a

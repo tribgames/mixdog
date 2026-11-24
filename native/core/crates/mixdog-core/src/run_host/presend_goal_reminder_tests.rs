@@ -127,18 +127,12 @@ async fn observe(pass: Pass) -> Observed {
             };
             compactor.reduces(&request()).await;
             // A header write made now is stored after the preview's reads: the preview changed nothing.
-            run.port
-                .save_header(mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() })
-                .await
-                .expect("barrier");
+            run.port.save_header(mixdog_store::schema::record::HeaderChange::default()).await.expect("barrier");
             let directory = slot.lock().unwrap().clone().expect("the directory");
             let after_preview = pending(&directory, &thread).await;
             during.lock().unwrap().push(after_preview);
             let _ = compactor.compact(request()).await;
-            run.port
-                .save_header(mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() })
-                .await
-                .expect("barrier");
+            run.port.save_header(mixdog_store::schema::record::HeaderChange::default()).await.expect("barrier");
             let _ = done_tx.send(());
             let _ = release_rx.await;
             RunOutcome::Completed(Default::default())

@@ -53,6 +53,14 @@ export function watchLocalCoreLink(connection: Parameters<LocalCoreLinkStore['wa
   store().watch(connection);
 }
 
+/** The link now, and every change of it, outside React. */
+export function localCoreLink(): LocalCoreLink {
+  return store().get();
+}
+export function subscribeLocalCoreLink(listener: () => void): () => void {
+  return store().subscribe(listener);
+}
+
 export function useLocalCoreLink(): LocalCoreLink {
   const remote = isRemoteHostRenderer();
   const current = store();

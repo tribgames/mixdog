@@ -432,6 +432,10 @@ const INSTALLABLE_BUILTIN_FEATURES = new Set([
   'autoEffort',
   'acpAgents',
 ]);
+const orList = (names: ReadonlySet<string>): string => {
+  const list = [...names];
+  return `${list.slice(0, -1).join(', ')}, or ${list.at(-1)}`;
+};
 
 export const CAPABILITY_ARITY = {
   restoreQueued: [0, 2],
@@ -1527,9 +1531,7 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
     throw new TypeError(`${capability} requires a boolean value.`);
   }
   if (capability === 'setBuiltinToolEnabled' && !TOGGLEABLE_BUILTIN_TOOLS.has(args[0] as string)) {
-    throw new TypeError(
-      'setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, media, or acpAgents.'
-    );
+    throw new TypeError(`setBuiltinToolEnabled requires ${orList(TOGGLEABLE_BUILTIN_TOOLS)}.`);
   }
   if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
   if (capability === 'setNetworkProxy') validateNetworkProxyPatch(args[0]);
@@ -1543,9 +1545,7 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
     }
   }
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
-    throw new TypeError(
-      'installBuiltinFeature requires git, memory, office, localProvider, tidy, autoEffort, or acpAgents.'
-    );
+    throw new TypeError(`installBuiltinFeature requires ${orList(INSTALLABLE_BUILTIN_FEATURES)}.`);
   }
   if (capability === 'installBuiltinFeature' && args[1] !== undefined) {
     const engines = (args[1] as { engines?: unknown } | null)?.engines;

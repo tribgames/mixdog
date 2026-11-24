@@ -1,11 +1,4 @@
-//! DRAFT, not filed: the real core `compose()` builds in place of `MockCore` (the "flip").
-//!
-//! Every part that exists in the tree (HEAD `ad3aefe06`) or in a filed request is called with the
-//! signature read from its source. Every part with no implementation is a `compile_error!` that
-//! names its owner and the `compose-seams.md` row, so the flip cannot build until each lands.
-//! `MINE` marks work that is wp-run-host's own (an ordering cycle through the late directory,
-//! or a constructor argument list still to be filled); `OWNER <wp>` marks another owner's row.
-//! The remaining list, with status, is `flip-brief.md` ("Flip draft: remaining parts").
+//! The real core `compose()` builds in place of `MockCore` (the "flip").
 //!
 //! Order matters: the session directory is built last (`TurnPath::new`) but many earlier parts
 //! need it, so they read it through [`LateDirectory`] and it is bound once at the end.
@@ -21,10 +14,13 @@ use mixdog_core::run_host::turn_path::TurnPath;
 use mixdog_core_base::state::StateRuntime;
 use mixdog_core_config::config::{Config, ConfigLanes};
 
-use crate::compose::{ComposeError, Models};
+use crate::compose::{ComposeError, Models, stop_part};
 use crate::compose_core::{McpParts, PolicyParts, build_mcp, build_policy};
 use crate::compose_domains::{
     DomainInputs, DomainPaths, DomainSeams, OpScopeSource, PluginSeams, PostSeams, build_local_provider, compose_domains_post, compose_domains_pre,
+};
+use crate::compose_legacy::{
+    LEGACY_ROUTINES_DB_WAIT, carry_over_legacy_deliveries, carry_over_legacy_routines, legacy_deliveries_marker, legacy_routines_marker, old_cluster_present,
 };
 use crate::compose_mcp::{AgentSeams, McpInputs, SetupSeams, build_agents, mcp_services};
 
@@ -237,54 +233,6 @@ impl mixdog_core_api::state::StatePublisher for PoolTap {
     }
 }
 
-/// The step's marker: the migration's own (`migration:legacyRoutines`) and the value it records for what was carried.
-fn legacy_routines_marker() -> mixdog_services::scheduler::legacy::StepMarker {
-    mixdog_services::scheduler::legacy::StepMarker {
-        key: mixdog_migrate::post_upgrade::LEGACY_ROUTINES.meta_key(),
-        skipped_key: mixdog_migrate::post_upgrade::LEGACY_ROUTINES_SKIPPED_KEY.to_owned(),
-        value: |done| mixdog_migrate::post_upgrade::legacy_routines_value(done.schedules, done.endpoints, done.kept, done.skipped.len()),
-    }
-}
-
-/// The marker of the webhook delivery dedup step (`migration:legacyDeliveries`) and the value it records.
-fn legacy_deliveries_marker() -> mixdog_services::scheduler::legacy::DeliveriesMarker {
-    mixdog_services::scheduler::legacy::DeliveriesMarker {
-        key: mixdog_migrate::post_upgrade::LEGACY_DELIVERIES.meta_key(),
-        value: |done| mixdog_migrate::post_upgrade::legacy_deliveries_value(done.deliveries, done.skipped.len()),
-    }
-}
-
-/// Whether the 1.4.5 cluster is there (`PG_VERSION` is its mark). `std::fs::exists`: absence is `Ok(false)`, a path that cannot
-/// be told is an error, and so is a lost lane job.
-async fn old_cluster_present(lane: mixdog_rt::MaintenanceIo, version: std::path::PathBuf) -> Result<bool, String> {
-    use mixdog_rt::LaneToken as _;
-    let job = lane.submit_wait(&tokio_util::sync::CancellationToken::new(), move |proof| mixdog_fsio::exists(proof, &version)).await;
-    job.map_err(|error| format!("the cluster probe was not queued: {error:?}"))?
-        .await
-        .map_err(|error| format!("the cluster probe was dropped: {error:?}"))?
-        .map_err(|error| format!("the old cluster could not be probed: {error}"))
-}
-
-/// The order of the `legacyDeliveries` step, as [`carry_over_legacy_routines`] orders its own: a done step is one marker read; no
-/// old cluster is nothing to carry and the step is recorded at once; otherwise the database must be ready before anything is read.
-async fn carry_over_legacy_deliveries(
-    state: &mixdog_store::state::CoreState,
-    marker: &mixdog_services::scheduler::legacy::DeliveriesMarker,
-    cluster_exists: impl FnOnce() -> futures::future::BoxFuture<'static, Result<bool, String>>,
-    ready: impl FnOnce() -> futures::future::BoxFuture<'static, Result<(), String>>,
-    source: &dyn mixdog_services::scheduler::legacy::LegacyRoutineSource,
-) -> Result<mixdog_services::scheduler::legacy::DeliveryImport, String> {
-    use mixdog_services::scheduler::legacy::{NoLegacyRoutines, import_legacy_deliveries};
-    if state.meta(&marker.key).await.map_err(|e| format!("legacy deliveries import: {e}"))?.is_some() {
-        return Ok(Default::default());
-    }
-    if !cluster_exists().await? {
-        return import_legacy_deliveries(state, &NoLegacyRoutines, marker).await;
-    }
-    ready().await?;
-    import_legacy_deliveries(state, source, marker).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,225 +273,6 @@ mod tests {
         let notice: serde_json::Value = serde_json::from_slice(bytes).unwrap();
         assert_eq!(notice, serde_json::json!({ "key": "memory-runtime:database", "code": "memory-runtime-preparing", "params": { "stage": "database" } }));
         assert!(matches!(published[1].2, SectionChange::Removed));
-    }
-
-    mod legacy_routines_step {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        use async_trait::async_trait;
-        use mixdog_services::scheduler::legacy::{LegacyImport, LegacyRoutineSource, LegacyRows};
-        use mixdog_services::scheduler::{ScheduleRecords, ScheduleStore, StateScheduleStore, SystemClock};
-
-        use super::*;
-
-        const DAILY: &str = r#"{"name":"daily","description":"","when_at":null,"when_cron":"0 9 * * *","timezone":"Asia/Seoul","prompt":"check","enabled":true,"status":"active","owner_agent_id":"lead","consecutive_failures":0}"#;
-
-        /// The old tables: how often they were read, and whether the database they sit in is up.
-        struct OldTables {
-            reads: AtomicUsize,
-            rows: Vec<String>,
-            deliveries: Vec<String>,
-        }
-
-        #[async_trait]
-        impl LegacyRoutineSource for OldTables {
-            async fn read(&self) -> Result<LegacyRows, String> {
-                self.reads.fetch_add(1, Ordering::SeqCst);
-                Ok(LegacyRows { schedules: self.rows.clone(), endpoints: Vec::new() })
-            }
-
-            async fn read_deliveries(&self) -> Result<Vec<String>, String> {
-                self.reads.fetch_add(1, Ordering::SeqCst);
-                Ok(self.deliveries.clone())
-            }
-        }
-
-        /// What the step called, in how many calls.
-        #[derive(Default)]
-        struct Calls {
-            cluster: AtomicUsize,
-            ready: AtomicUsize,
-            arm: AtomicUsize,
-        }
-
-        async fn run(
-            state: &mixdog_store::state::CoreState,
-            tables: &OldTables,
-            calls: &Arc<Calls>,
-            cluster: Result<bool, String>,
-            ready: Result<(), String>,
-            arm: Result<(), String>,
-        ) -> Result<LegacyImport, String> {
-            let (c, r, a) = (calls.clone(), calls.clone(), calls.clone());
-            carry_over_legacy_routines(
-                state,
-                &legacy_routines_marker(),
-                move || {
-                    Box::pin(async move {
-                        c.cluster.fetch_add(1, Ordering::SeqCst);
-                        cluster
-                    })
-                },
-                move || {
-                    Box::pin(async move {
-                        r.ready.fetch_add(1, Ordering::SeqCst);
-                        ready
-                    })
-                },
-                tables,
-                move || {
-                    Box::pin(async move {
-                        a.arm.fetch_add(1, Ordering::SeqCst);
-                        arm
-                    })
-                },
-            )
-            .await
-        }
-
-        fn open(dir: &std::path::Path) -> mixdog_store::state::CoreState {
-            let tokens = mixdog_rt::testing::tokens();
-            mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.join("core.sqlite")).unwrap().0
-        }
-
-        fn tables() -> OldTables {
-            OldTables { reads: AtomicUsize::new(0), rows: vec![DAILY.to_owned()], deliveries: Vec::new() }
-        }
-
-        /// A done step is one marker read: a later start asks no question about the cluster, waits for no database and
-        /// reads no old table, and what the user deleted from the new store stays deleted.
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        async fn a_done_step_makes_no_query_at_a_later_start() {
-            let dir = tempfile::tempdir().unwrap();
-            let state = open(dir.path());
-            let (old, first) = (tables(), Arc::new(Calls::default()));
-            let done = run(&state, &old, &first, Ok(true), Ok(()), Ok(())).await.unwrap();
-            assert_eq!((done.ran, done.schedules), (true, 1));
-            assert_eq!(state.meta("migration:legacyRoutines").await.unwrap().as_deref(), Some("schedules=1,webhooks=0,kept=0,skipped=0"));
-            let store = StateScheduleStore::new(state.clone(), Arc::new(SystemClock));
-            store.delete("daily").await.unwrap();
-
-            let later = Arc::new(Calls::default());
-            let again = run(&state, &old, &later, Ok(true), Err("must not be asked".into()), Err("must not be asked".into())).await.unwrap();
-            assert_eq!(again, LegacyImport::default());
-            assert_eq!(old.reads.load(Ordering::SeqCst), 1, "the old table was read by the first start only");
-            assert_eq!((later.cluster.load(Ordering::SeqCst), later.ready.load(Ordering::SeqCst), later.arm.load(Ordering::SeqCst)), (0, 0, 0));
-            assert!(store.get("daily").await.unwrap().is_none(), "a deleted row is not brought back");
-        }
-
-        /// Without an old cluster there is nothing to carry: the step is recorded done at once, the database is not waited for.
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        async fn a_profile_without_an_old_cluster_records_the_step_without_waiting_for_the_database() {
-            let dir = tempfile::tempdir().unwrap();
-            let state = open(dir.path());
-            let (old, calls) = (tables(), Arc::new(Calls::default()));
-            let done = run(&state, &old, &calls, Ok(false), Err("must not be asked".into()), Err("must not be asked".into())).await.unwrap();
-            assert!(done.ran && !done.changed());
-            assert_eq!(state.meta("migration:legacyRoutines").await.unwrap().as_deref(), Some("none"));
-            assert_eq!((old.reads.load(Ordering::SeqCst), calls.ready.load(Ordering::SeqCst), calls.arm.load(Ordering::SeqCst)), (0, 0, 0));
-        }
-
-        /// A database that is not ready, or rows that cannot be read, leave the step open: the next start runs it again.
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        async fn a_database_that_is_not_ready_leaves_the_step_open_for_the_next_start() {
-            let dir = tempfile::tempdir().unwrap();
-            let state = open(dir.path());
-            let (old, calls) = (tables(), Arc::new(Calls::default()));
-            let failed = run(&state, &old, &calls, Ok(true), Err("the database did not open".into()), Ok(())).await;
-            assert_eq!(failed, Err("the database did not open".to_owned()));
-            assert!(state.meta("migration:legacyRoutines").await.unwrap().is_none());
-            assert_eq!(old.reads.load(Ordering::SeqCst), 0);
-            let next = run(&state, &old, &Arc::new(Calls::default()), Ok(true), Ok(()), Ok(())).await.unwrap();
-            assert_eq!(next.schedules, 1);
-        }
-
-        /// A probe that could not tell whether the old cluster is there is not "nothing to carry": the step stays open, writes
-        /// nothing, and the next start (whose probe answers) carries the rows.
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        async fn a_failed_cluster_probe_does_not_complete_the_step_empty() {
-            let dir = tempfile::tempdir().unwrap();
-            let state = open(dir.path());
-            let (old, calls) = (tables(), Arc::new(Calls::default()));
-            let failed = run(&state, &old, &calls, Err("the old cluster could not be probed: access denied".into()), Ok(()), Ok(())).await;
-            assert_eq!(failed, Err("the old cluster could not be probed: access denied".to_owned()));
-            assert!(state.meta("migration:legacyRoutines").await.unwrap().is_none());
-            assert_eq!((old.reads.load(Ordering::SeqCst), calls.ready.load(Ordering::SeqCst)), (0, 0));
-            let next = run(&state, &old, &Arc::new(Calls::default()), Ok(true), Ok(()), Ok(())).await.unwrap();
-            assert_eq!(next.schedules, 1);
-        }
-
-        /// Rows that came are armed in this run, once; nothing that came arms nothing; a failed arming is reported and
-        /// the step stays done (the rows are stored, and the next start loads them).
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        async fn carried_rows_are_armed_in_the_same_run() {
-            let dir = tempfile::tempdir().unwrap();
-            let state = open(dir.path());
-            let (old, calls) = (tables(), Arc::new(Calls::default()));
-            run(&state, &old, &calls, Ok(true), Ok(()), Ok(())).await.unwrap();
-            assert_eq!(calls.arm.load(Ordering::SeqCst), 1);
-
-            let other = tempfile::tempdir().unwrap();
-            let state = open(other.path());
-            let (empty, calls) = (OldTables { reads: AtomicUsize::new(0), rows: Vec::new(), deliveries: Vec::new() }, Arc::new(Calls::default()));
-            run(&state, &empty, &calls, Ok(true), Ok(()), Ok(())).await.unwrap();
-            assert_eq!(calls.arm.load(Ordering::SeqCst), 0, "empty tables arm nothing");
-
-            let third = tempfile::tempdir().unwrap();
-            let state = open(third.path());
-            let calls = Arc::new(Calls::default());
-            let armed = run(&state, &tables(), &calls, Ok(true), Ok(()), Err("scheduler stopped".into())).await;
-            assert!(armed.unwrap_err().contains("scheduler stopped"));
-            assert!(state.meta("migration:legacyRoutines").await.unwrap().is_some());
-        }
-
-        const CLAIM: &str =
-            r#"{"endpoint":"gh","delivery_id":"d1","status":"done","created_at":"2026-11-10T01:02:03+09:00","updated_at":"2026-11-10T01:02:05+09:00"}"#;
-
-        /// An installation whose routines step is already recorded (the first version of the step) still gets the dedup log, on
-        /// its own marker, without the schedules and endpoints being read again; and with no old cluster the step records nothing.
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        async fn the_dedup_step_runs_on_an_installation_whose_routines_step_is_recorded() {
-            use mixdog_services::webhooks::{EndpointRecord, EndpointRecords, StateWebhookStore};
-            let dir = tempfile::tempdir().unwrap();
-            let state = open(dir.path());
-            state.write(|tx| tx.put_meta("migration:legacyRoutines", "schedules=0,webhooks=1,kept=0")).await.unwrap();
-            StateWebhookStore::new(state.clone(), Arc::new(SystemClock)).upsert(&EndpointRecord { name: "gh".into(), ..Default::default() }).await.unwrap();
-            let old = OldTables { reads: AtomicUsize::new(0), rows: Vec::new(), deliveries: vec![CLAIM.to_owned()] };
-            let routines = run(&state, &old, &Arc::new(Calls::default()), Ok(true), Ok(()), Ok(())).await.unwrap();
-            assert_eq!(routines, LegacyImport::default(), "the routines step is done and reads nothing");
-            assert_eq!(old.reads.load(Ordering::SeqCst), 0);
-
-            let done = carry_over_legacy_deliveries(&state, &legacy_deliveries_marker(), || Box::pin(async { Ok(true) }), || Box::pin(async { Ok(()) }), &old)
-                .await
-                .unwrap();
-            assert_eq!((done.ran, done.deliveries), (true, 1));
-            assert_eq!(state.meta("migration:legacyDeliveries").await.unwrap().as_deref(), Some("deliveries=1,skipped=0"));
-            assert_eq!(old.reads.load(Ordering::SeqCst), 1);
-            let again = carry_over_legacy_deliveries(
-                &state,
-                &legacy_deliveries_marker(),
-                || Box::pin(async { Err("must not be asked".into()) }),
-                || Box::pin(async { Err("must not be asked".into()) }),
-                &old,
-            )
-            .await
-            .unwrap();
-            assert!(!again.ran);
-
-            let bare = tempfile::tempdir().unwrap();
-            let state = open(bare.path());
-            let none = carry_over_legacy_deliveries(
-                &state,
-                &legacy_deliveries_marker(),
-                || Box::pin(async { Ok(false) }),
-                || Box::pin(async { Err("must not be asked".into()) }),
-                &old,
-            )
-            .await
-            .unwrap();
-            assert!(none.ran);
-            assert_eq!(state.meta("migration:legacyDeliveries").await.unwrap().as_deref(), Some("none"));
-        }
     }
 }
 
@@ -703,37 +432,6 @@ impl mixdog_core_api::ServerRequestSink for WaitTap {
     fn response_rejected(&self, to: mixdog_core_api::ids::ConnectionId, error: mixdog_core_api::CoreError) {
         self.inner.response_rejected(to, error);
     }
-}
-
-/// How long the `legacyRoutines` step waits for the memory database to be ready before it gives the start up (the next one runs it).
-const LEGACY_ROUTINES_DB_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
-
-/// The order of the upgrade's `legacyRoutines` step. A done step (its marker) is the only thing read. Otherwise: no old cluster is
-/// nothing to carry, and the step is recorded done at once; with one, the database must be ready before anything is read; the rows
-/// and the marker commit as one (the scheduler's own load sees all of them or none); and when rows came, `arm` makes the scheduler
-/// arm them in this run. Any failure leaves the marker unwritten, so the next start runs the step again.
-async fn carry_over_legacy_routines(
-    state: &mixdog_store::state::CoreState,
-    marker: &mixdog_services::scheduler::legacy::StepMarker,
-    cluster_exists: impl FnOnce() -> futures::future::BoxFuture<'static, Result<bool, String>>,
-    ready: impl FnOnce() -> futures::future::BoxFuture<'static, Result<(), String>>,
-    source: &dyn mixdog_services::scheduler::legacy::LegacyRoutineSource,
-    arm: impl FnOnce() -> futures::future::BoxFuture<'static, Result<(), String>>,
-) -> Result<mixdog_services::scheduler::legacy::LegacyImport, String> {
-    use mixdog_services::scheduler::legacy::{NoLegacyRoutines, import_legacy_routines, legacy_routines_done};
-    if legacy_routines_done(state, marker).await? {
-        return Ok(Default::default());
-    }
-    // Only a confirmed absence completes the step empty; a probe that failed leaves it open.
-    if !cluster_exists().await? {
-        return import_legacy_routines(state, &NoLegacyRoutines, marker).await;
-    }
-    ready().await?;
-    let done = import_legacy_routines(state, source, marker).await?;
-    if done.changed() {
-        arm().await.map_err(|error| format!("the carried routines are stored, but arming them failed: {error}"))?;
-    }
-    Ok(done)
 }
 
 /// What `compose()` has built before the real core starts.
@@ -999,7 +697,6 @@ impl Real {
             worktrees.cancel(); // the maintenance stops before the directory it reads is shut down
             maintenance.cancel();
             // The owed rewrites end after the session in hand, before the index and the logs they write are closed.
-            use crate::compose::stop_part;
             stop_part("the owed mark rewrites", mark_rewrites_end).await;
             // The schedule ends before the directory shuts down: a running cleanup tick reads the directory.
             if let Some(schedule_end) = schedule_end {
@@ -1627,7 +1324,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let _quota_follow = mixdog_core_agents::setup::QuotaAutoResume::new(config.clone(), quota_store.clone()).follow(b.cancel.child_token());
     // The one `AccountStore` over the data dir: `ProviderAdmin`, the provider layer's default credential files and the selected-account fact share it.
     let credential_io = mixdog_ai::oauth::CredentialIo { read: b.tokens.interactive_io, write: b.tokens.durability_io };
-    let account_store = mixdog_ai::accounts::AccountStore::new(b.data_dir.clone(), credential_io);
+    // Over the process environment, as the provider layer's store is: a send and a usage reading use the same credential.
+    let account_store = mixdog_ai::accounts::AccountStore::new(b.data_dir.clone(), credential_io).with_env(process.env.clone());
     // wp-ai-svc-21 (`ai_account/production.rs`): every input is the host's one instance. Order: builder -> registry -> effects -> admin.
     let oauth_wiring = Arc::new(mixdog_core_domains::domains::ai_account::production::OAuthWiring {
         accounts: account_store.clone(),
@@ -1930,14 +1628,19 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts {
         catalog: b.catalog.clone(),
         readiness: readiness.clone(),
+        registry: registry.clone(),
         config: config.clone(),
     });
-    let routes = compose_parts::live_routes(config.clone(), facts.clone());
+    // What every reader of a route asks of its provider, a route on an ACP agent answered as a provider's: no reader takes
+    // a route's provider to the catalog or the registry past these.
+    let provider_facts: Arc<dyn mixdog_core_domains::domains::ai_admin::chain::RouteFacts> =
+        Arc::new(mixdog_acp::routes::AgentRouteFacts { inner: facts.clone(), agents: acp_agents.clone() });
+    let routes = compose_parts::live_routes(config.clone(), provider_facts.clone());
     // wp-ai-admin-19/-22: the Main route of thread-less reads (`MainRoute`: the live config route at every call), the model list both `model/list` and the web-search rows call, and the
     // web-search route (`webSearchRouteOrDefault` over the stored config route). `cells` is the route cell of every conversation (the one `routes`).
     let unsupported = process.unsupported.clone(); // the SAME Arc<UnsupportedEfforts> as the route wirer and the effort judge
     let main_route = Arc::new(mixdog_core::run_host::main_route::MainRoute::new(loaded_config.clone(), {
-        let facts = facts.clone();
+        let facts = provider_facts.clone();
         Arc::new(move |provider: &str, config: &serde_json::Map<String, serde_json::Value>| {
             mixdog_core_domains::domains::ai_admin::chain::RouteFacts::is_known(&*facts, provider, config)
         })
@@ -2019,12 +1722,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             }
         }))
         .map_err(|_| ComposeError::AlreadyBound("readiness re-warm"))?;
-    // `model/list` and `account/listWebSearchModels` are registered with the domains at the flip (`model_list` / `web_search_models` are the services).    // `resolveRoute(config, {})` for the agent definitions: the same Main route the chain resolves (`CatalogRouteContext`).
+    // `model/list` and `account/listWebSearchModels` are registered with the domains at the flip (`model_list` / `web_search_models` are the services).
+    // `resolveRoute(config, {})` for the agent definitions: the same Main route the chain resolves (`CatalogRouteContext`).
     // An agent's (worker's, reviewer's) route may name an ACP agent's model as a session's does: the catalog is asked through the same facts.
-    let route_context = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext {
-        config: config.clone(),
-        facts: Arc::new(mixdog_acp::routes::AgentRouteFacts { inner: facts.clone(), agents: acp_agents.clone() }),
-    });
+    let route_context = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext { config: config.clone(), facts: provider_facts.clone() });
     // flip-gaps-agent: `AgentEffects`. Two cycles are cut by late cells: effects -> `ServiceChannels` -> `DefinitionAgents(definitions)` (the channel stack is bound once it exists)
     // and effects -> `ChatRoutes(route_service)` -> `SessionRouteAdapter(directory)` (bound once `route_service` exists). Both are in `verify_bound`.
     let agent_profile = Arc::new(crate::domain_seams::profile_changes::AgentProfileChanges::default()); // also `InstructionsAnnounce` and the session layer's `ProfileListener`
@@ -2093,7 +1794,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         routes: routes.clone(),
         gauge: gauge.clone(),
         agents: agents.clone(), // flip-home: the shared Arc<AgentDefinitions> is also the home directory's
-        facts: facts.clone(),
+        facts: provider_facts.clone(),
+        ready: facts.clone(),
         refresh: refresh.clone(),
         env: b.env.clone(),
         agent_providers: {
@@ -2897,7 +2599,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     #[cfg(feature = "test-hooks")]
     let engine_tool_host = pool_host.clone(); // `test/browserEngine/run` runs over the same host commands the `browser` tools are built over
     // The explorer (flip-agent-worlds-15): `AgentExplorer::standalone` over the shared lanes; the host is bound to the finished pool below.
-    let explorer_host = Arc::new(mixdog_core::run_host::explorer_host::ConfigExplorerHost::new(config_snapshot.clone(), registry.clone()));
+    let explorer_host = Arc::new(mixdog_core::run_host::explorer_host::ConfigExplorerHost::new(config_snapshot.clone(), provider_facts.clone()));
     let explorer = Arc::new(
         mixdog_core::run_host::explorer_env::ExplorerEnv {
             clock: clock_agent.clone(),
@@ -3350,8 +3052,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         cells: routes.clone() as Arc<dyn mixdog_core_ports::ports::route::LiveRoute>, // the route cell of every conversation (the one `routes`)
         config: config.clone(),
         catalog: b.catalog.clone(),
-        readiness: readiness.clone(),
-        registry: registry.clone(),
+        facts: provider_facts.clone(),
     });
     let search_usage = mixdog_tools::web::NativeSearchUsageSinks::new();
     let search_sender = mixdog_tools::web::ProviderSearchSender::new(
@@ -3482,7 +3183,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The compaction world, built once: the session compactors take it (run-host-33, passed into the path), and so does the inheritance fit below.
     // One summary host per process (`summary_host.rs`); no tool is offered to a summary, so its file/process services and progress sink are never used by it.
     let summaries = Arc::new(mixdog_core::run_host::summary_host::SummaryServices::new(mixdog_core::run_host::summary_host::SummaryDeps {
-        registry: registry.clone(),
+        facts: provider_facts.clone(),
         catalog: b.catalog.clone(),
         config: config_snapshot.clone(),
         env: b.env.clone(),
@@ -3517,7 +3218,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }));
     }
     // The attachment ports are shared by the compaction world and the context world's per-thread lowering (flip-attach).
-    let route_traits = Arc::new(mixdog_core::run_host::compaction_world::RegisteredRouteTraits::new(registry.clone()));
+    let route_traits = Arc::new(mixdog_core::run_host::compaction_world::RegisteredRouteTraits::new(provider_facts.clone()));
     let compaction_services = mixdog_core::run_host::compaction_world::CompactionServices {
         config: config.clone(),
         sensitive: sensitive.clone(),
@@ -3525,7 +3226,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         reader: attachments.clone(),
         attachment_facts: attachment_facts.clone(),
         files: attachment_files.clone(),
-        routes: mixdog_core::run_host::compaction_world::RegisteredRouteTraits::new(registry.clone()),
+        routes: mixdog_core::run_host::compaction_world::RegisteredRouteTraits::new(provider_facts.clone()),
         requests: mixdog_core::run_host::compaction_world::ProcessSessionRequests::new(side_store.clone()),
         summaries: summaries.clone(),
     };
@@ -4106,7 +3807,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     };
     let route_bots = ready.bots.clone(); // read again after the path (route positions); `ready` moves into the parts
     let notification_goals = early.goals.clone();
-    let path = TurnPath::new(turn_path_parts(&process, registry.clone(), early, ready, owed)).map_err(ComposeError::TurnPath)?;
+    let path = TurnPath::new(turn_path_parts(&process, provider_facts.clone(), early, ready, owed)).map_err(ComposeError::TurnPath)?;
     let directory = path.directory.clone();
     // Every tool gate of the runtime refuses a call to a tool a setting switched off, as the settings stand at that call (a turn already running included).
     path.gate_env.bind_feature_gates(run_workflow_surface.clone());
@@ -4322,7 +4023,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_reactions
         .bind(Arc::new(mixdog_core::run_host::session_reactions::SessionReactions::new(directory.clone(), path.reaction_targets.clone())))
         .map_err(|_| ComposeError::AlreadyBound("reactions"))?;
-    // `late_agent_port.bind(assembled.port())` belongs right after `assemble(AgentParts{..})` (flip-agent-worlds-15), below.    // flip-surface-11: every turn start reconciles through the late `TurnSettings`; an unbound cell is a typed failure and is in `verify_bound` below.
+    // `late_agent_port.bind(assembled.port())` belongs right after `assemble(AgentParts{..})` (flip-agent-worlds-15), below.
+    // flip-surface-11: every turn start reconciles through the late `TurnSettings`; an unbound cell is a typed failure and is in `verify_bound` below.
     // Node's turn preparation applies the route pick held for the turn (`applyPendingRoute`) before it reconciles the settings.
     // The workflow and mode choices a thread made while its last turn ran apply from the next one (`applyPendingSessionSwitches`), after the held route pick and before the settings reconcile.
     let session_switches = Arc::new(mixdog_core_session::session::thread_switches::SessionSwitchAdapter::new(directory.clone(), run_workflow_surface.clone()));
@@ -4567,11 +4269,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             import_sessions: Arc::new(mixdog_core_session::session::import_sessions::DirectoryImportSessions::new(
                 directory.clone(),
                 Arc::new(catalog_index.clone()),
-                Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext { config: config.clone(), facts: facts.clone() }),
+                route_context.clone(),
                 clock.clone(),
                 session_search.clone(),
-                readiness.clone(),
-            )), // six arguments (wp-session-26 removed `KeychainReady`)
+            )),
             doctor: crate::domain_seams::doctor::DaemonDoctorHost::new(crate::domain_seams::doctor::DoctorInputs {
                 data_dir: b.data_dir.clone(),
                 package_root: b.package_root.clone(),
@@ -5228,6 +4929,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         catalog: Some(Arc::new(mixdog_core::run_host::agent_board::ModelListCatalog {
             models: model_list.clone(),
             registry: registry.clone(),
+            bots: route_bots.clone(),
             agent_state: Arc::new({
                 let agents = acp_agents.clone();
                 move |provider: &str| agents.preset_of_route(provider).map(|preset| agents.selectable(preset).err().map(|refusal| refusal.message(preset)))
@@ -5324,8 +5026,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         cell: routes.clone(),
         session: late_route_session.clone(),
         config: config.clone(),
-        catalog: b.catalog.clone(),
-        readiness: readiness.clone(),
+        facts: provider_facts.clone(),
         usage: usage_sources.clone(),
     });
     let route_follow =
@@ -5335,8 +5036,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let route_session = Arc::new(mixdog_core_domains::domains::ai_admin::route_set_service::PreSessionAware { inner: route_follow.clone() });
     let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService {
         config: config.clone(),
-        // A route on an ACP agent is no catalog provider's: what the route service asks the catalog and the live route writer is answered for it here.
-        facts: Arc::new(mixdog_acp::routes::AgentRouteFacts { inner: facts.clone(), agents: acp_agents.clone() }),
+        facts: provider_facts.clone(),
+        // Leaving an agent's route ends the agent's process; an agent's route has no provider usage to read.
         writer: Arc::new(mixdog_acp::routes::AgentRouteWriter { inner: route_writer, agents: acp_agents.clone() }),
         session: route_session,
         models: model_list.clone(),

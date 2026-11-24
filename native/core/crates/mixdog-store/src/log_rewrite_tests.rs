@@ -266,3 +266,49 @@ fn a_rewrite_built_again_keeps_the_frames_written_after_its_plan() {
     assert!(!holds_secret(&last));
     assert!(last.windows(22).any(|w| w == b"written after the plan"));
 }
+
+/// A group file's head names its members' length and SHA-256: a member rewritten re-seals the head, so the file still
+/// reads whole with the redacted member.
+#[test]
+fn a_rewritten_member_of_a_group_file_keeps_the_file_readable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("sessions").join(SESSION);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut first = Vec::new();
+    frame(&mut first, 0, json!({"k":"session","v":2,"id":SESSION,"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
+    frame(&mut first, 1, item("x", "sign in"));
+    std::fs::write(dir.join(log_name(0)), first).unwrap();
+    let mut members = Vec::new();
+    frame(&mut members, 3, item("a", &format!("{SECRET} is the code")));
+    frame(&mut members, 4, item("b", "fine"));
+    let checkpoint = encode_record(
+        serde_json::from_value(json!({"k":"checkpoint","state":{"inline":{"log_id":LOG_ID,"covers_ordinal":2,"history_rev":0,"rows":2,
+            "visible_rows":2,"runs":[],"approvals":[],"queue":[],"header":{"title":"t"}}}}))
+        .expect("record"),
+    )
+    .expect("encodes");
+    let mut group = Vec::new();
+    framing::encode_into(&mut group, 2, &group_file_head(2, &members, checkpoint.payload()));
+    group.extend_from_slice(&members);
+    std::fs::write(dir.join(log_name(2)), group).unwrap();
+
+    rewritten(tmp.path());
+
+    for bytes in files(tmp.path()).unwrap() {
+        assert!(!holds_secret(&bytes));
+    }
+    let mut rows = Vec::new();
+    let mut from = FramePos { ordinal: 0, file_no: 0, offset: 0 };
+    loop {
+        let read = read_forward_unlaned(&dir, from, u64::MAX).unwrap();
+        rows.extend(read.frames);
+        match read.next {
+            ForwardEnd::More(next) => from = next,
+            ForwardEnd::Done { torn, .. } => break assert!(!torn),
+            ForwardEnd::Damaged(d) => panic!("damaged at {d:?}"),
+        }
+    }
+    assert_eq!(rows.iter().map(|(_, p, _)| p.ordinal).collect::<Vec<_>>(), [0, 1, 2, 3, 4]);
+    let Record::Item(row) = &rows[3].0 else { panic!("a row") };
+    assert_eq!(row.body, Slot::Inline(json!({"content": "[redacted] is the code", "role": "user"})));
+}

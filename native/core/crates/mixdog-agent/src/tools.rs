@@ -383,7 +383,7 @@ fn pattern_would_continue(history: &[String], signature: &str, limit: u32) -> us
 /// [`REPEAT_FAIL_LIMIT`] times in a row, stop re-executing — the result will
 /// not change and each retry burns a full model round trip. Any success clears
 /// the chain.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub struct RepeatGuards {
     last: Option<(String, u32)>,
     history: Vec<String>,
@@ -391,6 +391,23 @@ pub struct RepeatGuards {
     /// A tool batch has recorded an outcome (or the session record carried the keys): Node's
     /// `session._repeat*` fields exist from then on.
     kept: bool,
+}
+
+/// Which guard answers a call ([`RepeatGuards::skip`]).
+enum Answer {
+    /// The same normalized call failed in a row, or continues a repeated failure pattern of `cycle` calls.
+    Repeat { cycle: usize },
+    /// Equivalent malformed arguments failed validation `count` times in a row.
+    Shape { count: u32 },
+}
+
+/// A call of a batch before the one judged, whose outcome is not recorded yet ([`RepeatGuards::could_answer`]).
+pub(crate) enum Earlier {
+    /// The batch answers it without running it, whatever the guards hold: it records nothing.
+    Unrun,
+    /// It runs and records its outcome under its guard keys; `guarded` when the repeat guards are asked first and may
+    /// answer it instead.
+    Runs { sig: String, shape_sig: String, guarded: bool },
 }
 
 impl RepeatGuards {
@@ -432,27 +449,58 @@ impl RepeatGuards {
         self.history.len() + pending_earlier >= limit || self.shape.as_ref().is_some_and(|(_, count)| *count as usize + pending_earlier >= limit)
     }
 
-    pub(crate) fn skip(&self, name: &str, sig: &str, shape_sig: &str) -> Option<String> {
-        let cycle = pattern_would_continue(&self.history, sig, REPEAT_FAIL_LIMIT);
-        let same = self.last.as_ref().filter(|(last, count)| last == sig && *count >= REPEAT_FAIL_LIMIT);
-        if same.is_some() || cycle > 0 {
-            let detail = if cycle > 1 {
-                format!("A {cycle}-call normalized failure pattern repeated {REPEAT_FAIL_LIMIT} times")
-            } else {
-                format!("Identical normalized `{name}` call failed {} times", self.last.as_ref().map_or(REPEAT_FAIL_LIMIT, |(_, c)| *c))
-            };
-            return Some(format!(
-                "[repeat-failure-guard] {detail}; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved."
-            ));
+    /// Whether a guard could answer the call keyed `(sig, shape_sig)` when its batch reaches it, once `earlier` (the calls
+    /// of the batch before it whose outcomes are not recorded yet) have recorded theirs. Every state the guards can then
+    /// be in is judged as [`Self::skip`] judges: each earlier call that runs is recorded by [`Self::record`] as a success,
+    /// a failure or a failed validation, and one the batch answers unrun, or a guard answers in that state, records nothing.
+    pub(crate) fn could_answer(&self, earlier: &[Earlier], sig: &str, shape_sig: &str) -> bool {
+        let mut states = std::collections::HashSet::from([self.clone()]);
+        for call in earlier {
+            let Earlier::Runs { sig: call_sig, shape_sig: call_shape, guarded } = call else { continue };
+            states = states
+                .into_iter()
+                .flat_map(|state| {
+                    if *guarded && state.answer(call_sig, call_shape).is_some() {
+                        return vec![state];
+                    }
+                    [(false, false), (true, false), (true, true)]
+                        .into_iter()
+                        .map(|(failed, arg_failure)| {
+                            let mut next = state.clone();
+                            next.record(failed, call_sig.clone(), call_shape.clone(), arg_failure);
+                            next
+                        })
+                        .collect()
+                })
+                .collect();
         }
-        self.shape
-            .as_ref()
-            .filter(|(s, count)| s == shape_sig && *count >= REPEAT_FAIL_LIMIT)
-            .map(|(_, count)| {
-                format!(
-                    "[repeat-argument-shape-guard] Equivalent malformed `{name}` arguments failed validation {count} times; not re-executed. Correct required fields or types before retrying."
-                )
-            })
+        states.iter().any(|state| state.answer(sig, shape_sig).is_some())
+    }
+
+    /// The guard that answers the call keyed `(sig, shape_sig)` in this state, if one does.
+    fn answer(&self, sig: &str, shape_sig: &str) -> Option<Answer> {
+        let cycle = pattern_would_continue(&self.history, sig, REPEAT_FAIL_LIMIT);
+        let same = self.last.as_ref().is_some_and(|(last, count)| last == sig && *count >= REPEAT_FAIL_LIMIT);
+        if same || cycle > 0 {
+            return Some(Answer::Repeat { cycle });
+        }
+        self.shape.as_ref().filter(|(s, count)| s == shape_sig && *count >= REPEAT_FAIL_LIMIT).map(|(_, count)| Answer::Shape { count: *count })
+    }
+
+    pub(crate) fn skip(&self, name: &str, sig: &str, shape_sig: &str) -> Option<String> {
+        Some(match self.answer(sig, shape_sig)? {
+            Answer::Repeat { cycle } => {
+                let detail = if cycle > 1 {
+                    format!("A {cycle}-call normalized failure pattern repeated {REPEAT_FAIL_LIMIT} times")
+                } else {
+                    format!("Identical normalized `{name}` call failed {} times", self.last.as_ref().map_or(REPEAT_FAIL_LIMIT, |(_, c)| *c))
+                };
+                format!("[repeat-failure-guard] {detail}; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.")
+            }
+            Answer::Shape { count } => format!(
+                "[repeat-argument-shape-guard] Equivalent malformed `{name}` arguments failed validation {count} times; not re-executed. Correct required fields or types before retrying."
+            ),
+        })
     }
 
     pub(crate) fn record(&mut self, failed: bool, sig: String, shape_sig: String, arg_failure: bool) {
@@ -1899,7 +1947,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             let follow_up_messages = std::mem::take(&mut output.follow_up_messages);
             let postprocess_started_at = env.clock.now_ms();
             let mut content = render_output(parts);
-            let mut hook_refused = false;
+            let mut hook_rewrote = false;
             // PostToolUse may override the model-visible text, never the
             // follow-up message channel.
             if let (Some(hooks), Content::Text(visible)) = (&env.hooks, &content)
@@ -1920,12 +1968,14 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
                 .await
             {
                 content = Content::Text(updated.into());
-                hook_refused = result_text_failed(&content, &name, output.explicit_success);
+                hook_rewrote = true;
                 // A hook response depends on the current invocation, not
                 // just on the arguments and filesystem dependency proof.
                 reuse_write = None;
             }
-            let kind = if hook_refused { ToolKind::Error } else { ToolKind::Normal };
+            // A tool that answers `Error: …` instead of failing (an MCP tool, `agent`, `Skill`) failed as a hook's refusal does.
+            let failed = result_text_failed(&content, &name, output.explicit_success);
+            let kind = if failed { ToolKind::Error } else { ToolKind::Normal };
             let mut message = AgentMessage::tool_result(&call.id, content, kind);
             message.tool_timing = Some(timing(postprocess_started_at));
             message.ui_diff = output.meta.as_ref().and_then(|m| m.get("uiDiff")).and_then(|d| d.as_str()).map(str::to_owned);
@@ -1933,7 +1983,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             message.tool_meta = output.meta.as_ref().filter(|m| m.get("code").and_then(|c| c.as_str()).is_some_and(|c| !c.is_empty())).cloned();
             Executed {
                 message,
-                failed: hook_refused,
+                failed,
                 arg_failure: false,
                 conflict: false,
                 // `isValidNewMessage` (`tool-envelope.mjs`): an empty follow-up is no message.
@@ -1945,7 +1995,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
                 cache_hit: None,
                 reuse_write,
                 output: Some(output),
-                returned: false,
+                // The tool's own error text is a result it returned, not a throw (`early_result`).
+                returned: failed && !hook_rewrote,
                 tool_ms: 0,
                 execution_intervals: Vec::new(),
             }

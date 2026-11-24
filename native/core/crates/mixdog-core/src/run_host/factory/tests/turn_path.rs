@@ -278,6 +278,63 @@ async fn a_primary_unavailable_at_preflight_runs_the_turn_on_the_fallback_and_th
     );
 }
 
+/// A turn that hops off its primary mid-turn and then fails on the fallback stores the failure as the fallback's: the
+/// provider the run ended on, not the one it started on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_after_a_mid_turn_hop_names_the_provider_the_turn_ended_on() {
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_store::schema::record::RunPhase;
+    let (primary, fallback, _) = switched_off_pair(0);
+    let (left, landed) = (ArmedRefusal::new(primary.clone()), ArmedRefusal::new(fallback));
+    let refusal = |kind: ErrorKind, status: u16, message: &str| {
+        let mut error = ProviderError::new(kind, DeliveryState::Accepted);
+        error.status = Some(status);
+        error.message = message.into();
+        error
+    };
+    *lock(&left.refusal) = Some(refusal(ErrorKind::Transient, 503, "Service Unavailable"));
+    *lock(&landed.refusal) = Some(refusal(ErrorKind::InvalidRequest, 400, "Bad Request"));
+    let providers = GatedProviders::new(vec![("primary", left as Arc<dyn ProviderAdapter>), ("openai-oauth", landed as Arc<dyn ProviderAdapter>)]);
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": "openai-oauth", "model": "m2" }] }],
+        "providers": { "primary": { "enabled": true }, "openai-oauth": { "enabled": true } },
+    });
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Config),
+        false,
+        None,
+        Some(routed(providers, config)),
+    )
+    .await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+    let started =
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    let failure = || {
+        world.rig.store.records(&id).into_iter().find_map(|(_, record)| match record {
+            Record::Run(run) if run.phase == RunPhase::Failed => match run.detail {
+                Some(Slot::Inline(detail)) => Some(detail),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+    let detail = eventually_on_awaiting(|| "the failed turn's end record".to_owned(), &[&world.rig.store.committed, handle.stepped()], failure).await;
+    let header = handle.live_header().header();
+    assert_eq!((header["provider"].as_str(), header["model"].as_str()), (Some("openai-oauth"), Some("m2")), "the turn hopped");
+    assert_eq!(detail["providerError"]["provider"], "openai-oauth", "{detail}");
+}
+
 /// A → B → C with A not available at preflight and B a removed custom provider (no family serves it): B is absent, not
 /// an error, and the turn runs on C.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -25,6 +25,16 @@ impl SessionActor {
         }));
     }
 
+    /// The end [`Self::run_ended`] parked behind the save of the prompt row it hands back, once the pump made that row durable
+    /// or failed it: taken in that same pass. Whether it was.
+    pub(super) fn take_landed_end(&mut self) -> bool {
+        let landed = self.producers.places.is_empty() && self.end_parked() && self.run.as_ref().is_some_and(|run| *run.input.borrow() != InputState::Pending);
+        if landed && let Some((turn, outcome)) = self.ended_run.take() {
+            self.run_ended(turn, outcome);
+        }
+        landed
+    }
+
     pub(super) fn run_ended(&mut self, turn: TurnId, outcome: RunOutcome) {
         // The run's task is over: it runs nothing more a latch would have to abort.
         self.cell.stop_latches.end(&self.id, &turn);
@@ -43,6 +53,15 @@ impl SessionActor {
         if !self.producers.places.is_empty() && self.active(&turn) {
             #[cfg(any(test, feature = "test-support"))]
             self.ledger(format!("run:end-parked:{}", turn.as_str()));
+            self.ended_run = Some((turn, outcome));
+            return;
+        }
+        // A Stop that hands the prompt back takes the prompt's row out of the session, which only a durable row can be: a run that
+        // ended before its input's save landed closes once that save lands (or fails, and the row is withdrawn), so the prompt the
+        // composer gets back is never also left committed.
+        if matches!(outcome, RunOutcome::Interrupted)
+            && self.run.as_ref().is_some_and(|run| run.turn == turn && *run.input.borrow() == InputState::Pending && run.prompt.snapshot().reclaim.is_some())
+        {
             self.ended_run = Some((turn, outcome));
             return;
         }
@@ -275,7 +294,7 @@ impl SessionActor {
                 // `session.turnCoverage = turnToken` (`ask-turn-settle.mjs`). The loop's last iteration and
                 // the session's tool-call total are written by each model call (`persistIterationMetrics`).
                 set.insert("turnCoverage".into(), json!(turn.as_str()));
-                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
                 self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             } else {
                 // A cancelled or failed turn is finalized too: `session.turnCoverage = turnCheckpointToken`
@@ -289,7 +308,7 @@ impl SessionActor {
                     set.insert("updatedAt".into(), json!(at));
                     set.insert("lastUsedAt".into(), json!(at));
                 }
-                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, ..Default::default() }) });
                 self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             }
             // `clearTurnCheckpoint` once the terminal save landed: the draft goes with nothing left to recover. Until it goes,

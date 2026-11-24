@@ -3,12 +3,14 @@ import type { DesktopApi } from '../shared/contract';
 let nextWatch = 1;
 
 /** The file's directory entry changed on disk: the core's one watcher pushes `fs/changed` for this watch
- *  (desktop-services.md §4.3, §15 P12), so there is no stat poll. `check` decides what the change means. */
+ *  (desktop-services.md §4.3, §15 P12), so there is no stat poll. `check` decides what the change means.
+ *  `checkOnStart` also runs `check` once the watch is registered, for a change made while nothing watched. */
 export function startEditorDiskWatch(
   host: Pick<DesktopApi, 'sections'> | undefined,
   projectPath: string,
   relPath: string,
-  check: () => void
+  check: () => void,
+  options?: { checkOnStart?: boolean }
 ): () => void {
   const sections = host?.sections;
   if (!sections) return () => undefined;
@@ -18,7 +20,12 @@ export function startEditorDiskWatch(
     if (change.watchId === watchId) check();
   });
   let live = true;
-  void sections.call('fs/watch', { watchId, path, recursive: false }).catch(() => undefined);
+  void sections
+    .call('fs/watch', { watchId, path, recursive: false })
+    .catch(() => undefined)
+    .then(() => {
+      if (live && options?.checkOnStart) check();
+    });
   return () => {
     if (!live) return;
     live = false;

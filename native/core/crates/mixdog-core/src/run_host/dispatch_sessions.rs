@@ -67,13 +67,13 @@ fn text_or_null(value: Option<&String>) -> Value {
 
 /// What `prepareAgentSession(spec)` records on the new session (the record's route, provenance
 /// and permission fields), or the error `createSession` throws.
-pub fn stamped_header(spec: &PrepareSpec, admit_route: impl FnOnce(&str) -> Result<(), String>) -> Result<Header, String> {
+pub fn stamped_header(spec: &PrepareSpec, admit: impl FnOnce(&str) -> Result<(), String>) -> Result<Header, String> {
     let preset = &spec.preset;
     let field = |key: &str| preset.get(key).filter(|value| truthy(Some(value)));
     let Some(provider) = field("provider") else { return Err("createSession: provider is required".into()) };
     let Some(model) = field("model") else { return Err("createSession: model is required".into()) };
     let provider = mixdog_js::value_to_string(provider);
-    admit_route(&provider)?;
+    admit(&provider)?;
     let context = |key: &str| spec.context.get(key);
     let permission = text_or_null(spec.permission.as_ref());
     let mut header = Map::new();
@@ -116,6 +116,9 @@ pub fn stamped_header(spec: &PrepareSpec, admit_route: impl FnOnce(&str) -> Resu
     header.insert("visibility".into(), Value::Null);
     header.insert("clientHostPid".into(), Value::Null);
     header.insert("closed".into(), json!(false));
+    if let Some(fallbacks) = preset.get("fallbacks") {
+        header.insert("routeFallbacks".into(), fallbacks.clone());
+    }
     Ok(header)
 }
 
@@ -211,10 +214,15 @@ mod tests {
 
     /// The same, with `agents` the ACP agents a route can name.
     fn session_with_agents(registry: &ProviderRegistry, agents: Option<&dyn AgentRoutes>, provider: &str) -> Result<Header, String> {
-        let spec = PrepareSpec {
-            agent: "worker".into(),
+        let spec = spec_of("worker", json!({"provider": provider, "model": "m"}));
+        stamped_header(&spec, |name| admit_route(registry, agents, name).map(|_| ()))
+    }
+
+    fn spec_of(agent: &str, preset: Value) -> PrepareSpec {
+        PrepareSpec {
+            agent: agent.into(),
             preset_name: "p".into(),
-            preset: json!({"provider": provider, "model": "m"}),
+            preset,
             runtime_spec: json!({}),
             context: Map::new(),
             permission: None,
@@ -226,8 +234,7 @@ mod tests {
             owner_session_id: None,
             skip_role_reminder: false,
             schema_allowed_tools: None,
-        };
-        stamped_header(&spec, |name| admit_route(registry, agents, name).map(|_| ()))
+        }
     }
 
     /// One agent, `acp-agent`, ready or refusing with `state`.
@@ -237,6 +244,14 @@ mod tests {
         fn admits(&self, provider: &str) -> Option<Result<(), String>> {
             (provider == "acp-agent").then(|| self.0.clone())
         }
+    }
+
+    #[test]
+    fn a_presets_fallback_chain_is_stamped_on_the_session() {
+        let chain = json!([{ "provider": "anthropic", "model": "opus" }]);
+        let spec = spec_of("explore", json!({"provider": "openai", "model": "m", "fallbacks": chain}));
+        let header = stamped_header(&spec, |_| Ok(())).expect("admitted");
+        assert_eq!(header["routeFallbacks"], chain);
     }
 
     #[test]

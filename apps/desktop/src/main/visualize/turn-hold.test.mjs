@@ -270,9 +270,7 @@ test('turns that follow one another without a pause each show what they opened a
     const after = t.events.slice(t.events.indexOf(firstEnd[0]) + 1);
     assert.ok(after.length > 0);
     assert.ok(
-      after.every(
-        (event) => event.held === true && event.heldSince === secondStart && event.state.tabs.length === 1
-      ),
+      after.every((event) => event.held === true && event.heldSince === secondStart && event.state.tabs.length === 1),
       'held from the second turn’s first start signal, never released while it runs'
     );
 
@@ -747,7 +745,10 @@ test("the user's own panel commands apply at once during a turn", async () => {
     );
     await t.service.setTurnActive(SESSION, false);
     assert.deepEqual(
-      t.shown().at(-1).state.tabs.map((tab) => tab.id),
+      t
+        .shown()
+        .at(-1)
+        .state.tabs.map((tab) => tab.id),
       ['v1', 'v3']
     );
   } finally {
@@ -828,10 +829,7 @@ test('a pick from “All visuals” during a turn selects or opens that visual a
         'held throughout, and never the turn’s own tab v4'
       );
     }
-    assert.deepEqual(
-      [t.service.snapshot()[0].held, ids(t.service.snapshot()[0])],
-      [true, ['v1', 'v2', 'v5']]
-    );
+    assert.deepEqual([t.service.snapshot()[0].held, ids(t.service.snapshot()[0])], [true, ['v1', 'v2', 'v5']]);
 
     await t.service.setTurnActive(SESSION, false);
     assert.deepEqual(ids(t.shown().at(-1).state), ['v1', 'v2', 'v4', 'v5']);
@@ -846,7 +844,13 @@ test('a tab the user clicks while a turn’s end is applied shows at once and st
   const t = setup({ thumbnailOffscreen: picture.take, publish: (event) => published.push(structuredClone(event)) });
   resyncVisualizeStates([]);
   try {
-    const shows = (event) => [event.held, event.reveal, event.updated, event.state.active, event.state.tabs.map((tab) => tab.id)];
+    const shows = (event) => [
+      event.held,
+      event.reveal,
+      event.updated,
+      event.state.active,
+      event.state.tabs.map((tab) => tab.id),
+    ];
     await t.run('open', { targets: ['site/a.html'] });
     await t.run('open', { targets: ['site/b.html'] });
     await t.service.setTurnActive(SESSION, true);
@@ -856,7 +860,11 @@ test('a tab the user clicks while a turn’s end is applied shows at once and st
     await picture.asked;
 
     await t.service.command({ sessionId: SESSION, tabId: 'v1', action: 'activate' });
-    assert.deepEqual(published.map(shows), [[true, undefined, undefined, 'v1', ['v1', 'v2']]], 'the click shows at once');
+    assert.deepEqual(
+      published.map(shows),
+      [[true, undefined, undefined, 'v1', ['v1', 'v2']]],
+      'the click shows at once'
+    );
     for (const event of published.splice(0)) applyVisualizeEvent(event);
     assert.equal(visualizeStateFor(SESSION).active, 'v1');
 

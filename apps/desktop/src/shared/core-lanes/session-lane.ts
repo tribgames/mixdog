@@ -17,14 +17,13 @@ import { remoteSessionIdOf, withRemoteSession } from '../blank-snapshot';
 import { createChatHostApi, type ChatHostApi } from '../../renderer/remote-chat-host';
 import {
   createChatApi,
-  createRosterFeed,
   pageLanded,
   pageWindow,
   remoteSession,
   sharedFor,
   type ChatClient,
-  type RosterClient,
 } from '../../renderer/remote-protocol-chat';
+import { createRosterFeed, type RosterClient } from '../../renderer/remote-roster-feed';
 import { DESKTOP_TRANSCRIPT_TAIL_BYTES, DESKTOP_TRANSCRIPT_TAIL_ITEMS } from './transcript-support';
 import type { ProtocolConnection } from '../../main/protocol/connection';
 import { coreErrorForWindow } from './core-error';

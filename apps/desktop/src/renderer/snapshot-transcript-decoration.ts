@@ -25,8 +25,6 @@ export interface TranscriptSnapshotDecorator {
   forget?(sessionId: string): void;
 }
 
-const scopeChars = (failure: FailureScope): number => failure.model.chars;
-
 export function createTranscriptSnapshotDecorator({ register = true } = {}): TranscriptSnapshotDecorator {
   let identity = createTranscriptIdentityReconciler();
   // Keyed by session: the project only labels the scope. Weighted LRU on the
@@ -36,7 +34,7 @@ export function createTranscriptSnapshotDecorator({ register = true } = {}): Tra
     name: 'transcript-failure-scopes',
     maxEntries: DECORATED_SCOPE_LIMIT,
     maxChars: DECORATED_SCOPE_MAX_CHARS,
-    measure: scopeChars,
+    measure: (failure) => failure.model.chars,
     register,
   });
   if (register) registerIdleReclaim(() => scopes.clear());

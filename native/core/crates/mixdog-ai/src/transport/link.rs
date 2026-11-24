@@ -132,8 +132,8 @@ async fn drain(stream: &mut Box<dyn BodyStream>) -> Result<Vec<u8>, ProviderErro
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Redirect {
     /// `fetch` default: follow up to 20 redirects. Credentials stay on the origin they were
-    /// meant for: `authorization`, `cookie` and `proxy-authorization` are dropped across origins,
-    /// and a 301/302 on POST or a 303 becomes a body-less GET, as in the fetch spec.
+    /// meant for: `authorization`, `cookie`, `proxy-authorization` and any header that carries a credential the process
+    /// holds (whatever its name) are dropped across origins, and a 301/302 on POST or a 303 becomes a body-less GET, as in the fetch spec.
     Follow,
     /// `redirect: 'error'`: a 3xx is a network error.
     Error,
@@ -472,7 +472,11 @@ fn next_hop(request: &WireRequest, status: reqwest::StatusCode, location: &str) 
     let to = from.join(location).ok()?;
     let mut next = request.clone();
     if from.origin() != to.origin() {
-        next.headers.retain(|(name, _)| !["authorization", "cookie", "proxy-authorization"].iter().any(|dropped| name.eq_ignore_ascii_case(dropped)));
+        let credentials = crate::oauth::carried::remembered();
+        next.headers.retain(|(name, value)| {
+            !["authorization", "cookie", "proxy-authorization"].iter().any(|dropped| name.eq_ignore_ascii_case(dropped))
+                && credentials.redacted(value.as_bytes()).is_none()
+        });
     }
     let status = status.as_u16();
     if (status == 303 && request.method != "HEAD") || (matches!(status, 301 | 302) && request.method == "POST") {
@@ -676,6 +680,28 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    /// A credential the request carries in a header of any name stays on its origin across a redirect.
+    #[test]
+    fn a_redirect_to_another_origin_keeps_every_credential_header_back() {
+        let header = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+        let request = WireRequest {
+            transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
+            method: "POST".into(),
+            url: "https://gateway.test/v1".into(),
+            headers: vec![
+                header("x-api-key", "hop-credential-3f9a1c"),
+                header("x-tenant-auth", "hop-credential-3f9a1c"),
+                header("accept", "text/event-stream"),
+            ],
+            body: Vec::new(),
+        };
+        let _lease = crate::oauth::carried::attach_request(&request);
+        let across = next_hop(&request, reqwest::StatusCode::TEMPORARY_REDIRECT, "https://other.test/v1").expect("a target");
+        assert_eq!(across.headers, vec![header("accept", "text/event-stream")]);
+        let same = next_hop(&request, reqwest::StatusCode::TEMPORARY_REDIRECT, "/v2").expect("a target");
+        assert_eq!(same.headers, request.headers);
+    }
 
     /// A body whose peer holds the connection open and says nothing.
     struct Silent;

@@ -63,8 +63,20 @@ test('exhausted weekly usage is pinned; missing weekly data is never invented; k
 });
 
 test('Antigravity ACP is an entry of its own beside the OAuth one, each with its own windows', () => {
-  const oauth = { id: 'antigravity-oauth', label: 'Antigravity OAuth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 20 }] };
-  const acp = { id: 'acp-antigravity', label: 'Antigravity ACP', group: 'acp', authenticated: true, windows: [{ label: '7D', usedPct: 60 }] };
+  const oauth = {
+    id: 'antigravity-oauth',
+    label: 'Antigravity OAuth',
+    group: 'oauth',
+    authenticated: true,
+    windows: [{ label: '7D', usedPct: 20 }],
+  };
+  const acp = {
+    id: 'acp-antigravity',
+    label: 'Antigravity ACP',
+    group: 'acp',
+    authenticated: true,
+    windows: [{ label: '7D', usedPct: 60 }],
+  };
   const shown = (rows) => usagePinEntries({ rows }).map((entry) => [entry.key, entry.label, entry.percent]);
   assert.deepEqual(shown([acp]), [['antigravity-acp', 'Antigravity ACP', 60]]);
   assert.deepEqual(shown([acp, oauth]), [
@@ -72,6 +84,30 @@ test('Antigravity ACP is an entry of its own beside the OAuth one, each with its
     ['antigravity-acp', 'Antigravity ACP', 60],
   ]);
   assert.deepEqual(shown([oauth]), [['antigravity', 'Antigravity', 20]]);
+});
+
+test('an agent row whose quota a provider row shows is listed once, under that provider', async (t) => {
+  const rows = [
+    { id: 'antigravity-oauth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 20 }] },
+    {
+      id: 'acp-antigravity',
+      label: 'Antigravity ACP',
+      group: 'acp',
+      authenticated: true,
+      sameQuotaAs: 'antigravity-oauth',
+      windows: [{ label: '7D', usedPct: 20 }],
+    },
+  ];
+  assert.deepEqual(
+    usagePinEntries({ rows }).map((entry) => entry.key),
+    ['antigravity']
+  );
+  await renderUsage(t, []);
+  await act(async () => publishUsageDashboard({ rows }));
+  assert.deepEqual(
+    [...document.querySelectorAll('.sidebar-usage-row')].map((row) => row.dataset.usageProvider),
+    ['antigravity']
+  );
 });
 
 test('Grok usage is not borrowed by Muse Code or MiMo', () => {

@@ -6,13 +6,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::{CatalogService, ProviderReadiness};
-use mixdog_ai::service::admin_route::{Obj, ensure_provider_enabled, refresh_route_fields};
+use mixdog_ai::service::admin_route::{Obj, refresh_route_fields};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 
 use super::route::{LiveRoute, Route, RouteSession};
+use super::route_facts::RouteFacts;
 use mixdog_core_config::config::Config;
 
 /// The runtime's route cell per thread. The session owner implements it: the route is replaced
@@ -52,13 +52,12 @@ pub trait RouteWriter: Send + Sync {
     fn boot(&self, _thread: &ThreadId, _request: &Route) {}
 }
 
-/// [`RouteWriter`] over the session's route cell, the config, and the catalog.
+/// [`RouteWriter`] over the session's route cell, the config, and the route facts.
 pub struct LiveRouteWriter {
     pub cell: Arc<dyn RouteCell>,
     pub session: Arc<dyn RouteSession>,
     pub config: Config,
-    pub catalog: Arc<CatalogService>,
-    pub readiness: Arc<ProviderReadiness>,
+    pub facts: Arc<dyn RouteFacts>,
     pub usage: Arc<dyn StatuslineUsage>,
 }
 
@@ -92,13 +91,10 @@ impl RouteWriter for LiveRouteWriter {
         let config: Obj = self.config.agent();
         let provider = target.get("provider").and_then(Value::as_str).unwrap_or("").trim().to_owned();
         let model = target.get("model").and_then(Value::as_str).unwrap_or("").trim().to_owned();
-        self.readiness
-            .ensure_providers_ready(Some(ensure_provider_enabled(&config, &provider)))
-            .await
-            .map_err(|e| PortError::Failed { capability: "providers".into(), message: e.message })?;
+        self.facts.ensure_ready(&config, &provider).await.map_err(|message| PortError::Failed { capability: "providers".into(), message })?;
         let meta = match meta {
             Some(meta) => meta,
-            None => self.catalog.model_meta_in(&provider, &model, config.get("providers").and_then(|providers| providers.get(provider.as_str()))),
+            None => self.facts.model_meta(&provider, &model),
         };
         // A rapid second resume or model change can replace the route while provider metadata is
         // loading; an older completion never overwrites it, nor does one whose session was replaced.
@@ -109,8 +105,8 @@ impl RouteWriter for LiveRouteWriter {
             return Ok(None);
         }
         let live_provider = self.cell.route(thread).get("provider").and_then(Value::as_str).unwrap_or("").to_owned();
-        let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
-        let windows = |provider: &str, model: &str| self.catalog.cached_windows(provider, model).and_then(|w| serde_json::to_value(w).ok());
+        let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.facts.fast_capable(provider, meta, effort, params);
+        let windows = |provider: &str, model: &str| self.facts.window_meta(provider, model, &meta);
         let route = refresh_route_fields(&config, &target, Some(&meta), &live_provider, &fast, &windows);
         self.cell.set_route_state(thread, route.clone());
         Ok(Some(route))

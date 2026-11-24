@@ -4,7 +4,6 @@ import v8 from 'node:v8';
 import vm from 'node:vm';
 
 import { createSessionLaneStore } from './session-lane-store.ts';
-import { createTranscriptSnapshotDecorator } from './snapshot-transcript-decoration.ts';
 import { createTranscriptIdentityReconciler } from './transcript-identity.ts';
 import { mergeToolRows, rowsOf } from '../../../../packages/protocol-client/src/rows.ts';
 import { prependHistoryPage, appendHistoryPage } from './transcript-history.ts';
@@ -622,9 +621,12 @@ test('the lane keeps the rows held when a reconnect brings a shorter window', ()
       store.get(sessionId).items.map((item) => item.id),
       ['a', 'b', 'c', 'd', 'e']
     );
-    store.get(sessionId).items.slice(0, 4).forEach((item, index) => {
-      assert.equal(item, held[index]);
-    });
+    store
+      .get(sessionId)
+      .items.slice(0, 4)
+      .forEach((item, index) => {
+        assert.equal(item, held[index]);
+      });
   } finally {
     store.clear();
   }
@@ -708,7 +710,9 @@ test('a frame merged on under rows kept above a shorter window reads none of the
     publish();
     const next = store.get(sessionId).items;
     assert.equal(next.length, before.length + 1);
-    before.forEach((item, index) => assert.equal(next[index], item, 'a row that did not change is the row held'));
+    for (const [index, item] of before.entries()) {
+      assert.equal(next[index], item, 'a row that did not change is the row held');
+    }
     assert.equal(next.at(-1).id, id);
     assert.equal(compared, 0, 'no row before the one that landed was read');
   }

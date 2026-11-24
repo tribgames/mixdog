@@ -184,7 +184,8 @@ export function ShellRowButton({
       disabled={disabled}
       onClick={onClick}
     >
-      {icon ? <MxIcon name={icon} size={16} /> : text}
+      {/* Stop's filled square at the 12px state marks' size: at 16 it outweighed the row's clock. */}
+      {icon ? <MxIcon name={icon} size={icon === 'stop' ? 12 : 16} /> : text}
     </button>
   );
   if (action === 'release') {

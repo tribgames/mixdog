@@ -10,12 +10,14 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_acp::agents::AccountEvent;
 use mixdog_acp::agents::Agents;
 use mixdog_acp::agents::AgentsParts;
 use mixdog_acp::agents::Readiness;
 use mixdog_acp::agents::Refusal;
 use mixdog_acp::agents::Refusals;
 use mixdog_acp::files::TextFiles;
+use mixdog_acp::mcp::BATCH_TOOL;
 use mixdog_acp::mcp::SessionTools;
 use mixdog_acp::preset::AgentPreset;
 use mixdog_acp::preset::Command;
@@ -60,6 +62,7 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::FollowUpMessage;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
+use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::domain::tool::ToolOutcome;
@@ -235,6 +238,17 @@ impl Surface {
             .collect()
     }
 
+    /// The notices the turn showed.
+    fn notices(&self) -> Vec<String> {
+        self.events()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Notice(text) => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
     async fn until(&self, seen: impl Fn(&[Event]) -> bool) {
         loop {
             let changed = self.0.changed.notified();
@@ -326,19 +340,6 @@ impl TurnSurface for Surface {
     }
 }
 
-impl Surface {
-    /// The notices the turn showed.
-    fn notices(&self) -> Vec<String> {
-        self.events()
-            .into_iter()
-            .filter_map(|event| match event {
-                Event::Notice(text) => Some(text),
-                _ => None,
-            })
-            .collect()
-    }
-}
-
 /// The files of the machine the test runs on; `.0` are the places that were opened.
 struct Files(Arc<Mutex<Vec<std::path::PathBuf>>>);
 
@@ -353,6 +354,15 @@ impl TextFiles for Files {
     async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
         let resolved = std::fs::canonicalize(path.as_path()).map_err(|error| error.to_string())?;
         AbsPath::new(resolved).ok_or_else(|| "not absolute".to_owned())
+    }
+
+    // The test processes that run side by side make the same definition: they make it as the core does.
+    async fn create(&self, path: AbsPath, text: String) -> Result<(), String> {
+        let files = mixdog_acp::files::ServiceFiles {
+            files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
+            lane: mixdog_rt::testing::tokens().interactive_io,
+        };
+        files.create(path, text).await
     }
 }
 
@@ -419,6 +429,8 @@ impl World {
         let mut preset = mixdog_acp::preset::builtin().remove(0);
         preset.command = mixdog_testkit::bin_exe!("mixdog-acp-fake-agent");
         preset.args = vec!["acp".into()];
+        // A session handed tools starts the fake in a folder of its own, which has no settings file.
+        preset.env.extend(lines.iter().filter_map(|line| line.split_once('=')).map(|(name, value)| (name.to_owned(), value.to_owned())));
         // No test runs the vendor's installer.
         preset.upkeep = Upkeep { installer: None, installed_at: Vec::new(), update_args: Some(vec!["update".into()]) };
         customize(&mut preset, dir.path());
@@ -559,6 +571,18 @@ impl World {
         .await;
     }
 
+    /// A turn of the `hang` prompt, stopped once its first row is committed.
+    async fn hang_until_stopped(&self, surface: &Surface) -> TurnEnd {
+        let cancel = CancellationToken::new();
+        let thread = thread();
+        let running = self.prompt(&thread, surface, "hang", None, cancel.clone());
+        let stop = async {
+            surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+            cancel.cancel();
+        };
+        within("the stop", async { tokio::join!(running, stop) }).await.0
+    }
+
     /// One prompt turn of `thread`, reported to `surface`.
     async fn prompt(&self, thread: &ThreadId, surface: &Surface, text: &str, stored: Option<&str>, cancel: CancellationToken) -> TurnEnd {
         self.prompt_with(thread, surface, text, stored, cancel, None).await
@@ -625,8 +649,8 @@ async fn a_prompts_stream_becomes_live_items_and_committed_rows() {
     assert_eq!(rows[0]["content"], "Hello world");
     // A call's id carries its turn, and its name is one every provider takes as a tool's name.
     assert_eq!(rows[0]["toolCalls"][0]["id"], "turn-1.t1");
-    assert_eq!(rows[0]["toolCalls"][0]["name"], "antigravity_execute");
-    assert_eq!(rows[0]["toolCalls"][0]["arguments"], json!({ "command": "npm test", "title": "Run tests" }));
+    assert_eq!(rows[0]["toolCalls"][0]["name"], "shell");
+    assert_eq!(rows[0]["toolCalls"][0]["arguments"], json!({ "command": "npm test" }));
     assert_eq!((&rows[1]["toolCallId"], &rows[1]["content"]), (&json!("turn-1.t1"), &json!("ok")));
     assert_eq!(rows[2]["toolCalls"][0]["name"], "antigravity_edit");
     let diff = rows[3]["uiDiff"].as_str().expect("the edit's diff");
@@ -720,17 +744,7 @@ async fn a_permission_request_is_asked_on_the_session_and_its_answer_returns_to_
 async fn a_cancel_stops_the_turn_and_closes_what_it_left_open() {
     let world = World::new(&[]);
     let surface = Surface::default();
-    let cancel = CancellationToken::new();
-    let running = {
-        let (surface, cancel) = (surface.clone(), cancel.clone());
-        let world = &world;
-        async move { world.prompt(&thread(), &surface, "hang", None, cancel).await }
-    };
-    let stop = async {
-        surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
-        cancel.cancel();
-    };
-    let (end, ()) = within("the stop", async { tokio::join!(running, stop) }).await;
+    let end = world.hang_until_stopped(&surface).await;
     assert_eq!(end, TurnEnd::Interrupted);
     let rows = surface.rows();
     assert_eq!(rows[0]["content"], "working");
@@ -748,6 +762,42 @@ async fn a_cancel_stops_the_turn_and_closes_what_it_left_open() {
     assert_eq!((world.logged("start acp"), world.logged("session/cancel")), (2, 1));
     // What the agent still sent for the cancelled prompt is in neither turn.
     assert_eq!(next.rows().len(), 1, "{:?}", next.rows());
+}
+
+/// The prompt is the turn's request, as a provider's is: once the agent holds a prompt it answers nothing to, the
+/// watchdog judges the turn by the first-answer deadline counted from the prompt's send, and its stop ends the turn.
+#[tokio::test]
+async fn a_prompt_the_agent_answers_nothing_to_is_stopped_by_the_watchdog() {
+    use mixdog_agent::agent_tool::progress::stale_report;
+    use mixdog_agent::agent_tool::watchdog::{AgentKind, Overrides, is_watchdog_abort, resolve_policy};
+    let world = World::new(&[]);
+    let surface = Surface::default();
+    let cancel = CancellationToken::new();
+    let clock = Arc::new(std::sync::atomic::AtomicI64::new(1_000));
+    let (progress, mut watched) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let session = world.agents.session(&thread(), &world.preset, world.cwd(), None, Some("RULES".into())).await.expect("the agent starts");
+    let read_clock = clock.clone();
+    let context = TurnContext { now_ms: Arc::new(move || read_clock.load(Ordering::SeqCst)), progress: Some(progress), ..world.context(cancel.clone()) };
+    let running = mixdog_acp::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(vec![json!({ "type": "text", "text": "mute" })]), context);
+    let policy =
+        resolve_policy(AgentKind { name: None, hidden: false, stall_cap_idle_seconds: None }, Overrides::default(), &|_: &str| -> Option<String> { None });
+    let watchdog = async {
+        let sent = clock.load(Ordering::SeqCst);
+        // The agent holds the prompt: the turn waits on its first answer.
+        watched
+            .wait_for(|progress| progress.snapshot(sent).is_some_and(|snapshot| snapshot.waiting_for_first_semantic && !snapshot.waiting_for_transport))
+            .await
+            .expect("the turn's progress");
+        let verdict = |at: i64| stale_report(&watched.borrow().snapshot(at).expect("a snapshot"), at, &policy);
+        assert_eq!(verdict(sent + policy.first_semantic_ms), None, "no verdict before the deadline has passed");
+        let stalled = verdict(sent + policy.first_semantic_ms + 1).expect("the watchdog's verdict");
+        assert!(is_watchdog_abort(&stalled), "{stalled}");
+        // The watchdog's stop.
+        cancel.cancel();
+    };
+    let (end, ()) = within("the watchdog's stop", async { tokio::join!(running, watchdog) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    world.logs("session/cancel").await;
 }
 
 #[tokio::test]
@@ -1254,6 +1304,7 @@ async fn only_a_failure_the_agent_reported_is_checked_against_the_quota() {
         .await;
     assert!(unread.provider_error.is_none());
 }
+
 /// A turn whose agent no longer holds its session (it answers the prompt that the session is not found, or tells of it
 /// in a notice) leaves that session behind: its process ends, the conversation stops naming it, and the next turn
 /// starts a new one with the conversation handed over, as after a compaction.
@@ -1393,7 +1444,7 @@ async fn a_call_of_the_agents_own_whose_title_names_a_mixdog_tool_is_asked_on_a_
     let args = json!({ "CommandLine": "ls mcp_mixdog_read", "title": "ls mcp_mixdog_read" });
     assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity_execute"), &args)]);
     assert_eq!(*tools.seen.lock().unwrap(), ["judge shell"]);
-    assert_eq!(surface.rows()[0]["toolCalls"][0]["name"], "antigravity_execute");
+    assert_eq!(surface.rows()[0]["toolCalls"][0]["name"], "shell");
     assert!(tools.ran.lock().unwrap().is_empty(), "no tool of the session ran");
 
     // The agent's question about a call of a tool the session's server lists, told by the call's own name, is answered
@@ -1419,17 +1470,20 @@ async fn the_agents_lasting_option_is_sent_only_for_the_users_own_lasting_approv
     assert_eq!(completed_text(&end), "option:always");
     world.agents.release(&thread());
 
-    // The agent offers no option for one call: the user is asked, and told the approval lasts. Nothing is answered
-    // for longer on the user's behalf, a remembered grant and a call of a Mixdog tool included.
-    for word in ["lasting", "lasting read"] {
-        let surface = Surface::default();
-        surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
-        let end = within("the turn", world.prompt_with(&thread(), &surface, word, None, CancellationToken::new(), Some(tools.calls(&surface)))).await;
-        assert_eq!(completed_text(&end), "option:always", "{word}");
-        let asks = surface.0.asks.lock().unwrap().clone();
-        assert_eq!(asks.len(), 1, "{word}");
-        assert_eq!((&asks[0].payload["lastingOnly"], &asks[0].remember), (&json!(true), &vec![mixdog_protocol::ApprovalRemember::Always]), "{word}");
-    }
+    // The agent offers no option for one call: the user is asked, and told the approval lasts. Nothing of the agent's
+    // own is answered for longer on the user's behalf.
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let end = within("the turn", world.prompt_with(&thread(), &surface, "lasting", None, CancellationToken::new(), Some(tools.calls(&surface)))).await;
+    assert_eq!(completed_text(&end), "option:always");
+    let asks = surface.0.asks.lock().unwrap().clone();
+    assert_eq!(asks.len(), 1);
+    assert_eq!((&asks[0].payload["lastingOnly"], &asks[0].remember), (&json!(true), &vec![mixdog_protocol::ApprovalRemember::Always]));
+    // A Mixdog tool is judged by its own pipeline at every call: the agent is told yes for good, and nobody is asked.
+    let surface = Surface::default();
+    let end = within("the turn", world.prompt_with(&thread(), &surface, "lasting read", None, CancellationToken::new(), Some(tools.calls(&surface)))).await;
+    assert_eq!(completed_text(&end), "option:always");
+    assert!(surface.0.asks.lock().unwrap().is_empty() && cards(&surface).is_empty(), "{:?}", surface.rows());
     let surface = Surface::default();
     let end = within("the turn", world.prompt(&thread(), &surface, "lasting", None, CancellationToken::new())).await;
     assert_eq!(completed_text(&end), "option:no", "a session with no approval surface refuses, never with the lasting option");
@@ -1764,17 +1818,7 @@ async fn a_report_written_ahead_of_the_agents_last_call_is_the_turns_answer() {
 async fn an_agents_streamed_reply_is_written_to_the_turns_progress_record_ahead_of_its_row() {
     let world = World::new(&[]);
     let surface = Surface::default();
-    let cancel = CancellationToken::new();
-    let running = {
-        let (surface, cancel) = (surface.clone(), cancel.clone());
-        let world = &world;
-        async move { world.prompt(&thread(), &surface, "hang", None, cancel).await }
-    };
-    let stop = async {
-        surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
-        cancel.cancel();
-    };
-    let (end, ()) = within("the stop", async { tokio::join!(running, stop) }).await;
+    let end = world.hang_until_stopped(&surface).await;
     assert_eq!(end, TurnEnd::Interrupted);
     let events = surface.events();
     let drafted = events.iter().position(|event| matches!(event, Event::Draft(body) if body["text"] == "working")).expect("the reply was recorded");
@@ -1810,6 +1854,252 @@ async fn a_session_that_leaves_the_agents_route_ends_the_agents_process_without_
     within("the agent's exit", session.connection.exited().cancelled()).await;
     assert!(world.agents.running(&thread()).is_none());
     assert_eq!(writer.route(&thread())["provider"], "openai", "the route is written as before");
+}
+
+#[tokio::test]
+async fn an_agents_model_with_efforts_is_filled_from_its_row_without_the_providers_readiness() {
+    let world = World::new(&[]);
+    let (_dir, writer) = live_writer(&world).await;
+    let route = json!({ "provider": world.preset.provider, "model": "gemini-4-neon", "effort": "high" }).as_object().cloned().expect("a route");
+    writer.set_route_state(&thread(), route);
+    let meta = json!({ "id": "gemini-4-neon", "provider": world.preset.provider, "reasoningLevels": ["low", "medium", "high"] });
+    // The catalog behind the facts serves no agent and refuses to ready one: the route is filled from the agent's row.
+    let filled = within("the refresh", writer.refresh_route_effort(&thread(), Some(meta), false, None))
+        .await
+        .expect("no provider is asked")
+        .expect("the route is filled");
+    assert_eq!(filled["effectiveEffort"], "high");
+    assert_eq!(writer.route(&thread())["effectiveEffort"], "high", "the filled route is the session's");
+}
+
+/// A route the writer refreshes with no model row of its caller's (a resumed thread's `prepare_route`, a new task's
+/// `ready_default` and the control session's `ready_control` refresh it so) takes the agent's own row, as a provider's
+/// route takes the catalog's: a model the agent runs at several efforts has its effort fields filled, one it runs at
+/// one has them empty, and the route's display is the row's either way.
+#[tokio::test]
+async fn a_route_refreshed_with_no_row_takes_the_agents_row_with_its_efforts_or_none() {
+    let models = r#"[{"modelId":"gem-low","name":"Gem (Low)"},{"modelId":"gem-high","name":"Gem (High)"},{"modelId":"solo","name":"Solo"}]"#;
+    let world = World::new(&[("FAKE_AGENT_MODELS", models)]);
+    world.checked().await;
+    let (_dir, writer) = live_writer(&world).await;
+    let route = |model: &str, effort: Option<&str>| {
+        let mut route = json!({ "provider": world.preset.provider, "model": model }).as_object().cloned().expect("a route");
+        if let Some(effort) = effort {
+            route.insert("effort".to_owned(), json!(effort));
+        }
+        route
+    };
+
+    writer.set_route_state(&thread(), route("gem", Some("high")));
+    let gem = within("the refresh", writer.refresh_route_effort(&thread(), None, true, None)).await.expect("refreshed").expect("written");
+    assert_eq!((&gem["effectiveEffort"], &gem["modelDisplay"], &gem["fastCapable"]), (&json!("high"), &json!("Antigravity ACP · Gem"), &json!(false)));
+    let efforts: Vec<&str> = gem["effortOptions"].as_array().expect("the efforts").iter().filter_map(|item| item["value"].as_str()).collect();
+    assert_eq!(efforts, ["low", "high"]);
+    assert_eq!(writer.route(&thread()), gem, "the filled route is the session's");
+
+    writer.set_route_state(&thread(), route("solo", None));
+    let solo = within("the refresh", writer.refresh_route_effort(&thread(), None, true, None)).await.expect("refreshed").expect("written");
+    assert_eq!((&solo["effortOptions"], &solo["effectiveEffort"]), (&json!([]), &Value::Null), "{solo:?}");
+    assert_eq!((&solo["modelDisplay"], &solo["fastCapable"]), (&json!("Antigravity ACP · Solo"), &json!(false)));
+}
+
+/// A refresh whose lease names a session generation that has moved on writes nothing over the newer session.
+#[tokio::test]
+async fn a_refresh_under_a_stale_lease_writes_nothing() {
+    let world = World::new(&[]);
+    world.checked().await;
+    let (_dir, writer) = live_writer(&world).await;
+    let route = json!({ "provider": world.preset.provider, "model": "default" }).as_object().cloned().expect("a route");
+    writer.set_route_state(&thread(), route.clone());
+    let moved = writer.generation(&thread()) + 1;
+    writer.session.generation.store(moved, Ordering::SeqCst);
+    let refreshed = within("the refresh", writer.refresh_route_effort(&thread(), None, false, Some(moved - 1))).await.expect("refreshed");
+    assert_eq!(refreshed, None);
+    assert_eq!(writer.route(&thread()), route, "the newer session's route stands");
+}
+
+/// An import makes its sessions on the Lead route: one an agent serves is a route as a provider's is, readied as the
+/// agent is, though no provider of the catalog's is configured.
+#[tokio::test]
+async fn an_import_prepares_its_sessions_on_a_lead_route_only_an_agent_serves() {
+    let world = World::new(&[]);
+    world.checked().await;
+    let lead = json!({ "id": "lead", "name": "Lead", "provider": world.preset.provider, "model": "default" });
+    let (_dir, config) = config_of(json!({ "default": "lead", "presets": [lead] })).await;
+    let routes = mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext {
+        config,
+        facts: Arc::new(AgentRouteFacts { inner: Arc::new(Unserved), agents: world.agents.clone() }),
+    };
+    assert_eq!(within("the preparation", mixdog_core_session::session::import_sessions::prepare_lead_route(&routes)).await, Ok(()));
+}
+
+/// The config of a profile whose agent section, in its memory form, is `agent`; the directory holds its file.
+async fn config_of(agent: Value) -> (tempfile::TempDir, mixdog_core_config::config::Config) {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("mixdog-config.json");
+    let file = mixdog_core_config::config::agent_routes::stored_file_of(&agent);
+    #[allow(clippy::disallowed_methods, reason = "a test writes the config file it opens")]
+    std::fs::write(&path, serde_json::to_vec(&file).expect("the file")).expect("the config file");
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) =
+        mixdog_core_config::config::Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("the config");
+    (dir, config)
+}
+
+/// The writer the composition builds: the live route writer over the facts that know the agents, whose catalog serves
+/// no agent (as the PC's catalog serves none).
+async fn live_writer(world: &World) -> (tempfile::TempDir, LiveWriter) {
+    let (dir, config) = config_of(json!({})).await;
+    let cell = Arc::new(Cell::default());
+    let session = Arc::new(Generations::default());
+    let writer = mixdog_core_ports::ports::route_write::LiveRouteWriter {
+        cell: cell.clone(),
+        session: session.clone(),
+        config,
+        facts: Arc::new(AgentRouteFacts { inner: Arc::new(Unserved), agents: world.agents.clone() }),
+        usage: Arc::new(NoUsage),
+    };
+    let writer = AgentRouteWriter { inner: Arc::new(writer), agents: world.agents.clone() };
+    (dir, LiveWriter { writer, session })
+}
+
+/// The route writer and the session generation its leases are read from.
+struct LiveWriter {
+    writer: AgentRouteWriter,
+    session: Arc<Generations>,
+}
+
+impl std::ops::Deref for LiveWriter {
+    type Target = AgentRouteWriter;
+    fn deref(&self) -> &AgentRouteWriter {
+        &self.writer
+    }
+}
+
+/// The route cell of the one thread, with its route generation.
+#[derive(Default)]
+struct Cell {
+    route: Mutex<Route>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl mixdog_core_ports::ports::route::LiveRoute for Cell {
+    fn route(&self, _: &ThreadId) -> Route {
+        self.route.lock().unwrap().clone()
+    }
+    fn adopt_held(&self, _: &ThreadId, _: &Route) {
+        unreachable!("no held route is adopted")
+    }
+}
+
+impl mixdog_core_ports::ports::route_write::RouteCell for Cell {
+    fn set_route_state(&self, _: &ThreadId, route: Route) {
+        *self.route.lock().unwrap() = route;
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+    fn route_generation(&self, _: &ThreadId) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+    fn boot(&self, _: &ThreadId, _: &Route) {}
+}
+
+/// The session generation of the one thread; nothing else of the session is asked by a refresh.
+#[derive(Default)]
+struct Generations {
+    generation: std::sync::atomic::AtomicU64,
+}
+
+#[async_trait]
+impl mixdog_core_ports::ports::route::RouteSession for Generations {
+    fn generation(&self, _: &ThreadId) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+    async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, mixdog_tools::orch::util::PortError> {
+        unreachable!("a refresh reads no turn")
+    }
+    fn has_user_conversation(&self, _: &[Value]) -> bool {
+        unreachable!("a refresh reads no conversation")
+    }
+    async fn update_route(&self, _: &ThreadId, _: Route, _: bool) -> Result<bool, mixdog_tools::orch::util::PortError> {
+        unreachable!("a refresh updates no session")
+    }
+    async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, mixdog_tools::orch::util::PortError> {
+        unreachable!("a refresh records no boundary")
+    }
+    async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_tools::orch::util::PortError> {
+        unreachable!("a refresh rebuilds no tool surface")
+    }
+    async fn owner_fallbacks(
+        &self,
+        _: &ThreadId,
+        _: &mixdog_store::schema::record::Header,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<Vec<Value>>, mixdog_tools::orch::util::PortError> {
+        unreachable!("a refresh reads no fallbacks")
+    }
+    fn write_statusline(&self, _: &ThreadId, _: &Route) {}
+    fn invalidate_context_status(&self, _: &ThreadId) {}
+}
+
+struct NoUsage;
+
+impl mixdog_core_ports::ports::route_write::StatuslineUsage for NoUsage {
+    fn refresh(&self, _: &ThreadId, _: &Route) {}
+}
+
+/// The PC's catalog as it answers a provider id no family serves (an agent's): known to nobody, not readied, with a
+/// bare placeholder row and nobody to send on it.
+struct Unserved;
+
+#[async_trait]
+impl RouteFacts for Unserved {
+    fn is_known(&self, _: &str, _: &serde_json::Map<String, Value>) -> bool {
+        false
+    }
+    async fn ensure_ready(&self, _: &serde_json::Map<String, Value>, provider: &str) -> Result<(), String> {
+        Err(format!("[provider] Failed to init \"{provider}\": unknown enabled provider: {provider}"))
+    }
+    fn model_meta(&self, provider: &str, model: &str) -> Value {
+        json!({ "id": model, "provider": provider })
+    }
+    fn window_meta(&self, _: &str, _: &str, _: &Value) -> Option<Value> {
+        None
+    }
+    fn catalog_knows(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn fast_capable(&self, _: &str, _: &Value, _: Option<&str>, _: &Value) -> bool {
+        false
+    }
+    fn ultrafast_capable(&self, _: &str, _: &Value) -> bool {
+        false
+    }
+    async fn sender(
+        &self,
+        _: Option<&serde_json::Map<String, Value>>,
+        provider: &str,
+    ) -> Result<Option<mixdog_core_ports::ports::route_facts::RouteSender>, String> {
+        Err(format!("unknown enabled provider: {provider}"))
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "a test reads the folder the file is made in")]
+async fn a_file_made_through_the_cores_file_service_appears_whole_and_one_already_there_is_kept() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let files = mixdog_acp::files::ServiceFiles {
+        files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
+        lane: mixdog_rt::testing::tokens().interactive_io,
+    };
+    let path = AbsPath::new(dir.path().join("home/.agents/agents/mixdog/agent.md")).expect("an absolute temp dir");
+    within("the first", files.create(path.clone(), "first".to_owned())).await.expect("made");
+    within("the second", files.create(path.clone(), "second".to_owned())).await.expect("kept");
+    assert_eq!(std::fs::read_to_string(path.as_path()).expect("the file"), "first");
+    let left: Vec<_> =
+        std::fs::read_dir(path.as_path().parent().expect("the folder")).expect("the folder").map(|entry| entry.expect("an entry").file_name()).collect();
+    assert_eq!(left, ["agent.md"]);
 }
 
 #[tokio::test]
@@ -1969,6 +2259,30 @@ impl Tool for Echo {
     }
 }
 
+/// The test session's tool that changes nothing.
+const LOOK: &str = "look";
+
+/// A tool of the test's session that changes nothing: each call waits until another call of it has started, so two
+/// calls of it end only where they run at the same time.
+struct Look {
+    spec: ToolSpec,
+    ran: Ran,
+    meet: Arc<tokio::sync::Barrier>,
+}
+
+#[async_trait]
+impl Tool for Look {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, ctx: &ToolContext, arguments: Value) -> ToolOutcome {
+        self.meet.wait().await;
+        self.ran.lock().unwrap().push((ctx.thread_id.clone(), LOOK.to_owned(), arguments.clone()));
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("{LOOK} met another with {arguments}"))], ..ToolOutput::default() })
+    }
+}
+
 /// The session's catalog: which of its tools its requests define, and which are left to the bridge.
 struct Pool;
 
@@ -2084,6 +2398,11 @@ impl Tools {
         let pool = Arc::new(Pool);
         let mut set: Vec<Arc<dyn Tool>> =
             DIRECT_TOOLS.iter().chain(&[DEFERRED_TOOL]).map(|name| Arc::new(Echo { spec: spec(name), ran: ran.clone() }) as Arc<dyn Tool>).collect();
+        set.push(Arc::new(Look {
+            spec: ToolSpec { annotations: ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() }, ..spec(LOOK) },
+            ran: ran.clone(),
+            meet: Arc::new(tokio::sync::Barrier::new(2)),
+        }));
         set.push(Arc::new(LoadTool::new(pool.clone())));
         set.push(Arc::new(CallTool::new(pool.clone(), pool)));
         Arc::new(Self { ran, seen: Seen::default(), set, processes })
@@ -2169,9 +2488,12 @@ fn handing(settings: &[(&str, &str)]) -> (World, Arc<Tools>) {
 async fn the_agent_is_handed_the_sessions_tools_and_its_call_runs_in_the_session_as_that_tools_call() {
     let (world, tools) = handing(&[]);
     let end = within("the listing", world.prompt(&thread(), &Surface::default(), "tools", None, CancellationToken::new())).await;
-    // The agent's listing is what the session's side lists, in its order, and no tool of the catalog besides.
+    // The agent's listing is what the session's side lists, in its order, and no tool of the catalog besides: only the
+    // server's own tool that makes several of their calls at once follows them.
     let sent: Vec<String> = tools.definitions(&thread()).await.expect("the session's tools").into_iter().map(|tool| tool.name).collect();
-    assert_eq!(completed_text(&end), format!("tools={}", sent.join(",")));
+    assert_eq!(completed_text(&end), format!("tools={},{BATCH_TOOL}", sent.join(",")));
+    // Nothing the agent has its own tool for is withheld: the agent reads Office files, lists and searches through Mixdog's.
+    assert!(sent.iter().any(|name| name == "read"), "{sent:?}");
     assert!(!sent.iter().any(|name| name == DEFERRED_TOOL) && sent.ends_with(&["load_tool".to_owned(), "call_tool".to_owned()]), "{sent:?}");
 
     let surface = Surface::default();
@@ -2190,7 +2512,7 @@ async fn the_agent_is_handed_the_sessions_tools_and_its_call_runs_in_the_session
 
     // The agent's system prompt ends with the word to prefer the session's tools.
     let end = within("the turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
-    assert!(completed_text(&end).contains(&format!("append=RULES\n\n{}", mixdog_acp::mcp::PREFERENCE)), "{end:?}");
+    assert!(completed_text(&end).contains(&format!("append=RULES\n\n{}", mixdog_acp::mcp::preference())), "{end:?}");
 }
 
 #[tokio::test]
@@ -2201,7 +2523,7 @@ async fn the_agents_prompt_is_appended_the_bridge_sessions_system_text_with_its_
     let session = world.agents.session(&thread(), &world.preset, world.cwd(), None, Some(rules.to_owned())).await.expect("the agent starts");
     let whoami = Ask::Prompt(vec![json!({ "type": "text", "text": "whoami" })]);
     let told = within("the turn", mixdog_acp::turn::run(&session, Arc::new(Surface::default()), whoami, world.context(CancellationToken::new()))).await;
-    assert!(completed_text(&told).contains(&format!("append={rules}\n\n{} model=", mixdog_acp::mcp::PREFERENCE)), "{told:?}");
+    assert!(completed_text(&told).contains(&format!("append={rules}\n\n{} model=", mixdog_acp::mcp::preference())), "{told:?}");
 }
 
 #[tokio::test]
@@ -2320,6 +2642,137 @@ async fn a_handed_tools_approval_is_asked_on_the_sessions_card_and_a_refusal_rea
     // The refused call has its card and its result as the approved one has.
     assert_eq!(cards(&surface), ["shell", "shell"]);
     assert_eq!(rows.iter().filter(|row| row["role"] == "tool").count(), 2, "{rows:?}");
+}
+
+/// A prompt that has the fake agent make `calls` in one call of the batch tool.
+fn batch(calls: Value) -> String {
+    format!("tool {BATCH_TOOL} {}", json!({ "calls": calls }))
+}
+
+/// The calls a batch carries that change nothing run at the same time: two calls of a tool that each wait for another
+/// to have started both end. They are one step's calls, made in one assistant row and each given its result row, and
+/// the agent reads every result in the order given, each headed by its position and its tool.
+#[tokio::test]
+async fn a_batchs_calls_that_change_nothing_run_at_the_same_time() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    let end = tools.prompt(&world, &surface, &batch(json!([{ "tool": LOOK, "arguments": { "at": "a" } }, { "tool": LOOK, "arguments": { "at": "b" } }]))).await;
+    let told = "result:[1/2] look\nlook met another with {\"at\":\"a\"}\n[2/2] look\nlook met another with {\"at\":\"b\"}";
+    assert_eq!(end, TurnEnd::Completed { text: told.to_owned(), stop_reason: Some("end_turn".into()), tool_calls: 2 });
+    let rows = surface.rows();
+    assert_eq!(rows.iter().map(|row| row["role"].as_str().unwrap_or_default()).collect::<Vec<_>>(), ["assistant", "tool", "tool", "assistant"], "{rows:?}");
+    let calls = rows[0]["toolCalls"].as_array().expect("the step's calls");
+    let made: Vec<(&Value, &Value)> = calls.iter().map(|call| (&call["name"], &call["arguments"])).collect();
+    assert_eq!(made, [(&json!(LOOK), &json!({ "at": "a" })), (&json!(LOOK), &json!({ "at": "b" }))]);
+    assert_eq!((&rows[1]["toolCallId"], &rows[2]["toolCallId"]), (&calls[0]["id"], &calls[1]["id"]));
+    // Each was judged and reported as a direct call of the tool is.
+    let mut seen = tools.seen.lock().unwrap().clone();
+    seen.sort();
+    assert_eq!(seen, ["judge look", "judge look", "report look", "report look"]);
+}
+
+/// The calls a batch carries that change something run alone, in the order given: each is judged once every call before
+/// it has been reported, and the calls after it once it has been. The calls between two of them that change nothing run
+/// together.
+#[tokio::test]
+async fn a_batchs_calls_that_change_something_run_alone_in_the_order_given() {
+    let (world, tools) = handing(&[]);
+    let calls = json!([
+        { "tool": "edit", "arguments": { "n": 1 } },
+        { "tool": LOOK, "arguments": { "at": "a" } },
+        { "tool": LOOK, "arguments": { "at": "b" } },
+        { "tool": "todo", "arguments": { "n": 2 } },
+        { "tool": "edit", "arguments": { "n": 3 } },
+    ]);
+    let end = tools.prompt(&world, &Surface::default(), &batch(calls)).await;
+    let told = completed_text(&end);
+    assert!(told.starts_with("result:[1/5] edit\nedited\n[2/5] look\n") && told.ends_with("[4/5] todo\ntodo ran with {\"n\":2}\n[5/5] edit\nedited"), "{told}");
+    let ran: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, arguments)| format!("{name} {arguments}")).collect();
+    assert_eq!((ran[0].as_str(), &ran[3..]), ("edit {\"n\":1}", &["todo {\"n\":2}".to_owned(), "edit {\"n\":3}".to_owned()][..]));
+    let seen = tools.seen.lock().unwrap().clone();
+    assert_eq!(seen[..2], ["judge edit", "report edit"]);
+    let mut looks = seen[2..6].to_vec();
+    looks.sort();
+    assert_eq!(looks, ["judge look", "judge look", "report look", "report look"]);
+    assert_eq!(seen[6..], ["judge todo", "report todo", "judge edit", "report edit"]);
+}
+
+/// Each call a batch carries meets the session's permissions as a direct call of its tool does: the gate judges it, what
+/// the gate asks about is asked on the session's card for that call, and what is refused never runs.
+#[tokio::test]
+async fn each_call_a_batch_carries_meets_the_sessions_permissions_as_a_direct_call_does() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    // The first command is approved; the second finds nobody to approve it.
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let calls = json!([
+        { "tool": "shell", "arguments": { "command": "ls" } },
+        { "tool": "read", "arguments": { "file_path": "secret.txt" } },
+        { "tool": "shell", "arguments": { "command": "pwd" } },
+    ]);
+    let end = tools.prompt(&world, &surface, &batch(calls)).await;
+    let told = completed_text(&end);
+    assert!(told.starts_with("result:[1/3] shell\nshell ran with {\"command\":\"ls\"}\n[2/3] read (failed)\n"), "{told}");
+    assert!(told.contains("denied by hook") && told.contains("[3/3] shell (failed)\n"), "{told}");
+    assert_eq!(*tools.seen.lock().unwrap(), ["judge shell", "report shell", "judge read", "judge shell"]);
+    assert_eq!(*tools.ran.lock().unwrap(), [(thread(), "shell".to_owned(), json!({ "command": "ls" }))]);
+    // Both commands were asked about on the session's card, each for the card of its own call.
+    let rows = surface.rows();
+    let ids: Vec<Value> = rows[0]["toolCalls"].as_array().expect("the step's calls").iter().map(|call| call["id"].clone()).collect();
+    let asks = surface.0.asks.lock().unwrap().clone();
+    let asked: Vec<(Option<&str>, Option<Value>)> = asks.iter().map(|ask| (ask.tool.as_deref(), ask.call_id.as_ref().map(|id| json!(id.as_str())))).collect();
+    assert_eq!(asked, [(Some("shell"), Some(ids[0].clone())), (Some("shell"), Some(ids[2].clone()))]);
+    // The refused calls have their results as the one that ran has.
+    assert_eq!(rows.iter().filter(|row| row["role"] == "tool").count(), 3, "{rows:?}");
+}
+
+/// A refused or failed item of a batch does not stop the others: every item is answered in the order given, one that
+/// makes no call of the session's tools (it names no tool of the surface, or the batch tool itself, or its arguments are
+/// no object) is answered without a card, and the batch is an error only where nothing succeeded. An item may name a
+/// tool as the agent's own tool list names it.
+#[tokio::test]
+async fn a_refused_or_failed_item_of_a_batch_leaves_the_others_their_results() {
+    let (world, tools) = handing(&[]);
+    let surface = Surface::default();
+    let calls = json!([
+        { "tool": "read", "arguments": { "file_path": "secret.txt" } },
+        { "tool": "nowhere", "arguments": {} },
+        { "tool": BATCH_TOOL, "arguments": { "calls": [] } },
+        { "tool": "call_tool", "arguments": { "name": "nowhere", "arguments": {} } },
+        { "tool": "mcp_mixdog_read", "arguments": { "file_path": "a.txt" } },
+        { "tool": "edit", "arguments": "a.txt" },
+    ]);
+    let end = tools.prompt(&world, &surface, &batch(calls)).await;
+    let told = completed_text(&end);
+    let heads = ["read (failed)", "nowhere (failed)", "batch (failed)", "call_tool (failed)", "read", "edit (failed)"];
+    for (index, head) in heads.iter().enumerate() {
+        assert!(told.contains(&format!("[{}/6] {head}\n", index + 1)), "{told}");
+    }
+    assert!(told.starts_with("result:") && told.contains("[2/6] nowhere (failed)\nnowhere is not a tool of this session.\n"), "{told}");
+    assert!(told.contains("[5/6] read\nread ran with {\"file_path\":\"a.txt\"}\n"), "{told}");
+    assert_eq!(*tools.ran.lock().unwrap(), [(thread(), "read".to_owned(), json!({ "file_path": "a.txt" }))]);
+    // The calls that met the session's pipeline have their cards in the step's one row and their results.
+    assert_eq!(cards(&surface), ["read", "call_tool", "read"]);
+    let rows = surface.rows();
+    assert_eq!(rows.iter().filter(|row| row["role"] == "tool").count(), 3, "{rows:?}");
+
+    let end = tools.prompt(&world, &Surface::default(), &batch(json!([{ "tool": "nowhere", "arguments": {} }]))).await;
+    assert_eq!(completed_text(&end), "error:[1/1] nowhere (failed)\nnowhere is not a tool of this session.");
+}
+
+#[tokio::test]
+async fn a_session_handed_the_tools_has_the_agent_definition_without_the_clis_own_tools_written_for_its_start() {
+    let (world, _tools) = handing(&[]);
+    let end = within("the definition", world.prompt(&thread(), &Surface::default(), "definition", None, CancellationToken::new())).await;
+    let text = completed_text(&end).strip_prefix("definition=").expect("the definition").to_owned();
+    assert!(text.contains("\ntools: []\n"), "{text}");
+    // Every tool the session's server lists is declared to the model with its schema.
+    let end = within("the tools", world.prompt(&thread(), &Surface::default(), "tools", None, CancellationToken::new())).await;
+    let names = completed_text(&end).strip_prefix("tools=").expect("the tools").to_owned();
+    assert!(names.contains("read") && names.ends_with(BATCH_TOOL), "{names}");
+    for name in names.split(',') {
+        assert!(text.contains(&format!("      \"{name}\":\n        eager: true\n")), "{name} in {text}");
+    }
 }
 
 #[tokio::test]
@@ -2457,6 +2910,86 @@ async fn a_failed_update_keeps_the_working_cli_and_is_reported_once() {
     assert_eq!(world.logged("update"), 1, "a failed update is not tried again by the check that ran it");
     let end = within("the turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
     assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+}
+
+/// What may change the account an agent's quota was read of (a sign-in begun, a sign-in settled, a sign-out, the
+/// feature turned off) reaches the callback bound for it, with the agent's id; only the settled sign-in asks for the
+/// next reading to be taken at once.
+#[tokio::test]
+async fn each_change_of_an_agents_account_reaches_the_bound_callback() {
+    let world = World::new(&[]);
+    assert_eq!(world.checked().await["state"], "ready");
+    let told: Arc<Mutex<Vec<(String, AccountEvent)>>> = Arc::default();
+    world.agents.bind_account_change({
+        let told = told.clone();
+        Arc::new(move |id: &str, event: AccountEvent| told.lock().unwrap().push((id.to_owned(), event)))
+    });
+    let id = world.preset.id.clone();
+    let seen = || told.lock().unwrap().clone();
+
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    assert_eq!(seen(), [(id.clone(), AccountEvent::Left)], "a sign-in begun");
+    login.cancel();
+
+    // The look the settle makes finds the CLI ready (askable), then the sign-in is told.
+    assert_eq!(within("the sign-in's settle", (world.agents.settle_login(&world.preset))(true)).await, Ok(true));
+    assert_eq!(seen()[1..], [(id.clone(), AccountEvent::Askable), (id.clone(), AccountEvent::SignedIn)], "a sign-in settled");
+
+    assert_eq!(within("the sign-out", world.agents.sign_out(&world.preset)).await, Ok(()));
+    let after_sign_out = seen();
+    assert!(after_sign_out.len() > 3 && after_sign_out[3..].iter().all(|told| told == &(id.clone(), AccountEvent::Left)), "a sign-out: {after_sign_out:?}");
+
+    let before_off = after_sign_out.len();
+    world.enabled.store(false, Ordering::SeqCst);
+    world.agents.status();
+    assert_eq!(seen()[before_off..], [(id, AccountEvent::Left)], "the feature turned off");
+}
+
+/// A turn that finds the CLI signed out, which the user did outside the app, is the account leaving: the bound callback
+/// is told it as a sign-out is, and the agent has no quota to report from then on.
+#[tokio::test]
+async fn a_turn_whose_open_finds_the_cli_signed_out_tells_the_bound_callback_the_account_left() {
+    let world = World::new(&[]);
+    assert_eq!(world.checked().await["state"], "ready");
+    let told: Arc<Mutex<Vec<AccountEvent>>> = Arc::default();
+    world.agents.bind_account_change({
+        let told = told.clone();
+        Arc::new(move |_: &str, event: AccountEvent| told.lock().unwrap().push(event))
+    });
+    assert!(world.agents.reports_usage(&world.preset));
+
+    #[allow(clippy::disallowed_methods, reason = "a test signs the fake agent out as the user would outside the app")]
+    std::fs::write(world.dir.path().join("signed-out"), "signed out").expect("the fake's sign-out");
+    let end = world.ask(&Surface::default(), "hello", Turns::default()).await;
+    assert!(matches!(end, TurnEnd::Failed { code: Some(-32000), .. }), "{end:?}");
+
+    assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
+    let told = told.lock().unwrap().clone();
+    assert!(!told.is_empty() && told.iter().all(|event| *event == AccountEvent::Left), "{told:?}");
+    assert!(!world.agents.reports_usage(&world.preset));
+}
+
+/// A check that finds the CLI ready tells the core its quota can be asked now; one that finds it signed out tells
+/// it the account is gone. A check that ends with nothing says nothing.
+#[tokio::test]
+async fn a_check_that_finds_the_cli_ready_or_signed_out_is_told_to_the_bound_callback() {
+    let world = World::new(&[]);
+    let told: Arc<Mutex<Vec<AccountEvent>>> = Arc::default();
+    world.agents.bind_account_change({
+        let told = told.clone();
+        Arc::new(move |_: &str, event: AccountEvent| told.lock().unwrap().push(event))
+    });
+    assert_eq!(world.checked().await["state"], "ready");
+    assert_eq!(*told.lock().unwrap(), [AccountEvent::Askable]);
+
+    let signed_out = World::new(&[("FAKE_AGENT_SIGNED_OUT", "1")]);
+    let told: Arc<Mutex<Vec<AccountEvent>>> = Arc::default();
+    signed_out.agents.bind_account_change({
+        let told = told.clone();
+        Arc::new(move |_: &str, event: AccountEvent| told.lock().unwrap().push(event))
+    });
+    assert_eq!(signed_out.checked().await["state"], "signedOut");
+    assert_eq!(*told.lock().unwrap(), [AccountEvent::Left]);
 }
 
 async fn login_state(login: &dyn LoginSession, reached: impl Fn(&LoginState) -> bool) -> LoginState {

@@ -98,7 +98,13 @@ export function adoptHeldText(row: Obj, held: Obj): void {
     const prior = held[key];
     if (typeof told === 'string') {
       if (typeof prior === 'string' && told.length === prior.length && told === prior) row[key] = prior;
-    } else if (told && prior && typeof told === 'object' && typeof prior === 'object' && Array.isArray(told) === Array.isArray(prior)) {
+    } else if (
+      told &&
+      prior &&
+      typeof told === 'object' &&
+      typeof prior === 'object' &&
+      Array.isArray(told) === Array.isArray(prior)
+    ) {
       adoptHeldText(told as Obj, prior as Obj);
     }
   }
@@ -129,7 +135,10 @@ export function unitOf(value: unknown, own: RowOwner): { position: string; unit:
       rows.push(row);
     }
   }
-  return { position: u.position, unit: { rows, items, ...(typeof u.ordinal === 'number' ? { ordinal: u.ordinal } : {}) } };
+  return {
+    position: u.position,
+    unit: { rows, items, ...(typeof u.ordinal === 'number' ? { ordinal: u.ordinal } : {}) },
+  };
 }
 
 /** The records no range holds any more are let go. */
@@ -217,11 +226,7 @@ export function shownAt(window: HeldWindow, id: unknown): string | undefined {
   return undefined;
 }
 /** `next` was made from `prior` by telling the record at `position`: the line's index goes on to it. */
-function carryShown(
-  prior: ReadonlyMap<string, HeldUnit>,
-  next: ReadonlyMap<string, HeldUnit>,
-  position: string
-): void {
+function carryShown(prior: ReadonlyMap<string, HeldUnit>, next: ReadonlyMap<string, HeldUnit>, position: string): void {
   const shown = shownOf.get(prior);
   if (!shown || shown.owner !== prior) return;
   const unit = next.get(position);
@@ -413,7 +418,10 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
     if (known && grew === 0) runsOf.set(window, known);
     else if (known) {
       if (work) work.copied += known.length;
-      runsOf.set(window, known.map((run) => (run.positions.includes(position) ? { ...run, rows: run.rows + grew } : run)));
+      runsOf.set(
+        window,
+        known.map((run) => (run.positions.includes(position) ? { ...run, rows: run.rows + grew } : run))
+      );
     }
     if (grew !== 0) for (const range of held.ranges) if (range.positions.includes(position)) rowsOfRange.delete(range);
     return { window, position, items: unit.items, rows: unit.rows };
@@ -447,7 +455,12 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
       const before = tail.positions[place - 1];
       // The core names the stored record shown before it. The tail holding another there has a hole between them; so
       // has a tail the record lands before all of: what lies between it and the tail's first record is not known.
-      if (typeof c.after === 'string' && before !== undefined && before !== c.after && !tail.positions.includes(c.after))
+      if (
+        typeof c.after === 'string' &&
+        before !== undefined &&
+        before !== c.after &&
+        !tail.positions.includes(c.after)
+      )
         gap = before;
       else if (before === undefined && tail.positions.length > 0) gap = position;
       const positions =
@@ -455,10 +468,10 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
           ? [...tail.positions, position]
           : [...tail.positions.slice(0, place), position, ...tail.positions.slice(place)];
       if (work) work.copied += positions.length;
-      const joined_ = { ...tail, newer: null, positions };
+      const longer = { ...tail, newer: null, positions };
       const counted = rowsOfRange.get(tail);
-      if (counted !== undefined) rowsOfRange.set(joined_, counted + unit.rows.length);
-      ranges[at] = joined_;
+      if (counted !== undefined) rowsOfRange.set(longer, counted + unit.rows.length);
+      ranges[at] = longer;
       appended = place === positions.length - 1;
     }
   }
@@ -501,7 +514,12 @@ function carryRuns(prior: HeldWindow, next: HeldWindow, position: string, unit: 
   const known = runsOf.get(prior);
   const tail = known?.find((run) => run.tail);
   if (!known || !tail) return;
-  const longer: WindowRun = { ...tail, positions: [...tail.positions, position], newer: null, rows: tail.rows + unit.rows.length };
+  const longer: WindowRun = {
+    ...tail,
+    positions: [...tail.positions, position],
+    newer: null,
+    rows: tail.rows + unit.rows.length,
+  };
   if (work) work.copied += longer.positions.length;
   // The run's layout goes on to the longer run, once: a second run made from the same one lays itself out.
   const layout = layoutOf.get(tail);
@@ -582,7 +600,11 @@ export function runRows(window: HeldWindow, run: WindowRun | undefined): Obj[] {
 }
 
 /** The unit that shows `id` (a row's id, or a core item's). */
-export function unitShowing(window: HeldWindow, id: string, itemOf: (row: Obj) => string | undefined): string | undefined {
+export function unitShowing(
+  window: HeldWindow,
+  id: string,
+  itemOf: (row: Obj) => string | undefined
+): string | undefined {
   for (const [position, unit] of window.units) {
     if (unit.items.includes(id) || unit.rows.some((row) => row.id === id || itemOf(row) === id)) return position;
   }

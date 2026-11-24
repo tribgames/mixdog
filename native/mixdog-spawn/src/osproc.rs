@@ -49,7 +49,7 @@ impl Signals for OsSignals {
         Self::send(pid as libc::pid_t, signal)
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn kill_identified(&self, target: &Identity) -> bool {
         sys::kill_identified(target)
     }
@@ -70,6 +70,13 @@ fn row_of(pid: u32) -> io::Result<Row> {
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(Row::Unreadable),
         Err(error) => Err(error),
     }
+}
+
+/// SIGKILL to `target` where no process handle can carry the signal: sent only once its row, read right before, shows
+/// the process that was seen, as a cancel's kill is revalidated.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn kill_checked(target: &Identity) -> bool {
+    matches!(row_of(target.pid), Ok(Row::Readable(proc)) if proc.token == target.token) && unsafe { libc::kill(target.pid as libc::pid_t, libc::SIGKILL) } == 0
 }
 
 impl OsReader {
@@ -129,17 +136,13 @@ mod sys {
     }
 
     pub(super) fn table() -> io::Result<Table> {
-        let mut procs = Vec::new();
+        let mut pids = Vec::new();
         for entry in std::fs::read_dir("/proc")? {
-            let entry = entry?;
-            let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse::<u32>().ok()) else {
-                continue;
-            };
-            if let Some(proc) = proc_of(pid)? {
-                procs.push(proc);
+            if let Some(pid) = entry?.file_name().to_str().and_then(|name| name.parse::<u32>().ok()) {
+                pids.push(pid);
             }
         }
-        Ok(Table::with_unreadable(procs, Vec::new()))
+        Table::scan(pids, super::row_of)
     }
 
     fn pidfd_open(pid: u32) -> Result<OwnedFd, i32> {
@@ -151,6 +154,9 @@ mod sys {
     }
 
     pub(super) fn kill_identified(target: &Identity) -> bool {
+        if !pidfd_supported() {
+            return super::kill_checked(target);
+        }
         let Ok(fd) = pidfd_open(target.pid) else {
             return false;
         };
@@ -262,6 +268,11 @@ mod sys {
         false
     }
 
+    /// There is no process handle a signal can be sent through.
+    pub(super) fn kill_identified(target: &Identity) -> bool {
+        super::kill_checked(target)
+    }
+
     /// One `proc_pidinfo` flavor of `pid` into `T`, a plain C struct of that flavor's size; `None` once there is no such process.
     fn pid_info<T: Copy>(pid: u32, flavor: libc::c_int) -> io::Result<Option<T>> {
         // SAFETY: `T` is a C struct of integers, for which all-zero bytes are a valid value.
@@ -324,17 +335,7 @@ mod sys {
             return Err(io::Error::other("process listing reached its capacity"));
         }
         pids.truncate(got as usize);
-        let mut procs = Vec::new();
-        let mut unreadable = Vec::new();
-        for pid in pids.into_iter().filter(|&pid| pid > 0) {
-            match proc_of(pid as u32) {
-                Ok(Some(proc)) => procs.push(proc),
-                Ok(None) => {}
-                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => unreadable.push(pid as u32),
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(Table::with_unreadable(procs, unreadable))
+        Table::scan(pids.into_iter().filter(|&pid| pid > 0).map(|pid| pid as u32), super::row_of)
     }
 }
 

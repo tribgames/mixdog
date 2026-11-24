@@ -38,7 +38,8 @@ export function scopeClient<C extends object>(client: C, claim: FrameClaim, onCh
         while (rest.length <= at) rest.push(undefined);
         rest[at] = {
           ...(rest[at] as object | undefined),
-          ...(key === 'putBlob' && onChunkAccepted ? { onChunkAccepted } : { sent: claim }),
+          sent: claim,
+          ...(key === 'putBlob' && onChunkAccepted ? { onChunkAccepted } : {}),
         };
         return (value as (...a: unknown[]) => unknown).apply(target, rest);
       };

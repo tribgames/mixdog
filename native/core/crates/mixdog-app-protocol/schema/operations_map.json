@@ -3163,8 +3163,8 @@
       "list": "remote",
       "name": "saveWorkspace",
       "target": {
-        "kind": "method",
-        "target": "projectFs/workspaceFile/write"
+        "kind": "byDesign",
+        "target": "a workspace file is written on the desktop only; a paired device has no workspace picker"
       }
     },
     {

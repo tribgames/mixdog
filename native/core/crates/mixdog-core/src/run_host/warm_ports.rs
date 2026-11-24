@@ -542,7 +542,7 @@ mod tests {
         fn keep_book(&self, _: &str) {}
     }
 
-    fn saved(parameters: Value, effort: Option<&str>, fast: bool, tail: Arc<dyn WarmStore>) -> SavedWarm {
+    fn saved(parameters: Value, effort: Option<&str>, fast: bool, store: Arc<dyn WarmStore>) -> SavedWarm {
         let options = RequestOptions { model_parameters: Some(parameters), effort: effort.map(str::to_owned), fast, ..RequestOptions::default() };
         let request = Arc::new(ModelRequest {
             model: "claude-opus-4-7".to_owned(),
@@ -554,7 +554,7 @@ mod tests {
             session_id: "s1".to_owned(),
             facts: Facts::of(&request, "anthropic-oauth".to_owned(), 5, Some("lead".to_owned())),
             provider_generation: Some(1),
-            store: tail,
+            store,
             has_warm_mode: true,
             effort_levels_empty: false,
             source: Source::Sent(request),

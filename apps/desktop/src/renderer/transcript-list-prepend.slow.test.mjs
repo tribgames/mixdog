@@ -703,7 +703,9 @@ for (const [where, readerTop, sizesFirst] of [
       // Scrolling stops: the hold is landed once in all, no row offset left behind.
       touching = false;
       for (let pass = 0; pass < 6; pass += 1) {
-        await act(async () => mount.viewport.dispatchEvent(new (mount.viewport.ownerDocument.defaultView.Event)('scroll')));
+        await act(async () =>
+          mount.viewport.dispatchEvent(new mount.viewport.ownerDocument.defaultView.Event('scroll'))
+        );
         if (sizesFirst) await mount.measure();
         await frame();
         if (!sizesFirst) await mount.measure();

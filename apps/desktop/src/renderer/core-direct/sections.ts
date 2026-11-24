@@ -41,18 +41,6 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
     },
   };
   connection.attach(window);
-  // Whether the connection has been open: the window is composed before its first open, whose app snapshot reaches the window as
-  // section changes, so only a ready after that one is a leg that came back. Set after the first open's own status push.
-  let opened = connection.client() !== null;
-  void connection.whenSynced().then(
-    () => {
-      opened = true;
-    },
-    () => undefined
-  );
-  connection.onReplaced(() => {
-    opened = true;
-  });
 
   // The whole store at once, then the status: a store refolded from another core (a restarted one numbers its revisions
   // again and drops what it no longer holds) is taken whole, never through the revision guard of single changes.
@@ -92,21 +80,12 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
       dirty.clear();
       replaceWhole(listener);
     };
-    // A leg of the same client came back: the app snapshot it folds may be another core's, so the window takes the whole
-    // store once that snapshot is announced (what the main relay's `reconnected` did).
-    let awaitingAppSnapshot = false;
+    // Every app snapshot the client folds swaps its store whole: the first open's, a reopened client's, and a leg's that came
+    // back (it may be another core's). The window takes the whole store, with the core's epoch, once that snapshot is
+    // announced; a reopen hands over nothing itself, as its client holds no snapshot before it folds one.
     const offStore = connection.onStoreChange((change) => {
       if (change.type === 'appSnapshot') {
-        if (awaitingAppSnapshot) {
-          awaitingAppSnapshot = false;
-          replaceAll();
-        }
-        return;
-      }
-      // The core refused to restore the app subscription: the store keeps the previous app state, no snapshot is coming.
-      const sub = change as { type: string; feedId?: string; state?: string };
-      if (sub.type === 'subscription' && sub.feedId === 'app' && sub.state === 'lost') {
-        awaitingAppSnapshot = false;
+        replaceAll();
         return;
       }
       if (change.type !== 'section' || change.section === undefined) return;
@@ -119,21 +98,14 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
     });
     // What the window shows of the connection is the connection's own state, published at every change (the ladder, a reopen,
     // an open that failed): nothing here keeps a second account of it.
-    let shown = connection.status;
     const offState = connection.onState(() => {
       if (!pushListeners.has(listener)) return;
-      const next = connection.status;
-      if (next === 'ready' && shown !== 'ready' && opened) awaitingAppSnapshot = true;
-      shown = next;
-      listener({ kind: 'status', status: next, link: connection.link() });
+      listener({ kind: 'status', status: connection.status, link: connection.link() });
     });
-    // A replaced connection holds another client's store, already folded when it is announced.
-    const offReplaced = connection.onReplaced(() => replaceAll());
     return () => {
       pushListeners.delete(listener);
       offStore();
       offState();
-      offReplaced();
     };
   };
 

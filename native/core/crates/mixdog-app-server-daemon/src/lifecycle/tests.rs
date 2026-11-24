@@ -406,8 +406,10 @@ fn a_completed_stop_distinguishes_the_managed_drain_outcomes() {
     }
 }
 
+/// The release's backstop is due only once every step could have used its whole budget; when it fires (here with the stop steps blocked),
+/// the exit is on disk before the process ends, with the published managed-drain survivor and the fatal exit code kept.
 #[test]
-fn the_backstop_preserves_a_published_survivor_and_any_fatal_exit_code_while_flush_is_blocked() {
+fn the_backstop_is_due_after_every_step_budget_and_records_the_exit_before_it_ends_the_process() {
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -415,31 +417,46 @@ fn the_backstop_preserves_a_published_survivor_and_any_fatal_exit_code_while_flu
     use super::testing::Recorder;
     use mixdog_spawn::ShutdownOutcome;
 
+    /// The exit code, and the exit record on disk when the exit was called.
     struct ExitProbe {
         recorder: Arc<Recorder>,
-        codes: mpsc::Sender<i32>,
+        root: std::path::PathBuf,
+        codes: mpsc::Sender<(i32, Option<serde_json::Value>)>,
     }
 
     impl Exiter for ExitProbe {
         fn exit(&self, code: i32) {
+            let record = std::fs::read(self.root.join(LAST_EXIT_FILE)).ok().map(|bytes| serde_json::from_slice(&bytes).unwrap());
             self.recorder.exit(code);
-            let _ = self.codes.send(code);
+            let _ = self.codes.send((code, record));
         }
     }
 
     const WAIT: Duration = Duration::from_secs(10);
+    let budgets = ReleaseBudgets::default();
+    // Each step may take its whole budget: the release waits on every one of them at least once.
+    let every_step = budgets.final_barriers
+        + budgets.close_data_handles
+        + budgets.record_exit
+        + budgets.withdraw_discovery
+        + budgets.close_connections
+        + budgets.close_ext_host;
     for (fatal_boot, code, reason) in [(false, 1, "userStop (managed process drain failed)"), (true, 2, "fatalBoot (managed process drain failed)")] {
         let recorder = Arc::new(Recorder::default());
         let root = tempfile::tempdir().unwrap();
         let (codes, exits) = mpsc::channel();
         let lifecycle = Lifecycle::with_budgets(
             LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
-            Ports { core: recorder.clone(), discovery: recorder.clone(), exiter: Arc::new(ExitProbe { recorder: recorder.clone(), codes }) },
-            ReleaseBudgets::default(),
+            Ports {
+                core: recorder.clone(),
+                discovery: recorder.clone(),
+                exiter: Arc::new(ExitProbe { recorder: recorder.clone(), root: root.path().to_owned(), codes }),
+            },
+            budgets,
         );
         let (expire_now, expire) = mpsc::channel();
-        let (recorded, record_written) = mpsc::channel();
-        *lifecycle.test_backstop.lock().unwrap() = Some(TestBackstop { expire, recorded });
+        let (armed, deadline) = mpsc::channel();
+        *lifecycle.test_backstop.lock().unwrap() = Some(TestBackstop { armed, expire });
         let (entered, flush_entered) = mpsc::channel();
         let (unblock, blocked_flush) = mpsc::channel::<()>();
         recorder.managed_drain.set(ShutdownOutcome::ConfirmedFailure).unwrap();
@@ -456,17 +473,19 @@ fn the_backstop_preserves_a_published_survivor_and_any_fatal_exit_code_while_flu
         }
         flush_entered.recv_timeout(WAIT).expect("flush started after the manager result was published");
         assert_eq!(release_events(&recorder.events()), ["final_barriers", "close_data_handles"]);
+        let armed = deadline.recv_timeout(WAIT).expect("the release armed its backstop");
+        assert!(armed >= every_step, "the backstop ({armed:?}) is due before every step had its budget ({every_step:?})");
         expire_now.send(()).unwrap();
-        assert_eq!(exits.recv_timeout(WAIT).expect("backstop exited with the flush still blocked"), code);
-        record_written.recv_timeout(WAIT).expect("backstop exit record was written");
-        let exit = last_exit(root.path());
+        let (exited, record) = exits.recv_timeout(WAIT).expect("backstop exited with the flush still blocked");
+        assert_eq!(exited, code);
+        let exit = record.expect("the exit was recorded before the process ended");
         assert_eq!(exit["reason"], reason);
         assert_eq!(exit["stuckStep"], "shutdownBudget");
         assert_eq!(release_events(&recorder.events()), ["final_barriers", "close_data_handles", "exit"]);
 
         // The recorder stands in for process exit. Let the abandoned release finish so no thread is left blocked.
         unblock.send(()).unwrap();
-        assert_eq!(exits.recv_timeout(WAIT).expect("release finished after unblocking the flush"), code);
+        assert_eq!(exits.recv_timeout(WAIT).expect("release finished after unblocking the flush").0, code);
         let events = recorder.events();
         let mut ordered = release_events(&events);
         assert_eq!(ordered.remove(2), "exit", "the backstop exited before teardown resumed");

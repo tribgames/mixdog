@@ -148,7 +148,7 @@ async fn joined_evidence(ctx: &ToolContext, requested: &str) -> Option<Vec<Strin
     let parts: Vec<String> =
         mixdog_js::js_trim(requested).split(|c: char| c == ',' || c == ';' || mixdog_js::is_js_space(c)).filter(|s| !s.is_empty()).map(str::to_owned).collect();
     for part in &parts {
-        let Ok(abs) = super::common::resolve_path(&ctx.cwd, part) else { continue };
+        let Ok(Ok(abs)) = super::read::guarded_target(ctx, part).await else { continue };
         if ctx.files.stat(ctx.io.interactive, abs).await.is_ok() {
             return Some(parts);
         }
@@ -186,6 +186,9 @@ fn finalize_tail(hint: String, joined: Option<Vec<String>>, tool: PathTool) -> S
 
 /// A directory's entries in the order Node lists them; `None` when it cannot be read.
 async fn listing(ctx: &ToolContext, dir: &AbsPath) -> Option<Vec<(String, EntryKind, AbsPath)>> {
+    if !super::common::followable(ctx, dir).await {
+        return None;
+    }
     let entries = ctx.files.list_dir(ctx.io.interactive, dir.clone()).await.ok()?;
     let mut named: Vec<(String, EntryKind, AbsPath)> =
         entries.into_iter().filter_map(|e| Some((e.path.as_path().file_name()?.to_string_lossy().into_owned(), e.kind, e.path))).collect();
@@ -199,7 +202,7 @@ async fn siblings(ctx: &ToolContext, dir: &AbsPath, limit: usize) -> Vec<String>
 }
 
 async fn is_dir(ctx: &ToolContext, path: &AbsPath) -> bool {
-    ctx.files.stat(ctx.io.interactive, path.clone()).await.is_ok_and(|s| s.kind == EntryKind::Dir)
+    super::common::followable(ctx, path).await && ctx.files.stat(ctx.io.interactive, path.clone()).await.is_ok_and(|s| s.kind == EntryKind::Dir)
 }
 
 fn key(path: &AbsPath) -> String {

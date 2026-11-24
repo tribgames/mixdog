@@ -7,7 +7,11 @@ import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { type ProviderAccountPool, type ProviderAccountSource, ProviderAccountsList } from '../ProviderAccountsList';
 import { record } from '../record-utils';
-import { getUsageDashboardSnapshot, refreshUsageDashboard } from '../usage-dashboard-store';
+import {
+  getUsageDashboardSnapshot,
+  refreshUsageDashboard,
+  refreshUsageDashboardAfterAuth,
+} from '../usage-dashboard-store';
 import { SlotProgress } from './built-in-install-progress';
 import { ActionButton } from './capability-controls';
 import type { PanelContext, RecordValue } from './capability-data';
@@ -133,7 +137,9 @@ function faultLine(agent: AcpAgentStatus): string {
  *  nothing else of the roster changes. */
 function agentAccountSource(provider: string, plan: string): ProviderAccountSource {
   const read = async (): Promise<ProviderAccountPool> => {
-    const rows = record(getUsageDashboardSnapshot().dashboard).rows;
+    const { dashboard, refreshedAt } = getUsageDashboardSnapshot();
+    // Every row, not `usageRows`: the agent's own reading also when a provider's row lists it (`sameQuotaAs`).
+    const rows = record(dashboard).rows;
     const row = (Array.isArray(rows) ? rows.map(record) : []).find((entry) => entry.id === provider);
     const windows = (Array.isArray(row?.windows) ? row.windows.map(record) : []).map((window) => ({
       label: String(window.label || ''),
@@ -149,7 +155,9 @@ function agentAccountSource(provider: string, plan: string): ProviderAccountSour
           label: plan || t('Account 1'),
           authenticated: true,
           reauthRequired: false,
-          usage: windows.length ? { windows, checkedAt } : null,
+          // Once the dashboard has answered, an agent it shows no windows for has no reading (the core withdrew it
+          // on a sign-out or another sign-in); before that, the last one stays painted.
+          usage: windows.length || refreshedAt > 0 ? { windows, checkedAt } : null,
         },
       ],
       selectedId: `${provider}:default`,
@@ -195,8 +203,12 @@ function AcpAgentRow({
     statusError: t('Sign-in status could not be checked.'),
     // The core opens no browser for this sign-in: this window opens its page below.
     remote: false,
-    // A finished sign-in has the core look at the CLI again; the row follows its report.
-    refresh: async () => undefined,
+    // A finished sign-in has the core look at the CLI again; the row follows its report, and the account's usage is
+    // read again without holding the dialog for it.
+    refresh: async () => {
+      void refreshUsageDashboardAfterAuth(window.mixdogDesktop, [agent.provider]);
+      return undefined;
+    },
   });
   const { flow } = login;
   const flowId = String(flow?.flowId || '');

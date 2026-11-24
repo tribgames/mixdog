@@ -258,8 +258,7 @@ function assignConversationOwners(
   for (const entry of conversationLeaves) {
     if (entry.owner) continue;
     const paneOwner = previousOwners.find(
-      (owner) =>
-        owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key) && (inherits?.(owner.key) ?? true)
+      (owner) => owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key) && (inherits?.(owner.key) ?? true)
     );
     entry.owner = paneOwner?.key ?? nextOwnerKey();
     usedOwnerKeys.add(entry.owner);

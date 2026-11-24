@@ -2,6 +2,8 @@
 //! nextest runs every test in its own process, so a test still runs alone in its program. The suites that need the
 //! `test-support` feature were targets with `required-features`; they are its modules now.
 
+#[path = "../connection_permits.rs"]
+mod connection_permits;
 #[path = "../core_units.rs"]
 mod core_units;
 #[path = "../diagnostics.rs"]

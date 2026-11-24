@@ -165,23 +165,7 @@ impl Frames for Phone {
 /// The clock Node's recorder started at (`record-unpair-access.mjs` `CLOCK_START`, 2031-01-01).
 const DOWNLOAD_CLOCK_START: i64 = 1_924_992_000_000;
 
-fn wire_of(node: &Value) -> Value {
-    let mut frame = node.as_object().unwrap().clone();
-    match frame.shift_remove("ok").unwrap().as_bool().unwrap() {
-        true => {
-            let value = frame.shift_remove("value").unwrap();
-            frame.insert("result".to_owned(), value);
-        }
-        false => {
-            let text = frame.shift_remove("error").unwrap();
-            let body = json!({ "code": -32600, "message": "domainError", "data": { "reason": "domainError", "domain": "remote", "message": text } });
-            frame.insert("error".to_owned(), body);
-        }
-    }
-    Value::Object(frame)
-}
-
-/// The frame Node's phone received for the core's wire frame: the inverse of `wire_of`, with the error code Node's frame carries.
+/// The frame Node's phone received for the core's wire frame, with the error code Node's frame carries.
 fn node_of(wire: &Value) -> Value {
     let mut frame = wire.as_object().unwrap().clone();
     if let Some(result) = frame.shift_remove("result") {
@@ -831,8 +815,10 @@ async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once()
     h.runtime.close().await;
     assert_eq!(h.desktop.view_requests(), want, "the relay's close ended the stream");
 }
+/// An unpair the relay refuses closes the device's phone at once and refuses its next connection, and nothing is shown to it on any
+/// live-view path: not the host's signal on its way at the unpair, not what the closed phone still asks for.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
+async fn an_unpaired_device_is_closed_and_shown_nothing_on_any_live_view_path() {
     let request = json!({ "maxWidth": 1200, "maxHeight": 900 });
     let offer = json!({
         "v": 1, "source": { "kind": "browser", "sessionId": "sess_1" }, "connectionId": "connection-id-0001", "generation": 1, "type": "offer",
@@ -843,9 +829,7 @@ async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
     });
     let ready = json!({ "v": 1, "source": { "kind": "browser", "sessionId": "sess_1" }, "type": "ready", "receiveCodecs": ["video/VP8", "video/H264"] });
     let stream = |id: u64| json!({ "id": id, "method": "browser/stream", "params": { "sessionId": "sess_1", "on": true, "request": request } });
-    // The refusal of the new subscribe and of the `ready`, as the phone's calls carry them.
-    let refused_stream = json!({ "id": 4, "ok": false, "error": "Remote browser view is not allowed for this device." });
-    let refused_ready = |id: u64| wire_of(&json!({ "id": id, "ok": false, "error": "remote webrtc source is not streamed by this client." }));
+    let nothing = Vec::<(ConnectionId, String, Value)>::new();
 
     let h = Harness::start(false).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
@@ -855,35 +839,23 @@ async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
     let pending = h.core.live.host_signal(connection, &offer);
     assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
     assert_eq!(pending.await, Ok(()), "the host's send succeeds, as Node's resolves");
-    assert_eq!(*h.desktop.pushed.lock().unwrap(), Vec::<(ConnectionId, String, Value)>::new(), "nothing reached the unpaired phone");
+    assert_eq!(*h.desktop.pushed.lock().unwrap(), nothing, "nothing reached the unpaired phone");
+    let ended = h.desktop.view_requests();
+    assert_eq!(ended, vec![json!(["request", "sess_1", request]), json!(["request", "sess_1", null])], "the unpair ended the stream");
 
-    let id = refused_stream["id"].as_u64().unwrap();
-    phone.send(&stream(id).to_string());
-    assert_eq!(answer(&mut phone, id).await, wire_of(&refused_stream), "a new subscribe");
+    assert_eq!(phone.closed().await, "relay encryption authentication failed", "the desktop closed the phone itself");
+    h.closed(connection).await;
+    // What the closed phone still asks for reaches no live view.
+    phone.send(&stream(6).to_string());
     phone.send(&json!({ "id": 7, "method": "browser/webrtcSignal", "params": { "signal": ready } }).to_string());
-    assert_eq!(answer(&mut phone, 7).await, refused_ready(7), "a WebRTC ready");
 
-    let (mut again, _) = h.connect("p2", CRED).await;
-    again.send(&stream(id).to_string());
-    assert_eq!(answer(&mut again, id).await, wire_of(&refused_stream), "the device's next connection");
-    assert_eq!(*h.desktop.pushed.lock().unwrap(), Vec::<(ConnectionId, String, Value)>::new(), "nothing reached the unpaired device");
-    h.runtime.close().await;
-}
-#[tokio::test(flavor = "multi_thread")]
-async fn an_unpair_the_relay_has_not_confirmed_leaves_every_connection_open_without_the_grants_of_the_device() {
-    let h = Harness::start(false).await;
-    let (mut phone, connection) = h.connect("p1", CRED).await;
-    let credential_of = phone_credential(h.registry.clone());
-
-    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
-    // Nothing closes the phone (Node closes none; the relay ends a leg only when it removed the pairing); it keeps its identity.
-    assert_eq!(credential_of(connection).as_deref(), Some(CRED));
-    assert_eq!(list(&mut phone, 1).await["result"], listed());
-
-    // The unpair is recorded and in force: the device's new connection is admitted (Node revokes it on admission) without a grant.
-    let (mut again, again_connection) = h.connect("p2", CRED).await;
-    assert_eq!(credential_of(again_connection).as_deref(), Some(CRED));
-    assert_eq!(list(&mut again, 1).await["result"], listed());
+    // The device's next connection is refused at the open. The relay's events are handled in order, so the refusal also follows the
+    // closed phone's frames.
+    let again = h.relay.open_peer("p2", CRED);
+    let Event::Closed(reason) = again.next().await else { panic!("the PC challenged the unpaired device's next connection") };
+    assert_eq!(reason, "relay encryption authentication failed");
+    assert_eq!(h.desktop.view_requests(), ended, "no stream was asked for the device again");
+    assert_eq!(*h.desktop.pushed.lock().unwrap(), nothing, "nothing reached the unpaired device");
     h.runtime.close().await;
 }
 #[tokio::test(flavor = "multi_thread")]

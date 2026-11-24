@@ -650,7 +650,8 @@ export function reconcilePaneDockOwners(
     if (owner && !tabbed(leafId, owner)) {
       // A draft became a session in this pane: its file tabs are that session's.
       const successor = successorOf(owner);
-      if (successor && tabbed(leafId, successor) && !entry.held?.[successor]) put(leafId, { ...entry, owner: successor });
+      if (successor && tabbed(leafId, successor) && !entry.held?.[successor])
+        put(leafId, { ...entry, owner: successor });
       else {
         const holder = destinationOf(owner, leafId);
         if (holder || !dirty(entry)) {
@@ -675,6 +676,30 @@ export function reconcilePaneDockOwners(
     }
   }
   return next;
+}
+
+/** The dirty side files of a pane's dock entry that closing a tab with owner
+ *  key `owner` leaves with no editor: every part when the pane closes with
+ *  the tab (its entry drops out), else what `owner` holds there (nothing else
+ *  can show it; reconcilePaneDockOwners keeps it in place). A part whose
+ *  owner keeps a tab in another pane follows that tab instead. */
+export function dirtySideFilesClosedWith(
+  entry: PaneSideDockEntry | undefined,
+  owner: string,
+  paneCloses: boolean,
+  tabbedElsewhere: (owner: string) => boolean,
+  isDirty: (fileKey: string) => boolean
+): PaneSideDockFile[] {
+  if (!entry) return [];
+  const parts: Array<[string, Pick<PaneSideDockEntry, 'files'>]> = [
+    [entry.owner ?? '', entry],
+    ...Object.entries(entry.held ?? {}),
+  ];
+  return parts
+    .filter(([partOwner]) =>
+      paneCloses ? !(partOwner && tabbedElsewhere(partOwner)) : Boolean(owner) && partOwner === owner
+    )
+    .flatMap(([, part]) => (part.files ?? []).filter((file) => isDirty(sideFileKey(file))));
 }
 
 /** `dest` taking over `entry`'s file tabs, Files tree and diff (and its front
@@ -761,11 +786,50 @@ export function withPaneDockFileClosed(entry: PaneSideDockEntry, fileKey?: strin
   return withHeld(entry, hasPaneLocal(left) ? { ...held, [owner]: left } : held);
 }
 
-function withFileClosed<T extends Pick<PaneSideDockEntry, 'files' | 'activeFile' | 'surface'>>(part: T, target: string): T {
+function withFileClosed<T extends Pick<PaneSideDockEntry, 'files' | 'activeFile' | 'surface'>>(
+  part: T,
+  target: string
+): T {
   const rest = closeSideFileTab({ files: part.files ?? [], active: activeFileKey(part) }, target);
   if (rest.files.length > 0 && rest.active) return { ...part, files: rest.files, activeFile: rest.active };
   const { files: _files, activeFile: _activeFile, ...bare } = part;
   return { ...bare, surface: part.surface === PANE_DOCK_FILE_SURFACE ? '' : part.surface } as T;
+}
+
+/** `entry` with every file tab, held ones included, that `retarget` gives a new
+ *  path (an Explorer rename moved it) on that path; an active tab stays active. */
+export function withPaneDockFilesRetargeted(
+  entry: PaneSideDockEntry,
+  retarget: (file: PaneSideDockFile) => string | null
+): PaneSideDockEntry {
+  const front = withFilesRetargeted(entry, retarget);
+  let heldMoved = false;
+  const held = Object.fromEntries(
+    Object.entries(entry.held ?? {}).map(([owner, part]) => {
+      const moved = withFilesRetargeted(part, retarget);
+      if (moved !== part) heldMoved = true;
+      return [owner, moved];
+    })
+  );
+  return heldMoved ? { ...front, held } : front;
+}
+
+function withFilesRetargeted<T extends Pick<PaneSideDockEntry, 'files' | 'activeFile'>>(
+  part: T,
+  retarget: (file: PaneSideDockFile) => string | null
+): T {
+  let moved = false;
+  let activeFile = part.activeFile;
+  const files = (part.files ?? []).map((file) => {
+    const rel = retarget(file);
+    if (rel === null || rel === file.rel) return file;
+    moved = true;
+    const next = { ...file, rel };
+    if (sideFileKey(file) === part.activeFile) activeFile = sideFileKey(next);
+    return next;
+  });
+  if (!moved) return part;
+  return { ...part, files, ...(activeFile === undefined ? {} : { activeFile }) };
 }
 
 /** True when closing `fileKey` removes the dock's last tab: the last file tab

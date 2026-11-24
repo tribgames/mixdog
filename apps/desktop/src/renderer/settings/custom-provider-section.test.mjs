@@ -46,12 +46,12 @@ function mount(t, { calls, handlers = {}, api = [BUILTIN, CUSTOM] } = {}) {
     const handler = handlers[capability];
     return handler ? handler(...args) : undefined;
   };
-  const render = () =>
+  const render = (providers = api) =>
     act(async () =>
       root.render(
         React.createElement(ProvidersPanel, {
           api: {},
-          data: { providerSetup: { api, oauth: [] }, __loadedSections: ['providerSetup'] },
+          data: { providerSetup: { api: providers, oauth: [] }, __loadedSections: ['providerSetup'] },
           pending: '',
           run,
           confirm: (options) => confirms.push(options),
@@ -119,6 +119,32 @@ test('custom section ends the list with a registration row, a popup and separate
   assert.equal(add.disabled, false);
   assert.equal(customForm(), null);
   assert.equal(document.querySelector('[role=dialog]'), null);
+});
+
+test('an edit of a provider deleted elsewhere stays an edit and is refused, never saved as a new provider', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      saveCustomProvider: () => {
+        throw new Error('[custom-provider] unknown custom provider "custom:acme"');
+      },
+    },
+  });
+  await render();
+  const card = [...document.querySelectorAll('.settings-custom-providers .settings-group-body')].find((body) =>
+    body.textContent.includes('Acme')
+  );
+  await click([...card.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Edit'));
+  // Another window deletes it: the list the panel is handed no longer holds it.
+  await render([BUILTIN]);
+  const dialog = () => document.querySelector('.settings-custom-provider-dialog');
+  assert.equal(dialog().querySelector('h3').textContent, 'Edit custom provider');
+  await submit();
+  const saves = calls.filter((call) => call.capability === 'saveCustomProvider');
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].args[0].id, 'custom:acme', 'the save names the edited provider');
+  assert.match(dialog().textContent, /This custom provider was deleted\./);
 });
 
 test('form offers the three formats and masks the API key', async (t) => {

@@ -186,7 +186,9 @@ function rustProblems(plan, problems) {
     ]);
     const list = (plan.listLegs ?? []).find((leg) => leg.id === variant.listLeg);
     if (!list || list.os !== variant.os)
-      problems.push(`rust variant ${variant.name} names the list leg ${variant.listLeg}, which no list leg of ${variant.os} is`);
+      problems.push(
+        `rust variant ${variant.name} names the list leg ${variant.listLeg}, which no list leg of ${variant.os} is`
+      );
   }
 }
 

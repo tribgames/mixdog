@@ -571,7 +571,7 @@ pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, plan: &Plan) -> Result
     {
         match fork_on_route(cx, &route).await {
             Ok(Ok(done)) => return Ok((route.step, Generated { provider_name: route.provider_name, model: route.model, ..done })),
-            Ok(Err(spent)) => unforked = Some(spent),
+            Ok(Err(not_forked)) => unforked = Some(not_forked),
             Err(error) => return Err(on_route(error, &route)),
         }
     }
@@ -589,7 +589,7 @@ pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, plan: &Plan) -> Result
             continue;
         }
         let attempt = match unforked.clone() {
-            Some(spent) => isolated_on_route(cx, &route, spent).await,
+            Some(not_forked) => isolated_on_route(cx, &route, not_forked).await,
             None => summarize_on_route(cx, &route, warm).await,
         };
         match attempt {

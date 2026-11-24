@@ -145,20 +145,18 @@ export function parseSettledMarkdownAstNow(text: string, maxUtf16Units: number):
 }
 
 /** `text` as one paragraph of plain text: what a reply whose parse failed shows. */
-export function plainMarkdownAst(text: string): MarkdownAstRoot {
+function plainMarkdownAst(text: string): MarkdownAstRoot {
   return {
     type: 'root',
     children: [{ type: 'element', tagName: 'p', properties: {}, children: [{ type: 'text', value: text }] }],
   } as unknown as MarkdownAstRoot;
 }
-const failedParses = new WeakSet<object>();
+
 let parsersFail = false;
 /** Test seam: the worker and the page's parser both fail, as when neither script can be loaded. */
 export function _failMarkdownParsersForTest(fail: boolean): void {
   parsersFail = fail;
 }
-/** Whether `root` stands for a parse that failed (`plainMarkdownAst` made by the parse itself). */
-export const isFailedMarkdownParse = (root: MarkdownAstRoot): boolean => failedParses.has(root);
 
 /** `remember: false` is for a live tail: each snapshot is a transient prefix
  *  that would otherwise evict settled history ASTs from the cache. */
@@ -174,19 +172,17 @@ export function parseStreamingMarkdownAst(text: string, remember = true): Promis
       return root;
     });
   }
-  const request = (parsersFail ? Promise.reject<MarkdownAstRoot>(new Error('no parser')) : workerHost.parse(value))
-    .catch(() => (parsersFail ? Promise.reject<MarkdownAstRoot>(new Error('no parser')) : parseMarkdownOnRenderer(value)))
+  const parser = (parse: () => Promise<MarkdownAstRoot>) =>
+    parsersFail ? Promise.reject<MarkdownAstRoot>(new Error('no parser')) : parse();
+  const request = parser(() => workerHost.parse(value))
+    .catch(() => parser(() => parseMarkdownOnRenderer(value)))
     .then((root) => {
       if (remember) rememberStreamingMarkdownAst(value, root);
       return root;
     })
     // Neither the worker nor the page's own parser could be had: the parse ends all the same, as the text itself.
     // It is not remembered, so a later mount asks again.
-    .catch(() => {
-      const plain = plainMarkdownAst(value);
-      failedParses.add(plain);
-      return plain;
-    })
+    .catch(() => plainMarkdownAst(value))
     .finally(() => {
       inFlight.delete(value);
     });

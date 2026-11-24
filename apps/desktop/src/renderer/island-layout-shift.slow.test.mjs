@@ -409,7 +409,7 @@ for (const surface of SURFACES) {
   });
 }
 
-test("the island's one-line rows stand on the 32px pitch, agents' and shells' alike, and a shell's Stop or Dismiss is a 16px mark in the strong ink", async (t) => {
+test("the island's one-line rows stand on the 32px pitch, agents' and shells' alike, and a shell's Stop (12px) or Dismiss (16px) is a mark in the strong ink", async (t) => {
   const agents = await islandPage(t, SURFACES[0]);
   await agents.evaluate(() => window.__pool(['a', 'b'].map((tag) => window.__agent(tag))));
   await agents.click('.composer-island-seg-agents');
@@ -437,7 +437,7 @@ test("the island's one-line rows stand on the 32px pitch, agents' and shells' al
       marks: [...document.querySelectorAll('.composer-island-panel .composer-island-row-actions > [data-icon]')].map(
         (button) => {
           const svg = button.querySelector('svg').getBoundingClientRect();
-          return { size: [svg.width, svg.height], color: getComputedStyle(button).color };
+          return { icon: button.dataset.icon, size: [svg.width, svg.height], color: getComputedStyle(button).color };
         }
       ),
     };
@@ -445,7 +445,9 @@ test("the island's one-line rows stand on the 32px pitch, agents' and shells' al
   assert.ok(read.rows.length === 2 && read.marks.length > 0, JSON.stringify(read));
   for (const height of read.rows) assert.ok(Math.abs(height - 32) <= 0.5, `a shell row ${height}px`);
   for (const mark of read.marks) {
-    assert.deepEqual(mark.size, [16, 16], "a shell mark's size");
+    // Stop's filled square at the 12px state marks' size, so it weighs no more than the row's clock.
+    const size = mark.icon === 'stop' ? 12 : 16;
+    assert.deepEqual(mark.size, [size, size], "a shell mark's size");
     assert.equal(mark.color, read.strong, "a shell mark's ink at rest");
   }
 });

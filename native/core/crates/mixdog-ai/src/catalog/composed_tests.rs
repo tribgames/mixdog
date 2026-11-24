@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, TransportFault, WireRequest};
+use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, WireRequest};
 use serde_json::Value;
 
 use super::modelsdev_source::{LITELLM_URL, MODELS_DEV_URL, read_file};
@@ -16,16 +16,8 @@ const LITELLM: &str =
 const MODELS_DEV: &str = r#"{"openai":{"models":{"gpt-m":{"name":"GPT M","limit":{"context":200000,"output":8000},"cost":{"input":1.5,"output":6.0}}}}}"#;
 use super::{CatalogService, CatalogSnapshot, LITELLM_CACHE_FILE, MODELS_DEV_CACHE_FILE};
 use crate::oauth::CredentialIo;
-use crate::transport::http::{BodyStream, HttpResponse, HttpSend};
-
-struct Body(Option<Bytes>);
-
-#[async_trait]
-impl BodyStream for Body {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.take().map(Ok)
-    }
-}
+use crate::transport::http::{HttpResponse, HttpSend};
+use crate::transport::testing::Once;
 
 /// Serves the two tables by URL, or fails; remembers every URL asked.
 struct Tables {
@@ -45,7 +37,7 @@ impl HttpSend for Tables {
             MODELS_DEV_URL => MODELS_DEV,
             other => panic!("unexpected fetch of {other}"),
         };
-        Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Body(Some(Bytes::from_static(body.as_bytes())))) })
+        Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from_static(body.as_bytes())))) })
     }
 }
 
@@ -148,6 +140,35 @@ async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision(
     mixdog_rt::time::sleep(std::time::Duration::from_millis(2)).await;
     service.refresh().await;
     assert!(service.audit_cached_pricing().is_some_and(|report| report.contains("openai-oauth/zz-unpriced")));
+}
+
+/// A forced full refresh asks the provider again, whatever fresh roster its disk cache holds; a due one is answered by it.
+#[tokio::test]
+async fn a_forced_refresh_asks_the_provider_past_its_fresh_saved_roster() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use mixdog_core_api::domain::provider::{ModelListing, ModelRecord};
+
+    struct Fetch(Arc<AtomicUsize>);
+
+    #[async_trait]
+    impl ModelListing for Fetch {
+        async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![ModelRecord::new("model-a")])
+        }
+    }
+
+    let (dir, _http, service) = composed(false).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let cache = crate::catalog::OauthModelCache::new(dir.path().to_path_buf(), io());
+    let source = crate::catalog::ModelSource::new(mixdog_protocol::ProviderId::from("mimo-oauth"), Arc::new(Fetch(calls.clone()))).with_oauth_cache(cache);
+    source.list().await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the roster is saved");
+    service.set_sources(vec![source]);
+
+    service.refresh().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "a forced refresh does not serve the saved roster");
 }
 
 /// A model's wire ids are routes too (`pricingAuditRows`): each is judged, once.

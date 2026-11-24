@@ -389,6 +389,7 @@ async fn build(
     }
     Ok(Arc::new(builder.build().await?))
 }
+
 /// How a `turns:` server is verified, when the connection is offered one: against the bundled roots and the system's,
 /// as the workspace's other TLS clients, by the url's host name. Read once per process, by the first connection
 /// offered such a server.
@@ -418,6 +419,7 @@ async fn turn_tls(config: &PeerConfig) -> Option<Arc<rustls::ClientConfig>> {
         .clone();
     loaded.wait_for(Option::is_some).await.ok().and_then(|tls| tls.clone())
 }
+
 fn machine_tls() -> Arc<rustls::ClientConfig> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());

@@ -139,6 +139,36 @@ test('watches_restored_after_reconnect', async () => {
   assert.equal(client.calls.filter((c) => c.method === 'fs/watch').length, 2);
 });
 
+test('a watch whose restore the connection dropped again is restored at the next ready; one the core refused is let go', async () => {
+  let failRestore = null;
+  const { client, connection } = await opened(async (method, params) => {
+    if (method === 'fs/watch' && failRestore) throw failRestore(params.watchId);
+    return {};
+  });
+  const w = win();
+  connection.attach(w);
+  await connection.watchFiles(w, { watchId: 'w1', path: '/a' });
+  await connection.watchFiles(w, { watchId: 'w2', path: '/b' });
+  failRestore = (watchId) =>
+    Object.assign(new Error(watchId), {
+      detail:
+        watchId === 'w1'
+          ? { kind: 'connectionLost' }
+          : { kind: 'rpc', code: -32603, reason: undefined, message: 'ENOENT', data: undefined },
+    });
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  await new Promise((r) => setImmediate(r));
+  failRestore = null;
+  client.calls.length = 0;
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  assert.deepEqual(
+    client.calls.filter((c) => c.method === 'fs/watch').map((c) => c.params.watchId),
+    ['w1']
+  );
+});
+
 test('restore_line_separates_attempted_from_settled', async () => {
   const lines = [];
   const client = fakeClient(async (method, params) => {

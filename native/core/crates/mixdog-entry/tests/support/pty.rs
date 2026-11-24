@@ -93,11 +93,6 @@ impl Pty {
         rows(&self.shared.0.lock().unwrap().grid)
     }
 
-    /// Whether the screen shows `marker` anywhere.
-    pub fn shows(&self, marker: &str) -> bool {
-        self.screen().iter().any(|row| row.contains(marker))
-    }
-
     /// Waits up to `limit` for `holds` to be true of the screen's rows, looked at again as each chunk of output reaches it.
     pub fn wait_until(&self, limit: Duration, holds: impl Fn(&[String]) -> bool) -> bool {
         let end = Instant::now() + limit;
@@ -110,11 +105,6 @@ impl Pty {
             let Some(left) = end.checked_duration_since(Instant::now()) else { return false };
             shared = fed.wait_timeout(shared, left).unwrap().0;
         }
-    }
-
-    /// Waits up to `limit` for the screen to show `marker`.
-    pub fn wait_for(&self, marker: &str, limit: Duration) -> bool {
-        self.wait_until(limit, |rows| rows.iter().any(|row| row.contains(marker)))
     }
 
     /// Waits up to `limit` for the program to end; its exit code.

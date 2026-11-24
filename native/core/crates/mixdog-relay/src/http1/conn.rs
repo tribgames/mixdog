@@ -18,6 +18,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, WriteHalf};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
+use tokio::sync::OwnedSemaphorePermit;
+
 use super::body::{Pump, Step};
 use super::head::{self, HeadError, Headers, Parse, ParsedHead};
 use super::response::{ResponseMeta, ResponseWriter, has_word, status_message};
@@ -216,10 +218,10 @@ impl Lifecycle {
         self.live.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn register(self: &Arc<Self>, shared: &Arc<Shared>) -> ConnGuard {
+    fn register(self: &Arc<Self>, shared: &Arc<Shared>, permit: Option<OwnedSemaphorePermit>) -> ConnGuard {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         self.live().insert(id, shared.clone());
-        ConnGuard { lifecycle: self.clone(), id }
+        ConnGuard { lifecycle: self.clone(), id, _permit: permit }
     }
 
     pub fn is_closing(&self) -> bool {
@@ -266,6 +268,8 @@ impl Lifecycle {
 pub struct ConnGuard {
     lifecycle: Arc<Lifecycle>,
     id: u64,
+    /// The server's place for this connection, which lasts as long as its descriptor: an upgraded socket keeps it.
+    _permit: Option<OwnedSemaphorePermit>,
 }
 
 impl Drop for ConnGuard {
@@ -316,8 +320,22 @@ pub async fn serve_connection<S>(io: S, info: ConnInfo, handler: Arc<dyn Handler
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    serve_admitted(io, info, handler, limits, lifecycle, None).await;
+}
+
+/// [`serve_connection`] for a connection that holds a place of the server's connection limit until its socket is gone.
+pub async fn serve_admitted<S>(
+    io: S,
+    info: ConnInfo,
+    handler: Arc<dyn Handler>,
+    limits: Limits,
+    lifecycle: Arc<Lifecycle>,
+    permit: Option<OwnedSemaphorePermit>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let shared = Arc::new(Shared::default());
-    let guard = lifecycle.register(&shared);
+    let guard = lifecycle.register(&shared, permit);
     let (rd, wr) = tokio::io::split(io);
     let conn = Conn { rd, wr: Some(wr), buf: BytesMut::with_capacity(8192), shared, info, handler, limits, lifecycle, guard: Some(guard), served: 0 };
     conn.run().await;

@@ -346,7 +346,6 @@
   min-width: 0;
   height: 100%;
   flex: 0 1 160px;
-  padding-right: 12px;
 }
 .dock-header-chip .browser-tab-select {
   cursor: default;
@@ -359,10 +358,10 @@
    the side strips: the phone sheet keeps the pane strip's grammar
    (`.browser-tab`: floors 30px / 56px active). */
 :is(
-    .visualize-tabs .dock-header-chip,
-    :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
-    :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
-  ) {
+  .visualize-tabs .dock-header-chip,
+  :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
+  :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
+) {
   container-type: inline-size;
   /* The container drops the label from the tab's own size: without this a
      content-sized strip collapses every tab to its floor. */
@@ -371,10 +370,10 @@
   min-width: 88px;
 }
 :is(
-    .visualize-tabs .dock-header-chip,
-    :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
-    :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
-  ).is-active {
+  .visualize-tabs .dock-header-chip,
+  :root:not([data-mixdog-mobile-tabs]) .browser-tab-list > .dock-header-chip:not(:only-child),
+  :root:not([data-mixdog-mobile-tabs]) .session-diff-tabs > .browser-tab
+).is-active {
   min-width: 136px;
 }
 /* A shrunk unselected tab gives its close slot to the label (the pane strip's

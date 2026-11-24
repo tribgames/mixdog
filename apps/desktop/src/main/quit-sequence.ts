@@ -1,8 +1,9 @@
 import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../shared/core-src/standalone/daemon-stop-budget.mjs';
+import { flushEditorBackups } from './editor-backup-flush';
 
 /** A healthy daemon shutdown (PostgreSQL stop included) measures ~0.6 s. The daemon arms its forced PostgreSQL stop at
  *  this constant less the stop's signal margin (`daemon-stop-budget.mjs` PG_FORCED_STOP_AT_MS, mirrored by the core's
- *  `PG_FORCED_STOP_AT`); its whole-shutdown backstop is 15 s (`SHUTDOWN_BUDGET`). */
+ *  `PG_FORCED_STOP_AT`); its release backstop is due only once every release step has had its own budget (`release_bound`). */
 export const DESKTOP_DAEMON_STOP_TIMEOUT_MS = IN_TREE_DAEMON_STOP_GRACE_MS;
 
 /** What a quit's stop of its core came to: the request (see `CoreStopRequest`), whether the core had exited when the wait
@@ -56,21 +57,25 @@ export interface QuitWindow {
 
 export interface DesktopQuitSequenceOptions {
   windows(): readonly QuitWindow[];
+  /** Settles once every window has written its editors' pending backups (or is gone); the teardown that stops the core
+   *  waits for it. Default: the windows joined to `flushEditorBackups`. */
+  flushEditorBackups?(): Promise<void>;
   teardown(): Promise<void>;
   /** Let the quit proceed for real (the next before-quit is not intercepted). */
   exit(): void;
   /** Start a fresh instance once this one exits (Electron app.relaunch). */
   relaunch(): void;
   onError?(error: unknown): void;
-  /** Bound on the whole teardown: past it the app exits anyway (`onTeardownTimeout` first), so a teardown step that never
-   *  settles cannot leave a quitting app running with its core and the single-instance lock held. None: unbounded. */
+  /** Bound on the backup flush and the whole teardown: past it the app exits anyway (`onTeardownTimeout` first), so a step
+   *  that never settles cannot leave a quitting app running with its core and the single-instance lock held. None:
+   *  unbounded. */
   teardownTimeoutMs?: number;
   onTeardownTimeout?(): void;
 }
 
 export interface DesktopQuitSequence {
   readonly quitting: boolean;
-  /** Hide every window now, then tear down and exit. Idempotent. */
+  /** Hide every window now, then flush the editor backups, tear down and exit. Idempotent. */
   begin(): Promise<void>;
   /** A second launch: false while running (activate as usual); during a
    *  quit it schedules a relaunch and returns true. */
@@ -94,6 +99,7 @@ export function createDesktopQuitSequence(options: DesktopQuitSequenceOptions): 
         }
       }
       const teardown = Promise.resolve()
+        .then(() => (options.flushEditorBackups ?? flushEditorBackups)())
         .then(() => options.teardown())
         .catch((error: unknown) => options.onError?.(error));
       const bound = options.teardownTimeoutMs;

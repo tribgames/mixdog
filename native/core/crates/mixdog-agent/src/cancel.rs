@@ -5,6 +5,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio_util::sync::CancellationToken;
+use tokio_util::sync::DropGuard;
 
 use crate::interrupt::AbortReason;
 
@@ -93,6 +94,9 @@ pub struct Cancel {
     reason: Arc<Mutex<Option<String>>>,
     /// The close reason of the first abort.
     close: Arc<Mutex<Option<AbortReason>>>,
+    /// A linked signal's hold on the relay from its sources ([`Cancel::linked`]): the relay ends once every handle of the
+    /// signal is gone, so a token taken from it ([`Cancel::token`]) hears its sources only while one is held.
+    _relay: Option<Arc<DropGuard>>,
 }
 
 impl Cancel {
@@ -103,7 +107,7 @@ impl Cancel {
     /// A run's own token as a signal. It carries no reason of its own, so a wait it ends reads
     /// as a bare `abort()` ([`ABORTED`]).
     pub fn from_token(token: &CancellationToken) -> Self {
-        Self { token: token.clone(), reason: Arc::default(), close: Arc::default() }
+        Self { token: token.clone(), reason: Arc::default(), close: Arc::default(), _relay: None }
     }
 
     /// `controller.abort(reason)` of a source that is not a session close (an agent job's cancel, the watchdog,
@@ -164,12 +168,35 @@ impl Cancel {
         if sources.is_empty() {
             return linked;
         }
-        let (out, sources) = (linked.clone(), sources.to_vec());
+        let (out, sources, released) = (linked.clone(), sources.to_vec(), CancellationToken::new());
+        let relay = released.clone().drop_guard();
         tokio::spawn(async move {
             let waits = sources.iter().map(|s| Box::pin(s.token.cancelled()));
-            let (_, index, _) = futures::future::select_all(waits).await;
-            out.abort_with(&Abort::of_signal(&sources[index]));
+            tokio::select! {
+                biased;
+                (_, index, _) = futures::future::select_all(waits) => out.abort_with(&Abort::of_signal(&sources[index])),
+                () = released.cancelled() => {}
+                () = out.token.cancelled() => {}
+            }
         });
-        linked
+        Self { _relay: Some(Arc::new(relay)), ..linked }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A linked signal let go before any source fired leaves nothing waiting on its sources: a sub-agent that ended
+    /// normally does not keep a relay parked on its parent's signal.
+    #[tokio::test]
+    async fn a_linked_signal_let_go_unfired_lets_go_of_its_sources() {
+        let parent = Cancel::new();
+        let linked = Cancel::linked(std::slice::from_ref(&parent));
+        assert_eq!(Arc::strong_count(&parent.reason), 2, "the relay holds the source while the signal is held");
+        drop(linked);
+        // The current-thread scheduler runs the woken relay before this test resumes.
+        tokio::task::yield_now().await;
+        assert_eq!(Arc::strong_count(&parent.reason), 1, "the relay ended with the signal");
     }
 }

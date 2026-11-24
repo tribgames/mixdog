@@ -1,7 +1,7 @@
 // The sandboxed page frame never adds in-frame history entries: on a phone
 // such an entry takes the Back press meant for the app's panel.
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { JSDOM } from 'jsdom';
 
@@ -81,7 +81,7 @@ test("the frame stays hidden (the panel's background shows) until the page itsel
   assert.equal(early.style.visibility, '');
 });
 
-test('onShown waits for the page’s paint report; only a scriptless srcdoc fallback is shown by its load', async () => {
+test('onShown waits for the page’s paint report; only a scriptless srcdoc fallback is shown by its load', () => {
   const frame = fakeFrame();
   let shown = 0;
   const unload = loadSandboxedPage(frame, '<p>a</p>', () => (shown += 1));
@@ -98,11 +98,13 @@ test('onShown waits for the page’s paint report; only a scriptless srcdoc fall
   unload();
 
   // No relay frame answered: the srcdoc fallback runs no script, so its load is the paint.
+  mock.timers.enable({ apis: ['setTimeout'] });
   const fallback = fakeFrame();
   let fallbackShown = 0;
   const unloadFallback = loadSandboxedPage(fallback, '<p>b</p>', () => (fallbackShown += 1));
   fallback.fireLoad(); // /preview-frame, which never says it is ready
-  await new Promise((resolve) => setTimeout(resolve, 3100));
+  mock.timers.tick(3100);
+  mock.timers.reset();
   assert.equal(fallbackShown, 0);
   fallback.fireLoad(); // the srcdoc document
   assert.equal(fallbackShown, 1);

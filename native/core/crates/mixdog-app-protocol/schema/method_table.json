@@ -8052,8 +8052,7 @@
       },
       "origins": [
         "local",
-        "ssh",
-        "relay"
+        "ssh"
       ],
       "params": "ProjectFsWorkspaceFileWriteParams",
       "result": "JsonValue",

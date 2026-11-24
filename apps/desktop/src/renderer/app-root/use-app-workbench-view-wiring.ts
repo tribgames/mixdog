@@ -10,16 +10,16 @@ import type { AppTabWorkflow } from './use-app-tab-workflow';
 import type { AppWorkbenchHubs } from './use-app-workbench-hubs';
 
 /** Stable sidebar entry callbacks (project/session context menus). */
-function useSidebarEntryEvents(
-  shell: AppWorkspaceShell,
-  nav: AppNavigationShell,
-  commands: AppSessionCommands,
-  hubs: AppWorkbenchHubs
+export function useSidebarEntryEvents(
+  shell: Pick<AppWorkspaceShell, 'paneWorkspace' | 'shellPanels'>,
+  nav: Pick<AppNavigationShell, 'closeSidebarForNavigation' | 'stageNewTaskProject'>,
+  commands: Pick<AppSessionCommands, 'openSession' | 'renameProject' | 'openProjectInExplorer'>,
+  hubs: Pick<AppWorkbenchHubs, 'sidebarNewTask' | 'openProjectSettings' | 'activatePaneSurface'>
 ) {
   const { paneWorkspace, shellPanels } = shell;
   const { closeSidebarForNavigation, stageNewTaskProject } = nav;
   const { openSession, renameProject, openProjectInExplorer } = commands;
-  const { sidebarNewTask, openProjectSettings } = hubs;
+  const { sidebarNewTask, openProjectSettings, activatePaneSurface } = hubs;
 
   // + on a sidebar project section: a fresh task staged in that project.
   const sidebarNewProjectTask = useStableEvent((projectPath: string) => {
@@ -27,11 +27,14 @@ function useSidebarEntryEvents(
     stageNewTaskProject(projectPath);
   });
   // Sidebar right-click menus. "Open to the Side" is the drag-to-split result
-  // (a new pane right of the focused one); inheritance needs the session's own
-  // tab, so it opens the session first and then its /inherit surface.
-  const sidebarOpenSessionInSplit = useStableEvent((sessionId: string, title: string) => {
+  // (a new pane right of the focused one, the selection following it); the
+  // row's label is the catalog title, not a pin. Inheritance needs the
+  // session's own tab, so it opens the session first and then its /inherit surface.
+  const sidebarOpenSessionInSplit = useStableEvent((sessionId: string) => {
     closeSidebarForNavigation();
-    paneWorkspace.splitLeafAt(paneWorkspace.focusedLeafId, 'right', { kind: 'session', id: sessionId, title });
+    const selection = { kind: 'session', id: sessionId } as const;
+    paneWorkspace.splitLeafAt(paneWorkspace.focusedLeafId, 'right', selection);
+    activatePaneSurface(selection);
   });
   const sidebarInheritSession = useStableEvent((sessionId: string) => {
     closeSidebarForNavigation();
@@ -120,6 +123,7 @@ export function useAppWorkbenchViewWiring(
 
   const renameProjectEntry = useProjectEntryRename({
     paneWorkspace,
+    paneSideDocks,
     dirtyFileKeys,
     registerWorkspaceSelection: lifecycle.taskLifecycle.registerWorkspaceSelection,
   });

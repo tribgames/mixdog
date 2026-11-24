@@ -50,6 +50,8 @@ struct FakeProcesses {
     killed: Mutex<Vec<ProcessHandle>>,
     /// Every process ends at once with status 0 and no output, whatever it was asked to run.
     exit_at_once: std::sync::atomic::AtomicBool,
+    /// A filter pipeline's tee file is written but its process keeps running until killed.
+    tee_keeps_running: std::sync::atomic::AtomicBool,
     /// The folder of every spawn request, in order.
     cwds: Mutex<Vec<AbsPath>>,
     /// The contents, as they were when the command reached the process manager, of every hoisted script file it names
@@ -174,7 +176,9 @@ impl FakeProcesses {
         } else if let Some(tee) = script.split("-FilePath '").nth(1).filter(|_| script.contains("Tee-Object")).and_then(|rest| rest.split('\'').next()) {
             // A filter pipeline whose producer failed: the tee holds what the filters swallowed.
             std::fs::write(tee, "boom\n").unwrap();
-            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+            if !self.tee_keeps_running.load(std::sync::atomic::Ordering::SeqCst) {
+                send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+            }
         } else if script == "echo begin; Start-Sleep 30" {
             let bytes = b"begin\n".to_vec();
             send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
@@ -1432,9 +1436,61 @@ async fn a_swallowing_filter_pipeline_gets_the_rescue_tail_and_its_tee_is_consum
         text,
         "[exit code: 1]\n\n(no output)\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\nboom\n"
     );
+    assert!(!std::path::Path::new(&fed_tee(&rig)).exists(), "the tee file is deleted");
+}
+
+fn fed_tee(rig: &Rig) -> String {
     let script = rig.processes.fed.lock().unwrap()[0].clone();
-    let tee = script.split("-FilePath '").nth(1).and_then(|r| r.split('\'').next()).unwrap().to_owned();
-    assert!(!std::path::Path::new(&tee).exists(), "the tee file is deleted");
+    script.split("-FilePath '").nth(1).and_then(|r| r.split('\'').next()).unwrap().to_owned()
+}
+
+/// Runs the pipeline command and cancels its turn once the script has been fed to the process.
+async fn run_cancelled_pipeline(rig: &Rig, shell: &ShellTool, id: &str) {
+    let c = ctx(rig, id);
+    let cancel = c.cancel.clone();
+    let call = shell.call(&c, serde_json::json!({"command": "npm test 2>&1 | Select-Object -First 3"}));
+    let abort = async {
+        while rig.processes.fed.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        cancel.cancel();
+    };
+    let (outcome, ()) = tokio::join!(call, abort);
+    drop(outcome);
+}
+
+/// The turn is cancelled while the pipeline runs: the kill ends it and its tee file goes with it.
+#[tokio::test]
+async fn a_cancelled_commands_tee_file_is_removed() {
+    let (rig, shell) = windows_powershell_rig();
+    rig.processes.tee_keeps_running.store(true, std::sync::atomic::Ordering::SeqCst);
+    run_cancelled_pipeline(&rig, &shell, "u0").await;
+    assert!(!std::path::Path::new(&fed_tee(&rig)).exists(), "the tee file is deleted");
+}
+/// A kill that is not confirmed leaves the process possibly holding its tee file: the file stays
+/// until the process is over, and then goes.
+#[tokio::test(start_paused = true)]
+async fn an_unconfirmed_kills_tee_file_is_removed_when_the_command_ends() {
+    let rig = rig();
+    let mut config = rig.runtime.config.clone_for_test();
+    config.windows = true;
+    config.powershell = true;
+    config.shell = Arc::new(FixedShell("powershell.exe".into()));
+    config.skill_runtime = Some(skill_runtime());
+    let runtime = ExecRuntime::new(config);
+    let shell = ShellTool::new(runtime.clone());
+    rig.processes.tee_keeps_running.store(true, std::sync::atomic::Ordering::SeqCst);
+    rig.processes.refuse_kill.store(true, std::sync::atomic::Ordering::SeqCst);
+    run_cancelled_pipeline(&rig, &shell, "u1").await;
+    let tee = fed_tee(&rig);
+    assert!(std::path::Path::new(&tee).exists(), "the command may still hold the file");
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&ProcessHandle("task-u1".into())).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Signal(9), killed: Some(KillReason::Requested) } });
+    }
+    runtime.cleanups_done().await;
+    assert!(!std::path::Path::new(&tee).exists(), "the tee file outlived its command");
 }
 /// A POSIX bash command travels through the environment, not argv.
 #[tokio::test]

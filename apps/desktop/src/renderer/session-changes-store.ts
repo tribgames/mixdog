@@ -51,7 +51,6 @@ import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-
 export const SESSION_CHANGES_SOURCES = ['last-turn', 'session', 'branch', 'uncommitted', 'unstaged', 'staged'] as const;
 export type SessionChangesSource = (typeof SESSION_CHANGES_SOURCES)[number];
 export const DEFAULT_SESSION_CHANGES_SOURCE: SessionChangesSource = 'uncommitted';
-const DEFAULT_SOURCE = DEFAULT_SESSION_CHANGES_SOURCE;
 
 /** The runtime's own-edit reviews: one per session, not per repository root. */
 function sessionScopedSource(source: SessionChangesSource): boolean {
@@ -65,9 +64,9 @@ function isSessionChangesSource(value: unknown): value is SessionChangesSource {
 export function readSessionChangesSource(): SessionChangesSource {
   try {
     const stored = window.localStorage.getItem(SESSION_CHANGES_SOURCE_KEY);
-    return isSessionChangesSource(stored) ? stored : DEFAULT_SOURCE;
+    return isSessionChangesSource(stored) ? stored : DEFAULT_SESSION_CHANGES_SOURCE;
   } catch {
-    return DEFAULT_SOURCE;
+    return DEFAULT_SESSION_CHANGES_SOURCE;
   }
 }
 
@@ -93,7 +92,7 @@ function subscribeSource(listener: () => void) {
 }
 
 export function useSessionChangesSource(): SessionChangesSource {
-  return useSyncExternalStore(subscribeSource, readSessionChangesSource, () => DEFAULT_SOURCE);
+  return useSyncExternalStore(subscribeSource, readSessionChangesSource, () => DEFAULT_SESSION_CHANGES_SOURCE);
 }
 
 export function sessionChangesSourceLabel(source: SessionChangesSource): string {
