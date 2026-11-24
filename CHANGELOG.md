@@ -5,15 +5,11 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-Mixdog 1.5.0 moves to a faster, lighter engine rebuilt in Rust. It was a major undertaking, and we judged that making this switch now was necessary for Mixdog in the long term.
+Mixdog 1.5.0 rebuilds the engine in Rust. It was a large undertaking made for Mixdog's long term, and it lets the app use much less memory, handle many sessions and agents at once better, and run faster and steadier.
 
-With the new engine, overall memory use is greatly reduced and running many sessions and agents in parallel works far better. As a result, the app feels noticeably faster and stays much more stable during everyday work.
+This update took far longer than planned. We are sorry for the wait, and thank you for bearing with us. Some errors may still remain right after the switch, but from now on we will be back to responding and fixing issues quickly, as before. With this new base in place, we can improve and stabilize Mixdog faster going forward.
 
-Because of the scale of this transition, the update took much longer than we planned, and we are genuinely sorry for keeping you waiting. Some errors may still show up right after the switch, and we will respond quickly to fix anything you run into. Thank you very much for waiting patiently for this late release.
-
-After updating to 1.5.0, going back to 1.4.5 keeps attached files, but the conversation list will not come back. If you may want to go back, copy your data folder before updating.
-
-Going forward, we will work to improve and stabilize Mixdog's features faster. If you run into any issues, please let us know on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or through Settings › About › Give feedback in the app.
+If you run into any issues, please report them on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or in the app via Settings › About › Give feedback. Note that going back to 1.4.5 after updating to 1.5.0 keeps attached files but not the conversation list, so please copy your data folder before updating if you may go back.
 
 ## v1.4.5 - 2026-11-03
 
