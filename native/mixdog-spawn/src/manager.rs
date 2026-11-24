@@ -1166,7 +1166,7 @@ fn launch_process(
     request: SpawnRequest,
     options: SpawnOptions,
     subscribe: bool,
-) -> Result<(SpawnedProcess, Option<crate::feed::Subscription>), ProcessError> {
+) -> Result<(SpawnedProcess, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
     let launch = Launch::of(&request.command, &inner.config.default_shell);
     let env = environment(&request.env);
     if !request.cwd.as_path().is_dir() {
@@ -1279,7 +1279,7 @@ fn launch_process(
         commit.launched(&handle);
     }
     drop(commit);
-    Ok((SpawnedProcess { handle, pid }, first))
+    Ok((SpawnedProcess { handle, pid }, feed, first))
 }
 
 fn start_under_scope<'a>(
@@ -1456,6 +1456,13 @@ impl LocalProcessManager {
         Ok(self.launch(request, options, false).await?.0)
     }
 
+    /// [`Self::spawn_with`], with the process's own output feed: what reads it reads this process, whatever process the handle names
+    /// later.
+    pub(crate) async fn spawn_with_output(&self, request: SpawnRequest, options: SpawnOptions) -> Result<(SpawnedProcess, Arc<Feed>), ProcessError> {
+        let (spawned, output, _) = self.launch(request, options, false).await?;
+        Ok((spawned, output))
+    }
+
     /// [`ProcessManager::spawn_subscribed`] with [`Self::spawn_with`]'s options.
     pub async fn spawn_subscribed_with(
         &self,
@@ -1463,8 +1470,8 @@ impl LocalProcessManager {
         options: SpawnOptions,
     ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
         match self.launch(request, options, true).await? {
-            (spawned, Some(first)) => Ok((spawned, Box::new(first))),
-            (_, None) => unreachable!("a subscribed launch returns its subscription"),
+            (spawned, _, Some(first)) => Ok((spawned, Box::new(first))),
+            (_, _, None) => unreachable!("a subscribed launch returns its subscription"),
         }
     }
 
@@ -1473,7 +1480,7 @@ impl LocalProcessManager {
         request: SpawnRequest,
         options: SpawnOptions,
         subscribe: bool,
-    ) -> Result<(SpawnedProcess, Option<crate::feed::Subscription>), ProcessError> {
+    ) -> Result<(SpawnedProcess, Arc<Feed>, Option<crate::feed::Subscription>), ProcessError> {
         let admission = self.inner.admit(&request.handle)?;
         // Dropping this future abandons the wait: a job still queued is dropped unrun, and a child
         // the job commits meanwhile is killed (see `Abandon`), so a cancelled spawn leaves no child
@@ -1621,11 +1628,6 @@ impl LocalProcessManager {
         Ok(self.inner.lookup(handle)?.feed.pushed())
     }
 
-    /// The output offset reached so far, cut there (output after it comes in events of its own), given to `then` under the feed's lock:
-    /// no output enters between the cut and what `then` does (see `Feed::mark_then`).
-    pub(crate) fn output_mark_then<T>(&self, handle: &ProcessHandle, then: impl FnOnce(u64) -> T) -> Result<T, ProcessError> {
-        Ok(self.inner.lookup(handle)?.feed.mark_then(then))
-    }
 
     /// A subscription from the oldest event the ring still holds, with the output offset where its first event starts (more than zero
     /// when the ring has dropped the start of the output), taken in one step (see `Feed::subscribe_oldest`).

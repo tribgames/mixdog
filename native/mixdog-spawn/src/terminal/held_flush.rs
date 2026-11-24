@@ -15,7 +15,9 @@ fn tab() -> Arc<Tab> {
     Arc::new(Tab {
         id: "term_held".to_owned(),
         seq: 1,
+        incarnation: 1,
         handle: ProcessHandle::from("term_held"),
+        output: std::sync::OnceLock::new(),
         shell: "pwsh".to_owned(),
         cwd: None,
         state: Mutex::new(TabState {

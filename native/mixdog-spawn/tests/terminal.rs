@@ -1394,7 +1394,8 @@ fn the_replay_window_holds_200000_units_at_its_boundary() {
             buffer.append(&text);
         }
         let (replay_lead, replay) = buffer.read_window();
-        let reply = mixdog_spawn::service::attached_reply(&Attached { id: "term_window".into(), replay, replay_lead, size_owner: None }, "");
+        let terminal = TerminalId { core: "core".into(), incarnation: 1 };
+        let reply = mixdog_spawn::service::attached_reply(&Attached { id: "term_window".into(), replay, replay_lead, terminal, size_owner: None }, "");
         let units: Vec<u64> = reply
             .get("replayLeadUnit")
             .map(|lead| lead.as_u64().unwrap())

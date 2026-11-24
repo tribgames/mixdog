@@ -87,7 +87,9 @@ use crate::manager::SpawnOptions;
 use claims::Claims;
 #[cfg(feature = "lease-clock")]
 use claims::ManualLeaseClock;
-use tab::{RelayOrder, Tab, TabFilter, TabState};
+#[cfg(test)]
+use tab::RelayOrder;
+use tab::{Tab, TabFilter, TabState};
 
 /// Variables of the daemon's own identity that a user-facing child must not inherit (the
 /// environment scrub of `env-scrub.mjs`).
@@ -150,6 +152,10 @@ pub struct TerminalConfig {
     /// Wall clock in milliseconds; read once per spawn, for the cursor epoch.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
     pub events: Arc<dyn TerminalEvents>,
+    /// Told of each terminal a spawn made, once and before its tab is listed (see [`SpawnedTerminal`]).
+    pub on_spawn: Option<Arc<dyn Fn(SpawnedTerminal<'_>) + Send + Sync>>,
+    /// Told of each terminal a disposal ended (by whoever disposed it), once its tab is out of the list and its process is ended.
+    pub on_dispose: Option<Arc<dyn Fn(&str, &TerminalId) + Send + Sync>>,
     /// Tests only: tabs run over pipes, not a PTY (which adds sequences of its own), so the bytes a scripted child writes are
     /// exactly the bytes the replay window holds. See `crate::scripted`.
     #[cfg(feature = "core-test")]
@@ -191,6 +197,8 @@ impl TerminalConfig {
             replay_limit: REPLAY_BUFFER_LIMIT,
             now_ms: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)),
             events,
+            on_spawn: None,
+            on_dispose: None,
             #[cfg(feature = "core-test")]
             piped: false,
             #[cfg(feature = "core-test")]
@@ -228,6 +236,27 @@ pub struct EnsureRequest {
     pub rows: Option<u32>,
 }
 
+/// Which terminal a tab id names: the run of the tab layer it came from (another core, a restarted one included, has another `core`)
+/// and its place among that run's spawns (a respawn and a new tab after a dispose are later ones). Incarnations are an order within one
+/// run only; two runs' terminals have none.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TerminalId {
+    pub core: Arc<str>,
+    pub incarnation: u64,
+}
+
+/// A terminal a spawn made ([`TerminalConfig::on_spawn`]): the spawns of one tab id are made one after another, each told before its tab
+/// is listed, so what is told of an id is in the order of its terminals.
+pub struct SpawnedTerminal<'a> {
+    pub id: &'a str,
+    pub terminal: TerminalId,
+    /// The terminal's own process output, which no later process of the tab id writes into.
+    pub(crate) output: Arc<crate::feed::Feed>,
+    /// Starts ordering the tab's activity changes after its output on the relay feed and returns where that feed's pump tells it how
+    /// far it is (see `RelayOrder`); for the pump that starts, once. A tab gone by then has nothing to order.
+    pub order: Box<dyn FnOnce() -> Option<PumpTell> + Send>,
+}
+
 /// What a view gets on opening or reattaching to a tab.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Attached {
@@ -236,6 +265,7 @@ pub struct Attached {
     /// The lone low surrogate Node's replay starts with when its window cut a non-BMP character, which `replay` cannot hold: it
     /// precedes `replay` ([`ReplayBuffer::read_window`]).
     pub replay_lead: Option<u16>,
+    pub terminal: TerminalId,
     /// The size a connected view owns, which the opening view must follow.
     pub size_owner: Option<SizeOwner>,
 }
@@ -257,6 +287,7 @@ pub struct TabEntry {
     pub shell: String,
     pub running: bool,
     pub cwd: Option<String>,
+    pub terminal: TerminalId,
     pub size_owner: Option<SizeOwner>,
 }
 
@@ -414,8 +445,20 @@ pub struct TerminalTabs {
     sequence: AtomicU64,
     /// Creation order of tabs (their `seq`).
     created: AtomicU64,
+    /// This run's name, the `core` of its terminals ([`TerminalId`]).
+    core: Arc<str>,
+    /// Spawns so far: the `incarnation` of the latest terminal.
+    spawned: AtomicU64,
     disposed: std::sync::atomic::AtomicBool,
     profiles: OnceCell<Vec<ShellProfile>>,
+}
+
+/// A name no other run of the tab layer has: 128 bits from the hasher keys std draws from the OS's random source once per process (each
+/// `RandomState` after the first takes the next key).
+fn run_name() -> Arc<str> {
+    use std::hash::BuildHasher;
+    let part = || std::collections::hash_map::RandomState::new().hash_one(std::process::id());
+    format!("{:016x}{:016x}", part(), part()).into()
 }
 
 enum Claim {
@@ -450,6 +493,8 @@ impl TerminalTabs {
             cursor_floors: Mutex::new(HashMap::new()),
             sequence: AtomicU64::new(0),
             created: AtomicU64::new(0),
+            core: run_name(),
+            spawned: AtomicU64::new(0),
             disposed: std::sync::atomic::AtomicBool::new(false),
             profiles: OnceCell::new(),
         }
@@ -502,9 +547,13 @@ impl TerminalTabs {
 
     // ----- ensure / attach ------------------------------------------------------------------
 
+    fn terminal_of(&self, tab: &Tab) -> TerminalId {
+        TerminalId { core: Arc::clone(&self.core), incarnation: tab.incarnation }
+    }
+
     fn attached(&self, tab: &Tab) -> Attached {
         let (replay_lead, replay) = tab.lock().buffer.read_window();
-        Attached { id: tab.id.clone(), replay, replay_lead, size_owner: self.claims.owner_of(&tab.id) }
+        Attached { id: tab.id.clone(), replay, replay_lead, terminal: self.terminal_of(tab), size_owner: self.claims.owner_of(&tab.id) }
     }
 
     fn claim(&self, id: &str) -> Claim {
@@ -528,36 +577,35 @@ impl TerminalTabs {
         Some(self.attached(&tab))
     }
 
-    /// [`Self::attach`] with the replay read under the lock that appends the tab's output, together with the feed's output offset at that
-    /// moment: `hold` runs under that lock with the offset (a hold on the feed's pump takes effect before any later output is admitted).
-    /// What the replay holds is then exactly the output up to the offset, which a subscription made once the pump has published up to it
-    /// neither repeats nor misses.
-    pub async fn attach_cut<H>(&self, id: &str, hold: impl FnOnce(u64) -> H) -> Option<(Attached, u64, H)> {
-        let tab = self.settled_running(id).await?;
-        // Cut under the feed's lock (lock order: the feed's state, then `Tab::state`): no output is admitted between the replay read and
-        // the hold, and the cut seals the feed's last event, so output admitted later is never merged into an event the pump has not
-        // taken yet (such an event would end past the hold and keep the pump short of the offset). The feed's offset is the pump's.
-        let read = |offset: Option<u64>| {
-            let state = tab.lock();
-            let (lead, replay) = state.buffer.read_window();
-            let at = offset.unwrap_or(state.emitted);
-            (lead, replay, at)
-        };
-        let mut hold = Some(hold);
-        let cut = tab.manager.output_mark_then(&tab.handle, |offset| {
-            let (lead, replay, at) = read(Some(offset));
-            (lead, replay, at, (hold.take().expect("the hold is taken once"))(at))
-        });
-        let (replay_lead, replay, emitted, held) = match cut {
-            Ok(cut) => cut,
-            // The process is gone from the manager (its feed has ended): no more output comes.
-            Err(_) => {
-                let (lead, replay, at) = read(None);
-                (lead, replay, at, (hold.take().expect("the hold is taken once"))(at))
+    /// [`Self::attach`] with the replay read under the lock that appends the tab's output, together with that output's offset at that
+    /// moment. `feed` is asked first, holding no lock, for the feed of the terminal attached; `None` when that terminal is no longer the
+    /// id's (a later one was spawned meanwhile), which is then attached instead. `hold` runs under that lock with the feed and the offset
+    /// (a hold on the feed's pump takes effect before any later output is admitted). What the replay holds is then exactly the output up
+    /// to the offset, which a subscription made once the pump has published up to it neither repeats nor misses.
+    pub async fn attach_cut<F, H>(
+        &self,
+        id: &str,
+        mut feed: impl FnMut(&TerminalId) -> Option<F>,
+        hold: impl FnOnce(&F, u64) -> H,
+    ) -> Option<(Attached, u64, F, H)> {
+        let (tab, terminal, feed) = loop {
+            let tab = self.settled_running(id).await?;
+            let terminal = self.terminal_of(&tab);
+            if let Some(feed) = feed(&terminal) {
+                break (tab, terminal, feed);
             }
         };
-        let attached = Attached { id: tab.id.clone(), replay, replay_lead, size_owner: self.claims.owner_of(&tab.id) };
-        Some((attached, emitted, held))
+        // Cut under the lock of the terminal's own output (lock order: that output's state, then `Tab::state`): no output is admitted
+        // between the replay read and the hold, and the cut seals the output's last event, so output admitted later is never merged into
+        // an event the pump has not taken yet (such an event would end past the hold and keep the pump short of the offset). The output's
+        // offset is the pump's.
+        let output = tab.output.get().expect("a listed tab's spawn set its output");
+        let (replay_lead, replay, emitted, held) = output.mark_then(|offset| {
+            let (lead, replay) = tab.lock().buffer.read_window();
+            (lead, replay, offset, hold(&feed, offset))
+        });
+        let attached = Attached { id: tab.id.clone(), replay, replay_lead, terminal, size_owner: self.claims.owner_of(&tab.id) };
+        Some((attached, emitted, feed, held))
     }
 
     async fn settled_running(&self, id: &str) -> Option<Arc<Tab>> {
@@ -663,7 +711,9 @@ impl TerminalTabs {
         let tab = Arc::new(Tab {
             id: tab_id.to_owned(),
             seq,
+            incarnation: self.spawned.fetch_add(1, Ordering::AcqRel) + 1,
             handle: handle.clone(),
+            output: std::sync::OnceLock::new(),
             shell: shell_label(&shell.path),
             cwd: request.cwd.clone().filter(|c| !c.is_empty()),
             state: Mutex::new(TabState {
@@ -720,7 +770,14 @@ impl TerminalTabs {
         {
             options.scripted_frames = crate::scripted::in_place_of(&mut spawn);
         }
-        self.manager.spawn_with(spawn, options).await.map_err(TerminalError::Process)?;
+        let (_, output) = self.manager.spawn_with_output(spawn, options).await.map_err(TerminalError::Process)?;
+        if tab.output.set(Arc::clone(&output)).is_err() {
+            unreachable!("a new tab's output is set by its own spawn only");
+        }
+        if let Some(spawned) = &self.config.on_spawn {
+            let weak = Arc::downgrade(&tab);
+            spawned(SpawnedTerminal { id: tab_id, terminal: self.terminal_of(&tab), output, order: Box::new(move || Tab::relay_order(&weak)) });
+        }
         Ok(tab)
     }
 
@@ -770,7 +827,14 @@ impl TerminalTabs {
             .into_iter()
             .map(|tab| {
                 let running = !tab.lock().exited;
-                TabEntry { id: tab.id.clone(), shell: tab.shell.clone(), running, cwd: tab.cwd.clone(), size_owner: self.claims.owner_of(&tab.id) }
+                TabEntry {
+                    id: tab.id.clone(),
+                    shell: tab.shell.clone(),
+                    running,
+                    cwd: tab.cwd.clone(),
+                    terminal: self.terminal_of(&tab),
+                    size_owner: self.claims.owner_of(&tab.id),
+                }
             })
             .collect();
         entries.sort_by(|a, b| a.id.cmp(&b.id));
@@ -794,14 +858,6 @@ impl TerminalTabs {
     /// Where the tab `id` stands in creation order, if it is open.
     pub fn creation_order(&self, id: &str) -> Option<u64> {
         self.live(id).map(|tab| tab.seq)
-    }
-
-    /// Orders the activity changes of the live tab `id` after its output on the relay feed (see [`RelayOrder`]): returns what the feed's
-    /// pump calls with the bytes of output it has taken so far (`u64::MAX` when it ends). Called by whoever starts that pump, once.
-    pub fn relay_order(&self, id: &str) -> Option<PumpTell> {
-        let tab = self.live(id)?;
-        tab.lock().order = Some(RelayOrder::default());
-        Some(Arc::new(move |at| tab.pumped(at)))
     }
 
     /// Who owns this PTY's size right now, if anyone.
@@ -1007,6 +1063,12 @@ impl TerminalTabs {
     /// gate, so a claim of the same id runs wholly before it (its owner announced, then the end) or wholly after it (the claim
     /// stands on an id with no tab): Node's two serialisations (terminal-manager.ts:455, :536), nothing in between.
     pub fn dispose(&self, id: &str) {
+        self.dispose_with(id, |_| {});
+    }
+
+    /// [`Self::dispose`], with `ending` run on the disposed terminal once its tab is out of the list and before its process is ended (a
+    /// hold on its feed taken there keeps back the killed shell's last output).
+    pub(crate) fn dispose_with(&self, id: &str, ending: impl FnOnce(&TerminalId)) {
         let _gate = self.claims.gate(id);
         let removed = {
             let mut table = self.table();
@@ -1015,8 +1077,12 @@ impl TerminalTabs {
                 _ => None,
             }
         };
-        if let Some(Slot::Live(tab)) = removed {
-            self.dispose_tab(&tab);
+        let Some(Slot::Live(tab)) = removed else { return };
+        let terminal = self.terminal_of(&tab);
+        ending(&terminal);
+        self.dispose_tab(&tab);
+        if let Some(disposed) = &self.config.on_dispose {
+            disposed(id, &terminal);
         }
     }
 

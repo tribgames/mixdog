@@ -191,6 +191,95 @@ test('output of an attached tab reaches the page coalesced, other feeds and disp
   assert.equal(seen.length, 1);
 });
 
+/** A terminal as the core names it: its incarnation within the run `core`. */
+const T = (incarnation, core = 'run-1') => ({ core, incarnation });
+const named = (event, terminal) => ({
+  ...event,
+  notification: { ...event.notification, params: { ...event.notification.params, terminal } },
+});
+
+test('an ensure that names a later terminal of an attached tab attaches it again, and the earlier one never reaches its pane', async () => {
+  const replies = [
+    { id: 't1', replay: 'one', terminal: T(1), subscription: { mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+    { id: 't1', replay: 'two', terminal: T(2), subscription: { mode: 'snapshot', epoch: 'e2', startSeq: 1 } },
+  ];
+  const rig = setup({
+    answers: { 'terminal/attach': () => replies.shift(), 'terminal/ensure': { id: 't1', replay: 'two', terminal: T(2) } },
+  });
+  const seen = [];
+  rig.api.subscribeTermData((event) => seen.push(event));
+  await rig.api.termAttach('t1');
+  rig.emit(named(delta('t1', 'one-live', 2), T(1)));
+  // The shell exited and was respawned; its exit has not reached this window when the pane's ensure answers the next terminal.
+  assert.deepEqual(await rig.api.termEnsure('t1', null, null), { id: 't1', replay: 'two', terminal: T(2) });
+  assert.equal(rig.calls.filter((c) => c.method === 'terminal/attach').length, 2, 'the next terminal is attached');
+  rig.emit(named(delta('t1', 'one-late', 3), T(1)));
+  rig.emit({
+    type: 'notification',
+    notification: {
+      method: 'process/exited',
+      params: { processHandle: 't1', code: 0, terminal: T(1) },
+      feed: { id: 'process:t1', epoch: 'e1', seq: 4 },
+    },
+  });
+  const live = delta('t1', 'two-live', 2);
+  rig.emit(named({ ...live, notification: { ...live.notification, feed: { id: 'process:t1', epoch: 'e2', seq: 2 } } }, T(2)));
+  await wait(30);
+  assert.equal(seen.map((event) => event.data).join(''), 'one-livetwo-live');
+  rig.calls.length = 0;
+  rig.replace();
+  await wait(10);
+  assert.deepEqual(
+    rig.calls.map((c) => [c.method, c.params]),
+    [['terminal/attach', { tabId: 't1', resumeFrom: { epoch: 'e2', seq: 2 } }]],
+    "the earlier terminal's exit did not end the tab's reading"
+  );
+});
+
+test('an ensure joining an attach in flight that finds the earlier shell gone, or fails, still attaches the terminal it ensured', async () => {
+  for (const ending of ['gone', 'failed']) {
+    let answerWarmUp;
+    const attaches = [
+      () =>
+        new Promise((resolve, reject) => {
+          answerWarmUp = () => (ending === 'gone' ? resolve(null) : reject(new Error('link lost')));
+        }),
+      () => ({ id: 't1', replay: 'two', terminal: T(2), subscription: { mode: 'snapshot', epoch: 'e2', startSeq: 1 } }),
+    ];
+    const rig = setup({
+      answers: { 'terminal/attach': () => attaches.shift()(), 'terminal/ensure': { id: 't1', replay: 'two', terminal: T(2) } },
+    });
+    const seen = [];
+    rig.api.subscribeTermData((event) => seen.push(event));
+    // A dock hover's warm-up attaches the tab whose shell just exited; the pane's ensure respawns it meanwhile.
+    const warmUp = rig.api.termAttach('t1').catch(() => null);
+    const ensured = rig.api.termEnsure('t1', null, null);
+    await wait(0);
+    answerWarmUp();
+    assert.deepEqual(await ensured, { id: 't1', replay: 'two', terminal: T(2) }, ending);
+    await warmUp;
+    assert.equal(rig.calls.filter((c) => c.method === 'terminal/attach').length, 2, `the ensured terminal is attached (${ending})`);
+    const live = delta('t1', 'two-live', 2);
+    rig.emit(named({ ...live, notification: { ...live.notification, feed: { id: 'process:t1', epoch: 'e2', seq: 2 } } }, T(2)));
+    await wait(30);
+    assert.equal(seen.map((event) => event.data).join(''), 'two-live', ending);
+  }
+});
+
+test('an ensure that names the terminal a tab is attached for, or an earlier one, attaches nothing more', async () => {
+  const ensured = [{ id: 't1', replay: 'r', terminal: T(2) }, { id: 't1', replay: 'r', terminal: T(1) }];
+  const rig = setup({
+    answers: {
+      'terminal/attach': { id: 't1', replay: 'r', terminal: T(2), subscription: { mode: 'snapshot', epoch: 'e2', startSeq: 1 } },
+      'terminal/ensure': () => ensured.shift(),
+    },
+  });
+  await rig.api.termAttach('t1');
+  await rig.api.termEnsure('t1', null, null);
+  await rig.api.termEnsure('t1', null, null);
+  assert.equal(rig.calls.filter((c) => c.method === 'terminal/attach').length, 1);
+});
+
 test('flow control: 256 KiB unacknowledged pauses the core, under 32 KiB resumes it', async () => {
   const rig = setup({
     answers: {

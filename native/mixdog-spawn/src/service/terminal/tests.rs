@@ -123,7 +123,7 @@ fn a_claim_holds_back_what_the_shell_writes_after_it_until_its_owner_is_publishe
         };
         let handle = ProcessHandle::from(format!("term_claim_{}", std::process::id()));
         manager.spawn(two_writes(&handle)).await.unwrap();
-        let opened = feeds.open_terminal(handle.as_str(), || None);
+        let opened = feeds.open_spawned(handle.as_str(), &TerminalId { core: "test".into(), incarnation: 1 }, || None);
         let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
         *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
         let tap = FeedTap::attach(&relay);
@@ -167,6 +167,38 @@ fn a_claim_holds_back_what_the_shell_writes_after_it_until_its_owner_is_publishe
     });
 }
 
+/// A hold at an output offset keeps back only what the shell writes after it: the relay flush that falls due while it stands sends the
+/// output from before it, which an attach holding at its cut waits to see published.
+#[test]
+fn a_relay_flush_of_the_output_before_a_hold_goes_while_the_hold_stands() {
+    let paused = tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true).build().unwrap();
+    paused.block_on(async {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
+        let handle = ProcessHandle::from(format!("term_flush_{}", std::process::id()));
+        manager.spawn(two_writes(&handle)).await.unwrap();
+        drop(feeds.open_spawned(handle.as_str(), &TerminalId { core: "test".into(), incarnation: 1 }, || None));
+        let tap = FeedTap::attach(&scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists"));
+        let mut written = manager.subscribe(&handle, None).unwrap();
+        manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+        within("the first output entered the feed", written.next()).await;
+        within("the first output reached the phone", tap.notifications_until(|frames| sent(frames, "before").is_some())).await;
+        // Inside the relay's window: this output waits in the relay buffer for its flush.
+        manager.write_input(&handle, b"2\n".to_vec()).unwrap();
+        within("the second output entered the feed", written.next()).await;
+        let pushed = manager.output_pushed(&handle).unwrap();
+        let mut published = feeds.published_of(handle.as_str());
+        within("the pump took the second output", published.wait_for(|at| *at >= pushed)).await.unwrap();
+        assert_eq!(sent(&tap.notifications_until(|_| true).await, "after"), None, "the second output waits for its flush");
+        let held = feeds.hold_new_output(handle.as_str()).expect("the terminal has a feed");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        within("the flush went while the hold stood", tap.notifications_until(|frames| sent(frames, "after").is_some())).await;
+        drop(held);
+        let _ = manager.kill(&handle);
+    });
+}
+
 /// What ends a claim's hold in [`a_parked_chunk_goes_once_whatever_ends_the_claims_hold`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Release {
@@ -196,7 +228,7 @@ fn a_parked_chunk_goes_once_whatever_ends_the_claims_hold(release: Release) {
         };
         let handle = ProcessHandle::from(format!("term_parked_{release:?}_{}", std::process::id()));
         manager.spawn(two_writes(&handle)).await.unwrap();
-        let opened = feeds.open_terminal(handle.as_str(), || None);
+        let opened = feeds.open_spawned(handle.as_str(), &TerminalId { core: "test".into(), incarnation: 1 }, || None);
         let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
         *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
         let tap = FeedTap::attach(&relay);
@@ -339,6 +371,7 @@ struct ShellRig {
     publisher: Arc<Ordered>,
     service: Arc<TerminalService>,
     id: String,
+    terminal: TerminalId,
     handle: ProcessHandle,
     relay: Arc<dyn ScopedFeed>,
     raw: FeedTap,
@@ -359,18 +392,18 @@ impl ShellRig {
         let id = format!("term_{name}_{}", std::process::id());
         let handle = ProcessHandle::from(id.as_str());
         let profile = SpawnProfile { path: "powershell.exe".to_owned(), ..SpawnProfile::default() };
-        within(
+        let attached = within(
             "the tab started",
             service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), cols: Some(80), rows: Some(24), ..EnsureRequest::default() }),
         )
         .await
         .unwrap();
-        drop(feeds.open_terminal(&id, || service.tabs.relay_order(&id)));
+        drop(feeds.open_terminal(&id, &attached.terminal).expect("the spawn opened the tab's feed"));
         let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
         *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
         let raw = FeedTap::attach(&scoped.find(&FeedId::from(format!("process:{id}"))).expect("the raw feed exists"));
         let tap = FeedTap::attach(&relay);
-        let rig = Self { manager, feeds, publisher, service, id, handle, relay, raw, tap };
+        let rig = Self { manager, feeds, publisher, service, id, terminal: attached.terminal, handle, relay, raw, tap };
         within("the prompt's activity was published", rig.publisher.at(|tabs, value| !tabs && value.get(&rig.id).is_some())).await;
         // The relay's window closes: the next output goes as a leading-edge frame.
         tokio::time::advance(Duration::from_secs(1)).await;
@@ -540,7 +573,7 @@ async fn a_claims_hold_ends_at_its_deadline_while_the_resize_is_blocked() {
     let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
     let feeds = ProcessFeeds::new(manager.clone(), Arc::new(MockScopedFeeds::new(MockLimits::default())));
     let service = TerminalService::new(manager, Arc::clone(&feeds), Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
-    let _ = feeds.feed("term_blocked", true);
+    feeds.terminal_opened("term_blocked", TerminalId { core: "test".into(), incarnation: 1 }, crate::feed::Feed::new(1 << 20), Box::new(|| None));
     let gate = service.tabs.hold_claim_gate("term_blocked");
     let mut holds = feeds.holds_of("term_blocked");
     let (claimed_tx, claimed_rx) = std::sync::mpsc::channel();
@@ -593,6 +626,63 @@ fn a_dispose_whose_tabs_end_is_held_is_not_answered_first() {
         }
         open.0.send(()).unwrap();
         within("the tab's end was published once the gate opened", rig.publisher.at(rig.ended())).await;
+    });
+}
+
+/// A local attach answers with a subscription to the feed its cut was taken on: a dispose and the id's next terminal that come while it
+/// waits for that feed to publish the output its replay holds do not put another feed in its place.
+#[cfg(windows)]
+#[test]
+fn an_attach_subscribes_the_feed_it_cut_when_the_ids_feed_is_replaced_meanwhile() {
+    let paused = tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true).build().unwrap();
+    let sections = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    paused.block_on(async {
+        let rig = ShellRig::start("attach_feed", &sections).await;
+        let cut_on = rig.feeds.position_of(&rig.id).epoch;
+        // Nothing the shell writes from here is published until the hold goes: the attach waits for its replay's output.
+        let held = rig.feeds.hold(&rig.id, &rig.terminal).expect("the tab has a feed");
+        let mut written = rig.manager.subscribe(&rig.handle, None).unwrap();
+        assert!(rig.service.tabs.write(&rig.id, "x").is_none(), "the key was queued");
+        within("the shell echoed the key", written.next()).await;
+        let mut holds = rig.feeds.holds_of(&rig.id);
+        let (service, id) = (Arc::clone(&rig.service), rig.id.clone());
+        let attach = tokio::spawn(async move {
+            let ctx = mixdog_core_api::call::CallContext::internal("test");
+            service.call(CoreRequest { method: Method("terminal/attach"), params: json!({ "tabId": id }), op: None, ctx }).await
+        });
+        within("the attach took its cut", holds.wait_for(|holds| holds.len() == 2)).await.unwrap();
+        // A dispose and the id's next terminal, as far as the feeds go.
+        rig.feeds.close(&rig.id, &rig.terminal);
+        let next = TerminalId { core: rig.terminal.core.clone(), incarnation: rig.terminal.incarnation + 1 };
+        rig.feeds.terminal_opened(&rig.id, next, crate::feed::Feed::new(1 << 20), Box::new(|| None));
+        let replaced = rig.feeds.position_of(&rig.id).epoch;
+        drop(held);
+        let Ok(Reply::Subscribe(sub)) = within("the attach answered", attach).await.unwrap() else {
+            panic!("a local attach answers with a subscription");
+        };
+        assert_eq!(sub.feed.position().epoch, cut_on, "the subscription is of the feed the attach cut");
+        assert_ne!(sub.feed.position().epoch, replaced, "the subscription is not of the id's next feed");
+    });
+}
+
+/// A tab no client ever attached (as the in-process `terminal` tool's) has the feed its spawn made; a disposal by the tab layer itself
+/// (a removed worktree's) retires that feed with the tab.
+#[cfg(windows)]
+#[test]
+fn a_tab_no_client_attached_leaves_no_feed_once_the_tab_layer_disposes_it() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    runtime.block_on(async {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
+        let publisher: Arc<dyn StatePublisher> = Arc::new(Ordered::default());
+        let service = TerminalService::new(manager, Arc::clone(&feeds), publisher, TerminalServiceConfig::default());
+        let id = format!("term_unattached_{}", std::process::id());
+        let profile = SpawnProfile { path: "powershell.exe".to_owned(), ..SpawnProfile::default() };
+        within("the tab started", service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), ..EnsureRequest::default() })).await.unwrap();
+        assert!(feeds.has_feed(&id), "the spawn made the tab's feed");
+        service.tabs.dispose(&id);
+        assert!(!feeds.has_feed(&id), "the disposal retired the feed with its tab");
     });
 }
 

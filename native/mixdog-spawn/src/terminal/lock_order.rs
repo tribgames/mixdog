@@ -27,7 +27,9 @@ fn a_respawn_and_a_dispose_of_one_tab_id_do_not_deadlock() {
     let tab = Arc::new(Tab {
         id: "term_1".to_owned(),
         seq: 1,
+        incarnation: 1,
         handle: ProcessHandle::from("term_1"),
+        output: std::sync::OnceLock::new(),
         shell: "sh".to_owned(),
         cwd: None,
         state: Mutex::new(TabState {
@@ -146,7 +148,9 @@ fn relay_tab(events: Arc<dyn TerminalEvents>, manager: LocalProcessManager, hand
     Arc::new(Tab {
         id: handle.to_owned(),
         seq: 1,
+        incarnation: 1,
         handle: ProcessHandle::from(handle),
+        output: std::sync::OnceLock::new(),
         shell: "pwsh".to_owned(),
         cwd: None,
         state: Mutex::new(TabState {
@@ -268,7 +272,8 @@ async fn a_marker_change_goes_before_held_output_and_after_output_sent_at_once()
         .unwrap();
         conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
         let pumped = Arc::clone(&tab);
-        drop(feeds.open_terminal(handle.as_str(), move || Some(Arc::new(move |at: PumpPoint| pumped.pumped(at)) as PumpTell)));
+        let terminal = TerminalId { core: "test".into(), incarnation: tab.incarnation };
+        drop(feeds.open_spawned(handle.as_str(), &terminal, move || Some(Arc::new(move |at: PumpPoint| pumped.pumped(at)) as PumpTell)));
 
         manager.write_input(&handle, b"1\n".to_vec()).unwrap();
         settle("the first frame", || feeds.lane_seq() >= 1).await;
@@ -441,7 +446,8 @@ fn pump(manager: &LocalProcessManager, tab: &Arc<Tab>, logged: &Arc<Logged>) -> 
     let feeds =
         crate::service::ProcessFeeds::new(manager.clone(), Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
     let (tab, logged) = (Arc::clone(tab), Arc::clone(logged));
-    let held = feeds.open_terminal(&tab.id.clone(), move || {
+    let terminal = TerminalId { core: "test".into(), incarnation: tab.incarnation };
+    let held = feeds.open_spawned(&tab.id.clone(), &terminal, move || {
         Some(Arc::new(move |at: PumpPoint| {
             if let PumpPoint::Taken(taken) = at {
                 logged.push(Seen::Taken(taken));

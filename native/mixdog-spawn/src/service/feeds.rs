@@ -41,11 +41,14 @@ use serde_json::json;
 
 use super::relay_buffer::RelayBuffer;
 use super::relay_buffer::RelayFrame;
+use super::terminal::terminal_json;
+use crate::feed::Feed;
 use crate::manager::LocalProcessManager;
 use crate::terminal::PumpPoint;
 use crate::terminal::PumpTell;
 use crate::terminal::REPLAY_BUFFER_LIMIT;
 use crate::terminal::ReplayBuffer;
+use crate::terminal::TerminalId;
 
 /// Exited processes whose feed stays attachable (replay of a finished run).
 const RETAINED_FEEDS: usize = 256;
@@ -147,6 +150,17 @@ fn exited_params(handle: &ProcessHandle, exit: &ProcessExit) -> Value {
     }
 }
 
+/// Where the relay feed's pump tells a terminal how far it has taken the output (see [`PumpTell`]); asked once, by the pump that starts.
+pub(crate) type RelayOrderOf = Box<dyn FnOnce() -> Option<PumpTell> + Send>;
+
+/// The terminal a tab's feed carries, fixed when its spawn opens the feed ([`ProcessFeeds::terminal_opened`]).
+struct TerminalOutput {
+    id: TerminalId,
+    /// That terminal's own process output: the pump and a cut read it, never whatever process the handle names by then.
+    output: Arc<Feed>,
+    order: Mutex<Option<RelayOrderOf>>,
+}
+
 struct Entry {
     handle: ProcessHandle,
     publisher: FramePublisher,
@@ -156,6 +170,9 @@ struct Entry {
     /// A terminal feed: its snapshot carries the screen text; a process feed's carries only the
     /// run state (its replay is the feed's ring).
     text: bool,
+    /// The terminal a tab's feed carries; none for a process's feed. Every frame the feed and the terminal lane carry of it names it, as
+    /// the answers and the tab list do.
+    terminal: Option<TerminalOutput>,
     started: AtomicBool,
     finished: AtomicBool,
     /// Queued for eviction already (see `ProcessFeeds::retire`).
@@ -172,38 +189,48 @@ struct Entry {
     #[cfg(test)]
     after_mark: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
-    /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
+    /// a terminal tab's activity changes wait for it (`SpawnedTerminal::order`).
     taken: OnceLock<PumpTell>,
     /// The output offset the pump has published up to (`u64::MAX` once it ended): a terminal attach waits for it to reach the tab's
     /// replay position, so the replay and the frames that follow the subscription meet without a gap or an overlap.
     published: tokio::sync::watch::Sender<u64>,
 }
 
-/// A terminal tab's feed, for an attach that cuts the replay and the subscription at one output offset (see
+/// A terminal's feed, for an attach that cuts the replay and the subscription at one output offset (see
 /// [`ProcessFeeds::terminal_cut`]).
-pub(crate) struct TerminalCut(Arc<Entry>);
+pub(crate) struct TerminalCut {
+    feeds: Arc<ProcessFeeds>,
+    entry: Arc<Entry>,
+}
 
 /// How long an attach waits for the pump to publish what its replay holds (the pump is held back by another call's hold, or is stuck).
 const CUT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl TerminalCut {
     pub(crate) fn position(&self) -> FeedPosition {
-        self.0.publisher.feed.position()
+        self.entry.publisher.feed.position()
     }
 
     /// Holds the pump from publishing output past `offset` (taken by the caller under the lock that appends the output).
     pub(crate) fn hold_at(&self, offset: u64) -> FeedHold {
-        self.0.hold_from(offset)
+        self.entry.hold_from(offset)
     }
 
     /// Returns once the pump has published the output up to `offset` (or ended, or [`CUT_DEADLINE`] passed).
     pub(crate) async fn published(&self, offset: u64) {
-        let mut seen = self.0.published.subscribe();
+        let mut seen = self.entry.published.subscribe();
         let _ = tokio::time::timeout(CUT_DEADLINE, seen.wait_for(|at| *at >= offset)).await;
+    }
+
+    /// The feed the cut is of, for the subscription that goes on from it: never the id's feed as it is by then, which may be another
+    /// terminal's.
+    pub(crate) fn source(&self) -> Arc<dyn FeedSource> {
+        Arc::new(Gate { feeds: Arc::clone(&self.feeds), entry: Arc::clone(&self.entry) })
     }
 }
 
-/// A call's hold on its tab's feed: until it is dropped, the pump publishes no output past the hold's offset, no relay flush and no exit.
+/// A call's hold on its tab's feed: until it is dropped, the pump publishes no output past the hold's offset (on the feed or in a relay
+/// flush) and no exit.
 /// Node answered `termEnsure` and `termDispose` in-process before the output they cause (a new shell's first output, a killed shell's last
 /// output and exit line: its PTY reports them later, on its own event), so the phone sees the answer first; the hold (offset 0: nothing
 /// at all) makes the core's pump wait for the answer instead of racing it. A claim's hold (see [`ProcessFeeds::hold_new_output`]) lets
@@ -268,9 +295,7 @@ impl FeedSource for Gate {
 
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
         let decision = self.entry.publisher.source().attach(req)?;
-        if !self.entry.started.swap(true, Ordering::AcqRel) {
-            Arc::clone(&self.feeds).start_pump(Arc::clone(&self.entry));
-        }
+        self.feeds.start_once(&self.entry);
         Ok(decision)
     }
 
@@ -305,12 +330,19 @@ impl ProcessFeeds {
             }
             entry.close();
         }
+        let entry = self.new_entry(handle, text, None);
+        entries.insert(handle.to_owned(), Arc::clone(&entry));
+        Arc::new(Gate { feeds: Arc::clone(self), entry })
+    }
+
+    fn new_entry(&self, handle: &str, text: bool, terminal: Option<TerminalOutput>) -> Arc<Entry> {
         let state = if text { json!({ "text": "" }) } else { json!({}) };
-        let entry = Arc::new(Entry {
+        Arc::new(Entry {
             handle: ProcessHandle::from(handle),
             publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state),
             relay: text,
             text,
+            terminal,
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             retired: AtomicBool::new(false),
@@ -323,9 +355,7 @@ impl ProcessFeeds {
             after_mark: Mutex::new(None),
             taken: OnceLock::new(),
             published: tokio::sync::watch::Sender::new(0),
-        });
-        entries.insert(handle.to_owned(), Arc::clone(&entry));
-        Arc::new(Gate { feeds: Arc::clone(self), entry })
+        })
     }
 
     /// The terminal lane's source, for a reader that makes the pump fill the relay buffer. Tests only.
@@ -340,45 +370,62 @@ impl ProcessFeeds {
         self.lane.feed.position().seq
     }
 
-    pub(crate) fn open_terminal(self: &Arc<Self>, handle: &str, order: impl FnOnce() -> Option<PumpTell>) -> Option<FeedHold> {
-        let _ = self.feed(handle, true);
-        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
-        let held = entry.hold();
-        if !entry.started.swap(true, Ordering::AcqRel) {
-            if let Some(order) = order() {
-                let _ = entry.taken.set(order);
-            }
-            Arc::clone(self).start_pump(Arc::clone(&entry));
+    /// A new terminal of the tab `handle`, opened by its spawn once and before the tab is listed, so the spawns of an id open their
+    /// terminals in their own order. Its feed carries that terminal's own process output (`output`) and is the handle's feed from now
+    /// on; the earlier terminal's (ended, or still publishing its end) is retired, as a disposed tab's is.
+    pub(crate) fn terminal_opened(&self, handle: &str, terminal: TerminalId, output: Arc<Feed>, order: RelayOrderOf) {
+        let entry = self.new_entry(handle, true, Some(TerminalOutput { id: terminal, output, order: Mutex::new(Some(order)) }));
+        let replaced = self.entries.lock().unwrap_or_else(|e| e.into_inner()).insert(handle.to_owned(), entry);
+        if let Some(replaced) = replaced {
+            self.retire(vec![replaced]);
         }
+    }
+
+    /// The feed of `terminal` while it is the handle's: `None` once a later terminal of the id was opened, or the tab was disposed.
+    fn terminal_feed(&self, handle: &str, terminal: &TerminalId) -> Option<Arc<Entry>> {
+        self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).filter(|entry| entry.terminal.as_ref().is_some_and(|of| &of.id == terminal)).cloned()
+    }
+
+    /// Starts the pump of `entry` unless it runs; a terminal's relay order is asked once, for the pump that starts.
+    fn start_once(self: &Arc<Self>, entry: &Arc<Entry>) {
+        if !entry.started.swap(true, Ordering::AcqRel) {
+            let order = entry.terminal.as_ref().and_then(|of| of.order.lock().unwrap_or_else(|e| e.into_inner()).take());
+            if let Some(tell) = order.and_then(|order| order()) {
+                let _ = entry.taken.set(tell);
+            }
+            Arc::clone(self).start_pump(Arc::clone(entry));
+        }
+    }
+
+    /// The feed of `terminal`, pumping, with a hold taken before its pump can publish anything; `None` when it is no longer the
+    /// handle's.
+    pub(crate) fn open_terminal(self: &Arc<Self>, handle: &str, terminal: &TerminalId) -> Option<FeedHold> {
+        let entry = self.terminal_feed(handle, terminal)?;
+        let held = entry.hold();
+        self.start_once(&entry);
         Some(held)
     }
 
-    /// The feed of a terminal tab, live and pumping (as [`Self::open_terminal`], without a hold), for an attach that cuts its replay and
-    /// its subscription at one output offset.
-    pub(crate) fn terminal_cut(self: &Arc<Self>, handle: &str, order: impl FnOnce() -> Option<PumpTell>) -> Option<TerminalCut> {
-        let _ = self.feed(handle, true);
-        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
-        if !entry.started.swap(true, Ordering::AcqRel) {
-            if let Some(order) = order() {
-                let _ = entry.taken.set(order);
-            }
-            Arc::clone(self).start_pump(Arc::clone(&entry));
-        }
-        Some(TerminalCut(entry))
+    /// The feed of `terminal`, live and pumping (as [`Self::open_terminal`], without a hold), for an attach that cuts its replay and its
+    /// subscription at one output offset.
+    pub(crate) fn terminal_cut(self: &Arc<Self>, handle: &str, terminal: &TerminalId) -> Option<TerminalCut> {
+        let entry = self.terminal_feed(handle, terminal)?;
+        self.start_once(&entry);
+        Some(TerminalCut { feeds: Arc::clone(self), entry })
     }
 
-    /// Holds the current feed of `handle` (see [`FeedHold`]); `None` when it has none.
-    pub(crate) fn hold(&self, handle: &str) -> Option<FeedHold> {
-        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
-        Some(entry.hold())
+    /// Holds the feed of `terminal` (see [`FeedHold`]); `None` when it is no longer the handle's.
+    pub(crate) fn hold(&self, handle: &str, terminal: &TerminalId) -> Option<FeedHold> {
+        Some(self.terminal_feed(handle, terminal)?.hold())
     }
 
-    /// Holds back what the process of `handle` writes from now on, and every relay flush and the exit, but not the output already in its
-    /// feed (see [`FeedHold`]); `None` when it has no feed. A process that is gone writes nothing more.
-    /// The cut and the hold are one step under the feed's lock: output the shell writes after the cut is never taken unheld.
+    /// Holds back what the terminal of `handle` writes from now on, and every relay flush and the exit, but not the output already in its
+    /// feed (see [`FeedHold`]); `None` when it has no terminal's feed. A process that is gone writes nothing more.
+    /// The cut and the hold are one step under the lock of the terminal's output: output the shell writes after the cut is never taken
+    /// unheld.
     pub(crate) fn hold_new_output(&self, handle: &str) -> Option<FeedHold> {
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
-        let held = self.manager.output_mark_then(&entry.handle, |offset| entry.hold_from(offset)).unwrap_or_else(|_| entry.hold_from(u64::MAX));
+        let held = entry.terminal.as_ref()?.output.mark_then(|offset| entry.hold_from(offset));
         #[cfg(test)]
         if let Some(seam) = entry.after_mark.lock().unwrap().take() {
             seam();
@@ -386,13 +433,17 @@ impl ProcessFeeds {
         Some(held)
     }
 
-    /// Retires the feed of a disposed tab: a new tab of the same id gets a feed of its own, and this one stays attached until it is evicted like
-    /// any finished feed, so a subscriber still gets what the shell wrote while it was killed (Node's pty keeps delivering after dispose:
-    /// golden.json, trace.order, the output of term_ph2b after its termDispose) and its `process/exited`, which ends the subscriber's
-    /// reading (the phone's adapter leaves the feed on it). It is never closed here, finished or not: a close ends the lanes at once and
-    /// drops frames a subscriber has not read yet.
-    pub(crate) fn close(&self, handle: &str) {
-        let removed = self.entries.lock().unwrap_or_else(|e| e.into_inner()).remove(handle);
+    /// Retires the feed of `terminal`, a disposed tab's: a new tab of the same id gets a feed of its own, and this one stays attached until
+    /// it is evicted like any finished feed, so a subscriber still gets what the shell wrote while it was killed (Node's pty keeps
+    /// delivering after dispose: golden.json, trace.order, the output of term_ph2b after its termDispose) and its `process/exited`, which
+    /// ends the subscriber's reading (the phone's adapter leaves the feed on it). It is never closed here, finished or not: a close ends
+    /// the lanes at once and drops frames a subscriber has not read yet.
+    pub(crate) fn close(&self, handle: &str, terminal: &TerminalId) {
+        let removed = {
+            let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            let own = entries.get(handle).is_some_and(|entry| entry.terminal.as_ref().is_some_and(|of| &of.id == terminal));
+            if own { entries.remove(handle) } else { None }
+        };
         if let Some(entry) = removed {
             self.retire(vec![entry]);
         }
@@ -426,7 +477,8 @@ impl ProcessFeeds {
         });
     }
 
-    /// Waits while a hold keeps back what the pump has next: output ending at `end`, or (`None`) a relay flush, the exit or the end.
+    /// Waits while a hold keeps back what the pump has next: output ending at `end` (a relay flush's ends where the pump has taken), or
+    /// (`None`) the exit or the end.
     async fn unheld(entry: &Entry, end: Option<u64>) {
         let passes = |holds: &Vec<u64>| holds.iter().all(|held| end.is_some_and(|end| end <= *held));
         let mut held = entry.hold.subscribe();
@@ -442,11 +494,27 @@ impl ProcessFeeds {
         let handle = &entry.handle;
         // `taken` counts from the output offset of the first event, so it is the feed's own offset (the tab's `emitted`) even when the
         // ring has dropped the start.
-        // From the oldest event the ring holds, found and subscribed in one step: an eviction in between cannot end the pump.
-        let Ok((mut events, mut taken)) = self.manager.subscribe_oldest(handle) else {
+        // From the oldest event the ring holds, found and subscribed in one step: an eviction in between cannot end the pump. A terminal's
+        // feed reads its own process's output, a process's feed the process its handle names.
+        let subscribed = match &entry.terminal {
+            Some(of) => {
+                let events = of.output.subscribe_oldest();
+                let start = events.start();
+                Ok((events, start))
+            }
+            None => self.manager.subscribe_oldest(handle),
+        };
+        let Ok((mut events, mut taken)) = subscribed else {
             return self.finish(entry);
         };
         entry.published.send_replace(taken);
+        let terminal = entry.terminal.as_ref().map(|of| terminal_json(&of.id));
+        let named = |mut params: Value| {
+            if let Some(terminal) = &terminal {
+                params["terminal"] = terminal.clone();
+            }
+            params
+        };
         // The window a late subscriber is given: Node's replay buffer, the last 200,000 UTF-16 units (a cut may fall inside a non-BMP
         // character, which then reads as U+FFFD at the window's start).
         let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
@@ -455,7 +523,8 @@ impl ProcessFeeds {
         // Each delta names where its bytes start in the process's output, as a relay frame does: a client sees the output a pump
         // the ring overtook lost as a gap in the offsets.
         let output = |publisher: &FramePublisher, bytes: &[u8], offset: u64, state: Value| {
-            publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes), "outputOffset": offset }), state);
+            let params = named(json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes), "outputOffset": offset }));
+            publisher.publish("process/outputDelta", params, state);
         };
         let mut relay_start = taken;
         let mut relay_end = taken;
@@ -463,10 +532,10 @@ impl ProcessFeeds {
         let relay_out = |frames: Vec<RelayFrame>, start: &mut u64| {
             if entry.relay {
                 for frame in frames {
-                    let mut params = json!({
+                    let mut params = named(json!({
                         "processHandle": handle, "bytesB64": STANDARD.encode(&frame.bytes),
                         "outputStream": stream, "outputOffset": *start,
-                    });
+                    }));
                     *start += frame.bytes.len() as u64;
                     // A frame Node cut inside a surrogate pair: the lone units at its edges (see `RelayFrame`).
                     if let Some(lead) = frame.lead {
@@ -499,7 +568,8 @@ impl ProcessFeeds {
                 Some(Some(ProcessEvent::Output { bytes, .. })) => Some(taken + bytes.len() as u64),
                 _ => None,
             };
-            Self::unheld(entry, end).await;
+            // A relay flush sends only output the pump has taken already.
+            Self::unheld(entry, if next.is_none() { Some(taken) } else { end }).await;
             // No hold keeps this output back any more: a change that waits for the pump to reach it (a shell's end before its exit
             // line) goes before it enters the relay buffer.
             let published = match (end, entry.taken.get()) {
@@ -549,14 +619,14 @@ impl ProcessFeeds {
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {
                     let state = if entry.text { json!({ "text": screen.read(), "exited": true }) } else { json!({ "exited": true }) };
-                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    entry.publisher.publish("process/exited", named(exited_params(handle, &exit)), state);
                     // Node's relay lane sends what waits when its 16 ms are up, exit or not; the tab's exit on the lane follows it.
                     if let Some(due) = relay.due() {
                         tokio::time::sleep_until(due).await;
                         relay_out(relay.flush(tokio::time::Instant::now()), &mut relay_start);
                     }
                     if entry.relay {
-                        let mut params = exited_params(handle, &exit);
+                        let mut params = named(exited_params(handle, &exit));
                         params["outputStream"] = json!(stream);
                         self.lane.publish("process/exited", params, json!({}));
                     }
@@ -588,6 +658,19 @@ impl ProcessFeeds {
 
 #[cfg(test)]
 impl ProcessFeeds {
+    /// Opens `terminal` on the process running under `handle` (spawned outside the tab layer), as a tab's spawn does, and holds its feed
+    /// as an ensure does.
+    pub(crate) fn open_spawned(
+        self: &Arc<Self>,
+        handle: &str,
+        terminal: &TerminalId,
+        order: impl FnOnce() -> Option<PumpTell> + Send + 'static,
+    ) -> FeedHold {
+        let output = self.manager.feed_of(&ProcessHandle::from(handle)).expect("a process runs under the handle");
+        self.terminal_opened(handle, terminal.clone(), output, Box::new(order));
+        self.open_terminal(handle, terminal).expect("the terminal just opened is the handle's")
+    }
+
     /// The holds out on the current feed of `handle`, as they change.
     pub(crate) fn holds_of(&self, handle: &str) -> tokio::sync::watch::Receiver<Vec<u64>> {
         self.entries.lock().unwrap().get(handle).expect("the feed exists").hold.subscribe()
@@ -597,6 +680,21 @@ impl ProcessFeeds {
     #[cfg(all(test, feature = "core-test", windows))]
     pub(crate) fn orderings_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
         self.entries.lock().unwrap().get(handle).expect("the feed exists").ordered.subscribe()
+    }
+
+    /// Where the current feed of `handle` stands.
+    pub(crate) fn position_of(&self, handle: &str) -> FeedPosition {
+        self.entries.lock().unwrap().get(handle).expect("the feed exists").publisher.feed.position()
+    }
+
+    /// Whether `handle` has a feed now.
+    pub(crate) fn has_feed(&self, handle: &str) -> bool {
+        self.entries.lock().unwrap().contains_key(handle)
+    }
+
+    /// The output offset the pump of the current feed of `handle` has published up to, as it changes.
+    pub(crate) fn published_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
+        self.entries.lock().unwrap().get(handle).expect("the feed exists").published.subscribe()
     }
 
     /// How often the pump of the current feed of `handle` has stopped for a hold, as it changes.
@@ -616,17 +714,27 @@ mod tests {
 
     use super::*;
 
+    /// The output of a terminal whose shell ended without writing anything.
+    fn ended_output() -> Arc<Feed> {
+        let output = Feed::new(1 << 20);
+        output.push_exit(ProcessExit { status: ExitStatus::Code(0), killed: None });
+        output
+    }
+
+    fn terminal(incarnation: u64) -> TerminalId {
+        TerminalId { core: "test".into(), incarnation }
+    }
+
     /// A tab disposed and opened again under the same id before the old pump ended: the old pump's end queues nothing for eviction,
     /// in particular not the new tab's live feed (which the eviction would later close under it).
     #[tokio::test]
     async fn an_old_pump_does_not_retire_its_replacement() {
         let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
         let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
-        // A handle with no process: its pump ends as soon as it runs (the subscribe fails), which is the pump's end this test needs.
-        let _ = feeds.feed("term_reused", true);
+        feeds.terminal_opened("term_reused", terminal(1), ended_output(), Box::new(|| None));
         let old = feeds.entries.lock().unwrap().get("term_reused").cloned().unwrap();
-        feeds.close("term_reused");
-        let _ = feeds.feed("term_reused", true);
+        feeds.close("term_reused", &terminal(1));
+        feeds.terminal_opened("term_reused", terminal(2), ended_output(), Box::new(|| None));
         let replacement = feeds.entries.lock().unwrap().get("term_reused").cloned().unwrap();
         assert!(!Arc::ptr_eq(&old, &replacement));
         feeds.pump(&old).await;
@@ -640,12 +748,31 @@ mod tests {
     async fn a_finished_then_closed_feed_is_queued_once() {
         let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
         let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
-        let _ = feeds.feed("term_twice", true);
+        feeds.terminal_opened("term_twice", terminal(1), ended_output(), Box::new(|| None));
         let entry = feeds.entries.lock().unwrap().get("term_twice").cloned().unwrap();
-        // No process under the handle: the pump ends at once and queues its (current) feed.
+        // The shell has ended: the pump ends as soon as it runs and queues its (current) feed.
         feeds.pump(&entry).await;
-        feeds.close("term_twice");
+        feeds.close("term_twice", &terminal(1));
         assert_eq!(feeds.finished.lock().unwrap().len(), 1, "the feed is queued once");
+    }
+
+    /// A caller that still names an earlier terminal of the id (an attach or ensure that read the tab before its shell was respawned)
+    /// finds no feed for it: it never makes one that would pump that terminal a second time, and never takes the id's feed from the
+    /// later terminal.
+    #[tokio::test]
+    async fn an_earlier_terminal_of_the_id_never_gets_a_feed_again() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        feeds.terminal_opened("term_stale", terminal(1), ended_output(), Box::new(|| None));
+        feeds.terminal_opened("term_stale", terminal(2), ended_output(), Box::new(|| None));
+        let later = feeds.entries.lock().unwrap().get("term_stale").cloned().unwrap();
+        assert!(feeds.open_terminal("term_stale", &terminal(1)).is_none());
+        assert!(feeds.terminal_cut("term_stale", &terminal(1)).is_none());
+        assert!(feeds.hold("term_stale", &terminal(1)).is_none());
+        feeds.close("term_stale", &terminal(1));
+        let current = feeds.entries.lock().unwrap().get("term_stale").cloned().unwrap();
+        assert!(Arc::ptr_eq(&current, &later), "the later terminal's feed stays the id's");
+        assert!(!current.started.load(Ordering::Acquire), "nothing the earlier terminal's callers did started the later one's pump");
     }
 
     /// A disposal's hold keeps the pump from publishing (the killed shell's last output and its exit come after the dispose's answer,
@@ -689,10 +816,11 @@ mod tests {
                 break;
             }
         }
+        let output = manager.feed_of(&handle).expect("the process is listed");
         let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
-        let _ = feeds.feed("feed-hold", true);
+        feeds.terminal_opened("feed-hold", terminal(1), output, Box::new(|| None));
         let entry = feeds.entries.lock().unwrap().get("feed-hold").cloned().unwrap();
-        let hold = feeds.hold("feed-hold").expect("the feed exists");
+        let hold = feeds.hold("feed-hold", &terminal(1)).expect("the feed exists");
         let mut pump = std::pin::pin!(feeds.pump(&entry));
         let first = std::future::poll_fn(|cx| std::task::Poll::Ready(pump.as_mut().poll(cx))).await;
         assert!(first.is_pending(), "the pump published the exited process's events while its feed was held");
@@ -704,13 +832,19 @@ mod tests {
 
     /// A process that printed `text` and exited, its events all in the manager's ring.
     async fn exited(name: &str, text: &str) -> LocalProcessManager {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        run_to_exit(&manager, name, text).await;
+        manager
+    }
+
+    /// Runs a process under `name` in `manager` that prints `text` and exits, and waits until its events are all in the manager's ring.
+    async fn run_to_exit(manager: &LocalProcessManager, name: &str, text: &str) {
         use mixdog_core_api::domain::common::AbsPath;
         use mixdog_core_api::domain::process::CommandSpec;
         use mixdog_core_api::domain::process::EnvSpec;
         use mixdog_core_api::domain::process::OutputMode;
         use mixdog_core_api::domain::process::ProcessOwner;
         use mixdog_core_api::domain::process::SpawnRequest;
-        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
         let handle = ProcessHandle::from(name);
         let echo = format!("echo {text}");
         let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), echo]) } else { ("sh", vec!["-c".to_owned(), echo]) };
@@ -738,7 +872,68 @@ mod tests {
                 break;
             }
         }
-        manager
+    }
+
+    /// A terminal's feed carries that one terminal: the id's next terminal (a respawn under the same handle) gets a feed of its own,
+    /// pumping the new process, whether the earlier terminal's pump has ended or is still held when the next process runs under the
+    /// handle (a natural-exit respawn, or a `dispose_under` and an ensure at once); each feed carries only its own terminal's output, and
+    /// every frame of it, the exit on the terminal lane included, names that terminal.
+    async fn a_respawned_terminal_gets_a_feed_of_its_own(earlier_ended: bool) {
+        use mixdog_core_api::mock::FeedTap;
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+        let name = if earlier_ended { "term_respawned_after" } else { "term_respawned_during" };
+        let manager = exited(name, "first").await;
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let lane = FeedTap::attach(&feeds.lane.feed);
+        let exit_of = |frames: &[Value], terminal: &TerminalId| {
+            frames.iter().any(|frame| frame["method"] == "process/exited" && frame["params"]["terminal"] == terminal_json(terminal))
+        };
+        let text = |frames: &[Value]| {
+            let output: Vec<&Value> = frames.iter().filter(|frame| frame["method"] == "process/outputDelta").collect();
+            let text = output.iter().map(|frame| String::from_utf8(STANDARD.decode(frame["params"]["bytesB64"].as_str().unwrap()).unwrap()).unwrap()).collect::<String>();
+            (text, output.iter().map(|frame| frame["params"]["terminal"].clone()).collect::<Vec<_>>())
+        };
+        let current = || feeds.entries.lock().unwrap().get(name).cloned().unwrap();
+        let first = TerminalId { core: "run".into(), incarnation: 1 };
+        let earlier = feeds.open_spawned(name, &first, || None);
+        let first_feed = FeedTap::attach(&current().publisher.feed);
+        let earlier = if earlier_ended {
+            drop(earlier);
+            tokio::time::timeout(DEADLINE, lane.notifications_until(|frames| exit_of(frames, &first))).await.expect("the earlier terminal's exit");
+            None
+        } else {
+            Some(earlier)
+        };
+        run_to_exit(&manager, name, "second").await;
+        let second = TerminalId { core: "run".into(), incarnation: 2 };
+        let later = feeds.open_spawned(name, &second, || None);
+        let second_feed = FeedTap::attach(&current().publisher.feed);
+        drop(later);
+        tokio::time::timeout(DEADLINE, lane.notifications_until(|frames| exit_of(frames, &second)))
+            .await
+            .expect("the respawned terminal's feed was never pumped, or its exit does not name it");
+        drop(earlier);
+        let frames = tokio::time::timeout(DEADLINE, lane.notifications_until(|frames| exit_of(frames, &first))).await.expect("the earlier terminal's exit");
+        let exits: Vec<&Value> = frames.iter().filter(|frame| frame["method"] == "process/exited").collect();
+        assert_eq!(exits.len(), 2, "one exit for each terminal: {exits:?}");
+        for (feed, own, other, terminal) in [(&first_feed, "first", "second", &first), (&second_feed, "second", "first", &second)] {
+            let frames = tokio::time::timeout(DEADLINE, feed.notifications_until(|frames| frames.iter().any(|frame| frame["method"] == "process/exited")))
+                .await
+                .expect("each terminal's feed ends with its exit");
+            let (text, named) = text(&frames);
+            assert!(text.contains(own) && !text.contains(other), "the feed of the {own} terminal carried {text:?}");
+            assert!(named.iter().all(|named| *named == terminal_json(terminal)), "every output frame names its terminal: {named:?}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_terminal_respawned_while_the_earlier_ones_end_is_held_gets_a_feed_of_its_own() {
+        a_respawned_terminal_gets_a_feed_of_its_own(false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_terminal_respawned_after_the_earlier_one_ended_gets_a_feed_of_its_own() {
+        a_respawned_terminal_gets_a_feed_of_its_own(true).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -760,7 +955,7 @@ mod tests {
         let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
         let attached = subscribe(&feeds.lane.source(), SubscriptionId::from("s"), Window::Fixed, None, &conn).unwrap();
         conn.send_control_release(Bytes::from_static(b"ok"), attached.release).unwrap();
-        drop(feeds.open_terminal("relay-once", || None));
+        drop(feeds.open_spawned("relay-once", &terminal(1), || None));
         tokio::time::timeout(std::time::Duration::from_secs(60), end).await.expect("the pump ended within 60 s").unwrap();
         let mut got = Vec::new();
         for line in conn.drain_text() {
@@ -835,7 +1030,7 @@ mod tests {
             .unwrap();
         let scoped = Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()));
         let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
-        drop(feeds.open_terminal(handle.as_str(), || None));
+        drop(feeds.open_spawned(handle.as_str(), &terminal(1), || None));
         let raw = scoped.find(&FeedId::from(format!("process:{handle}"))).expect("the raw feed exists");
         let tap = Arc::new(FeedTap::attach(&raw));
         let text = |frames: &[Value]| {

@@ -1,11 +1,26 @@
 import { routeDesktopOperation } from '../../shared/core-lanes/desktop-operation-route';
 import { attachNeedsRedraw, TerminalFeedPositions, type TerminalFeedPosition } from '../../shared/terminal-feed-reader';
-import { createTerminalOutputDecoder, terminalReply } from '../../shared/terminal-protocol';
+import {
+  compareTerminals,
+  createTerminalOutputDecoder,
+  terminalOf,
+  terminalReply,
+  type TerminalId,
+} from '../../shared/terminal-protocol';
 import { TerminalDataBufferer, type TerminalDataEvent } from './terminal-data-buffer';
 import type { DirectContext } from './context';
 
-/** What the pane gets of a tab: its id, the screen up to the feed's position and who owns the size (never this window). */
-export type TerminalSession = { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } };
+/** What the pane gets of a tab: its id, the screen up to the feed's position and who owns the size (never this window), and which
+ *  terminal of the id that is (none from a core that predates terminal names). */
+export type TerminalSession = {
+  id: string;
+  replay: string;
+  sizeOwner?: { cols: number; rows: number; own: boolean };
+  terminal?: TerminalId;
+};
+
+/** `a` is a later terminal of the id than `b`, or another run's: what `b` was attached for does not show it. */
+const replaces = (a: TerminalId, b: TerminalId): boolean => (compareTerminals(a, b) ?? 1) > 0;
 
 /** The output of a tab is coalesced for this long before it reaches the page. */
 const OUTPUT_COALESCE_MS = 5;
@@ -17,10 +32,12 @@ export function sessionOf(value: object): TerminalSession {
   const result = value as Record<string, unknown>;
   // The window is never a size owner: a phone's grid is followed, not claimed.
   const owner = result.sizeOwner as { cols?: unknown; rows?: unknown } | undefined;
+  const terminal = terminalOf(result.terminal);
   return {
     id: String(result.id || ''),
     replay: String(result.replay || ''),
     ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
+    ...(terminal ? { terminal } : {}),
   };
 }
 
@@ -54,7 +71,9 @@ export function createTerminalFeed(ctx: DirectContext, onData: (event: TerminalD
     },
     LOW_WATERMARK_CHARS
   );
-  const attached = new Set<string>();
+  // The tabs whose feed this connection reads, each with the terminal it was attached for (none until an attach answers it, or from a
+  // core that predates terminal names): frames and an exit naming another terminal of the id are that one's, never this one's.
+  const attached = new Map<string, TerminalId | undefined>();
   // The attach in flight per tab, which a second caller joins (a dock hover's warm-up, then the pane's ensure): the core keeps one
   // subscription per feed and connection, and a second attach would replace the first and drop what was still queued on it.
   const attaching = new Map<string, Promise<TerminalSession | null>>();
@@ -72,7 +91,8 @@ export function createTerminalFeed(ctx: DirectContext, onData: (event: TerminalD
   // `relink`: a new link attaches the tab again from the position its feed was read to; the reply says whether the missed output
   // follows as frames (replay) or the screen is given as it is (snapshot, a new epoch, nothing to resume from), which the page
   // draws anew.
-  const subscribeFeed = (id: string, relink = false): Promise<TerminalSession | null> => {
+  // `expected`: the terminal an ensure answered, whose attach this is; what an earlier terminal of the id still sends is not its.
+  const subscribeFeed = (id: string, relink = false, expected?: TerminalId): Promise<TerminalSession | null> => {
     const resumed: TerminalFeedPosition | undefined = relink ? positions.resumeFrom(id) : undefined;
     const { method, params } = routeDesktopOperation('termAttach', resumed ? [id, resumed] : [id]);
     const request: Promise<TerminalSession | null> = ctx.call(method, params).then(
@@ -82,6 +102,7 @@ export function createTerminalFeed(ctx: DirectContext, onData: (event: TerminalD
         // A newer attach has the say over the tab: a new link's, or a new tab's under a disposed id.
         if (attaching.get(id) !== request) return session;
         attaching.delete(id);
+        if (session?.terminal) attached.set(id, session.terminal);
         if (!value) {
           attached.delete(id);
           paused.delete(id);
@@ -104,13 +125,13 @@ export function createTerminalFeed(ctx: DirectContext, onData: (event: TerminalD
       }
     );
     attaching.set(id, request);
-    attached.add(id);
+    attached.set(id, expected ?? (relink ? attached.get(id) : undefined));
     return request;
   };
 
   // A new link holds none of the old one's feeds: each tab is attached again, and an attach still in flight was the old link's.
   const reattach = (): void => {
-    for (const id of [...attached]) {
+    for (const id of [...attached.keys()]) {
       void subscribeFeed(id, true).catch(() => undefined);
       if (paused.has(id)) sendPause('termPause', id);
     }
@@ -130,6 +151,11 @@ export function createTerminalFeed(ctx: DirectContext, onData: (event: TerminalD
     const tab = String((params as { processHandle?: unknown } | undefined)?.processHandle ?? '');
     // A tab's own feed only: the phones' terminal lane (`process:relay`), should this connection read it, repeats every tab's output.
     if (feed?.id !== `process:${tab}` || !attached.has(tab)) return;
+    // An earlier terminal of the id (its output and exit as it was replaced, before this connection's subscription moved on) is not the
+    // one the pane shows.
+    const held = attached.get(tab);
+    const named = terminalOf((params as { terminal?: unknown } | undefined)?.terminal);
+    if (held && named && compareTerminals(named, held) !== 0) return;
     positions.note(tab, feed);
     if (method === 'process/outputDelta') {
       const { id, data } = output.text(params);
@@ -145,9 +171,24 @@ export function createTerminalFeed(ctx: DirectContext, onData: (event: TerminalD
 
   return {
     attach: (id: string): Promise<TerminalSession | null> => attaching.get(id) ?? subscribeFeed(id),
-    /** The attach that answers for a tab not yet read, or the one in flight; null for a tab already read, which streams as it is. */
-    joinOrAttach: (id: string): Promise<TerminalSession | null> | null =>
-      attaching.get(id) ?? (attached.has(id) ? null : subscribeFeed(id)),
+    /** The attach that answers for a tab not yet read, or the one in flight; null for a tab already read for `terminal` (or for a later
+     *  one of the id), which streams as it is. A tab read for an earlier terminal of the id, or for one no answer named, is attached
+     *  again for this one. */
+    joinOrAttach: (id: string, terminal?: TerminalId): Promise<TerminalSession | null> | null => {
+      const pending = attaching.get(id);
+      // An attach in flight from before the ensure answers for the tab as it was then: an earlier terminal of the id, a shell already
+      // gone, or nothing when it failed. The ensured tab is then attached after it.
+      if (pending) {
+        const after = (session: TerminalSession | null) =>
+          session && !(terminal && session.terminal && replaces(terminal, session.terminal))
+            ? session
+            : (attaching.get(id) ?? subscribeFeed(id, false, terminal));
+        return pending.then(after, () => after(null));
+      }
+      const held = attached.get(id);
+      const current = attached.has(id) && !(terminal && (!held || replaces(terminal, held)));
+      return current ? null : subscribeFeed(id, false, terminal);
+    },
     acknowledge: (id: string, charCount: number): void => buffer.acknowledge(id, charCount),
     dispose(tab: string): void {
       buffer.release(tab);

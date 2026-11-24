@@ -50,9 +50,11 @@ use crate::terminal::EnsureRequest;
 use crate::terminal::Published;
 use crate::terminal::SizeOwner;
 use crate::terminal::SizeOwnerChange;
+use crate::terminal::SpawnedTerminal;
 use crate::terminal::TerminalConfig;
 use crate::terminal::TerminalError;
 use crate::terminal::TerminalEvents;
+use crate::terminal::TerminalId;
 use crate::terminal::TerminalTabs;
 
 #[derive(Default)]
@@ -118,15 +120,23 @@ fn client_owner(owner: Option<&SizeOwner>, client: &str) -> Value {
     }
 }
 
-/// The answer to an ensure or attach: Node's `{id, replay, sizeOwner}` and the asking connection's key. A replay window that starts
-/// inside a non-BMP character carries the lone low surrogate Node's string starts with as `replayLeadUnit`, which the adapter puts back
-/// in front of `replay` (JSON text from the core cannot hold a lone surrogate); the field is absent otherwise.
+/// Which terminal of a tab id: the answers, the tab's row of the `terminalTabs` section and its exit on the terminal lane name it alike,
+/// so a phone tells the terminals of one id apart, and a list older than the terminal it holds from a newer one.
+pub fn terminal_json(terminal: &TerminalId) -> Value {
+    json!({ "core": &*terminal.core, "incarnation": terminal.incarnation })
+}
+
+/// The answer to an ensure or attach: Node's `{id, replay, sizeOwner}`, the asking connection's key and the `terminal` it is
+/// ([`terminal_json`]). A replay window that starts inside a non-BMP character carries the lone low surrogate Node's string starts with
+/// as `replayLeadUnit`, which the adapter puts back in front of `replay` (JSON text from the core cannot hold a lone surrogate); the
+/// field is absent otherwise.
 pub fn attached_reply(attached: &Attached, client: &str) -> Value {
     let mut reply = json!({
         "id": attached.id,
         "replay": attached.replay,
         "sizeOwner": client_owner(attached.size_owner.as_ref(), client),
         "client": client,
+        "terminal": terminal_json(&attached.terminal),
     });
     if let Some(lead) = attached.replay_lead {
         reply["replayLeadUnit"] = json!(lead);
@@ -168,6 +178,7 @@ fn tab_rows(tabs: &TerminalTabs, owners: &HashMap<String, Option<SizeOwner>>) ->
                 "shell": tab.shell,
                 "running": tab.running,
                 "cwd": tab.cwd,
+                "terminal": terminal_json(&tab.terminal),
                 "sizeOwner": owners.get(&tab.id).and_then(Option::as_ref).map(owner_json),
             })
         })
@@ -215,6 +226,13 @@ impl TerminalService {
         let (changes, queue) = mpsc::unbounded_channel();
         let mut tab_config = TerminalConfig::new(Arc::new(Events { changes: changes.clone() }));
         tab_config.shell_integration_dir = config.shell_integration_dir;
+        // A terminal's feed is made by its spawn, bound to its own output: nothing later makes one for it or for a terminal it replaced.
+        let opened = Arc::clone(&feeds);
+        tab_config.on_spawn =
+            Some(Arc::new(move |spawned: SpawnedTerminal<'_>| opened.terminal_opened(spawned.id, spawned.terminal, spawned.output, spawned.order)));
+        // Whatever disposes a tab (a client, a removed worktree, the shutdown) retires its feed, pumped or never attached.
+        let disposed = Arc::clone(&feeds);
+        tab_config.on_dispose = Some(Arc::new(move |id: &str, terminal: &TerminalId| disposed.close(id, terminal)));
         let tabs = Arc::new(TerminalTabs::new(manager, tab_config));
         let worker_tabs = Arc::clone(&tabs);
         mixdog_rt::spawn("terminal-sections", TaskClass::Work, publish_sections(queue, worker_tabs, publisher));
@@ -281,8 +299,9 @@ impl TerminalService {
             rows: options.get("rows").and_then(Value::as_u64).map(|n| n as u32),
         };
         let attached = self.tabs.ensure(params.tab_id.as_ref().map(|id| id.as_str()), request).await.map_err(terminal_failure)?;
-        // Node answered the ensure before the new shell's first output (runs.json): the feed is held until the answer is queued.
-        let held = self.feeds.open_terminal(&attached.id, || self.tabs.relay_order(&attached.id));
+        // Node answered the ensure before the new shell's first output (runs.json): the feed is held until the answer is queued. A terminal
+        // already replaced by a later one of the id has no feed to hold.
+        let held = self.feeds.open_terminal(&attached.id, &attached.terminal);
         let _ = self.changes.send(Change::Tabs);
         req.ctx.after_answer.keep(held);
         Ok(Reply::Value(attached_reply(&attached, client)))
@@ -291,33 +310,21 @@ impl TerminalService {
     async fn attach(&self, req: &CoreRequest, client: &str) -> Result<Reply, CoreError> {
         let params: TerminalAttachParams = decode(&req.params)?;
         let resume_from = resume_of(params.resume_from)?;
-        let Some(mut attached) = self.tabs.attach(params.tab_id.as_str()).await else {
+        let id = params.tab_id.as_str();
+        // The cut is of the feed of the terminal attached, and the subscription goes on from that feed: the id's feed may be another
+        // terminal's by the time the replay's output is published.
+        let feed = |terminal: &TerminalId| self.feeds.terminal_cut(id, terminal);
+        let Some((attached, emitted, cut, held)) = self.tabs.attach_cut(id, feed, |cut, at| cut.hold_at(at)).await else {
             return Ok(Reply::Value(Value::Null));
         };
-        let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
-        if let Some(cut) = self.feeds.terminal_cut(&attached.id, || self.tabs.relay_order(&attached.id)) {
-            let id = attached.id.clone();
-            let Some((cut_attached, emitted, held)) = self.tabs.attach_cut(&id, |at| cut.hold_at(at)).await else {
-                return Ok(Reply::Value(Value::Null));
-            };
-            req.ctx.after_answer.keep(held);
-            if relay {
-                let mut reply = attached_reply(&cut_attached, client);
-                reply["replayCut"] = json!({ "stream": cut.position().epoch, "offset": emitted });
-                return Ok(Reply::Value(reply));
-            }
-            cut.published(emitted).await;
-            attached = cut_attached;
+        req.ctx.after_answer.keep(held);
+        if req.ctx.origin == mixdog_protocol::Origin::Relay {
+            let mut reply = attached_reply(&attached, client);
+            reply["replayCut"] = json!({ "stream": cut.position().epoch, "offset": emitted });
+            return Ok(Reply::Value(reply));
         }
-        if relay {
-            return Ok(Reply::Value(attached_reply(&attached, client)));
-        }
-        Ok(Reply::Subscribe(Subscribe {
-            result: attached_reply(&attached, client),
-            feed: self.feeds.feed(&attached.id, true),
-            window: Window::Fixed,
-            resume_from,
-        }))
+        cut.published(emitted).await;
+        Ok(Reply::Subscribe(Subscribe { result: attached_reply(&attached, client), feed: cut.source(), window: Window::Fixed, resume_from }))
     }
 
     async fn profiles(&self) -> Reply {
@@ -339,9 +346,10 @@ impl TerminalService {
 
     async fn dispose(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: TerminalDisposeParams = decode(&req.params)?;
-        let held = self.feeds.hold(params.tab_id.as_str());
-        self.tabs.dispose(params.tab_id.as_str());
-        self.feeds.close(params.tab_id.as_str());
+        let id = params.tab_id.as_str();
+        // The disposed terminal's feed is held before its shell is ended, and retired (`on_dispose`): a later terminal of the id has its own.
+        let mut held = None;
+        self.tabs.dispose_with(id, |terminal| held = self.feeds.hold(id, terminal));
         let _ = self.changes.send(Change::Tabs);
         // Node forwards the tab's end before it answers the dispose (terminal-manager.ts:541, remote-relay-push-lanes.ts:150).
         self.published().await?;

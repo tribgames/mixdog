@@ -9,15 +9,18 @@ import {
   resolveOn,
 } from '../shared/remote-arguments';
 import {
+  compareTerminals as compare,
   createTerminalOutputDecoder,
   terminalActivityChanges,
   terminalActivityRows,
   terminalEnsureRequest,
+  terminalOf,
   terminalReplayCut,
   terminalReply,
   terminalResizeRequest,
   terminalRunPush,
   terminalSizeOwnerChanges,
+  type TerminalId,
   type TerminalReplayCut,
 } from '../shared/terminal-protocol';
 import type { TerminalSizeOwner } from '../shared/terminal-size-owner';
@@ -112,13 +115,27 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
   };
 }
 
-type QueuedOutput = { params: unknown } | { exitStream: unknown };
-type HeldTab = {
+type QueuedOutput = { params: unknown } | { exit: unknown };
+/** What the phone knows of one terminal of a held id. Another terminal of the id gets its own, never this one changed. */
+type HeldTerminal = {
+  /** None from a core that predates terminal names: no tab list judges the tab then, and any exit of the id ends it. */
+  id?: TerminalId;
+  /** A tab list no older than this terminal has named it: a later list without the id, or with it not running, is its end. */
+  listed?: boolean;
+  /** Where a gap recovery's replay cut this terminal's output. */
   cut?: TerminalReplayCut;
+};
+type HeldTab = {
+  terminal: HeldTerminal;
   recovery?: { frames: QueuedOutput[] };
   retry?: ReturnType<typeof setTimeout>;
 };
+type ListedTab = { id?: unknown; tab?: unknown; terminal?: unknown; running?: unknown };
 type TerminalOutput = { id: string; data: string; reset?: true };
+
+/** The terminal a frame of the terminal lane names. */
+const frameTerminal = (params: unknown): TerminalId | undefined =>
+  terminalOf((params as { terminal?: unknown } | null)?.terminal);
 
 /** Restores every held tab, including a parked view with no mounted pane. Its output listener survives the park. */
 export function followTerminalOutput(
@@ -127,15 +144,26 @@ export function followTerminalOutput(
   ready: () => boolean
 ) {
   const tabs = new Map<string, HeldTab>();
+  /** The `terminalTabs` section the store holds now, by id. None while it holds none (a core that has published no list since it
+   *  started): that says nothing of any tab, and the list read before it is not kept in its place. */
+  let list: Map<string, ListedTab> | undefined;
   const output = createTerminalOutputDecoder();
   const publish = (params: unknown, cut?: TerminalReplayCut) => {
     const event = output.text(params, cut);
     if (event.data) emit(event);
   };
-  const ended = (id: string, tab: HeldTab | undefined, stream: unknown) => {
-    if (tab?.cut && typeof stream === 'string' && tab.cut.stream !== stream) return;
-    if (tab) delete tab.cut;
-    output.end(id);
+  /** An exit ends the held terminal only when it names that one. A core without terminal names says which by the output stream of a
+   *  recovered terminal, if any. */
+  const ended = (id: string, tab: HeldTab | undefined, exit: unknown) => {
+    if (!tab) return output.end(id);
+    const { outputStream, terminal } = (exit ?? {}) as { outputStream?: unknown; terminal?: unknown };
+    const named = terminalOf(terminal);
+    const held = tab.terminal;
+    const own =
+      named || held.id
+        ? named !== undefined && held.id !== undefined && compare(named, held.id) === 0
+        : !held.cut || typeof outputStream !== 'string' || held.cut.stream === outputStream;
+    if (own) forget(id);
   };
   const recover = (id: string, tab: HeldTab): void => {
     clearTimeout(tab.retry);
@@ -145,20 +173,28 @@ export function followTerminalOutput(
     void read(id).then(
       (reply) => {
         if (tabs.get(id) !== tab || tab.recovery !== recovery) return;
+        if (reply == null) return forget(id);
+        // An answer of an earlier terminal than the one the id has now: neither its replay nor the frames queued since are known to
+        // be this terminal's, and output of this one may be missing. Asked again, the core answers the terminal it has now, whose cut
+        // passes only that terminal's frames.
+        if (!follow(id, tab, terminalOf((reply as { terminal?: unknown }).terminal))) return recover(id, tab);
+        if (tabs.get(id) !== tab) return;
         const cut = terminalReplayCut(reply);
         if (cut) {
           output.end(id);
-          tab.cut = cut;
+          tab.terminal.cut = cut;
           emit({ id, data: terminalReply(reply).replay, reset: true });
         }
         for (const frame of recovery.frames) {
-          if ('params' in frame) publish(frame.params, tab.cut);
-          else ended(id, tab, frame.exitStream);
+          if (!('params' in frame)) ended(id, tab, frame.exit);
+          else if (follow(id, tab, frameTerminal(frame.params))) publish(frame.params, tab.terminal.cut);
         }
         delete tab.recovery;
       },
-      () => {
-        if (tabs.get(id) !== tab || tab.recovery !== recovery || !ready()) return;
+      (error) => {
+        if (tabs.get(id) !== tab || tab.recovery !== recovery) return;
+        if ((error as { permanent?: unknown } | null)?.permanent === true) return forget(id);
+        if (!ready()) return;
         tab.retry = setTimeout(() => recover(id, tab), 1_000);
       }
     );
@@ -168,11 +204,49 @@ export function followTerminalOutput(
     tabs.delete(id);
     output.end(id);
   };
+  /** The tab list against the terminal held. A row of an earlier terminal of the id, or of another run's, says nothing of it, and
+   *  neither may a list without the id before any list named it (`terminal/ensure` answers before the core publishes the tab). A row
+   *  of a later terminal of the id is the id's terminal now. */
+  const judge = (id: string, tab: HeldTab): void => {
+    const held = tab.terminal.id;
+    if (!list || !held) return;
+    const row = list.get(id);
+    if (!row) {
+      if (tab.terminal.listed) forget(id);
+      return;
+    }
+    const named = terminalOf(row.terminal);
+    const order = named ? compare(named, held) : undefined;
+    if (!named || order === undefined || order < 0) return;
+    if (row.running === false) return forget(id);
+    if (order > 0) tab.terminal = { id: named };
+    tab.terminal.listed = true;
+  };
+  /** The terminal an answer names for a held id: one of another run, or a later one of the same run, is the id's terminal now and
+   *  nothing is known of it yet; an earlier one is no news. False for an earlier one. */
+  const follow = (id: string, tab: HeldTab, named: TerminalId | undefined): boolean => {
+    const held = tab.terminal.id;
+    const order = named && held ? compare(named, held) : undefined;
+    if (order !== undefined && order < 0) return false;
+    if (named && order !== 0) tab.terminal = { id: named };
+    judge(id, tab);
+    return true;
+  };
   return {
-    hold(id: string) {
-      if (id && !tabs.has(id)) tabs.set(id, {});
+    hold(id: string, terminal?: unknown) {
+      if (!id) return;
+      let tab = tabs.get(id);
+      if (!tab) tabs.set(id, (tab = { terminal: {} }));
+      follow(id, tab, terminalOf(terminal));
     },
     forget,
+    /** The `terminalTabs` section the store holds now; a row with `tab: false` is a size claim on an id with no tab. */
+    listed(section: unknown) {
+      list = Array.isArray(section)
+        ? new Map((section as ListedTab[]).filter((row) => row.tab !== false).map((row) => [String(row.id), row] as const))
+        : undefined;
+      for (const [id, tab] of tabs) judge(id, tab);
+    },
     gap() {
       for (const [id, tab] of tabs) {
         tab.recovery = { frames: [] };
@@ -182,15 +256,18 @@ export function followTerminalOutput(
     ready() {
       for (const [id, tab] of tabs) if (tab.recovery) recover(id, tab);
     },
+    /** Output of the terminal lane: a frame of an earlier terminal of a held id (what it wrote as it was replaced) is dropped, and one of
+     *  a later terminal makes that the id's terminal. */
     frame(id: string, params: unknown) {
       const tab = tabs.get(id);
       if (tab?.recovery) tab.recovery.frames.push({ params });
-      else publish(params, tab?.cut);
+      else if (!tab || follow(id, tab, frameTerminal(params))) publish(params, tab?.terminal.cut);
     },
-    end(id: string, stream: unknown) {
+    /** A `process/exited` of the terminal lane, `exit` its params. */
+    end(id: string, exit: unknown) {
       const tab = tabs.get(id);
-      if (tab?.recovery) tab.recovery.frames.push({ exitStream: stream });
-      else ended(id, tab, stream);
+      if (tab?.recovery) tab.recovery.frames.push({ exit });
+      else ended(id, tab, exit);
     },
     stop() {
       for (const id of tabs.keys()) forget(id);
@@ -217,23 +294,34 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
     // another phone opens included, from their first output (remote-relay-push-lanes.ts:85-100).
     host.declareLane(TERMINAL_LANE, [LANE_FEED]);
     const readTabs = (): void => {
-      const events = terminalSizeOwnerChanges(owners, sectionValue(client, 'terminalTabs'), connection);
+      const listed = sectionValue(client, 'terminalTabs');
+      output.listed(listed);
+      const events = terminalSizeOwnerChanges(owners, listed, connection);
       if (!laneInUse()) return;
       for (const event of events) ctx.fanOut(ctx.termSizeOwnerListeners, event);
     };
     let connection = '';
     const output = followTerminalOutput(
-      (id) => rpc(client, 'terminal/attach', { tabId: id }),
+      async (id) => {
+        try {
+          return await (client.call as (m: string, p: unknown) => Promise<unknown>)('terminal/attach', { tabId: id });
+        } catch (error) {
+          // The core answered and refused: asking again gets the same answer. A lost link or a timeout is retried.
+          if ((error as { detail?: { kind?: unknown } }).detail?.kind === 'rpc')
+            throw Object.assign(new Error('terminal tab is gone'), { permanent: true });
+          throw error;
+        }
+      },
       (event) => {
         if (laneInUse()) ctx.fanOut(ctx.termListeners, event);
       },
       () => client.status.state === 'ready'
     );
     const remember = (reply: unknown): void => {
-      const info = reply as { client?: unknown; id?: unknown } | null;
+      const info = reply as { client?: unknown; id?: unknown; terminal?: unknown } | null;
       const client = info?.client;
       if (typeof client === 'string') connection = client;
-      if (typeof info?.id === 'string') output.hold(info.id);
+      if (typeof info?.id === 'string') output.hold(info.id, info.terminal);
     };
     remembered.set(ctx, { remember, forget: output.forget });
     readActivity();
@@ -251,7 +339,7 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
       if (method === 'process/outputDelta' && feed?.id === LANE_FEED) {
         output.frame(String(params?.processHandle ?? ''), params);
       } else if (method === 'process/exited' && feed?.id === LANE_FEED) {
-        output.end(String(params?.processHandle ?? ''), params?.outputStream);
+        output.end(String(params?.processHandle ?? ''), params);
       } else if (method === 'fs/changed' && feed?.id.startsWith('fs:')) {
         const dir = watchDirs().get(feed.id.slice('fs:'.length));
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);
@@ -298,15 +386,17 @@ export const adapter: PhoneProtocolAdapter = {
       const held = remembered.get(host.ctx);
       const reply = await rpc(host.client(), method, params);
       if (held === remembered.get(host.ctx)) held?.remember(reply);
-      return terminalReply(reply);
+      // Which terminal it is, is the adapter's own: Node's answer carries none.
+      const { terminal: _terminal, ...answer } = reply;
+      return terminalReply(answer);
     },
     termAttach: async ([id], host) => {
       const held = remembered.get(host.ctx);
       const reply = await rpc(host.client(), 'terminal/attach', { tabId: requiredString(id, 'terminal id', 128) });
       if (reply == null) return null;
       if (held === remembered.get(host.ctx)) held?.remember(reply);
-      // The output subscription is the adapter's own: Node's answer carries none.
-      const { subscription: _subscription, replayCut: _replayCut, ...answer } = reply;
+      // The output subscription and which terminal it is are the adapter's own: Node's answer carries neither.
+      const { subscription: _subscription, replayCut: _replayCut, terminal: _terminal, ...answer } = reply;
       return terminalReply(answer);
     },
     termProfiles: (_params, host) => rpc(host.client(), 'terminal/profiles', {}),
