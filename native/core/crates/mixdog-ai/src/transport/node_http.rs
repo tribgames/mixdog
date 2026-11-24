@@ -418,6 +418,12 @@ struct H2Body {
     ended: bool,
     /// The reader is done with the response ([`BodyStream::drain_on_drop`]).
     done: bool,
+    /// A read failed (the stream or its connection ended in an error, or it was silent for [`BODY_TIMEOUT`]): the body is not
+    /// finished, whatever its reader marks.
+    failed: bool,
+    /// A read is under way. One its reader cut short (the driver's deadline, a cancel) leaves this set, and fails the body as
+    /// `failed` does until a later read completes.
+    reading: bool,
     /// The connection's number, as its end is logged under.
     id: u64,
 }
@@ -430,7 +436,7 @@ struct H2Wire {
 
 impl H2Body {
     fn new(stream: h2::RecvStream, decoder: Option<Decoder>, id: u64, guard: pool::H2Guard) -> Self {
-        Self { wire: Some(H2Wire { stream, guard }), decoder, ended: false, done: false, id }
+        Self { wire: Some(H2Wire { stream, guard }), decoder, ended: false, done: false, failed: false, reading: false, id }
     }
 }
 
@@ -448,9 +454,9 @@ impl Drop for H2Body {
     /// Dropped before its end, a body is a cancel: h2 resets its stream. One whose reader is done is read to its end instead:
     /// its last frames are already on their way, and h2 counts against the connection each frame that arrives for a stream it
     /// reset, once it has forgotten that stream (`STREAM_CLOSED`, toward its local reset limit) or while it still remembers it
-    /// (toward its DATA frame budget).
+    /// (toward its DATA frame budget). A stream whose END_STREAM is here has nothing left to read, and is not reset.
     fn drop(&mut self) {
-        if !self.done || self.ended {
+        if !self.done || self.ended || self.failed || self.reading || self.wire.as_ref().is_none_or(|wire| wire.stream.is_end_stream()) {
             return;
         }
         if let (Some(wire), Ok(runtime)) = (self.wire.take(), tokio::runtime::Handle::try_current()) {
@@ -1171,10 +1177,7 @@ mod tests {
         let goaway = seen.goaway.as_ref().map(|(code, debug)| (*code, debug.as_slice()));
         assert_eq!(goaway, Some((u32::from(h2::Reason::ENHANCE_YOUR_CALM), &b"too_many_internal_resets"[..])));
         let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
-        assert!(
-            lines.iter().any(|line| line.contains("protocol=h2 goaway by=local code=11 last_stream_id=0 reason=too_many_internal_resets ")),
-            "{lines:?}"
-        );
+        assert!(lines.iter().any(|line| line.contains("protocol=h2 goaway by=local code=11 last_stream_id=0 reason=too_many_internal_resets ")), "{lines:?}");
     }
 
     // A finished stream's read-out ends with its connection too: the peer ends the connection with the closing frames still
@@ -1193,6 +1196,32 @@ mod tests {
         assert!(ended.is_err(), "the peer ended the connection under the request");
         until("the read-out ended", || conn.exchanges() == 0).await;
         assert!(seen.lock().unwrap().resets.is_empty());
+    }
+
+    // A body whose read failed is not finished, marked before the failure or after it: its drop cancels the stream instead of
+    // reading off one known to stall. Here the reader's deadline cuts the read short, as the driver's idle deadline does, while
+    // the closing frames are held; a body marked without a failed read is read off.
+    #[tokio::test]
+    async fn a_body_whose_read_failed_is_cancelled_however_it_was_marked() {
+        let (addr, tls, seen) = trailing_peer(false).await;
+        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
+        for marked_before in [true, false] {
+            let mut response = opened(&client, addr).await;
+            if marked_before {
+                response.body.drain_on_drop();
+            }
+            let cut = mixdog_rt::time::timeout(Duration::from_millis(50), response.body.next()).await;
+            assert!(cut.is_err(), "the stream stalls until the peer sends its closing frames");
+            response.body.drain_on_drop();
+        }
+        let mut response = opened(&client, addr).await;
+        response.body.drain_on_drop();
+        drop(response);
+        // The resets of the first two streams were written before this request, which sends every closing frame still held.
+        let tail = mixdog_rt::time::timeout(WITHIN, client.send(&post(addr), Writer::Raw, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        assert_eq!(drained(tail).await, b"ok");
+        let cancel = u32::from(h2::Reason::CANCEL);
+        assert_eq!(seen.lock().unwrap().resets, vec![(1, cancel), (3, cancel)], "the third stream is read off");
     }
 }
 
@@ -1626,11 +1655,7 @@ impl NodeClient {
         let status = response.status().as_u16();
         let list = header_pairs(response.headers());
         let decoder = decoding(&list, &request.method, status)?;
-        Ok(HttpResponse {
-            status,
-            headers: list,
-            body: super::link::replay_counted(url, Box::new(H2Body::new(response.into_body(), decoder, id, guard))),
-        })
+        Ok(HttpResponse { status, headers: list, body: super::link::replay_counted(url, Box::new(H2Body::new(response.into_body(), decoder, id, guard))) })
     }
 }
 #[async_trait]
@@ -1665,8 +1690,14 @@ impl BodyStream for H2Body {
                 return None;
             }
             let wire = self.wire.as_mut()?;
-            let data = match mixdog_rt::time::timeout(BODY_TIMEOUT, wire.stream.data()).await {
-                Err(_) => return Some(Err(TransportFault::Io { os_code: None })),
+            self.reading = true;
+            let read = mixdog_rt::time::timeout(BODY_TIMEOUT, wire.stream.data()).await;
+            self.reading = false;
+            let data = match read {
+                Err(_) => {
+                    self.failed = true;
+                    return Some(Err(TransportFault::Io { os_code: None }));
+                }
                 Ok(data) => data,
             };
             let Some(data) = data else {
@@ -1698,6 +1729,7 @@ impl BodyStream for H2Body {
                         super::fault::describe_h2_end(&e),
                         wire.guard.counts()
                     );
+                    self.failed = true;
                     return Some(Err(super::fault::fault_from_chain(&e, false)));
                 }
             };

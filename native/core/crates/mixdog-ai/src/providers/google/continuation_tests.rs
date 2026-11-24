@@ -20,6 +20,8 @@ use crate::transport::{BodyStream, Exchange, HttpResponse, HttpSend};
 struct Script {
     sent: Mutex<Vec<WireRequest>>,
     replies: Mutex<VecDeque<Option<(u16, Vec<(String, String)>, Chunks)>>>,
+    /// Each answered body as it is let go of: whether it was handed on to be read off.
+    released: Arc<Mutex<Vec<bool>>>,
 }
 
 impl Script {
@@ -28,7 +30,8 @@ impl Script {
     }
 
     fn answer_with(&self, status: u16, headers: Vec<(String, String)>, chunks: impl IntoIterator<Item = Result<Bytes, TransportFault>>) {
-        self.replies.lock().unwrap().push_back(Some((status, headers, Chunks(chunks.into_iter().collect()))));
+        let body = Chunks { chunks: chunks.into_iter().collect(), marked: false, released: self.released.clone() };
+        self.replies.lock().unwrap().push_back(Some((status, headers, body)));
     }
 
     fn silent(&self) {
@@ -48,12 +51,26 @@ impl Script {
     }
 }
 
-struct Chunks(VecDeque<Result<Bytes, TransportFault>>);
+struct Chunks {
+    chunks: VecDeque<Result<Bytes, TransportFault>>,
+    marked: bool,
+    released: Arc<Mutex<Vec<bool>>>,
+}
 
 #[async_trait]
 impl BodyStream for Chunks {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        self.0.pop_front()
+        self.chunks.pop_front()
+    }
+
+    fn drain_on_drop(&mut self) {
+        self.marked = true;
+    }
+}
+
+impl Drop for Chunks {
+    fn drop(&mut self) {
+        self.released.lock().unwrap().push(self.marked);
     }
 }
 
@@ -221,6 +238,25 @@ async fn a_spent_continued_hop_is_recovered_without_streaming_with_its_token() {
     assert_eq!((usage.input_tokens, usage.output_tokens), (22, 5));
     assert_eq!(http.tokens(), [None, Some("tok-1".into()), Some("tok-1".into()), Some("tok-1".into()), Some("tok-1".into()), Some("tok-1".into())]);
     assert_eq!(urls(&http).last().map(String::as_str), Some("generateContent"));
+}
+
+/// A continued hop's response cut by a malformed chunk before its end is given up as it fails: let go of unmarked, so it is
+/// reset, never kept until the re-issue's completion marks it to be read off.
+#[tokio::test(start_paused = true)]
+async fn a_given_up_hop_response_is_let_go_of_unmarked_before_the_recovered_completion() {
+    let http = Arc::new(Script::default());
+    http.answer(200, [sse(&hop("one ", Some("tok-1"), 10, 2))]);
+    for _ in 0..4 {
+        http.answer(200, [Ok(Bytes::from_static(b"data: {not json\n\n")), sse(&hop("two", None, 12, 3))]);
+    }
+    http.answer(200, [unary(&hop("two", None, 12, 3))]);
+    let adapter = adapter(http.clone());
+    let mut stream = adapter.attempt(Arc::new(request())).await.expect("the first hop answers");
+    while !matches!(stream.next().await.expect("the completion").expect("no failure"), StreamEvent::Completed { .. }) {}
+    assert_eq!(urls(&http).last().map(String::as_str), Some("generateContent"), "the spent hop is re-issued");
+    assert_eq!(*http.released.lock().unwrap(), [false; 6], "every hop's response and the re-issue's, let go of unmarked");
+    drop(stream);
+    assert_eq!(*http.released.lock().unwrap(), [false; 6]);
 }
 
 /// Each continued hop is judged on its own answer: after a visible first hop, an empty `STOP` or an empty
