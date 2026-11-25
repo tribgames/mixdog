@@ -229,46 +229,69 @@ test('inline accounts list in a popup without a dialog and select an account on 
   );
 });
 
+/** Lays the rendered rows out `height` px apart and counts pointer captures. */
+function layoutRows(height) {
+  const rect = (top, size) => ({
+    x: 0,
+    y: top,
+    top,
+    left: 0,
+    bottom: top + size,
+    right: 260,
+    width: 260,
+    height: size,
+    toJSON() {
+      return {};
+    },
+  });
+  const rows = document.querySelectorAll('.provider-accounts-list > li');
+  document.querySelector('.provider-accounts-list').getBoundingClientRect = () => rect(0, height * rows.length);
+  rows.forEach((li, i) => {
+    li.getBoundingClientRect = () => rect(height * i, height);
+  });
+  const captures = { taken: 0 };
+  window.HTMLElement.prototype.setPointerCapture = () => {
+    captures.taken += 1;
+  };
+  window.HTMLElement.prototype.releasePointerCapture = () => {};
+  return captures;
+}
+
+// jsdom ships no PointerEvent; a MouseEvent with the pointer fields React
+// reads (pointerId, pointerType, button, buttons, clientY) exercises the same handlers.
+function pointer(type, clientY, pointerType = 'mouse') {
+  const buttons = type === 'pointerup' ? 0 : 1;
+  const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientY, button: 0, buttons });
+  Object.defineProperty(event, 'pointerId', { value: 1 });
+  Object.defineProperty(event, 'pointerType', { value: pointerType });
+  return event;
+}
+
+async function press(element, path, pointerType) {
+  const [first, ...rest] = path;
+  await act(async () => element.dispatchEvent(pointer('pointerdown', first, pointerType)));
+  for (const y of rest) await act(async () => element.dispatchEvent(pointer('pointermove', y, pointerType)));
+  await act(async () => element.dispatchEvent(pointer('pointerup', path.at(-1), pointerType)));
+}
+
+const accountOrder = (state) => state.pool.accounts.map((row) => row.id);
+
 test('inline accounts support drag-and-drop priority and keyboard reorder', async (t) => {
   const render = harness(t);
   const { state, api } = inlineAccountsFixture();
   await render(React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth', listOnly: true }));
   const ROW = 32;
-  const rect = (top, height) => ({
-    x: 0,
-    y: top,
-    top,
-    left: 0,
-    bottom: top + height,
-    right: 260,
-    width: 260,
-    height,
-    toJSON() {
-      return {};
-    },
-  });
-  const list = document.querySelector('.provider-accounts-list');
-  list.getBoundingClientRect = () => rect(0, ROW * 3);
-  document.querySelectorAll('.provider-accounts-list > li').forEach((li, i) => {
-    li.getBoundingClientRect = () => rect(ROW * i, ROW);
-  });
-  window.HTMLElement.prototype.setPointerCapture ??= () => {};
-  window.HTMLElement.prototype.releasePointerCapture ??= () => {};
-  const grip = document.querySelector('[data-account-id="c"] .provider-account-grip');
-  // jsdom ships no PointerEvent; a MouseEvent with the pointer fields React
-  // reads (pointerId, button, clientY) exercises the same handlers.
-  const pointer = (type, clientY) => {
-    const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientY, button: 0 });
-    Object.defineProperty(event, 'pointerId', { value: 1 });
-    return event;
-  };
-  await act(async () => grip.dispatchEvent(pointer('pointerdown', ROW * 2 + 10)));
-  await act(async () => grip.dispatchEvent(pointer('pointermove', ROW * 2 + 12)));
-  // 2px, under the 4px threshold: nothing lifted yet, no write. Assert on
+  const captures = layoutRows(ROW);
+  const choice = document.querySelector('[data-account-id="c"] .provider-account-choice');
+  await act(async () => choice.dispatchEvent(pointer('pointerdown', ROW * 2 + 10)));
+  await act(async () => choice.dispatchEvent(pointer('pointermove', ROW * 2 + 12)));
+  // 2px, under the 4px threshold: nothing lifted or captured yet, no write. Assert on
   // booleans only — a DOM node in a failed assertion makes node:assert walk
   // the whole JSDOM graph.
   assert.equal(document.querySelector('.is-lifted') === null, true);
-  await act(async () => grip.dispatchEvent(pointer('pointermove', 10)));
+  assert.equal(captures.taken, 0, 'no capture before the threshold');
+  await act(async () => choice.dispatchEvent(pointer('pointermove', 10)));
+  assert.equal(captures.taken, 1, 'captured once the drag begins');
   const lifted = document.querySelector('[data-account-id="c"]');
   assert.ok(lifted.classList.contains('is-lifted'), 'the grabbed row itself lifts');
   assert.match(lifted.style.transform, /translateY\(-?\d+px\)/, 'lifted row follows the pointer');
@@ -278,23 +301,83 @@ test('inline accounts support drag-and-drop priority and keyboard reorder', asyn
     'displaced row shifts down'
   );
   assert.equal(state.writes.length, 0, 'no order write until release');
-  await act(async () => grip.dispatchEvent(pointer('pointerup', 10)));
-  assert.deepEqual(
-    state.pool.accounts.map((row) => row.id),
-    ['c', 'a', 'b']
-  );
+  await act(async () => choice.dispatchEvent(pointer('pointerup', 10)));
+  assert.deepEqual(accountOrder(state), ['c', 'a', 'b']);
   assert.equal(document.querySelector('.is-lifted') === null, true);
   assert.equal(state.pool.selectedId, 'a', 'reordering does not unexpectedly change the active account');
   await act(async () =>
     document
-      .querySelector('[data-account-id="b"] .provider-account-grip')
+      .querySelector('[data-account-id="b"] .provider-account-choice')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true }))
   );
-  assert.deepEqual(
-    state.pool.accounts.map((row) => row.id),
-    ['c', 'b', 'a']
-  );
+  assert.deepEqual(accountOrder(state), ['c', 'b', 'a']);
   assert.equal(state.writes.length, 2);
+});
+
+test('an account row drags from anywhere but its actions, and a press without movement stays a click', async (t) => {
+  const render = harness(t);
+  const { state, api } = inlineAccountsFixture();
+  const renderActions = () => React.createElement('button', { type: 'button', className: 'settings-action' }, 'Menu');
+  await render(
+    React.createElement(ProviderAccountsList, { api, provider: 'click-oauth', title: 'Click', renderActions })
+  );
+  const ROW = 80;
+  const captures = layoutRows(ROW);
+  const row = (id, selector) => document.querySelector(`[data-account-id="${id}"] ${selector}`);
+  const orderWrites = () => state.writes.filter((write) => write.order).length;
+
+  const select = row('b', '.provider-account-select');
+  await press(select, [ROW + 30, ROW + 31]);
+  await act(async () => select.click());
+  assert.equal(state.pool.selectedId, 'b', 'the switch plate still selects');
+  assert.equal(captures.taken, 0, 'a click takes no pointer capture');
+  assert.equal(orderWrites(), 0);
+
+  await press(row('c', '.settings-action'), [ROW * 2 + 30, ROW * 2 + 20, 10]);
+  await press(row('c', '.provider-account-name'), [ROW * 2 + 30, ROW * 2 + 20, 10], 'touch');
+  assert.equal(captures.taken, 0, 'neither the actions nor a touch press start a drag');
+  assert.equal(orderWrites(), 0);
+  assert.deepEqual(accountOrder(state), ['a', 'b', 'c']);
+
+  await press(row('c', '.provider-account-usage'), [ROW * 2 + 60, ROW * 2 + 50, 30]);
+  assert.deepEqual(accountOrder(state), ['c', 'a', 'b'], 'a drag from the meters reorders');
+  assert.equal(state.pool.selectedId, 'b');
+
+  await act(async () =>
+    row('c', '.provider-account-name').dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true })
+    )
+  );
+  assert.deepEqual(accountOrder(state), ['a', 'c', 'b'], 'Alt+arrow moves the account from any of its controls');
+});
+
+test("Escape cancels a row drag before the page's own Escape handling sees it", async (t) => {
+  const render = harness(t);
+  const { state, api } = inlineAccountsFixture();
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'escape-oauth', title: 'Escape' }));
+  const ROW = 80;
+  layoutRows(ROW);
+  let pageEscapes = 0;
+  // Settings closes itself on Escape from a document capture listener.
+  const closePage = (event) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    pageEscapes += 1;
+  };
+  document.addEventListener('keydown', closePage, true);
+  t.after(() => document.removeEventListener('keydown', closePage, true));
+  const meters = document.querySelector('[data-account-id="c"] .provider-account-usage');
+  await act(async () => meters.dispatchEvent(pointer('pointerdown', ROW * 2 + 60)));
+  await act(async () => meters.dispatchEvent(pointer('pointermove', 30)));
+  assert.equal(document.querySelector('.is-lifted') === null, false);
+  await act(async () =>
+    document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  );
+  assert.equal(document.querySelector('.is-lifted') === null, true);
+  assert.equal(pageEscapes, 0, 'the drag owns that Escape');
+  await act(async () => meters.dispatchEvent(pointer('pointerup', 30)));
+  assert.deepEqual(accountOrder(state), ['a', 'b', 'c']);
+  assert.equal(state.writes.length, 0);
 });
 
 test('a rejected reorder keeps the saved order and displays the failure', async (t) => {
@@ -314,7 +397,7 @@ test('a rejected reorder keeps the saved order and displays the failure', async 
   await render(React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth' }));
   await act(async () =>
     document
-      .querySelector('[data-account-id="b"] .provider-account-grip')
+      .querySelector('[data-account-id="b"] .provider-account-name')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true }))
   );
   assert.deepEqual(
@@ -708,7 +791,7 @@ test('account rows show every usage window, the limit holding them and the switc
   // The usage block sits between the identity and the actions.
   assert.deepEqual(
     [...row('codex').querySelector('.provider-account-row').children].map((cell) => cell.className),
-    ['provider-account-grip', 'provider-account-identity', 'provider-account-usage', 'settings-resource-actions']
+    ['provider-account-identity', 'provider-account-usage', 'settings-resource-actions']
   );
 });
 
