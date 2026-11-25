@@ -316,7 +316,7 @@ impl ToolServer {
 }
 
 impl Served {
-    async fn handle(&self, request: Request<Body>) -> Reply {
+    async fn handle(self: &Arc<Self>, request: Request<Body>) -> Reply {
         let bearer = request.headers().get(header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "));
         // A page in a browser can reach a loopback port; it cannot leave out its `Origin`, and the agent sends none.
         let refusal = if bearer != Some(self.token.as_str()) || request.headers().contains_key(header::ORIGIN) {
@@ -338,10 +338,19 @@ impl Served {
         };
         match message {
             Value::Array(batch) => {
-                let mut answers = Vec::new();
-                for message in &batch {
-                    answers.extend(self.message(message).await);
+                let mut tasks = tokio::task::JoinSet::new();
+                for (index, message) in batch.into_iter().enumerate() {
+                    let served = self.clone();
+                    tasks.spawn(async move { (index, served.message(&message).await) });
                 }
+                let mut ordered: Vec<(usize, Value)> = Vec::new();
+                while let Some(joined) = tasks.join_next().await {
+                    if let Ok((index, Some(answer))) = joined {
+                        ordered.push((index, answer));
+                    }
+                }
+                ordered.sort_by_key(|(index, _)| *index);
+                let answers: Vec<Value> = ordered.into_iter().map(|(_, answer)| answer).collect();
                 if answers.is_empty() { plain(StatusCode::ACCEPTED) } else { answered(Value::Array(answers)) }
             }
             message => match self.message(&message).await {

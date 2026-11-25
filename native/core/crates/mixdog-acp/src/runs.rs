@@ -31,9 +31,11 @@ use crate::agents::DEFAULT_MODEL;
 use crate::agents::Refusal;
 use crate::agents::lock;
 use crate::preset::AgentPreset;
+use crate::preset::Distribution;
 use crate::preset::ProcessScope;
 use crate::surface::TurnSurface;
 use crate::turn::Ask;
+use crate::turn::Pictures;
 use crate::turn::TurnContext;
 use crate::turn::TurnEnd;
 
@@ -107,7 +109,7 @@ fn pass(due: Due, duration_ms: i64, status: CompactStatus) -> CompactEvent {
     }
 }
 
-/// The attachments the session's rows name.
+/// The attachments the session's rows name, and where the pictures its agent shows are kept.
 #[async_trait]
 pub trait Attachments: Send + Sync {
     /// The bytes of the stored attachment `reference` names.
@@ -118,6 +120,33 @@ pub trait Attachments: Send + Sync {
     fn path(&self, _reference: &str) -> Option<String> {
         None
     }
+
+    /// Keeps `image`, a picture the agent showed, as Mixdog keeps a picture its own media generation made; `None` where
+    /// nothing keeps one, or it could not be kept.
+    async fn keep_image(&self, _image: ShownImage) -> Option<KeptImage> {
+        None
+    }
+}
+
+/// A picture the agent showed, to keep.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShownImage {
+    pub bytes: Vec<u8>,
+    pub mime: String,
+    /// What the agent made it from, where it says.
+    pub prompt: String,
+    /// How it was asked for (`aspect`), where the agent says.
+    pub options: Value,
+    /// The agent's route and the model it ran on.
+    pub provider: String,
+    pub model: String,
+}
+
+/// A kept picture: its media asset, and the file that holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptImage {
+    pub asset_id: String,
+    pub path: Option<String>,
 }
 
 fn failed(message: String, reason: &str) -> RunOutcome {
@@ -180,25 +209,30 @@ fn file_name(part: &Value) -> &str {
 /// The text of a file that goes into the prompt itself; a longer one is read by the agent from where it is stored.
 const EMBEDDED_TEXT_MAX_BYTES: usize = 256 * 1024;
 
+/// `text` as the path of a URI: every byte that is not a path character of one percent-encoded.
+fn uri_path(text: &str) -> String {
+    let mut path = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => path.push(char::from(byte)),
+            other => path.push_str(&format!("%{other:02X}")),
+        }
+    }
+    path
+}
+
 /// `path` as a `file:` URI.
 fn file_uri(path: &str) -> String {
     let path = path.replace('\\', "/");
-    let mut uri = String::from(if path.starts_with('/') { "file://" } else { "file:///" });
-    for byte in path.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => uri.push(char::from(byte)),
-            other => uri.push_str(&format!("%{other:02X}")),
-        }
-    }
-    uri
+    format!("{}{}", if path.starts_with('/') { "file://" } else { "file:///" }, uri_path(&path))
 }
 
-/// The block an attached file reaches the agent as. A file that is text is in the prompt: an embedded resource
-/// where the agent takes one (`embedded`), else a text block under the file's name. Any other file (a PDF, a
-/// document), and a text too long for the prompt, is a link to where the attachment is stored, which the agent
-/// reads with a tool of its own: every agent takes a link, and none is sent bytes it may drop. `None` for a file
-/// that can be neither read nor linked.
-async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments) -> Option<Value> {
+/// The block an attached file reaches the agent as, together with its stored path when linked from outside `cwd`. A
+/// file that is text is in the prompt: an embedded resource where the agent takes one (`embedded`), else a text block
+/// under the file's name. Any other file (a PDF, a document), and a text too long for the prompt, is a link to where
+/// the attachment is stored, which the agent reads with a tool of its own: every agent takes a link, and none is sent
+/// bytes it may drop. `None` for a file that can be neither read nor linked.
+async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments) -> (Option<Value>, Option<String>) {
     let field = |key: &str| part.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
     let reference = field("attachmentRef");
     let name = file_name(part);
@@ -212,36 +246,60 @@ async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments)
     let mime = field("mimeType").or_else(|| field("mediaType"));
     let in_prompt = text.filter(|text| text.len() <= EMBEDDED_TEXT_MAX_BYTES || stored.is_none());
     match (in_prompt, stored) {
-        (Some(text), stored) => Some(if embedded {
-            let uri = stored.as_deref().map_or_else(|| format!("attachment:///{name}"), file_uri);
-            json!({ "type": "resource", "resource": { "uri": uri, "mimeType": mime.unwrap_or("text/plain"), "text": text } })
-        } else {
-            json!({ "type": "text", "text": format!("[Attached file: {name}]\n{text}") })
-        }),
+        (Some(text), stored) => {
+            let block = if embedded {
+                let uri = stored.as_deref().map_or_else(|| format!("attachment:///{}", uri_path(name)), file_uri);
+                json!({ "type": "resource", "resource": { "uri": uri, "mimeType": mime.unwrap_or("text/plain"), "text": text } })
+            } else {
+                json!({ "type": "text", "text": format!("[Attached file: {name}]\n{text}") })
+            };
+            (Some(block), stored)
+        }
         (None, Some(stored)) => {
             let mut link = json!({ "type": "resource_link", "uri": file_uri(&stored), "name": name });
             if let Some(mime) = mime {
                 link["mimeType"] = json!(mime);
             }
-            Some(link)
+            (Some(link), Some(stored))
         }
-        (None, None) => None,
+        (None, None) => (None, None),
     }
 }
 
+/// Pure syntactic check of whether `input` has any part that could produce a prompt block when `images` is allowed.
+fn has_candidate_parts(input: &Value, images: bool) -> bool {
+    let Some(Value::Array(parts)) = input.get("content") else {
+        return true;
+    };
+    parts.iter().any(|part| {
+        let kind = part.get("type").and_then(Value::as_str);
+        let mime = ["mimeType", "mediaType"].iter().find_map(|key| part.get(*key).and_then(Value::as_str).filter(|mime| !mime.is_empty()));
+        let is_image = kind == Some("image") || mime.is_some_and(|mime| mime.starts_with("image/"));
+        let has_payload = ["data", "attachmentRef"].iter().any(|key| part.get(*key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()));
+        match kind {
+            Some("text") if part.get("text").is_some_and(Value::is_string) => true,
+            Some("image" | "file") if is_image => images && has_payload,
+            Some("text" | "file") => has_payload,
+            _ => false,
+        }
+    })
+}
+
 /// The input row as the blocks of a prompt: its text parts as text, its images as image blocks where the agent takes
-/// them (`images`), its files as [`file_block`] makes them. Also what was left out.
-async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachments: &dyn Attachments) -> (Vec<Value>, LeftOut) {
+/// them (`images`), its files as [`file_block`] makes them. Also what was left out and any stored attachment paths to
+/// allow for this session.
+async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachments: &dyn Attachments) -> (Vec<Value>, LeftOut, Vec<String>) {
     let text = |text: &str| json!({ "type": "text", "text": text });
     let parts = match input.get("content") {
         Some(Value::Array(parts)) => parts,
-        Some(Value::String(content)) => return (vec![text(content)], LeftOut::default()),
-        _ => return (vec![text("")], LeftOut::default()),
+        Some(Value::String(content)) => return (vec![text(content)], LeftOut::default(), Vec::new()),
+        _ => return (vec![text("")], LeftOut::default(), Vec::new()),
     };
-    let (mut blocks, mut left_out) = (Vec::new(), LeftOut::default());
+    let (mut blocks, mut left_out, mut attached) = (Vec::new(), LeftOut::default(), Vec::new());
     for part in parts {
         let kind = part.get("type").and_then(Value::as_str);
-        let is_image = kind == Some("image") || part.get("mimeType").and_then(Value::as_str).is_some_and(|mime| mime.starts_with("image/"));
+        let mime = ["mimeType", "mediaType"].iter().find_map(|key| part.get(*key).and_then(Value::as_str).filter(|mime| !mime.is_empty()));
+        let is_image = kind == Some("image") || mime.is_some_and(|mime| mime.starts_with("image/"));
         match kind {
             Some("text") if part.get("text").is_some_and(Value::is_string) => blocks.extend(part.get("text").and_then(Value::as_str).map(text)),
             Some("image" | "file") if is_image => {
@@ -252,22 +310,36 @@ async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachme
                     (None, None) => None,
                 };
                 match data {
-                    Some(data) => {
-                        let mime = part.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
-                        blocks.push(json!({ "type": "image", "mimeType": mime, "data": data }));
-                    }
+                    Some(data) => blocks.push(json!({ "type": "image", "mimeType": mime.unwrap_or("image/png"), "data": data })),
                     None => left_out.images += 1,
                 }
             }
             // A stored text attachment is a text part that names its attachment in place of its text.
             Some("text" | "file") => match file_block(part, embedded, attachments).await {
-                Some(block) => blocks.push(block),
-                None => left_out.files.push(file_name(part).to_owned()),
+                (Some(block), stored) => {
+                    blocks.push(block);
+                    if let Some(stored) = stored {
+                        attached.push(stored);
+                    }
+                }
+                (None, _) => left_out.files.push(file_name(part).to_owned()),
             },
             _ => {}
         }
     }
-    (blocks, left_out)
+    (blocks, left_out, attached)
+}
+
+async fn notify_left_out(surface: &Arc<dyn TurnSurface>, preset: &AgentPreset, images_supported: bool, left_out: &LeftOut) {
+    if left_out.images > 0 {
+        let why = if images_supported { "could not be read".to_owned() } else { format!("{} takes no images", preset.label) };
+        let _ = surface.notice(format!("{} image(s) of this message were not sent to {}: {why}.", left_out.images, preset.label), true).await;
+    }
+    if !left_out.files.is_empty() {
+        let named = left_out.files.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(", ");
+        let notice = format!("Not sent to {} (not readable where the session keeps its attachments): {named}.", preset.label);
+        let _ = surface.notice(notice, true).await;
+    }
 }
 
 /// One turn of a thread on `preset`'s agent, reported to `surface`: the agent's process is found or started, its
@@ -356,6 +428,13 @@ async fn begin(
     if let Some(why) = agents.refuses_model(preset, &context.model) {
         return Err(TurnEnd::Failed { message: why, code: None, reported: false });
     }
+    // Reject prompts with no sendable candidate parts before compaction, opening a new session, or running handover.
+    let known_images = agents.running(&thread).filter(|running| running.preset.id == preset.id).map_or(true, |running| running.images);
+    if !has_candidate_parts(&input, known_images) {
+        let (_, left_out, _) = prompt_blocks(&input, (known_images, false), attachments.as_ref()).await;
+        notify_left_out(surface, preset, known_images, &left_out).await;
+        return Err(TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false });
+    }
     // The session compacts where a provider's does: before the request is sent, once the context the last turn left
     // has reached the session's trigger. The agent owns the context, so the compaction is the one a manual Compact
     // makes of an agent's session: Mixdog's summary becomes the stored context, the agent's session is left behind,
@@ -422,9 +501,20 @@ async fn begin(
         },
     };
     drop(held);
+    let fresh = stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
+    // Build the prompt blocks before running handover or selecting a model so an all-dropped prompt never triggers
+    // handover or leaves a newly opened session orphaned.
+    let (mut blocks, left_out, attached) = prompt_blocks(&input, (session.images, session.embedded), attachments.as_ref()).await;
+    notify_left_out(surface, preset, session.images, &left_out).await;
+    if blocks.is_empty() {
+        if fresh {
+            session.close().await;
+            agents.end_process(&thread);
+        }
+        return Err(TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false });
+    }
     // What rides the prompt ahead of the user's own blocks.
     let mut lead: Vec<String> = Vec::new();
-    let fresh = stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
     if fresh {
         // The agent's session starts without the conversation the Mixdog session holds (the route came to the agent in
         // the middle of it, a fork, a rewind, or a session the agent could not reopen): Mixdog's own compaction
@@ -504,15 +594,8 @@ async fn begin(
             return Err(refused(Refusal::Fault(fault)));
         }
     }
-    let (mut blocks, left_out) = prompt_blocks(&input, (session.images, session.embedded), attachments.as_ref()).await;
-    if left_out.images > 0 {
-        let why = if session.images { "could not be read".to_owned() } else { format!("{} takes no images", preset.label) };
-        let _ = surface.notice(format!("{} image(s) of this message were not sent to {}: {why}.", left_out.images, preset.label), true).await;
-    }
-    if !left_out.files.is_empty() {
-        let named = left_out.files.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(", ");
-        let notice = format!("Not sent to {} (not readable where the session keeps its attachments): {named}.", preset.label);
-        let _ = surface.notice(notice, true).await;
+    for path in &attached {
+        session.allow_attached(path);
     }
     // An agent whose system prompt takes nothing from its client is given Mixdog's prompt in the text of the first
     // prompt its session gets, and again when the prompt changed.
@@ -543,6 +626,21 @@ pub struct AgentTurn {
     pub on_tool_result: Option<crate::turn::ToolResultHook>,
 }
 
+/// The folders the agent writes what it makes in: the home Mixdog keeps for an agent it installs, and the agent/user
+/// homes for a CLI.
+fn agent_homes(agents: &Agents, preset: &AgentPreset) -> Vec<AbsPath> {
+    let mut homes = Vec::new();
+    match preset.distribution {
+        Distribution::Registry { .. } => homes.extend(AbsPath::new(agents.home(preset))),
+        Distribution::Cli { .. } => {
+            for key in ["GEMINI_HOME", if cfg!(windows) { "USERPROFILE" } else { "HOME" }] {
+                homes.extend((agents.parts.env)(key).and_then(AbsPath::new));
+            }
+        }
+    }
+    homes
+}
+
 /// Runs `turn` on `preset`'s agent to the run's outcome.
 pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>, turn: AgentTurn) -> RunOutcome {
     let AgentTurn { thread, turn, header, input, rules, surface, cancel, progress, transcript, calls, conversation, attachments, on_tool_result } = turn;
@@ -550,12 +648,14 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
         return failed("The session has no working folder to start the agent in.".to_owned(), "acpAgent");
     };
     let thread_id = thread.clone();
+    let pictures = Pictures { keep: attachments.clone(), files: agents.parts.files.clone(), homes: agent_homes(agents, preset) };
     let request = TurnRequest { thread, cwd, stored: stored_session(&header, preset), rules, input, conversation, attachments };
     let model = header.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_MODEL).to_owned();
     let effort = header.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
     let clock = now_ms.clone();
     let selected_window = header.get("selectedContextWindow").and_then(Value::as_u64).filter(|window| *window > 0);
-    let context = TurnContext { turn, model: model.clone(), effort, now_ms, cancel, progress, calls, on_tool_result, record: None, selected_window };
+    let context =
+        TurnContext { turn, model: model.clone(), effort, now_ms, cancel, progress, calls, on_tool_result, record: None, selected_window, pictures: Some(pictures) };
     let stop = context.cancel.clone();
     match serve(agents, preset, request, surface, context).await {
         TurnEnd::Failed { message, code, reported } => {
@@ -660,18 +760,37 @@ impl Drop for Ended {
     }
 }
 
+/// The model a one-off question runs on: a bare model id (no effort) or `(model, effort)` for a route carrying an effort tier.
+pub trait AskModel<'a> {
+    fn into_model_effort(self) -> (&'a str, Option<&'a str>);
+}
+
+impl<'a> AskModel<'a> for &'a str {
+    fn into_model_effort(self) -> (&'a str, Option<&'a str>) {
+        (self, None)
+    }
+}
+
+impl<'a> AskModel<'a> for (&'a str, Option<&'a str>) {
+    fn into_model_effort(self) -> (&'a str, Option<&'a str>) {
+        self
+    }
+}
+
 /// Asks `preset`'s agent `prompt` under the instructions `system`, in a process and a session of its own that hold
 /// no conversation, are handed no tools and end with the answer: what writes a session's summary when the session's
-/// own model is the agent. `model` is the route's name of the model, as a turn's is. Nothing the agent does in it is
-/// approved, and a caller that stops waiting ends it.
-pub async fn ask_once(
+/// own model is the agent. `model` and `effort` are the route's, as a turn's are. Nothing the agent does in it is
+/// approved, and a caller that stops waiting ends it. An answer the agent stopped short of (a refusal, a limit it
+/// reached) is no answer: the error says why it stopped.
+pub async fn ask_once<'a>(
     agents: &Arc<Agents>,
     preset: &AgentPreset,
-    model: &str,
+    model: impl AskModel<'a>,
     system: &str,
     prompt: &str,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
 ) -> Result<Answered, String> {
+    let (model, effort) = model.into_model_effort();
     if !agents.enabled() {
         return Err(Refusal::Off.message(preset));
     }
@@ -710,7 +829,7 @@ pub async fn ask_once(
     let _ended = Ended(session.clone(), agents.clone());
     let answered = async {
         if model != DEFAULT_MODEL {
-            let model = crate::tiers::agent_model(&session.models(), &preset.quirks.effort_tiers, model, None);
+            let model = crate::tiers::agent_model(&session.models(), &preset.quirks.effort_tiers, model, effort);
             session.select_model(&model).await.map_err(|fault| Refusal::Fault(fault).message(preset))?;
         }
         let surface = Unshown::default();
@@ -718,7 +837,7 @@ pub async fn ask_once(
         let context = TurnContext {
             turn: TurnId::from("question"),
             model: model.to_owned(),
-            effort: None,
+            effort: effort.map(str::to_owned),
             now_ms,
             cancel: CancellationToken::new(),
             progress: None,
@@ -726,13 +845,18 @@ pub async fn ask_once(
             on_tool_result: None,
             record: None,
             selected_window: None,
+            pictures: None,
         };
         let end = crate::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(blocks), context).await;
         account_learned(agents, preset, &end).await;
         match end {
             TurnEnd::Completed { text, stop_reason, .. } => {
-                let usage = lock(&surface.0).take();
-                Ok(Answered { text, stop_reason, usage })
+                if let Some(why) = crate::turn::cut_short(stop_reason.as_deref()) {
+                    Err(format!("{} stopped before it answered: {why}.", preset.label))
+                } else {
+                    let usage = lock(&surface.0).take();
+                    Ok(Answered { text, stop_reason, usage })
+                }
             }
             TurnEnd::Interrupted => Err(format!("{} stopped before it answered.", preset.label)),
             TurnEnd::Failed { message, .. } | TurnEnd::Refused { message } => Err(message),

@@ -46,6 +46,18 @@ pub struct RpcError {
     pub data: Value,
 }
 
+impl RpcError {
+    /// Textual detail carried in `data`, where present (`String` verbatim, other non-null JSON serialized).
+    pub fn data_text(&self) -> Option<String> {
+        match &self.data {
+            Value::Null => None,
+            Value::String(text) if !text.trim().is_empty() => Some(text.clone()),
+            Value::String(_) => None,
+            other => Some(other.to_string()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fault {
     /// The program is not on this machine.

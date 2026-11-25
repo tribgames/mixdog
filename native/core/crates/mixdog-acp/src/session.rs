@@ -23,7 +23,7 @@ use crate::connection::Launch;
 use crate::connection::RpcError;
 use crate::connection::Temp;
 use crate::files::TextFiles;
-use crate::files::read_text_file;
+use crate::files::read_text_file_with;
 use mixdog_tools::policy::GrantKey;
 
 use crate::mcp::Handover;
@@ -251,6 +251,8 @@ pub struct AgentSession {
     /// Calls of Mixdog tools that went on past the agent's deadline for them, each as its tool, its arguments and its
     /// background task.
     kept: Mutex<Vec<(String, Value, String)>>,
+    /// Attached files linked into this session's prompts from outside `cwd`, readable only while this session lives.
+    attached: Mutex<HashSet<AbsPath>>,
     /// Told when the agent closed a cancelled prompt.
     closed_prompt: tokio::sync::Notify,
     wake: Wake,
@@ -566,6 +568,7 @@ impl AgentSession {
             models: Mutex::new(Models::of(&answer)),
             routing: Mutex::default(),
             kept: Mutex::default(),
+            attached: Mutex::default(),
             closed_prompt: tokio::sync::Notify::new(),
             wake,
         });
@@ -623,6 +626,19 @@ impl AgentSession {
         let mut routing = lock(&self.routing);
         routing.turn = None;
         routing.ended = true;
+        lock(&self.attached).clear();
+    }
+
+    /// Allows this session's agent to read the attached file at `path` through `fs/read_text_file`.
+    pub(crate) fn allow_attached(&self, path: &str) {
+        if let Some(path) = AbsPath::new(path) {
+            lock(&self.attached).insert(path);
+        }
+    }
+
+    /// The attached files this session's agent is allowed to read through `fs/read_text_file`.
+    pub(crate) fn attached_files(&self) -> Vec<AbsPath> {
+        lock(&self.attached).iter().cloned().collect()
     }
 
     pub fn models(&self) -> Models {
@@ -936,7 +952,8 @@ async fn route(
         };
         let message = match message {
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
-                session.connection.respond(id, read_text_file(files.as_ref(), &session.cwd, &params).await).await;
+                let allowed = session.attached_files();
+                session.connection.respond(id, read_text_file_with(files.as_ref(), &session.cwd, &allowed, &params).await).await;
                 continue;
             }
             Incoming::Request { id, method, .. } if method != "session/request_permission" => {

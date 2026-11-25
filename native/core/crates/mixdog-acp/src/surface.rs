@@ -28,6 +28,7 @@ pub struct TurnUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cached_read_tokens: u64,
+    pub cached_write_tokens: u64,
     pub thought_tokens: Option<u64>,
     /// The answer's own total, where it gives one: what tells whether its input counts the cache reads.
     pub total_tokens: Option<u64>,
@@ -43,7 +44,8 @@ pub struct TurnUsage {
     /// The turn's whole run, from its start to its end, tool calls and waits included: the span the usage ledger records
     /// the turn over, which the quota table spreads the turn's meter rises across.
     pub run_ms: u64,
-    /// What the usage ledger priced the turn at, set by the one that records it: the cost the session's stats carry.
+    /// What the usage ledger priced the turn at, or the cost the agent reported in `usage_update`: the cost the
+    /// session's stats carry.
     pub cost: Option<UsdTicks>,
 }
 
@@ -58,9 +60,29 @@ fn context_evidence(context: Option<ContextUse>) -> serde_json::Value {
     raw
 }
 
-/// The answer's input leaves its cache reads out: its total is the input, the cache reads and the output together.
+/// The answer's input leaves its cache tokens out: its total exceeds `input + output (+ thought)` and matches
+/// `input + output` plus its cache reads and/or cache writes (with or without thought tokens).
 pub fn input_excludes_cache(usage: &TurnUsage) -> bool {
-    usage.cached_read_tokens > 0 && usage.total_tokens == Some(usage.input_tokens + usage.cached_read_tokens + usage.output_tokens)
+    let Some(total) = usage.total_tokens else { return false };
+    if usage.cached_read_tokens == 0 && usage.cached_write_tokens == 0 {
+        return false;
+    }
+    let base = usage.input_tokens.saturating_add(usage.output_tokens);
+    let thought = usage.thought_tokens.unwrap_or(0);
+    if total == base || total == base.saturating_add(thought) {
+        return false;
+    }
+    let read = usage.cached_read_tokens;
+    let write = usage.cached_write_tokens;
+    [
+        base.saturating_add(read),
+        base.saturating_add(read).saturating_add(thought),
+        base.saturating_add(write),
+        base.saturating_add(write).saturating_add(thought),
+        base.saturating_add(read).saturating_add(write),
+        base.saturating_add(read).saturating_add(write).saturating_add(thought),
+    ]
+    .contains(&total)
 }
 
 /// A turn's usage as a provider's call reports its own: the counts, and the agent's report of its context as the evidence
@@ -70,6 +92,7 @@ pub fn provider_usage(usage: &TurnUsage) -> Usage {
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         cache_read_tokens: usage.cached_read_tokens,
+        cache_write_tokens: usage.cached_write_tokens,
         reasoning_tokens: usage.thought_tokens,
         raw: Some(context_evidence(usage.context)),
         cost: usage.cost,
@@ -287,5 +310,46 @@ mod tests {
             ..TurnUsage::default()
         }));
         assert!(!input_excludes_cache(&TurnUsage { input_tokens: 10, output_tokens: 5, cached_read_tokens: 2, ..TurnUsage::default() }));
+    }
+
+    #[test]
+    fn input_excludes_cache_handles_thought_and_cached_write_tokens() {
+        // Inclusive input with thoughtTokens in totalTokens must NOT be treated as exclusive.
+        let inclusive_with_thought = TurnUsage {
+            input_tokens: 1_000,
+            output_tokens: 100,
+            cached_read_tokens: 800,
+            thought_tokens: Some(250),
+            total_tokens: Some(1_350),
+            ..TurnUsage::default()
+        };
+        assert!(!input_excludes_cache(&inclusive_with_thought));
+
+        // Exclusive input with cachedReadTokens + thoughtTokens in totalTokens must NOT subtract cache reads twice.
+        let exclusive_with_thought = TurnUsage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cached_read_tokens: 800,
+            thought_tokens: Some(250),
+            total_tokens: Some(1_350),
+            ..TurnUsage::default()
+        };
+        assert!(input_excludes_cache(&exclusive_with_thought));
+
+        // Exclusive input with cachedReadTokens + cachedWriteTokens + thoughtTokens in totalTokens.
+        let exclusive_with_write = TurnUsage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cached_read_tokens: 800,
+            cached_write_tokens: 300,
+            thought_tokens: Some(50),
+            total_tokens: Some(1_450),
+            cost: UsdTicks::from_usd(0.025),
+            ..TurnUsage::default()
+        };
+        assert!(input_excludes_cache(&exclusive_with_write));
+        let provider = provider_usage(&exclusive_with_write);
+        assert_eq!(provider.cache_write_tokens, 300);
+        assert_eq!(provider.cost, UsdTicks::from_usd(0.025));
     }
 }

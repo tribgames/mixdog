@@ -158,6 +158,8 @@ pub enum Judged {
     Allowed,
     /// The text a call of the session's tool would be refused with.
     Refused(String),
+    /// The turn was stopped before the call was judged: nothing decided it.
+    Cancelled,
     /// The session would ask the user about the call.
     Asks,
     /// The session would run the call only changed (a hook's rewrite): a call that is not run here cannot be changed,
@@ -278,11 +280,9 @@ impl RetryDecider for Unsent {
     }
 }
 
-/// A run the turn's calls run on, with the messages it commits and when the answer to its call is due.
-#[allow(clippy::disallowed_types, reason = "see Lane::run")]
+/// A run one call (or batch of calls) runs on, with the messages it commits and when its answer is due.
 struct Lane {
-    /// The lane's calls run one at a time (calls made together as one), each holding the run for as long as it runs.
-    run: tokio::sync::Mutex<Run>,
+    run: Run,
     kept: Arc<Kept>,
     answer_by: crate::tools::AnswerBy,
 }
@@ -291,23 +291,35 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Removes active call ids from [`HandedCalls::active`] when their run finishes or is dropped.
+struct ActiveGuard<'a> {
+    active: &'a Mutex<HashMap<String, crate::tools::AnswerBy>>,
+    ids: Vec<String>,
+}
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        let mut active = lock(self.active);
+        for id in &self.ids {
+            active.remove(id);
+        }
+    }
+}
+
 /// The calls of one turn.
 pub struct HandedCalls {
-    /// The lane the turn's calls run on. A call the turn lets go of ([`Self::let_go`]) keeps the lane it holds and the
-    /// turn's later calls run on a new one, so none of them waits for it. A judgement reads `env` and the turn's end reads
-    /// `repeat`; neither waits for a call.
-    lane: Mutex<Arc<Lane>>,
-    /// A new lane over the turn's parts, with the repeat guards given.
+    /// A new run over the turn's parts, with the repeat guards given: each concurrent call runs on its own [`Lane`],
+    /// so sibling calls and plan updates never serialize on one shared call mutex.
     fresh: Mutex<Box<dyn Fn(RepeatGuards) -> Lane + Send>>,
+    /// Active calls' `answer_by` cells, keyed by call id, so [`Self::let_go`] clears only the released call's deadline.
+    active: Mutex<HashMap<String, crate::tools::AnswerBy>>,
     env: Arc<crate::tools::CallEnv>,
     asks: Arc<JudgedAsks>,
-    /// The session's repeat guards as the last call that ended left them: each call starts from them, whatever lane it
-    /// runs on.
+    /// The session's repeat guards as the last call that ended left them: each call starts from them.
     repeat: Mutex<RepeatGuards>,
 }
 
 impl HandedCalls {
-    #[allow(clippy::disallowed_types, reason = "see Lane::run")]
     pub fn new(mut parts: HandedParts) -> Self {
         let asks = parts.asks.take().unwrap_or_else(|| JudgedAsks::over(parts.tool_env.approvals.clone()));
         parts.tool_env.approvals = asks.alongside(parts.tool_env.approvals.clone());
@@ -333,11 +345,11 @@ impl HandedCalls {
             let carry = RunCarry { repeat, ..RunCarry::default() };
             let mut run = Run::new(env, cancel.clone(), provider.clone(), tools.clone(), tool_env.clone(), config.clone(), Vec::new(), carry);
             run.outside = true;
-            Lane { answer_by: run.answer_by.clone(), run: tokio::sync::Mutex::new(run), kept }
+            Lane { answer_by: run.answer_by.clone(), run, kept }
         };
-        let mut lane = fresh(parts.repeat.clone());
-        let env = lane.run.get_mut().call_env();
-        Self { lane: Mutex::new(Arc::new(lane)), fresh: Mutex::new(Box::new(fresh)), env, asks, repeat: Mutex::new(parts.repeat) }
+        let lane = fresh(parts.repeat.clone());
+        let env = lane.run.call_env();
+        Self { fresh: Mutex::new(Box::new(fresh)), active: Mutex::default(), env, asks, repeat: Mutex::new(parts.repeat) }
     }
 
     /// Runs `call` as a batch of one: a `call_tool` as its target, any other call as itself.
@@ -360,10 +372,17 @@ impl HandedCalls {
     }
 
     async fn calls_by(&self, calls: &[ToolCall], answer_by: Option<std::time::Instant>) -> Vec<Handed> {
-        let lane = lock(&self.lane).clone();
-        let mut run = lane.run.lock().await;
+        let mut lane = (*lock(&self.fresh))(lock(&self.repeat).clone());
         *lock(&lane.answer_by) = answer_by;
-        run.carry.repeat = lock(&self.repeat).clone();
+        let ids: Vec<String> = calls.iter().map(|call| call.id.clone()).collect();
+        {
+            let mut active = lock(&self.active);
+            for id in &ids {
+                active.insert(id.clone(), lane.answer_by.clone());
+            }
+        }
+        let _guard = ActiveGuard { active: &self.active, ids };
+        let run = &mut lane.run;
         let (targets, _, _) = run.execution_view(calls);
         let cancelled =
             |id: &str| Handed { message: AgentMessage::tool_text(id, "Error: tool call cancelled", ToolKind::Error), follow_ups: Vec::new(), failed: true };
@@ -402,14 +421,14 @@ impl HandedCalls {
     }
 
     /// The turn answered its call `call_id`, which runs now, before the call ended: the call goes on in the background past
-    /// the turn on the lane it holds, and the turn's later calls run on a new one. Its tool, not started yet where it waits
-    /// on the person, has no answer due any more ([`mixdog_core_api::domain::tool::CallOptions::answer_by`]); its
-    /// approvals, open now or asked later, stay open for the person after the turn ends; and the turn's end does not wait
-    /// for it. Its result is no longer the turn's.
+    /// the turn on its own lane. Its tool, not started yet where it waits on the person, has no answer due any more
+    /// ([`mixdog_core_api::domain::tool::CallOptions::answer_by`]); its approvals, open now or asked later, stay open for
+    /// the person after the turn ends; and the turn's end does not wait for it. Its result is no longer the turn's.
     pub async fn let_go(&self, call_id: &str) {
-        let next = Arc::new((*lock(&self.fresh))(lock(&self.repeat).clone()));
-        let held = std::mem::replace(&mut *lock(&self.lane), next);
-        *lock(&held.answer_by) = None;
+        let answer_by = lock(&self.active).remove(call_id);
+        if let Some(answer_by) = answer_by {
+            *lock(&answer_by) = None;
+        }
         self.asks.let_go(call_id).await;
     }
 
@@ -443,7 +462,7 @@ impl HandedCalls {
                 return Judged::Asks;
             }
             match judged {
-                None => return Judged::Refused("Error: tool call cancelled".to_owned()),
+                None => return Judged::Cancelled,
                 Some(Err(refusal)) => return Judged::Refused(refusal),
                 Some(Ok(target)) if target.name != name || target.args != *arguments => return Judged::Changed,
                 Some(Ok(_)) => {}
@@ -868,5 +887,125 @@ mod tests {
         assert_eq!(runs, ["run edit (true, false, true, true)", "run edit (true, false, true, false)"]);
         calls.released("c1").await;
         assert_eq!(*approvals.released.lock().unwrap(), ["c1"]);
+    }
+
+    /// Cancelling the turn's token while `judge` is awaiting authorization returns `Judged::Cancelled` rather than
+    /// `Judged::Refused`.
+    #[tokio::test]
+    async fn judge_returns_cancelled_when_token_cancels() {
+        struct HangingGate(tokio::sync::Notify);
+        #[async_trait::async_trait]
+        impl ToolGate for HangingGate {
+            async fn check_call(&self, _: &str, _: &GateCall) -> GateDecision {
+                self.0.notify_one();
+                std::future::pending().await
+            }
+        }
+        let seen: Seen = Arc::default();
+        let cancel = CancellationToken::new();
+        let gate = Arc::new(HangingGate(tokio::sync::Notify::new()));
+        let calls = calls_under(&seen, gate.clone(), Arc::new(MockApprovalGate::default()), cancel.clone());
+        let args = [json!({ "file_path": "a.txt" })];
+        let judging = calls.judge("c1", "edit", &args);
+        let stop = async {
+            gate.0.notified().await;
+            cancel.cancel();
+        };
+        let (result, ()) = tokio::join!(judging, stop);
+        assert_eq!(result, Judged::Cancelled);
+    }
+
+    /// Concurrent `call_by` calls run in parallel on separate lanes, and `let_go` clears `answer_by` only for the
+    /// released call without blocking or altering siblings.
+    #[tokio::test]
+    async fn concurrent_calls_do_not_serialize_and_let_go_clears_only_released_call() {
+        struct GateTool {
+            spec: ToolSpec,
+            entered: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+            seen: Seen,
+        }
+        #[async_trait::async_trait]
+        impl Tool for GateTool {
+            fn spec(&self) -> &ToolSpec {
+                &self.spec
+            }
+            async fn call(&self, ctx: &ToolContext, args: Value) -> ToolOutcome {
+                let tag = args["tag"].as_str().unwrap_or_default().to_owned();
+                if tag == "first" {
+                    self.entered.notify_one();
+                    self.release.notified().await;
+                }
+                self.seen.lock().unwrap().push(format!("{tag}:{}", ctx.options.answer_by.is_some()));
+                Ok(ToolOutput { parts: vec![ToolPart::Text(format!("ok:{tag}"))], ..ToolOutput::default() })
+            }
+        }
+
+        let seen: Seen = Arc::default();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let tokens = mixdog_rt::testing::tokens();
+        let calls = HandedCalls::new(HandedParts {
+            tools: ToolSet::new(vec![Arc::new(GateTool {
+                spec: spec("work"),
+                entered: entered.clone(),
+                release: release.clone(),
+                seen: seen.clone(),
+            })]),
+            tool_env: ToolEnv {
+                thread_id: ThreadId::from("t"),
+                turn_id: TurnId::from("r"),
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                surface: SurfaceKind::Lead,
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                approvals: Arc::new(MockApprovalGate::default()),
+                files: Arc::new(MockFileService::default()),
+                processes: Arc::new(MockProcessManager::default()),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: Some(Arc::new(|_: &ToolSpec| Some(Duration::from_secs(60)))),
+                notify: None,
+                review: None,
+            },
+            gate: Arc::new(Witness(seen.clone())),
+            hooks: None,
+            guards: Arc::new(crate::env::NoGuards),
+            reuse: None,
+            clock: Arc::new(Fixed),
+            observer: Arc::new(crate::env::NullObserver),
+            mcp: None,
+            live_cwd: None,
+            artifacts: None,
+            images: None,
+            failures: None,
+            repeat: RepeatGuards::default(),
+            cancel: CancellationToken::new(),
+            slot: None,
+            asks: None,
+        });
+
+        let due = Some(std::time::Instant::now() + Duration::from_secs(60));
+        let first_call = ToolCall { id: "c1".into(), name: "work".into(), arguments: json!({ "tag": "first" }), native_type: None };
+        let second_call = ToolCall { id: "c2".into(), name: "work".into(), arguments: json!({ "tag": "second" }), native_type: None };
+
+        let mut first = Box::pin(calls.call_by(first_call, due));
+        tokio::select! {
+            _ = &mut first => panic!("first finished before release"),
+            () = entered.notified() => {}
+        }
+
+        // Second call completes while first is still inside its tool implementation.
+        let second = tokio::time::timeout(Duration::from_secs(5), calls.call_by(second_call, due))
+            .await
+            .expect("sibling call must not wait on first call's lane");
+        assert_eq!(second.message.text(), "ok:second");
+
+        // Releasing first does not disturb anything else and lets first finish cleanly.
+        calls.let_go("c1").await;
+        release.notify_one();
+        let first = tokio::time::timeout(Duration::from_secs(5), first).await.expect("first completes");
+        assert_eq!(first.message.text(), "ok:first");
+        let recorded = seen.lock().unwrap().clone();
+        assert!(recorded.iter().any(|s| s == "second:true"), "{recorded:?}");
+        assert!(recorded.iter().any(|s| s == "first:true"), "{recorded:?}");
     }
 }

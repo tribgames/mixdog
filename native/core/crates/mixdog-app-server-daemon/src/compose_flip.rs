@@ -3634,6 +3634,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             now_ms: now_ms.clone(),
             blobs: blobs.clone(),
             interactive: b.tokens.interactive_io,
+            media: Arc::new(mixdog_services::media::MediaStore::new(&b.data_dir, b.tokens.durability_io)),
             ledger: ledger_source.sink(),
             pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(b.catalog.clone())),
         })),

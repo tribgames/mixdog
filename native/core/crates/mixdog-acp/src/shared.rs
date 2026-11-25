@@ -31,7 +31,7 @@ use crate::connection::RpcError;
 use crate::connection::Temp;
 use crate::connection::remove_folder;
 use crate::files::TextFiles;
-use crate::files::read_text_file;
+use crate::files::read_text_file_with;
 use crate::preset::AgentPreset;
 use crate::session::AgentSession;
 use crate::session::Program;
@@ -256,8 +256,9 @@ impl SharedServer {
                     // Read in a task of its own: the other sessions' messages do not wait for the file.
                     Some(session) => {
                         let (connection, files, id, params) = (self.connection.clone(), self.files.clone(), id.clone(), params.clone());
+                        let allowed = session.attached_files();
                         drop(mixdog_rt::spawn("acp.shared.read", TaskClass::Work, async move {
-                            connection.respond(id, read_text_file(files.as_ref(), &session.cwd, &params).await).await;
+                            connection.respond(id, read_text_file_with(files.as_ref(), &session.cwd, &allowed, &params).await).await;
                         }));
                     }
                     None => {
