@@ -2,6 +2,7 @@ import type { DesktopApi } from '../shared/contract';
 import desktopPackage from '../../package.json';
 import type { PhoneEnv } from '../../../mobile/src/phone-boot';
 import type { RelaySocket } from '../../../mobile/src/relay-connector';
+import { devInfo } from './dev-console';
 import { earlyUiT } from './early-ui-i18n';
 import { isInstalledMobileWebAppSurface } from './mobile-surface';
 import { REMOTE_NATIVE_PUSH_GLOBAL, createNativePushHost, installNativePushBridge } from './native-push-bridge';
@@ -114,7 +115,7 @@ function phoneEnv(ctx: RemoteShimContext): PhoneEnv {
             createPeer: (configuration: RTCConfiguration) => new RTCPeerConnection(configuration),
             holdSignals,
             visible: () => document.visibilityState !== 'hidden',
-            log: (line: string) => console.info(line),
+            log: devInfo,
           },
         }),
     updateRequired: (reason) =>

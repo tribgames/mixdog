@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import type { DesktopApi } from '../shared/contract';
 import type { RemoteScreenInput, RemoteScreenStatus } from '../shared/remote-webrtc';
+import { devInfo } from './dev-console';
 import {
   REMOTE_CONNECTION_READY_EVENT,
   currentRemoteConnectionState,
@@ -215,7 +216,7 @@ export function useRemoteScreen({
       },
       failure: () => {},
       statsIntervalMs: STREAM_RENEW_MS,
-      log: (line) => console.info(line),
+      log: devInfo,
     });
     // A replaced viewer ends every challenge the old one began.
     grants.invalidate();

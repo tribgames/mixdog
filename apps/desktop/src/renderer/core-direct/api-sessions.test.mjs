@@ -648,20 +648,19 @@ test('an engine state that left the baseline unchanged is not delivered again', 
   );
 });
 
-test('sessions that leave the visible set are logged as released baselines', async () => {
+test('sessions that leave the visible set are told to the perf log as released baselines', async () => {
   const { api } = await opened();
   const logged = [];
-  const original = console.info;
   const originalError = console.error;
   const errors = [];
-  console.info = (line) => logged.push(String(line));
+  globalThis.window = { mixdogDesktop: { perfLog: (line) => logged.push(String(line)) } };
   console.error = (line) => errors.push(String(line));
   try {
     await api.setVisibleSessions([S1]);
     await tick();
     await api.setVisibleSessions([S2]);
   } finally {
-    console.info = original;
+    delete globalThis.window;
     console.error = originalError;
   }
   assert.deepEqual(errors, [], 'a routine release is not a console error');

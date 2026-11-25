@@ -104,7 +104,6 @@ export function startAutoUpdater(
     // while starting the updater immediately after app.whenReady().
     const electronUpdater = (await import('electron-updater')).default;
     const { autoUpdater } = electronUpdater;
-    autoUpdater.logger = console;
     autoUpdater.channel = 'latest';
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
@@ -117,6 +116,9 @@ export function startAutoUpdater(
     if (requestedDevFeed && !devFeed) {
       console.warn('Mixdog ignored a non-loopback updater dev feed.');
     }
+    // The updater's lines reach the launching terminal only in the loopback dev loop, whose smoke reads them
+    // (scripts/linux-update-smoke.mjs); a shipped app keeps them in its diagnostics alone.
+    autoUpdater.logger = devFeed ? console : null;
     if (devFeed) {
       autoUpdater.allowPrerelease = true;
       autoUpdater.allowDowngrade = true;
@@ -144,12 +146,12 @@ export function startAutoUpdater(
         ),
       }),
       log(message, data) {
-        console.info(`Mixdog ${message}`, data ?? '');
+        if (devFeed) console.info(`Mixdog ${message}`, data ?? '');
         report?.(message, data as Readonly<Record<string, unknown>> | undefined);
       },
     });
     controller.subscribe((next) => {
-      console.info('Mixdog updater status:', next);
+      if (devFeed) console.info('Mixdog updater status:', next);
       report?.('updater state', next);
       publish(next);
     });

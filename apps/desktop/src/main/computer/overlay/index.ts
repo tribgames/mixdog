@@ -177,7 +177,6 @@ export function createComputerUseOverlay(
         latestPresentation.sessionIds.length > 0 ||
         latestSnapshot.userControlActive ||
         latestSnapshot.cleanupState !== 'ready';
-      console.log('[computer-overlay] stop_shortcut', active ? 'stopping' : 'idle');
       if (active) stop();
     },
     () => disposed

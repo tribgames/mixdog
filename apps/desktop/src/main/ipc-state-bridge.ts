@@ -257,7 +257,7 @@ class LegacyDesktopStateBridge {
         });
       }
     );
-    if (released.length > 0) {
+    if (released.length > 0 && process.env.MIXDOG_DESKTOP_PERF === '1') {
       console.info(
         '[mixdog-lane] baseline released' +
           ` count=${released.length} visible=${normalized.length}` +

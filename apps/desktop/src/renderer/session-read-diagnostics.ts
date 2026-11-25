@@ -18,7 +18,8 @@ const reads = new Map<
 >();
 const MAX_READ_TRACES = 64;
 
-function emit(diagnostic: TranscriptReadDiagnostic): void {
+/** A transcript read's record, kept in the desktop diagnostics file. */
+export function emitReadDiagnostic(diagnostic: TranscriptReadDiagnostic): void {
   window.mixdogDesktop?.rendererDiagnostic?.(diagnostic);
 }
 
@@ -34,7 +35,7 @@ export function beginSessionReadTrace(sessionId: string): string {
     reported: new Set(),
   });
   while (reads.size > MAX_READ_TRACES) reads.delete(reads.keys().next().value!);
-  reportTranscriptRead(sessionId, traceId, 'request-start', {}, emit);
+  reportTranscriptRead(sessionId, traceId, 'request-start', {}, emitReadDiagnostic);
   return traceId;
 }
 
@@ -58,7 +59,7 @@ export function reportSessionRead(
       ...details,
       elapsedMs: performance.now() - read.startedAt,
     },
-    emit
+    emitReadDiagnostic
   );
 }
 
