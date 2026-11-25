@@ -359,7 +359,7 @@ impl HostedSearchSender for ProviderSearchSender {
                     let model = served_model.as_deref().unwrap_or(candidate.model.as_str());
                     self.deps
                         .sinks
-                        .report(owner.as_deref(), || usage_delta(&session_id, model, candidate.model.as_str(), reported, !excludes_cache, (self.deps.now)()));
+                        .report(owner.as_deref(), || usage_delta(&session_id, candidate.model.as_str(), model, reported, !excludes_cache, (self.deps.now)()));
                 }
                 Ok(AcpSendReply {
                     answer: reply.answer,

@@ -254,9 +254,83 @@ async fn web_search_models_offers_follows_main_for_capable_antigravity_acp_main_
     let default_row = default_row.expect("Follows Main row offered for capable Antigravity ACP Main route");
     assert_eq!(default_row["description"], format!("Use current main model: {ANTIGRAVITY}/gemini-3-flash"));
 
+    // Forced refresh with only Antigravity ACP ready (no enabled catalog providers) still keeps Follows Main.
+    let forced = service.list(Some(&thread_of(1)), true).await.unwrap();
+    let forced_default = forced.as_array().unwrap().iter().find(|r| r["provider"] == "default" && r["id"] == "default");
+    assert_eq!(
+        forced_default.expect("Follows Main row survives forced refresh")["description"],
+        format!("Use current main model: {ANTIGRAVITY}/gemini-3-flash")
+    );
+
     let blocked_rows = service.list(Some(&thread_of(2)), false).await.unwrap();
     assert!(
         blocked_rows.as_array().unwrap().iter().all(|r| r["provider"] != "default"),
         "Follows Main row must not be offered for an own-orchestration ACP Main model"
     );
+}
+
+#[tokio::test]
+async fn cold_web_search_models_emits_no_bare_acp_row_when_agent_is_unready() {
+    struct UnreadyAcpFacts(Arc<dyn RouteFacts>);
+    #[async_trait]
+    impl RouteFacts for UnreadyAcpFacts {
+        fn is_known(&self, provider: &str, config: &Map<String, Value>) -> bool {
+            is_test_agent(provider) || self.0.is_known(provider, config)
+        }
+        async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
+            if is_test_agent(provider) { Err("Antigravity is signed out".into()) } else { self.0.ensure_ready(config, provider).await }
+        }
+        fn model_meta(&self, provider: &str, model: &str) -> Value {
+            if is_test_agent(provider) {
+                json!({ "id": model, "provider": provider, "runner": "acp", "supportsWebSearch": false })
+            } else {
+                self.0.model_meta(provider, model)
+            }
+        }
+        fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+            if is_test_agent(provider) { None } else { self.0.window_meta(provider, model, meta) }
+        }
+        fn catalog_knows(&self, model: &str, provider: &str) -> bool {
+            is_test_agent(provider) || self.0.catalog_knows(model, provider)
+        }
+        fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
+            !is_test_agent(provider) && self.0.fast_capable(provider, meta, effort, params)
+        }
+        fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
+            !is_test_agent(provider) && self.0.ultrafast_capable(provider, meta)
+        }
+        async fn sender(&self, providers: Option<&Map<String, Value>>, provider: &str) -> Result<Option<RouteSender>, String> {
+            if is_test_agent(provider) { Ok(None) } else { self.0.sender(providers, provider).await }
+        }
+        fn registered(&self, provider: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
+            (!is_test_agent(provider)).then(|| self.0.registered(provider)).flatten()
+        }
+        fn init_error(&self, provider: &str) -> Option<String> {
+            (!is_test_agent(provider)).then(|| self.0.init_error(provider)).flatten()
+        }
+    }
+
+    let cells = HashMap::from([(thread_of(1), json!({ "provider": ANTIGRAVITY, "model": "gemini-3-flash" }).as_object().unwrap().clone())]);
+    let (_dir, host) = host(json!({ "webSearchRoute": { "provider": ANTIGRAVITY, "model": "gemini-3-flash" } }), cells).await;
+    let list = Arc::new(ModelListService {
+        catalog: host.catalog.clone(),
+        config: host.config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::default(),
+        host: None,
+    });
+    let service = WebSearchModelsService::new(
+        host.catalog.clone(),
+        host.config.clone(),
+        list,
+        WebSearchRoutes {
+            cells: host.cells.clone(),
+            main_route: Arc::new(|| json!({})),
+            web_search_route: Arc::new(|| json!({ "provider": ANTIGRAVITY, "model": "gemini-3-flash" })),
+            facts: Arc::new(UnreadyAcpFacts(host.facts.clone())),
+        },
+    );
+
+    let rows = service.list(Some(&thread_of(1)), false).await.unwrap();
+    assert!(rows.as_array().unwrap().is_empty(), "unready ACP agent must emit neither Follows Main nor bare ACP rows: {rows}");
 }

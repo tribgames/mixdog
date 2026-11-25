@@ -1,4 +1,5 @@
 import type { DesktopModelOption } from '../shared/contract';
+import { agentRouteFields } from '../shared/desktop-transcript-limits';
 import { record, rows, type UnknownRecord } from './record-utils';
 
 type ParsedModelRef = {
@@ -172,6 +173,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
     ...(value.defaultEffort ? { defaultEffort: String(value.defaultEffort) } : {}),
     ...(value.defaultFast === true ? { defaultFast: true } : {}),
     ...(value.autoEffortCapable === true ? { autoEffortCapable: true } : {}),
+    ...agentRouteFields(value),
     modelParameterOptions,
     parameterVariants: Array.isArray(value.parameterVariants)
       ? (value.parameterVariants as Array<Record<string, string>>)

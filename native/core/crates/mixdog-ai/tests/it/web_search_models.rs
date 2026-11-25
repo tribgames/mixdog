@@ -359,3 +359,17 @@ fn a_custom_providers_declared_fields_win_over_the_catalog_metadata() {
     assert_eq!(builtin["supportsReasoning"], true);
     assert_eq!(builtin["reasoningOptions"], json!(["low", "high"]));
 }
+
+#[tokio::test]
+async fn forced_refresh_with_no_enabled_catalog_providers_still_offers_follows_main_for_capable_acp_main() {
+    let world = World {
+        route: json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }),
+        main_capable: true,
+        ..World::default()
+    };
+    let (catalog, _) = catalog_of(world);
+    let unforced = catalog.collect(false).await.unwrap();
+    let forced = catalog.collect(true).await.unwrap();
+    assert_eq!(ids(&unforced), ["default/default"]);
+    assert_eq!(ids(&forced), ["default/default"]);
+}

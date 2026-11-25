@@ -247,6 +247,113 @@ async fn unwired_acp_backend_reports_unavailable() {
 }
 
 #[tokio::test]
+async fn unavailable_acp_candidate_falls_through_to_next_candidate_and_fails_unavailable_only_when_none_ran() {
+    let hosted_ok = |text: &str| {
+        vec![
+            StreamEvent::TextDelta(text.into()),
+            StreamEvent::Citation(json!({ "url": "https://hosted.example/hit", "title": "Hit" })),
+            StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+        ]
+    };
+
+    // 1. ACP primary (unwired) followed by a hosted fallback runs the hosted fallback.
+    let host = Arc::new(MixedHost {
+        main: json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }),
+        stored: json!({
+            "provider": "default",
+            "model": "default",
+            "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }]
+        }),
+        hosted_replies: Arc::new(Mutex::new(VecDeque::from([Ok(hosted_ok("From OpenAI fallback."))]))),
+        hosted_seen: Arc::default(),
+        acp_ready_error: None,
+    });
+    let search = HostedWebSearch::new(
+        ConfiguredSearchRoutes::new(host.clone()),
+        ProviderSearchSender::new(host.clone(), sender_deps(Arc::new(Ledger::default()), NativeSearchUsageSinks::new())),
+    );
+    let result = search.search(search_request(), CancellationToken::new()).await.unwrap();
+    assert_eq!(result.provider, "openai");
+    assert_eq!(result.answer, "From OpenAI fallback.");
+    assert_eq!(*host.hosted_seen.lock().unwrap(), ["openai/gpt-5.2"]);
+
+    let rate_limited = || {
+        let mut err = ProviderError::new(ErrorKind::RateLimited, DeliveryState::NotSent);
+        err.status = Some(429);
+        err.message = "too many requests".into();
+        err
+    };
+
+    // 2. Hosted capacity failure -> unavailable ACP fallback -> second hosted fallback succeeds.
+    let host = Arc::new(MixedHost {
+        main: json!({}),
+        stored: json!({
+            "provider": "openai",
+            "model": "gpt-5.2",
+            "fallbacks": [
+                { "provider": "acp-antigravity", "model": "gemini-3-flash" },
+                { "provider": "anthropic", "model": "claude-sonnet-4-5" }
+            ]
+        }),
+        hosted_replies: Arc::new(Mutex::new(VecDeque::from([
+            Err(rate_limited()),
+            Ok(hosted_ok("From Anthropic second fallback.")),
+        ]))),
+        hosted_seen: Arc::default(),
+        acp_ready_error: None,
+    });
+    let search = HostedWebSearch::new(
+        ConfiguredSearchRoutes::new(host.clone()),
+        ProviderSearchSender::new(host.clone(), sender_deps(Arc::new(Ledger::default()), NativeSearchUsageSinks::new())),
+    );
+    let result = search.search(search_request(), CancellationToken::new()).await.unwrap();
+    assert_eq!(result.provider, "anthropic");
+    assert_eq!(result.answer, "From Anthropic second fallback.");
+    assert_eq!(*host.hosted_seen.lock().unwrap(), ["openai/gpt-5.2", "anthropic/claude-sonnet-4-5"]);
+
+    // 3. Hosted capacity failure -> unavailable ACP fallback with nothing left fails (a candidate ran).
+    let host = Arc::new(MixedHost {
+        main: json!({}),
+        stored: json!({
+            "provider": "openai",
+            "model": "gpt-5.2",
+            "fallbacks": [{ "provider": "acp-antigravity", "model": "gemini-3-flash" }]
+        }),
+        hosted_replies: Arc::new(Mutex::new(VecDeque::from([Err(rate_limited())]))),
+        hosted_seen: Arc::default(),
+        acp_ready_error: None,
+    });
+    let search = HostedWebSearch::new(
+        ConfiguredSearchRoutes::new(host.clone()),
+        ProviderSearchSender::new(host, sender_deps(Arc::new(Ledger::default()), NativeSearchUsageSinks::new())),
+    );
+    let err = search.search(search_request(), CancellationToken::new()).await.unwrap_err();
+    assert!(matches!(err, NativeSearchError::Failed(ref msg) if msg.contains("openai/gpt-5.2")), "{err:?}");
+
+    // 4. Multiple unavailable ACP candidates with no candidate running fail as Unavailable.
+    let host = Arc::new(MixedHost {
+        main: json!({}),
+        stored: json!({
+            "provider": "acp-antigravity",
+            "model": "gemini-3-flash",
+            "fallbacks": [{ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }]
+        }),
+        hosted_replies: Arc::default(),
+        hosted_seen: Arc::default(),
+        acp_ready_error: None,
+    });
+    let search = HostedWebSearch::new(
+        ConfiguredSearchRoutes::new(host.clone()),
+        ProviderSearchSender::new(host, sender_deps(Arc::new(Ledger::default()), NativeSearchUsageSinks::new())),
+    );
+    let err = search.search(search_request(), CancellationToken::new()).await.unwrap_err();
+    assert!(
+        matches!(err, NativeSearchError::Unavailable(ref msg) if msg.contains("acp-antigravity") && msg.contains("acp-antigravity-cli")),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn acp_search_normalizes_results_accounts_ledger_and_reports_usage_delta() {
     let host = Arc::new(MixedHost {
         main: json!({ "provider": "acp-antigravity", "model": "gemini-3-flash", "effort": "high" }),
@@ -334,7 +441,11 @@ async fn acp_search_normalizes_results_accounts_ledger_and_reports_usage_delta()
     assert_eq!(rows[0].output, 45.0);
     assert_eq!(rows[0].cache_read, 30.0);
     drop(rows);
-    assert_eq!(deltas.lock().unwrap().len(), 1, "asking turn hears usage delta");
+    let recorded_deltas = deltas.lock().unwrap();
+    assert_eq!(recorded_deltas.len(), 1, "asking turn hears usage delta");
+    assert_eq!(recorded_deltas[0]["requestedModel"], json!("gemini-3-flash"));
+    assert_eq!(recorded_deltas[0]["model"], json!("gemini-3-flash-high"));
+    drop(recorded_deltas);
 
     let second = service
         .search(

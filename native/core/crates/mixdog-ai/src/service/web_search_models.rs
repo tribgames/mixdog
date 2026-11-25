@@ -429,7 +429,7 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
         }
         let names = self.enabled_providers().await?;
         if names.is_empty() {
-            return Ok(Vec::new());
+            return Ok(rows_with_default(quick, &[]));
         }
         self.facts.ensure_providers_ready().await?;
         let scans = futures::future::join_all(names.iter().map(|name| self.scan_provider(name, force))).await;

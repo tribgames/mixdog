@@ -1,11 +1,10 @@
 //! A route on an agent, for every reader of a route: the agent is no provider of the catalog or the registry, so what
 //! those readers ask of a route's provider is answered here for an agent's route.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::service::routes::is_web_search_capable_provider;
+use mixdog_ai::service::routes::web_search_capable_for;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::error::CoreError;
@@ -33,9 +32,12 @@ fn is_own_orchestration(preset: &AgentPreset, model: &str) -> bool {
     preset.quirks.own_orchestration.iter().any(|prefix| model.starts_with(prefix.as_str()))
 }
 
-fn web_search_capable(agents: &Agents, preset: &AgentPreset, model: &str) -> bool {
+fn web_search_capable(agents: &Arc<Agents>, preset: &AgentPreset, model: &str) -> bool {
     let model = model.trim();
-    !model.is_empty() && is_web_search_capable_provider(&preset.provider) && agents.refuses_model(preset, model).is_none() && !is_own_orchestration(preset, model)
+    agents.selectable(preset).is_ok()
+        && web_search_capable_for(&preset.provider, model, None, None)
+        && agents.refuses_model(preset, model).is_none()
+        && !is_own_orchestration(preset, model)
 }
 
 fn apply_model_settings(rows: &mut [Value], settings: &Map<String, Value>) {
@@ -315,17 +317,8 @@ impl WebSearchModels for AgentWebSearchModels {
         let mut value = self.inner.list(thread, force).await?;
         let rows = self.rows();
         if let Value::Array(models) = &mut value {
-            let keys: HashSet<(String, String)> = rows
-                .iter()
-                .filter_map(|row| Some((row.get("provider")?.as_str()?.to_owned(), row.get("id")?.as_str()?.to_owned())))
-                .collect();
             models.retain(|row| {
-                let key = row
-                    .get("provider")
-                    .and_then(Value::as_str)
-                    .zip(row.get("id").and_then(Value::as_str))
-                    .map(|(provider, id)| (provider.to_owned(), id.to_owned()));
-                key.is_none_or(|k| !keys.contains(&k))
+                row.get("provider").and_then(Value::as_str).is_none_or(|provider| self.agents.preset_of_route(provider).is_none())
             });
             models.extend(rows);
         }
@@ -498,12 +491,101 @@ mod tests {
         assert_eq!(facts.model_meta("acp-antigravity", "gemini-3-flash")["supportsWebSearch"], json!(true));
         assert_eq!(facts.model_meta("acp-antigravity", "gemini-pro-orchestrator")["supportsWebSearch"], json!(false));
         assert_eq!(facts.model_meta("acp-antigravity", "claude-opus-4-6")["supportsWebSearch"], json!(false));
-        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(true));
+        // Signed-out agent is not selectable, so its models are not marked web-search capable.
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(false));
         assert_eq!(facts.model_meta("acp-antigravity-cli", "gemini-3-flash")["supportsWebSearch"], json!(false));
         assert_eq!(facts.model_meta("acp-other", "gemini-3-flash")["supportsWebSearch"], json!(false));
 
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) },
+        );
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(true));
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "gemini-3-flash")["supportsWebSearch"], json!(false));
+
         enabled.store(false, Ordering::SeqCst);
         assert!(facts.ensure_ready(&empty, "acp-antigravity").await.unwrap_err().contains("turned off"));
+        assert_eq!(facts.model_meta("acp-antigravity", "gemini-3-flash")["supportsWebSearch"], json!(false));
+        assert_eq!(facts.model_meta("acp-antigravity-cli", "claude-opus-4-6")["supportsWebSearch"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn agent_route_facts_rejects_non_chat_models_for_web_search() {
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(
+            &agents,
+            "antigravity",
+            Readiness::Ready {
+                version: "1.5.2".into(),
+                models: models(&[("gemini-3-flash", "Gemini 3 Flash"), ("gemini-embedding-001", "Gemini Embedding")]),
+            },
+        );
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready {
+                version: "1.5.16".into(),
+                models: models(&[
+                    ("claude-opus-4-6", "Claude Opus 4.6"),
+                    ("text-embedding-001", "Text Embedding"),
+                    ("whisper-1", "Whisper"),
+                ]),
+            },
+        );
+
+        let facts = AgentRouteFacts { inner: Arc::new(EmptyFacts), agents: agents.clone() };
+        for (provider, id) in [
+            ("acp-antigravity", "gemini-embedding-001"),
+            ("acp-antigravity-cli", "text-embedding-001"),
+            ("acp-antigravity-cli", "whisper-1"),
+        ] {
+            let meta = facts.model_meta(provider, id);
+            assert_eq!(meta["supportsWebSearch"], json!(false), "{provider}/{id}");
+            assert!(!web_search_capable_for(provider, id, Some(&meta), None), "{provider}/{id} must not pass web_search_capable_for");
+        }
+
+        let decorator = AgentWebSearchModels {
+            inner: Arc::new(StaticWebSearchModels(json!([]))),
+            agents,
+            settings: Arc::new(Map::new),
+        };
+        let listed = decorator.list(None, false).await.unwrap();
+        let pairs: Vec<(&str, &str)> = listed.as_array().unwrap().iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(pairs, [("acp-antigravity", "gemini-3-flash"), ("acp-antigravity-cli", "claude-opus-4-6")]);
+    }
+
+    #[tokio::test]
+    async fn unready_or_disabled_acp_agent_emits_no_web_search_rows() {
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled.clone());
+        seed_slot(&agents, "antigravity", Readiness::SignedOut { version: "1.5.2".into(), message: "sign in".into() });
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) },
+        );
+
+        let decorator = AgentWebSearchModels {
+            inner: Arc::new(StaticWebSearchModels(json!([
+                { "provider": "openai", "id": "gpt-5.2", "supportsWebSearch": true },
+                { "provider": "acp-antigravity", "id": "gemini-3-flash", "supportsWebSearch": true },
+                { "provider": "acp-antigravity-cli", "id": "claude-opus-4-6", "supportsWebSearch": true }
+            ]))),
+            agents: agents.clone(),
+            settings: Arc::new(Map::new),
+        };
+
+        let listed = decorator.list(None, false).await.unwrap();
+        let pairs: Vec<(&str, &str)> = listed.as_array().unwrap().iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(pairs, [("openai", "gpt-5.2"), ("acp-antigravity-cli", "claude-opus-4-6")]);
+        assert_eq!(listed.as_array().unwrap()[1]["runner"], "acp");
+
+        enabled.store(false, Ordering::SeqCst);
+        let listed = decorator.list(None, false).await.unwrap();
+        let pairs: Vec<(&str, &str)> = listed.as_array().unwrap().iter().map(|r| (r["provider"].as_str().unwrap(), r["id"].as_str().unwrap())).collect();
+        assert_eq!(pairs, [("openai", "gpt-5.2")]);
     }
 
     #[tokio::test]

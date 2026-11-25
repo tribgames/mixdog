@@ -468,6 +468,7 @@ impl NativeWebSearch for HostedWebSearch {
             return Err(NativeSearchError::Unavailable(self.routes.no_candidate_message(&request.thread).await));
         }
         let mut errors: Vec<String> = Vec::new();
+        let mut unavailable: Vec<String> = Vec::new();
         for candidate in candidates {
             if candidate.family == SearchFamily::Acp {
                 let call = AcpSearchCall {
@@ -497,8 +498,9 @@ impl NativeWebSearch for HostedWebSearch {
                         });
                     }
                     Err(error) => {
-                        if error.unavailable {
-                            return Err(NativeSearchError::Unavailable(error.message));
+                        if error.unavailable && !cancel.is_cancelled() {
+                            unavailable.push(error.message);
+                            continue;
                         }
                         if !error.capacity || cancel.is_cancelled() {
                             return Err(NativeSearchError::Failed(error.message));
@@ -531,8 +533,9 @@ impl NativeWebSearch for HostedWebSearch {
                     });
                 }
                 Err(error) => {
-                    if error.unavailable {
-                        return Err(NativeSearchError::Unavailable(error.message));
+                    if error.unavailable && !cancel.is_cancelled() {
+                        unavailable.push(error.message);
+                        continue;
                     }
                     if !error.capacity || cancel.is_cancelled() {
                         return Err(NativeSearchError::Failed(error.message));
@@ -541,6 +544,13 @@ impl NativeWebSearch for HostedWebSearch {
                     errors.push(format!("{}{model}/{tool_type}: {}", candidate.provider, error.message));
                 }
             }
+        }
+        if errors.is_empty() {
+            return Err(NativeSearchError::Unavailable(if unavailable.len() == 1 {
+                unavailable.remove(0)
+            } else {
+                unavailable.join(" | ")
+            }));
         }
         Err(NativeSearchError::Failed(format!("native web search failed: {}", errors.join(" | "))))
     }
