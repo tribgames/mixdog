@@ -48,13 +48,6 @@ if (spawnSync('node scripts/check-changelog-locales.mjs', { cwd: root, stdio: 'i
   process.exit(1);
 }
 
-// Warning-level: a stale model list never blocks the gate.
-if (
-  spawnSync('node scripts/check-model-recommendations.mjs', { cwd: root, stdio: 'inherit', shell: true }).status !== 0
-) {
-  console.warn('[gate:local] warning: model recommendations stale or invalid (not blocking)');
-}
-
 const LOG_PREFIX = 'mixdog-gate-local-';
 const RESOURCE_PREFIX = 'mixdog-gate-resources-';
 pruneStaleTempDirs([LOG_PREFIX, RESOURCE_PREFIX]);
