@@ -16,7 +16,7 @@ use serde_json::Value;
 pub const WEB_SEARCH_DEFAULT_PROVIDER: &str = "default";
 pub const WEB_SEARCH_DEFAULT_MODEL: &str = "default";
 
-const WEB_SEARCH_PROVIDER_FAMILIES: [(&str, &str); 8] = [
+const WEB_SEARCH_PROVIDER_FAMILIES: [(&str, &str); 10] = [
     ("openai-oauth", "openai"),
     ("openai", "openai"),
     ("grok-oauth", "xai"),
@@ -25,6 +25,8 @@ const WEB_SEARCH_PROVIDER_FAMILIES: [(&str, &str); 8] = [
     ("antigravity-oauth", "gemini"),
     ("anthropic", "anthropic"),
     ("anthropic-oauth", "anthropic"),
+    ("acp-antigravity", "acp"),
+    ("acp-antigravity-cli", "acp"),
 ];
 
 /// JS `String(value)`: arrays join their elements with `,` (null as empty),
@@ -180,7 +182,7 @@ pub fn normalize_web_search_provider_id(provider: &str) -> String {
     canonical_route_provider(provider)
 }
 
-/// `webSearchProviderFamily`: `openai`, `xai`, `gemini`, `anthropic`, or `""`.
+/// `webSearchProviderFamily`: `openai`, `xai`, `gemini`, `anthropic`, `acp`, or `""`.
 pub fn web_search_provider_family(provider: &str) -> &'static str {
     let id = normalize_web_search_provider_id(provider);
     WEB_SEARCH_PROVIDER_FAMILIES.iter().find(|(p, _)| *p == id).map_or("", |(_, f)| f)
@@ -344,6 +346,7 @@ pub fn web_search_capable_for(provider: &str, model_id: &str, model_row: Option<
         "xai" => grok_unsupported,
         "gemini" => gemini_unsupported,
         "anthropic" => anthropic_unsupported,
+        "acp" => non_chat,
         _ => return false,
     };
     let id = mixdog_js::js_trim(model_id).to_lowercase();

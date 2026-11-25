@@ -44,6 +44,12 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::hosted_routes::SearchHost;
+use super::hosted_routes::SearchProvider;
+use super::hosted_search::AcpSearchBackend;
+use super::hosted_search::AcpSearchCall;
+use super::hosted_search::AcpSearchError;
+use super::hosted_search::AcpSearchErrorKind;
+use super::hosted_search::AcpSendReply;
 use super::hosted_search::HostedSearchCall;
 use super::hosted_search::HostedSearchError;
 use super::hosted_search::HostedSearchReply;
@@ -94,11 +100,16 @@ impl SenderDeps {
 pub struct ProviderSearchSender {
     host: Arc<dyn SearchHost>,
     deps: SenderDeps,
+    acp: Option<Arc<dyn AcpSearchBackend>>,
 }
 
 impl ProviderSearchSender {
     pub fn new(host: Arc<dyn SearchHost>, deps: SenderDeps) -> Arc<Self> {
-        Arc::new(Self { host, deps })
+        Arc::new(Self { host, deps, acp: None })
+    }
+
+    pub fn with_acp(host: Arc<dyn SearchHost>, deps: SenderDeps, acp: Arc<dyn AcpSearchBackend>) -> Arc<Self> {
+        Arc::new(Self { host, deps, acp: Some(acp) })
     }
 }
 
@@ -118,7 +129,26 @@ fn base36(mut value: u64) -> String {
 }
 
 fn plain(message: impl Into<String>) -> HostedSearchError {
-    HostedSearchError { message: message.into(), capacity: false }
+    HostedSearchError { message: message.into(), capacity: false, unavailable: false }
+}
+
+fn search_identity(provider: &str, model: &str, session_id: &str, input_tokens_inclusive: bool, started_at: i64) -> SendIdentity {
+    SendIdentity {
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        requested_provider: provider.to_owned(),
+        requested_model: model.to_owned(),
+        route_hop: false,
+        session_id: Some(session_id.to_owned()),
+        owner_session_id: None,
+        source_type: SOURCE_TYPE.to_owned(),
+        input_tokens_inclusive,
+        request_service_tier: String::new(),
+        // Read for every row by the roster below, never once here.
+        account: Ok(String::new()),
+        request_id: random_uuid(),
+        started_at,
+    }
 }
 
 /// The hosted tool of a call in the provider crate's shape; each codec renders
@@ -209,7 +239,7 @@ fn failure_of<T>(sent: &Result<T, SendError>) -> Option<ProviderError> {
 fn refused(error: &ProviderError, cancel: &CancellationToken) -> HostedSearchError {
     // An account-pool quota refusal is stated by its code.
     let pool = error.code.as_deref() == Some("provider_accounts_exhausted");
-    HostedSearchError { message: error.message.clone(), capacity: capacity_fallback(error, cancel.is_cancelled(), pool) }
+    HostedSearchError { message: error.message.clone(), capacity: capacity_fallback(error, cancel.is_cancelled(), pool), unavailable: false }
 }
 
 #[async_trait]
@@ -218,30 +248,15 @@ impl HostedSearchSender for ProviderSearchSender {
         let candidate = &call.candidate;
         let provider = candidate.provider.as_str();
         let adapter = match self.host.provider(provider).await.map_err(plain)? {
-            Some(adapter) => adapter,
-            None => return Err(plain(format!("provider \"{provider}\" is not ready"))),
+            Some(SearchProvider::Hosted(adapter)) => adapter,
+            Some(SearchProvider::Acp) | None => return Err(plain(format!("provider \"{provider}\" is not ready"))),
         };
         let started_at = (self.deps.now)();
         let owner = self.host.session_id(&call.thread);
         let base = owner.as_deref().filter(|id| !id.is_empty()).unwrap_or("web_search");
         let session_id = format!("{base}:{SOURCE_TYPE}:{}", base36((self.deps.now)().max(0) as u64));
         let excludes_cache = input_excludes_cache(provider);
-        let identity = SendIdentity {
-            provider: provider.to_owned(),
-            model: candidate.model.clone(),
-            requested_provider: provider.to_owned(),
-            requested_model: candidate.model.clone(),
-            route_hop: false,
-            session_id: Some(session_id.clone()),
-            owner_session_id: None,
-            source_type: SOURCE_TYPE.to_owned(),
-            input_tokens_inclusive: !excludes_cache,
-            request_service_tier: String::new(),
-            // Read for every row by the roster below, never once here.
-            account: Ok(String::new()),
-            request_id: random_uuid(),
-            started_at,
-        };
+        let identity = search_identity(provider, &candidate.model, &session_id, !excludes_cache, started_at);
         let accounting = SendAccounting::new(identity, Arc::clone(&self.deps.pricing), self.deps.ledger.clone())
             .with_sources(Arc::clone(&self.deps.now), Arc::new(random_uuid))
             .with_account(Arc::clone(&self.deps.account));
@@ -289,6 +304,89 @@ impl HostedSearchSender for ProviderSearchSender {
                     citations,
                     web_search_calls,
                 })
+            }
+        }
+    }
+
+    async fn send_acp(&self, call: AcpSearchCall, cancel: &CancellationToken) -> Result<AcpSendReply, HostedSearchError> {
+        let candidate = &call.candidate;
+        let provider = candidate.provider.as_str();
+        match self.host.provider(provider).await.map_err(plain)? {
+            Some(SearchProvider::Acp) => {}
+            Some(SearchProvider::Hosted(_)) | None => return Err(plain(format!("provider \"{provider}\" is not ready"))),
+        }
+        let Some(backend) = &self.acp else {
+            return Err(HostedSearchError::unavailable(format!("ACP web search backend for \"{provider}\" is not available")));
+        };
+        let started_at = (self.deps.now)();
+        let owner = self.host.session_id(&call.thread);
+        let base = owner.as_deref().filter(|id| !id.is_empty()).unwrap_or("web_search");
+        let session_id = format!("{base}:{SOURCE_TYPE}:{}", base36((self.deps.now)().max(0) as u64));
+        let sent = backend.search(call.request, cancel).await;
+        let ended_at = (self.deps.now)();
+        let sent = match sent {
+            Ok(reply) if reply.calls.is_empty() => Err(AcpSearchError::refusal(format!(
+                "ACP web search on \"{provider}\" completed without calling search_web"
+            ))
+            .with_usage(reply.usage, reply.input_excludes_cache)),
+            other => other,
+        };
+        if let Err(error) = &sent
+            && error.kind == AcpSearchErrorKind::Unavailable
+        {
+            return Err(HostedSearchError::unavailable(error.message.clone()));
+        }
+        let excludes_cache = match &sent {
+            Ok(reply) => reply.input_excludes_cache,
+            Err(error) => error.input_excludes_cache,
+        };
+        let identity = search_identity(provider, &candidate.model, &session_id, !excludes_cache, started_at);
+        let accounting = SendAccounting::new(identity, Arc::clone(&self.deps.pricing), self.deps.ledger.clone())
+            .with_sources(Arc::clone(&self.deps.now), Arc::new(random_uuid))
+            .with_account(Arc::clone(&self.deps.account));
+        match sent {
+            Ok(reply) => {
+                let served_model = reply.model.clone().filter(|model| !model.is_empty());
+                let _ = accounting
+                    .finish(Outcome::Completed(Completed {
+                        facts: reply.usage.as_ref().map(Facts::from),
+                        model: served_model.clone(),
+                        stream_ended_at: ended_at,
+                        ..Completed::default()
+                    }))
+                    .await;
+                if let Some(reported) = &reply.usage {
+                    let model = served_model.as_deref().unwrap_or(candidate.model.as_str());
+                    self.deps
+                        .sinks
+                        .report(owner.as_deref(), || usage_delta(&session_id, model, candidate.model.as_str(), reported, !excludes_cache, (self.deps.now)()));
+                }
+                Ok(AcpSendReply {
+                    answer: reply.answer,
+                    model: served_model,
+                    usage: reply.usage.as_ref().map(|reported| usage_object(reported, !excludes_cache)),
+                    citations: reply.citations,
+                    calls: reply.calls,
+                })
+            }
+            Err(error) if error.kind == AcpSearchErrorKind::Cancelled || cancel.is_cancelled() => {
+                let _ = accounting.finish(Outcome::Cancelled { reported: error.usage.as_ref().map(Facts::from), model: None }).await;
+                let message = if error.message.is_empty() { "This operation was aborted".to_owned() } else { error.message };
+                Err(plain(message))
+            }
+            Err(error) => {
+                let kind = match error.kind {
+                    AcpSearchErrorKind::Capacity => ErrorKind::RateLimited,
+                    AcpSearchErrorKind::SignIn => ErrorKind::Auth,
+                    AcpSearchErrorKind::Refusal => ErrorKind::Policy,
+                    AcpSearchErrorKind::NotInstalled | AcpSearchErrorKind::Failed => ErrorKind::Unknown,
+                    AcpSearchErrorKind::Cancelled | AcpSearchErrorKind::Unavailable => unreachable!(),
+                };
+                let mut failure = ProviderError::new(kind, DeliveryState::NotSent);
+                failure.message = error.message.clone();
+                failure.partial_usage = error.usage.map(Box::new);
+                let _ = accounting.finish(Outcome::Failed(&failure)).await;
+                Err(HostedSearchError { message: error.message, capacity: error.kind == AcpSearchErrorKind::Capacity, unavailable: false })
             }
         }
     }

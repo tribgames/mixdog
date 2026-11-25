@@ -189,3 +189,99 @@ async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
     assert!(after.len() > 4 && after[4].0 == SectionName::Presets, "a changed config pushes the presets again");
     assert!(pushed(&after[4].2).as_array().unwrap().iter().any(|preset| preset["id"] == "mine"));
 }
+
+#[tokio::test]
+async fn set_web_search_route_validates_acp_providers_through_agent_readiness() {
+    struct AcpHost {
+        agent_ready: Result<(), String>,
+        agent_checked: Mutex<Vec<String>>,
+        catalog_checked: Mutex<Vec<Doc>>,
+        capable_models: Vec<String>,
+    }
+
+    #[async_trait]
+    impl WorkflowHost for AcpHost {
+        fn main_route(&self) -> Value {
+            json!({})
+        }
+        async fn adopt_lead_route(&self, _: Value) {}
+        async fn custom_agent_ids(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn provider_available(&self, _: &str) -> bool {
+            true
+        }
+        fn agent_provider(&self, provider: &str) -> bool {
+            matches!(provider, "acp-antigravity" | "acp-antigravity-cli")
+        }
+        fn require_local_provider_management(&self) -> Result<(), String> {
+            Ok(())
+        }
+        fn normalize_stored_custom_config(&self, entry: &Value) -> Result<Value, String> {
+            Ok(entry.clone())
+        }
+        async fn after_credential_change(&self) {}
+        async fn ensure_providers_ready(&self, providers: Doc) -> Result<(), String> {
+            self.catalog_checked.lock().unwrap().push(providers);
+            Ok(())
+        }
+        async fn ensure_agent_provider_ready(&self, provider: &str) -> Result<(), String> {
+            self.agent_checked.lock().unwrap().push(provider.to_owned());
+            self.agent_ready.clone()
+        }
+        async fn lookup_model_meta(&self, provider: &str, model: &str) -> Option<Value> {
+            Some(json!({ "id": model, "provider": provider }))
+        }
+        fn web_search_capable(&self, _provider: &str, meta: Option<&Value>) -> bool {
+            meta.and_then(|m| m.get("id")).and_then(Value::as_str).is_some_and(|id| self.capable_models.iter().any(|m| m == id))
+        }
+        fn fast_capable(&self, _: &str, _: Option<&Value>, _: Option<&str>, _: Option<&Value>) -> bool {
+            false
+        }
+        fn web_search_route_saved(&self, _: &Value) {}
+    }
+
+    let ready_host = AcpHost {
+        agent_ready: Ok(()),
+        agent_checked: Mutex::default(),
+        catalog_checked: Mutex::default(),
+        capable_models: vec!["gemini-3-flash".into(), "gpt-5.2".into()],
+    };
+    let planned = super::search::plan(
+        &Doc::new(),
+        &json!({
+            "provider": "acp-antigravity",
+            "model": "gemini-3-flash",
+            "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }]
+        }),
+        &ready_host,
+    )
+    .await
+    .unwrap();
+    assert_eq!(planned["provider"], "acp-antigravity");
+    assert_eq!(planned["model"], "gemini-3-flash");
+    assert_eq!(planned["fallbacks"][0]["provider"], "openai");
+    assert_eq!(*ready_host.agent_checked.lock().unwrap(), ["acp-antigravity"]);
+    assert_eq!(ready_host.catalog_checked.lock().unwrap().len(), 1, "catalog readiness runs only for the hosted fallback");
+    assert!(ready_host.catalog_checked.lock().unwrap()[0].contains_key("openai"));
+    assert!(!ready_host.catalog_checked.lock().unwrap()[0].contains_key("acp-antigravity"));
+
+    // An own-orchestration or incapable model is refused even when the ACP provider is ready.
+    let err = super::search::plan(&Doc::new(), &json!({ "provider": "acp-antigravity", "model": "gemini-pro-orchestrator" }), &ready_host)
+        .await
+        .unwrap_err();
+    assert!(err.contains("not marked as web-search capable"), "{err}");
+
+    // A signed-out / not-installed ACP agent surfaces its readiness refusal.
+    let unready_host = AcpHost {
+        agent_ready: Err("Antigravity is signed out. Sign in to it in Settings.".into()),
+        agent_checked: Mutex::default(),
+        catalog_checked: Mutex::default(),
+        capable_models: vec!["gemini-3-flash".into()],
+    };
+    let err = super::search::plan(&Doc::new(), &json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }), &unready_host)
+        .await
+        .unwrap_err();
+    assert!(err.contains("signed out"), "{err}");
+    assert!(unready_host.catalog_checked.lock().unwrap().is_empty());
+}

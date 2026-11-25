@@ -1,12 +1,14 @@
 //! Which models can run the hosted web search, how the web-search route is saved and read back, and the provider
 //! aliases and version orders the routes depend on.
 
+use mixdog_ai::service::routes::MainRoute;
 use mixdog_ai::service::routes::canonical_route_provider;
 use mixdog_ai::service::routes::execution_fallbacks;
 use mixdog_ai::service::routes::gpt_version;
 use mixdog_ai::service::routes::is_default_web_search_route;
 use mixdog_ai::service::routes::is_web_search_capable_provider;
 use mixdog_ai::service::routes::lighter_subscription_model;
+use mixdog_ai::service::routes::native_web_search_routes;
 use mixdog_ai::service::routes::normalize_web_search_route_config;
 use mixdog_ai::service::routes::route_chain;
 use mixdog_ai::service::routes::web_search_capable_for;
@@ -250,4 +252,55 @@ fn the_lighter_model_orders_claude_versions_numerically_not_as_text() {
     );
     assert_eq!(lighter_subscription_model("anthropic-oauth", &rows(&["claude-haiku-4-5", "claude-haiku-4-10"])).as_deref(), Some("claude-haiku-4-10"));
     assert_eq!(lighter_subscription_model("anthropic-oauth", &rows(&["claude-haiku-4"])).as_deref(), Some("claude-haiku-4"));
+}
+
+#[test]
+fn antigravity_acp_providers_belong_to_the_acp_web_search_family_and_resolve_routes() {
+    for provider in ["acp-antigravity", "acp-antigravity-cli"] {
+        assert_eq!(web_search_provider_family(provider), "acp", "{provider}");
+        assert!(is_web_search_capable_provider(provider), "{provider}");
+        assert!(capable(provider, "gemini-3-flash"), "{provider}");
+        assert!(capable(provider, "claude-opus-4-6"), "{provider}");
+        assert!(!capable(provider, "text-embedding-001"), "{provider}");
+        assert!(!capable(provider, "   "), "{provider}");
+        assert!(
+            !web_search_capable_for(provider, "gemini-pro-orchestrator", Some(&json!({ "supportsWebSearch": false })), None),
+            "row declaration overrides family default for {provider}"
+        );
+    }
+    assert_eq!(web_search_provider_family("acp-other"), "");
+    assert!(!is_web_search_capable_provider("acp-other"));
+
+    let default_route = json!({ "provider": "default", "model": "default" });
+    let main_ok = MainRoute {
+        provider: "acp-antigravity".into(),
+        model: "gemini-3-flash".into(),
+        effort: Some("medium".into()),
+        catalog_row: Some(json!({ "id": "gemini-3-flash", "provider": "acp-antigravity", "supportsWebSearch": true })),
+        ..MainRoute::default()
+    };
+    let candidates = native_web_search_routes(&default_route, Some(&main_ok), &|_, _| None).unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!((candidates[0].provider.as_str(), candidates[0].model.as_str()), ("acp-antigravity", "gemini-3-flash"));
+    assert_eq!(candidates[0].effort.as_deref(), Some("medium"));
+
+    let main_blocked = MainRoute {
+        provider: "acp-antigravity".into(),
+        model: "gemini-pro-orchestrator".into(),
+        catalog_row: Some(json!({ "id": "gemini-pro-orchestrator", "provider": "acp-antigravity", "supportsWebSearch": false })),
+        ..MainRoute::default()
+    };
+    assert!(native_web_search_routes(&default_route, Some(&main_blocked), &|_, _| None).unwrap().is_empty());
+
+    let mixed = json!({
+        "provider": "acp-antigravity",
+        "model": "gemini-3-flash",
+        "fallbacks": [
+            { "provider": "openai", "model": "gpt-5.2" },
+            { "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }
+        ]
+    });
+    let chain = native_web_search_routes(&mixed, None, &|_, _| None).unwrap();
+    let pairs: Vec<(&str, &str)> = chain.iter().map(|c| (c.provider.as_str(), c.model.as_str())).collect();
+    assert_eq!(pairs, [("acp-antigravity", "gemini-3-flash"), ("openai", "gpt-5.2"), ("acp-antigravity-cli", "claude-opus-4-6")]);
 }

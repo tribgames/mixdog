@@ -181,7 +181,7 @@ fn request(site: Option<&str>) -> NativeSearchRequest {
 }
 
 fn refusal(capacity: bool) -> HostedSearchError {
-    HostedSearchError { message: "busy".into(), capacity }
+    HostedSearchError { message: "busy".into(), capacity, unavailable: false }
 }
 
 fn search_with(candidates: Vec<SearchCandidate>, replies: Vec<Result<HostedSearchReply, HostedSearchError>>) -> (Arc<HostedWebSearch>, Arc<Sender>) {

@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
-use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::Config;
 use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_tools::web::SearchHost;
+use mixdog_tools::web::SearchProvider;
 use serde_json::Value;
 
 use super::chain::{RouteFacts, RouteSender};
@@ -41,10 +41,12 @@ impl SearchHost for RegistrySearchHost {
     }
 
     /// `loadMainCatalogRow`, with the provider's cache and its listing both read from the
-    /// snapshot, so one lookup answers `getCachedModelInfo(model) || listModels().find(..)`.
+    /// snapshot, so one lookup answers `getCachedModelInfo(model) || listModels().find(..)`,
+    /// falling back to `RouteFacts::model_meta` for ACP routes that are not in the provider catalog.
     async fn main_model_row(&self, provider: &str, model: &str) -> Result<Option<Value>, String> {
         self.ready(provider).await?;
-        Ok(listed_row(&self.catalog, provider, model))
+        Ok(listed_row(&self.catalog, provider, model)
+            .or_else(|| self.facts.catalog_knows(model, provider).then(|| self.facts.model_meta(provider, model))))
     }
 
     /// `getModelMetadataSync(model, provider)`.
@@ -52,13 +54,12 @@ impl SearchHost for RegistrySearchHost {
         self.catalog.sync_meta(model, provider).map(Value::Object)
     }
 
-    /// A route an agent serves has no provider of Mixdog's to send a hosted search through: it is not there, as a
-    /// provider the registry does not hold is not.
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    async fn provider(&self, provider: &str) -> Result<Option<SearchProvider>, String> {
         self.ready(provider).await?;
         Ok(match self.facts.sender(None, provider).await? {
-            Some(RouteSender::Provider(adapter)) => Some(adapter),
-            Some(RouteSender::Agent(_)) | None => None,
+            Some(RouteSender::Provider(adapter)) => Some(SearchProvider::Hosted(adapter)),
+            Some(RouteSender::Agent(_)) => Some(SearchProvider::Acp),
+            None => None,
         })
     }
 

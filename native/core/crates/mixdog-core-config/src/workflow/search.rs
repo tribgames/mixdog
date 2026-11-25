@@ -40,7 +40,11 @@ async fn resolve_explicit(agent: &Doc, entry: &Value, host: &dyn WorkflowHost) -
     if !is_web_search_capable_provider(&provider) {
         return Err(format!("provider \"{provider}\" does not support Mixdog native web search"));
     }
-    host.ensure_providers_ready(ensure_provider_enabled(agent, &provider)).await?;
+    if host.agent_provider(&provider) {
+        host.ensure_agent_provider_ready(&provider).await?;
+    } else {
+        host.ensure_providers_ready(ensure_provider_enabled(agent, &provider)).await?;
+    }
     let meta = host.lookup_model_meta(&provider, &model).await;
     if !host.web_search_capable(&provider, meta.as_ref()) {
         return Err(format!("model \"{model}\" is not marked as web-search capable"));

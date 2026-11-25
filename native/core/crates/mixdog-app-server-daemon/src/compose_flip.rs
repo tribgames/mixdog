@@ -1732,6 +1732,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     .unwrap_or(serde_json::Value::Null)
                 })
             },
+            facts: provider_facts.clone(),
         },
     ));
     // The ONE readiness invalidation (Node `invalidateProviderCaches()`, wp-ai-svc-24): every cache Node drops there, in one closure.
@@ -5475,7 +5476,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             login_flows,
             ledger_source.clone(),
             custom_providers,
-            web_search_models.clone(),
+            Arc::new(mixdog_acp::routes::AgentWebSearchModels {
+                inner: web_search_models.clone(),
+                agents: acp_agents.clone(),
+                settings: {
+                    let config = config.clone();
+                    Arc::new(move || config.agent().get("modelSettings").and_then(serde_json::Value::as_object).cloned().unwrap_or_default())
+                },
+            }),
             provider_setup.clone(),
             dashboards.clone(),
             usage_sources.clone(),

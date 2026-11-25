@@ -17,14 +17,23 @@ use mixdog_core_config::config::{Config, ConfigLanes};
 use mixdog_core_ports::ports::route::{LiveRoute, Route};
 use mixdog_core_ports::ports::route_facts::{AgentAnswer, AgentAsk, CatalogFacts, RouteFacts, RouteSender};
 use mixdog_rt::LaneToken as _;
-use mixdog_tools::web::{ConfiguredSearchRoutes, SearchHost, SearchRoutes};
+use mixdog_tools::web::{ConfiguredSearchRoutes, SearchFamily, SearchHost, SearchProvider, SearchRoutes};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
+use super::model_list::ModelListService;
 use super::web_search_host::RegistrySearchHost;
+use super::web_search_models::{WebSearchModelsService, WebSearchRoutes};
+use crate::domains::ai_account::collaborators::WebSearchModels;
 
-/// The route provider an agent outside the loop serves.
+/// The route provider an agent outside the loop serves (not web-search capable).
 const AGENT: &str = "acp-agent";
+const ANTIGRAVITY: &str = "acp-antigravity";
+const ANTIGRAVITY_CLI: &str = "acp-antigravity-cli";
+
+fn is_test_agent(provider: &str) -> bool {
+    matches!(provider, AGENT | ANTIGRAVITY | ANTIGRAVITY_CLI)
+}
 
 struct Offline;
 
@@ -41,7 +50,7 @@ struct Builds;
 #[async_trait]
 impl ProviderBuilder for Builds {
     async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        if name == AGENT {
+        if is_test_agent(name) {
             return Err(format!("unknown enabled provider: {name}"));
         }
         Ok(Arc::new(MockProvider::new([])))
@@ -78,34 +87,39 @@ struct AgentFacts(Arc<dyn RouteFacts>);
 #[async_trait]
 impl RouteFacts for AgentFacts {
     fn is_known(&self, provider: &str, config: &Map<String, Value>) -> bool {
-        provider == AGENT || self.0.is_known(provider, config)
+        is_test_agent(provider) || self.0.is_known(provider, config)
     }
     async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
-        if provider == AGENT { Ok(()) } else { self.0.ensure_ready(config, provider).await }
+        if is_test_agent(provider) { Ok(()) } else { self.0.ensure_ready(config, provider).await }
     }
     fn model_meta(&self, provider: &str, model: &str) -> Value {
-        if provider == AGENT { json!({ "id": model, "provider": provider, "runner": "acp" }) } else { self.0.model_meta(provider, model) }
+        if is_test_agent(provider) {
+            let capable = matches!(provider, ANTIGRAVITY | ANTIGRAVITY_CLI) && !model.starts_with("gemini-pro-orchestrator");
+            json!({ "id": model, "provider": provider, "runner": "acp", "supportsWebSearch": capable })
+        } else {
+            self.0.model_meta(provider, model)
+        }
     }
     fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
-        if provider == AGENT { None } else { self.0.window_meta(provider, model, meta) }
+        if is_test_agent(provider) { None } else { self.0.window_meta(provider, model, meta) }
     }
     fn catalog_knows(&self, model: &str, provider: &str) -> bool {
-        provider == AGENT || self.0.catalog_knows(model, provider)
+        is_test_agent(provider) || self.0.catalog_knows(model, provider)
     }
     fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
-        provider != AGENT && self.0.fast_capable(provider, meta, effort, params)
+        !is_test_agent(provider) && self.0.fast_capable(provider, meta, effort, params)
     }
     fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
-        provider != AGENT && self.0.ultrafast_capable(provider, meta)
+        !is_test_agent(provider) && self.0.ultrafast_capable(provider, meta)
     }
     async fn sender(&self, providers: Option<&Map<String, Value>>, provider: &str) -> Result<Option<RouteSender>, String> {
-        if provider == AGENT { Ok(Some(RouteSender::Agent(Arc::new(Unasked)))) } else { self.0.sender(providers, provider).await }
+        if is_test_agent(provider) { Ok(Some(RouteSender::Agent(Arc::new(Unasked)))) } else { self.0.sender(providers, provider).await }
     }
     fn registered(&self, provider: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
-        (provider != AGENT).then(|| self.0.registered(provider)).flatten()
+        (!is_test_agent(provider)).then(|| self.0.registered(provider)).flatten()
     }
     fn init_error(&self, provider: &str) -> Option<String> {
-        (provider != AGENT).then(|| self.0.init_error(provider)).flatten()
+        (!is_test_agent(provider)).then(|| self.0.init_error(provider)).flatten()
     }
 }
 
@@ -171,6 +185,78 @@ async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
     let (_dir, host) = host(json!({ "webSearchRoute": { "provider": "openai", "model": "gpt-5.2" } }), HashMap::new()).await;
     assert_eq!(host.session_id(&thread_of(7)).as_deref(), Some("thread-7"));
     assert_eq!(host.stored_web_search_route(), json!({ "provider": "openai", "model": "gpt-5.2" }));
-    assert!(host.provider("openai").await.unwrap().is_some());
+    assert!(matches!(host.provider("openai").await.unwrap(), Some(SearchProvider::Hosted(_))));
+    assert!(matches!(host.provider(ANTIGRAVITY).await.unwrap(), Some(SearchProvider::Acp)));
     assert_eq!(host.main_route(&thread_of(7)), json!({}));
+}
+
+#[tokio::test]
+async fn follows_main_resolves_antigravity_acp_routes_and_skips_own_orchestration() {
+    for (provider, model) in [(ANTIGRAVITY, "gemini-3-flash"), (ANTIGRAVITY_CLI, "claude-opus-4-6")] {
+        let cells = HashMap::from([(thread_of(1), json!({ "provider": provider, "model": model, "effort": "high" }).as_object().unwrap().clone())]);
+        let (_dir, host) = host(json!({}), cells).await;
+        let row = host.main_model_row(provider, model).await.unwrap().expect("route facts fallback row");
+        assert_eq!(row["supportsWebSearch"], json!(true));
+        assert!(matches!(host.provider(provider).await.unwrap(), Some(SearchProvider::Acp)));
+
+        let routes = ConfiguredSearchRoutes::new(host);
+        let candidates = routes.candidates(&thread_of(1)).await.unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].family, SearchFamily::Acp);
+        assert_eq!((candidates[0].provider.as_str(), candidates[0].model.as_str()), (provider, model));
+        assert_eq!(candidates[0].effort.as_deref(), Some("high"));
+    }
+
+    // Own-orchestration model on Main is rejected and falls back to the next route in the chain.
+    let cells = HashMap::from([(
+        thread_of(2),
+        json!({ "provider": ANTIGRAVITY, "model": "gemini-pro-orchestrator" }).as_object().unwrap().clone(),
+    )]);
+    let (_dir, host) = host(
+        json!({ "webSearchRoute": { "provider": "default", "model": "default", "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }] } }),
+        cells,
+    )
+    .await;
+    let routes = ConfiguredSearchRoutes::new(host);
+    let candidates = routes.candidates(&thread_of(2)).await.unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!((candidates[0].provider.as_str(), candidates[0].model.as_str()), ("openai", "gpt-5.2"));
+}
+
+#[tokio::test]
+async fn web_search_models_offers_follows_main_for_capable_antigravity_acp_main_route() {
+    let cells = HashMap::from([
+        (thread_of(1), json!({ "provider": ANTIGRAVITY, "model": "gemini-3-flash" }).as_object().unwrap().clone()),
+        (thread_of(2), json!({ "provider": ANTIGRAVITY, "model": "gemini-pro-orchestrator" }).as_object().unwrap().clone()),
+    ]);
+    let (_dir, host) = host(json!({}), cells).await;
+    let list = Arc::new(ModelListService {
+        catalog: host.catalog.clone(),
+        config: host.config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::default(),
+        host: None,
+    });
+    let service = WebSearchModelsService::new(
+        host.catalog.clone(),
+        host.config.clone(),
+        list,
+        WebSearchRoutes {
+            cells: host.cells.clone(),
+            main_route: Arc::new(|| json!({})),
+            web_search_route: Arc::new(|| json!({ "provider": "default", "model": "default" })),
+            facts: host.facts.clone(),
+        },
+    );
+
+    let rows = service.list(Some(&thread_of(1)), false).await.unwrap();
+    let default_row = rows.as_array().unwrap().iter().find(|r| r["provider"] == "default" && r["id"] == "default");
+    let default_row = default_row.expect("Follows Main row offered for capable Antigravity ACP Main route");
+    assert_eq!(default_row["description"], format!("Use current main model: {ANTIGRAVITY}/gemini-3-flash"));
+
+    let blocked_rows = service.list(Some(&thread_of(2)), false).await.unwrap();
+    assert!(
+        blocked_rows.as_array().unwrap().iter().all(|r| r["provider"] != "default"),
+        "Follows Main row must not be offered for an own-orchestration ACP Main model"
+    );
 }

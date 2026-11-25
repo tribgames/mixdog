@@ -120,6 +120,11 @@ pub trait WorkflowHost: Send + Sync {
     /// `ensureProvidersReady(providers)`: the providers map with the provider turned on.
     async fn ensure_providers_ready(&self, providers: Doc) -> Result<(), String>;
 
+    /// Ensures an outside agent's route provider (`agent_provider(provider)`) is ready to be chosen.
+    async fn ensure_agent_provider_ready(&self, _provider: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     /// `lookupModelMeta(provider, model, { allowFetch: true })`.
     async fn lookup_model_meta(&self, provider: &str, model: &str) -> Option<Value>;
 
