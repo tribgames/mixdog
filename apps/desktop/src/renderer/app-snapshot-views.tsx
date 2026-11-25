@@ -228,8 +228,9 @@ export const PaneConversation = memo(function PaneConversation({
     subscribeLaneLiveness,
     () => sessionId !== '' && defaultSessionLaneStore.liveSessionIds().has(sessionId)
   );
-  // A conversation prepared behind the one its pane still shows is presented over the session's current state only: a
-  // lane kept from before the session was let go is what it showed then, and is not shown as now.
+  // A conversation being prepared (behind the one its pane still shows, or under the side dock's cover) is presented
+  // over the session's current state only: a lane kept from before the session was let go is what it showed then, and
+  // is not shown as now.
   const lane = heldSnapshot ?? (presentation.preparing && !live ? null : liveLane);
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
