@@ -333,13 +333,14 @@ export interface SessionGapDrop {
   onDrop(event: React.DragEvent<HTMLElement>): void;
 }
 
-/** A session row dragged onto Favorites stars it. */
-export interface FavoriteSessionDrop {
-  /** Drop-zone key of the Favorites section (never a project key). */
+/** A session row dragged onto Favorites stars it; onto Recent, it leaves the
+ *  grouping its drag started in. */
+export interface SectionSessionDrop {
+  /** Drop-zone key of the section (never a project key). */
   key: string;
-  /** A session that may be starred is being dragged. */
+  /** A session this section can take is being dragged. */
   available: boolean;
-  /** Favorites is highlighted as the drop target. */
+  /** The section is highlighted as the drop target. */
   active: boolean;
   /** True when the dragged session may drop here (claims the event). */
   onDragOver(event: React.DragEvent<HTMLElement>): boolean;
@@ -358,7 +359,7 @@ export function favoritesSection({
   attentionOf,
 }: {
   rows: DesktopSessionSummary[];
-  sessionDrop?: FavoriteSessionDrop;
+  sessionDrop?: SectionSessionDrop;
   open: boolean;
   onToggleOpen(): void;
   headerProps?: ReorderProps;
@@ -426,10 +427,12 @@ export function recentSection({
   archiveAllDisabled,
   onArchiveAll,
   headerProps,
+  sessionDrop,
   renderRows,
   allRows,
 }: {
   headerProps?: ReorderProps;
+  sessionDrop?: SectionSessionDrop;
   sessionsReady: boolean;
   rowCount: number;
   visibleRows: DesktopSessionSummary[];
@@ -445,8 +448,24 @@ export function recentSection({
   renderRows: RenderForkRows;
   allRows: readonly DesktopSessionSummary[];
 }) {
+  const reorder = reorderTarget(headerProps);
   return (
-    <section className="sidebar-recent" aria-label={t('Recent sessions')} {...reorderTarget(headerProps)}>
+    // A zone only while it can take the drag: it would otherwise win the gaps
+    // its neighbours reach into (nearestDropZone).
+    <section
+      className="sidebar-recent"
+      aria-label={t('Recent sessions')}
+      data-session-drop={sessionDrop?.active ? 'true' : undefined}
+      data-session-drop-zone={sessionDrop?.available ? sessionDrop.key : undefined}
+      {...reorder}
+      onDragOver={(event) => {
+        if (!sessionDrop?.onDragOver(event)) reorder?.onDragOver?.(event);
+      }}
+      onDragLeave={sessionDrop?.onDragLeave}
+      onDrop={(event) => {
+        if (!sessionDrop?.onDrop(event)) reorder?.onDrop?.(event);
+      }}
+    >
       <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
         <button
           type="button"
