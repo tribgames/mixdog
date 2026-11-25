@@ -23,8 +23,11 @@ public class MainActivity extends BridgeActivity {
   // false while it has nothing to cancel ('disarmed'): that press drops the
   // entry and does the normal Back at once, so it is never spent on the entry.
   // The web app's own sentinels are numbers from 1, never false.
+  // The service worker's offline frame (sw-shell.js) has nothing to close and
+  // no native cover over it ('offline'): Back leaves it for the PC list.
   private static final String BACK_SCRIPT =
-      "(function(){var w=window;if(w.__mixdogBackBusy)return 'web';"
+      "(function(){var w=window;if(w.document.documentElement.hasAttribute('data-mixdog-offline'))return 'offline';"
+          + "if(w.__mixdogBackBusy)return 'web';"
           + "var s=history.state,armed=!!(s&&s.mixdogBack),disarmed=!!s&&s.mixdogBack===false;"
           + "if(armed||disarmed){w.__mixdogBackBusy=true;"
           + "var done=function(){w.__mixdogBackBusy=false};"
@@ -60,6 +63,10 @@ public class MainActivity extends BridgeActivity {
                 }
                 webView.evaluateJavascript(BACK_SCRIPT, (result) -> {
                   if ("\"web\"".equals(result)) return;
+                  if ("\"offline\"".equals(result)) {
+                    reconnect.chooseAnotherPc();
+                    return;
+                  }
                   if ("\"disarmed\"".equals(result)) {
                     // Past the picker's entry and its load entry in one step
                     // (back to the PC page that opened the picker), else drop

@@ -446,6 +446,24 @@ test('a link still down after the line has said it is connecting for a while say
   });
 });
 
+test('a first connection that took long is no reconnection; an outage of that link later is', async () => {
+  // The app shell's line, which counts behind the boot cover too.
+  await withBanner(async ({ fire, setState }) => {
+    await setState('connecting');
+    await fire('pendingDisconnect');
+    assert.equal(phaseOf(), 'connecting');
+    await setState('syncing');
+    assert.equal(lineElement(), null, 'the first link says nothing when the cover lifts');
+    await setState('connected');
+    await fire('pendingRecovery');
+    assert.equal(lineElement(), null);
+    await setState('reconnecting');
+    await fire('pendingDisconnect');
+    await setState('connected');
+    assert.equal(phaseOf(), 'reconnected');
+  });
+});
+
 test('the connecting line counts down to the next redial', async () => {
   await withBanner(async ({ fire, setState }) => {
     await setState('reconnecting');

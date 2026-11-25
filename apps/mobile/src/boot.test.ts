@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { JSDOM } from 'jsdom';
 
 const ID = '0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9';
@@ -205,17 +206,19 @@ const BACK_SCRIPT = (() => {
   const decl = `${/BACK_SCRIPT =([\s\S]*?)";/u.exec(java)?.[1] ?? ''}"`;
   return [...decl.matchAll(/"((?:[^"\\]|\\.)*)"/gu)].map((m) => JSON.parse(`"${m[1]}"`) as string).join('');
 })();
-/** One Android Back press: BACK_SCRIPT, then the page-side part of what
- *  MainActivity does with its answer ('disarmed': pop the entry, then the
- *  normal Back, which leaves this page and is out of reach here). */
-const pressBack = (b: Boot): string => {
-  const w = win();
-  const result = new Function('window', 'history', 'location', 'setTimeout', `return ${BACK_SCRIPT}`)(
+const runBack = (w: Window): string =>
+  new Function('window', 'history', 'location', 'setTimeout', `return ${BACK_SCRIPT}`)(
     w,
     w.history,
     w.location,
     w.setTimeout
   ) as string;
+/** One Android Back press: BACK_SCRIPT, then the page-side part of what
+ *  MainActivity does with its answer ('disarmed': pop the entry, then the
+ *  normal Back, which leaves this page and is out of reach here). */
+const pressBack = (b: Boot): string => {
+  const w = win();
+  const result = runBack(w);
   if (result === 'disarmed') w.history.back();
   drainTraversal(b);
   return result;
@@ -225,6 +228,21 @@ const click = (b: Boot, action: string) =>
 const LIST = ['open-pc', 'open-pc', 'scan', 'enter-code'];
 const offlineList = () =>
   boot({ saved: SAVED_TWO, presence: { [ID]: false, [ID2]: true }, settle: (x) => x.actions().includes('open-pc') });
+
+test('Back on the service worker’s offline frame asks for the PC list, never leaves the app on it', async () => {
+  // sw-shell.js's answer to a navigation with no network and no saved shell.
+  const source = readFileSync(new URL('../../desktop/src/renderer/public/sw-shell.js', import.meta.url), 'utf8');
+  const response = runInNewContext(`${source}\n;offlineFrame()`, {
+    self: { addEventListener() {} },
+    Response,
+  }) as Response;
+  const frame = new JSDOM(await response.text(), { url: HOST });
+  try {
+    assert.equal(runBack(frame.window as unknown as Window), 'offline');
+  } finally {
+    frame.window.close();
+  }
+});
 
 test('a rapid double tap on the saved-PC list opens only the first-tapped PC', async () => {
   const b = await offlineList();

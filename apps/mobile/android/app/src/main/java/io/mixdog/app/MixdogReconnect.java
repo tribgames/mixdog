@@ -86,7 +86,7 @@ final class MixdogReconnect {
   }
 
   /** Give up on the failed PC and open the bundled pairing screen (its saved-PC list). */
-  private void chooseAnotherPc() {
+  void chooseAnotherPc() {
     state.clear();
     sync();
     if (activity.getBridge() == null || activity.getBridge().getWebView() == null) return;

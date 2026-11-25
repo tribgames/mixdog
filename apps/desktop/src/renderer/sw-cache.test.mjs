@@ -113,7 +113,7 @@ test('with no network and no saved shell a navigation answers the app background
   assert.match(result.response.headers.get('content-type'), /^text\/html/);
   assert.equal(result.response.headers.get('cache-control'), 'no-store');
   const html = await result.response.text();
-  assert.match(html, /<html style="background:#111">/);
+  assert.match(html, /<html[^>]* style="background:#111">/);
   assert.equal(visibleText(html), '', 'no title, text or spinner');
 });
 
@@ -136,14 +136,16 @@ test('a navigation outside the app documents still answers the background when o
   assert.equal(visibleText(await response.text()), '');
 });
 
-test('the background frame reloads its document once it answers again', async () => {
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+/** Runs the background frame's own script on a page double; `answers` are the probes' outcomes in turn, then 200. */
+async function runOfflineFrame(answers) {
   const { shellFirst } = loadWorker({ cache: stubCache(), fetchAsset: offline });
   const html = await (await shellFirst({ url: 'https://relay/d/abc/', mode: 'navigate' })).response.text();
   const script = /<script>([\s\S]*)<\/script>/.exec(html)[1];
   const timers = [];
   const pageListeners = new Map();
   const probes = [];
-  const answers = [() => Promise.reject(new TypeError('Failed to fetch')), () => Promise.resolve({ ok: false })];
   let reloads = 0;
   const page = {
     location: { href: 'https://relay/d/abc/', reload: () => reloads++ },
@@ -156,11 +158,18 @@ test('the background frame reloads its document once it answers again', async ()
     clearTimeout: () => undefined,
     fetch: (url, init) => {
       probes.push({ url, init });
-      return answers.shift()?.() ?? Promise.resolve({ ok: true });
+      return answers.shift()?.() ?? Promise.resolve({ ok: true, status: 200 });
     },
   };
   vm.runInNewContext(script, page);
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  return { page, timers, pageListeners, probes, reloads: () => reloads };
+}
+
+test('the background frame reloads its document once it answers again', async () => {
+  const { page, timers, pageListeners, probes, reloads } = await runOfflineFrame([
+    () => Promise.reject(new TypeError('Failed to fetch')),
+    () => Promise.resolve({ ok: false, status: 503 }),
+  ]);
 
   assert.equal(probes.length, 0, 'nothing is fetched before the first wait');
   assert.equal(timers.at(-1).ms, 2_000);
@@ -168,12 +177,12 @@ test('the background frame reloads its document once it answers again', async ()
   await settle();
   assert.equal(probes[0].url, 'https://relay/d/abc/');
   assert.equal(probes[0].init.cache, 'no-store', 'the probe is never answered from a cache');
-  assert.equal(reloads, 0, 'still offline');
+  assert.equal(reloads(), 0, 'still offline');
   assert.equal(timers.at(-1).ms, 4_000, 'the wait grows');
-  // The network coming back is tried at once; an error answer is not the document.
+  // The network coming back is tried at once; a gateway that cannot reach the server is not its answer.
   pageListeners.get('online')();
   await settle();
-  assert.equal(reloads, 0);
+  assert.equal(reloads(), 0);
   page.document.visibilityState = 'hidden';
   timers.at(-1).callback();
   await settle();
@@ -181,7 +190,29 @@ test('the background frame reloads its document once it answers again', async ()
   page.document.visibilityState = 'visible';
   pageListeners.get('document:visibilitychange')();
   await settle();
-  assert.equal(reloads, 1, 'the document answered: the page loads it');
+  assert.equal(reloads(), 1, 'the document answered: the page loads it');
+});
+
+test('the background frame shows a reachable server’s own answer; only an unreachable one keeps it waiting', async () => {
+  const { timers, reloads } = await runOfflineFrame(
+    [502, 503, 504, 404].map((status) => () => Promise.resolve({ ok: false, status }))
+  );
+  for (const status of [502, 503, 504]) {
+    timers.at(-1).callback();
+    await settle();
+    assert.equal(reloads(), 0, `a ${status} gateway answer keeps waiting`);
+  }
+  timers.at(-1).callback();
+  await settle();
+  assert.equal(reloads(), 1, 'a removed device’s 404 is the server’s answer');
+  // The reload's navigation then shows that answer, not the background again.
+  const { shellFirst } = loadWorker({
+    cache: stubCache(),
+    fetchAsset: async () => new Response('gone', { status: 404 }),
+  });
+  const result = await shellFirst({ url: 'https://relay/d/abc/', mode: 'navigate' });
+  assert.equal(result.response.status, 404);
+  assert.equal(await result.response.text(), 'gone');
 });
 
 test('cache response is released before maintenance and burst trims coalesce', async () => {

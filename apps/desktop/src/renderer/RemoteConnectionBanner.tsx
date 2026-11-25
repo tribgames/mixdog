@@ -216,8 +216,18 @@ function useRemoteOutage(boot: boolean): RemoteConnectionLineView {
     countdown.current = null;
     setOverlay('due');
   }, [boot, pageVisible, waiting, desktopOffline, overlay]);
+  // A first connection is not a reconnection: only an outage of a link this page already had ends in "Reconnected".
+  // Every state but a first dial ('connecting') follows a link (phone-client reports a redial before any as connecting).
+  const linkedBefore = useRef(false);
+  const [reconnection, setReconnection] = useState(false);
   useEffect(() => {
-    if (overlay === 'due' && recovery === 'lost') setOverlay('shown');
+    if (state === null) linkedBefore.current = false;
+    else if (state !== 'connecting') linkedBefore.current = true;
+  }, [state]);
+  useEffect(() => {
+    if (overlay !== 'due' || recovery !== 'lost') return;
+    setReconnection(linkedBefore.current);
+    setOverlay('shown');
   }, [overlay, recovery]);
   const showing = recovery !== 'cleared' && (overlay === 'shown' || (overlay === 'due' && recovery === 'lost'));
   const down = showing && recovery === 'lost';
@@ -243,7 +253,7 @@ function useRemoteOutage(boot: boolean): RemoteConnectionLineView {
   }, []);
   let phase: RemoteConnectionPhase = 'hidden';
   // Connected, the boot cover only waits for the first screen to paint.
-  if (showing && recovery === 'connected') phase = boot ? 'hidden' : 'reconnected';
+  if (showing && recovery === 'connected') phase = boot || !reconnection ? 'hidden' : 'reconnected';
   else if (showing) phase = failed ? 'failed' : 'connecting';
   return useMemo(() => ({ phase, retry }), [phase, retry]);
 }

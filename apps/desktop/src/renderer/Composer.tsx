@@ -923,6 +923,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       waitingSend.current = waiting;
       if (!(await afterLanding()) || waitingSend.current !== waiting) return;
       waitingSend.current = null;
+      // The link dropped while the lane landed: the words stay in the editor.
+      if (sendBlockedRef.current) return;
       return sendNowRef.current(slash, source);
     },
     [sendNow, afterLanding, attachmentsRef]
@@ -1042,7 +1044,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     const target = event.target as HTMLElement;
     if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
   };
-  const goalDisabled = turnBusy || commandBusy || submitting;
+  const goalDisabled = turnBusy || commandBusy || submitting || sendBlocked;
   const goalDisabledRef = useRef(goalDisabled);
   goalDisabledRef.current = goalDisabled;
   const executeSlashRef = useRef(executeSlash);

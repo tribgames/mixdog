@@ -34,9 +34,11 @@ function isTransientDocument(response) {
 // app it never reaches the native recovery (the WebView reports no error for a
 // navigation a service worker answered). With no network and no retained
 // shell the answer is the app's background alone, which reloads itself once
-// its document answers again.
+// its server answers: any answer is shown, and only a gateway that cannot
+// reach the server (502/503/504) keeps it waiting, as ReconnectState does.
+// Android Back reads `data-mixdog-offline` (MainActivity) to leave for the PC list.
 const OFFLINE_FRAME =
-  '<!doctype html><html style="background:#111"><head><meta charset="utf-8">' +
+  '<!doctype html><html data-mixdog-offline style="background:#111"><head><meta charset="utf-8">' +
   '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
   '<meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111">' +
   '<style>html,body{margin:0;height:100%;background:#111}</style></head><body><script>' +
@@ -44,7 +46,8 @@ const OFFLINE_FRAME =
   'function later(){clearTimeout(timer);timer=setTimeout(retry,delay);delay=Math.min(delay*2,30000)}' +
   'function retry(){clearTimeout(timer);if(probing||document.visibilityState==="hidden")return;probing=true;' +
   'fetch(location.href,{cache:"no-store"}).then(function(response){probing=false;' +
-  'if(response.ok)location.reload();else later()},function(){probing=false;later()})}' +
+  'var s=response.status;if(s===502||s===503||s===504)later();else location.reload()},' +
+  'function(){probing=false;later()})}' +
   'function now(){delay=2000;retry()}' +
   'addEventListener("online",now);document.addEventListener("visibilitychange",now);later()})();' +
   '</script></body></html>';
