@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use mixdog_acp::preset::AgentPreset;
-use mixdog_acp::preset::Upkeep;
+use mixdog_acp::preset::Distribution;
 use mixdog_services::effort_judge::model::OrtRuntime;
 
 use super::*;
@@ -40,24 +40,28 @@ fn the_fake_agents_process() {
     fake_agent::run(args[at + 1..].to_vec());
 }
 
-/// The shipped preset with this binary as its CLI, which updates itself as the shipped one does (the fake logs `update`):
-/// nothing to install or sign in to.
+/// The shipped CLI preset with this binary as its CLI, which updates itself as the shipped one does (the fake logs
+/// `update`): nothing to install or sign in to.
 fn fake_preset() -> AgentPreset {
     let test = test_name("the_fake_agents_process");
     let run = |argument: &str| -> Vec<String> { ["--exact", &test, "--nocapture", "--", AGENT, argument].map(str::to_owned).to_vec() };
+    let shipped = mixdog_app_server_daemon::acp_tools::builtin_presets().into_iter().find(|preset| preset.id == "antigravity-cli").expect("the CLI's preset");
     AgentPreset {
         command: std::env::current_exe().expect("the test binary").to_string_lossy().into_owned(),
         args: run("acp"),
         version_args: run("--version"),
         env: Vec::new(),
-        upkeep: Upkeep { installer: None, installed_at: Vec::new(), update_args: Some(run("update")) },
+        distribution: Distribution::Cli { installer: None, installed_at: Vec::new(), update_args: Some(run("update")) },
         login: None,
         usage: None,
-        ..mixdog_app_server_daemon::acp_tools::builtin_presets().remove(0)
+        ..shipped
     }
 }
 
-/// The child's run: `mixdog exec --json --provider <the agent's> --model default tools`, its stdout kept in `exec.jsonl`.
+/// The fake agent's model the run's Lead names: the CLI's preset offers no default model.
+const FAKE_MODEL: &str = "m1";
+
+/// The child's run: `mixdog exec --json --provider <the agent's> --model m1 tools`, its stdout kept in `exec.jsonl`.
 fn exec_in(dir: &Path) {
     // An install as `mixdogd exec` resolves its own: the manifest beside the core, an interpreter file, this tree's package.
     let core = dir.join("core");
@@ -94,7 +98,7 @@ fn exec_in(dir: &Path) {
     let opts = ExecOptions {
         message: "tools".into(),
         provider: Some(provider),
-        model: Some(mixdog_acp::agents::DEFAULT_MODEL.into()),
+        model: Some(FAKE_MODEL.into()),
         effort: None,
         fast: false,
         provider_config: None,

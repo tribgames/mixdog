@@ -70,7 +70,7 @@ pub fn builtin_presets() -> Vec<mixdog_acp::preset::AgentPreset> {
 /// Each agent's route by the provider whose account and quota it shares: what the catalog prices an agent's usage as
 /// (`CatalogService::bind_shared_quotas`).
 pub fn shared_quotas(presets: &[AgentPreset]) -> std::collections::BTreeMap<String, String> {
-    presets.iter().filter_map(|preset| Some((preset.provider.clone(), preset.usage.as_ref()?.same_quota_as.clone()?))).collect()
+    presets.iter().filter_map(|preset| Some((preset.provider.clone(), preset.same_quota_as.clone()?))).collect()
 }
 
 /// The sessions' tool surfaces, and the table of their tool calls that went on in the background.
@@ -523,6 +523,10 @@ mod tests {
 
     use super::*;
 
+    fn shipped(id: &str) -> AgentPreset {
+        builtin_presets().into_iter().find(|preset| preset.id == id).expect("a shipped preset")
+    }
+
     /// Starts no process: each one asked for is still starting, so an agent's check never ends.
     struct NeverStarts;
 
@@ -574,7 +578,7 @@ mod tests {
     #[tokio::test]
     async fn a_session_on_an_agent_still_being_checked_is_admitted() {
         let dir = tempfile::tempdir().expect("a data folder");
-        let preset = builtin_presets().remove(0);
+        let preset = shipped("antigravity-cli");
         let enabled = Arc::new(AtomicBool::new(true));
         let agents = Agents::new(AgentsParts {
             refusals: Arc::new(KeptRefusals::in_data_dir(dir.path(), mixdog_rt::testing::tokens().durability_io)),
@@ -588,6 +592,7 @@ mod tests {
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),
             definitions: dir.path().join("acp-agents"),
+            data_dir: dir.path().join("acp-agents"),
             env: Arc::new(|_: &str| None),
             mcp_bridge: None,
         });
@@ -726,7 +731,7 @@ mod tests {
             let writer = writer.clone();
             Arc::new(move || Some(Arc::new(mixdog_core::run_host::accounting_scope::LedgerSink(writer.clone())) as Arc<dyn UsageSink>))
         };
-        let preset = builtin_presets().remove(0);
+        let preset = shipped("antigravity");
         let header = serde_json::json!({ "provider": preset.provider.as_str(), "model": "gemini-3-pro", "ownerSessionId": "sess_lead", "sourceType": "agent" })
             .as_object()
             .cloned()
@@ -792,8 +797,8 @@ mod tests {
         use mixdog_ledger::refresh::Refresh;
         let LedgerRig { _dir, catalog, path, writer, reader, refresher } = LedgerRig::new().await;
         let sink = Arc::new(mixdog_core::run_host::accounting_scope::LedgerSink(writer.clone())) as Arc<dyn UsageSink>;
-        let preset = builtin_presets().remove(0);
-        let quota = preset.usage.as_ref().and_then(|usage| usage.same_quota_as.clone()).expect("the agent shares a provider's quota");
+        let preset = shipped("antigravity");
+        let quota = preset.same_quota_as.clone().expect("the agent shares a provider's quota");
         let header =
             serde_json::json!({ "provider": preset.provider.as_str(), "model": "gemini-4-neon", "ownerSessionId": "sess_lead", "sourceType": "agent" })
                 .as_object()

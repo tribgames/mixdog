@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use mixdog_acp::preset::AgentPreset;
-use mixdog_acp::preset::Upkeep;
+use mixdog_acp::preset::Distribution;
 use mixdog_app_server_client::api::Connector;
 use mixdog_app_server_client::api::Target;
 use mixdog_app_server_client::api::TransportEvent;
@@ -43,21 +43,25 @@ fn the_fake_agents_process() {
     fake_agent::run(args[at + 1..].to_vec());
 }
 
-/// The shipped preset with this binary as its CLI: nothing to install, update or sign in to.
+/// The shipped CLI preset with this binary as its CLI: nothing to install, update or sign in to.
 fn fake_preset() -> AgentPreset {
     let test = format!("{}::the_fake_agents_process", module_path!().split_once("::").expect("a module of the crate").1);
     let run = |argument: &str| -> Vec<String> { ["--exact", &test, "--nocapture", "--", AGENT, argument].map(str::to_owned).to_vec() };
+    let shipped = crate::acp_tools::builtin_presets().into_iter().find(|preset| preset.id == "antigravity-cli").expect("the CLI's preset");
     AgentPreset {
         command: std::env::current_exe().expect("the test binary").to_string_lossy().into_owned(),
         args: run("acp"),
         version_args: run("--version"),
         env: Vec::new(),
-        upkeep: Upkeep::default(),
+        distribution: Distribution::Cli { installer: None, installed_at: Vec::new(), update_args: None },
         login: None,
         usage: None,
-        ..crate::acp_tools::builtin_presets().remove(0)
+        ..shipped
     }
 }
+
+/// The fake agent's model the session's route names: the CLI's preset offers no default model.
+const FAKE_MODEL: &str = "m1";
 
 /// What the session title request's system prompt says (`run_host::title_completion`).
 const TITLE_REQUEST: &str = "concise, natural session title";
@@ -304,10 +308,10 @@ impl World {
         let agents = core.real.acp_agents.clone();
         until("the agent's check", || agents.selectable(&preset).is_ok().then_some(())).await;
         let op = desktop.op();
-        let route = json!({ "provider": preset.provider, "model": "default" });
+        let route = json!({ "provider": preset.provider, "model": FAKE_MODEL });
         let started = desktop.call("thread/start", json!({ "opId": op, "kind": "project", "projectPath": ws, "draft": { "route": route } })).await;
         let thread = started["thread"]["id"].as_str().expect("thread id").to_owned();
-        desktop.route(&thread, &preset.provider, "default").await;
+        desktop.route(&thread, &preset.provider, FAKE_MODEL).await;
         // The session's approval cards are shown to this client.
         desktop.call("thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } })).await;
         Self { core, desktop, shutdown, preset, thread, data, provider_requests, log: dir.join("daemon.log") }

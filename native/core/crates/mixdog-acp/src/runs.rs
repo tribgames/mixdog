@@ -352,6 +352,10 @@ async fn begin(
 ) -> Result<(Arc<crate::session::AgentSession>, Vec<Value>, Option<HeaderChange>), TurnEnd> {
     let TurnRequest { thread, cwd, stored, rules, input, conversation, attachments } = request;
     let refused = |refusal: Refusal| TurnEnd::Failed { message: refusal.message(preset), code: refusal.signed_out().then_some(AUTH_REQUIRED), reported: false };
+    // A model of another preset of the agent is never asked of this one: the route goes nowhere until it names that preset.
+    if let Some(why) = agents.refuses_model(preset, &context.model) {
+        return Err(TurnEnd::Failed { message: why, code: None, reported: false });
+    }
     // The session compacts where a provider's does: before the request is sent, once the context the last turn left
     // has reached the session's trigger. The agent owns the context, so the compaction is the one a manual Compact
     // makes of an agent's session: Mixdog's summary becomes the stored context, the agent's session is left behind,
@@ -657,6 +661,9 @@ pub async fn ask_once(
 ) -> Result<Answered, String> {
     if !agents.enabled() {
         return Err(Refusal::Off.message(preset));
+    }
+    if let Some(why) = agents.refuses_model(preset, model) {
+        return Err(why);
     }
     let cwd = AbsPath::new(agents.parts.probe_cwd.clone()).ok_or_else(|| "the agents have no folder to start a question's session in".to_owned())?;
     // Held to the answer: the CLI is not replaced under a process no session holds.

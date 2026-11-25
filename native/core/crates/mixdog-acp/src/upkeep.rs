@@ -26,8 +26,10 @@ use crate::connection::Launch;
 use crate::connection::Ran;
 use crate::connection::run_to_exit;
 use crate::preset::AgentPreset;
+use crate::preset::Distribution;
 use crate::preset::Version;
 use crate::session::Models;
+use crate::session::Program;
 use crate::session::initialize;
 use crate::session::launch;
 
@@ -88,8 +90,9 @@ pub(crate) struct Running {
 pub(crate) struct Slot {
     /// What the last finished check found; `None` before the first.
     pub(crate) readiness: Option<Readiness>,
-    /// The CLI as the last check found it: the preset's command, or its file where the installer puts it.
-    pub(crate) program: Option<String>,
+    /// The program as the last check found it: the preset's command, its file where the installer puts it, or the
+    /// build Mixdog installed.
+    pub(crate) program: Option<Program>,
     pub(crate) running: Option<Running>,
     fault: Option<(Action, String)>,
     /// Sessions being started on the CLI: it is not replaced under them.
@@ -153,8 +156,8 @@ impl Agents {
     }
 
     /// The CLI and what its version run printed: the preset's command on `PATH`, else its file where the installer puts it.
-    async fn locate(&self, preset: &AgentPreset, cwd: &AbsPath) -> Result<(String, Ran), Fault> {
-        let installed = preset.upkeep.installed_at.iter().filter_map(|location| {
+    async fn locate(&self, preset: &AgentPreset, installed_at: &[crate::preset::Location], cwd: &AbsPath) -> Result<(String, Ran), Fault> {
+        let installed = installed_at.iter().filter_map(|location| {
             let folder = (self.parts.env)(&location.env).filter(|folder| !folder.is_empty())?;
             Some(Path::new(&folder).join(&location.path).to_string_lossy().into_owned())
         });
@@ -198,20 +201,16 @@ impl Agents {
         }
     }
 
-    /// One check of `preset`'s CLI, with the upkeep `plan` allows.
-    async fn examine(&self, preset: &AgentPreset, plan: Plan, check: u64) -> Readiness {
-        // What an agent refused before the app last stopped stands over what this check finds.
-        self.read_refusals().await;
-        let Some(cwd) = AbsPath::new(self.parts.probe_cwd.clone()) else {
-            return Readiness::Failed { version: None, message: format!("{} is not an absolute folder to check the CLI in", self.parts.probe_cwd.display()) };
-        };
-        let mut located = self.locate(preset, &cwd).await;
-        match (&located, &preset.upkeep.installer, &preset.upkeep.update_args) {
+    /// The CLI of a `Cli` preset, installed or brought up to date first as `plan` allows, and what its version run printed.
+    async fn examine_cli(&self, preset: &AgentPreset, plan: Plan, check: u64, cwd: &AbsPath) -> Result<(String, Ran), Fault> {
+        let Distribution::Cli { installer, installed_at, update_args } = &preset.distribution else { return Err(Fault::NotFound) };
+        let mut located = self.locate(preset, installed_at, cwd).await;
+        match (&located, installer, update_args) {
             (Err(Fault::NotFound), Some(installer), _) if plan == Plan::Install => {
                 self.set_step(preset, check, Step::Installing);
-                let installed = succeeded(run_to_exit(&self.parts.processes, Self::plain(&installer.program, &installer.args, &cwd)).await);
+                let installed = succeeded(run_to_exit(&self.parts.processes, Self::plain(&installer.program, &installer.args, cwd)).await);
                 self.set_step(preset, check, Step::Checking);
-                located = self.locate(preset, &cwd).await;
+                located = self.locate(preset, installed_at, cwd).await;
                 let fault = match (installed, &located) {
                     (Err(message), _) => Some(message),
                     (Ok(()), Err(Fault::NotFound)) => Some(format!("the installer ended and `{}` is still not found", preset.command)),
@@ -225,40 +224,101 @@ impl Agents {
             (Ok((program, _)), _, Some(update)) if plan != Plan::Look && self.begin_update(preset, check) => {
                 (self.parts.changed)();
                 // A failed update leaves the CLI that was there, which the check goes on with.
-                let updated = succeeded(run_to_exit(&self.parts.processes, Self::plain(program, update, &cwd)).await);
+                let updated = succeeded(run_to_exit(&self.parts.processes, Self::plain(program, update, cwd)).await);
                 self.set_fault(preset, updated.err().map(|message| (Action::Update, message)));
                 self.set_step(preset, check, Step::Checking);
-                located = self.locate(preset, &cwd).await;
+                located = self.locate(preset, installed_at, cwd).await;
             }
             _ => {}
         }
-        let (program, printed) = match located {
-            Ok(found) => found,
-            Err(Fault::NotFound) => return Readiness::NotInstalled,
-            Err(fault) => return Readiness::Failed { version: None, message: fault.to_string() },
+        located
+    }
+
+    /// The build of `preset`'s registry agent this machine holds, as `<acp data>/bin/<preset id>/installed.json` names it:
+    /// its program (`cmd`, under the build's own folder `<version>/` unless it is absolute) with the build's arguments,
+    /// in the home Mixdog keeps for the agent, which `home_env` names. `Ok(None)` where no build is installed.
+    async fn installed(&self, preset: &AgentPreset, home_env: &str) -> Result<Option<Program>, String> {
+        let folder = self.parts.data_dir.join("bin").join(&preset.id);
+        let Some(file) = AbsPath::new(folder.join("installed.json")) else {
+            return Err(format!("{} is not an absolute folder to keep the agents in", self.parts.data_dir.display()));
         };
-        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
-            slot.program = Some(program.clone());
-        }
-        let Some(found) = Version::find(&printed.stdout) else { return Readiness::VersionUnknown };
-        let version = found.to_string();
-        if found < preset.minimum_version {
-            return Readiness::VersionTooOld { version };
+        let Ok(text) = self.parts.files.read(file).await else { return Ok(None) };
+        let unreadable = |why: &str| format!("the record of {}'s installed build cannot be read: {why}", preset.label);
+        let installed: Value = serde_json::from_str(&text).map_err(|error| unreadable(&error.to_string()))?;
+        let field = |key: &str| installed.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
+        let (Some(version), Some(cmd)) = (field("version"), field("cmd")) else { return Err(unreadable("it names no version or no program")) };
+        let args = installed.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        let home = self.parts.data_dir.join("homes").join(&preset.id);
+        Ok(Some(Program {
+            path: folder.join(version).join(cmd).to_string_lossy().into_owned(),
+            args,
+            env: vec![(home_env.to_owned(), home.to_string_lossy().into_owned())],
+        }))
+    }
+
+    /// One check of `preset`'s program, with the upkeep `plan` allows.
+    async fn examine(&self, preset: &AgentPreset, plan: Plan, check: u64) -> Readiness {
+        // What an agent refused before the app last stopped stands over what this check finds.
+        self.read_refusals().await;
+        let Some(cwd) = AbsPath::new(self.parts.probe_cwd.clone()) else {
+            return Readiness::Failed { version: None, message: format!("{} is not an absolute folder to check the CLI in", self.parts.probe_cwd.display()) };
+        };
+        // A CLI prints its version, and one too old is never started in ACP mode; an agent of the registry has no version
+        // run and names its version in `initialize`.
+        let (program, printed) = match &preset.distribution {
+            Distribution::Cli { .. } => match self.examine_cli(preset, plan, check, &cwd).await {
+                Ok((path, ran)) => match Version::find(&ran.stdout) {
+                    Some(found) => (Program::at(path), Some(found)),
+                    None => {
+                        self.found_program(preset, Program::at(path));
+                        return Readiness::VersionUnknown;
+                    }
+                },
+                Err(Fault::NotFound) => return Readiness::NotInstalled,
+                Err(fault) => return Readiness::Failed { version: None, message: fault.to_string() },
+            },
+            Distribution::Registry { supported: false, .. } => {
+                return Readiness::Failed { version: None, message: format!("{} does not run on this system.", preset.label) };
+            }
+            Distribution::Registry { home_env, .. } => match self.installed(preset, home_env).await {
+                Ok(Some(program)) => (program, None),
+                Ok(None) => return Readiness::NotInstalled,
+                Err(message) => return Readiness::Failed { version: None, message },
+            },
+        };
+        self.found_program(preset, program.clone());
+        if let Some(found) = printed.filter(|found| *found < preset.minimum_version) {
+            return Readiness::VersionTooOld { version: found.to_string() };
         }
         // Whether the user is signed in shows only when a session is opened; the agent is asked to forget it again.
+        let mut named = printed;
         let opened = async {
             let (connection, _incoming) = Connection::start(self.parts.processes.clone(), launch(preset, &program, cwd.clone())).await?;
-            let capabilities = initialize(&connection).await?;
-            let answer = connection.request("session/new", json!({ "cwd": cwd.as_path().to_string_lossy(), "mcpServers": [] })).await?;
-            if let (Some(_), Some(id)) = (capabilities.pointer("/agentCapabilities/sessionCapabilities/close"), answer.get("sessionId").and_then(Value::as_str))
-            {
-                let _ = connection.request("session/close", json!({ "sessionId": id })).await;
+            let opened = async {
+                let capabilities = initialize(&connection).await?;
+                if named.is_none() {
+                    named = capabilities.pointer("/agentInfo/version").and_then(Value::as_str).and_then(Version::find);
+                }
+                // An agent whose version is unknown or too old is asked nothing more.
+                if named.is_none_or(|found| found < preset.minimum_version) {
+                    return Ok(None);
+                }
+                let answer = connection.request("session/new", json!({ "cwd": cwd.as_path().to_string_lossy(), "mcpServers": [] })).await?;
+                if let (Some(_), Some(id)) =
+                    (capabilities.pointer("/agentCapabilities/sessionCapabilities/close"), answer.get("sessionId").and_then(Value::as_str))
+                {
+                    let _ = connection.request("session/close", json!({ "sessionId": id })).await;
+                }
+                Ok::<_, Fault>(Some((answer, capabilities)))
             }
+            .await;
             connection.kill();
-            Ok((answer, capabilities))
-        };
-        match opened.await {
-            Ok((answer, capabilities)) => {
+            opened
+        }
+        .await;
+        let version = named.map(|found| found.to_string());
+        match (opened, version) {
+            (Ok(Some((answer, capabilities))), Some(version)) => {
                 let plan = preset.quirks.plan_name.as_ref().and_then(|path| {
                     let named = path.iter().try_fold(answer.get("_meta")?, |at, key| at.get(key))?;
                     named.as_str().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned)
@@ -269,8 +329,17 @@ impl Agents {
                 }
                 Readiness::Ready { version, models: Models::of(&answer) }
             }
-            Err(Fault::Rpc(error)) if error.code == AUTH_REQUIRED => Readiness::SignedOut { version, message: error.message },
-            Err(fault) => Readiness::Failed { version: Some(version), message: fault.to_string() },
+            (Ok(_), None) => Readiness::VersionUnknown,
+            (Ok(None), Some(version)) => Readiness::VersionTooOld { version },
+            (Err(Fault::NotFound), _) => Readiness::NotInstalled,
+            (Err(Fault::Rpc(error)), version) if error.code == AUTH_REQUIRED => Readiness::SignedOut { version: version.unwrap_or_default(), message: error.message },
+            (Err(fault), version) => Readiness::Failed { version, message: fault.to_string() },
+        }
+    }
+
+    fn found_program(&self, preset: &AgentPreset, program: Program) {
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            slot.program = Some(program);
         }
     }
 
@@ -376,7 +445,7 @@ impl Agents {
 
     /// The CLI a session of `preset` starts on, once its check says it is ready. A state that is not ready is
     /// looked at once more first: the user may have installed or signed in outside the app.
-    pub(crate) async fn ready_program(self: &Arc<Self>, preset: &AgentPreset) -> Result<(String, Starting), crate::agents::Refusal> {
+    pub(crate) async fn ready_program(self: &Arc<Self>, preset: &AgentPreset) -> Result<(Program, Starting), crate::agents::Refusal> {
         use crate::agents::Refusal;
         let mut looked = false;
         loop {
@@ -390,7 +459,7 @@ impl Agents {
                     (Some(done), _) => done,
                     (None, Some(Readiness::Ready { .. })) => {
                         slot.starting += 1;
-                        let program = slot.program.clone().unwrap_or_else(|| preset.command.clone());
+                        let program = slot.program.clone().unwrap_or_else(|| Program::at(preset.command.clone()));
                         return Ok((program, Starting { agents: self.clone(), preset: preset.id.clone() }));
                     }
                     (None, Some(other)) if looked => return Err(Refusal::NotReady(other)),
@@ -422,7 +491,7 @@ impl Agents {
                 return Err(format!("{} offers no sign-out.", preset.label));
             }
             slot.starting += 1;
-            (slot.program.clone().unwrap_or_else(|| preset.command.clone()), Starting { agents: self.clone(), preset: preset.id.clone() })
+            (slot.program.clone().unwrap_or_else(|| Program::at(preset.command.clone())), Starting { agents: self.clone(), preset: preset.id.clone() })
         };
         let Some(cwd) = AbsPath::new(self.parts.probe_cwd.clone()) else { return Err("ACP agents have no folder to start in.".to_owned()) };
         let asked = async {
@@ -503,7 +572,7 @@ impl Agents {
             }
             slot.starting += 1;
             slot.usage_reads.push((read, cancel.clone()));
-            (slot.program.clone().unwrap_or_else(|| preset.command.clone()), Starting { agents: self.clone(), preset: preset.id.clone() })
+            (slot.program.clone().map_or_else(|| preset.command.clone(), |program| program.path), Starting { agents: self.clone(), preset: preset.id.clone() })
         };
         let launch = Launch { program, args: report.args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd };
         // An ended read drops the run, which ends the CLI's process.

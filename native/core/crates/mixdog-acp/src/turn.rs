@@ -585,14 +585,18 @@ impl Reply<'_> {
 
     /// `call` (a `tool_call`, a `tool_call_update` or a permission request's `toolCall`) is the agent's call of a tool
     /// of this session's Mixdog server: the session shows that call itself, and its pipeline asks the user what it must.
-    /// Told by the agent's structured fields alone, each compared whole: `rawInput.ServerName` with the server's name
-    /// and `rawInput.ToolName` with a tool the server lists, or the call's `name` with the name the agent gives such a
-    /// tool. What the call's title or any other text says decides nothing.
+    /// Told by the agent's structured fields alone, each compared whole: `_meta.mcp.server` with the server's name and
+    /// `_meta.mcp.tool` with a tool the server lists, else `rawInput.ServerName` and `rawInput.ToolName` so, else the
+    /// call's `name` with the name the agent gives such a tool. What the call's title or any other text says decides
+    /// nothing.
     async fn is_mixdog_call(&mut self, call: &Value) -> bool {
         let Some(handed) = self.session.handed.clone() else { return false };
-        let named = call.pointer("/rawInput/ServerName").and_then(Value::as_str).map(|server| {
-            (server == crate::mcp::SERVER_NAME).then(|| call.pointer("/rawInput/ToolName").and_then(Value::as_str).unwrap_or_default().to_owned())
-        });
+        let server_and_tool = |server: &str, tool: &str| {
+            call.pointer(server).and_then(Value::as_str).map(|server| {
+                (server == crate::mcp::SERVER_NAME).then(|| call.pointer(tool).and_then(Value::as_str).unwrap_or_default().to_owned())
+            })
+        };
+        let named = server_and_tool("/_meta/mcp/server", "/_meta/mcp/tool").or_else(|| server_and_tool("/rawInput/ServerName", "/rawInput/ToolName"));
         let name = call.get("name").and_then(Value::as_str);
         let format = self.session.preset.quirks.mcp_tool_name.as_deref();
         let is_listed = |listed: &[String]| match &named {
@@ -987,7 +991,7 @@ fn timing_of(started_at_ms: i64, time: &ModelTime, now_ms: i64) -> (i64, u64, u6
 }
 
 /// The protocol's answer to a request about a resource the agent does not hold (`RESOURCE_NOT_FOUND`): the code a
-/// turn whose agent lost its session fails with.
+/// turn whose agent lost its session fails with, and the one an agent answers a prompt of a session it lost with.
 pub(crate) const SESSION_NOT_FOUND: i64 = -32002;
 
 /// The turn failed with what the agent said, `message`, and the error code it answered with, if any. A failure that

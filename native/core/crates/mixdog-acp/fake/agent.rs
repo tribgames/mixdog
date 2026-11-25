@@ -3,8 +3,11 @@
 //! (thought, text, two tool calls, a plan), `permission` (asks before a call), `hang` (works until
 //! cancelled), `mute` (answers nothing until cancelled), `background` (ends its turn with a call
 //! running, then replies on its own), `read <path>` (reads a file through the client), `whoami`
-//! (reports how it was started), and `servers`, `tools`, `tool <name> <json>` and `calls` (several such
-//! calls in one turn) (what the session's MCP server hands it).
+//! (reports how it was started), `meta` (the `_meta` its session was opened with), and `servers`, `tools`,
+//! `tool <name> <json>` and `calls` (several such calls in one turn) (what the session's MCP server hands it).
+//! Started with `FAKE_AGENT_OFFICIAL` in its environment it is Google's official ACP server instead: no version
+//! flag, its version named in `initialize` alone, no `session/close`, an MCP call named under `_meta.mcp` only, and a
+//! prompt of a session it lost answered with -32002.
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -40,6 +43,26 @@ struct Agent {
     unprompted: bool,
     /// The MCP servers the session was opened or reopened with.
     servers: Value,
+    /// The `_meta` the session was opened or reopened with.
+    meta: Value,
+}
+
+/// The official server's mode: set in the environment it is started with alone, so a CLI started in the same folder
+/// is no official server.
+fn official() -> bool {
+    std::env::var_os("FAKE_AGENT_OFFICIAL").is_some()
+}
+
+/// How a call `call` of the tool `name` of the session's MCP server is shown, as `sessionUpdate` `update` with `status`.
+fn mcp_call(update: &str, call: &str, name: &str, status: &str, arguments: &Value) -> Value {
+    let wire = format!("mcp_mixdog_{name}");
+    if official() {
+        return json!({
+            "sessionUpdate": update, "toolCallId": call, "title": format!("mixdog_{name}"), "kind": "other", "status": status,
+            "rawInput": { "arguments": arguments }, "_meta": { "mcp": { "server": "mixdog", "tool": name }, "is_mcp_tool_call": true },
+        });
+    }
+    json!({ "sessionUpdate": update, "toolCallId": call, "name": wire, "title": format!("Run {wire}"), "kind": "other", "status": status, "rawInput": arguments })
 }
 
 /// One message to the session's first MCP server and its answer: over HTTP where the entry has a `url`, else
@@ -108,6 +131,7 @@ impl Agent {
     /// server it was handed before it answers (`FAKE_AGENT_NO_MCP`: an agent that never connects to one).
     fn opened(&mut self, params: &Value) {
         self.servers = params["mcpServers"].clone();
+        self.meta = params["_meta"].clone();
         self.append = params["_meta"]["antigravity"]["systemPrompt"]["append"].as_str().unwrap_or_default().to_owned();
         if !self.servers[0].is_null() && setting("FAKE_AGENT_NO_MCP").is_none() && setting("FAKE_AGENT_LATE_MCP").is_none() {
             self.connect();
@@ -134,8 +158,7 @@ impl Agent {
     /// name its wire gives an MCP server's tool: what it says of the answer (`result:` or `error:`, the texts, ` images=N`)
     /// and the answer's texts.
     fn call_tool(&self, call: &str, name: &str, arguments: Value) -> (String, String) {
-        let wire = format!("mcp_mixdog_{name}");
-        self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": call, "name": wire, "title": format!("Run {wire}"), "kind": "other", "status": "in_progress", "rawInput": arguments }));
+        self.update(mcp_call("tool_call", call, name, "in_progress", &arguments));
         let answer = mcp(&self.servers[0], &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": name, "arguments": arguments } }));
         self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed" }));
         let result = &answer["result"];
@@ -180,7 +203,7 @@ impl Agent {
             }
             // The agent's question about its call of the session's tool `rest`.
             "asktool" => {
-                let call = json!({ "sessionUpdate": "tool_call", "toolCallId": "p1", "name": format!("mcp_mixdog_{rest}"), "title": format!("Run mcp_mixdog_{rest}"), "kind": "other", "status": "pending", "rawInput": {} });
+                let call = mcp_call("tool_call", "p1", rest, "pending", &json!({}));
                 self.ask(id, call, once_or_no);
             }
             // The agent's question about a read of the files `rest` names with a tool of its own.
@@ -232,7 +255,12 @@ impl Agent {
             }
             // A prompt of a session it no longer holds, answered as `agy` answers one.
             "lost" => {
-                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": format!("Session not found: {}", self.session) } }));
+                let (code, message) = if official() { (-32002, "Resource not found") } else { (-32602, "Session not found") };
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": format!("{message}: {}", self.session) } }));
+            }
+            "meta" => {
+                self.say(&format!("meta={}", self.meta));
+                self.end(&id);
             }
             // The whole reply of an account that may not use the agent.
             "suspended" => {
@@ -439,7 +467,7 @@ impl Agent {
                             "mcpCapabilities": { "http": setting("FAKE_AGENT_STDIO_MCP").is_none() },
                             // `FAKE_AGENT_EMBEDDED`: an agent that takes a file's text as an embedded resource.
                             "promptCapabilities": { "image": setting("FAKE_AGENT_NO_IMAGES").is_none(), "embeddedContext": setting("FAKE_AGENT_EMBEDDED").is_some() },
-                            "sessionCapabilities": { "resume": {}, "close": {} },
+                            "sessionCapabilities": if official() { json!({ "resume": {} }) } else { json!({ "resume": {}, "close": {} }) },
                             // `FAKE_AGENT_NO_LOGOUT`: an agent that cannot be signed out through the protocol.
                             "auth": if setting("FAKE_AGENT_NO_LOGOUT").is_some() { json!({}) } else { json!({ "logout": {} }) },
                             // `FAKE_AGENT_NO_APPEND`: an agent whose system prompt takes nothing from its client.
@@ -513,7 +541,8 @@ impl Agent {
 /// The version an `update` left, else the one the fake was set to.
 fn version() -> String {
     let updated = setting("FAKE_AGENT_VERSION_FILE").and_then(|file| std::fs::read_to_string(file).ok());
-    updated.or_else(|| setting("FAKE_AGENT_VERSION")).unwrap_or_else(|| "1.5.1".to_owned()).trim().to_owned()
+    let shipped = if official() { "1.5.2" } else { "1.5.1" };
+    updated.or_else(|| setting("FAKE_AGENT_VERSION")).unwrap_or_else(|| shipped.to_owned()).trim().to_owned()
 }
 
 /// `update`: moves to `FAKE_AGENT_UPDATE_TO`, or fails as `FAKE_AGENT_UPDATE_FAILS` says.
@@ -573,6 +602,21 @@ fn main() {
 
 /// The program, given its arguments: a test binary that is its own fake agent runs it on the arguments it was started with.
 pub fn run(args: Vec<String>) {
+    // The official server has no version flag: it refuses one it does not know.
+    if official() && args.iter().any(|arg| arg == "--version") {
+        log("version");
+        eprintln!("unknown flag: --version");
+        std::process::exit(1);
+    }
+    if official() {
+        let variable = |name: &str| std::env::var(name).unwrap_or_default();
+        log(&format!(
+            "official args={} GEMINI_HOME={} AGY_ACP_FORCE_FILE_STORAGE={}",
+            args.join(" "),
+            variable("GEMINI_HOME"),
+            variable("AGY_ACP_FORCE_FILE_STORAGE")
+        ));
+    }
     if args.iter().any(|arg| arg == "--version") {
         log("version");
         println!("{}", version());

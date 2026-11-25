@@ -1624,6 +1624,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         // A CLI's version, check, install, update and sign-in runs start in the system's temp folder, none of Mixdog's own.
         probe_cwd: std::env::temp_dir(),
         definitions: b.data_dir.join("acp-agents"),
+        data_dir: b.data_dir.join("acp-agents"),
         env: b.env.clone(),
         // An agent that takes no HTTP MCP server starts this program, in its bridge mode, as its session's tool server.
         mcp_bridge: std::env::current_exe().ok().map(|program| mixdog_acp::preset::Command {

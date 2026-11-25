@@ -301,7 +301,7 @@ impl AgentUsage {
     /// with no quota to show (nothing read yet, or withdrawn when the account was left). An account a provider's entry already shows is
     /// marked with that provider's id as `sameQuotaAs`.
     fn entry(&self, preset: &AgentPreset, ask: Ask, rows: &[Value]) -> Option<Value> {
-        let report = preset.usage.as_ref()?;
+        preset.usage.as_ref()?;
         let reports = self.quotas.reports(preset);
         let (start, epoch, read, failure) = {
             let mut known = self.known();
@@ -325,7 +325,7 @@ impl AgentUsage {
             return None;
         }
         let (read_at, windows) = read.map_or((None, Vec::new()), |(at, windows)| (Some(at), windows));
-        let shown_by = report.same_quota_as.as_deref().filter(|provider| {
+        let shown_by = preset.same_quota_as.as_deref().filter(|provider| {
             let theirs =
                 rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(provider)).and_then(|row| row.get("windows")).and_then(Value::as_array);
             theirs.is_some_and(|theirs| same_account(&windows, theirs))
@@ -614,7 +614,7 @@ mod tests {
         /// The core is told the agent's account may have changed.
         fn account_changed(&self, event: AccountEvent) {
             let told = self.cli.told.lock().unwrap().clone().expect("the core to ask to be told");
-            told("antigravity", event);
+            told("antigravity-cli", event);
         }
 
         /// Waits until `n` reads have been asked of the CLI.
@@ -644,7 +644,7 @@ mod tests {
     }
 
     fn agent_row(rows: &[Value]) -> Option<&Value> {
-        rows.iter().find(|row| row["id"] == "acp-antigravity")
+        rows.iter().find(|row| row["id"] == "acp-antigravity-cli")
     }
 
     /// Each reading of the agent's quota enters the quota history under the agent's provider, once per read.
@@ -656,7 +656,7 @@ mod tests {
         dashboard(&rig.usage, json!({})).await;
         let recorded: Vec<(String, String, String, i64, f64, Option<i64>)> =
             rig.history.0.lock().unwrap().iter().map(|s| (s.provider.clone(), s.account.clone(), s.label.clone(), s.ts, s.used_pct, s.reset_at)).collect();
-        let sample = |label: &str, used: f64, reset: i64| ("acp-antigravity".to_owned(), "default".to_owned(), label.to_owned(), 42, used, Some(reset));
+        let sample = |label: &str, used: f64, reset: i64| ("acp-antigravity-cli".to_owned(), "default".to_owned(), label.to_owned(), 42, used, Some(reset));
         assert_eq!(recorded, [sample("5H", 50.0, 1_893_474_000_000), sample("7D", 25.0, 1_894_060_800_000), sample("7D Claude/GPT", 0.0, 1_894_071_600_000)]);
     }
 
@@ -671,7 +671,7 @@ mod tests {
         let rows = rig.section.nth(1).await;
         assert_eq!(rows[0]["id"], "openai-oauth", "the providers' rows stay as they were");
         let row = agent_row(&rows).expect("the agent's entry").clone();
-        assert_eq!((&row["label"], &row["authenticated"], &row["updatedAt"]), (&json!("Antigravity ACP"), &json!(true), &json!(42)));
+        assert_eq!((&row["label"], &row["authenticated"], &row["updatedAt"]), (&json!("Antigravity CLI"), &json!(true), &json!(42)));
         let shown: Vec<(&str, f64, f64)> = row["windows"]
             .as_array()
             .expect("windows")

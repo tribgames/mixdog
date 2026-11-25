@@ -211,7 +211,7 @@ impl Agents {
             prior.cancel();
         }
         self.account_left(&preset.id, AccountEvent::Left);
-        let launch = Launch { program: self.program(preset), args: login.args.clone(), env: preset.env.clone(), env_remove: login.env_remove.clone(), cwd };
+        let launch = Launch { program: self.program(preset).path, args: login.args.clone(), env: preset.env.clone(), env_remove: login.env_remove.clone(), cwd };
         let (handle, events) =
             spawn_piped(&self.parts.processes, launch).await.map_err(|fault| format!("{}'s sign-in did not start: {fault}", preset.label))?;
         let (state, cursor) = watch::channel(LoginState::Starting);

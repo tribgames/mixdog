@@ -165,7 +165,7 @@ pub fn kept_result(handed: &Handed) -> Value {
 /// session's background task `task`, as it goes on with a command its `shell` tool moved to the background.
 pub fn kept(tool: &str, task: &str) -> String {
     format!(
-        "background task\ntask_id: {task}\ntool: {tool}\nstatus: running\nThis call has not ended within the time your CLI waits for a Mixdog \
+        "background task\ntask_id: {task}\ntool: {tool}\nstatus: running\nThis call has not ended within the time the agent waits for a Mixdog \
 call: Mixdog goes on with it and keeps its result, which is delivered to you automatically when it ends. Do not make the call again. To \
 read the result sooner, use the Mixdog tool `task` with action `wait` and task_id `{task}`, only if no other work remains."
     )

@@ -78,15 +78,15 @@ pub fn listed(models: &Models, tiers: &[String]) -> Vec<Listed> {
     grouped(models, tiers).into_iter().map(without_lone_tier).collect()
 }
 
-/// The listed models a session is offered: all but the agent's own orchestration entries.
+/// The listed models a session is offered: those of the preset's scope, but for the agent's own orchestration entries.
 pub fn offered(models: &Models, quirks: &Quirks) -> Vec<Listed> {
     let mut rows = listed(models, &quirks.effort_tiers);
-    rows.retain(|row| !is_orchestration(&row.id, quirks));
+    rows.retain(|row| is_offered(&row.id, quirks));
     rows
 }
 
-fn is_orchestration(id: &str, quirks: &Quirks) -> bool {
-    quirks.own_orchestration.iter().any(|prefix| id.starts_with(prefix.as_str()))
+fn is_offered(id: &str, quirks: &Quirks) -> bool {
+    quirks.model_scope.admits(id) && !quirks.own_orchestration.iter().any(|prefix| id.starts_with(prefix.as_str()))
 }
 
 /// The offered model a route's `model` names: the listed id, or the agent's own id of one of its tiers (as a route
@@ -94,7 +94,7 @@ fn is_orchestration(id: &str, quirks: &Quirks) -> bool {
 pub fn find(models: &Models, quirks: &Quirks, model: &str) -> Option<Listed> {
     grouped(models, &quirks.effort_tiers)
         .into_iter()
-        .find(|row| !is_orchestration(&row.id, quirks) && (row.id == model || row.efforts.iter().any(|(_, id)| id == model)))
+        .find(|row| is_offered(&row.id, quirks) && (row.id == model || row.efforts.iter().any(|(_, id)| id == model)))
         .map(without_lone_tier)
 }
 
@@ -123,6 +123,10 @@ mod tests {
 
     fn tiers() -> Vec<String> {
         ["low", "medium", "high", "xhigh"].map(str::to_owned).to_vec()
+    }
+
+    fn quirks(id: &str) -> Quirks {
+        crate::preset::builtin().into_iter().find(|preset| preset.id == id).expect("the preset").quirks
     }
 
     /// What `agy` 1.5.15 lists, in its order (a part of it).
@@ -167,14 +171,20 @@ mod tests {
         );
     }
 
-    /// The agent's planner-and-executor entries are not offered; a route already saved on one still runs as named.
+    /// Each preset is offered the models of its own scope, and neither the agent's planner-and-executor entries; a route
+    /// already saved on one still runs as named.
     #[test]
-    fn the_agents_own_orchestration_entries_are_not_offered() {
-        let quirks = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset").quirks;
-        let ids: Vec<String> = offered(&agy(), &quirks).into_iter().map(|row| row.id).collect();
-        assert_eq!(ids, ["gemini-4-neon", "claude-opus-5-5", "gpt-oss-120b"]);
-        assert_eq!(find(&agy(), &quirks, "gemini-pro-orchestrator"), None);
-        assert_eq!(agent_model(&agy(), &quirks.effort_tiers, "gemini-pro-orchestrator-neon", None), "gemini-pro-orchestrator-neon");
+    fn each_preset_is_offered_its_own_models_and_not_the_agents_orchestration_entries() {
+        let (official, cli) = (quirks("antigravity"), quirks("antigravity-cli"));
+        let ids = |quirks: &Quirks| offered(&agy(), quirks).into_iter().map(|row| row.id).collect::<Vec<_>>();
+        assert_eq!(ids(&official), ["gemini-4-neon"]);
+        assert_eq!(ids(&cli), ["claude-opus-5-5", "gpt-oss-120b"]);
+        assert_eq!(find(&agy(), &official, "gemini-pro-orchestrator"), None);
+        // A route names a model of the other preset: neither finds the other's.
+        assert_eq!(find(&agy(), &official, "claude-opus-5-5-high"), None);
+        assert_eq!(find(&agy(), &cli, "gemini-4-neon"), None);
+        assert_eq!(find(&agy(), &cli, "claude-opus-5-5-high").map(|row| row.id), Some("claude-opus-5-5".to_owned()));
+        assert_eq!(agent_model(&agy(), &official.effort_tiers, "gemini-pro-orchestrator-neon", None), "gemini-pro-orchestrator-neon");
     }
 
     #[test]
@@ -240,24 +250,26 @@ mod tests {
         // The tiered list decides, and the model is set with `session/set_model`.
         assert_eq!(models.config_option, None);
         assert_eq!(models.current.as_deref(), Some("gemini-4-neon-high"));
-        let quirks = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset").quirks;
-        let rows = offered(&models, &quirks);
-        let read: Vec<(&str, Vec<&str>)> = rows.iter().map(|row| (row.id.as_str(), row.efforts.iter().map(|(tier, _)| tier.as_str()).collect())).collect();
+        fn read(rows: &[Listed]) -> Vec<(&str, Vec<&str>)> {
+            rows.iter().map(|row| (row.id.as_str(), row.efforts.iter().map(|(tier, _)| tier.as_str()).collect())).collect()
+        }
+        let (official, cli) = (offered(&models, &quirks("antigravity")), offered(&models, &quirks("antigravity-cli")));
         assert_eq!(
-            read,
+            read(&official),
             [
                 ("gemini-4-neon", vec!["low", "medium", "high", "xhigh"]),
                 ("gemini-4-hydrogen", vec!["low", "medium", "high", "xhigh"]),
                 ("gemini-4-carbon", vec!["low", "medium", "high"]),
                 ("gemini-4-argon", vec!["low", "medium", "high"]),
                 ("gemini-3.8-flash", vec!["low", "medium", "high"]),
-                ("claude-opus-5-5", vec!["low", "medium", "high"]),
-                ("claude-sonnet-5-5", vec!["low", "medium", "high"]),
-                ("gpt-oss-120b", vec![]),
             ]
         );
-        assert_eq!(rows[0].default_effort.as_deref(), Some("high"));
-        assert_eq!(rows[7].name, "GPT-OSS 120B");
+        assert_eq!(
+            read(&cli),
+            [("claude-opus-5-5", vec!["low", "medium", "high"]), ("claude-sonnet-5-5", vec!["low", "medium", "high"]), ("gpt-oss-120b", vec![])]
+        );
+        assert_eq!(official[0].default_effort.as_deref(), Some("high"));
+        assert_eq!(cli[2].name, "GPT-OSS 120B");
     }
 
     #[test]
@@ -289,8 +301,7 @@ mod tests {
     #[test]
     fn a_saved_tiered_id_of_a_lone_tier_model_finds_its_row() {
         let models = Models::of(&agy_answer());
-        let quirks = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset").quirks;
-        assert_eq!(find(&models, &quirks, "gpt-oss-120b-medium").map(|row| row.id), Some("gpt-oss-120b".to_owned()));
-        assert_eq!(find(&models, &quirks, "gemini-4-neon-xhigh").map(|row| row.id), Some("gemini-4-neon".to_owned()));
+        assert_eq!(find(&models, &quirks("antigravity-cli"), "gpt-oss-120b-medium").map(|row| row.id), Some("gpt-oss-120b".to_owned()));
+        assert_eq!(find(&models, &quirks("antigravity"), "gemini-4-neon-xhigh").map(|row| row.id), Some("gemini-4-neon".to_owned()));
     }
 }
