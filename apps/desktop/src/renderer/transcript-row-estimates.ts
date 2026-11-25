@@ -57,7 +57,7 @@ export function transcriptRowShape(row: TranscriptRowModel): string {
       const text = textOf(row.item);
       const lines = Math.min(8, text.split('\n').length);
       // A steer line (waiting, sending or read) adds one fixed-height line.
-      const steerLine = row.item?.steer || row.item?.steered === true ? 1 : 0;
+      const steerLine = row.item?.steer || row.item?.steered === true || row.item?.fromQueue === true ? 1 : 0;
       return `user:${lengthBucket(text)}:${lines}:${row.attachedUser ? 1 : 0}:${steerLine}`;
     }
     case 'AssistantPart': {

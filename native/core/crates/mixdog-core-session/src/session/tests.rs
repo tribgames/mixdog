@@ -5689,6 +5689,173 @@ async fn a_rewind_rebases_what_each_positioned_subscription_holds() {
     assert!(transcript(&to_b).iter().all(|frame| frame["params"].get("change").is_none()), "{to_b:?}");
 }
 
+/// The turn "first" runs until it is cancelled; every other turn completes.
+fn first_runs_until_cancelled(rig: &Rig) {
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            if run.port.input_durable().await.is_err() {
+                return RunOutcome::Interrupted;
+            }
+            if matches!(&run.input.prompt, mixdog_protocol::PromptContent::Text(text) if text == "first") {
+                run.cancel.cancelled().await;
+                return RunOutcome::Interrupted;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+}
+
+/// The frames a positioned subscription was sent while the queued message "next" took over a turn: it was queued, then left
+/// the queue with its row, and no `thread/frame` between held it in neither the queue nor the rows.
+fn assert_next_left_the_queue_with_its_row(frames: &[Value]) {
+    let is_next = |item: &Value| item["type"] == "userMessage" && item["displayText"] == "next";
+    let holds_next = |frame: &Value| match frame["method"].as_str() {
+        Some("item/completed") => is_next(&frame["params"]["item"]),
+        Some("thread/transcript/changed") => frame["params"]["change"]["unit"]["items"].as_array().is_some_and(|items| items.iter().any(is_next)),
+        _ => false,
+    };
+    let (mut queued, mut was_queued, mut row) = (false, false, false);
+    for frame in frames {
+        match frame["method"].as_str() {
+            Some("thread/queue/changed") => {
+                queued = frame["params"]["queued"].as_array().is_some_and(|rows| rows.iter().any(|queued| queued["text"] == "next"));
+                was_queued |= queued;
+            }
+            Some("thread/frame") => assert!(!was_queued || queued || row, "a publication held the message in neither place: {frames:?}"),
+            _ => row |= holds_next(frame),
+        }
+    }
+    assert!(was_queued && !queued && row, "{frames:?}");
+}
+
+/// The last `thread/queue/changed` of `frames` still lists the message "next".
+fn assert_next_still_queued(frames: &[Value]) {
+    let last_queue = frames.iter().rev().find(|frame| frame["method"] == "thread/queue/changed").expect("the queue is told");
+    assert!(last_queue["params"]["queued"].as_array().is_some_and(|rows| rows.iter().any(|queued| queued["text"] == "next")), "{frames:?}");
+}
+
+/// A queued message that takes over the running turn (`turn/takeover`, the composer's send-now) while a read holds the
+/// line: the frame that takes it off the queue waits for the line, so the unit of its row follows that frame before any
+/// other and no publication a positioned subscription is sent holds the message in neither the queue nor the rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_taking_over_the_turn_leaves_the_queue_with_its_row_while_a_read_holds_the_line() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = super::testing::CallCounted::paging(real_store(data.path()).await);
+    let rig = Rig::new();
+    first_runs_until_cancelled(&rig);
+    let directory = positioned_directory(&rig, store.clone());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "zero", "op-0").await;
+    stored_rows(&handle, 0).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, _snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let version_b = snapshot_b["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let (_, released) = window_set(&handle, &b, "b", version_b, "release", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+    let version_b = released["params"]["windowVersion"].as_u64().expect("a window version");
+
+    turn(&handle, "first", "op-1").await;
+    let running = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    let queued = turn(&handle, "next", "op-2").await;
+    // The message's start waits at a held lane while the turn it takes over ends.
+    let io = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    let params = json!({ "threadId": id, "opId": "op-3", "turnId": running, "queuedId": queued["queuedId"] });
+    let Reply::Value(receipt) = handle.request(request("turn/takeover", params, "op-3")).await.expect("the takeover") else {
+        panic!("a takeover answers its receipt");
+    };
+    assert_eq!(receipt["kind"], "accepted", "{receipt}");
+    let ended = |frames: &[String]| lane_frames(frames).iter().any(|frame| frame["method"] == "turn/completed");
+    let mut to_a = lane_frames(&a.drain_text_until(ended).await);
+
+    // B's demand is read in the line, held at its read, when the start lands: the message stays queued until the read is done.
+    let mut read = store.hold("unit_page");
+    let asked = window_set(&handle, &b, "b", version_b, "tail", json!({ "ranges": [], "followTail": true, "pinned": [] }));
+    tokio::pin!(asked);
+    tokio::select! {
+        biased;
+        _ = &mut asked => panic!("the demand was answered while its read was held"),
+        () = async {
+            caught_up(&handle).await;
+            drop(io);
+            read.entered("unit_page").await;
+            let landed = || handle.cell.run.load_full().is_some_and(|run| run.turn != running) && handle.cell.unacked.load(std::sync::atomic::Ordering::SeqCst) == 0;
+            eventually_on!(&[&handle.cell.stepped], || landed().then_some(())).await;
+            caught_up(&handle).await;
+        } => {}
+    }
+    to_a.extend(lane_frames(&a.drain_text()));
+    assert_next_still_queued(&to_a);
+    read.release();
+    asked.await;
+    let shown =
+        |frames: &[String]| lane_frames(frames).iter().skip_while(|frame| frame["method"] != "turn/started").any(|frame| frame["method"] == "thread/frame");
+    to_a.extend(lane_frames(&a.drain_text_until(shown).await));
+    assert_next_left_the_queue_with_its_row(&to_a);
+}
+
+/// A queued message drained as the turn before it ends while a read holds the line: the end, the dequeue and the message's
+/// start are released together once the line is free. The frame the end publishes at once goes out right behind the end, not
+/// behind the start, whose row reaches a positioned subscription as its unit after the release.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_drained_as_its_turn_ends_behind_a_read_leaves_the_queue_with_its_row() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = super::testing::CallCounted::paging(real_store(data.path()).await);
+    let rig = Rig::new();
+    let ends = Arc::new(tokio::sync::Notify::new());
+    let script_ends = ends.clone();
+    rig.set_script(Arc::new(move |run| {
+        let ends = script_ends.clone();
+        Box::pin(async move {
+            if run.port.input_durable().await.is_err() {
+                return RunOutcome::Interrupted;
+            }
+            if matches!(&run.input.prompt, mixdog_protocol::PromptContent::Text(text) if text == "first") {
+                ends.notified().await;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = positioned_directory(&rig, store.clone());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "zero", "op-0").await;
+    stored_rows(&handle, 0).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, _snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let version_b = snapshot_b["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let (_, released) = window_set(&handle, &b, "b", version_b, "release", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+    let version_b = released["params"]["windowVersion"].as_u64().expect("a window version");
+
+    turn(&handle, "first", "op-1").await;
+    let first = eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load_full()).await.turn.clone();
+    turn(&handle, "next", "op-2").await;
+    // B's demand is read in the line, held at its read, when the turn ends: the end, and the start stored after it, wait for it.
+    let mut read = store.hold("unit_page");
+    let asked = window_set(&handle, &b, "b", version_b, "tail", json!({ "ranges": [], "followTail": true, "pinned": [] }));
+    tokio::pin!(asked);
+    tokio::select! {
+        biased;
+        _ = &mut asked => panic!("the demand was answered while its read was held"),
+        () = async {
+            read.entered("unit_page").await;
+            ends.notify_one();
+            let started = || {
+                handle.cell.run.load_full().is_some_and(|run| run.turn != first) && handle.cell.unacked.load(std::sync::atomic::Ordering::SeqCst) == 0
+            };
+            eventually_on!(&[&handle.cell.stepped], || started().then_some(())).await;
+            caught_up(&handle).await;
+        } => {}
+    }
+    let mut to_a = lane_frames(&a.drain_text());
+    assert_next_still_queued(&to_a);
+    read.release();
+    asked.await;
+    let shown =
+        |frames: &[String]| lane_frames(frames).iter().skip_while(|frame| frame["method"] != "turn/started").any(|frame| frame["method"] == "thread/frame");
+    to_a.extend(lane_frames(&a.drain_text_until(shown).await));
+    assert_next_left_the_queue_with_its_row(&to_a);
+}
+
 /// A frame queued in a lane before the fence is the old ranges': it keeps its row and is written before the window
 /// change. A subscription detached before its change is installed is refused and changes nothing for the other.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

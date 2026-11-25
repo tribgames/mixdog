@@ -278,6 +278,12 @@ impl Outbox {
         }
     }
 
+    /// The waiting dequeue is the next entry to show: its start no longer holds it, and nothing before it is left to show.
+    pub fn paired_next(&self) -> bool {
+        let Some((id, Some(_))) = self.paired else { return false };
+        !self.paired_waits(id) && self.entries.iter().take_while(|entry| entry.id != id).all(|entry| entry.held)
+    }
+
     /// Entry `id` went out: a pairing of it is over.
     fn unpaired(&mut self, id: u64) {
         if self.paired.is_some_and(|(paired, _)| paired == id) {

@@ -21,6 +21,8 @@ export type TranscriptItem = RecordValue & {
   fromAgent?: string;
   /** A message the model read inside its running turn (user rows only). */
   steered?: boolean;
+  /** A prompt that waited in the queue and started its turn: read like a steered one (user rows only). */
+  fromQueue?: boolean;
   /** A message sent while a turn runs that the model has not read yet: it
    *  waits for the next step boundary (`pending`), runs after the turn (a
    *  slash command, `held`), is being sent now (`sending`), or could not be

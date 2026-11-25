@@ -241,6 +241,11 @@ impl SessionActor {
         self.next_unit_job();
     }
 
+    /// A job of the line is reading or waits to run.
+    pub(super) fn line_busy(&self) -> bool {
+        self.unit_reading || !self.unit_jobs.is_empty()
+    }
+
     pub(super) fn next_unit_job(&mut self) {
         // A unit goes out behind the frames of the release that stored its record, which are published once that
         // release is whole: a snapshot taken with it then states the feed position it stands at.

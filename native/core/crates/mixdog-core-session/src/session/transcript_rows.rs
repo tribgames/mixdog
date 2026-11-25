@@ -290,6 +290,10 @@ pub fn metadata(message: &Value) -> Metadata {
     if let Some(lost) = value.get("originalImagesMissing").and_then(Value::as_u64).filter(|lost| *lost > 0) {
         fields.insert("originalImagesMissing".into(), json!(lost));
     }
+    // A prompt that waited in the queue and started its turn: its read mark.
+    if value.get("fromQueue") == Some(&Value::Bool(true)) {
+        fields.insert("fromQueue".into(), json!(true));
+    }
     let reactions = normalize_reactions(value.get("reactions"));
     if !reactions.is_empty() {
         fields.insert("reactions".into(), Value::Array(reactions));

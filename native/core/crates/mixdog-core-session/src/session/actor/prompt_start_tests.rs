@@ -225,6 +225,27 @@ async fn a_drained_prompts_row_comes_with_its_running_turn() {
     assert_eq!(in_neither(&rig, &handle, "second"), Vec::<String>::new(), "no publication held the prompt in neither place");
 }
 
+/// A prompt that waited in the queue is stored with its read mark (`fromQueue`), as the turn it starts reads it; a prompt that
+/// started its turn at once is stored with none.
+#[tokio::test(start_paused = true)]
+async fn a_drained_prompt_is_stored_with_its_read_mark() {
+    let rig = Rig::new();
+    let (_directory, handle, hold) = drain_ready(&rig).await;
+    hold.send_replace(StartHold::Open);
+    eventually_on!(&[&handle.cell.stepped], || (settled(&handle) && completed(&rig, &handle).len() == 2).then_some(())).await;
+    let mark = |prompt: &str| {
+        rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+            mixdog_store::schema::record::Record::Item(item) => match &item.body {
+                mixdog_store::schema::blob::Slot::Inline(body) if body["content"] == prompt => Some(body["meta"]["transcript"]["fromQueue"].clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+    assert_eq!(mark("second"), Some(json!(true)));
+    assert_eq!(mark("first"), Some(Value::Null));
+}
+
 /// A start whose save fails is refused: its caller hears the failure, and no client was told its row or a busy session (the
 /// unit is withdrawn whole); the snapshot holds neither.
 #[tokio::test(start_paused = true)]
