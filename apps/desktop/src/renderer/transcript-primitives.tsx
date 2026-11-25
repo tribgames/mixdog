@@ -150,7 +150,6 @@ export function CopyControl({
       data-copied={copied || undefined}
       data-tooltip={feedback || t(label, labelOptions)}
       data-tooltip-side={tooltipSide}
-      data-transcript-keeps-follow=""
     >
       {copied ? <MxIcon name="check" size={14} /> : <MxIcon name="copy" size={14} />}
       <span className="sr-only" role="status" aria-live="polite">

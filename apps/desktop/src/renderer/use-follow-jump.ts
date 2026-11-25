@@ -92,7 +92,7 @@ export function useJumpButtonState({
   const scrollStateTarget = useRef<HTMLDivElement | null>(null);
   // Where the reader's own move last brought a view with follow off to the end, while nothing has moved it up since: a
   // turn streaming on below it takes the end away again before the reader's input ends, and the view is still the
-  // reader's arrival there. A view let go of where it stood (a control pressed at the end) arrived nowhere. An arrival is
+  // reader's arrival there. A view let go of where it stood arrived nowhere. An arrival is
   // the session's it was made in: the view entering another session arrived nowhere in it.
   const reachedEnd = useRef<{ session: string; top: number } | null>(null);
 

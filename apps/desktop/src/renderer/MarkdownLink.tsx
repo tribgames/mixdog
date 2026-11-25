@@ -600,7 +600,6 @@ export function LocalPathMention({ path, line, children }: { path: string; line?
       type="button"
       className="tool-path-link"
       title={link.title}
-      data-transcript-keeps-follow=""
       onMouseEnter={link.revealTitle}
       onPointerDown={(event) => {
         event.stopPropagation();

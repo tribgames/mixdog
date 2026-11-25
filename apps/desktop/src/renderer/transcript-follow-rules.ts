@@ -237,25 +237,6 @@ export function liftLeftAboveEnd({
   return top < startTop && distance > END_TOLERANCE_PX;
 }
 
-// A link opens elsewhere and changes nothing under the reader, so it is not here.
-const PRESS_INTERACTIVE =
-  'button,summary,label,input,select,textarea,iframe,video,audio,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="switch"],[role="radio"]';
-const KEEPS_FOLLOW = '[data-transcript-keeps-follow]';
-
-/** Is this target an interactive control that changes the content (an expander, a button)? Activating one is about to
- *  change the content under the reader, so a press or an Enter/Space on it lets go of follow. Chrome, links and the
- *  controls that keep follow (a copy button: data-transcript-keeps-follow) do not. */
-export function activationReleasesFollow(root: Element, target: EventTarget | null): boolean {
-  if (!(target instanceof Element) || target === root || target.closest(KEEPS_FOLLOW)) return false;
-  const control = target.closest(PRESS_INTERACTIVE);
-  return control !== null && control !== root && root.contains(control);
-}
-
-/** Is this target an editable field? Enter and Space there are typing. */
-export function editableTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(EDITABLE_TARGET) !== null;
-}
-
 /** Does the view stand at the end? */
 export function standsAtEnd(metrics: ScrollMetrics): boolean {
   return distanceFromBottom(metrics) <= END_TOLERANCE_PX;

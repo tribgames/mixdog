@@ -3,10 +3,8 @@ import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './trans
 import {
   GESTURE_WINDOW_MS,
   READER_SCROLL_IDLE_MS,
-  activationReleasesFollow,
   chromePressHeld,
   classifyScrollKey,
-  editableTarget,
   type GestureScroller,
   gestureScroller,
   keyUpRecent,
@@ -40,7 +38,6 @@ export {
 } from './transcript-follow-rules';
 export {
   TRANSCRIPT_OVERFLOW_ANCHOR,
-  activationReleasesFollow,
   atWrittenOffset,
   chromePressHeld,
   classifyScrollKey,
@@ -89,15 +86,15 @@ interface TranscriptFollow {
   markProgrammaticScroll(top: number, intended?: number): void;
 }
 
-/** Calls `onRelease` once: at the first window event of `types` that `matches`, wherever it lands, or when the window
- *  loses focus. Returns what stops listening unheard. */
-function awaitRelease(types: readonly string[], matches: (event: Event) => boolean, onRelease: () => void): () => void {
+/** Calls `onRelease` once: at the first pointerup or pointercancel, wherever it lands, or when the window loses focus.
+ *  Returns what stops listening unheard. */
+function awaitPointerRelease(onRelease: () => void): () => void {
+  const types = ['pointerup', 'pointercancel'];
   const unlisten = (): void => {
     for (const type of types) window.removeEventListener(type, heard, true);
     window.removeEventListener('blur', heard);
   };
-  const heard = (event: Event): void => {
-    if (event.type !== 'blur' && !matches(event)) return;
+  const heard = (): void => {
     unlisten();
     onRelease();
   };
@@ -197,66 +194,48 @@ export function useTranscriptFollow({
   const nativeMotionAt = useRef(0);
   // The scroll judge, built further down (it needs the touch hook); a press's release reaches it through this.
   const judgeRef = useRef<() => void>(() => {});
-  // A press on the scroller (its scrollbar, its padding) or on a control in it, from its pointerdown; 0 with none.
-  const press = useRef({ at: 0, bar: false });
-  /** Is a press held, on the scroller only with `bar`? A lost release ends it as `chromePressHeld` does. */
-  const pressHeld = useCallback(
-    (bar: boolean) => (!bar || press.current.bar) && chromePressHeld({ pressedAt: press.current.at, now: Date.now() }),
-    []
-  );
+  // A press on the scrollbar, from its pointerdown; 0 with none.
+  const pressedAt = useRef(0);
+  /** Is a press on the scrollbar held? A lost release ends it as `chromePressHeld` does. */
+  const pressHeld = useCallback(() => chromePressHeld({ pressedAt: pressedAt.current, now: Date.now() }), []);
   const nativeScrolling = useCallback(() => {
-    if (pressHeld(true)) return true;
+    if (pressHeld()) return true;
     const started = nativeAt.current;
     if (!started) return false;
     if (Date.now() - Math.max(started, nativeMotionAt.current) < GESTURE_WINDOW_MS) return true;
     nativeAt.current = 0;
     return false;
   }, [pressHeld]);
-  // A press is held until its pointer is released, wherever that is: a drag that began on the scrollbar or in the
-  // padding ends over the composer or outside the window, where the viewport hears no pointerup. A `key` that
-  // activates a control is pressed the same way, until that key is released.
+  // A press is held until its pointer is released, wherever that is: a drag that began on the scrollbar ends over the
+  // composer or outside the window, where the viewport hears no pointerup.
   const releasePress = useRef<() => void>(() => undefined);
   const forgetPress = useRef<() => void>(() => undefined);
-  const holdPress = useCallback(
-    (bar: boolean, key?: string) => {
-      // A new press takes the place of one whose release never came.
-      forgetPress.current();
-      press.current = { at: Date.now(), bar };
-      if (bar) {
-        nativeAt.current = Date.now();
-        nativeMotionAt.current = 0;
-      }
-      const forget = (): void => {
-        unlisten();
-        releasePress.current = () => undefined;
-        forgetPress.current = () => undefined;
-      };
-      const release = (): void => {
-        forget();
-        const ended = press.current;
-        press.current = { at: 0, bar: false };
-        if (!ended.at) return;
-        if (ended.bar) {
-          nativeAt.current = Date.now();
-          nativeMotionAt.current = 0;
-          // A thumb let go near the end is the reader coming back: the scroll it made is judged without the press.
-          signals.current.barAt = 0;
-          judgeRef.current();
-        } else {
-          // The control acts on the click its release makes: that is still the reader's.
-          markGesture();
-        }
-      };
-      const unlisten = awaitRelease(
-        key === undefined ? ['pointerup', 'pointercancel'] : ['keyup'],
-        (event) => key === undefined || (event as KeyboardEvent).key === key,
-        release
-      );
-      releasePress.current = release;
-      forgetPress.current = forget;
-    },
-    [markGesture, signals]
-  );
+  const holdPress = useCallback(() => {
+    // A new press takes the place of one whose release never came.
+    forgetPress.current();
+    pressedAt.current = Date.now();
+    nativeAt.current = Date.now();
+    nativeMotionAt.current = 0;
+    const forget = (): void => {
+      unlisten();
+      releasePress.current = () => undefined;
+      forgetPress.current = () => undefined;
+    };
+    const release = (): void => {
+      forget();
+      const ended = pressedAt.current;
+      pressedAt.current = 0;
+      if (!ended) return;
+      nativeAt.current = Date.now();
+      nativeMotionAt.current = 0;
+      // A thumb let go near the end is the reader coming back: the scroll it made is judged without the press.
+      signals.current.barAt = 0;
+      judgeRef.current();
+    };
+    const unlisten = awaitPointerRelease(release);
+    releasePress.current = release;
+    forgetPress.current = forget;
+  }, [signals]);
   useEffect(() => () => releasePress.current(), []);
   const markReaderMotion = useCallback(() => {
     const now = Date.now();
@@ -438,21 +417,17 @@ export function useTranscriptFollow({
       if (!Number.isFinite(delta) || delta === 0) return;
       markGesture();
       signals.current.selectUpAt = delta < 0 ? Date.now() : 0;
-      selectionPress.current ??= awaitRelease(
-        ['pointerup', 'pointercancel'],
-        () => true,
-        () => {
-          selectionPress.current = null;
-          signals.current.selectUpAt = 0;
-        }
-      );
+      selectionPress.current ??= awaitPointerRelease(() => {
+        selectionPress.current = null;
+        signals.current.selectUpAt = 0;
+      });
     },
     [markGesture, signals]
   );
   useEffect(() => () => selectionPress.current?.(), []);
 
   const handleInteraction = useCallback(() => {
-    // A click is judged on its pointerdown (handlePointerDown).
+    // A click, wherever it lands, leaves follow as it is.
   }, []);
 
   const handlePointerDown = useCallback(
@@ -464,15 +439,10 @@ export function useTranscriptFollow({
         signals.current.barAt = Date.now();
         // The press's moves are judged against the extent it began over, whatever the content did before it.
         lastExtent.current = root.clientHeight > 0 ? root.scrollHeight - root.clientHeight : 0;
-        holdPress(true);
-      }
-      // Pressing a control is about to change the content under the reader.
-      if (activationReleasesFollow(root, event.target)) {
-        stop('press', lastTop.current);
-        holdPress(false);
+        holdPress();
       }
     },
-    [holdPress, lastExtent, lastTop, markGesture, signals, stop]
+    [holdPress, lastExtent, markGesture, signals]
   );
 
   const handlePointerUp = useCallback(() => {
@@ -488,31 +458,19 @@ export function useTranscriptFollow({
       altKey?: boolean;
       metaKey?: boolean;
       target?: EventTarget | null;
-      currentTarget?: HTMLDivElement;
     }) => {
-      const root = event.currentTarget ?? viewport.current;
-      if (!root) return;
-      const target = event.target ?? null;
-      if (
-        (event.key === 'Enter' || event.key === ' ') &&
-        !editableTarget(target) &&
-        activationReleasesFollow(root, target)
-      ) {
-        stop('activate', lastTop.current);
-        // Its click lands on the keydown (Enter) or the keyup (Space): the key is in flight until it is released.
-        holdPress(false, event.key);
-      }
       const direction = classifyScrollKey(event);
+      if (direction === 'none') return;
+      // An up key does not release by itself: the scroll it causes does, within the window, and the window keeps the
+      // end pin off meanwhile. A down key closes it: the scroll it causes is the reader coming back.
+      signals.current.keyUpAt = direction === 'up' ? Date.now() : 0;
       // A key down at the kept end moves nothing: the end goes on being kept.
-      if (direction === 'none' || (direction === 'down' && followingRef.current)) return;
+      if (direction === 'down' && followingRef.current) return;
       markGesture();
       nativeAt.current = Date.now();
       nativeMotionAt.current = 0;
-      // An up key does not release by itself: the scroll it causes does, within
-      // the window, and the window keeps the end pin off meanwhile.
-      if (direction === 'up') signals.current.keyUpAt = Date.now();
     },
-    [holdPress, lastTop, markGesture, signals, stop, viewport]
+    [markGesture, signals]
   );
 
   const rearm = useCallback(
@@ -552,7 +510,7 @@ export function useTranscriptFollow({
   activeRef.current = active;
   settleAtEnd.current = () => {
     if (!activeRef.current) return false;
-    if (hasReaderScroll() || pressHeld(false) || pendingReaderPlace(pane, sessionKeyRef.current)) return true;
+    if (hasReaderScroll() || pressHeld() || pendingReaderPlace(pane, sessionKeyRef.current)) return true;
     rearm('end');
     // What streamed in while the reader's input ended is the end's now.
     scrollToBottom(false);
