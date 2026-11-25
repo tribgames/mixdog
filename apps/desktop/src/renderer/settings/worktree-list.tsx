@@ -1,6 +1,7 @@
 // Settings → Worktrees: every managed worktree with its branch, owner
 // session, state and size; "Open new session here", "Delete" and the manual
 // "Clean up now" (pruneWorktrees).
+import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { DesktopManagedWorktreeRow, DesktopWorktreeSettings } from '../../shared/contract';
@@ -18,6 +19,7 @@ import {
 } from '../worktree-branch-model';
 import { requestNewTaskInWorktree, requestOpenSession } from '../worktree-session-events';
 import { ActionButton, ListEmpty } from './capability-controls';
+import { ExtensionAction } from './extension-detail';
 import { peekConfirmedWorktreeSettings, subscribeConfirmedWorktreeSettings } from './worktree-settings-store';
 
 type RowState = { kind: 'dirty' | 'busy' | 'unmerged' | 'ok' | 'unknown'; text: string };
@@ -246,12 +248,19 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
       <header>
         <div className="settings-group-head">
           <h3>{title}</h3>
-          <ActionButton disabled={busy || reading} onClick={refresh}>
-            {t('Refresh')}
-          </ActionButton>
-          <ActionButton disabled={destructiveDisabled} onClick={() => void prune()}>
-            {t('Clean up now')}
-          </ActionButton>
+          <div className="worktree-list-actions">
+            <ExtensionAction
+              ariaLabel={t('Refresh')}
+              tooltip={t('Refresh')}
+              disabled={busy || reading}
+              onClick={refresh}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+            </ExtensionAction>
+            <ActionButton disabled={destructiveDisabled} onClick={() => void prune()}>
+              {t('Clean up now')}
+            </ActionButton>
+          </div>
         </div>
       </header>
       <div className="settings-group-body">

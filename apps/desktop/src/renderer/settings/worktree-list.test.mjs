@@ -171,3 +171,20 @@ test('a state change withdraws either delete confirmation before a stale approva
     }
   }
 });
+
+test('the refresh icon button in the list header reads the list again', async () => {
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => root.render(React.createElement(WorktreeList, { active: true })));
+    await settle();
+    const before = lists();
+    const refresh = document.querySelector('.worktree-list .settings-group-head button[aria-label="Refresh"]');
+    assert.ok(refresh, 'the header has a labelled refresh button');
+    assert.equal(refresh.textContent, '', 'the refresh button shows an icon, not text');
+    await act(async () => refresh.click());
+    await settle();
+    assert.equal(lists(), before + 1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

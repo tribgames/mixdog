@@ -1,6 +1,6 @@
-// Settings → Worktrees (design/mockups/retention-settings frame A): creation,
-// cleanup with its never-removed note, the worktree list, then the collapsed
-// advanced group.
+// Settings → Worktrees: creation, cleanup with its never-removed note, the
+// worktree list, then the collapsed advanced group. The groups sit directly in
+// the settings content so they take its shared spacing.
 import { useSyncExternalStore } from 'react';
 import { t } from '../i18n';
 import { ActionButton } from './capability-controls';
@@ -21,7 +21,7 @@ export function WorktreesPanel({ active = true }: Pick<PanelContext, 'active'>) 
     peekWorktreeSettingsProblems
   );
   return (
-    <div className="worktrees-page">
+    <>
       {problems.save !== null && (
         <p className="settings-error" role="alert">
           {t('Could not save worktree settings.')} {problems.save}
@@ -36,6 +36,6 @@ export function WorktreesPanel({ active = true }: Pick<PanelContext, 'active'>) 
       <WorktreeSettings active={active} />
       <WorktreeList active={active} />
       <WorktreeAdvancedSettings active={active} />
-    </div>
+    </>
   );
 }

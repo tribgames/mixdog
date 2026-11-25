@@ -97,7 +97,11 @@ test('a typed branch prefix is a git ref path; the trailing "/" is optional', as
 
 test('the branch example follows a custom prefix while it is typed, before it is saved', async () => {
   const root = createRoot(document.getElementById('root'));
-  const example = () => document.querySelector('.worktree-prefix-example')?.textContent ?? '';
+  const example = () =>
+    document
+      .querySelector('[role="combobox"][aria-label="Branch prefix"]')
+      ?.closest('.mixdog-settings__row')
+      ?.querySelector('.mixdog-settings__row-desc')?.textContent ?? '';
   try {
     await act(async () => root.render(React.createElement(WorktreeSettings, { active: false })));
     await settle();
@@ -137,12 +141,12 @@ test('cleanup thresholds outside the offered choices show their saved value', as
     await act(async () => root.render(React.createElement(Cleanup, { active: true })));
     await settle();
     assert.equal(shown('Keep at most'), '45 worktrees');
-    assert.equal(shown('Clean up worktrees unused for'), '45 days');
+    assert.equal(shown('Clean up if unused for'), '45 days');
     host = { ...host, maxWorktrees: 0, unusedDays: 30 };
     announce();
     await settle();
     assert.equal(shown('Keep at most'), 'No limit');
-    assert.equal(shown('Clean up worktrees unused for'), '30 days');
+    assert.equal(shown('Clean up if unused for'), '30 days');
   } finally {
     await act(async () => root.unmount());
   }
