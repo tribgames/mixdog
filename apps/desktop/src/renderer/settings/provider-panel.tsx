@@ -480,7 +480,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const rowMeta = (provider: RecordValue) => {
     if (vertexAdcFor(provider)) return vertexAdcNote(provider);
     if (provider.id === 'vertex-ai' && !provider.authenticated && vertexModeFor(provider) === VERTEX_API_KEY) {
-      return t('Express mode API keys serve Gemini models on the global location only.');
+      return t('Express API keys support global Gemini models only.');
     }
     return credentialNote(provider);
   };

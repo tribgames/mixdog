@@ -11,13 +11,10 @@ export function ServerSettingsScope() {
   return (
     <p className="conn-field-msg server-settings-scope" role="note">
       {serverAccounts
-        ? t(
-            'Settings here apply to {{name}}. Updates and notifications follow this PC; model logins are the server’s own.',
-            {
-              name: server.name,
-            }
-          )
-        : t('Settings here apply to {{name}}. Updates, notifications and model sign-in follow this PC.', {
+        ? t('For {{name}}. Updates & notifications use this PC; server logins.', {
+            name: server.name,
+          })
+        : t('For {{name}}. Updates, notifications, and logins use this PC.', {
             name: server.name,
           })}
     </p>

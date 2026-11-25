@@ -198,15 +198,14 @@ test('every control writes its patch for the selected device', async (t) => {
   assert.equal(checkbox(document, 'When a reply finishes').checked, false, 'the re-read state shows the change');
 });
 
-test('approval items read as the app’s approval waits: 승인 요청이 왔을 때, and 승인 대기 marks', async (t) => {
+test('approval items read as the app’s approval waits: 승인 요청이 왔을 때, and quiet hours note stays concise', async (t) => {
   const { document } = await mountPanel(t, makeApi());
-  const quietNote =
-    'No notifications on this device in this window. Missed items stay as unread and “Approval needed” or “Answer needed” marks.';
+  const quietNote = 'Mutes notifications on this device; missed items stay unread.';
   assert.ok(checkbox(document, 'When an approval is requested'));
   assert.ok(document.body.textContent.includes(quietNote));
   const ko = JSON.parse(readFileSync(new URL('../locales/ko.json', import.meta.url), 'utf8'));
   assert.equal(ko['When an approval is requested'], '승인 요청이 왔을 때');
-  assert.match(ko[quietNote], /['“]승인 대기['”]/);
+  assert.equal(ko[quietNote], '이 시간엔 알림을 끄며, 놓친 항목은 읽지 않음으로 남습니다.');
   assert.doesNotMatch(ko[quietNote], /확인 필요/);
 });
 

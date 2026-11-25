@@ -282,7 +282,7 @@ function TestNotificationRow({ api, deviceId }: { api: NotificationsApi; deviceI
     <>
       <Row
         title={t('Send test notification')}
-        description={t('Sends one to this device now, using the current settings.')}
+        description={t('Send a test notification with current settings.')}
       >
         <ActionButton disabled={busy || !api.sendTestNotification} onClick={send}>
           {t('Send')}
@@ -334,9 +334,7 @@ function DeviceSettings({
     <>
       <Group
         title={t('Conversations to notify')}
-        description={t(
-          'Bot chats are 1:1 chats with a bot and rooms. Task sessions are coding sessions and tasks that bots created.'
-        )}
+        description={t('Bot chats: 1:1 and rooms. Task sessions: coding and bot tasks.')}
       >
         <SelectRow
           title={t('Notification scope')}
@@ -358,7 +356,7 @@ function DeviceSettings({
         ))}
         <ToggleRow
           title={t('Schedule and webhook results')}
-          description={t('Questions and approvals from these runs still notify.')}
+          description={t('Questions and approvals still notify.')}
           showDescription
           checked={prefs.automaticRuns}
           onChange={(automaticRuns) => save({ automaticRuns })}
@@ -366,9 +364,7 @@ function DeviceSettings({
       </Group>
       <Group
         title={t('Quiet hours')}
-        description={t(
-          'No notifications on this device in this window. Missed items stay as unread and “Approval needed” or “Answer needed” marks.'
-        )}
+        description={t('Mutes notifications on this device; missed items stay unread.')}
       >
         <ToggleRow
           title={t('Use quiet hours')}
@@ -423,9 +419,7 @@ function DeviceSettings({
         <Group title={t('On this device')}>
           <ToggleRow
             title={t('Skip if seen on this PC')}
-            description={t(
-              'When this PC was used in the last 3 minutes, waits a minute and sends only if it is still unread or unanswered.'
-            )}
+            description={t('Waits 1 min if this PC was active; skips if read.')}
             showDescription
             checked={prefs.holdWhileDesktopActive}
             onChange={(holdWhileDesktopActive) => save({ holdWhileDesktopActive })}

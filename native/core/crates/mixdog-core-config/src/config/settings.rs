@@ -569,7 +569,7 @@ const DEVELOPER_OPTIONS: [DeveloperOption; 5] = [
         "approvals",
         "allowAllActions",
         "Allow all actions",
-        "Skips the approval cards for every action except payments and permanent deletes.",
+        "Skips approvals except payments and permanent deletes.",
         Some("Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk."),
         None,
     ),
@@ -577,13 +577,13 @@ const DEVELOPER_OPTIONS: [DeveloperOption; 5] = [
         "providers",
         "antigravityOAuth",
         "Gemini (Antigravity)",
-        "Show Antigravity (Gemini) OAuth in Providers and the model picker.",
+        "Show Antigravity OAuth in Providers and model picker.",
         Some(OAUTH_RISK_WARNING),
         Some("antigravity-oauth"),
     ),
-    ("providers", "cursorOAuth", "Cursor", "Show Cursor OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("cursor-oauth")),
-    ("providers", "devinOAuth", "Devin", "Show Devin OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("devin-oauth")),
-    ("providers", "mimoOAuth", "MiMo", "Show Xiaomi MiMo OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("mimo-oauth")),
+    ("providers", "cursorOAuth", "Cursor", "Show Cursor OAuth in Providers and model picker.", Some(OAUTH_RISK_WARNING), Some("cursor-oauth")),
+    ("providers", "devinOAuth", "Devin", "Show Devin OAuth in Providers and model picker.", Some(OAUTH_RISK_WARNING), Some("devin-oauth")),
+    ("providers", "mimoOAuth", "MiMo", "Show Xiaomi MiMo OAuth in Providers and model picker.", Some(OAUTH_RISK_WARNING), Some("mimo-oauth")),
 ];
 
 /// `developerSettingsView(stored)`.

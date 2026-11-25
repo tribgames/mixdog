@@ -162,9 +162,7 @@ function LoginList({
         </p>
       ) : noLogins ? (
         <p className="settings-empty mx-empty-state" ref={emptyStateHost}>
-          {t(
-            'No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).'
-          )}
+          {t('No logins yet. Import from Chrome for agent sign-in (1 approval).')}
         </p>
       ) : shown.length === 0 ? (
         <p className="settings-empty mx-empty-state" ref={emptyStateHost}>
@@ -265,9 +263,7 @@ function BrowserSettingToggles({
       {hidDevices !== null && (
         <ToggleRow
           title={t('HID device connections')}
-          description={t(
-            'Sites in the built-in browser can ask to connect a HID device. You pick the device each time.'
-          )}
+          description={t('Lets browser sites request a HID device you choose.')}
           showDescription
           checked={hidDevices}
           onChange={(next) => toggleSetting('browserHidDevices', next)}

@@ -137,9 +137,7 @@ export function ThemeFilesGroup() {
   return (
     <Group
       title={t('Color theme')}
-      description={t(
-        'A theme file colors the app and follows your light or dark setting. When a skin is active, its background image and panels stay on top.'
-      )}
+      description={t('Follows light/dark mode; an active skin keeps its own panels on top.')}
     >
       <SelectRow
         title={t('Color theme')}
@@ -155,9 +153,7 @@ export function ThemeFilesGroup() {
       />
       <SkinRow
         title={t('Theme files')}
-        description={t(
-          'Export writes the current theme, or the built-in one as a starter file that editors can check.'
-        )}
+        description={t('Export the current or built-in theme to edit.')}
       >
         <div className="appearance-actions">
           <ActionButton onClick={() => fileInput.current?.click()}>{t('Import theme file')}</ActionButton>
@@ -302,7 +298,7 @@ export function FontsGroup() {
   return (
     <Group
       title={t('Fonts')}
-      description={t('Pick an installed font. Characters it lacks still use the built-in fonts.')}
+      description={t('Choose an installed font; missing characters use built-in.')}
     >
       <SkinRow title={t('UI font')}>
         <FontField label={t('UI font')} value={fonts.ui} fonts={installed} onCommit={(ui) => setFontSettings({ ui })} />
@@ -317,7 +313,7 @@ export function FontsGroup() {
       </SkinRow>
       <SkinRow
         title={t('UI size')}
-        description={`${t('Scales all text in the app.')} ${t('Ctrl/⌘ + = larger, Ctrl/⌘ + − smaller, Ctrl/⌘ + 0 reset.')}`}
+        description={t('Scales app text (Ctrl/⌘ +, −, 0 to reset).')}
       >
         <div className="skin-slider">
           <input
@@ -350,7 +346,7 @@ export function FontsGroup() {
       </SkinRow>
       <SkinRow
         title={t('Code ligatures')}
-        description={t('Joins symbols such as => and != into one glyph, in fonts that have them.')}
+        description={t('Combines symbols like => and != in supported fonts.')}
       >
         <CompactSwitch
           label={t('Code ligatures')}

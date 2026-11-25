@@ -29,7 +29,7 @@ test('Settings → General → Sessions shows the 7-day archive and 90-day delet
     document.querySelector('.session-retention-warning').textContent,
     'Deleted sessions cannot be restored.'
   );
-  assert.match(document.querySelector('.session-retention-note').textContent, /never archived/);
+  assert.match(document.querySelector('.session-retention-note').textContent, /aren’t archived/);
 });
 
 test('the Sessions group is absent where the host cannot save it', async (t) => {

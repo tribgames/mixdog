@@ -765,7 +765,7 @@ function CustomProviderForm({
               text={requestText}
               disabled={disabled}
               error={requestError}
-              hint={t('A JSON object merged into every model request of this provider. The model setting wins.')}
+              hint={t('JSON merged into provider requests; model setting wins.')}
               onChange={(next) => {
                 setRequestText(next);
                 changed();

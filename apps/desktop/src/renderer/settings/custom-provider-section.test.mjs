@@ -1121,7 +1121,7 @@ test('HTTP headers: a folded section below the models list; added headers go wit
   assert.equal(summary.textContent, 'HTTP headers');
   assert.equal(
     headersSection().querySelector(':scope > p').textContent,
-    'Optional. Sent with chat, model discovery and connection test requests.'
+    'Optional. Sent with chat, discovery, and test calls.'
   );
   // Without headers nothing is sent.
   await click(button('Test connection'));

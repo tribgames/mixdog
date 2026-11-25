@@ -194,7 +194,7 @@ export function DelegationPanel(context: PanelContext) {
   return (
     <Group
       title={t('Delegation mode')}
-      description={t('How the AI splits and hands off work in each mode. Choose the mode in the composer, as before.')}
+      description={t('How AI delegates work in each mode; switch modes in the composer.')}
     >
       {items.map((item) => (
         <ResourceRow

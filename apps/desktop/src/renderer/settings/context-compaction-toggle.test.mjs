@@ -114,7 +114,7 @@ test('cache warming: one switch, off by default, with the learning note; saves o
   try {
     assert.ok(warmSwitch());
     assert.equal(warmSwitch().checked, false, 'absent setting: off');
-    assert.match(document.body.textContent, /Learns from each conversation’s own return times/);
+    assert.match(document.body.textContent, /Learns each chat’s pace and warms only when it pays off\./);
     assert.equal(document.querySelectorAll('input[type="checkbox"][aria-label$="(idle)"]').length, 0, 'no target list');
     await act(async () => warmSwitch().click());
     assert.deepEqual(calls, [['setCacheWarmingEnabled', [true]]]);

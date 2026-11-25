@@ -16,7 +16,7 @@ export function ClientManagedProviders({ setup }: { setup: RecordValue }) {
   return (
     <>
       <p>
-        {t('This server uses providers connected on your desktop. Manage sign-ins and accounts in the local window.')}
+        {t('Uses providers from your desktop; manage accounts locally.')}
       </p>
       {setup.unavailable === true ? (
         <ListEmpty text={t('Connect the desktop to view its providers.')} />

@@ -139,16 +139,14 @@ export function CookieAutoImportGroup({
     <Group>
       <ToggleRow
         title={t('Import cookies automatically')}
-        description={t(
-          'While Chrome is closed, cookies are imported again from the chosen profile: when the app starts and each time Chrome exits. No administrator approval is asked.'
-        )}
+        description={t('Re-imports on app start and Chrome exit, no approval.')}
         showDescription
         disabled={busy}
         checked={status.enabled}
         onChange={(next) => run(() => api.browserCookieAutoImportConfigure?.({ enabled: next, profileId: selected }))}
       />
       <p className="settings-empty">
-        {t('Sites you sign out of are skipped by automatic import. You can still import their cookies manually.')}
+        {t('Signed-out sites are skipped automatically; import manually.')}
       </p>
       <SelectRow
         title={t('Chrome profile to import')}
@@ -184,7 +182,7 @@ export function CookieAutoImportGroup({
       )}
       {!status.keyStorageAvailable && (
         <p className="settings-empty">
-          {t('This PC cannot protect a saved key, so every import asks for approval and automatic import cannot run.')}
+          {t('This PC can’t protect a saved key; imports need approval (auto off).')}
         </p>
       )}
       {error && <ErrorNotice error={error} />}

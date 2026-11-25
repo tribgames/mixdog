@@ -126,7 +126,7 @@ export function ComposerStyleGroup({ pending }: Pick<PanelContext, 'pending'>) {
         <div className="mixdog-settings__copy">
           <span className="mixdog-settings__row-title">{t('Composer style')}</span>
           <span className="mixdog-settings__row-desc">
-            {t('Simple: the model only. Normal: usage too. Detailed: usage, workflow and delegation.')}
+            {t('Choose how many controls appear in the composer.')}
           </span>
         </div>
         <div className="settings-row-control">

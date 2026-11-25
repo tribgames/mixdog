@@ -55,9 +55,8 @@ function systemName(route: NetworkProxyRoute): string {
 export function routeDescription(mode: NetworkProxyMode, route: NetworkProxyRoute): string {
   if (mode === 'manual') {
     if (route.error) return t('Enter a proxy address below to use it.');
-    if (route.via === 'direct')
-      return t('The current destination matches an exception and connects without the proxy.');
-    return t('Using the proxy below for destinations that do not match an exception.');
+    if (route.via === 'direct') return t('Current destination matches an exception (direct).');
+    return t('Uses the proxy below except for listed exceptions.');
   }
   if (mode === 'off') {
     const ignored = [
@@ -74,13 +73,13 @@ export function routeDescription(mode: NetworkProxyMode, route: NetworkProxyRout
   }
   if (route.noProxyAll) return t('Connecting directly because `NO_PROXY` is `*`.');
   if (route.via === 'env') {
-    return t('Connecting through the proxy `{{proxy}}` from `{{variable}}`.', {
+    return t('Using `{{proxy}}` from `{{variable}}`.', {
       proxy: route.proxy ?? '',
       variable: route.envVar ?? '',
     });
   }
   if (route.via === 'system') {
-    return t('Right now connecting through the {{source}} proxy `{{proxy}}`.', {
+    return t('Using {{source}} proxy `{{proxy}}`.', {
       source: systemName(route),
       proxy: route.proxy ?? '',
     });
@@ -332,9 +331,7 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
     <div ref={groupRef}>
       <Group
         title={t('Network proxy')}
-        description={t(
-          'The proxy used to connect to AI services. The same rule applies to provider registration, sign-in and chat requests.'
-        )}
+        description={t('Proxy for AI services (provider setup, sign-in, and chats).')}
       >
         <ProxyRow
           title={t('Proxy')}
@@ -384,7 +381,7 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
             </ProxyRow>
             <ProxyRow
               title={t('Exceptions')}
-              description={errors.exceptions ?? t('Addresses reached without the proxy. Separate them with commas.')}
+              description={errors.exceptions ?? t('Comma-separated addresses bypassing the proxy.')}
               error={Boolean(errors.exceptions)}
             >
               <ProxyInput

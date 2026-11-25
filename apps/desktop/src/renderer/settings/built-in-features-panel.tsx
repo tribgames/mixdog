@@ -304,16 +304,10 @@ function FeatureDetailDialog({
         </ExtensionNote>
       ) : null}
       {feature.id === 'memory' && (
-        <ExtensionNote>
-          {t(
-            'Turning Memory off stops recall and background summaries, and leaves memory out when prompts are built. Stored memories and past messages are kept.'
-          )}
-        </ExtensionNote>
+        <ExtensionNote>{t('Turning off pauses recall and summaries; saved memories are kept.')}</ExtensionNote>
       )}
       {feature.id === 'voice' && (
-        <ExtensionNote>
-          {t('Turning voice transcription off stops dictation without removing the downloaded runtime.')}
-        </ExtensionNote>
+        <ExtensionNote>{t('Turning off stops dictation and keeps the downloaded runtime.')}</ExtensionNote>
       )}
       {ready && !installed && requirement ? (
         <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>

@@ -106,9 +106,7 @@ test('main PC settings: one nav in four headed sections, no badge, display setti
     assert.ok(document.body.textContent.includes(title), title);
   }
   assert.ok(
-    document.body.textContent.includes(
-      'Simple: the model only. Normal: usage too. Detailed: usage, workflow and delegation.'
-    ),
+    document.body.textContent.includes('Choose how many controls appear in the composer.'),
     'the composer style shows its description'
   );
 });

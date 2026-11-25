@@ -83,7 +83,7 @@ export function BrowserPermissionsGroup({ api, active }: { api: PermissionsApi; 
   return (
     <Group
       title={t('Site permissions')}
-      description={t('Set a default for each permission. Sites with a setting of their own are listed below.')}
+      description={t('Set default permissions; per-site overrides appear below.')}
     >
       {BROWSER_PERMISSION_KINDS.map((kind) => (
         <SelectRow

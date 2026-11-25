@@ -225,7 +225,7 @@ function developerOptionStrings(source) {
     add(label);
     add(description);
   }
-  assert.ok(strings.has('Show Devin OAuth in Providers and the model picker.'));
+  assert.ok(strings.has('Show Devin OAuth in Providers and model picker.'));
   assert.ok(strings.has('Providers') && strings.has('Approvals') && strings.has(constants.OAUTH_RISK_WARNING));
   return strings;
 }

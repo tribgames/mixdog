@@ -21,9 +21,7 @@ export function QuotaAutoResumeToggle() {
   return (
     <Group
       title={t('Usage limits')}
-      description={t(
-        'What happens when every connected account is used up. Applies only to subscription accounts with a known reset time.'
-      )}
+      description={t('Applies to subscription accounts with a known quota reset time.')}
     >
       <ToggleRow
         title={t('Resume automatically when the limit resets')}

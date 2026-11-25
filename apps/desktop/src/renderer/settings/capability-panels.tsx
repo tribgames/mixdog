@@ -265,7 +265,7 @@ function OutputStylePanel(context: PanelContext) {
       ) : (
         <ChoicePanel
           title={t('Response style')}
-          description={t('Choose how detailed answers are. Use "Edit" to change the instructions of each style.')}
+          description={t('Choose answer detail, or edit each style’s instructions.')}
           badges={(id) => <InstructionBadges file={fileFor(id)} />}
           editAction={editButton}
           values={styleRows}
@@ -365,7 +365,7 @@ function UpdatePanel({
       {typeof update.autoUpdate === 'boolean' ? (
         <ToggleRow
           title={t('Auto-update')}
-          description={t('Automatically check for and download updates. You still choose when to install.')}
+          description={t('Auto-downloads updates; you choose when to install.')}
           showDescription
           checked={update.autoUpdate}
           disabled={Boolean(pending) || updaterState.status === 'disabled'}
@@ -407,16 +407,12 @@ function CacheWarmingGroup({ enabled, busy, run }: { enabled: boolean; busy: boo
   return (
     <Group
       title={t('Anthropic cache warming')}
-      description={t(
-        'On models whose cache expires (currently Claude), keeps the prompt cache only while the next turn is likely enough to pay for it. Adds a small usage charge.'
-      )}
+      description={t('Keeps Claude’s prompt cache warm when worthwhile; adds minor usage.')}
     >
       <ToggleRow
         title={t('Keep the Anthropic prompt cache warm')}
         showDescription
-        description={t(
-          'Learns from each conversation’s own return times: at first it doesn’t warm, and starts once a conversation’s history shows warming pays off.'
-        )}
+        description={t('Learns each chat’s pace and warms only when it pays off.')}
         checked={enabled}
         disabled={busy}
         onChange={(on) => void run('setCacheWarmingEnabled', [on])}
@@ -458,9 +454,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
         <ToggleRow
           title={t('Auto-compact on model change')}
           showDescription
-          description={t(
-            'Before the next turn switches models, try to compact the conversation using the current route and your summary model setting. Skipped if the current route is known to be out of usage.'
-          )}
+          description={t('Compacts before switching models if usage remains.')}
           checked={compaction.onModelChange !== false}
           disabled={busy}
           optimistic={false}
@@ -484,9 +478,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
       <CacheWarmingGroup enabled={cacheWarming.enabled === true} busy={busy} run={run} />
       <Group
         title={t('Idle session cleanup')}
-        description={t(
-          'Sessions left unused this long are cleared automatically. Each provider can have its own time.'
-        )}
+        description={t('Auto-clears idle sessions; set per-provider times below.')}
       >
         <ToggleRow
           title={t('Auto-clear')}
@@ -587,7 +579,7 @@ function DesktopPowerGroup() {
   return (
     <Group
       title={t('Power')}
-      description={t('Keep the computer awake while agents are working, so long runs never stall mid-turn.')}
+      description={t('Prevent sleep while agents work so long runs don’t stall.')}
     >
       <ToggleRow
         title={t('Keep system awake while working')}

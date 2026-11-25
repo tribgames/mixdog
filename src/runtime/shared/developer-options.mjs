@@ -12,7 +12,7 @@ export const DEVELOPER_SECTIONS = Object.freeze([
       Object.freeze({
         id: 'allowAllActions',
         label: 'Allow all actions',
-        description: 'Skips the approval cards for every action except payments and permanent deletes.',
+        description: 'Skips approvals except payments and permanent deletes.',
         warning:
           'Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.',
       }),
@@ -26,28 +26,28 @@ export const DEVELOPER_SECTIONS = Object.freeze([
       Object.freeze({
         id: 'antigravityOAuth',
         label: 'Gemini (Antigravity)',
-        description: 'Show Antigravity (Gemini) OAuth in Providers and the model picker.',
+        description: 'Show Antigravity OAuth in Providers and model picker.',
         warning: OAUTH_RISK_WARNING,
         provider: 'antigravity-oauth',
       }),
       Object.freeze({
         id: 'cursorOAuth',
         label: 'Cursor',
-        description: 'Show Cursor OAuth in Providers and the model picker.',
+        description: 'Show Cursor OAuth in Providers and model picker.',
         warning: OAUTH_RISK_WARNING,
         provider: 'cursor-oauth',
       }),
       Object.freeze({
         id: 'devinOAuth',
         label: 'Devin',
-        description: 'Show Devin OAuth in Providers and the model picker.',
+        description: 'Show Devin OAuth in Providers and model picker.',
         warning: OAUTH_RISK_WARNING,
         provider: 'devin-oauth',
       }),
       Object.freeze({
         id: 'mimoOAuth',
         label: 'MiMo',
-        description: 'Show Xiaomi MiMo OAuth in Providers and the model picker.',
+        description: 'Show Xiaomi MiMo OAuth in Providers and model picker.',
         warning: OAUTH_RISK_WARNING,
         provider: 'mimo-oauth',
       }),

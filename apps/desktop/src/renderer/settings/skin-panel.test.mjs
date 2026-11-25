@@ -81,7 +81,7 @@ test('the detail rows explain themselves, and plate / accent / toggles apply liv
   await act(async () => card('glass-flow').click());
   const plate = document.querySelector('.skin-seg[aria-label="Panel color"]');
   assert.ok(plate, 'plate is a segmented control');
-  assert.match(document.body.textContent, /Color of the sidebar and message panels/);
+  assert.match(document.body.textContent, /Color of sidebar and message panels/);
   assert.equal(plate.querySelector('[aria-pressed="true"]').dataset.value, 'light');
   await act(async () => plate.querySelector('[data-value="dark"]').click());
   assert.equal(html.dataset.mixdogSkinPlate, 'dark');

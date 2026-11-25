@@ -88,11 +88,11 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
       </Group>
       <Group
         title={t('Cleanup')}
-        description={t('Favorite or running sessions and worktrees under an hour old are never cleaned up.')}
+        description={t('Favorites, running sessions, and worktrees under 1h are kept.')}
       >
         <ToggleRow
           title={t('Clean up finished worktrees automatically')}
-          description={t('Never deletes uncommitted or unmerged work. Asks before turning off.')}
+          description={t('Never deletes uncommitted or unmerged work.')}
           showDescription
           checked={settings.autoCleanup}
           // Turning off asks first, so the switch follows the saved setting, not the click.
@@ -136,7 +136,7 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
           />
           <ToggleRow
             title={t('Also delete the branch')}
-            description={t('Only branches the app created, once merged. When off, they stay.')}
+            description={t('Deletes merged branches created by the app.')}
             showDescription
             checked={settings.deleteBranch}
             disabled={off}

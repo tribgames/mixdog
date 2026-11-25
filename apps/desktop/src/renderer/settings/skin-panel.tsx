@@ -191,7 +191,7 @@ export function SkinPanel(_props: Partial<PanelContext>) {
         <Group title={t('Fine tuning')}>
           <SkinRow
             title={t('Panel color')}
-            description={t('Color of the sidebar and message panels. Light glass suits bright pictures.')}
+            description={t('Color of sidebar and message panels.')}
           >
             <Segmented<SkinPlate>
               label={t('Panel color')}
@@ -206,7 +206,7 @@ export function SkinPanel(_props: Partial<PanelContext>) {
           </SkinRow>
           <SkinRow
             title={t('Outer panels transparency')}
-            description={t('How much of the picture shows through the window frame, sidebar and side dock.')}
+            description={t('Transparency of the frame, sidebar, and side dock.')}
           >
             <TransparencySlider
               label={t('Outer panels transparency')}
@@ -216,7 +216,7 @@ export function SkinPanel(_props: Partial<PanelContext>) {
           </SkinRow>
           <SkinRow
             title={t('Main panel transparency')}
-            description={t('How much of the picture shows through the conversation area and its cards.')}
+            description={t('Transparency of the conversation area and cards.')}
           >
             <TransparencySlider
               label={t('Main panel transparency')}
@@ -226,7 +226,7 @@ export function SkinPanel(_props: Partial<PanelContext>) {
           </SkinRow>
           <SkinRow
             title={t('Accent color')}
-            description={t('Colors the New task and send buttons and the message box outline.')}
+            description={t('Colors New task, send buttons, and input border.')}
           >
             {/* biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the swatch row; only the group role is wanted */}
             <div className="skin-swatches" role="group" aria-label={t('Accent color')}>

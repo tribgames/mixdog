@@ -21,27 +21,27 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
   {
     id: 'git',
     title: 'Git & GitHub',
-    description: 'Manage changes, repositories, issues, pull requests, Actions, releases, and notifications.',
+    description: 'Manage Git changes, repos, issues, PRs, and Actions.',
   },
   {
     id: 'memory',
     title: 'Memory',
-    description: 'Remember important details from conversations and use them when needed.',
+    description: 'Remember key details across chats and recall them.',
   },
   {
     id: 'browser',
     title: 'Browser Use',
-    description: 'Sessions share one Browser Use profile, including sign-ins, cookies, and site data.',
+    description: 'Shared browser profile for logins, cookies, and data.',
   },
   {
     id: 'computer',
     title: 'Computer Use',
-    description: 'See your screen and use the mouse and keyboard to complete computer tasks.',
+    description: 'View your screen and control mouse and keyboard.',
   },
   {
     id: 'office',
     title: 'Office',
-    description: 'Create, review, and edit documents, spreadsheets, and presentations.',
+    description: 'Create and edit documents, sheets, and slides.',
   },
   {
     id: 'media',
@@ -51,7 +51,7 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
   {
     id: 'tidy',
     title: 'Code Tidy',
-    description: 'Format, lint, and clean up code across languages with auto-detected engines.',
+    description: 'Format, lint, and clean up code automatically.',
   },
   {
     id: 'localProvider',
@@ -61,8 +61,7 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
   {
     id: 'autoEffort',
     title: 'Auto reasoning',
-    description:
-      'Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.',
+    description: 'Tunes reasoning effort to task difficulty per turn.',
   },
   {
     id: 'visualize',

@@ -263,7 +263,7 @@ test('Vertex AI saves an express-mode API key for the global location, without l
   assert.equal(row.querySelector('input[aria-label="Vertex AI project ID override"]'), null);
   assert.equal(
     row.querySelector('.settings-resource-meta')?.textContent,
-    'Express mode API keys serve Gemini models on the global location only.'
+    'Express API keys support global Gemini models only.'
   );
   const input = row.querySelector('input[aria-label="Vertex AI express mode API key"]');
   assert.equal(input.type, 'password');

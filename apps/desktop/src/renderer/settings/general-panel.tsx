@@ -112,7 +112,7 @@ function QuestionConfirmToggle({ pending }: Pick<PanelContext, 'pending'>) {
   return (
     <ToggleRow
       title={t('Confirm question answers')}
-      description={t('Picking an option only selects it; press Send or Next to answer.')}
+      description={t('Require Send or Next after picking an option.')}
       showDescription
       checked={enabled}
       disabled={Boolean(pending)}
@@ -247,7 +247,7 @@ export function DisplayPanel({ pending }: PanelContext) {
         <Group title={t('Host computer')}>
           <ResourceRow
             title={t('Use host computer settings')}
-            meta={t('Take the theme and language of the computer you are connected to.')}
+            meta={t('Use the connected PC’s theme and language.')}
             actions={
               <ActionButton disabled={Boolean(pending)} onClick={() => void followHostDisplay(hostApi ?? {})}>
                 {t('Use host settings')}
@@ -283,7 +283,7 @@ function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
         <div className="mixdog-settings__copy">
           <span className="mixdog-settings__row-title">{t('Import conversations from other apps')}</span>
           <span className="mixdog-settings__row-desc">
-            {t('Bring in conversations from Codex, Claude Code, or Cowork (Claude Desktop) and continue them here.')}
+            {t('Continue Codex, Claude Code, or Cowork chats here.')}
           </span>
         </div>
         <div className="settings-row-control">

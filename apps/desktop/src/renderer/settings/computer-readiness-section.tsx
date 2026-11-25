@@ -166,7 +166,7 @@ export function ComputerReadinessSection({
   return (
     <ExtensionSection
       title={t('Readiness')}
-      description={t('Items that are not ready yet. This section disappears once everything is ready.')}
+      description={t('Items not ready yet; hidden once everything is ready.')}
       dataAttributes={{ 'data-computer-readiness': 'true' }}
     >
       <ExtensionItemList>

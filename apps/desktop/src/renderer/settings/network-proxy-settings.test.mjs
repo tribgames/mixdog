@@ -143,7 +143,7 @@ test('manual mode shows the address and exception rows; a bad address is refused
     await settle();
     assert.equal(input('Proxy address').getAttribute('aria-invalid'), null);
     assert.deepEqual(calls.at(-1), ['setNetworkProxy', [{ mode: 'manual', url: 'http://proxy.company.com:8080' }]]);
-    assert.match(desc('Proxy'), /using the proxy below for destinations that do not match an exception/i);
+    assert.match(desc('Proxy'), /uses the proxy below except for listed exceptions/i);
 
     await type(input('Exceptions'), 'localhost, *.company.local');
     await blur(input('Exceptions'));
@@ -188,7 +188,7 @@ test('routeDescription distinguishes a proxy variable, a direct route, and a man
   assert.match(routeDescription('system', route({ via: 'env', proxy: 'p:1', envVar: 'ALL_PROXY' })), /p:1.*ALL_PROXY/);
   assert.match(routeDescription('system', route({ noProxyAll: true })), /NO_PROXY.*\*/);
   assert.match(routeDescription('system', route()), /current destination connects directly/i);
-  assert.match(routeDescription('manual', route({ via: 'direct' })), /matches an exception.*without the proxy/);
+  assert.match(routeDescription('manual', route({ via: 'direct' })), /matches an exception.*direct/);
   assert.match(routeDescription('manual', route({ error: 'no-address' })), /Enter a proxy address/);
 });
 

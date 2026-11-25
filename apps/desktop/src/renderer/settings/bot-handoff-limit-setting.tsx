@@ -77,7 +77,7 @@ export function BotHandoffLimitRow({ disabled }: { disabled?: boolean }) {
     <>
       <SelectRow
         title={t('Bot handoff limit')}
-        description={t('How many times in a row bots can hand work to each other before they stop and ask you (1-20).')}
+        description={t('Max consecutive bot handoffs before asking (1-20).')}
         showDescription
         value={String(shown)}
         disabled={disabled}

@@ -48,7 +48,7 @@ export function CustomProviderHeaders({
         </span>
         <ChevronDown size={14} aria-hidden="true" />
       </summary>
-      <p>{t('Optional. Sent with chat, model discovery and connection test requests.')}</p>
+      <p>{t('Optional. Sent with chat, discovery, and test calls.')}</p>
       <PairRows
         values={rows}
         keyPlaceholder={t('Header')}

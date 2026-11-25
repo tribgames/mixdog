@@ -86,8 +86,7 @@ test('panel color segmented group never overlaps its description and drops below
     ['밝은 유리', '어두운 유리', '그림 색'].forEach((label, i) => {
       seg.children[i].textContent = label;
     });
-    seg.closest('.skin-row').querySelector('.skin-row-desc').textContent =
-      '사이드바와 메시지 패널의 색상입니다. 밝은 유리 효과는 밝은 이미지에 잘 어울립니다.';
+    seg.closest('.skin-row').querySelector('.skin-row-desc').textContent = '사이드바와 메시지 패널의 색상입니다.';
   });
 
   const measure = () =>

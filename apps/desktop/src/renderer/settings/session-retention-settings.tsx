@@ -74,9 +74,7 @@ export function SessionRetentionSettings({ pending }: Pick<PanelContext, 'pendin
       <Group title={t('Sessions')}>
         <SelectRow
           title={t('Auto-archive inactive sessions')}
-          description={t(
-            'Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.'
-          )}
+          description={t('Moves idle sessions to the archive; restore anytime.')}
           showDescription
           value={String(settings.sessionAutoArchiveDays)}
           disabled={busy}
@@ -87,9 +85,7 @@ export function SessionRetentionSettings({ pending }: Pick<PanelContext, 'pendin
           <div className="mixdog-settings__copy">
             <span className="mixdog-settings__row-title">{deleteTitle}</span>
             <span className="mixdog-settings__row-desc">
-              {t(
-                'Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.'
-              )}
+              {t('Counted from archive date (or when this turned on).')}
             </span>
             <span className="mixdog-settings__row-desc session-retention-warning">
               {t('Deleted sessions cannot be restored.')}
@@ -109,9 +105,7 @@ export function SessionRetentionSettings({ pending }: Pick<PanelContext, 'pendin
         {error && <p role="alert">{error}</p>}
       </Group>
       <p className="session-retention-note">
-        {t(
-          'Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.'
-        )}
+        {t('Favorites, bots, active, scheduled, and unread sessions aren’t archived.')}
       </p>
     </>
   );

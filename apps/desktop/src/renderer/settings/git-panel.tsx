@@ -140,9 +140,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   return (
     <ExtensionSection
       title={t('GitHub')}
-      description={t(
-        'The GitHub CLI (gh) powers pull requests and repository actions. Connecting signs it in and authors your commits with this account.'
-      )}
+      description={t('Uses GitHub CLI (gh) for PRs and repos, and signs your commits.')}
     >
       <ExtensionItemList>
         <ExtensionItemRow

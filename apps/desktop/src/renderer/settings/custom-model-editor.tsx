@@ -428,7 +428,7 @@ export function CustomModelEditor({
               text={bodyText}
               disabled={saving}
               error={bodyError}
-              hint={t('A JSON object merged into this model request. It wins over the provider setting.')}
+              hint={t('JSON merged into this request; overrides provider.')}
               onChange={(next) => {
                 setBodyText(next);
                 setError('');
