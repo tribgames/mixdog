@@ -52,15 +52,15 @@ pub struct TailRule {
 /// The built-in rules every session's requests are matched against.
 ///
 /// Claude Opus 5.5 drifts into English in long agentic turns, where English tool results sit between the user's
-/// message and its answer. Worded as a condition, so the reminder ending every request does not read as a turn
-/// start that asks for a note before the next tool call.
+/// message and its answer. A conditional wording ("if you write user-facing text") did not reach the short notes
+/// between tool calls, which stayed English.
 pub const TAIL_REMINDER_RULES: &[TailRule] = &[TailRule {
     id: "opus-5-5-language",
     provider: &[],
     model: &["claude-opus-5-5"],
     language: &["ko", "ja", "zh-Hans", "zh-Hant", "es", "fr", "de", "pt", "ru", "it", "vi", "th", "id", "hi", "ar", "tr", "pl", "nl", "uk"],
     role: &["lead", "bot"],
-    text: "If you write user-facing text, use {language}.",
+    text: "Write all user-facing text in {language}.",
 }];
 
 /// A provider id's family, for rules written against the family.
