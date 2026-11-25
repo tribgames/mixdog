@@ -482,10 +482,11 @@ pub trait IdleClock: Send + Sync {
     /// moves (`tokio::time::advance` on a paused runtime) moves it by exactly that much, since the wall clock and the real monotonic one
     /// advance together.
     fn epoch_ms(&self) -> i64 {
-        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| i64::try_from(since.as_millis()).unwrap_or(i64::MAX));
+        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
         let (now, real) = (self.now(), Instant::now());
-        let ahead = |from: Instant, to: Instant| i64::try_from(to.saturating_duration_since(from).as_millis()).unwrap_or(i64::MAX);
-        wall + ahead(real, now) - ahead(now, real)
+        // Rounded once: two sums each rounded down to whole milliseconds answer a moved clock up to 1 ms short.
+        let placed = if now >= real { wall.saturating_add(now - real) } else { wall.saturating_sub(real - now) };
+        i64::try_from(placed.as_millis()).unwrap_or(i64::MAX)
     }
 }
 
