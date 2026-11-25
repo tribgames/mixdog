@@ -1336,8 +1336,9 @@ test('release-gate.yml: `changes` resolves a partial selection against the whole
     align.run,
     /if \[\[ "\$SCOPE" != packages \]\]; then\s+printf 'packages=%s\\nfeatures=%s\\n' "\$SELECTION" "\$FEATURES"/
   );
-  // the indented tree, which tells host builds from target builds, and rounds to a fixed point rather than a count
-  assert.match(align.run, /cargo tree --locked --charset utf8 -f '\{p\} \{f\}' --workspace/);
+  // the indented tree, uncoloured so its marks parse, which tells host builds from target builds, and rounds to a
+  // fixed point rather than a count
+  assert.match(align.run, /cargo tree --locked --color never --charset utf8 -f '\{p\} \{f\}' --workspace/);
   assert.doesNotMatch(align.run, /--prefix none|\$round/);
   assert.match(align.run, /while true; do/);
   assert.match(align.run, /if \[\[ "\$packages\|\$selection_features" == "\$last" \]\]; then[\s\S]*?exit 1/);
