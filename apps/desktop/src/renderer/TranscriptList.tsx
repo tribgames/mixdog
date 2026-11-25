@@ -361,7 +361,11 @@ function rowSteps(
       ? String(before.item.id ?? before.key)
       : '';
   const stepBefore = !dividerStep && !bandLead && row._tag !== 'TurnGap' && part(previous);
-  const turnEnd = !blank && !part(row._tag) && (!next || next._tag === 'TurnGap');
+  // A message sent while the turn runs stands under the turn's rows so far, and the turn's answer lands above it: the
+  // row it stands under has not ended its turn.
+  const opened = next?._tag === 'TurnGap' ? rows[rowNodes.paintedBelow(nextIndex)] : undefined;
+  const sentMeanwhile = opened?._tag === 'UserMessage' && Boolean(opened.item.steer);
+  const turnEnd = !blank && !part(row._tag) && (!next || (next._tag === 'TurnGap' && !sentMeanwhile));
   // A turn's changed-files card closes its stack: a row after it in the same
   // turn takes the turn gap, never the 8px part step (12-transcript.css).
   const afterChanges =
