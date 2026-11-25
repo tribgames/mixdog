@@ -65,7 +65,14 @@ async function mountHeldPane(t) {
       },
     }
   );
-  const submission = { goalSubmissionId: '', reviewItems: [], steerItems: [], pendingPromptIds: [], holdSlashCommand: noop, actions };
+  const submission = {
+    goalSubmissionId: '',
+    reviewItems: [],
+    steerItems: [],
+    pendingPromptIds: [],
+    holdSlashCommand: noop,
+    actions,
+  };
   /** `held` is the session the pane still presents; `selected` the one it was pointed at. */
   const pane = ({ held, selected, promptRestore = null }) => {
     const route = { sessionId: held, promptRestore, ...ROUTE };
@@ -123,7 +130,9 @@ async function mountHeldPane(t) {
     });
   const press = () =>
     act(async () => {
-      document.querySelector('form.composer').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      document
+        .querySelector('form.composer')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     });
   return { show, input, type, press, submits, capabilities };
 }
@@ -151,8 +160,16 @@ test('a slash command typed while the picked lane is held runs against the picke
   await type('/compact');
   await press();
   const commands = () => capabilities.filter((request) => request.capability === 'compact');
-  assert.deepEqual(commands().filter((request) => JSON.stringify(request).includes('sess_a2')), [], 'not the outgoing one');
-  assert.deepEqual(commands().filter((request) => JSON.stringify(request).includes('sess_b2')), [], 'and not yet');
+  assert.deepEqual(
+    commands().filter((request) => JSON.stringify(request).includes('sess_a2')),
+    [],
+    'not the outgoing one'
+  );
+  assert.deepEqual(
+    commands().filter((request) => JSON.stringify(request).includes('sess_b2')),
+    [],
+    'and not yet'
+  );
   await show({ held: 'sess_b2', selected: 'sess_b2' });
   await act(async () => {});
   const ran = commands().filter((request) => JSON.stringify(request).includes('sess_b2'));
@@ -186,4 +203,40 @@ test('a prompt handed back for the outgoing session while the lane is held waits
   });
   assert.equal(input().value, '', 'the picked session’s draft is not written');
   assert.equal(stashedComposerDraft('sess_a4'), 'back for a', 'it waits with the session it belongs to');
+});
+
+test('while a relay surface’s connection line says the link is down the composer keeps the draft and sends nothing', async (t) => {
+  const { show, input, type, press, submits } = await mountHeldPane(t);
+  const { createRoot } = await import('react-dom/client');
+  const { RemoteConnectionBanner } = await import('./RemoteConnectionBanner.tsx');
+  const { clearRemoteConnectionState, setRemoteConnectionState } = await import('./remote-connection-state.ts');
+  const page = globalThis.window;
+  const realSetTimeout = page.setTimeout;
+  // The ten seconds before the line shows, and the three that prove a connection, pass at once.
+  page.setTimeout = (callback, ms, ...args) =>
+    realSetTimeout(callback, ms === 10_000 || ms === 3_000 ? 0 : ms, ...args);
+  const shell = createRoot(page.document.createElement('div'));
+  const passes = () => act(() => new Promise((resolve) => realSetTimeout(resolve, 10)));
+  try {
+    await act(async () => shell.render(React.createElement(RemoteConnectionBanner)));
+    await show({ held: 'sess_r1', selected: 'sess_r1' });
+    await type('when it is back');
+    await act(async () => setRemoteConnectionState('reconnecting'));
+    await passes();
+    assert.equal(input().placeholder, 'You can send once connected');
+    assert.equal(page.document.querySelector('.send-button').disabled, true);
+    await press();
+    assert.deepEqual(submits, [], 'nothing is sent');
+    assert.equal(input().value, 'when it is back', 'the draft stays');
+    await act(async () => setRemoteConnectionState('connected'));
+    await passes();
+    assert.notEqual(input().placeholder, 'You can send once connected');
+    await press();
+    assert.ok(submits.length > 0, 'sent once the link is back');
+  } finally {
+    // Before the test DOM is torn down (its own after-hook).
+    await act(async () => shell.unmount());
+    page.setTimeout = realSetTimeout;
+    clearRemoteConnectionState();
+  }
 });

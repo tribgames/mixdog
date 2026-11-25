@@ -188,7 +188,26 @@ export function clearRemoteConnectionState(): void {
   delete document.documentElement.dataset.mixdogRemoteError;
   delete document.documentElement.dataset.mixdogRemoteDesktop;
   delete document.documentElement.dataset.mixdogRemoteSync;
+  delete document.documentElement.dataset.mixdogRemoteRedialAt;
   window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
+}
+
+/** When the shim's next dial leaves (epoch ms) while it waits out a backoff, or null once a dial is under way; the
+ *  connection line counts down to it. */
+export function setRemoteRedialAt(at: number | null): void {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  const data = document.documentElement.dataset;
+  const next = at === null ? undefined : String(Math.round(at));
+  if (data.mixdogRemoteRedialAt === next) return;
+  if (next === undefined) delete data.mixdogRemoteRedialAt;
+  else data.mixdogRemoteRedialAt = next;
+  window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
+}
+
+export function remoteRedialAt(): number | null {
+  if (typeof document === 'undefined') return null;
+  const at = Number(document.documentElement.dataset.mixdogRemoteRedialAt);
+  return at > 0 ? at : null;
 }
 
 /** Why a boot had to go through approval, recorded on the boot timeline:

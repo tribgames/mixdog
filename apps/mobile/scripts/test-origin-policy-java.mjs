@@ -224,7 +224,7 @@ public class ReconnectCheck {
     eq(s.retryNow(), null, "no trigger when idle");
     eq(s.pageFinished(PAGE), false, "an ordinary page finishing is not a recovery");
 
-    // A failure episode runs the whole backoff, then gives up.
+    // A failure episode backs off to the ceiling and never gives up: the cover has nothing to press.
     eq(s.failed(PAGE), 2000L, "first wait");
     eq(p(s), ReconnectState.Phase.WAITING, "waiting after the failure");
     eq(s.active(), true, "waiting is active");
@@ -232,23 +232,22 @@ public class ReconnectCheck {
     List<Long> waits = new ArrayList<>();
     waits.add(2000L);
     String other = "https://relay.example.com/d/abc/?redirected=1";
-    for (int i = 0; i < ReconnectState.MAX_RELOADS; i++) {
+    for (int i = 0; i < 12; i++) {
       eq(s.dueReload(), PAGE, "reload " + (i + 1) + " reloads the first failing url");
       eq(p(s), ReconnectState.Phase.LOADING, "loading during reload " + (i + 1));
       s.pageStarted(PAGE);
       waits.add(s.failed(other));
     }
-    eq(waits, Arrays.asList(2000L, 4000L, 8000L, 16000L, 30000L, 30000L, 30000L, 30000L, -1L), "bounded backoff");
-    eq(p(s), ReconnectState.Phase.GAVE_UP, "gave up after the cap");
-    eq(s.dueReload(), null, "no timer once gave up");
-    eq(s.failed(PAGE), -1L, "a late failure does not restart the backoff");
+    eq(waits.subList(0, 6), Arrays.asList(2000L, 4000L, 8000L, 16000L, 30000L, 30000L), "growing backoff");
+    eq(waits.get(waits.size() - 1), 30000L, "still reloading every 30s long after");
+    eq(p(s), ReconnectState.Phase.WAITING, "never gives up by itself");
 
-    // The button (or network / foreground) restarts it from the beginning.
-    eq(s.retryNow(), PAGE, "button reloads");
-    eq(p(s), ReconnectState.Phase.LOADING, "loading after the button");
+    // The network or the foreground restarts it from the beginning.
+    eq(s.retryNow(), PAGE, "network or foreground reloads at once");
+    eq(p(s), ReconnectState.Phase.LOADING, "loading after the trigger");
     eq(s.retryNow(), null, "a reload in flight is left alone");
     s.pageStarted(PAGE);
-    eq(s.failed(PAGE), 4000L, "fresh backoff after a manual retry");
+    eq(s.failed(PAGE), 4000L, "fresh backoff after the trigger");
 
     // Network back / foreground while a timer is pending reloads at once.
     eq(s.retryNow(), PAGE, "trigger while waiting reloads now");
@@ -296,13 +295,19 @@ public class ReconnectCheck {
     eq(p(s), ReconnectState.Phase.IDLE, "idle after the pairing page finished");
     eq(s.dueReload(), null, "no stale reload after the pairing page finished");
 
-    for (int i = 0; i < ReconnectState.MAX_RELOADS; i++) { s.failed(PAGE); s.dueReload(); }
-    eq(p(s), ReconnectState.Phase.LOADING, "setup: loading");
-    s.failed(PAGE);
-    eq(p(s), ReconnectState.Phase.GAVE_UP, "setup: gave up");
-    eq(s.pageStarted(pairing), true, "pairing screen starting after giving up ends the episode");
-    eq(p(s), ReconnectState.Phase.IDLE, "idle after leaving from the button state");
-    eq(s.retryNow(), null, "the button state is gone");
+    // A failure waiting cannot fix is covered all the same, with no timer.
+    s.failedPermanently(PAGE);
+    eq(p(s), ReconnectState.Phase.GAVE_UP, "a permanent failure arms no timer");
+    eq(s.active(), true, "and is still covered");
+    eq(s.dueReload(), null, "no automatic reload");
+    eq(s.failed(PAGE), -1L, "a late transient report does not start one");
+    eq(s.pageStarted(pairing), true, "pairing screen starting after a permanent failure ends the episode");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after leaving");
+    eq(s.retryNow(), null, "nothing is left to retry");
+    s.failedPermanently(PAGE);
+    eq(s.retryNow(), PAGE, "the network or the foreground still retries a permanent failure");
+    s.pageStarted(PAGE);
+    eq(s.failed(PAGE), 4000L, "a transient failure after that backs off again");
 
     // The reload in flight: its own origin (and redirect hops) stay the episode; another origin ends it.
     s.failed(PAGE);

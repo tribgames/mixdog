@@ -11,50 +11,6 @@
 html[data-mixdog-mobile-tabs] .topbar {
   display: none;
 }
-/* A relay surface whose link has been down past the threshold gets one tiny,
-   non-blocking status dot: no text, no card, no dim layer — the shim keeps
-   retrying on its own and everything around the dot stays usable. Shorter
-   gaps — every background return costs one — show nothing. Unscoped on
-   purpose: every relay surface shares it, not only the phone layout. */
-.remote-connection-indicator {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 4px);
-  left: 50%;
-  z-index: 240;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  color: var(--mx-text-soft);
-  background: transparent;
-  transform: translateX(-50%);
-  cursor: pointer;
-}
-.remote-connection-indicator-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: remote-connection-pulse 1.8s ease-in-out infinite;
-}
-@keyframes remote-connection-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .remote-connection-indicator-dot {
-    animation: none;
-  }
-}
 /* ── Tab strip ── [brand mark][title pill][+][dock toggles]: the Chrome-dp toolbar keeps its 44dp row, the pill names the active
    tab, and the + and the dock toggles are the desktop's own marks scaled to
    the row. The brand mark opens the session drawer. */
@@ -83,6 +39,9 @@ html[data-mixdog-mobile-tabs] .workspace-tab-home-dot {
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.off {
   background: var(--mx-text-muted);
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.warn {
+  background: var(--mx-warning);
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
   /* Chrome-glyph optical size (measured: ~20dp); the frameless mark inks its

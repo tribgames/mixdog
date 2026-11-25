@@ -30,6 +30,31 @@ function isTransientDocument(response) {
   return /(^|[\s,])no-store([\s,;]|$)/i.test(response.headers.get('cache-control') || '');
 }
 
+// A rejected navigation is the browser's own error page, and in the Android
+// app it never reaches the native recovery (the WebView reports no error for a
+// navigation a service worker answered). With no network and no retained
+// shell the answer is the app's background alone, which reloads itself once
+// its document answers again.
+const OFFLINE_FRAME =
+  '<!doctype html><html style="background:#111"><head><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
+  '<meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111">' +
+  '<style>html,body{margin:0;height:100%;background:#111}</style></head><body><script>' +
+  '(function(){var delay=2000,timer=0,probing=false;' +
+  'function later(){clearTimeout(timer);timer=setTimeout(retry,delay);delay=Math.min(delay*2,30000)}' +
+  'function retry(){clearTimeout(timer);if(probing||document.visibilityState==="hidden")return;probing=true;' +
+  'fetch(location.href,{cache:"no-store"}).then(function(response){probing=false;' +
+  'if(response.ok)location.reload();else later()},function(){probing=false;later()})}' +
+  'function now(){delay=2000;retry()}' +
+  'addEventListener("online",now);document.addEventListener("visibilitychange",now);later()})();' +
+  '</script></body></html>';
+
+function offlineFrame() {
+  return new Response(OFFLINE_FRAME, {
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
+
 function storeShell(cache, key, response, body) {
   const bytes = new TextEncoder().encode(body).byteLength;
   if (bytes > MAX_SHELL_ENTRY_BYTES) return Promise.resolve(false);
@@ -141,7 +166,7 @@ async function shellFirst(request) {
   if (result.response) return { response: result.response, maintenance: null };
   // Offline, a retained shell is still preferable to losing the whole app.
   if (hit) return { response: hit, maintenance: null };
-  throw result.error;
+  return { response: offlineFrame(), maintenance: null };
 }
 
 /** The page may start listening after the refresh finished. Compare its

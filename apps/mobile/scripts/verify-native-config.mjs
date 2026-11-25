@@ -113,27 +113,23 @@ check(
     read(`${javaDir}MixdogWebViewClient.java`).includes('shouldOverrideUrlLoading'),
   'android navigation guard'
 );
-// A failed relay page is brought back by the reconnect screen, not left on the
-// browser's error page; the network trigger needs the network-state permission
-// and both languages need the screen's strings.
+// A failed relay page is brought back under a cover, not left on the browser's
+// error page; the network trigger needs the network-state permission. The cover
+// is the app's background alone (#111): no text, no spinner, no button.
 check(
   read(`${javaDir}MixdogWebViewClient.java`).includes('onReceivedError') && mainActivity.includes('MixdogReconnect'),
   'android reconnect hooks'
 );
 check(manifest.includes('android.permission.ACCESS_NETWORK_STATE'), 'manifest ACCESS_NETWORK_STATE');
-for (const folder of ['values', 'values-ko']) {
-  const strings = read(`android/app/src/main/res/${folder}/strings.xml`);
-  for (const name of [
-    'reconnect_connecting',
-    'reconnect_connecting_sub',
-    'reconnect_failed',
-    'reconnect_failed_sub',
-    'reconnect_button',
-    'reconnect_other',
-  ]) {
-    check(strings.includes(`name="${name}"`), `android ${folder} string ${name}`);
-  }
-}
+const offlineCover = read('android/app/src/main/res/layout/mixdog_reconnect.xml');
+check(
+  offlineCover.includes('android:background="@color/mixdogOfflineFrame"') &&
+    !/<(TextView|ProgressBar|Button|ImageView)\b/u.test(offlineCover) &&
+    /<color name="mixdogOfflineFrame">#111111<\/color>/u.test(
+      read('android/app/src/main/res/values/mixdog_colors.xml')
+    ),
+  'android offline cover is the app background alone'
+);
 // Soft keyboard: adjustResize on older releases; under Android 15+ edge-to-edge
 // MainActivity fits the WebView to the IME insets itself, as the single owner.
 check(manifest.includes('android:windowSoftInputMode="adjustResize"'), 'manifest adjustResize');

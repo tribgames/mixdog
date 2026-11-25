@@ -298,7 +298,11 @@ test('initialize refusal preserves which side is out of date without retrying', 
     far.start();
     const init = await far.next();
     assert.equal(init.method, 'initialize');
-    assert.deepEqual(init.params.capabilities.toolOutput, REMOTE_TOOL_OUTPUT_DISPLAY, 'the phone says what it shows of a tool output');
+    assert.deepEqual(
+      init.params.capabilities.toolOutput,
+      REMOTE_TOOL_OUTPUT_DISPLAY,
+      'the phone says what it shows of a tool output'
+    );
     await far.send({
       id: init.id,
       error: {
@@ -470,6 +474,33 @@ test('a wake before the first connection cuts the redial wait short', async () =
   link!.wake();
   await new Promise((r) => setTimeout(r, 30));
   assert.ok(made >= 3, 'the wake released the wait');
+  controller.abort();
+  await assert.rejects(pending);
+});
+
+test('each redial wait is announced with its length; an immediate retry is not', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const controller = new AbortController();
+  const waits: number[] = [];
+  let made = 0;
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => {
+      made++;
+      return refusedSocket();
+    },
+    signal: controller.signal,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    redialIn: (ms) => waits.push(ms),
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(made, 2, 'the first retry of the outage left at once');
+  // createRedialSchedule: the second wait is drawn from [REDIAL_MIN_MS, 2 × REDIAL_MIN_MS]; random 0.5 is its middle.
+  assert.deepEqual(waits, [750]);
   controller.abort();
   await assert.rejects(pending);
 });
@@ -911,4 +942,3 @@ test('a followed thread with no mounted conversation still has its window kept a
   assert.ok(sent.some((frame) => frame.method === 'thread/window/set'));
   await phone.client.close();
 });
-

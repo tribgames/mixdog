@@ -16,9 +16,10 @@ import java.util.HashMap;
 /**
  * Top-level navigation is limited to the bundled pairing screen and the saved
  * relay origins; any other http(s) link opens in the system browser. (There is
- * no wildcard `allowNavigation`: see OriginPolicy.) A transient main-frame
- * failure of a relay page is handed to MixdogReconnect instead of being left on
- * the browser's error page.
+ * no wildcard `allowNavigation`: see OriginPolicy.) A main-frame failure of a
+ * relay page is handed to MixdogReconnect instead of being left on the
+ * browser's error page. A navigation the relay's service worker answers never
+ * reports an error here; the worker itself answers it (sw-shell.js).
  */
 public class MixdogWebViewClient extends BridgeWebViewClient {
   private final MixdogReconnect reconnect;
@@ -86,7 +87,7 @@ public class MixdogWebViewClient extends BridgeWebViewClient {
     reconnect.onPageFinished(url);
   }
 
-  // The error page itself is covered by the reconnect screen, never shown.
+  // The error page itself is covered by the app's empty background, never shown.
   @Override
   public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
     super.onReceivedError(view, request, error);

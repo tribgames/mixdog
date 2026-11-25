@@ -6,12 +6,13 @@ import java.util.Set;
 /**
  * What the app does when the main-frame load of a relay page fails (Wi-Fi/LTE
  * switch, resume after a long background, relay restart, DNS hiccup): the
- * bundled "connecting" screen stays up and the same URL is reloaded after a
- * bounded backoff, at once when the network returns or the app comes back to
- * the foreground, and on the screen's button once the backoff gave up. Only an
- * allowed relay URL is ever reloaded (NavigationPolicy) and a genuine 4xx or a
- * blocked redirect never schedules anything. Pure JDK (no Android types),
- * pinned by npm run test:java; MixdogReconnect owns the timers and the views.
+ * app's empty background covers the error page and the same URL is reloaded
+ * after a backoff that never runs out (the frame has nothing to press), and at
+ * once when the network returns or the app comes back to the foreground. Only
+ * an allowed relay URL is ever reloaded (NavigationPolicy); a genuine 4xx is
+ * left as it is, and a blocked redirect or a failure waiting cannot fix
+ * schedules nothing. Pure JDK (no Android types), pinned by npm run test:java;
+ * MixdogReconnect owns the timers and the views.
  */
 final class ReconnectState {
   enum Phase {
@@ -21,14 +22,12 @@ final class ReconnectState {
     WAITING,
     /** A reload this class asked for is in flight. */
     LOADING,
-    /** The backoff ran out (or the reload was refused): only the button retries. */
+    /** The reload was refused, or the failure is one waiting cannot fix: only the network, the foreground or Back act. */
     GAVE_UP
   }
 
   static final long FIRST_DELAY_MS = 2_000;
   static final long MAX_DELAY_MS = 30_000;
-  /** Automatic reloads per failure episode: 2s, 4s, 8s, 16s, then 30s each (about 2.5 minutes). */
-  static final int MAX_RELOADS = 8;
 
   private Phase phase = Phase.IDLE;
   private String url = "";
@@ -47,8 +46,9 @@ final class ReconnectState {
 
   /**
    * WebViewClient.ERROR_* (main frame) that waiting can fix. net::ERR_FAILED is
-   * ERROR_UNKNOWN: it is what a service worker's rejected navigation fetch
-   * looks like, so a plain network failure arrives under that code.
+   * ERROR_UNKNOWN, the code several plain network failures arrive under. (A
+   * navigation a service worker answers reports no error at all: sw-shell.js
+   * answers it with the same empty background instead of rejecting.)
    */
   static boolean isTransientError(int errorCode) {
     switch (errorCode) {
@@ -90,20 +90,27 @@ final class ReconnectState {
   /**
    * A transient main-frame failure of an allowed relay URL. The reload target
    * is the first URL of the episode. Returns the wait before the next automatic
-   * reload, or -1 once the backoff is spent (the button takes over).
+   * reload, or -1 when the episode no longer reloads by itself.
    */
   long failed(String failedUrl) {
+    begin(failedUrl);
+    if (phase == Phase.GAVE_UP) return -1;
+    phase = Phase.WAITING;
+    return delayMs(reloads);
+  }
+
+  /** A main-frame failure of an allowed relay URL that waiting cannot fix: covered all the same, with no timer. */
+  void failedPermanently(String failedUrl) {
+    begin(failedUrl);
+    phase = Phase.GAVE_UP;
+  }
+
+  private void begin(String failedUrl) {
     if (phase == Phase.IDLE) {
       url = failedUrl;
       reloads = 0;
     }
     origins.add(OriginPolicy.originOf(failedUrl));
-    if (reloads >= MAX_RELOADS) {
-      phase = Phase.GAVE_UP;
-      return -1;
-    }
-    phase = Phase.WAITING;
-    return delayMs(reloads);
   }
 
   /** The backoff timer fired: the URL to reload, or null if the state moved on. */
@@ -112,9 +119,9 @@ final class ReconnectState {
   }
 
   /**
-   * The network returned, the app is in the foreground, or the user pressed
-   * the button: reload now with a fresh backoff. Null when nothing is waiting
-   * (a reload already in flight is left alone).
+   * The network returned or the app is in the foreground: reload now with a
+   * fresh backoff. Null when nothing is waiting (a reload already in flight is
+   * left alone).
    */
   String retryNow() {
     if (phase != Phase.WAITING && phase != Phase.GAVE_UP) return null;
@@ -133,7 +140,6 @@ final class ReconnectState {
   void blocked(String blockedUrl) {
     if (phase != Phase.LOADING || OriginPolicy.originOf(blockedUrl) == null) return;
     phase = Phase.GAVE_UP;
-    reloads = MAX_RELOADS;
   }
 
   /** A URL with no origin (about:blank, null) is not a navigation anyone chose. */

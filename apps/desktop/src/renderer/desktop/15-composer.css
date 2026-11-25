@@ -1349,8 +1349,9 @@ ul.composer-island-jobs > .composer-island-row {
 }
 /* The quota banner: one pill line in the island's material at the
    composer's width, between the island and the prompt input. Only the icon
-   carries the warning hue. */
-.composer-quota-card {
+   carries the warning hue. A relay surface's connection line is the same row. */
+.composer-quota-card,
+.composer-connection-line {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1425,8 +1426,49 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
   animation: var(--mx-motion-spin);
 }
+/* The connection line (RemoteConnectionBanner): its icon carries the state's
+   hue, the title and the redial countdown share one line that gives way at
+   its end, and the buttons are the quota banner's pills. */
+.composer-connection-line-icon {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.composer-connection-line[data-phase="connecting"] .composer-connection-line-icon {
+  animation: var(--mx-motion-spin);
+}
+.composer-connection-line[data-phase="failed"] .composer-connection-line-icon {
+  color: var(--mx-warning);
+}
+.composer-connection-line[data-phase="reconnected"] .composer-connection-line-icon {
+  color: var(--mx-success);
+}
+.composer-connection-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-connection-line-title {
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-connection-line-note {
+  margin-inline-start: 6px;
+  color: var(--mx-text-muted);
+}
+.composer-connection-line .composer-connection-line-button {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-connection-line .composer-connection-line-button[data-quiet="true"] {
+  box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .composer-quota-card,
+  .composer-connection-line,
+  .composer-connection-line[data-phase="connecting"] .composer-connection-line-icon,
   .composer-quota-card-resume[data-reserved="true"] .composer-quota-card-resume-icon {
     animation: none;
   }

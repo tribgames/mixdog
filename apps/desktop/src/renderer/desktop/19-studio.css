@@ -1173,52 +1173,21 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
   font-size: 13px;
   color: var(--mx-text-soft);
 }
-/* A relay surface whose PC never answered at boot (RemoteConnectionBanner):
-   the loading mark gives way to a plain state over the same band. */
-.remote-unreachable {
+/* A relay surface whose PC has not answered at boot (RemoteConnectionBanner):
+   the connection line stands where the composer will be, over the same band. */
+.remote-boot-line {
   position: absolute;
-  inset: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: calc(env(safe-area-inset-top, 0px) + 24px) 20px calc(env(safe-area-inset-bottom, 0px) + 24px);
-  background: var(--mx-window-band);
-  color: var(--mx-text);
-  text-align: center;
+  padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
-.remote-unreachable-title {
-  margin: 0;
-  font-size: var(--mx-font-page-title);
-  font-weight: 700;
-  line-height: 1.4;
-}
-.remote-unreachable-sub {
-  max-width: 340px;
-  margin: 0 0 16px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-body);
-  line-height: 1.5;
-  word-break: keep-all;
-}
-.remote-unreachable-btn {
+.remote-boot-line > .composer-connection-line {
   width: 100%;
-  max-width: 340px;
-  min-height: 48px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--mx-text);
-  color: var(--mx-window-band);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-.remote-unreachable-btn.sec {
-  min-height: 44px;
-  background: transparent;
-  color: var(--mx-text-muted);
+  max-width: 720px;
+  margin-bottom: 0;
 }
 /* Native/PWA splash and the in-app watermark use different coordinate
    spaces. Never show both marks at once: the cover exits first, then the

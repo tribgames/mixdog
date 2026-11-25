@@ -343,7 +343,12 @@ self.addEventListener('fetch', (event) => {
   }
   if (request.mode === 'navigate') {
     const operation = shellFirst(request);
-    event.respondWith(operation.then((result) => result.response).catch(() => fetch(request)));
+    event.respondWith(
+      operation
+        .then((result) => result.response)
+        .catch(() => fetch(request))
+        .catch(() => offlineFrame())
+    );
     // Every launch re-states where the app lives, so a notification opened
     // months later still targets the route this install was made from.
     event.waitUntil(

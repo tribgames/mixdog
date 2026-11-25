@@ -40,6 +40,8 @@ export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
   readonly screen?: ScreenSource;
   /** Every socket end, after the phone has taken its own decisions from it (terminal states, redial pacing). */
   readonly onClose?: (code: number, reason: string, info: CloseInfo) => void;
+  /** A redial waits out `ms` (a backoff timer; an immediate retry says nothing); the next `dialing` ends the wait. */
+  readonly redialIn?: (ms: number) => void;
 }
 
 export interface PhoneClient {
@@ -139,6 +141,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       const away = (): boolean => (options.visible ? !options.visible() : false);
       // A silent redial runs inside the close handler, ahead of whatever the close settles; any other redial is a timer, however short.
       if (silentRedial && ms === 0 && !away()) return done();
+      if (ms > 0) options.redialIn?.(ms);
       const finish = (): void => {
         clearTimeout(timer);
         sleepers.delete(finish);
@@ -279,4 +282,3 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   const screen = options.screen ? createScreenReporter(client, options.screen) : undefined;
   return { client, link, ...(screen ? { screen } : {}) };
 }
-

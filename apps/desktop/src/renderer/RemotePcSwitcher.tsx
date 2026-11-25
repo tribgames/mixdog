@@ -18,6 +18,7 @@ import { relativeWhen } from './settings/relative-when';
 import { useRemoteAccessSettings } from './settings/remote-access-settings';
 import { useRemoteHostName } from './remote-host-access';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
+import { useRemoteConnectionLine } from './RemoteConnectionBanner';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { desktopConnection } from './desktop-connection';
 import { useConnectionLink } from './connection-link-store';
@@ -117,16 +118,28 @@ function useRemotePcs(reloadOn: unknown = false) {
   };
 }
 
-/** Connection dot: green while the link to the PC is alive, grey otherwise. */
-function PcDot({ connected, className = 'remote-pc-dot' }: { connected: boolean; className?: string }) {
-  return <i className={`${className}${connected ? '' : ' off'}`} aria-hidden="true" />;
+/** Connection dot: green while the link to the PC is alive, grey otherwise, amber once the connection line says it failed. */
+function PcDot({
+  connected,
+  failed = false,
+  className = 'remote-pc-dot',
+}: {
+  connected: boolean;
+  failed?: boolean;
+  className?: string;
+}) {
+  let state = '';
+  if (failed) state = ' warn';
+  else if (!connected) state = ' off';
+  return <i className={`${className}${state}`} aria-hidden="true" />;
 }
 
 /** Small dot on the phone brand button (bottom-right) — a remote surface only. */
 export function RemotePcBrandDot() {
   const { remote, connected } = useRemotePcs();
+  const { phase } = useRemoteConnectionLine();
   if (!remote) return null;
-  return <PcDot connected={connected} className="workspace-tab-home-dot" />;
+  return <PcDot connected={connected} failed={phase === 'failed'} className="workspace-tab-home-dot" />;
 }
 
 /** "● <PC name>" label: settings group header and page badge. */
