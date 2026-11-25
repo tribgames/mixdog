@@ -556,9 +556,11 @@ async fn serve_stream(
     let mut session = Session::new(server.script, Arc::clone(&server.stats), Reply::Stream(queue));
     let mut decoder = TurnStreamDecoder::new();
     let mut buffer = vec![0u8; 4096];
+    // Made once: a drop told while a message is being served, outside the select, is still seen.
+    let mut dropped = std::pin::pin!(dropped.notified());
     'stream: loop {
         let length = tokio::select! {
-            () = dropped.notified() => break,
+            () = dropped.as_mut() => break,
             read = reader.read(&mut buffer) => match read {
                 Ok(0) | Err(_) => break,
                 Ok(length) => length,
