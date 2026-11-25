@@ -111,18 +111,21 @@ fn members(job: HANDLE) -> Option<Vec<Member>> {
 /// After a root that ended on its own: a job left holding nothing but console hosts and processes already exiting is
 /// waited on until every one has exited, or for `deadline` at most; a job holding anything else has survivors and is not
 /// waited on. `before_wait` runs
-/// once it is known there are hosts to wait for. True when it waited for them.
+/// once it is known there are hosts to wait for. True when the job held nothing but processes on their way out, whether
+/// waited for here or already signalled: the job may count them a moment longer.
 pub(crate) fn settle(job: HANDLE, deadline: Duration, before_wait: impl FnOnce()) -> bool {
     let Some(mut members) = members(job) else {
         return false;
     };
     // A member that already signalled its exit is leaving the job and is no survivor.
     members.retain(|member| !member.exited());
-    if members.is_empty() || members.len() > MAXIMUM_WAIT_OBJECTS || !members.iter().all(Member::may_be_exiting_host) {
+    if members.len() > MAXIMUM_WAIT_OBJECTS || !members.iter().all(Member::may_be_exiting_host) {
         return false;
     }
-    before_wait();
-    let handles: Vec<HANDLE> = members.iter().map(|m| m.0).collect();
-    unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 1, deadline.as_millis() as u32) };
+    if !members.is_empty() {
+        before_wait();
+        let handles: Vec<HANDLE> = members.iter().map(|m| m.0).collect();
+        unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 1, deadline.as_millis() as u32) };
+    }
     true
 }
