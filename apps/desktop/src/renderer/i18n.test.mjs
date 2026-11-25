@@ -121,11 +121,18 @@ test('a disambiguated key never shows its "Island:" context in any language', ()
   assert.deepEqual(leaked, []);
 });
 
-// 커맨드 is the app's Korean word for a command; translation passes have put 명령 or 명령어 back several times.
-test('the Korean catalog calls a command 커맨드, never 명령', () => {
+// 커맨드 is the app's Korean word for a command; translation passes have changed it several times.
+test('the Korean catalog calls a command 커맨드', () => {
   const catalog = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
-  const other = Object.entries(catalog).filter(([, value]) => typeof value === 'string' && value.includes('명령'));
-  assert.deepEqual(other, []);
+  // {{command}} is the command itself and Command Code a product name, not the word.
+  const mentions = Object.entries(catalog).filter(([key]) =>
+    /\bcommands?\b/i.test(key.replaceAll(/\{\{\w+\}\}/g, '').replaceAll('Command Code', ''))
+  );
+  assert.ok(mentions.length > 0);
+  assert.deepEqual(
+    mentions.filter(([, value]) => !value.includes('커맨드')),
+    []
+  );
 });
 
 test('the bundled workflow description is translated in every supported UI language', async () => {
