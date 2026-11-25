@@ -1,5 +1,5 @@
 import { errorMessage } from './editor-pane-session-errors';
-import { Check, ChevronDown, ChevronUp, GripVertical, Pencil, RefreshCw } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Pencil, RefreshCw } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -461,6 +461,7 @@ function usePointerReorder(
   { drag, setDrag, listRef }: PointerReorderState
 ) {
   const gesture = useRef<DragState | null>(null);
+  const handle = useRef<HTMLElement | null>(null);
   const liftedRow = useRef<HTMLElement | null>(null);
   const frame = useRef(0);
   const paintLift = () => {
@@ -469,12 +470,15 @@ function usePointerReorder(
     if (state?.moved && liftedRow.current)
       liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
   };
-  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>, index: number, id: string) => {
-    if (pending || event.button !== 0 || !pool) return;
+  const beginDrag = (event: ReactPointerEvent<HTMLElement>, index: number, id: string) => {
+    if (pending || event.pointerType !== 'mouse' || event.button !== 0 || !pool) return;
+    const target = event.target as Element;
+    // Portalled popups (the sign-in flow) bubble here through React; only the row's own DOM drags.
+    if (!event.currentTarget.contains(target) || target.closest('.settings-resource-actions, input')) return;
     const row = event.currentTarget.closest<HTMLElement>('li');
     if (!row) return;
     const rect = row.getBoundingClientRect();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    handle.current = event.currentTarget;
     liftedRow.current = row;
     gesture.current = {
       id,
@@ -487,11 +491,21 @@ function usePointerReorder(
       moved: false,
     };
   };
-  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const moveDrag = (event: ReactPointerEvent<HTMLElement>) => {
     const state = gesture.current;
     if (!state || !pool || !listRef.current) return;
+    // Released outside every row before the drag began: that press is over.
+    if (!(event.buttons & 1)) {
+      clearGesture();
+      return;
+    }
     const moved = state.moved || Math.abs(event.clientY - state.startY) > DRAG_THRESHOLD_PX;
     if (!moved) return;
+    if (!state.moved) {
+      // Captured only now, so a press that never moves stays a click on what it pressed.
+      handle.current?.setPointerCapture(event.pointerId);
+      window.getSelection()?.removeAllRanges();
+    }
     // Target slot from the lifted row's CENTER against the list's row grid.
     const listTop = listRef.current.getBoundingClientRect().top;
     const center = event.clientY - state.offset + state.rowHeight / 2 - listTop;
@@ -522,14 +536,15 @@ function usePointerReorder(
     }
     if (liftedRow.current) liftedRow.current.style.transform = '';
     liftedRow.current = null;
+    handle.current = null;
     gesture.current = null;
     setDrag(null);
   };
-  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
     const state = gesture.current;
     if (!state) return;
     try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+      handle.current?.releasePointerCapture(event.pointerId);
     } catch {
       /* already released */
     }
@@ -542,10 +557,14 @@ function usePointerReorder(
   useEffect(() => {
     if (!dragging) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') clearGesture();
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      clearGesture();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Window capture runs ahead of Settings' own Escape (document capture), which would close the page under the drag.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [dragging]);
   useEffect(
     () => () => {
@@ -800,26 +819,21 @@ export function ProviderAccountsList({
                 .join(' ')}
               style={rowStyle(index)}
             >
-              <div className="provider-account-row">
-                <button
-                  type="button"
-                  className="provider-account-grip"
-                  disabled={pending}
-                  aria-label={t('Reorder account {{name}}', { name: account.label })}
-                  title={t('Drag or use Alt + arrow keys to reorder')}
-                  onPointerDown={(event) => beginDrag(event, index, account.id)}
-                  onPointerMove={moveDrag}
-                  onPointerUp={endDrag}
-                  onPointerCancel={clearGesture}
-                  onKeyDown={(event) => {
-                    if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-                    event.preventDefault();
-                    const to = index + (event.key === 'ArrowUp' ? -1 : 1);
-                    if (to >= 0 && to < pool.accounts.length) reorder(index, to);
-                  }}
-                >
-                  <GripVertical size={14} aria-hidden="true" />
-                </button>
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: the row's own controls stay the interactive elements; the row adds only the mouse drag and Alt+arrow from whichever of them has focus. */}
+              <div
+                className="provider-account-row"
+                onPointerDown={(event) => beginDrag(event, index, account.id)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={clearGesture}
+                onKeyDown={(event) => {
+                  if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                  if (!event.currentTarget.contains(event.target as Node)) return;
+                  event.preventDefault();
+                  const to = index + (event.key === 'ArrowUp' ? -1 : 1);
+                  if (to >= 0 && to < pool.accounts.length) reorder(index, to);
+                }}
+              >
                 {listOnly && (
                   <button
                     type="button"

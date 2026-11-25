@@ -274,8 +274,7 @@ html[data-mixdog-mobile-tabs] .agent-instruction-head > button,
 html[data-mixdog-mobile-tabs] .settings-feedback-attach,
 html[data-mixdog-mobile-tabs] .settings-feedback-kinds label,
 html[data-mixdog-mobile-tabs] .settings-changelog-list button[aria-expanded],
-html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button,
-html[data-mixdog-mobile-tabs] .provider-account-grip {
+html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button {
   min-height: var(--mx-touch-min);
 }
 html[data-mixdog-mobile-tabs]
