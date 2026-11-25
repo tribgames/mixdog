@@ -230,6 +230,14 @@ fn plain(status: StatusCode) -> Reply {
     response
 }
 
+/// A refusal is sent once the request's body has been read, and dropped, as an accepted request's is. A connection
+/// that closes with request bytes unread is reset, and a reset that reaches the client before it reads takes the
+/// refusal with it (RFC 9112 §9.6); a body written after its head can arrive after the refusal was sent.
+async fn refused(mut body: Body, status: StatusCode) -> Reply {
+    while let Some(Ok(_)) = body.frame().await {}
+    plain(status)
+}
+
 fn answered(message: Value) -> Reply {
     let mut response = Response::new(Full::new(Bytes::from(message.to_string())));
     response.headers_mut().insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
@@ -311,15 +319,18 @@ impl Served {
     async fn handle(&self, request: Request<Body>) -> Reply {
         let bearer = request.headers().get(header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "));
         // A page in a browser can reach a loopback port; it cannot leave out its `Origin`, and the agent sends none.
-        if bearer != Some(self.token.as_str()) || request.headers().contains_key(header::ORIGIN) {
-            return plain(StatusCode::UNAUTHORIZED);
-        }
-        if request.uri().path() != "/mcp" {
-            return plain(StatusCode::NOT_FOUND);
-        }
-        // The server sends nothing of its own, so it offers no stream to listen on.
-        if request.method() != Method::POST {
-            return plain(StatusCode::METHOD_NOT_ALLOWED);
+        let refusal = if bearer != Some(self.token.as_str()) || request.headers().contains_key(header::ORIGIN) {
+            Some(StatusCode::UNAUTHORIZED)
+        } else if request.uri().path() != "/mcp" {
+            Some(StatusCode::NOT_FOUND)
+        } else if request.method() != Method::POST {
+            // The server sends nothing of its own, so it offers no stream to listen on.
+            Some(StatusCode::METHOD_NOT_ALLOWED)
+        } else {
+            None
+        };
+        if let Some(status) = refusal {
+            return refused(request.into_body(), status).await;
         }
         let Ok(body) = request.into_body().collect().await else { return plain(StatusCode::BAD_REQUEST) };
         let Ok(message) = serde_json::from_slice::<Value>(&body.to_bytes()) else {
