@@ -27,21 +27,24 @@ impl ShellWork for ExecRuntime {
 
 pub struct ProcessWork {
     board: JobBoard,
+    /// The tool calls that went on in the background ([`JobBoard::of_tool_calls`]).
+    calls: JobBoard,
     shell: Arc<dyn ShellWork>,
 }
 
 impl ProcessWork {
-    pub fn new(board: JobBoard, exec: Arc<ExecRuntime>) -> Self {
-        Self { board, shell: exec }
+    pub fn new(board: JobBoard, calls: JobBoard, exec: Arc<ExecRuntime>) -> Self {
+        Self { board, calls, shell: exec }
     }
 }
 
 #[async_trait]
 impl RunningWork for ProcessWork {
-    /// Only the two surfaces the guards ask about exist here; an agent job is never `detached`.
+    /// Only the surfaces the guards ask about exist here; an agent job and a tool call are never `detached`.
     async fn has_active(&self, session_id: &str, surface: &str, awaited_only: bool) -> bool {
         match surface {
             "agent" => self.board.has_running(session_id),
+            "tool" => self.calls.has_running(session_id),
             "shell" => self.shell.has_active(&ThreadId::from(session_id), awaited_only),
             _ => false,
         }
@@ -83,7 +86,7 @@ mod tests {
             }
         }
         let board = JobBoard::new(Arc::new(Fixed), None, None);
-        let work = ProcessWork { board: board.clone(), shell: Arc::new(NoShell) };
+        let work = ProcessWork { board: board.clone(), calls: JobBoard::of_tool_calls(Arc::new(Fixed), None), shell: Arc::new(NoShell) };
         assert!(!awaiting_background_work(&work, "s1").await);
         let started = board.register(job(Some("s1"), None)).expect("register");
         board.register(job(None, Some("s2"))).expect("register");

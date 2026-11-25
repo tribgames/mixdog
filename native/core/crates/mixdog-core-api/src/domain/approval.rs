@@ -137,4 +137,12 @@ pub struct ApprovalRequest {
 #[async_trait]
 pub trait ApprovalGate: Send + Sync {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution;
+
+    /// The asking run's call `call_id` goes on past the run in the background: what it waits on now and what it asks
+    /// later stay open for the person after the run ends. Taken before the run's end. A gate of no run ignores it.
+    async fn let_go(&self, _call_id: &str) {}
+
+    /// The call `call_id` the run let go of ([`Self::let_go`]) has ended, however it ended (a cancel of it included): what
+    /// it still asks is closed for the person, and it asks nothing more. A gate of no run ignores it.
+    async fn released(&self, _call_id: &str) {}
 }

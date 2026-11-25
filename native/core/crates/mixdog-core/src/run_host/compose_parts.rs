@@ -201,6 +201,8 @@ pub struct EarlyIn {
     pub threads: Arc<dyn ThreadState>,
     pub clock: Arc<dyn mixdog_core_session::session::Clock>,
     pub board: JobBoard,
+    /// The tool calls that went on in the background ([`JobBoard::of_tool_calls`]).
+    pub calls: JobBoard,
     pub exec: Arc<ExecRuntime>,
 }
 
@@ -243,7 +245,7 @@ pub fn early_rows(input: EarlyIn) -> EarlyRows {
     let goal_titles = Arc::new(LateGoalTitles::default());
     EarlyRows {
         todos: Arc::new(ThreadTodos::new(input.threads, input.clock)),
-        work: Arc::new(ProcessWork::new(input.board, input.exec)),
+        work: Arc::new(ProcessWork::new(input.board, input.calls, input.exec)),
         goals: Arc::new(goal_runtime(&input.data_dir, input.durability, goal_titles.clone())),
         goal_titles,
     }

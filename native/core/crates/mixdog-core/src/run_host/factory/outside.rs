@@ -512,7 +512,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     // The guard state that outlives one turn lives on the session record, as the loop leaves it, and so does the turn's
     // result as its owner gets it: the last text the turn committed. A turn that did not finish, or committed no text,
     // leaves none, so the stored readers fall back to the rows.
-    let mut set = calls.repeat_saved().await;
+    let mut set = calls.repeat_saved();
     if let Some(check) = guards.saved() {
         set.insert("todoCheck".to_owned(), check);
     }

@@ -45,6 +45,26 @@ const TASK_TTL_MS: i64 = 30 * 60_000;
 const MAX_TASKS: usize = 300;
 const CANCEL_NOTIFY_GRACE: Duration = Duration::from_secs(10);
 
+/// What a board's rows are, which their ids, views and completions say.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum JobKind {
+    /// The agent tool's jobs.
+    Agent,
+    /// Calls of Mixdog's tools that an agent outside the loop made and that went on in the background past the time it
+    /// waits for a call: a row's operation is the tool it calls.
+    ToolCall,
+}
+
+impl JobKind {
+    /// The execution surface the rows are listed, read and delivered under.
+    pub fn surface(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::ToolCall => "tool",
+        }
+    }
+}
+
 /// The identity fields a job shows (the task's sanitized `meta`).
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct JobMeta {
@@ -272,6 +292,11 @@ fn field(name: &str, value: &str) -> String {
 /// `renderAgentCompletionEnvelope`.
 pub fn render_agent_completion(task_id: &str, tag: &str, status: &str, result: &str, error: &str, detail: &str) -> String {
     let who = if tag.is_empty() { task_id } else { tag };
+    render_completion(task_id, tag, status, &format!("Agent \"{who}\""), result, error, detail)
+}
+
+/// The `<task-notification>` of a finished row whose summary names it as `subject`.
+fn render_completion(task_id: &str, tag: &str, status: &str, subject: &str, result: &str, error: &str, detail: &str) -> String {
     let outcome = if matches!(status, "cancelled" | "canceled") {
         "was cancelled"
     } else if status.is_empty() {
@@ -285,7 +310,7 @@ pub fn render_agent_completion(task_id: &str, tag: &str, status: &str, result: &
         lines.push(field("tag", tag));
     }
     lines.push(field("status", status));
-    lines.push(field("summary", &format!("Agent \"{who}\" {outcome}{detail}")));
+    lines.push(field("summary", &format!("{subject} {outcome}{detail}")));
     if !result.is_empty() {
         lines.push(format!("<result>\n{result}\n</result>"));
     }
@@ -313,8 +338,13 @@ fn body_of(task: &Record) -> String {
     }
 }
 
-/// `renderBackgroundTaskNotification` for the agent surface.
-fn notification_of(task: &Record) -> String {
+/// `renderBackgroundTaskNotification` for the board's surface. A tool call's reads as that tool's call, with its result.
+fn notification_of(kind: JobKind, task: &Record) -> String {
+    if kind == JobKind::ToolCall {
+        let error = task.error.as_deref().unwrap_or_default();
+        let detail = if task.status == "cancelled" { error } else { "" };
+        return render_completion(&task.task_id, "", &task.status, &format!("Tool call \"{}\"", task.operation), &body_of(task), error, detail);
+    }
     // An agent's authored `content` is the notification's body; the renderer serves views only.
     let authored = task.result.as_ref().filter(|result| matches!(result, TaskResult::Json(_))).and_then(TaskResult::content).map(str::to_owned);
     let body = authored.unwrap_or_else(|| body_of(task));
@@ -388,6 +418,7 @@ fn claim_tag(state: &mut State, task_id: &str) {
 }
 
 struct Inner {
+    kind: JobKind,
     clock: Arc<dyn Clock>,
     notifier: Option<Arc<dyn TaskNotifier>>,
     on_change: Option<NameListener>,
@@ -434,8 +465,19 @@ impl JobBoard {
     /// `on_change(owner_session_id)` runs when a row is added or finishes (the session
     /// activity signal).
     pub fn new(clock: Arc<dyn Clock>, notifier: Option<Arc<dyn TaskNotifier>>, on_change: Option<NameListener>) -> Self {
+        Self::of(JobKind::Agent, clock, notifier, on_change)
+    }
+
+    /// The table of the tool calls of agents outside the loop that went on in the background ([`JobKind::ToolCall`]):
+    /// a finished call is delivered through `notifier` to the session that made it, as a finished agent job is.
+    pub fn of_tool_calls(clock: Arc<dyn Clock>, notifier: Option<Arc<dyn TaskNotifier>>) -> Self {
+        Self::of(JobKind::ToolCall, clock, notifier, None)
+    }
+
+    fn of(kind: JobKind, clock: Arc<dyn Clock>, notifier: Option<Arc<dyn TaskNotifier>>, on_change: Option<NameListener>) -> Self {
         Self {
             inner: Arc::new(Inner {
+                kind,
                 clock,
                 notifier,
                 on_change,
@@ -501,12 +543,13 @@ impl JobBoard {
                 listener(cwd);
             }
         }
+        let surface = self.inner.kind.surface();
         for out in effects.send {
             let delivering = Delivering { inner: self.inner.clone(), entry: (out.session.clone(), out.task_id.clone()) };
             let Some(notifier) = self.inner.notifier.clone() else { continue };
             drop(mixdog_rt::spawn("agent-job-notify", TaskClass::Work, async move {
                 let _delivering = delivering;
-                notifier.finished_at_hop(&ThreadId::from(out.session.as_str()), "agent", &out.task_id, &out.status, out.text, out.hop).await;
+                notifier.finished_at_hop(&ThreadId::from(out.session.as_str()), surface, &out.task_id, &out.status, out.text, out.hop).await;
             }));
         }
     }
@@ -553,7 +596,11 @@ impl JobBoard {
             Some(id) => Ok(id),
             None => loop {
                 state.seq += 1;
-                let id = format!("task_agent_{}_{}", base36(self.now().max(0) as u64), base36(state.seq));
+                let kind = match self.inner.kind {
+                    JobKind::Agent => "agent",
+                    JobKind::ToolCall => "call",
+                };
+                let id = format!("task_{kind}_{}_{}", base36(self.now().max(0) as u64), base36(state.seq));
                 if !exists(state, &id) {
                     break Ok(id);
                 }
@@ -826,7 +873,8 @@ impl JobBoard {
         }
         let (Some(session), Some(_)) = (task.notify_session.clone(), &self.inner.notifier) else { return false };
         self.inner.delivering.lock().unwrap_or_else(|p| p.into_inner()).push((session.clone(), task.task_id.clone()));
-        effects.send.push(Outgoing { session, task_id: task.task_id.clone(), status: task.status.clone(), text: notification_of(task), hop: task.hop });
+        let text = notification_of(self.inner.kind, task);
+        effects.send.push(Outgoing { session, task_id: task.task_id.clone(), status: task.status.clone(), text, hop: task.hop });
         task.notified = true;
         task.notified_with_body |= has_body;
         true
@@ -1059,13 +1107,15 @@ impl Tasks for JobBoard {
     }
 }
 
-/// `renderBackgroundTask(task, { includeResult: true })` of an agent row: the header, the identity meta the row carries
-/// (`publicTaskMeta`: unset values are left out) and the run's report.
-fn render_agent_task(task: &JobSnapshot) -> String {
+/// `renderBackgroundTask(task, { includeResult: true })` of a row of a `kind` board: the header (a tool call's names its
+/// tool), the identity meta the row carries (`publicTaskMeta`: unset values are left out) and the run's report.
+fn render_task(kind: JobKind, task: &JobSnapshot) -> String {
     use super::stamp::iso_from_ms;
-    let mut lines = vec!["background task".to_owned(), format!("task_id: {}", task.task_id), "surface: agent".to_owned()];
-    if !task.operation.is_empty() && task.operation != "agent" {
-        lines.push(format!("operation: {}", task.operation));
+    let mut lines = vec!["background task".to_owned(), format!("task_id: {}", task.task_id), format!("surface: {}", kind.surface())];
+    match kind {
+        JobKind::ToolCall => lines.push(format!("tool: {}", task.operation)),
+        JobKind::Agent if !task.operation.is_empty() && task.operation != "agent" => lines.push(format!("operation: {}", task.operation)),
+        JobKind::Agent => {}
     }
     if let Some(label) = task.label.as_deref().filter(|l| !l.is_empty()) {
         lines.push(format!("label: {label}"));
@@ -1115,10 +1165,27 @@ fn render_agent_task(task: &JobSnapshot) -> String {
     lines.join("\n")
 }
 
-/// The agent tool's rows as the `task` tool lists, reads, waits for and cancels them (Node `task-tool.mjs` over the
-/// `surface: 'agent'` rows of `background-tasks.mjs`).
+/// The images a row's structured result keeps beside its text (`images`: a tool call's, each `{ mimeType, data }` with the
+/// data in base64), as the parts a `task` read gives after the text.
+fn images_of(task: &JobSnapshot) -> Vec<mixdog_core_api::domain::tool::ToolPart> {
+    use base64::Engine;
+    let Some(TaskResult::Json(result)) = &task.result else { return Vec::new() };
+    let image = |image: &Value| {
+        let data = base64::engine::general_purpose::STANDARD.decode(image["data"].as_str()?).ok()?;
+        let mime = image["mimeType"].as_str()?.to_owned();
+        Some(mixdog_core_api::domain::tool::ToolPart::Image { mime, data: mixdog_core_api::domain::tool::ImageData::Bytes(data), width: None, height: None })
+    };
+    result["images"].as_array().into_iter().flatten().filter_map(image).collect()
+}
+
+/// The board's rows as the `task` tool lists, reads, waits for and cancels them (Node `task-tool.mjs` over the
+/// `surface: 'agent'` rows of `background-tasks.mjs`), under the board's surface.
 #[async_trait::async_trait]
 impl mixdog_tools::exec::AgentTasks for JobBoard {
+    fn surface(&self) -> &'static str {
+        self.inner.kind.surface()
+    }
+
     fn list(&self, owner: &ThreadId) -> Vec<mixdog_tools::exec::AgentTaskRow> {
         let scope = Scope { caller_session_id: Some(owner.as_str().to_owned()), host_pid: None };
         self.list_jobs(&scope)
@@ -1130,7 +1197,8 @@ impl mixdog_tools::exec::AgentTasks for JobBoard {
     fn view(&self, owner: &ThreadId, task_id: &str) -> Option<mixdog_tools::exec::AgentTaskView> {
         let scope = Scope { caller_session_id: Some(owner.as_str().to_owned()), host_pid: None };
         let task = JobBoard::get(self, task_id, &scope)?;
-        Some(mixdog_tools::exec::AgentTaskView { text: render_agent_task(&task), operation: task.operation, status: task.status })
+        let images = images_of(&task);
+        Some(mixdog_tools::exec::AgentTaskView { text: render_task(self.inner.kind, &task), operation: task.operation, status: task.status, images })
     }
 
     async fn settled(&self, task_id: &str) {

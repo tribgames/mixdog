@@ -23,6 +23,7 @@ use hyper::body::Incoming as Body;
 use hyper::header;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::handed::Handed;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::ToolKind;
@@ -54,7 +55,7 @@ impl Handover {
     /// The names of the tools the session's server lists now, in its order.
     pub async fn listed(&self) -> Result<Vec<String>, String> {
         let definitions = self.tools.definitions(&self.thread).await?;
-        Ok(definitions.into_iter().map(|tool| tool.name).chain([BATCH_TOOL.to_owned()]).collect())
+        Ok(definitions.into_iter().map(|tool| tool.name).collect())
     }
 }
 
@@ -67,106 +68,36 @@ const PROTOCOL_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The session's tool of the step list.
 pub const STEP_LIST_TOOL: &str = "todo";
 
-/// The tool the server lists besides the session's own: one call of it makes several calls of those. An agent's CLI
-/// makes its MCP calls one after another, each behind a safety check of seconds, so calls made together cost one check.
-pub const BATCH_TOOL: &str = "batch";
-
-/// The most calls one call of [`BATCH_TOOL`] carries: about twice the most an agent's model step was seen to make (17),
-/// a bound on how many calls one call starts together and on how many results one answer carries.
-pub const BATCH_LIMIT: usize = 32;
-
 /// The paragraph that follows Mixdog's own prompt in the agent's system prompt when it is handed the session's tools.
 pub const PREFERENCE: &str = "# Mixdog tools\nThis session runs inside Mixdog, which hands you its own tools through the MCP server `mixdog`. \
 Prefer those tools over your built-in ones wherever one of them does the job: their calls follow the user's Mixdog permissions and hooks, \
 and the user sees and reviews them in Mixdog. Use a built-in tool only for work no Mixdog tool covers.";
 
-/// [`PREFERENCE`], with what a separate Mixdog call costs the agent and how to make a step's calls in one.
+/// [`PREFERENCE`], with how to make a step's calls: the agent's CLI runs the calls of one model step one after another,
+/// each behind a safety check, so a step's items go into one call of a tool that takes them as an array; it shows about
+/// 10 KB of one MCP call's result and cuts the middle out of a longer one.
 pub fn preference() -> String {
     format!(
-        "{PREFERENCE}\nEach separate call of a Mixdog tool waits for a safety check of several seconds in your CLI before it runs. \
-Put every independent Mixdog call of a step into one call of the Mixdog tool `{BATCH_TOOL}`, as the items of its `calls` array, \
-instead of calling the tools one by one; call a Mixdog tool directly only when the step makes that one Mixdog call alone. \
-`read`, `grep` and `glob` each take several files or patterns as an array in one call: give them all to one call, never one call per file or pattern."
+        "{PREFERENCE}\nYour CLI runs the Mixdog calls of a step one after another, each behind its own safety check. Where a Mixdog tool \
+takes several items as an array (files or ranges for `read`, patterns or paths for `grep` and `glob`, queries for `web_search`, and so \
+on), give it all the items the step needs in one call instead of one call per item, and make the step's other calls that do not need \
+each other's results together in that step. Your CLI shows you about 10 KB of one Mixdog call's result and cuts the middle out of a \
+longer one: where a result comes back cut, get the part you need with narrower calls, such as a line range of the file, a narrower \
+search or one file's diff."
     )
 }
 
-/// [`BATCH_TOOL`] as the server lists it: a plain array of `{tool, arguments}` objects, each described in so many words.
-fn batch_definition() -> Value {
-    json!({
-        "name": BATCH_TOOL,
-        "description": format!(
-            "Make several calls of this server's other tools in one call. Your CLI runs a safety check of several seconds before each \
-    separate call of a Mixdog tool, and checks one call of `{BATCH_TOOL}` once for all the calls it carries: whenever a step makes two or more \
-    Mixdog calls that do not need each other's results, put them all in `calls` instead of calling the tools one by one. Calls of tools that \
-    only read (read, grep, glob, list) run at the same time; every other call runs alone, after the calls before it have ended, in the order \
-    given. Each call is checked, approved and run exactly as a direct call of its tool, and a refused or failed call does not stop the others. \
-    The result holds every call's result in the order given, each headed `[position/total] tool`, with `(failed)` after one that failed."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "calls": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": BATCH_LIMIT,
-                    "description": format!(
-                        "The calls, in the order they run: an array of objects, each {{\"tool\": \"<tool name>\", \"arguments\": {{<that tool's \
-    arguments>}}}}. Example: [{{\"tool\": \"grep\", \"arguments\": {{\"pattern\": \"fn main\", \"path\": \"src\"}}}}, {{\"tool\": \"glob\", \
-    \"arguments\": {{\"pattern\": \"**/*.toml\"}}}}]. At most {BATCH_LIMIT} calls."
-                    ),
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "tool": { "type": "string", "description": format!("The name of one tool of this server as it lists it, as `grep` or `edit`; never `{BATCH_TOOL}`.") },
-                            "arguments": { "type": "object", "description": "That tool's arguments, exactly as a direct call of it takes them; {} for none." },
-                        },
-                        "required": ["tool", "arguments"],
-                    },
-                },
-            },
-            "required": ["calls"],
-        },
-    })
-}
-
-/// One item of a call of [`BATCH_TOOL`]: the tool it names, and what it carries or why it makes no call.
-pub type BatchItem<T> = (String, Result<T, String>);
-
-/// The calls a call of [`BATCH_TOOL`] carries, in order: each item's tool, with its arguments or why the item makes no
-/// call. `Err` for arguments that carry no calls to make, or more than [`BATCH_LIMIT`].
-pub fn batch_items(arguments: &Value) -> Result<Vec<BatchItem<Value>>, String> {
-    let Some(items) = arguments.get("calls").and_then(Value::as_array) else {
-        return Err(format!("{BATCH_TOOL} takes `calls`: an array of {{\"tool\": <name>, \"arguments\": {{…}}}} objects."));
-    };
-    if items.is_empty() {
-        return Err("`calls` is empty: give it the calls to make.".to_owned());
-    }
-    if items.len() > BATCH_LIMIT {
-        return Err(format!("`calls` holds {} calls, and one call of {BATCH_TOOL} makes at most {BATCH_LIMIT}: split them over several.", items.len()));
-    }
-    Ok(items
-        .iter()
-        .map(|item| {
-            let tool = item.get("tool").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let arguments = match item.get("arguments") {
-                _ if tool.is_empty() => Err("The item names no `tool`.".to_owned()),
-                _ if tool == BATCH_TOOL => Err(format!("{BATCH_TOOL} does not carry a call of itself: put those calls in this call's `calls`.")),
-                None | Some(Value::Null) => Ok(json!({})),
-                Some(arguments @ Value::Object(_)) => Ok(arguments.clone()),
-                Some(_) => Err("`arguments` must be an object of that tool's arguments.".to_owned()),
-            };
-            (tool, arguments)
-        })
-        .collect())
-}
-
-/// The Mixdog session's side of the hand-over: what its server lists. A call runs in the turn it is made in
-/// ([`crate::turn::TurnContext::calls`]).
+/// The Mixdog session's side of the hand-over: what its server lists, and where a call goes on that outlasts the
+/// agent's deadline for it. A call runs in the turn it is made in ([`crate::turn::TurnContext::calls`]).
 #[async_trait]
 pub trait SessionTools: Send + Sync {
     /// The tool definitions a request of `thread` would send now: for a session on an agent, a bridge session's
-    /// (its directly defined tools, `load_tool` and `call_tool`). The agent is listed exactly these, and [`BATCH_TOOL`].
+    /// (its directly defined tools, `load_tool` and `call_tool`). The agent is listed exactly these.
     async fn definitions(&self, thread: &ThreadId) -> Result<Vec<ToolDefinition>, String>;
+
+    /// The table of the tool calls that went on in the background ([`JobBoard::of_tool_calls`]), which the sessions'
+    /// `task` tool reads and whose finished calls are delivered to their sessions.
+    fn tasks(&self) -> &JobBoard;
 }
 
 /// A call that never ran, answered with `why`.
@@ -178,6 +109,8 @@ pub fn unrun(call_id: &str, why: impl Into<String>) -> Handed {
 pub struct ToolAsk {
     pub name: String,
     pub arguments: Value,
+    /// When the server took the call: the agent's deadline for it runs from about then.
+    pub received: tokio::time::Instant,
     /// Takes the `tools/call` result.
     pub answer: oneshot::Sender<Value>,
 }
@@ -212,20 +145,38 @@ pub fn rendered(handed: &Handed) -> Value {
     json!({ "content": content(handed), "isError": handed.failed })
 }
 
-/// The answer to a call of [`BATCH_TOOL`]: each item's answer in the order the items were given, headed by its position
-/// and its tool, the result of the call it made ([`rendered`]) or why it made none. An error only where no call succeeded.
-pub fn batch_rendered(answers: &[BatchItem<Handed>]) -> Value {
-    let failed = |answer: &Result<Handed, String>| !matches!(answer, Ok(handed) if !handed.failed);
-    let mut blocks = Vec::new();
-    for (index, (tool, answer)) in answers.iter().enumerate() {
-        let mark = if failed(answer) { " (failed)" } else { "" };
-        blocks.push(json!({ "type": "text", "text": format!("[{}/{}] {tool}{mark}", index + 1, answers.len()) }));
-        match answer {
-            Ok(handed) => blocks.extend(content(handed)),
-            Err(why) => blocks.push(json!({ "type": "text", "text": why })),
-        }
-    }
-    json!({ "content": blocks, "isError": answers.iter().all(|(_, answer)| failed(answer)) })
+/// A finished call's result as the text a background task keeps: [`rendered`]'s text, an image noted where it was.
+pub fn text_of(handed: &Handed) -> String {
+    content(handed)
+        .iter()
+        .map(|block| block["text"].as_str().unwrap_or("[an image of the result: `task` read of this task gives it]"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A finished call's result as a background task keeps it whole: [`text_of`] as its `content`, and [`rendered`]'s images
+/// as `images`, which the session's `task` tool gives with the text.
+pub fn kept_result(handed: &Handed) -> Value {
+    let images: Vec<Value> = content(handed).into_iter().filter(|block| block["type"] == "image").collect();
+    json!({ "content": text_of(handed), "images": images })
+}
+
+/// The answer to a call of `tool` not over within the time the agent waits for it: Mixdog goes on with it as the
+/// session's background task `task`, as it goes on with a command its `shell` tool moved to the background.
+pub fn kept(tool: &str, task: &str) -> String {
+    format!(
+        "background task\ntask_id: {task}\ntool: {tool}\nstatus: running\nThis call has not ended within the time your CLI waits for a Mixdog \
+call: Mixdog goes on with it and keeps its result, which is delivered to you automatically when it ends. Do not make the call again. To \
+read the result sooner, use the Mixdog tool `task` with action `wait` and task_id `{task}`, only if no other work remains."
+    )
+}
+
+/// The answer to a call the agent makes again while Mixdog still goes on with the same call as background task `task`.
+pub fn kept_again(tool: &str, task: &str) -> String {
+    format!(
+        "The same call of `{tool}` is still running as Mixdog background task `{task}`: it was not run again. Its result is delivered to you \
+automatically when it ends; use the Mixdog tool `task` with action `wait` and task_id `{task}` only if no other work remains."
+    )
 }
 
 fn content(handed: &Handed) -> Vec<Value> {
@@ -408,7 +359,6 @@ impl Served {
                 let tools: Vec<Value> = definitions
                     .into_iter()
                     .map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema }))
-                    .chain([batch_definition()])
                     .collect();
                 json!({ "tools": tools })
             }),
@@ -417,7 +367,7 @@ impl Served {
                 let arguments = params.get("arguments").cloned().filter(|arguments| !arguments.is_null()).unwrap_or_else(|| json!({}));
                 let (answer, answered) = oneshot::channel();
                 // A session whose agent is gone answers nobody; the call's sender then drops.
-                let _ = self.asks.send(ToolAsk { name, arguments, answer });
+                let _ = self.asks.send(ToolAsk { name, arguments, received: tokio::time::Instant::now(), answer });
                 Ok(answered.await.unwrap_or_else(|_| result_text("The session's agent has ended.".to_owned(), true)))
             }
             other => {
@@ -435,15 +385,14 @@ impl Served {
 mod tests {
     use super::*;
 
-    /// Every agent handed the session's tools is told to prefer them over its built-in ones, what a separate call of one
-    /// costs it, that a step's independent calls go into the batch tool together, and that the tools that take several
-    /// files or patterns take them at once.
+    /// Every agent handed the session's tools is told to prefer them over its built-in ones, to give a tool that takes an
+    /// array all of a step's items in one call, and to get a cut result's part with narrower calls.
     #[test]
-    fn an_agent_is_told_to_prefer_mixdog_tools_and_to_make_a_steps_calls_in_one() {
+    fn an_agent_is_told_to_prefer_mixdog_tools_and_to_give_a_steps_items_to_one_array_call() {
         let told = preference();
         assert!(told.starts_with(PREFERENCE), "{told}");
-        assert!(told.contains("Each separate call of a Mixdog tool waits for a safety check of several seconds in your CLI"), "{told}");
-        assert!(told.contains(&format!("Put every independent Mixdog call of a step into one call of the Mixdog tool `{BATCH_TOOL}`")), "{told}");
-        assert!(told.contains("`read`, `grep` and `glob` each take several files or patterns as an array in one call"), "{told}");
+        assert!(told.contains("give it all the items the step needs in one call instead of one call per item"), "{told}");
+        assert!(told.contains("queries for `web_search`"), "{told}");
+        assert!(told.contains("get the part you need with narrower calls"), "{told}");
     }
 }

@@ -1188,11 +1188,18 @@ impl ShellTool {
         if hold > 0 {
             // New user input or a notification ends the hold, the same wake `task wait` uses.
             let wait = runtime.config.wake.begin(&ctx.thread_id);
+            // A caller that must have the answer sooner gets it when the hold would end then: the command moves to the
+            // background as at the end of its hold, whatever the hold or a run limit within it would do.
+            let own_end = at_hold_end.map(|reason| (std::time::Instant::now() + Duration::from_millis(hold), reason));
+            let ends = match (own_end, ctx.options.answer_by) {
+                (Some((at, reason)), Some(by)) if at <= by => Some((at, reason)),
+                (_, Some(by)) => Some((by, PromotionReason::Threshold)),
+                (own, None) => own,
+            };
             let hold_timer = async {
-                if at_hold_end.is_none() {
-                    std::future::pending::<()>().await;
-                } else {
-                    mixdog_rt::time::sleep(Duration::from_millis(hold)).await;
+                match ends {
+                    Some((at, _)) => mixdog_rt::time::sleep(at.saturating_duration_since(std::time::Instant::now())).await,
+                    None => std::future::pending::<()>().await,
                 }
             };
             tokio::select! {
@@ -1219,7 +1226,7 @@ impl ShellTool {
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
                 () = hold_timer => {
-                    reason = at_hold_end.unwrap_or(PromotionReason::Threshold);
+                    reason = ends.map_or(PromotionReason::Threshold, |(_, reason)| reason);
                 }
                 () = wait.released() => {
                     reason = match wait.wake().map(|w| w.reason) {

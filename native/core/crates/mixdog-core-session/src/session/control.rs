@@ -38,6 +38,15 @@ pub(crate) enum Ctl {
     Abort {
         turn: TurnId,
     },
+    /// A run let go of its call `call_id`, which goes on in the background: the call's approvals, asked before or after,
+    /// stay open past the run's end. A stop of the run still ends them, as it ends the call.
+    Detach {
+        call_id: String,
+    },
+    /// A call let go of ([`Ctl::Detach`]) ended, however it ended: its approvals still open are closed.
+    Released {
+        call_id: String,
+    },
     /// A Stop with no published run: the actor stops whatever the session's busy span holds (a start, a settlement, a
     /// compaction) through its owner and says what it found.
     StopBusy(tokio::sync::oneshot::Sender<BusyStop>),

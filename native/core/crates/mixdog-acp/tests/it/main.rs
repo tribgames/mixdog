@@ -17,7 +17,6 @@ use mixdog_acp::agents::Readiness;
 use mixdog_acp::agents::Refusal;
 use mixdog_acp::agents::Refusals;
 use mixdog_acp::files::TextFiles;
-use mixdog_acp::mcp::BATCH_TOOL;
 use mixdog_acp::mcp::SessionTools;
 use mixdog_acp::preset::AgentPreset;
 use mixdog_acp::preset::Command;
@@ -37,6 +36,9 @@ use mixdog_acp::surface::TurnUsage;
 use mixdog_acp::turn::Ask;
 use mixdog_acp::turn::TurnContext;
 use mixdog_acp::turn::TurnEnd;
+use mixdog_agent::agent_tool::board::JobBoard;
+use mixdog_agent::agent_tool::board::JobOwner;
+use mixdog_agent::agent_tool::board::NewJob;
 use mixdog_agent::env::CompactStatus;
 use mixdog_agent::env::GateAsk;
 use mixdog_agent::env::GateCall;
@@ -62,7 +64,6 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::FollowUpMessage;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
-use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::domain::tool::ToolOutcome;
@@ -80,6 +81,16 @@ use mixdog_protocol::ThreadId;
 use mixdog_protocol::ThreadItem;
 use mixdog_protocol::TurnId;
 use mixdog_store::schema::record::HeaderChange;
+use mixdog_tools::exec::AgentTasks;
+use mixdog_tools::exec::ExecConfig;
+use mixdog_tools::exec::ExecRuntime;
+use mixdog_tools::exec::ExtSyntax;
+use mixdog_tools::exec::FixedShell;
+use mixdog_tools::exec::IoLanes;
+use mixdog_tools::exec::OsPromptElevation;
+use mixdog_tools::exec::TaskNotifier;
+use mixdog_tools::exec::TaskTool;
+use mixdog_tools::exec::WakeHub;
 use mixdog_tools::orch::bridge::CallResolution;
 use mixdog_tools::orch::bridge::CallTool;
 use mixdog_tools::orch::bridge::CatalogView;
@@ -208,6 +219,8 @@ struct Recorded {
     asks: Mutex<Vec<ApprovalAsk>>,
     /// The answers the next approvals get; none left answers as a session with no approval surface.
     answers: Mutex<VecDeque<ApprovalResolution>>,
+    /// The calls gone on in the background that ended, by id, as the approvals heard of each.
+    released: Mutex<Vec<String>>,
     /// The turn's own surface refuses a call's result row and stops the turn with this token; the closing one takes it.
     stops_at_result: Mutex<Option<CancellationToken>>,
     changed: Notify,
@@ -2277,28 +2290,92 @@ impl Tool for Echo {
     }
 }
 
-/// The test session's tool that changes nothing.
-const LOOK: &str = "look";
+/// The test session's tool that runs until the test lets it end.
+const SLOW: &str = "slow";
 
-/// A tool of the test's session that changes nothing: each call waits until another call of it has started, so two
-/// calls of it end only where they run at the same time.
-struct Look {
+/// A tool of the test's session: it keeps what it was called with and ends once the test releases one of its calls.
+struct Slow {
     spec: ToolSpec,
     ran: Ran,
-    meet: Arc<tokio::sync::Barrier>,
+    release: Arc<tokio::sync::Semaphore>,
 }
 
 #[async_trait]
-impl Tool for Look {
+impl Tool for Slow {
     fn spec(&self) -> &ToolSpec {
         &self.spec
     }
 
     async fn call(&self, ctx: &ToolContext, arguments: Value) -> ToolOutcome {
-        self.meet.wait().await;
-        self.ran.lock().unwrap().push((ctx.thread_id.clone(), LOOK.to_owned(), arguments.clone()));
-        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("{LOOK} met another with {arguments}"))], ..ToolOutput::default() })
+        self.ran.lock().unwrap().push((ctx.thread_id.clone(), SLOW.to_owned(), arguments.clone()));
+        self.release.acquire().await.expect("the test's release").forget();
+        // A call that asks for silence ends with no output.
+        let mut parts = if arguments["silent"] == true { Vec::new() } else { vec![ToolPart::Text(format!("{SLOW} ended with {arguments}"))] };
+        // A call that asks for a picture ends with one.
+        if arguments["picture"] == true {
+            parts.push(ToolPart::Image {
+                mime: "image/png".to_owned(),
+                data: mixdog_core_api::domain::tool::ImageData::Bytes(b"png".to_vec()),
+                width: None,
+                height: None,
+            });
+        }
+        Ok(ToolOutput { parts, ..ToolOutput::default() })
     }
+}
+
+/// Where the shell runtime of the test's session publishes its job strips: nowhere.
+struct NoStrips;
+
+impl mixdog_spawn::tasks::TaskPublisher for NoStrips {
+    fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {}
+    fn host_updated(&self, _: &mixdog_spawn::tasks::HostShellJobs) {}
+    fn schedule_expiry(&self, _: u64) {}
+}
+
+/// Where the session's finished background tasks are delivered, as the session directory takes them: each as its owner,
+/// its surface, its task, its status and its notification.
+#[derive(Default)]
+struct Delivered(Mutex<Vec<(ThreadId, String, String, String, String)>>);
+
+#[async_trait]
+impl TaskNotifier for Delivered {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        self.0.lock().unwrap().push((owner.clone(), surface.to_owned(), task_id.to_owned(), status.to_owned(), notification));
+    }
+}
+
+/// The session's `task` tool, as the core composes it: over a shell runtime that keeps its logs in `logs`, and over
+/// `board`, the background tasks it reads beside the shell jobs.
+fn task_tool(logs: &std::path::Path, board: &JobBoard) -> TaskTool {
+    let tokens = mixdog_rt::testing::tokens();
+    let runtime = ExecRuntime::new(ExecConfig {
+        tasks: Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(NoStrips), || 0_u64)),
+        lanes: IoLanes {
+            interactive: tokens.interactive_io,
+            durability: tokens.durability_io,
+            maintenance: tokens.maintenance_io,
+            spawn: tokens.spawn_io,
+            pty: tokens.pty_io,
+        },
+        spill_dir: logs.to_path_buf(),
+        data_dir: None,
+        skill_launcher_dir: None,
+        notifier: None,
+        survivors: None,
+        wake: WakeHub::new(),
+        policy: Arc::new(mixdog_tools::policy::exec::NodeCommandPolicy),
+        elevation: Arc::new(OsPromptElevation),
+        oem: None,
+        skill_runtime: None,
+        shell: Arc::new(FixedShell("/bin/sh".into())),
+        script_syntax: Arc::new(ExtSyntax::new()),
+        windows: false,
+        powershell: false,
+        warm_standby: false,
+        now_ms: Arc::new(|| 0_u64),
+    });
+    TaskTool::new(runtime).with_agent_tasks(Arc::new(board.clone()))
 }
 
 /// The session's catalog: which of its tools its requests define, and which are left to the bridge.
@@ -2359,6 +2436,10 @@ impl ApprovalGate for Cards {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
         self.0.approve(ask).await
     }
+
+    async fn released(&self, call_id: &str) {
+        self.0.0.released.lock().unwrap().push(call_id.to_owned());
+    }
 }
 
 #[async_trait]
@@ -2408,22 +2489,31 @@ struct Tools {
     seen: Seen,
     set: Vec<Arc<dyn Tool>>,
     processes: Arc<dyn ProcessManager>,
+    /// The session's tool calls that went on in the background, which its `task` tool reads.
+    board: JobBoard,
+    /// Where the board delivers the calls that ended.
+    delivered: Arc<Delivered>,
+    /// Lets a call of [`SLOW`] end.
+    release: Arc<tokio::sync::Semaphore>,
+    /// Where the `task` tool's shell runtime keeps its logs.
+    _logs: tempfile::TempDir,
 }
 
 impl Tools {
     fn new(processes: Arc<dyn ProcessManager>) -> Arc<Self> {
         let ran = Ran::default();
         let pool = Arc::new(Pool);
+        let delivered = Arc::new(Delivered::default());
+        let board = JobBoard::of_tool_calls(Arc::new(Zero), Some(delivered.clone()));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let logs = tempfile::tempdir().expect("temp dir");
         let mut set: Vec<Arc<dyn Tool>> =
             DIRECT_TOOLS.iter().chain(&[DEFERRED_TOOL]).map(|name| Arc::new(Echo { spec: spec(name), ran: ran.clone() }) as Arc<dyn Tool>).collect();
-        set.push(Arc::new(Look {
-            spec: ToolSpec { annotations: ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() }, ..spec(LOOK) },
-            ran: ran.clone(),
-            meet: Arc::new(tokio::sync::Barrier::new(2)),
-        }));
+        set.push(Arc::new(Slow { spec: spec(SLOW), ran: ran.clone(), release: release.clone() }));
+        set.push(Arc::new(task_tool(logs.path(), &board)));
         set.push(Arc::new(LoadTool::new(pool.clone())));
         set.push(Arc::new(CallTool::new(pool.clone(), pool)));
-        Arc::new(Self { ran, seen: Seen::default(), set, processes })
+        Arc::new(Self { ran, seen: Seen::default(), set, processes, board, delivered, release, _logs: logs })
     }
 
     /// The calls of one turn whose approvals are asked on `surface`.
@@ -2492,11 +2582,19 @@ impl SessionTools for Tools {
             })
             .collect())
     }
+
+    fn tasks(&self) -> &JobBoard {
+        &self.board
+    }
 }
 
 /// A world whose sessions hand their tools to the agent.
 fn handing(settings: &[(&str, &str)]) -> (World, Arc<Tools>) {
-    let world = World::new(settings);
+    handing_in(World::new(settings))
+}
+
+/// `world`, its sessions handing their tools to the agent.
+fn handing_in(world: World) -> (World, Arc<Tools>) {
     let tools = Tools::new(world.processes.clone());
     world.agents.bind_tools(tools.clone());
     (world, tools)
@@ -2506,10 +2604,9 @@ fn handing(settings: &[(&str, &str)]) -> (World, Arc<Tools>) {
 async fn the_agent_is_handed_the_sessions_tools_and_its_call_runs_in_the_session_as_that_tools_call() {
     let (world, tools) = handing(&[]);
     let end = within("the listing", world.prompt(&thread(), &Surface::default(), "tools", None, CancellationToken::new())).await;
-    // The agent's listing is what the session's side lists, in its order, and no tool of the catalog besides: only the
-    // server's own tool that makes several of their calls at once follows them.
+    // The agent's listing is what the session's side lists, in its order, and no tool besides.
     let sent: Vec<String> = tools.definitions(&thread()).await.expect("the session's tools").into_iter().map(|tool| tool.name).collect();
-    assert_eq!(completed_text(&end), format!("tools={},{BATCH_TOOL}", sent.join(",")));
+    assert_eq!(completed_text(&end), format!("tools={}", sent.join(",")));
     // Nothing the agent has its own tool for is withheld: the agent reads Office files, lists and searches through Mixdog's.
     assert!(sent.iter().any(|name| name == "read"), "{sent:?}");
     assert!(!sent.iter().any(|name| name == DEFERRED_TOOL) && sent.ends_with(&["load_tool".to_owned(), "call_tool".to_owned()]), "{sent:?}");
@@ -2662,120 +2759,160 @@ async fn a_handed_tools_approval_is_asked_on_the_sessions_card_and_a_refusal_rea
     assert_eq!(rows.iter().filter(|row| row["role"] == "tool").count(), 2, "{rows:?}");
 }
 
-/// A prompt that has the fake agent make `calls` in one call of the batch tool.
-fn batch(calls: Value) -> String {
-    format!("tool {BATCH_TOOL} {}", json!({ "calls": calls }))
-}
-
-/// The calls a batch carries that change nothing run at the same time: two calls of a tool that each wait for another
-/// to have started both end. They are one step's calls, made in one assistant row and each given its result row, and
-/// the agent reads every result in the order given, each headed by its position and its tool.
+/// A call of a Mixdog tool still running when the agent's deadline for it nears is answered before the deadline and goes
+/// on as a background task of the session: the answer, which is also the call's row, names the task and the `task` tool,
+/// and the turn ends while the call runs. The `task` tool lists the task as that tool's call. The same call made again
+/// while it runs is answered with that task and not run again. Once the call ends its end is delivered to the session
+/// as that tool's call, with its result, and the session's `task` tool gives that result.
 #[tokio::test]
-async fn a_batchs_calls_that_change_nothing_run_at_the_same_time() {
-    let (world, tools) = handing(&[]);
+async fn a_call_still_running_near_the_agents_deadline_goes_on_as_a_task_whose_end_is_delivered_and_whose_result_the_task_tool_gives() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_secs(2))));
     let surface = Surface::default();
-    let end = tools.prompt(&world, &surface, &batch(json!([{ "tool": LOOK, "arguments": { "at": "a" } }, { "tool": LOOK, "arguments": { "at": "b" } }]))).await;
-    let told = "result:[1/2] look\nlook met another with {\"at\":\"a\"}\n[2/2] look\nlook met another with {\"at\":\"b\"}";
-    assert_eq!(end, TurnEnd::Completed { text: told.to_owned(), stop_reason: Some("end_turn".into()), tool_calls: 2 });
+    let call = format!(r#"tool {SLOW} {{"step":1}}"#);
+    let end = tools.prompt(&world, &surface, &call).await;
+    let told = completed_text(&end).strip_prefix("result:").expect("an answer that is no error").to_owned();
+    let task = told.lines().find_map(|line| line.strip_prefix("task_id: ")).expect("the task").to_owned();
+    assert_eq!(told, mixdog_acp::mcp::kept(SLOW, &task));
     let rows = surface.rows();
-    assert_eq!(rows.iter().map(|row| row["role"].as_str().unwrap_or_default()).collect::<Vec<_>>(), ["assistant", "tool", "tool", "assistant"], "{rows:?}");
-    let calls = rows[0]["toolCalls"].as_array().expect("the step's calls");
-    let made: Vec<(&Value, &Value)> = calls.iter().map(|call| (&call["name"], &call["arguments"])).collect();
-    assert_eq!(made, [(&json!(LOOK), &json!({ "at": "a" })), (&json!(LOOK), &json!({ "at": "b" }))]);
-    assert_eq!((&rows[1]["toolCallId"], &rows[2]["toolCallId"]), (&calls[0]["id"], &calls[1]["id"]));
-    // Each was judged and reported as a direct call of the tool is.
-    let mut seen = tools.seen.lock().unwrap().clone();
-    seen.sort();
-    assert_eq!(seen, ["judge look", "judge look", "report look", "report look"]);
+    assert_eq!((&rows[0]["toolCalls"][0]["name"], &rows[1]["role"], &rows[1]["content"]), (&json!(SLOW), &json!("tool"), &json!(told)), "{rows:?}");
+    assert_eq!(AgentTasks::view(&tools.board, &thread(), &task).expect("the session's task").status, "running");
+    let listed = tools.prompt(&world, &Surface::default(), r#"tool task {"action":"list"}"#).await;
+    assert!(completed_text(&listed).contains(&format!("\n- {task} tool/{SLOW} running")), "{listed:?}");
+
+    let again = tools.prompt(&world, &Surface::default(), &call).await;
+    assert_eq!(completed_text(&again), format!("result:{}", mixdog_acp::mcp::kept_again(SLOW, &task)));
+
+    tools.release.add_permits(1);
+    within("the call's end", AgentTasks::settled(&tools.board, &task)).await;
+    assert_eq!(tools.ran.lock().unwrap().iter().filter(|(_, name, _)| name == SLOW).count(), 1, "the call ran more than once");
+    let delivered = within("the call's delivery", async {
+        loop {
+            if let Some(delivered) = tools.delivered.0.lock().unwrap().first().cloned() {
+                return delivered;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let (owner, surface, delivered_task, status, notification) = delivered;
+    assert_eq!((owner, surface.as_str(), delivered_task.as_str(), status.as_str()), (thread(), "tool", task.as_str(), "completed"));
+    assert!(notification.contains(&format!("<summary>Tool call \"{SLOW}\" completed</summary>")), "{notification}");
+    assert!(notification.contains("<result>\nslow ended with {\"step\":1}\n</result>"), "{notification}");
+    let end = tools.prompt(&world, &Surface::default(), &format!(r#"tool task {{"action":"wait","task_id":"{task}"}}"#)).await;
+    let got = completed_text(&end);
+    assert!(got.starts_with(&format!("result:background task\ntask_id: {task}\nsurface: tool\ntool: {SLOW}\nstatus: completed\n")), "{got}");
+    assert!(got.ends_with(r#"slow ended with {"step":1}"#), "{got}");
 }
 
-/// The calls a batch carries that change something run alone, in the order given: each is judged once every call before
-/// it has been reported, and the calls after it once it has been. The calls between two of them that change nothing run
-/// together.
+/// A call gone on as a background task holds nothing the turn's later calls need: the calls the agent makes after it in
+/// the same turn run at once, a `task cancel` of that very task included. The cancel stops the call, and its end closes
+/// what it still asks the person.
 #[tokio::test]
-async fn a_batchs_calls_that_change_something_run_alone_in_the_order_given() {
-    let (world, tools) = handing(&[]);
-    let calls = json!([
-        { "tool": "edit", "arguments": { "n": 1 } },
-        { "tool": LOOK, "arguments": { "at": "a" } },
-        { "tool": LOOK, "arguments": { "at": "b" } },
-        { "tool": "todo", "arguments": { "n": 2 } },
-        { "tool": "edit", "arguments": { "n": 3 } },
-    ]);
-    let end = tools.prompt(&world, &Surface::default(), &batch(calls)).await;
-    let told = completed_text(&end);
-    assert!(told.starts_with("result:[1/5] edit\nedited\n[2/5] look\n") && told.ends_with("[4/5] todo\ntodo ran with {\"n\":2}\n[5/5] edit\nedited"), "{told}");
-    let ran: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, arguments)| format!("{name} {arguments}")).collect();
-    assert_eq!((ran[0].as_str(), &ran[3..]), ("edit {\"n\":1}", &["todo {\"n\":2}".to_owned(), "edit {\"n\":3}".to_owned()][..]));
-    let seen = tools.seen.lock().unwrap().clone();
-    assert_eq!(seen[..2], ["judge edit", "report edit"]);
-    let mut looks = seen[2..6].to_vec();
-    looks.sort();
-    assert_eq!(looks, ["judge look", "judge look", "report look", "report look"]);
-    assert_eq!(seen[6..], ["judge todo", "report todo", "judge edit", "report edit"]);
-}
-
-/// Each call a batch carries meets the session's permissions as a direct call of its tool does: the gate judges it, what
-/// the gate asks about is asked on the session's card for that call, and what is refused never runs.
-#[tokio::test]
-async fn each_call_a_batch_carries_meets_the_sessions_permissions_as_a_direct_call_does() {
-    let (world, tools) = handing(&[]);
+async fn a_call_gone_on_as_a_task_leaves_the_turns_later_calls_free_and_a_cancel_of_it_ends_it() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_secs(2))));
     let surface = Surface::default();
-    // The first command is approved; the second finds nobody to approve it.
-    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
-    let calls = json!([
-        { "tool": "shell", "arguments": { "command": "ls" } },
-        { "tool": "read", "arguments": { "file_path": "secret.txt" } },
-        { "tool": "shell", "arguments": { "command": "pwd" } },
-    ]);
-    let end = tools.prompt(&world, &surface, &batch(calls)).await;
-    let told = completed_text(&end);
-    assert!(told.starts_with("result:[1/3] shell\nshell ran with {\"command\":\"ls\"}\n[2/3] read (failed)\n"), "{told}");
-    assert!(told.contains("denied by hook") && told.contains("[3/3] shell (failed)\n"), "{told}");
-    assert_eq!(*tools.seen.lock().unwrap(), ["judge shell", "report shell", "judge read", "judge shell"]);
-    assert_eq!(*tools.ran.lock().unwrap(), [(thread(), "shell".to_owned(), json!({ "command": "ls" }))]);
-    // Both commands were asked about on the session's card, each for the card of its own call.
-    let rows = surface.rows();
-    let ids: Vec<Value> = rows[0]["toolCalls"].as_array().expect("the step's calls").iter().map(|call| call["id"].clone()).collect();
-    let asks = surface.0.asks.lock().unwrap().clone();
-    let asked: Vec<(Option<&str>, Option<Value>)> = asks.iter().map(|ask| (ask.tool.as_deref(), ask.call_id.as_ref().map(|id| json!(id.as_str())))).collect();
-    assert_eq!(asked, [(Some("shell"), Some(ids[0].clone())), (Some("shell"), Some(ids[2].clone()))]);
-    // The refused calls have their results as the one that ran has.
-    assert_eq!(rows.iter().filter(|row| row["role"] == "tool").count(), 3, "{rows:?}");
+    let turn = format!(r#"calls {SLOW} {{}} ;; read {{"path":"a.txt"}} ;; task {{"action":"cancel","task_id":"$TASK"}}"#);
+    let end = tools.prompt(&world, &surface, &turn).await;
+    let said = completed_text(&end);
+    let listed = AgentTasks::list(&tools.board, &thread());
+    let [task] = listed.as_slice() else { panic!("one task: {listed:?}") };
+    assert_eq!((task.operation.as_str(), task.status.as_str()), (SLOW, "cancelled"));
+    assert!(said.contains(&mixdog_acp::mcp::kept(SLOW, &task.task_id)), "{said}");
+    assert!(said.contains("\nresult:read ran with {\"path\":\"a.txt\"}\n"), "the next call did not run at once: {said}");
+    assert!(said.ends_with(&format!("task_id: {}\ncancelled: tool/{SLOW}", task.task_id)), "the cancel did not run at once: {said}");
+    let call = surface.rows()[0]["toolCalls"][0]["id"].as_str().expect("the call's id").to_owned();
+    let released = within("the call's end", async {
+        loop {
+            if let Some(released) = surface.0.released.lock().unwrap().first().cloned() {
+                return released;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert_eq!(released, call);
 }
 
-/// A refused or failed item of a batch does not stop the others: every item is answered in the order given, one that
-/// makes no call of the session's tools (it names no tool of the surface, or the batch tool itself, or its arguments are
-/// no object) is answered without a card, and the batch is an error only where nothing succeeded. An item may name a
-/// tool as the agent's own tool list names it.
+/// A call gone on as a background task keeps its result whole: the image it ends with is given by the `task` tool with
+/// the text, to the agent and to the session's row of the read alike.
 #[tokio::test]
-async fn a_refused_or_failed_item_of_a_batch_leaves_the_others_their_results() {
-    let (world, tools) = handing(&[]);
+async fn a_call_gone_on_as_a_task_keeps_the_images_of_its_result() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_secs(2))));
+    let end = tools.prompt(&world, &Surface::default(), &format!(r#"tool {SLOW} {{"picture":true}}"#)).await;
+    let task = completed_text(&end).lines().find_map(|line| line.strip_prefix("task_id: ")).expect("the task").to_owned();
+    tools.release.add_permits(1);
+    within("the call's end", AgentTasks::settled(&tools.board, &task)).await;
     let surface = Surface::default();
-    let calls = json!([
-        { "tool": "read", "arguments": { "file_path": "secret.txt" } },
-        { "tool": "nowhere", "arguments": {} },
-        { "tool": BATCH_TOOL, "arguments": { "calls": [] } },
-        { "tool": "call_tool", "arguments": { "name": "nowhere", "arguments": {} } },
-        { "tool": "mcp_mixdog_read", "arguments": { "file_path": "a.txt" } },
-        { "tool": "edit", "arguments": "a.txt" },
-    ]);
-    let end = tools.prompt(&world, &surface, &batch(calls)).await;
-    let told = completed_text(&end);
-    let heads = ["read (failed)", "nowhere (failed)", "batch (failed)", "call_tool (failed)", "read", "edit (failed)"];
-    for (index, head) in heads.iter().enumerate() {
-        assert!(told.contains(&format!("[{}/6] {head}\n", index + 1)), "{told}");
-    }
-    assert!(told.starts_with("result:") && told.contains("[2/6] nowhere (failed)\nnowhere is not a tool of this session.\n"), "{told}");
-    assert!(told.contains("[5/6] read\nread ran with {\"file_path\":\"a.txt\"}\n"), "{told}");
-    assert_eq!(*tools.ran.lock().unwrap(), [(thread(), "read".to_owned(), json!({ "file_path": "a.txt" }))]);
-    // The calls that met the session's pipeline have their cards in the step's one row and their results.
-    assert_eq!(cards(&surface), ["read", "call_tool", "read"]);
+    let end = tools.prompt(&world, &surface, &format!(r#"tool task {{"action":"read","task_id":"{task}"}}"#)).await;
+    let got = completed_text(&end);
+    assert!(got.contains("slow ended with {\"picture\":true}\n[an image of the result: `task` read of this task gives it]"), "{got}");
+    assert!(got.ends_with(" images=1"), "{got}");
     let rows = surface.rows();
-    assert_eq!(rows.iter().filter(|row| row["role"] == "tool").count(), 3, "{rows:?}");
+    let row = rows.iter().find(|row| row["role"] == "tool").expect("the read's row");
+    assert!(row["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "image")), "{rows:?}");
+}
 
-    let end = tools.prompt(&world, &Surface::default(), &batch(json!([{ "tool": "nowhere", "arguments": {} }]))).await;
-    assert_eq!(completed_text(&end), "error:[1/1] nowhere (failed)\nnowhere is not a tool of this session.");
+/// A call gone on as a background task that ends with no output is delivered with an empty result, not the stored form
+/// of one.
+#[tokio::test]
+async fn a_call_gone_on_as_a_task_that_ends_with_no_output_is_delivered_without_its_stored_form() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_secs(2))));
+    let end = tools.prompt(&world, &Surface::default(), &format!(r#"tool {SLOW} {{"silent":true}}"#)).await;
+    let task = completed_text(&end).lines().find_map(|line| line.strip_prefix("task_id: ")).expect("the task").to_owned();
+    tools.release.add_permits(1);
+    within("the call's end", AgentTasks::settled(&tools.board, &task)).await;
+    let notification = within("the call's delivery", async {
+        loop {
+            if let Some((.., notification)) = tools.delivered.0.lock().unwrap().first().cloned() {
+                return notification;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(notification.contains(&format!("<summary>Tool call \"{SLOW}\" completed</summary>")), "{notification}");
+    assert!(!notification.contains("\"images\""), "{notification}");
+}
+
+/// A `task` wait under an agent's deadline ends before the deadline as it ends at its own ceiling: the agent is answered
+/// by the `task` tool itself with the task still running, and the wait does not go on as a task of its own.
+#[tokio::test]
+async fn a_task_wait_under_the_agents_deadline_answers_the_task_still_running_before_it() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = Some(Duration::from_secs(5))));
+    let owner = JobOwner { caller_session_id: Some(thread().as_str().to_owned()), ..JobOwner::default() };
+    let task = tools.board.register(NewJob { operation: "probe".to_owned(), owner, ..NewJob::default() }).expect("a task");
+    // The wait asks for an hour, and `task` waits 300 s by default: the turn ends within the agent's deadline and the start
+    // of its process.
+    let asked = std::time::Instant::now();
+    let end = tools.prompt(&world, &Surface::default(), &format!(r#"tool task {{"action":"wait","task_id":"{task}","timeout_ms":3600000}}"#)).await;
+    assert!(asked.elapsed() < Duration::from_secs(30), "the wait outlasted the agent's deadline");
+    let got = completed_text(&end);
+    assert!(got.starts_with(&format!("result:background task\ntask_id: {task}\nsurface: tool\ntool: probe\nstatus: running\n")), "{got}");
+    assert!(
+        got.ends_with("\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn."),
+        "{got}"
+    );
+    assert_eq!(AgentTasks::list(&tools.board, &thread()).len(), 1, "the wait went on as a task of its own");
+}
+
+/// An agent that waits for every call to end is answered with the call's result when it ends, and no call of its goes
+/// on as a task.
+#[tokio::test]
+async fn an_agent_that_waits_for_every_call_is_answered_with_its_result_when_it_ends() {
+    let (world, tools) = handing_in(World::build(&[], |preset, _| preset.quirks.mcp_call_deadline = None));
+    let release = async {
+        within("the call", async {
+            while tools.ran.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        tools.release.add_permits(1);
+    };
+    let (surface, call) = (Surface::default(), format!("tool {SLOW} {{}}"));
+    let (end, ()) = tokio::join!(tools.prompt(&world, &surface, &call), release);
+    assert_eq!(completed_text(&end), "result:slow ended with {}");
+    assert!(AgentTasks::list(&tools.board, &thread()).is_empty());
 }
 
 #[tokio::test]
@@ -2787,7 +2924,7 @@ async fn a_session_handed_the_tools_has_the_agent_definition_without_the_clis_ow
     // Every tool the session's server lists is declared to the model with its schema.
     let end = within("the tools", world.prompt(&thread(), &Surface::default(), "tools", None, CancellationToken::new())).await;
     let names = completed_text(&end).strip_prefix("tools=").expect("the tools").to_owned();
-    assert!(names.contains("read") && names.ends_with(BATCH_TOOL), "{names}");
+    assert!(names.contains("read"), "{names}");
     for name in names.split(',') {
         assert!(text.contains(&format!("      \"{name}\":\n        eager: true\n")), "{name} in {text}");
     }

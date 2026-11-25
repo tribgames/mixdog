@@ -210,6 +210,9 @@ pub struct AgentSession {
     told_unconnected: AtomicBool,
     models: Mutex<Models>,
     routing: Mutex<Routing>,
+    /// Calls of Mixdog tools that went on past the agent's deadline for them, each as its tool, its arguments and its
+    /// background task.
+    kept: Mutex<Vec<(String, Value, String)>>,
     /// Told when the agent closed a cancelled prompt.
     closed_prompt: tokio::sync::Notify,
     wake: Wake,
@@ -419,6 +422,7 @@ impl AgentSession {
             told_unconnected: AtomicBool::new(false),
             models: Mutex::new(Models::of(&answer)),
             routing: Mutex::default(),
+            kept: Mutex::default(),
             closed_prompt: tokio::sync::Notify::new(),
             wake,
         });
@@ -579,6 +583,20 @@ impl AgentSession {
     /// Takes the background call `agent_id` out: its result is being shown.
     pub fn background_shown(&self, agent_id: &str) -> Option<Background> {
         lock(&self.routing).background.remove(agent_id)
+    }
+
+    /// The background task of the call of the Mixdog tool `name` with `arguments` that went on past the agent's deadline
+    /// and that `running` finds still running: a call the agent makes again is that one. Those no longer running are
+    /// forgotten.
+    pub fn kept_call(&self, name: &str, arguments: &Value, running: impl Fn(&str) -> bool) -> Option<String> {
+        let mut kept = lock(&self.kept);
+        kept.retain(|(_, _, task)| running(task));
+        kept.iter().find(|(tool, made_with, _)| tool == name && made_with == arguments).map(|(_, _, task)| task.clone())
+    }
+
+    /// The call of the Mixdog tool `name` with `arguments` goes on past the agent's deadline as the background task `task`.
+    pub fn keep_call(&self, name: String, arguments: Value, task: String) {
+        lock(&self.kept).push((name, arguments, task));
     }
 
     async fn act(&self, routed: Routed) {
@@ -780,15 +798,15 @@ mod tests {
         let preset = antigravity();
         let files = Writes(Mutex::default(), true);
         let off = preset.own_tools_off.as_ref().expect("the definition");
-        let tools = ["read".to_owned(), "batch".to_owned()];
+        let tools = ["read".to_owned(), "grep".to_owned()];
         let home = own_tools_off_home(&files, &definitions(), &preset.id, off, &tools).await.expect("the home");
         let started = launch_without_own_tools(&preset, "agy", here(), Some((home.clone(), off)));
-        assert_eq!(started.args, ["acp", "--disable-telemetry", "--agent", "mixdog"]);
+        assert_eq!(started.args, ["acp", "--disable-telemetry", "--agent", "mixdog", "--dangerously-skip-permissions"]);
         assert_eq!(started.cwd, home);
         let written = files.0.lock().unwrap().clone();
         assert_eq!(written.len(), 1);
         assert_eq!(written[0].0.as_path(), home.as_path().join(".agents/agents/mixdog/agent.md"));
-        let declared = "\ntools: []\nmcpServers:\n  - name: mixdog\n    tools:\n      \"read\":\n        eager: true\n      \"batch\":\n        eager: true\n";
+        let declared = "\ntools: []\nmcpServers:\n  - name: mixdog\n    tools:\n      \"read\":\n        eager: true\n      \"grep\":\n        eager: true\n";
         assert!(written[0].1.contains("name: mixdog\n") && written[0].1.contains(declared), "{}", written[0].1);
         // A session handed other tools starts from a folder of its own; one handed the same shares it.
         assert!(home.as_path().starts_with(definitions()), "{home:?}");

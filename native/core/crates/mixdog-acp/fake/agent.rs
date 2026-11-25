@@ -3,8 +3,8 @@
 //! (thought, text, two tool calls, a plan), `permission` (asks before a call), `hang` (works until
 //! cancelled), `mute` (answers nothing until cancelled), `background` (ends its turn with a call
 //! running, then replies on its own), `read <path>` (reads a file through the client), `whoami`
-//! (reports how it was started), and `servers`, `tools` and `tool <name> <json>` (what the session's
-//! MCP server hands it).
+//! (reports how it was started), and `servers`, `tools`, `tool <name> <json>` and `calls` (several such
+//! calls in one turn) (what the session's MCP server hands it).
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -97,6 +97,12 @@ fn answer(id: &Value, result: Value) {
     send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
 }
 
+/// A call's arguments: the first JSON value of `text`, `{}` where it holds none. What the client added behind the prompt
+/// is not theirs.
+fn first_json(text: &str) -> Value {
+    serde_json::Deserializer::from_str(text).into_iter::<Value>().next().and_then(Result::ok).unwrap_or_else(|| json!({}))
+}
+
 impl Agent {
     /// A session opened or reopened with `params`: what it was given is kept, and the agent connects to the first MCP
     /// server it was handed before it answers (`FAKE_AGENT_NO_MCP`: an agent that never connects to one).
@@ -122,6 +128,22 @@ impl Agent {
 
     fn end(&self, id: &Value) {
         answer(id, json!({ "stopReason": "end_turn", "usage": { "inputTokens": 10, "outputTokens": 5, "cachedReadTokens": 2 } }));
+    }
+
+    /// Calls the server's tool `name` with `arguments` as the agent's call `call`, which it reports as its own under the
+    /// name its wire gives an MCP server's tool: what it says of the answer (`result:` or `error:`, the texts, ` images=N`)
+    /// and the answer's texts.
+    fn call_tool(&self, call: &str, name: &str, arguments: Value) -> (String, String) {
+        let wire = format!("mcp_mixdog_{name}");
+        self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": call, "name": wire, "title": format!("Run {wire}"), "kind": "other", "status": "in_progress", "rawInput": arguments }));
+        let answer = mcp(&self.servers[0], &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": name, "arguments": arguments } }));
+        self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed" }));
+        let result = &answer["result"];
+        let said = if result["isError"] == true { "error" } else { "result" };
+        let texts = result["content"].as_array().into_iter().flatten().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("\n");
+        let pictures = result["content"].as_array().into_iter().flatten().filter(|block| block["type"] == "image").count();
+        let pictures = if pictures == 0 { String::new() } else { format!(" images={pictures}") };
+        (format!("{said}:{texts}{pictures}"), texts)
     }
 
     /// Asks the client's permission for the call `call` with `options`; the prompt `id` ends with the answer.
@@ -321,21 +343,25 @@ impl Agent {
             }
             "tool" => {
                 let (name, arguments) = rest.split_once(' ').unwrap_or((rest, "{}"));
-                // The arguments are the first JSON value after the name; what the client added behind the prompt is not theirs.
-                let arguments: Value =
-                    serde_json::Deserializer::from_str(arguments).into_iter::<Value>().next().and_then(Result::ok).unwrap_or_else(|| json!({}));
-                // The agent reports the call as its own, under the name its wire gives an MCP server's tool.
-                let wire = format!("mcp_mixdog_{name}");
-                self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "m1", "name": wire, "title": format!("Run {wire}"), "kind": "other", "status": "in_progress", "rawInput": arguments }));
-                let answer =
-                    mcp(&self.servers[0], &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": name, "arguments": arguments } }));
-                self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "m1", "status": "completed" }));
-                let result = &answer["result"];
-                let said = if result["isError"] == true { "error" } else { "result" };
-                let texts: Vec<&str> = result["content"].as_array().into_iter().flatten().filter_map(|block| block["text"].as_str()).collect();
-                let pictures = result["content"].as_array().into_iter().flatten().filter(|block| block["type"] == "image").count();
-                let pictures = if pictures == 0 { String::new() } else { format!(" images={pictures}") };
-                self.say(&format!("{said}:{}{pictures}", texts.join("\n")));
+                let (said, _) = self.call_tool("m1", name, first_json(arguments));
+                self.say(&said);
+                self.end(&id);
+            }
+            // Calls of the server's tools made one after another in one turn, `<name> <json>` each, separated by ` ;; `:
+            // `$TASK` in a call's arguments is the `task_id` the answer before it named. Says what `tool` says of each, one
+            // per line.
+            "calls" => {
+                let (mut said, mut task) = (Vec::new(), String::new());
+                for (n, call) in rest.split(" ;; ").enumerate() {
+                    let call = call.replace("$TASK", &task);
+                    let (name, arguments) = call.split_once(' ').unwrap_or((call.as_str(), "{}"));
+                    let (line, texts) = self.call_tool(&format!("m{}", n + 1), name, first_json(arguments));
+                    if let Some(named) = texts.lines().find_map(|line| line.strip_prefix("task_id: ")) {
+                        task = named.to_owned();
+                    }
+                    said.push(line);
+                }
+                self.say(&said.join("\n"));
                 self.end(&id);
             }
             "read" => {

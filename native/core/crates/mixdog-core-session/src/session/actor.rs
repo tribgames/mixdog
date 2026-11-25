@@ -1716,6 +1716,9 @@ pub(crate) struct SessionActor {
     /// before-hook.mjs:162) and its eager entry notices to the card (`notifyEarlyResult`, eager-dispatch/entry.mjs:39-44).
     /// Shared with every record encode of the turn, which reads it off the actor.
     abort_ended: Arc<std::collections::HashMap<String, String>>,
+    /// The calls, by id, that their runs let go of to go on in the background ([`Ctl::Detach`]): their approvals are
+    /// asked and answered whether or not their run still runs.
+    detached: std::collections::HashSet<String>,
     /// Opened from the store, not yet resumed: the first resume drains the restored queue.
     restored_queue: bool,
     /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
@@ -2234,6 +2237,7 @@ impl SessionActor {
             stats,
             steer_marked: Vec::new(),
             abort_ended: Default::default(),
+            detached: Default::default(),
             restored_queue: false,
             held_display: None,
             route_status: None,
@@ -4076,7 +4080,7 @@ impl SessionActor {
     fn on_ctl(&mut self, ctl: Ctl) {
         match ctl {
             Ctl::Approval { turn, ask, reply } => {
-                if !self.active(&turn) {
+                if !self.asks_for(&turn, &ask) {
                     let _ = reply.send(ApprovalResolution::Cancelled { at: self.deps.clock.now_ms() });
                     return;
                 }
@@ -4091,6 +4095,10 @@ impl SessionActor {
                 self.request_approval(turn, ask, reply);
             }
             Ctl::Abort { turn } => self.abort_requests(turn),
+            Ctl::Detach { call_id } => {
+                self.detached.insert(call_id);
+            }
+            Ctl::Released { call_id } => self.released(&call_id),
             Ctl::StopBusy(reply) => {
                 let _ = reply.send(self.stop_busy());
             }
@@ -4409,6 +4417,21 @@ impl SessionActor {
 
     fn active(&self, turn: &TurnId) -> bool {
         self.run.as_ref().is_some_and(|run| &run.turn == turn)
+    }
+
+    /// `ask` of run `turn` is put to the person: the run still runs, or its call went on past it ([`Ctl::Detach`]).
+    fn asks_for(&self, turn: &TurnId, ask: &ApprovalAsk) -> bool {
+        self.active(turn) || ask.call_id.as_ref().is_some_and(|call| self.detached.contains(call.as_str()))
+    }
+
+    /// The call `call_id` its run let go of ended ([`Ctl::Released`]): its approvals still open close, as nobody waits
+    /// for them any more, and it is no longer asked for.
+    fn released(&mut self, call_id: &str) {
+        self.detached.remove(call_id);
+        let at = self.deps.clock.now_ms();
+        for (aid, rid) in self.book.take_where(|_, ask| ask.call_id.as_ref().is_some_and(|call| call.as_str() == call_id)) {
+            self.resolve(aid, &rid, ApprovalResolution::Cancelled { at });
+        }
     }
 
     fn sync_compaction(&mut self) {
@@ -5065,7 +5088,7 @@ impl SessionActor {
         surface: Option<super::delegation::ApprovalSurface>,
     ) {
         let aid = match result {
-            Ok(aid) if self.active(&turn) => aid,
+            Ok(aid) if self.asks_for(&turn, &ask) => aid,
             _ => {
                 let _ = reply.send(ApprovalResolution::Cancelled { at: self.deps.clock.now_ms() });
                 return;
