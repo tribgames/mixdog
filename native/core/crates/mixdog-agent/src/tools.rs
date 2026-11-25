@@ -1204,6 +1204,7 @@ mod tests {
             native_pdf: false,
             sees_images: false,
             outside: false,
+            answer_by: Default::default(),
             live_cwd: None,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
@@ -1503,7 +1504,12 @@ pub(crate) struct CallEnv {
     pub(crate) sees_images: bool,
     /// The calls are an outside agent's ([`crate::handed`]): its model does not read the session's rows.
     pub(crate) outside: bool,
+    /// When that agent must have the calls' answers ([`CallOptions::answer_by`]), read as each call's tool starts.
+    pub(crate) answer_by: AnswerBy,
 }
+/// When an agent outside the loop must have the answer to the call it waits on ([`CallOptions::answer_by`]), shared by a run
+/// and its calls: cleared for a call that agent no longer waits on, which a tool that has not started yet then never sees.
+pub(crate) type AnswerBy = Arc<std::sync::Mutex<Option<Instant>>>;
 impl CallEnv {
     /// The folder a call starts in: the session's live one, else the turn's.
     pub(crate) fn cwd_now(&self) -> AbsPath {
@@ -1815,6 +1821,7 @@ fn tool_context(
             pdf_page_ocr: !env.sees_images,
             called_as: (target.name != spec.name).then(|| target.name.clone()),
             outside_context: env.outside,
+            answer_by: *env.answer_by.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
         },
         review: env.tool_env.review.clone(),
     }

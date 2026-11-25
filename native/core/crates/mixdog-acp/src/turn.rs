@@ -9,14 +9,17 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
 
+use mixdog_agent::agent_tool::board::JobOwner;
+use mixdog_agent::agent_tool::board::NewJob;
+use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::handed::Handed;
 use mixdog_agent::handed::HandedCalls;
 use mixdog_agent::handed::Judged;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_core_api::domain::provider::ToolCall;
-use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_review::turn_review::line_diff::LineDiffer;
 use mixdog_core_run::run_host::progress::RunProgress;
 use mixdog_core_run::run_host::progress::StreamKind;
@@ -30,7 +33,9 @@ use mixdog_protocol::MaybeBlob;
 use mixdog_protocol::ThreadItem;
 use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
+use mixdog_rt::TaskClass;
 use mixdog_store::schema::record::HeaderChange;
+use mixdog_tools::orch::agent::TaskResult;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::watch;
@@ -38,6 +43,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::connection::Incoming;
 use crate::connection::RpcError;
+use crate::mcp::Handover;
 use crate::mcp::ToolAsk;
 use crate::rows;
 use crate::rows::AgentTool;
@@ -198,6 +204,38 @@ async fn until(due: Option<tokio::time::Instant>) {
     }
 }
 
+/// A call of a Mixdog tool the agent made, as far as it got.
+type Running = std::pin::Pin<Box<dyn std::future::Future<Output = Handed> + Send>>;
+
+/// When a call of a Mixdog tool that reached the session's server at `received` is answered at the latest, for an agent
+/// that gives such a call up after `deadline`: a tenth of the deadline before it, for the answer's way back. `None`
+/// for an agent that waits until the call ends.
+fn answer_due(deadline: Option<Duration>, received: tokio::time::Instant) -> Option<tokio::time::Instant> {
+    // The tenth covers the answer's way back: the call's row stored, the MCP reply sent and read by the agent's CLI.
+    deadline.map(|deadline| received + deadline - deadline / 10)
+}
+
+/// When a tool that holds its answer for work to end (`shell`'s foreground wait, `task` wait) ends its hold, for such a
+/// call: a fifth of the deadline before it, so the tool answers as it does at its own limit before [`answer_due`].
+fn hold_due(deadline: Option<Duration>, received: tokio::time::Instant) -> Option<std::time::Instant> {
+    // The tenth beyond `answer_due`'s covers what follows the hold: the tool's own answer (its output read, a command moved
+    // to the background) and the pipeline after it (hooks, the result's offload).
+    deadline.map(|deadline| (received + deadline - deadline / 5).into_std())
+}
+
+/// When the call is answered at the latest ([`answer_due`]) and when the tool's own hold ends ([`hold_due`]).
+#[derive(Clone, Copy, Default)]
+struct Due {
+    answer: Option<tokio::time::Instant>,
+    hold: Option<std::time::Instant>,
+}
+
+impl Due {
+    fn of(deadline: Option<Duration>, received: tokio::time::Instant) -> Self {
+        Self { answer: answer_due(deadline, received), hold: hold_due(deadline, received) }
+    }
+}
+
 struct Call {
     /// The call's id in the turn's rows.
     id: String,
@@ -330,11 +368,21 @@ impl Reply<'_> {
         }
     }
 
-    /// Runs `batch`, calls of Mixdog tools made together; their outcomes in order.
-    async fn run_handed(&mut self, calls: &HandedCalls, batch: &[ToolCall]) -> Vec<Handed> {
-        let outcomes = self.piped(calls.calls(batch)).await;
+    /// Runs `call`, a call of a Mixdog tool, until `due` where there is one, its tool's own hold ending by then: its
+    /// outcome, or the call as far as it got where it was not over by then.
+    async fn run_handed(&mut self, calls: Arc<HandedCalls>, call: ToolCall, due: Due) -> Result<Handed, Running> {
+        let mut running: Running = Box::pin(async move { calls.call_by(call, due.hold).await });
+        let ended = self
+            .piped(async {
+                tokio::select! {
+                    biased;
+                    outcome = &mut running => Some(outcome),
+                    () = until(due.answer) => None,
+                }
+            })
+            .await;
         self.mark_after_call().await;
-        outcomes
+        ended.ok_or(running)
     }
 
     /// The agent reported its context: the window it names is the session's.
@@ -572,118 +620,122 @@ impl Reply<'_> {
         }
         // The session's surface may have moved since it was last read: a name it does not hold is looked for once more.
         let Ok(tools) = handed.tools.definitions(&handed.thread).await else { return false };
-        let listed: Vec<String> = tools.into_iter().map(|tool| tool.name).chain([crate::mcp::BATCH_TOOL.to_owned()]).collect();
+        let listed: Vec<String> = tools.into_iter().map(|tool| tool.name).collect();
         let found = is_listed(&listed);
         self.listed = Some(listed);
         found
     }
 
-    /// Opens the cards of `calls` of Mixdog tools, `(name, arguments)` each, made together: the one assistant row that
-    /// makes them all, under the item of the text shown before it. Returns the calls' ids in the rows.
-    async fn open_handed(&mut self, calls: &[(String, Value)]) -> Result<Vec<String>, RunError> {
+    /// Opens the card of the agent's call of the Mixdog tool `name` with `arguments`: the assistant row that makes it,
+    /// under the item of the text shown before it. Returns the call's id in the rows.
+    async fn open_handed(&mut self, name: &str, arguments: &Value) -> Result<String, RunError> {
         let (item, text) = self.text_before_call().await?;
-        let mut ids = Vec::with_capacity(calls.len());
-        for _ in calls {
-            self.handed += 1;
-            ids.push(self.session.call_id(&format!("mixdog-{}", self.handed), self.context.turn.as_str(), self.epoch));
-        }
-        self.context.mark(|progress, now| progress.tool_call(calls.first().map(|(name, _)| name.as_str()), now));
+        self.handed += 1;
+        let id = self.session.call_id(&format!("mixdog-{}", self.handed), self.context.turn.as_str(), self.epoch);
+        self.context.mark(|progress, now| progress.tool_call(Some(name), now));
         let surface = self.surface.clone();
-        let made = ids.iter().zip(calls).map(|(id, (name, arguments))| (id.clone(), name.clone(), arguments.clone())).collect();
-        self.commit_assistant(surface.as_ref(), item, &text, made).await?;
-        Ok(ids)
+        self.commit_assistant(surface.as_ref(), item, &text, vec![(id.clone(), name.to_owned(), arguments.clone())]).await?;
+        Ok(id)
     }
 
-    /// Calls of Mixdog tools the agent made together, `(name, arguments)` each: shown as one step's calls, run through
-    /// Mixdog's pipeline together, and each given its result row however it ends. Their outcomes in order, with the first
-    /// failure to store a result row; `Err` where the session did not take the row that makes them, and none ran.
-    async fn run_calls(&mut self, calls: Vec<(String, Value)>) -> Result<(Vec<Handed>, Option<RunError>), RunError> {
-        let ids = self.open_handed(&calls).await?;
-        let batch: Vec<ToolCall> =
-            ids.iter().zip(calls).map(|(id, (name, arguments))| ToolCall { id: id.clone(), name, arguments, native_type: None }).collect();
-        let outcomes = match self.context.calls.clone() {
-            Some(calls) => self.run_handed(&calls, &batch).await,
-            None => ids.iter().map(|id| crate::mcp::unrun(id, "This turn runs no Mixdog tools.")).collect(),
+    /// The agent's call of the Mixdog tool `name` with `arguments`: shown as that tool's call, run through Mixdog's
+    /// pipeline until `due` where the agent's deadline sets one, and given its result row: its result, or, for a call not
+    /// over by then, the answer that it goes on as a background task, no longer the turn's. The answer to the agent, with
+    /// the failure to store the result row; `Err` where the session did not take the row that makes the call, and it did
+    /// not run.
+    async fn run_call(&mut self, handed: &Handover, name: String, arguments: Value, due: Due) -> Result<(Value, Option<RunError>), RunError> {
+        let id = self.open_handed(&name, &arguments).await?;
+        let call = ToolCall { id: id.clone(), name: name.clone(), arguments: arguments.clone(), native_type: None };
+        let ran = match self.context.calls.clone() {
+            Some(calls) => self.run_handed(calls.clone(), call, due).await.map_err(|running| (calls, running)),
+            None => Ok(crate::mcp::unrun(&id, "This turn runs no Mixdog tools.")),
         };
         self.context.mark(|progress, now| progress.tool_call(None, now));
-        let mut unstored = None;
-        for outcome in &outcomes {
-            if let Err(error) = self.commit_result(rows::tool_message(new_item_id(), &outcome.message)).await {
-                unstored.get_or_insert(error);
+        let (row, answer) = match ran {
+            Ok(outcome) => (rows::tool_message(new_item_id(), &outcome.message), crate::mcp::rendered(&outcome)),
+            Err((calls, running)) => {
+                calls.let_go(&id).await;
+                let task = self.keep(handed, &name, (calls, id.clone()), running);
+                self.session.keep_call(name.clone(), arguments, task.clone());
+                let text = crate::mcp::kept(&name, &task);
+                (rows::tool_result(new_item_id(), &id, text.clone(), false, None), crate::mcp::result_text(text, false))
             }
-        }
-        Ok((outcomes, unstored))
+        };
+        let unstored = self.commit_result(row).await.err();
+        Ok((answer, unstored))
     }
 
-    /// The tool of the session's surface, `listed`, that an item of a batch names: by the name the server lists it
-    /// under, or by the name the agent's own tool list gives it.
-    fn listed_as(&self, listed: &[ToolDefinition], name: &str) -> Result<String, String> {
-        let format = self.session.preset.quirks.mcp_tool_name.as_deref();
-        let agents = |tool: &str| format.map(|format| format.replace("{server}", crate::mcp::SERVER_NAME).replace("{tool}", tool));
-        listed
-            .iter()
-            .find(|tool| tool.name == name || agents(&tool.name).as_deref() == Some(name))
-            .map(|tool| tool.name.clone())
-            .ok_or_else(|| format!("{name} is not a tool of this session."))
+    /// Lets `running`, a call of the Mixdog tool `tool` that the turn's `calls` let go of under its id, go on as a
+    /// background task of the session on its table of tool calls, which its `task` tool reads: the task ends with the call
+    /// and keeps its result whole, images included, its end is delivered to the session, and a cancel of the task stops
+    /// the call. However the call ends, what it still asks the person is closed. The task's id.
+    fn keep(&self, handed: &Handover, tool: &str, (calls, id): (Arc<HandedCalls>, String), running: Running) -> String {
+        let call = mixdog_rt::spawn("acp.kept-call", TaskClass::Work, mixdog_rt::carry_task_locals(running));
+        let stop = call.abort_handle();
+        let render: Arc<dyn Fn(&Value) -> String + Send + Sync> = Arc::new(|result: &Value| result["content"].as_str().unwrap_or_default().to_owned());
+        let job = NewJob {
+            operation: tool.to_owned(),
+            owner: JobOwner { caller_session_id: Some(handed.thread.as_str().to_owned()), ..JobOwner::default() },
+            cancel: Some(Arc::new(move || stop.abort())),
+            cwd: Some(self.cwd.clone()),
+            render: Some(render),
+            ..NewJob::default()
+        };
+        let started = handed.tools.tasks().start(job, move |_| async move {
+            let ended = call.await;
+            calls.released(&id).await;
+            match ended {
+                Ok(ended) if !ended.failed => {
+                    let kept = crate::mcp::kept_result(&ended);
+                    let text_only = kept["images"].as_array().is_none_or(Vec::is_empty);
+                    Ok(Some(if text_only { TaskResult::Content(crate::mcp::text_of(&ended)) } else { TaskResult::Json(kept) }))
+                }
+                Ok(ended) => Err(crate::mcp::text_of(&ended)),
+                Err(_) => Err("The call was stopped before it ended.".to_owned()),
+            }
+        });
+        started.expect("the table gives a task that names no id a new one")
     }
 
-    /// A call the agent made through the session's server: of a Mixdog tool, or of the batch tool, whose items are calls
-    /// of Mixdog tools made together. Each call is shown as that tool's call, run through Mixdog's pipeline, and given
-    /// its row however it ends; the agent is answered with the call's result, or with every item's answer in order. A
-    /// call of a tool the session's surface does not hold is refused, and has no card.
+    /// A call the agent made of a Mixdog tool through the session's server: shown as that tool's call, run through
+    /// Mixdog's pipeline, and given its row however it ends; the agent is answered with its result, or, where it gives up
+    /// a call after a deadline and the call is not over in time, with the background task the call goes on as. A call of
+    /// a tool the session's surface does not hold is refused, and the same call made again while it goes on is answered
+    /// with its task: neither has a card, and neither runs.
     async fn handed(&mut self, ask: ToolAsk) -> Result<(), RunError> {
         let Some(handed) = self.session.handed.clone() else {
             ask.refuse("This session hands out no tools.");
             return Ok(());
         };
         // The agent is handed the session's surface as it is now, and nothing beyond it.
-        let listed = match handed.tools.definitions(&handed.thread).await {
-            Ok(tools) => tools,
+        match handed.tools.definitions(&handed.thread).await {
+            Ok(tools) if tools.iter().any(|tool| tool.name == ask.name) => {}
+            Ok(_) => {
+                let why = format!("{} is not a tool of this session.", ask.name);
+                ask.refuse(&why);
+                return Ok(());
+            }
             Err(message) => {
                 ask.refuse(&message);
                 return Ok(());
             }
-        };
-        let batch = ask.name == crate::mcp::BATCH_TOOL;
-        let items: Vec<crate::mcp::BatchItem<(String, Value)>> = if batch {
-            match crate::mcp::batch_items(&ask.arguments) {
-                Ok(items) => items
-                    .into_iter()
-                    .map(|(tool, arguments)| {
-                        let call = arguments.and_then(|arguments| self.listed_as(&listed, &tool).map(|name| (name, arguments)));
-                        (call.as_ref().map_or(tool, |(name, _)| name.clone()), call)
-                    })
-                    .collect(),
-                Err(why) => {
-                    ask.refuse(&why);
-                    return Ok(());
-                }
-            }
-        } else {
-            let call = listed.iter().any(|tool| tool.name == ask.name).then(|| (ask.name.clone(), ask.arguments.clone()));
-            vec![(ask.name.clone(), call.ok_or_else(|| format!("{} is not a tool of this session.", ask.name)))]
-        };
-        let calls: Vec<(String, Value)> = items.iter().filter_map(|(_, call)| call.as_ref().ok().cloned()).collect();
-        let (outcomes, unstored) = if calls.is_empty() {
-            (Vec::new(), None)
-        } else {
-            match self.run_calls(calls).await {
-                Ok(ran) => ran,
-                Err(error) => {
-                    ask.refuse("The session stopped taking this turn's work; the call was not run.");
-                    return Err(error);
-                }
+        }
+        let running = |task: &str| handed.tools.tasks().get(task, &Scope::default()).is_some_and(|row| !row.is_terminal());
+        if let Some(task) = self.session.kept_call(&ask.name, &ask.arguments, running) {
+            let _ = ask.answer.send(crate::mcp::result_text(crate::mcp::kept_again(&ask.name, &task), false));
+            return Ok(());
+        }
+        let due = Due::of(self.session.preset.quirks.mcp_call_deadline, ask.received);
+        let (answer, unstored) = match self.run_call(&handed, ask.name.clone(), ask.arguments.clone(), due).await {
+            Ok(ran) => ran,
+            Err(error) => {
+                ask.refuse("The session stopped taking this turn's work; the call was not run.");
+                return Err(error);
             }
         };
-        let mut outcomes = outcomes.into_iter();
-        let answers: Vec<crate::mcp::BatchItem<Handed>> =
-            items.into_iter().map(|(tool, call)| (tool, call.map(|_| outcomes.next().expect("an outcome for every call run")))).collect();
-        let answer = match &answers[..] {
-            [(_, Ok(outcome))] if !batch => crate::mcp::rendered(outcome),
-            [(_, Err(why))] if !batch => crate::mcp::result_text(why.clone(), true),
-            answers => crate::mcp::batch_rendered(answers),
-        };
-        let _ = ask.answer.send(answer);
+        if ask.answer.send(answer).is_err() {
+            tracing::warn!("[acp] {} gave up its call of {} before it was answered; the call's row holds its answer", self.agent(), ask.name);
+        }
         unstored.map_or(Ok(()), Err)
     }
 
@@ -728,8 +780,9 @@ impl Reply<'_> {
         // plan is written into the same list by the same call, so whichever of the two the agent used last is what
         // the list shows. A session that hands no tools shows the plan as the call's card only.
         let written = match self.context.calls.clone() {
+            // The agent waits on no deadline for its own plan: the call runs to its end.
             Some(calls) if !arguments["items"].as_array().is_none_or(Vec::is_empty) => {
-                self.run_handed(&calls, &[ToolCall { id: id.clone(), name: name.to_owned(), arguments, native_type: None }]).await.pop()
+                self.run_handed(calls, ToolCall { id: id.clone(), name: name.to_owned(), arguments, native_type: None }, Due::default()).await.ok()
             }
             _ => None,
         };
@@ -1232,6 +1285,17 @@ mod tests {
         time.chunk(4_700);
         assert_eq!(timing_of(200, &time, 5_000), (200, 1_000, 4_800));
         assert_eq!(timing_of(200, &ModelTime::default(), 5_000), (200, 0, 4_800), "no chunk: no model time, the same run");
+    }
+
+    /// A call of an agent that gives a call up after a deadline is answered a tenth of that deadline before it, and a
+    /// tool's own hold of the answer ends a fifth before it, ahead of that; one of an agent that waits until the call ends
+    /// is answered when it ends, its tool holding as long as it holds.
+    #[test]
+    fn a_call_is_answered_a_tenth_of_the_agents_deadline_before_it() {
+        let received = tokio::time::Instant::from_std(std::time::Instant::now());
+        assert_eq!(answer_due(Some(Duration::from_secs(180)), received), Some(received + Duration::from_secs(162)));
+        assert_eq!(hold_due(Some(Duration::from_secs(180)), received), Some((received + Duration::from_secs(144)).into_std()));
+        assert_eq!((answer_due(None, received), hold_due(None, received)), (None, None));
     }
 
     /// A turn that streamed no chunk, or whose chunks all came at once, has no model time, and the readout shows no

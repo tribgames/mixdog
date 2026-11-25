@@ -185,7 +185,12 @@ impl SessionActor {
             RunOutcome::Interrupted => ApprovalResolution::Interrupted { at },
             _ => ApprovalResolution::Cancelled { at },
         };
-        for aid in self.book.take_run(&turn) {
+        // A call the run let go of goes on past it with its approvals, unless the run was stopped, which stopped the call too.
+        let detached = &self.detached;
+        let stopped = slot.token.is_cancelled();
+        let stays =
+            |ask: &mixdog_core_api::domain::approval::ApprovalAsk| !stopped && ask.call_id.as_ref().is_some_and(|call| detached.contains(call.as_str()));
+        for aid in self.book.take_run_but(&turn, stays) {
             self.resolve(aid, &turn, resolution.clone());
         }
         // `onGoalTurnSettled` (`turnOutcome`): the Goal runtime closes the turn's clock segment

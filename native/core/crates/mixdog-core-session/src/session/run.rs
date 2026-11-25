@@ -1211,4 +1211,14 @@ impl ApprovalGate for RunPort {
             Err(_) => interrupted(),
         }
     }
+
+    /// On the control lane the call's approvals ride, so the actor holds it before any of them and before the run's end.
+    async fn let_go(&self, call_id: &str) {
+        let _ = self.scoped(async { self.ctl.send(Ctl::Detach { call_id: call_id.to_owned() }).await.map_err(|_| RunError::Closed) }).await;
+    }
+
+    /// Sent whether or not the run still runs or was stopped: an ask of the call left open has nobody waiting for it.
+    async fn released(&self, call_id: &str) {
+        let _ = self.ctl.send(Ctl::Released { call_id: call_id.to_owned() }).await;
+    }
 }

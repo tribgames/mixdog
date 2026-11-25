@@ -17,6 +17,7 @@ use mixdog_acp::surface::CallMark;
 use mixdog_acp::surface::CompactEvent;
 use mixdog_acp::surface::TurnSurface;
 use mixdog_acp::surface::TurnUsage;
+use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_ai::registry::accounting::Facts;
 use mixdog_ai::registry::accounting::RecordArgs;
 use mixdog_ai::registry::accounting::UsagePricing;
@@ -72,12 +73,17 @@ pub fn shared_quotas(presets: &[AgentPreset]) -> std::collections::BTreeMap<Stri
     presets.iter().filter_map(|preset| Some((preset.provider.clone(), preset.usage.as_ref()?.same_quota_as.clone()?))).collect()
 }
 
-pub struct AgentSessionTools(pub HandedTools);
+/// The sessions' tool surfaces, and the table of their tool calls that went on in the background.
+pub struct AgentSessionTools(pub HandedTools, pub JobBoard);
 
 #[async_trait]
 impl SessionTools for AgentSessionTools {
     async fn definitions(&self, thread: &ThreadId) -> Result<Vec<ToolDefinition>, String> {
         self.0.definitions(thread).await
+    }
+
+    fn tasks(&self) -> &JobBoard {
+        &self.1
     }
 }
 

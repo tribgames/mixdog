@@ -427,6 +427,9 @@ pub struct CallOptions {
     /// The caller's model does not read the session's rows (an agent that runs the turn outside Mixdog's loop): a tool
     /// that answers "already in your context" by what those rows hold answers in full.
     pub outside_context: bool,
+    /// When the caller must have its answer, for a caller that gives a call up after a deadline: a tool that holds its
+    /// answer for work to end (`shell`'s foreground wait, `task` wait) ends the hold by then as it ends it at its own limit.
+    pub answer_by: Option<Instant>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

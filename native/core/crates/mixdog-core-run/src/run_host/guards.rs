@@ -23,14 +23,15 @@ pub trait RunningWork: Send + Sync {
     async fn has_active(&self, session_id: &str, surface: &str, awaited_only: bool) -> bool;
 }
 
-/// Whether the session waits on work that will wake it: an agent it started is still running, or a background shell job it
-/// started is, for as long as it runs: a question the user asks meanwhile does not end the wait.
+/// Whether the session waits on work that will wake it: an agent it started is still running, a call of its tools that
+/// went on in the background is, or a background shell job it started is, for as long as it runs: a question the user asks
+/// meanwhile does not end the wait.
 pub async fn awaiting_background_work(work: &dyn RunningWork, session_id: &str) -> bool {
     let id = mixdog_js::js_trim(session_id);
     if id.is_empty() {
         return false;
     }
-    work.has_active(id, "agent", false).await || work.has_active(id, "shell", true).await
+    work.has_active(id, "agent", false).await || work.has_active(id, "tool", false).await || work.has_active(id, "shell", true).await
 }
 
 /// What the guards read, from the session's own stores.

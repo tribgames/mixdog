@@ -2242,6 +2242,7 @@ impl crate::exec::AgentTasks for FakeAgentTasks {
             operation: "spawn".into(),
             status: self.status(),
             text: format!("background task\ntask_id: task_agent_1\nstatus: {}", self.status()),
+            images: Vec::new(),
         })
     }
 
@@ -2453,6 +2454,40 @@ async fn a_timeout_a_cancel_a_hold_and_a_background_start_each_answer_with_their
         let input = serde_json::json!({"action": "cancel", "task_id": "task-g4"});
         assert_eq!(normalize(&body(rig.task.call(&c, input).await)), "status: completed\ntask_id: JOB\ncancelled: shell/shell");
     }
+}
+/// A caller that must have its answer before a hold would end (an agent that gives a call up after a deadline) gets it
+/// then, as the end of the hold gives it: a command held for its long `wait_ms` moves to the background, and a `task`
+/// wait of a long `timeout_ms` answers the task still running, each at the time the caller set and as it answers at
+/// its own limit.
+#[tokio::test]
+async fn a_caller_that_must_have_the_answer_sooner_ends_the_shell_hold_and_the_task_wait_then() {
+    let mut rig = rig();
+    let begun = std::time::Instant::now();
+    let mut config = rig.runtime.config.clone_for_test();
+    config.now_ms = Arc::new(move || golden_ms() + begun.elapsed().as_millis() as u64);
+    rig.runtime = ExecRuntime::new(config);
+    rig.shell = ShellTool::new(rig.runtime.clone());
+    rig.task = TaskTool::new(rig.runtime.clone());
+    let within_a_second = |call: &str| {
+        let mut c = ctx(&rig, call);
+        c.options.answer_by = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        c
+    };
+
+    let asked = std::time::Instant::now();
+    let held = body(rig.shell.call(&within_a_second("d1"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "wait_ms": 600000})).await);
+    assert!(asked.elapsed() < std::time::Duration::from_secs(10), "the hold ran past the caller's time: {held}");
+    assert!(held.starts_with("background task\ntask_id: task-d1\n"), "{held}");
+    assert!(regex::Regex::new(r"\nmoved to background after the [01]s hold; still running\. ").unwrap().is_match(&held), "{held}");
+
+    let asked = std::time::Instant::now();
+    let input = serde_json::json!({"action": "wait", "task_id": "task-d1", "timeout_ms": 3_600_000});
+    let output = rig.task.call(&within_a_second("d2"), input).await.unwrap();
+    assert!(asked.elapsed() < std::time::Duration::from_secs(10), "the wait ran past the caller's time");
+    assert!(output.meta.is_none(), "the task is still running");
+    let waited = body(Ok(output));
+    assert!(waited.starts_with("background task\ntask_id: task-d1\nsurface: shell\nstatus: running\n"), "{waited}");
+    assert!(waited.ends_with("\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn."), "{waited}");
 }
 /// `task read`/`wait` of a finished task, `wait` that reaches its ceiling and `list` of both.
 #[tokio::test]

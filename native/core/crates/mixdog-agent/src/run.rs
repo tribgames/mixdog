@@ -541,6 +541,8 @@ pub struct Run {
     pub(crate) unprojected: bool,
     /// The run's calls are an outside agent's ([`crate::handed`]): its model does not read the session's rows.
     pub(crate) outside: bool,
+    /// When the agent outside must have the answer to the call the run makes now ([`crate::handed`]); its calls carry it.
+    pub(crate) answer_by: crate::tools::AnswerBy,
     /// The session's provider state as the run last saw it: the host's value at
     /// the start (`config.options.provider_state`), then each report of a provider.
     pub(crate) provider_state: Option<ProviderState>,
@@ -693,6 +695,7 @@ impl Run {
             auto_effort_steps: 0,
             unprojected: false,
             outside: false,
+            answer_by: Default::default(),
         }
     }
 

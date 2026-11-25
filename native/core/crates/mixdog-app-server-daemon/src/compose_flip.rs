@@ -2392,6 +2392,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // `completeBackgroundTask`: a job's error is stored as `presentErrorText(error, { surface: 'agent' })` (a cut provider stream reads as a lost
     // connection, not `terminated`).
     job_board.set_error_text(Arc::new(mixdog_agent::agent_tool::error_text::PresentedErrorText));
+    // The calls of Mixdog's tools an ACP agent made that went on past the time it waits for a call: delivered to their
+    // sessions as the agent jobs are, and read by the same `task` tool.
+    let call_board =
+        mixdog_agent::agent_tool::board::JobBoard::of_tool_calls(clock_agent.clone(), Some(Arc::new(crate::compose_mcp::LateBoardNotifier(late.clone()))));
     // An agent stopping its own turn cancels the agent jobs it started (`abortSession`, `session-turns.mjs`).
     {
         let board = job_board.clone();
@@ -2410,6 +2414,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         threads: late_threads,
         clock: clock.clone(),
         board: job_board.clone(),
+        calls: call_board.clone(),
         exec: b.exec.clone(),
     });
     // The `git` tool's `SessionWorktrees` (`WorktreeServices.sessions`): a late cell, bound right after `SessionWorkspaces` is built (it needs the directory) and in `verify_bound`.
@@ -3053,8 +3058,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     }))));
     // The agent's `github` is the desktop's GitHub client (one write queue per repository), its raw results kept in the data directory.
     tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new(scm.github.clone(), Some(b.data_dir.clone()))));
-    // `task` also lists, reads, waits for and cancels the agent tasks (the job board's rows), as Node's did.
-    tool_pool.push(Arc::new(mixdog_tools::exec::TaskTool::new(b.exec.clone()).with_agent_tasks(Arc::new(job_board.clone()))));
+    // `task` also lists, reads, waits for and cancels the agent tasks (the job board's rows), as Node's did, and the tool calls
+    // that went on in the background.
+    tool_pool.push(Arc::new(
+        mixdog_tools::exec::TaskTool::new(b.exec.clone()).with_agent_tasks(Arc::new(job_board.clone())).with_agent_tasks(Arc::new(call_board.clone())),
+    ));
     tool_pool.push(Arc::new(mixdog_tools::fs::GrepTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::FindTool::new()));
@@ -3168,6 +3176,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // A released session (a close or a delete) reaches the browser engine too.
     let owned_shells: Arc<dyn mixdog_core_session::session::shell_jobs::OwnedShells> =
         Arc::new(crate::compose_browser_engine::EngineSessionRelease::new(owned_shells, engine.clone()));
+    // And the calls of its tools that went on in the background.
+    let owned_shells: Arc<dyn mixdog_core_session::session::shell_jobs::OwnedShells> =
+        Arc::new(mixdog_core_session::session::shell_jobs::ReleasesToolCalls { shells: owned_shells, calls: call_board.clone() });
     let shell_strips: Arc<dyn mixdog_core_session::session::shell_jobs::ShellStrips> = b.shell_control.clone();
     // The one archive retention record (`desktop.retentionState`): `PurgeOwners.retention` (wp-session-33/-40).
     let archive_retention = Arc::new(mixdog_core_session::session::thread_settings::ConfigArchiveRetention::new(
@@ -4062,7 +4073,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         ))
         .map_err(|_| ComposeError::AlreadyBound("tool dispatcher"))?;
     // An ACP agent is listed its session's tool surface; a call of one runs in the turn that made it (the `acpAgents` feature, phase 2).
-    let handed_tools = Arc::new(crate::acp_tools::AgentSessionTools(mixdog_core::run_host::assemble::handed_tools::HandedTools::new(acp_next)));
+    let handed_tools =
+        Arc::new(crate::acp_tools::AgentSessionTools(mixdog_core::run_host::assemble::handed_tools::HandedTools::new(acp_next), call_board.clone()));
     #[cfg(test)]
     let kept_handed_tools = handed_tools.clone();
     acp_agents.bind_tools(handed_tools);

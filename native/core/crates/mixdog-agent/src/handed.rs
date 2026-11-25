@@ -126,6 +126,14 @@ impl ApprovalGate for JudgedAsks {
         }
         self.inner.request(ask).await
     }
+
+    async fn let_go(&self, call_id: &str) {
+        self.inner.let_go(call_id).await;
+    }
+
+    async fn released(&self, call_id: &str) {
+        self.inner.released(call_id).await;
+    }
 }
 
 /// A call under judgement, for as long as it is judged.
@@ -270,26 +278,41 @@ impl RetryDecider for Unsent {
     }
 }
 
-/// The calls of one turn.
-#[allow(clippy::disallowed_types, reason = "see HandedCalls::run")]
-pub struct HandedCalls {
-    /// One turn's calls run one at a time over the same run (calls made together as one), each holding it for as long as
-    /// it runs. Only a call and the turn's end wait here; a judgement reads `env` and never does.
+/// A run the turn's calls run on, with the messages it commits and when the answer to its call is due.
+#[allow(clippy::disallowed_types, reason = "see Lane::run")]
+struct Lane {
+    /// The lane's calls run one at a time (calls made together as one), each holding the run for as long as it runs.
     run: tokio::sync::Mutex<Run>,
-    env: Arc<crate::tools::CallEnv>,
     kept: Arc<Kept>,
+    answer_by: crate::tools::AnswerBy,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The calls of one turn.
+pub struct HandedCalls {
+    /// The lane the turn's calls run on. A call the turn lets go of ([`Self::let_go`]) keeps the lane it holds and the
+    /// turn's later calls run on a new one, so none of them waits for it. A judgement reads `env` and the turn's end reads
+    /// `repeat`; neither waits for a call.
+    lane: Mutex<Arc<Lane>>,
+    /// A new lane over the turn's parts, with the repeat guards given.
+    fresh: Mutex<Box<dyn Fn(RepeatGuards) -> Lane + Send>>,
+    env: Arc<crate::tools::CallEnv>,
     asks: Arc<JudgedAsks>,
+    /// The session's repeat guards as the last call that ended left them: each call starts from them, whatever lane it
+    /// runs on.
+    repeat: Mutex<RepeatGuards>,
 }
 
 impl HandedCalls {
-    #[allow(clippy::disallowed_types, reason = "see HandedCalls::run")]
+    #[allow(clippy::disallowed_types, reason = "see Lane::run")]
     pub fn new(mut parts: HandedParts) -> Self {
         let asks = parts.asks.take().unwrap_or_else(|| JudgedAsks::over(parts.tool_env.approvals.clone()));
         parts.tool_env.approvals = asks.alongside(parts.tool_env.approvals.clone());
-        let kept = Arc::new(Kept::default());
         let mut env = crate::one_shot::isolated(parts.clock, Arc::new(Unsent), Arc::new(Unsent), Arc::new(Unsent));
         env.observer = parts.observer;
-        env.sink = kept.clone();
         env.gate = parts.gate;
         env.guards = parts.guards;
         env.hooks = parts.hooks;
@@ -301,17 +324,31 @@ impl HandedCalls {
         let mut config = RunConfig::new(parts.tool_env.thread_id.clone(), parts.tool_env.turn_id.clone(), String::new());
         config.live_cwd = parts.live_cwd;
         config.slot = parts.slot;
-        let provider = Arc::new(NoModel { id: ProviderId::from("outside"), policy: RetryPolicy::codex_default() });
-        let carry = RunCarry { repeat: parts.repeat, ..RunCarry::default() };
-        let mut run = Run::new(env, parts.cancel, provider, parts.tools, parts.tool_env, config, Vec::new(), carry);
-        run.outside = true;
-        let env = run.call_env();
-        Self { run: tokio::sync::Mutex::new(run), env, kept, asks }
+        let provider: Arc<dyn ProviderAdapter> = Arc::new(NoModel { id: ProviderId::from("outside"), policy: RetryPolicy::codex_default() });
+        let (cancel, tools, tool_env) = (parts.cancel, parts.tools, parts.tool_env);
+        let fresh = move |repeat: RepeatGuards| {
+            let kept = Arc::new(Kept::default());
+            let mut env = env.clone();
+            env.sink = kept.clone();
+            let carry = RunCarry { repeat, ..RunCarry::default() };
+            let mut run = Run::new(env, cancel.clone(), provider.clone(), tools.clone(), tool_env.clone(), config.clone(), Vec::new(), carry);
+            run.outside = true;
+            Lane { answer_by: run.answer_by.clone(), run: tokio::sync::Mutex::new(run), kept }
+        };
+        let mut lane = fresh(parts.repeat.clone());
+        let env = lane.run.get_mut().call_env();
+        Self { lane: Mutex::new(Arc::new(lane)), fresh: Mutex::new(Box::new(fresh)), env, asks, repeat: Mutex::new(parts.repeat) }
     }
 
     /// Runs `call` as a batch of one: a `call_tool` as its target, any other call as itself.
     pub async fn call(&self, call: ToolCall) -> Handed {
-        self.calls(std::slice::from_ref(&call)).await.pop().expect("an outcome for every call")
+        self.call_by(call, None).await
+    }
+
+    /// [`Self::call`] for an agent that must have the answer by `answer_by`: a tool that holds its answer for work to end
+    /// ends the hold by then ([`mixdog_core_api::domain::tool::CallOptions::answer_by`]).
+    pub async fn call_by(&self, call: ToolCall, answer_by: Option<std::time::Instant>) -> Handed {
+        self.calls_by(std::slice::from_ref(&call), answer_by).await.pop().expect("an outcome for every call")
     }
 
     /// Runs `calls`, made together, in their order, each as [`Self::call`] runs one: each stretch of consecutive calls
@@ -319,7 +356,14 @@ impl HandedCalls {
     /// its own once every call before it has ended. A refused or failed call does not stop the calls after it. The
     /// outcomes are in the calls' order; what a batch adds beside its results is given with its last call's.
     pub async fn calls(&self, calls: &[ToolCall]) -> Vec<Handed> {
-        let mut run = self.run.lock().await;
+        self.calls_by(calls, None).await
+    }
+
+    async fn calls_by(&self, calls: &[ToolCall], answer_by: Option<std::time::Instant>) -> Vec<Handed> {
+        let lane = lock(&self.lane).clone();
+        let mut run = lane.run.lock().await;
+        *lock(&lane.answer_by) = answer_by;
+        run.carry.repeat = lock(&self.repeat).clone();
         let (targets, _, _) = run.execution_view(calls);
         let cancelled =
             |id: &str| Handed { message: AgentMessage::tool_text(id, "Error: tool call cancelled", ToolKind::Error), follow_ups: Vec::new(), failed: true };
@@ -340,7 +384,7 @@ impl HandedCalls {
             run.messages.push(AgentMessage::assistant("", batch.to_vec()));
             let ended = run.process_tool_batch(batch, batch.len() as u64).await;
             stopped = ended.is_err();
-            let mut told = std::mem::take(&mut *self.kept.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            let mut told = std::mem::take(&mut *lock(&lane.kept.0));
             let results: Vec<Option<AgentMessage>> =
                 batch.iter().map(|call| told.iter().position(|message| message.tool_call_id() == Some(call.id.as_str())).map(|at| told.remove(at))).collect();
             let mut follow_ups: Vec<String> = told.iter().map(AgentMessage::text).collect();
@@ -353,7 +397,26 @@ impl HandedCalls {
                 });
             }
         }
+        *lock(&self.repeat) = run.carry.repeat.clone();
         outcomes
+    }
+
+    /// The turn answered its call `call_id`, which runs now, before the call ended: the call goes on in the background past
+    /// the turn on the lane it holds, and the turn's later calls run on a new one. Its tool, not started yet where it waits
+    /// on the person, has no answer due any more ([`mixdog_core_api::domain::tool::CallOptions::answer_by`]); its
+    /// approvals, open now or asked later, stay open for the person after the turn ends; and the turn's end does not wait
+    /// for it. Its result is no longer the turn's.
+    pub async fn let_go(&self, call_id: &str) {
+        let next = Arc::new((*lock(&self.fresh))(lock(&self.repeat).clone()));
+        let held = std::mem::replace(&mut *lock(&self.lane), next);
+        *lock(&held.answer_by) = None;
+        self.asks.let_go(call_id).await;
+    }
+
+    /// The call `call_id` the turn let go of ended, however it ended (a cancel of its task included): what it still asks
+    /// the person is closed.
+    pub async fn released(&self, call_id: &str) {
+        self.asks.released(call_id).await;
     }
 
     /// The session's answer to a call of its tool `name` that is not run here (an outside agent runs the same kind of
@@ -389,9 +452,9 @@ impl HandedCalls {
         Judged::Allowed
     }
 
-    /// The session's repeat guards after the turn's calls, as its record keeps them.
-    pub async fn repeat_saved(&self) -> serde_json::Map<String, serde_json::Value> {
-        self.run.lock().await.carry.repeat.to_saved()
+    /// The session's repeat guards after the turn's calls that ended, as its record keeps them.
+    pub fn repeat_saved(&self) -> serde_json::Map<String, serde_json::Value> {
+        lock(&self.repeat).to_saved()
     }
 }
 
@@ -457,7 +520,7 @@ mod tests {
             &self.0
         }
         async fn call(&self, ctx: &ToolContext, _: Value) -> ToolOutcome {
-            let told = (ctx.deadline.is_some(), ctx.review.is_some(), ctx.options.outside_context);
+            let told = (ctx.deadline.is_some(), ctx.review.is_some(), ctx.options.outside_context, ctx.options.answer_by.is_some());
             self.1.lock().unwrap().push(format!("run {} {told:?}", self.0.name));
             Ok(ToolOutput { parts: vec![ToolPart::Text("done".into())], meta: Some(json!({ "uiDiff": "@@ -1 +1 @@" })), ..ToolOutput::default() })
         }
@@ -528,7 +591,7 @@ mod tests {
     }
 
     /// [`calls_with`], for a turn whose token is `cancel`.
-    fn calls_under(seen: &Seen, gate: Arc<dyn ToolGate>, approvals: Arc<MockApprovalGate>, cancel: CancellationToken) -> HandedCalls {
+    fn calls_under(seen: &Seen, gate: Arc<dyn ToolGate>, approvals: Arc<dyn ApprovalGate>, cancel: CancellationToken) -> HandedCalls {
         let tokens = mixdog_rt::testing::tokens();
         HandedCalls::new(HandedParts {
             tools: ToolSet::new(vec![Arc::new(CallTool(spec("call_tool"))), Arc::new(Target(spec("edit"), seen.clone())), Arc::new(Refuses(spec("Skill")))]),
@@ -576,7 +639,7 @@ mod tests {
 
         let handed = calls.call(call).await;
 
-        assert_eq!(*seen.lock().unwrap(), ["judge edit", "run edit (true, false, true)", "report edit", "batch of 1"]);
+        assert_eq!(*seen.lock().unwrap(), ["judge edit", "run edit (true, false, true, false)", "report edit", "batch of 1"]);
         assert!(!handed.failed);
         assert_eq!(handed.message.text(), "done");
         assert_eq!(handed.message.ui_diff.as_deref(), Some("@@ -1 +1 @@"));
@@ -699,7 +762,7 @@ mod tests {
     async fn a_call_handed_behind_a_stop_of_the_turn_is_cancelled_unjudged() {
         let seen: Seen = Arc::default();
         let cancel = CancellationToken::new();
-        let calls = calls_under(&seen, Arc::new(StopsTheTurn(seen.clone(), cancel.clone())), Arc::default(), cancel);
+        let calls = calls_under(&seen, Arc::new(StopsTheTurn(seen.clone(), cancel.clone())), Arc::new(MockApprovalGate::default()), cancel);
         let edit = |id: &str, file: &str| ToolCall { id: id.into(), name: "edit".into(), arguments: json!({ "file_path": file }), native_type: None };
 
         let handed = calls.calls(&[edit("c1", "a.txt"), edit("c2", "b.txt")]).await;
@@ -708,5 +771,102 @@ mod tests {
         assert_eq!(handed[0].message.text(), "Error: off this surface");
         assert_eq!(handed[1].message.text(), "Error: tool call cancelled");
         assert!(handed[1].failed);
+    }
+
+    /// The session's approvals: every ask waits for a person who never answers, and what the turn lets go of is noted.
+    #[derive(Default)]
+    struct Unanswered {
+        asked: tokio::sync::Notify,
+        let_go: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ApprovalGate for Unanswered {
+        async fn request(&self, _: ApprovalAsk) -> ApprovalResolution {
+            self.asked.notify_one();
+            std::future::pending().await
+        }
+        async fn let_go(&self, call_id: &str) {
+            self.let_go.lock().unwrap().push(call_id.to_owned());
+        }
+    }
+
+    /// A call still waiting on the person when the turn lets go of it is let go of at the session's approvals, and the
+    /// turn's end reads the repeat guards while the call still holds the turn's run.
+    #[tokio::test]
+    async fn a_call_the_turn_lets_go_of_holds_neither_its_approvals_nor_the_turns_end() {
+        let seen: Seen = Arc::default();
+        let approvals = Arc::new(Unanswered::default());
+        let calls = calls_under(&seen, Arc::new(ByFile(seen.clone())), approvals.clone(), CancellationToken::new());
+        let call = ToolCall { id: "c1".into(), name: "edit".into(), arguments: json!({ "file_path": "ask.txt" }), native_type: None };
+        let turn = async {
+            approvals.asked.notified().await;
+            calls.let_go("c1").await;
+            assert_eq!(*approvals.let_go.lock().unwrap(), ["c1"]);
+            assert_eq!(calls.repeat_saved(), RepeatGuards::default().to_saved());
+        };
+        tokio::select! {
+            _ = calls.call(call) => panic!("the call ended without an answer"),
+            () = turn => {}
+        }
+    }
+
+    /// The session's approvals: each ask is noted and approved once the test says so, and what ends is noted.
+    #[derive(Default)]
+    struct ApprovedLater {
+        asked: tokio::sync::Notify,
+        approve: tokio::sync::Notify,
+        released: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ApprovalGate for ApprovedLater {
+        async fn request(&self, _: ApprovalAsk) -> ApprovalResolution {
+            self.asked.notify_one();
+            self.approve.notified().await;
+            let decision = mixdog_protocol::ToolApprovalDecision {
+                approved: true,
+                reason: None,
+                answers: None,
+                reply: None,
+                response: None,
+                edited_args: None,
+                remember: None,
+                scope: None,
+            };
+            ApprovalResolution::Decided { decision, device: "desk".into(), connection_kind: mixdog_protocol::ConnectionKind::Desktop, at: 0 }
+        }
+        async fn released(&self, call_id: &str) {
+            self.released.lock().unwrap().push(call_id.to_owned());
+        }
+    }
+
+    /// A call the turn lets go of while it waits on the person holds nothing the turn's later calls need: the next call
+    /// runs at once beside it. Approved afterwards, its tool starts with no answer due, as nobody waits for one; the next
+    /// call's tool still has its own. Its end reaches the session's approvals.
+    #[tokio::test]
+    async fn a_call_the_turn_lets_go_of_runs_beside_its_next_call_and_starts_with_no_answer_due() {
+        let seen: Seen = Arc::default();
+        let approvals = Arc::new(ApprovedLater::default());
+        let calls = calls_under(&seen, Arc::new(ByFile(seen.clone())), approvals.clone(), CancellationToken::new());
+        let edit = |id: &str, file: &str| ToolCall { id: id.into(), name: "edit".into(), arguments: json!({ "file_path": file }), native_type: None };
+        let due = Some(std::time::Instant::now() + Duration::from_secs(60));
+        let mut first = Box::pin(calls.call_by(edit("c1", "ask.txt"), due));
+        tokio::select! {
+            _ = &mut first => panic!("the call ended before it was approved"),
+            () = approvals.asked.notified() => {}
+        }
+        calls.let_go("c1").await;
+
+        let next =
+            tokio::time::timeout(Duration::from_secs(5), calls.call_by(edit("c2", "a.txt"), due)).await.expect("the next call waited for the one let go of");
+        assert_eq!(next.message.tool_call_id(), Some("c2"));
+        approvals.approve.notify_one();
+        let first = first.await;
+        assert_eq!((first.message.tool_call_id(), first.message.text()), (Some("c1"), "done".to_owned()));
+        let runs: Vec<String> = seen.lock().unwrap().iter().filter(|line| line.starts_with("run ")).cloned().collect();
+        assert_eq!(runs, ["run edit (true, false, true, true)", "run edit (true, false, true, false)"]);
+        calls.released("c1").await;
+        assert_eq!(*approvals.released.lock().unwrap(), ["c1"]);
     }
 }

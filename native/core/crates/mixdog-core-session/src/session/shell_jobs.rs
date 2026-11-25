@@ -51,6 +51,25 @@ impl OwnedShells for ShellControl {
     }
 }
 
+/// [`OwnedShells`] that also ends the calls of the closing session's tools that went on in the background (the table of
+/// [`mixdog_agent::agent_tool::board::JobBoard::of_tool_calls`]): they end with the session, as its shells do, unannounced.
+pub struct ReleasesToolCalls {
+    pub shells: Arc<dyn OwnedShells>,
+    pub calls: mixdog_agent::agent_tool::board::JobBoard,
+}
+
+impl OwnedShells for ReleasesToolCalls {
+    fn cancel_owned(&self, owner: &ThreadId) {
+        self.shells.cancel_owned(owner);
+        self.calls.cancel_all(&mixdog_agent::agent_tool::board::CancelAll {
+            reason: "the session was closed".to_owned(),
+            scope: mixdog_agent::agent_tool::scope::Scope { caller_session_id: Some(owner.as_str().to_owned()), host_pid: None },
+            notice: mixdog_agent::agent_tool::board::CancelNotice::Never,
+            ..Default::default()
+        });
+    }
+}
+
 /// A thread's strip as it stands when its session loads: Node's host holds every session's `shellJobs` from the poller, so a session
 /// shown (or shown again after it was let go with a job running) carries its pane at once; the core's strip publisher only sends
 /// changes. `None`: no shell runtime behind the session.
@@ -496,5 +515,46 @@ mod tests {
         };
         assert_eq!(finished_at(FINISHED_RETENTION_MS).await, vec!["ended".to_owned()], "a session opened exactly the retention after the end shows the job");
         assert_eq!(finished_at(FINISHED_RETENTION_MS + 1).await, Vec::<String>::new(), "a session opened after it shows no stale strip");
+    }
+
+    /// A session's release (its close or its delete) ends the calls of its tools that went on in the background, beside its
+    /// shells: each is stopped and reads cancelled, and another session's goes on.
+    #[test]
+    fn a_released_session_ends_the_calls_of_its_tools_that_went_on_in_the_background() {
+        use mixdog_agent::agent_tool::board::JobBoard;
+        use mixdog_agent::agent_tool::board::JobOwner;
+        use mixdog_agent::agent_tool::board::NewJob;
+        use mixdog_agent::agent_tool::scope::Scope;
+        struct Shells(Mutex<Vec<String>>);
+        impl OwnedShells for Shells {
+            fn cancel_owned(&self, owner: &ThreadId) {
+                self.0.lock().unwrap().push(owner.as_str().to_owned());
+            }
+        }
+        struct Zero;
+        impl mixdog_agent::env::Clock for Zero {
+            fn now_ms(&self) -> i64 {
+                0
+            }
+        }
+        let calls = JobBoard::of_tool_calls(Arc::new(Zero), None);
+        let stopped: Arc<Mutex<Vec<String>>> = Arc::default();
+        let call = |session: &str| {
+            let stopped = stopped.clone();
+            let session = session.to_owned();
+            let owner = JobOwner { caller_session_id: Some(session.clone()), ..JobOwner::default() };
+            let cancel: Arc<dyn Fn() + Send + Sync> = Arc::new(move || stopped.lock().unwrap().push(session.clone()));
+            calls.register(NewJob { operation: "read".to_owned(), owner, cancel: Some(cancel), ..NewJob::default() }).unwrap()
+        };
+        let (closing, other) = (call("closing"), call("other"));
+        let shells = Arc::new(Shells(Mutex::default()));
+        let release = ReleasesToolCalls { shells: shells.clone(), calls: calls.clone() };
+
+        release.cancel_owned(&ThreadId::from("closing"));
+
+        assert_eq!(*shells.0.lock().unwrap(), ["closing"]);
+        assert_eq!(*stopped.lock().unwrap(), ["closing"]);
+        assert_eq!(calls.get(&closing, &Scope::default()).unwrap().status, "cancelled");
+        assert_eq!(calls.get(&other, &Scope::default()).unwrap().status, "running");
     }
 }

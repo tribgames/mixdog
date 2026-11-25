@@ -595,16 +595,26 @@ impl ApprovalBook {
 
     /// Open requests of run `rid`, marked resolving (its abort or end, P §8.4 `interrupted`).
     pub fn take_run(&mut self, rid: &TurnId) -> Vec<ApprovalId> {
-        let mut out: Vec<ApprovalId> = self
+        self.take_run_but(rid, |_| false)
+    }
+
+    /// [`Self::take_run`] without the requests `stays` keeps open: those of calls that left the run and go on past it.
+    pub fn take_run_but(&mut self, rid: &TurnId, stays: impl Fn(&ApprovalAsk) -> bool) -> Vec<ApprovalId> {
+        self.take_where(|run, ask| run == rid && !stays(ask)).into_iter().map(|(aid, _)| aid).collect()
+    }
+
+    /// The open requests `pick` selects by their run and what they ask, marked resolving, each with its run, in id order.
+    pub fn take_where(&mut self, pick: impl Fn(&TurnId, &ApprovalAsk) -> bool) -> Vec<(ApprovalId, TurnId)> {
+        let mut out: Vec<(ApprovalId, TurnId)> = self
             .open
             .iter_mut()
-            .filter(|(_, open)| !open.resolving && &open.rid == rid)
+            .filter(|(_, open)| !open.resolving && pick(&open.rid, &open.request.ask))
             .map(|(aid, open)| {
                 open.resolving = true;
-                *aid
+                (*aid, open.rid.clone())
             })
             .collect();
-        out.sort();
+        out.sort_by_key(|(aid, _)| *aid);
         out
     }
 

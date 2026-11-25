@@ -81,6 +81,15 @@ impl SessionActor {
         }
         self.cell.abort_compaction(abort);
         (self.delete_closed, self.delete_mark, self.delete_marked) = (Some(closed), Some(mark), Some(marked));
+        // The calls its runs let go of leave the approvals list now too, refused: nothing of them runs for a deleted session.
+        // Their background tasks end with its release (`OwnedShells`).
+        let at = self.deps.clock.now_ms();
+        let detached = std::mem::take(&mut self.detached);
+        for (aid, rid) in self.book.take_where(|_, ask| ask.call_id.as_ref().is_some_and(|call| detached.contains(call.as_str()))) {
+            let interrupted = ApprovalResolution::Interrupted { at };
+            self.book.answer(aid, &interrupted);
+            self.resolve(aid, &rid, interrupted);
+        }
         if let Some(run) = &self.run {
             // The deleted session leaves the approvals list now, not when its turn ends.
             let turn = run.turn.clone();
@@ -290,7 +299,9 @@ impl SessionActor {
         }
         let (jobs, work, thread) = (self.jobs_tx.clone(), self.deps.work.clone(), self.id.clone());
         tokio::spawn(async move {
-            let working = work.has_active(thread.as_str(), "agent", false).await || work.has_active(thread.as_str(), "shell", false).await;
+            let working = work.has_active(thread.as_str(), "agent", false).await
+                || work.has_active(thread.as_str(), "tool", false).await
+                || work.has_active(thread.as_str(), "shell", false).await;
             let _ = jobs.send(JobDone::IdleChecked { working });
         });
     }

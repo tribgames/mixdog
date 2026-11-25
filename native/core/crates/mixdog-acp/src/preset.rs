@@ -58,6 +58,10 @@ pub struct Quirks {
     /// server and a tool it lists is Mixdog's own, as is one whose `rawInput` names the two in `ServerName` and
     /// `ToolName`; nothing else of a call is read for this. `None` knows a call by `rawInput` alone.
     pub mcp_tool_name: Option<String>,
+    /// How long the agent waits for one call of a tool of an MCP server the client gave it before it gives the call up
+    /// and tells its model the call timed out; `None` for an agent that waits until the call ends. A call of a Mixdog
+    /// tool not over in time is answered before it and goes on as a background task of the session.
+    pub mcp_call_deadline: Option<std::time::Duration>,
     /// What the agent says, as a whole reply with no tool call, when the signed-in account may not use it (suspended,
     /// no access): a reply that holds one of these is the turn's failure and the agent's state, not an answer.
     pub account_refusals: Vec<String>,
@@ -138,7 +142,7 @@ pub struct UsageReport {
 }
 
 /// How a CLI is started with none of its own tools, for a session that is handed Mixdog's: an agent definition the CLI
-/// finds under its start folder, and the arguments that select it.
+/// finds under its start folder, and the arguments that select it and start the CLI as such a session needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnToolsOff {
     pub args: Vec<String>,
@@ -153,11 +157,12 @@ pub struct OwnToolsOff {
 impl OwnToolsOff {
     /// The definition of an agent with none of the CLI's tools and the tools `server` lists. The CLI declares a server's
     /// tool to the model with its schema only where the definition names it eager; any other it lists by name alone,
-    /// behind a call that reads the schema from a file first.
+    /// behind a call that reads the schema from a file first. It leaves out the CLI's default prompt sections, which
+    /// describe the CLI's own tools and workspace: Mixdog's prompt describes the session's.
     pub fn definition(&self, server: &str, tools: &[String]) -> String {
         let eager: String = tools.iter().map(|tool| format!("      {}:\n        eager: true\n", serde_json::Value::from(tool.as_str()))).collect();
         format!(
-            "---\nname: {}\ndescription: Works with the tools Mixdog hands over.\ntools: []\nmcpServers:\n  - name: {server}\n    tools:\n{eager}subagent: false\n---\n{}",
+            "---\nname: {}\ndescription: Works with the tools Mixdog hands over.\ntools: []\nmcpServers:\n  - name: {server}\n    tools:\n{eager}subagent: false\nexcludeDefaultComponents: true\n---\n{}",
             self.name, self.body
         )
     }
@@ -213,9 +218,11 @@ pub fn builtin() -> Vec<AgentPreset> {
         provider: "acp-antigravity".into(),
         command: "agy".into(),
         args: vec!["acp".into(), "--disable-telemetry".into()],
-        // A custom agent whose `tools` list is empty has none of the CLI's file, shell, search and planning tools.
+        // A custom agent whose `tools` list is empty has none of the CLI's file, shell, search and planning tools. The
+        // CLI asks the client before each call of an MCP tool, and with none of its own tools all it asks about are
+        // Mixdog's calls, which the session's own pipeline judges: it asks nothing.
         own_tools_off: Some(OwnToolsOff {
-            args: vec!["--agent".into(), "mixdog".into()],
+            args: vec!["--agent".into(), "mixdog".into(), "--dangerously-skip-permissions".into()],
             file: ".agents/agents/mixdog/agent.md".into(),
             name: "mixdog".into(),
             body: "You are a coding agent working in the user's workspace, with the tools Mixdog hands you.\n".into(),
@@ -240,6 +247,10 @@ pub fn builtin() -> Vec<AgentPreset> {
             system_prompt_append: Some(vec!["antigravity".into(), "systemPrompt".into(), "append".into()]),
             replies_without_prompt: true,
             mcp_tool_name: Some("mcp_{server}_{tool}".into()),
+            // 1.5.16 ends every call of a tool of a server `session/new` names after exactly 3 minutes ("timed out after
+            // 3m0s: context deadline exceeded"), its documented default; its `timeoutSeconds` setting does not reach such a
+            // server, as a field of the entry, under its `_meta` or in the agent definition.
+            mcp_call_deadline: Some(std::time::Duration::from_secs(180)),
             account_refusals: vec!["has been disabled in this account".into()],
             // 1.5.15 sends a failure inside a turn as the text chunk "\n⚠ <error>\n" and ends the prompt with
             // `end_turn` and no usage; it answers a prompt of a session it does not hold with the error

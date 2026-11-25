@@ -50,6 +50,8 @@ pub struct AgentTaskView {
     /// `running`, or how it ended.
     pub status: String,
     pub text: String,
+    /// What its result holds beside the text (a tool call's images), given after it.
+    pub images: Vec<ToolPart>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -62,6 +64,10 @@ pub enum AgentTaskCancellation {
 /// reads, waits for and cancels beside the shell jobs. The agent runtime owns them; `task` only asks.
 #[async_trait]
 pub trait AgentTasks: Send + Sync {
+    /// The execution surface the tasks are listed and cancelled under, as `<surface>/<operation>`.
+    fn surface(&self) -> &'static str {
+        "agent"
+    }
     /// The tasks `owner` started, oldest first.
     fn list(&self, owner: &mixdog_protocol::ThreadId) -> Vec<AgentTaskRow>;
     /// `None`: no such task of `owner`.
@@ -79,7 +85,7 @@ pub struct TaskTool {
     /// What a delegated agent's session is sent: the same tool with the agent's wait default.
     agent_spec: ToolSpec,
     runtime: Arc<ExecRuntime>,
-    agent_tasks: Option<Arc<dyn AgentTasks>>,
+    agent_tasks: Vec<Arc<dyn AgentTasks>>,
 }
 
 impl TaskTool {
@@ -88,13 +94,13 @@ impl TaskTool {
             spec: spec_from_def(include_str!("specs/task.json"), true, &[]),
             agent_spec: spec_from_def(include_str!("specs/task.agent.json"), true, &[]),
             runtime,
-            agent_tasks: None,
+            agent_tasks: Vec::new(),
         }
     }
 
-    /// The agent tasks `task` lists, reads, waits for and cancels beside the shell jobs.
+    /// A table of tasks `task` lists, reads, waits for and cancels beside the shell jobs, after the tables given before it.
     pub fn with_agent_tasks(mut self, tasks: Arc<dyn AgentTasks>) -> Self {
-        self.agent_tasks = Some(tasks);
+        self.agent_tasks.push(tasks);
         self
     }
 }
@@ -125,9 +131,10 @@ fn unavailable(text: String) -> ToolOutcome {
 }
 
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-async fn list(runtime: &ExecRuntime, agents: Option<&dyn AgentTasks>, ctx: &ToolContext) -> ToolOutcome {
+async fn list(runtime: &ExecRuntime, tables: &[Arc<dyn AgentTasks>], ctx: &ToolContext) -> ToolOutcome {
     let jobs = runtime.list(&ctx.thread_id);
-    let agent_rows = agents.map(|tasks| tasks.list(&ctx.thread_id)).unwrap_or_default();
+    let agent_rows: Vec<(&str, AgentTaskRow)> =
+        tables.iter().flat_map(|tasks| tasks.list(&ctx.thread_id).into_iter().map(|row| (tasks.surface(), row))).collect();
     let mut out = vec![format!("background tasks: {}", jobs.len() + agent_rows.len())];
     let quiet: Vec<String> = jobs
         .iter()
@@ -140,10 +147,10 @@ async fn list(runtime: &ExecRuntime, agents: Option<&dyn AgentTasks>, ctx: &Tool
         let error = job.failure_error().map_or(String::new(), |e| format!(" error={e}"));
         out.push(format!("- {} shell/shell {}{label}{error}", job.id, job.status().as_str()));
     }
-    for row in agent_rows {
+    for (surface, row) in agent_rows {
         let label = row.label.filter(|l| !l.is_empty()).map_or(String::new(), |l| format!(" label={l}"));
         let error = row.error.filter(|e| !e.is_empty()).map_or(String::new(), |e| format!(" error={e}"));
-        out.push(format!("- {} agent/{} {}{label}{error}", row.task_id, row.operation, row.status));
+        out.push(format!("- {} {surface}/{} {}{label}{error}", row.task_id, row.operation, row.status));
     }
     if !quiet.is_empty() {
         out.push(format!("[output silence]\n{}", quiet.join("\n")));
@@ -219,11 +226,13 @@ impl WaitEnd {
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 async fn hold_wait(runtime: &ExecRuntime, ctx: &ToolContext, settled: impl std::future::Future, timeout: Option<f64>) -> Result<WaitEnd, ToolOutcome> {
     let default = if ctx.surface == SurfaceKind::Agent { WAIT_DEFAULT_AGENT_MS } else { WAIT_DEFAULT_MS };
-    let ceiling = wait_ceiling_ms(timeout, default);
+    let ceiling = Duration::from_millis(wait_ceiling_ms(timeout, default));
+    // A caller that must have the answer sooner gets it when the ceiling would come then.
+    let ceiling = ctx.options.answer_by.map_or(ceiling, |by| ceiling.min(by.saturating_duration_since(std::time::Instant::now())));
     let wait = runtime.config.wake.begin(&ctx.thread_id);
     tokio::select! {
         _ = settled => {}
-        () = mixdog_rt::time::sleep(Duration::from_millis(ceiling)) => {}
+        () = mixdog_rt::time::sleep(ceiling) => {}
         () = wait.released() => {}
         () = ctx.cancel.cancelled() => {
             return Err(refused(ToolErrorCode::Cancelled, "Error: wait cancelled".into()));
@@ -307,7 +316,7 @@ async fn agent_task(
 ) -> ToolOutcome {
     if action == "cancel" {
         return match tasks.cancel(&ctx.thread_id, id, "cancelled by task control") {
-            Some(AgentTaskCancellation::Cancelled { operation }) => ok(format!("status: completed\ntask_id: {id}\ncancelled: agent/{operation}")),
+            Some(AgentTaskCancellation::Cancelled { operation }) => ok(format!("status: completed\ntask_id: {id}\ncancelled: {}/{operation}", tasks.surface())),
             Some(AgentTaskCancellation::AlreadySettled { status }) => unavailable(format!("Error: task already {status}: {id}")),
             None => not_found(id),
         };
@@ -321,17 +330,21 @@ async fn agent_task(
     } else {
         WaitEnd::default()
     };
-    let Some(latest) = tasks.view(&ctx.thread_id, id) else { return not_found(id) };
-    let running = latest.status == "running";
-    let mut rendered = latest.text;
+    let Some(AgentTaskView { status, text: mut rendered, images, .. }) = tasks.view(&ctx.thread_id, id) else { return not_found(id) };
+    let running = status == "running";
     if waiting && running {
         rendered.push_str(&end.note(id).unwrap_or_else(|| "\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn.".to_owned()));
     }
-    if !running {
+    let answer = if running {
+        ok(rendered)
+    } else {
         tasks.acknowledge(id);
-        return task_completion(rendered, id, &latest.status);
-    }
-    ok(rendered)
+        task_completion(rendered, id, &status)
+    };
+    answer.map(|mut output| {
+        output.parts.extend(images);
+        output
+    })
 }
 
 /// How a cancel of one task ended (`cancelShellTaskOutcome`'s `cancelled` and `unconfirmed`;
@@ -545,7 +558,7 @@ impl TaskTool {
             return invalid("action", "Error: task action is required".into());
         }
         if action == "list" {
-            return list(&self.runtime, self.agent_tasks.as_deref(), ctx).await;
+            return list(&self.runtime, &self.agent_tasks, ctx).await;
         }
         let id = args.get("task_id").and_then(JsonValue::as_str).map(mixdog_js::js_trim).unwrap_or("");
         if id.is_empty() {
@@ -574,11 +587,9 @@ impl TaskTool {
         }
         let tail = args.get("output").and_then(JsonValue::as_str) == Some("tail");
         let Some(job) = self.runtime.get(&ctx.thread_id, id) else {
-            if let Some(tasks) = self.agent_tasks.as_deref()
-                && let Some(view) = tasks.view(&ctx.thread_id, id)
-            {
+            if let Some((tasks, view)) = self.agent_tasks.iter().find_map(|tasks| Some((tasks, tasks.view(&ctx.thread_id, id)?))) {
                 let timeout = args.get("timeout_ms").and_then(JsonValue::as_f64);
-                return agent_task(&self.runtime, tasks, ctx, id, view, &action, timeout).await;
+                return agent_task(&self.runtime, tasks.as_ref(), ctx, id, view, &action, timeout).await;
             }
             return kept_task(&self.runtime, ctx, id, action == "cancel", tail).await;
         };

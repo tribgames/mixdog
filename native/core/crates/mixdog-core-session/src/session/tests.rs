@@ -333,6 +333,165 @@ async fn the_first_decision_wins_and_one_that_does_not_decode_is_a_denial() {
     );
 }
 
+/// A call its run let go of goes on past the run with its approvals: the ask it waits on when the run ends stays open,
+/// and one it makes after the run ended is put to the person. The run ends without waiting for either, and the person's
+/// answer to each reaches the call.
+#[tokio::test(start_paused = true)]
+async fn a_call_its_run_let_go_of_keeps_its_approvals_past_the_runs_end() {
+    let rig = Rig::new();
+    let resolved: Arc<Mutex<Vec<ApprovalResolution>>> = Arc::default();
+    let (shown, asks_again) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let (seen, run_may_end, again) = (resolved.clone(), shown.clone(), asks_again.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (seen, run_may_end, again) = (seen.clone(), run_may_end.clone(), again.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let ask = || ApprovalAsk {
+                kind: ApprovalKind::Tool,
+                call_id: Some(mixdog_protocol::ToolCallId::from("c1")),
+                tool: Some("shell".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
+                remember: Vec::new(),
+                expires_after: None,
+            };
+            let port = run.port.clone();
+            port.let_go("c1").await;
+            drop(tokio::spawn(async move {
+                let first = port.request(ask()).await;
+                seen.lock().unwrap().push(first);
+                again.notified().await;
+                let second = port.request(ask()).await;
+                seen.lock().unwrap().push(second);
+            }));
+            run_may_end.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    let published = |nth: usize| {
+        rig.sink
+            .events()
+            .into_iter()
+            .filter_map(|event| match event {
+                ServerRequestEvent::Published(request) => Some(request),
+                _ => None,
+            })
+            .nth(nth)
+    };
+    let approve = |request: &mixdog_core_api::server_request::PendingServerRequest| Decision {
+        request: request.id.clone(),
+        connection: ConnectionId(7),
+        device: "desktop-7".into(),
+        connection_kind: ConnectionKind::Desktop,
+        origin: mixdog_protocol::Origin::Local,
+        result: json!({ "approved": true }),
+    };
+    let first = eventually_on!(&[&handle.cell.stepped], || published(0)).await;
+    shown.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert!(resolved.lock().unwrap().is_empty(), "the run's end answered the call's open ask: {:?}", resolved.lock().unwrap());
+
+    handle.decide(approve(&first)).expect("routed");
+    eventually_on!(&[&handle.cell.stepped], || (resolved.lock().unwrap().len() == 1).then_some(())).await;
+    asks_again.notify_one();
+    let second = eventually_on!(&[&handle.cell.stepped], || published(1)).await;
+    handle.decide(approve(&second)).expect("routed");
+    eventually_on!(&[&handle.cell.stepped], || (resolved.lock().unwrap().len() == 2).then_some(())).await;
+    for resolution in resolved.lock().unwrap().iter() {
+        assert!(matches!(resolution, ApprovalResolution::Decided { decision, .. } if decision.approved), "{resolution:?}");
+    }
+}
+
+/// A session whose run let go of its call `c1`, which asked the person before the run ended and still waits on that ask.
+struct AskedPastItsRun {
+    handle: Arc<SessionHandle>,
+    port: super::run::RunPort,
+    /// The task that waits on the ask, and what the ask resolved to once it did.
+    asking: tokio::task::AbortHandle,
+    resolved: Arc<Mutex<Option<ApprovalResolution>>>,
+    request: mixdog_core_api::server_request::PendingServerRequest,
+}
+
+async fn asked_past_its_run(rig: &Rig, directory: &SessionDirectory) -> AskedPastItsRun {
+    let resolved: Arc<Mutex<Option<ApprovalResolution>>> = Arc::default();
+    let held: Arc<Mutex<Option<(super::run::RunPort, tokio::task::AbortHandle)>>> = Arc::default();
+    let shown = Arc::new(tokio::sync::Notify::new());
+    let (seen, kept, run_may_end) = (resolved.clone(), held.clone(), shown.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (seen, kept, run_may_end) = (seen.clone(), kept.clone(), run_may_end.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let ask = ApprovalAsk {
+                kind: ApprovalKind::Tool,
+                call_id: Some(mixdog_protocol::ToolCallId::from("c1")),
+                tool: Some("shell".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
+                remember: Vec::new(),
+                expires_after: None,
+            };
+            let port = run.port.clone();
+            port.let_go("c1").await;
+            let asker = port.clone();
+            let asking = tokio::spawn(async move {
+                let resolution = asker.request(ask).await;
+                *seen.lock().unwrap() = Some(resolution);
+            });
+            *kept.lock().unwrap() = Some((port, asking.abort_handle()));
+            run_may_end.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let handle = start_thread(directory).await;
+    turn(&handle, "build", "op-1").await;
+    let request = eventually_on!(&[&handle.cell.stepped], || {
+        rig.sink.events().into_iter().find_map(|event| match event {
+            ServerRequestEvent::Published(request) => Some(request),
+            _ => None,
+        })
+    })
+    .await;
+    shown.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let (port, asking) = held.lock().unwrap().take().expect("the run's port");
+    AskedPastItsRun { handle, port, asking, resolved, request }
+}
+
+/// A call its run let go of that ends, however it ends (its task stopped, the wait on its ask dropped with it), closes what
+/// it still asks: the ask leaves the person's approvals.
+#[tokio::test(start_paused = true)]
+async fn a_call_let_go_of_that_ends_closes_what_it_still_asks() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let asked = asked_past_its_run(&rig, &directory).await;
+    asked.asking.abort();
+    asked.port.released("c1").await;
+    let closed = || rig.sink.events().into_iter().any(|event| matches!(&event, ServerRequestEvent::Resolved(id, _) if *id == asked.request.id));
+    eventually_on!(&[&asked.handle.cell.stepped], || closed().then_some(())).await;
+}
+
+/// A deleted session refuses what a call its run let go of still asks: the ask is answered interrupted and leaves the
+/// person's approvals, so nothing of the call runs for the deleted session.
+#[tokio::test(start_paused = true)]
+async fn a_deleted_session_refuses_what_a_call_let_go_of_still_asks() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let asked = asked_past_its_run(&rig, &directory).await;
+    let (closed, _refused) = tokio::sync::oneshot::channel();
+    let (_mark, mark) = tokio::sync::oneshot::channel();
+    let (marked, _) = tokio::sync::oneshot::channel();
+    let abort = mixdog_agent::cancel::Abort::close_session(asked.handle.id.as_str(), "test-delete");
+    let delete = super::control::Ctl::Delete { abort, idle: false, guard: None, closed, mark, marked };
+    assert!(asked.handle.cell.ctl_tx.try_send(delete).is_ok(), "the control lane takes the delete");
+    let resolution = eventually_on!(&[&asked.handle.cell.stepped], || asked.resolved.lock().unwrap().clone()).await;
+    assert!(matches!(resolution, ApprovalResolution::Interrupted { .. }), "{resolution:?}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     let rig = Rig::new();

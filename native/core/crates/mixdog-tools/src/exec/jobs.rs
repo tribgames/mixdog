@@ -93,7 +93,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// Pushed to the owner when a detached job finishes. Awaited in the completing job's task, so a
 /// slow consumer pushes back on the job instead of queueing behind it. `surface` is the
-/// completion's execution surface (`"shell"`, `"agent"`), given by the caller.
+/// completion's execution surface (`"shell"`, `"agent"`, `"tool"`), given by the caller.
 #[async_trait::async_trait]
 pub trait TaskNotifier: Send + Sync {
     async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String);
