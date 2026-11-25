@@ -651,20 +651,30 @@ function useIslandAgentRows(sessionId: string): {
   poolRows: DesktopAgentPoolRow[] | null;
 } {
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
-  const poolRows = useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot);
+  // The view keeps its identity through progress the rows do not show.
+  const view = useSyncExternalStore(poolStore.subscribe, poolStore.getView, poolStore.getView);
+  // The usage cue's ledger token is progress the view leaves out: it re-renders on its own.
+  const readCue = () => islandUsageCue(poolStore.getSnapshot(), sessionId, 0);
+  useSyncExternalStore(poolStore.subscribe, readCue, readCue);
   // Rows the user cleared ("Clear finished") are not listed.
-  const pool = useVisibleAgentPool(poolRows);
-  const agentRows = useMemo(() => islandAgentRows(pool, sessionId), [pool, sessionId]);
+  const agentRows = islandAgentRows(useVisibleAgentPool(view), sessionId);
   useEffect(() => {
     startAgentPool(poolStore);
   }, [poolStore]);
-  return { agentRows, poolRows };
+  return { agentRows, poolRows: poolStore.getSnapshot() };
 }
+
+const CLEARABLE_AGENTS = new WeakMap<readonly IslandAgentRow[], DesktopAgentPoolRow[]>();
 
 /** The finished agents "Clean up" clears: the listed rows are already the
  *  tree flattened, so each is judged on its own node. */
-export function clearableAgents(agents: readonly IslandAgentRow[]) {
-  return agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
+export function clearableAgents(agents: readonly IslandAgentRow[]): DesktopAgentPoolRow[] {
+  let clearable = CLEARABLE_AGENTS.get(agents);
+  if (!clearable) {
+    clearable = agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
+    CLEARABLE_AGENTS.set(agents, clearable);
+  }
+  return clearable;
 }
 
 export function clearFinishedAgents(

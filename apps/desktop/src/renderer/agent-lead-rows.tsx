@@ -93,12 +93,24 @@ function ordinaryLeadSession(session: DesktopSessionSummary): boolean {
   );
 }
 
-type LeadRowWindow = Required<Pick<AgentLeadRowOptions, 'now' | 'retainMs' | 'pinned'>>;
+/** The words every Lead row may read, looked up once per list rather than per row. */
+function leadRowLabels() {
+  return {
+    idle: t('Idle'),
+    working: t('Working'),
+    approval: t('Waiting for approval'),
+    untitled: t('Untitled session'),
+  };
+}
+
+type LeadRowWindow = Required<Pick<AgentLeadRowOptions, 'now' | 'retainMs' | 'pinned'>> & {
+  labels: ReturnType<typeof leadRowLabels>;
+};
 
 function pooledLeadRow(
   group: LeadGroup,
   needsUser: ReadonlySet<string>,
-  { now, retainMs, pinned }: LeadRowWindow
+  { now, retainMs, pinned, labels }: LeadRowWindow
 ): AgentLeadRow | null {
   const flat = flattenAgentActivityNodes(group.nodes);
   const attention =
@@ -115,18 +127,17 @@ function pooledLeadRow(
   const provider = lead?.provider || session.provider || null;
   const model = modelDisplayName(lead?.model || session.model, provider || '');
   let kind: AgentLeadRow['kind'] = 'idle';
-  let status = lead ? agentElapsedText(desktopAgentActivityState(lead), lead, now) : t('Idle');
-  if (running) {
-    kind = 'running';
-    status = t('Working');
-  }
+  let status: string;
   if (attention) {
     kind = 'attention';
-    status = t('Waiting for approval');
-  }
+    status = labels.approval;
+  } else if (running) {
+    kind = 'running';
+    status = labels.working;
+  } else status = lead ? agentElapsedText(desktopAgentActivityState(lead), lead, now) : labels.idle;
   return {
     sessionId: group.ownerId,
-    title: sessionDisplayTitle(session, t('Untitled session')),
+    title: sessionDisplayTitle(session, labels.untitled),
     provider,
     preview: model || status,
     at: Number(session.activityAt) || session.updatedAt || 0,
@@ -140,7 +151,7 @@ function pooledLeadRow(
 function sessionLeadRow(
   session: DesktopSessionSummary,
   attention: boolean,
-  { now, retainMs, pinned }: LeadRowWindow
+  { now, retainMs, pinned, labels }: LeadRowWindow
 ): AgentLeadRow | null {
   const at = Number(session.activityAt) || session.updatedAt || 0;
   const isPinned = pinned.has(session.id);
@@ -149,9 +160,9 @@ function sessionLeadRow(
   const model = modelDisplayName(session.model, provider || '');
   return {
     sessionId: session.id,
-    title: sessionDisplayTitle(session, t('Untitled session')),
+    title: sessionDisplayTitle(session, labels.untitled),
     provider,
-    preview: model || (attention ? t('Waiting for approval') : t('Idle')),
+    preview: model || (attention ? labels.approval : labels.idle),
     at,
     kind: attention ? 'attention' : 'idle',
     pinned: isPinned,
@@ -168,7 +179,7 @@ export function agentLeadRows(
   needsUser: ReadonlySet<string>,
   { now = Date.now(), retainMs = HOUR_MS, pinned = NO_PINS, sessions = [] }: AgentLeadRowOptions = {}
 ): AgentLeadRow[] {
-  const window = { now, retainMs, pinned };
+  const window = { now, retainMs, pinned, labels: leadRowLabels() };
   const pooled = new Set(groups.map((group) => group.ownerId));
   const rows = [
     ...groups.map((group) => pooledLeadRow(group, needsUser, window)),
@@ -201,8 +212,11 @@ function AgentLeadRowItem({
   onOpenMenu,
   onToggleExpanded,
   renderSubtree,
+  labels,
 }: {
   row: AgentLeadRow;
+  /** The row's fixed words, looked up once for the list. */
+  labels: { working: string; pinned: string };
   selected: boolean;
   open: boolean;
   asking?: ReadonlySet<string>;
@@ -247,7 +261,7 @@ function AgentLeadRowItem({
               {row.kind === 'running' && (
                 <span className="agent-chat-status" data-kind="running">
                   <ProgressSpinner size={14} aria-hidden="true" />
-                  <span className="sr-only">{t('Working')}</span>
+                  <span className="sr-only">{labels.working}</span>
                 </span>
               )}
               {row.kind === 'attention' && (
@@ -263,7 +277,7 @@ function AgentLeadRowItem({
               {row.pinned && (
                 <span className="agent-lead-pin" data-lead-pin="true">
                   <RailPinIcon pinned size={10} />
-                  <span className="sr-only">{t('Pinned')}</span>
+                  <span className="sr-only">{labels.pinned}</span>
                 </span>
               )}
             </span>
@@ -313,6 +327,7 @@ export function AgentLeadRows({
   useLeadAvatar();
   useLeadExpiry(rows, onExpire);
   if (rows.length === 0) return null;
+  const labels = { working: t('Working'), pinned: t('Pinned') };
   return (
     <>
       {divider && <hr className="agent-chat-divider" aria-label={t('Leads')} />}
@@ -328,6 +343,7 @@ export function AgentLeadRows({
             onOpenMenu={onOpenMenu}
             onToggleExpanded={onToggleExpanded}
             renderSubtree={renderSubtree}
+            labels={labels}
           />
         ))}
       </ul>

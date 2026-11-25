@@ -29,6 +29,10 @@ interface AgentPoolStore {
   listing: DesktopAgentPoolRow[] | null;
   /** The `agentPool` entry last published (undefined: none, or removed). */
   entry: unknown;
+  /** `rows` as the agent surfaces show them: a row whose only change is
+   *  progress no surface shows (PROGRESS_ONLY_FIELDS) keeps its previous
+   *  object, and the list keeps its identity while nothing shown changed. */
+  view: DesktopAgentPoolRow[] | null;
   /** Advanced by every publication, a removal included; a read of an older one is dropped. */
   revision: number;
   started: boolean;
@@ -37,6 +41,7 @@ interface AgentPoolStore {
   cancellations: DesktopAgentCancellationLedger;
   listeners: Set<() => void>;
   getSnapshot(): DesktopAgentPoolRow[] | null;
+  getView(): DesktopAgentPoolRow[] | null;
   getListing(): DesktopAgentPoolRow[] | null;
   subscribe(listener: () => void): () => void;
 }
@@ -45,9 +50,11 @@ const AGENT_POOL_STORES = new WeakMap<object, AgentPoolStore>();
 const EMPTY_AGENT_POOL_STORE = createAgentPoolStore();
 
 function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
+  const rows = host ? null : [];
   const store: AgentPoolStore = {
     host,
-    rows: host ? null : [],
+    rows,
+    view: rows,
     listing: null,
     entry: undefined,
     revision: 0,
@@ -55,6 +62,7 @@ function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
     cancellations: createDesktopCancellationLedger(),
     listeners: new Set(),
     getSnapshot: () => store.rows,
+    getView: () => store.view,
     getListing: () => store.listing,
     subscribe: (listener) => {
       store.listeners.add(listener);
@@ -89,14 +97,49 @@ function samePoolValue(left: unknown, right: unknown): boolean {
   );
 }
 
-function sharePoolRows(previous: DesktopAgentPoolRow[] | null, next: DesktopAgentPoolRow[]): DesktopAgentPoolRow[] {
+/** Fields that move with a running turn's progress and that no agent surface
+ *  shows: the usage cue reads `ledgerToken` from the raw rows itself. */
+const PROGRESS_ONLY_FIELDS: ReadonlySet<string> = new Set([
+  'updatedAt',
+  'progressAt',
+  'progressStage',
+  'progressTool',
+  'stallWarnMs',
+  'usage',
+  'toolCalls',
+  'ledgerToken',
+]);
+
+function shownFieldCount(row: DesktopAgentPoolRow): number {
+  let count = 0;
+  for (const key in row) if (Object.hasOwn(row, key) && !PROGRESS_ONLY_FIELDS.has(key)) count += 1;
+  return count;
+}
+
+/** Equal in every field an agent surface shows. */
+function sameShownRow(left: DesktopAgentPoolRow, right: DesktopAgentPoolRow): boolean {
+  if (left === right) return true;
+  for (const key in left) {
+    if (!Object.hasOwn(left, key) || PROGRESS_ONLY_FIELDS.has(key)) continue;
+    if (!Object.hasOwn(right, key) || !samePoolValue(left[key], right[key])) return false;
+  }
+  return shownFieldCount(left) === shownFieldCount(right);
+}
+
+/** `next` with each row that `same` finds unchanged replaced by its previous
+ *  object; `previous` itself when no row changed. */
+function shareRows(
+  previous: DesktopAgentPoolRow[] | null,
+  next: DesktopAgentPoolRow[],
+  same: (prior: DesktopAgentPoolRow, row: DesktopAgentPoolRow) => boolean
+): DesktopAgentPoolRow[] {
   if (!previous) return next;
   const identity = (row: DesktopAgentPoolRow) => `${row.sessionId}\0${desktopAgentIdentity(row)}`;
   const byIdentity = new Map(previous.map((row) => [identity(row), row]));
   let changed = previous.length !== next.length;
   const shared = next.map((row, index) => {
     const prior = byIdentity.get(identity(row));
-    const kept = prior && samePoolValue(prior, row) ? prior : row;
+    const kept = prior && same(prior, row) ? prior : row;
     if (kept !== previous[index]) changed = true;
     return kept;
   });
@@ -123,9 +166,10 @@ function publishAgentPool(store: AgentPoolStore, rows: DesktopAgentPoolRow[]): v
   // Every snapshot passes the cancellation ledger: the daemon still reports a
   // cancelled session as running until its turn unwinds, and a snapshot that
   // shows it running again after the cancel is a stale report, not new work.
-  const next = sharePoolRows(store.rows, keepRunOrigin(store.rows, store.cancellations.apply(rows)));
+  const next = shareRows(store.rows, keepRunOrigin(store.rows, store.cancellations.apply(rows)), samePoolValue);
   if (next === store.rows) return;
   store.rows = next;
+  store.view = shareRows(store.view, next, sameShownRow);
   for (const listener of store.listeners) listener();
 }
 
@@ -609,24 +653,46 @@ const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
   'unknown',
 ]);
 
+/** Whether any descendant of `node`, at any depth, still has work in flight. */
+export function descendantsHavePendingWork(node: AgentActivityNode): boolean {
+  return node.children.some((child) => hasPendingDesktopAgentWork(child.agent) || descendantsHavePendingWork(child));
+}
+
+const ISLAND_ROWS = new WeakMap<readonly DesktopAgentPoolRow[], Map<string, IslandAgentRow[]>>();
+const NO_ISLAND_ROWS: IslandAgentRow[] = [];
+
 /** The agents the composer island lists for one session: its group in the
  *  Agents window (same grouping, nesting and depth-first order) minus the
  *  session's own Lead row, finished agents included but agents the Lead
  *  closed (`released`) left out. Each top-level subtree
- *  stays whole; subtrees with active work come first, finished ones after. */
+ *  stays whole; subtrees with active work come first, finished ones after.
+ *  Built once per pool list and session: every surface of the session shares it. */
 export function islandAgentRows(
   pool: readonly DesktopAgentPoolRow[] | null | undefined,
   ownerSessionId: string
 ): IslandAgentRow[] {
+  if (!pool) return NO_ISLAND_ROWS;
+  let bySession = ISLAND_ROWS.get(pool);
+  if (!bySession) {
+    bySession = new Map();
+    ISLAND_ROWS.set(pool, bySession);
+  }
+  let rows = bySession.get(ownerSessionId);
+  if (!rows) {
+    rows = buildIslandAgentRows(pool, ownerSessionId);
+    bySession.set(ownerSessionId, rows);
+  }
+  return rows;
+}
+
+function buildIslandAgentRows(pool: readonly DesktopAgentPoolRow[], ownerSessionId: string): IslandAgentRow[] {
   const group = agentActivityGroups(pool, (id) => id === ownerSessionId).find(
     (candidate) => candidate.ownerId === ownerSessionId
   );
-  if (!group) return [];
+  if (!group) return NO_ISLAND_ROWS;
   const walk = (nodes: readonly AgentActivityNode[]): IslandAgentRow[] =>
     nodes.flatMap((node) => {
-      const waitingForTasks = flattenAgentActivityNodes(node.children).some(({ agent }) =>
-        hasPendingDesktopAgentWork(agent)
-      );
+      const waitingForTasks = descendantsHavePendingWork(node);
       const state = desktopAgentActivityState(node.agent, { waitingForTasks });
       // The session's own Lead row and agents the Lead closed are not listed;
       // a closed agent's subtree is still walked (a reused descendant shows).

@@ -2910,3 +2910,79 @@ test('live agent rows carry cumulative usage and tool calls through to the backg
     []
   );
 });
+
+test('a pool row already seen is not derived again by a later publication', async () => {
+  const { islandAgentRows } = await import('./agent-activity-model.ts');
+  let reads = 0;
+  const watched = (row) =>
+    new Proxy(row, {
+      get(target, key, receiver) {
+        if (key === 'status' || key === 'stage') reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+  const lead = { sessionId: 'lead-a', ownerSessionId: 'lead-a', agent: 'lead', tag: 'lead', status: 'running' };
+  const worker = watched({
+    sessionId: 'w1',
+    ownerSessionId: 'lead-a',
+    parentSessionId: 'lead-a',
+    agent: 'worker',
+    tag: 'build',
+    status: 'running',
+    stage: 'streaming',
+  });
+  const shown = (rows) => rows.map((row) => [row.node.sessionId, row.state, row.finished]);
+  assert.deepEqual(shown(islandAgentRows([lead, worker], 'lead-a')), [['w1', 'running', false]]);
+  assert.ok(reads > 0);
+  const added = { ...worker, sessionId: 'w2', tag: 'check', status: 'idle', stage: 'idle' };
+  reads = 0;
+  const next = islandAgentRows([lead, worker, added], 'lead-a');
+  assert.equal(reads, 0, 'the unchanged row object keeps its derived state');
+  assert.deepEqual(shown(next), [
+    ['w1', 'running', false],
+    ['w2', 'idle', true],
+  ]);
+  const pool = [lead, worker, added];
+  assert.equal(islandAgentRows(pool, 'lead-a'), islandAgentRows(pool, 'lead-a'), 'one build per pool list and session');
+});
+
+test('the pool view keeps its rows through progress no surface shows', async () => {
+  const { agentPoolStore, startAgentPool } = await import('./agent-activity-model.ts');
+  let listener = () => {};
+  let revision = 1;
+  const entry = (value) => ({ section: 'agentPool', key: null, revision: ++revision, value });
+  const row = {
+    tag: 'build',
+    agent: 'worker',
+    status: 'running',
+    stage: 'streaming',
+    sessionId: 'w1',
+    ownerSessionId: 'lead-a',
+    turnStartedAt: 10,
+  };
+  const host = {
+    sections: {
+      snapshot: async () => ({ status: 'ready', entries: [entry([row])] }),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
+    },
+  };
+  await sectionStoreFor(host).ready();
+  const store = agentPoolStore(host);
+  startAgentPool(store);
+  await sectionStoreFor(host).ready();
+  const push = async (rows) => {
+    listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  const view = store.getView();
+  assert.deepEqual(view, [row]);
+  await push([{ ...row, progressAt: 20, progressStage: 'streaming', updatedAt: 20, toolCalls: 3, ledgerToken: 'a' }]);
+  assert.equal(store.getSnapshot()[0].progressAt, 20);
+  assert.equal(store.getView(), view, 'progress alone does not change what the surfaces read');
+  await push([{ ...row, progressAt: 30, todo: { completed: 1, total: 2 } }]);
+  assert.notEqual(store.getView(), view);
+  assert.deepEqual(store.getView()[0].todo, { completed: 1, total: 2 });
+});
