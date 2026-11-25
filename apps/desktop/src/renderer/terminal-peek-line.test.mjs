@@ -91,7 +91,7 @@ test('no card is shown while no dock can be revealed', () =>
     assert.equal(peekCard(dom), null);
   }));
 
-test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab and reveals the session terminal', () =>
+test('the "터미널 · 커맨드 · 보기" card selects the run\'s terminal tab and reveals the session terminal', () =>
   withPeekDom(async ({ dom, root, sid, items }) => {
     const revealed = [];
     const unsubscribe = await subscribeReveal(revealed);

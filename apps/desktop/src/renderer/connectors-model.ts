@@ -288,7 +288,7 @@ function commandName(args: readonly string[], command: string): string {
   );
 }
 
-/** What a pasted "주소 또는 명령어" is. Detection only parses: a command is
+/** What a pasted "주소 또는 커맨드" is. Detection only parses: a command is
  *  split into exec + args, never run. null when nothing is recognised. */
 export function detectConnectorSource(input: string): DetectedConnectorSource | null {
   const value = input.trim();

@@ -121,6 +121,13 @@ test('a disambiguated key never shows its "Island:" context in any language', ()
   assert.deepEqual(leaked, []);
 });
 
+// 커맨드 is the app's Korean word for a command; translation passes have put 명령 or 명령어 back several times.
+test('the Korean catalog calls a command 커맨드, never 명령', () => {
+  const catalog = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
+  const other = Object.entries(catalog).filter(([, value]) => typeof value === 'string' && value.includes('명령'));
+  assert.deepEqual(other, []);
+});
+
 test('the bundled workflow description is translated in every supported UI language', async () => {
   const source = readFileSync(new URL('../../../../src/workflows/default/WORKFLOW.md', import.meta.url), 'utf8');
   const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)[1];

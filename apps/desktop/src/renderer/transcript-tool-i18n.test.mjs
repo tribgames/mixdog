@@ -92,7 +92,7 @@ test('desktop tool activity summary translates to natural verb phrases in Korean
     assert.equal(desktopToolActivitySummary(items), 'Edit 1 file, Read file, Search 2 patterns, Run 1 command');
 
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(items), '파일 1개 수정, 파일 읽기, 패턴 2개 검색, 명령 1회 실행');
+    assert.equal(desktopToolActivitySummary(items), '파일 1개 수정, 파일 읽기, 패턴 2개 검색, 커맨드 1회 실행');
   } finally {
     await i18n.changeLanguage('en');
   }
@@ -109,7 +109,7 @@ test('imported tool use reads as one native activity line with per-kind counts',
     await i18n.changeLanguage('en');
     assert.equal(desktopToolActivitySummary(calls, true), 'Edited 1 file, Ran 2 commands, Read file');
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정, 명령 2회 실행, 파일 읽기');
+    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정, 커맨드 2회 실행, 파일 읽기');
     const row = desktopToolActivityItemPresentation(calls[0]);
     assert.equal(row.outputNote, t('Results were not imported'));
     assert.equal(row.headerSubject, '×2');
@@ -385,7 +385,7 @@ test('task list entries read as short id, localized surface and status', async (
     const list = `background tasks: 2\n- ${JOB} shell/shell running label=sleep 100\n- agent_1790959235138_aa11bb agent/spawn completed`;
     const presentation = desktopToolActivityItemPresentation(toolItem('task', { action: 'list' }, list));
     assert.deepEqual(presentation.outputText.split('\n').slice(1), [
-      '971b88 · 명령 · 실행 중 · sleep 100',
+      '971b88 · 커맨드 · 실행 중 · sleep 100',
       'aa11bb · 에이전트 · 시작 · 완료',
     ]);
   });
