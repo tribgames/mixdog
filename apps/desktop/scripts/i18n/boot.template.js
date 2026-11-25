@@ -290,6 +290,12 @@ if (mixdogInstalledApp) {
     var root = document.getElementById('root');
     return Boolean(root && root.childElementCount > 0);
   }
+  // Only the start-up dialog shows these: once the app has started, none is kept.
+  function keep(text) {
+    if (settled) return false;
+    errors.push(text);
+    return true;
+  }
   var observer = new MutationObserver(() => {
     if (hasStarted()) {
       settled = true;
@@ -382,7 +388,7 @@ if (mixdogInstalledApp) {
       var target = event.target;
       if (target && target !== window && target.tagName !== 'SCRIPT' && target.tagName !== 'LINK') return;
       if (target && target !== window && (target.src || target.href)) {
-        errors.push('failed to load: ' + (target.src || target.href));
+        const kept = keep('failed to load: ' + (target.src || target.href));
         // Safari keeps sessionStorage for weeks, so the recovery record is keyed by the failed URL, not the tab.
         try {
           const failedUrl = String(target.src || target.href);
@@ -396,10 +402,13 @@ if (mixdogInstalledApp) {
         } catch (recoveryError) {
           /* fall through to the overlay */
         }
-      } else {
-        errors.push(
+        if (!kept) return;
+      } else if (
+        !keep(
           String(event.message || event.type) + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || 0)
-        );
+        )
+      ) {
+        return;
       }
       setTimeout(overlay, 400);
     },
@@ -407,7 +416,7 @@ if (mixdogInstalledApp) {
   );
   window.addEventListener('unhandledrejection', (event) => {
     var reason = event.reason;
-    errors.push('unhandledrejection: ' + String((reason && (reason.stack || reason.message)) || reason));
+    if (!keep('unhandledrejection: ' + String((reason && (reason.stack || reason.message)) || reason))) return;
     setTimeout(overlay, 400);
   });
   setTimeout(() => {

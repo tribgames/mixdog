@@ -495,7 +495,7 @@ if (mixdogInstalledApp) {
       var target = event.target;
       if (target && target !== window && target.tagName !== 'SCRIPT' && target.tagName !== 'LINK') return;
       if (target && target !== window && (target.src || target.href)) {
-        keep('failed to load: ' + (target.src || target.href));
+        const kept = keep('failed to load: ' + (target.src || target.href));
         // Safari keeps sessionStorage for weeks, so the recovery record is keyed by the failed URL, not the tab.
         try {
           const failedUrl = String(target.src || target.href);
@@ -509,8 +509,11 @@ if (mixdogInstalledApp) {
         } catch (recoveryError) {
           /* fall through to the overlay */
         }
+        if (!kept) return;
       } else if (
-        !keep(String(event.message || event.type) + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || 0))
+        !keep(
+          String(event.message || event.type) + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || 0)
+        )
       ) {
         return;
       }
