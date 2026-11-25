@@ -380,7 +380,11 @@ test("Antigravity's two presets are one row: a ready preset is its account card 
 test('a CLI that is ready while the official server is missing is its account card, not a row that says Not found', async (t) => {
   await mount(
     t,
-    acpAgents(true, official('notInstalled', { canInstall: true }), cli('ready', { version: '1.5.16', canSignOut: true }))
+    acpAgents(
+      true,
+      official('notInstalled', { canInstall: true }),
+      cli('ready', { version: '1.5.16', canSignOut: true })
+    )
   );
   assert.deepEqual(card(memberRow('antigravity-cli')), { ...signedIn, actions: ['Disconnect'] });
   assert.deepEqual(words(memberRow('antigravity')), ['Not found', 'Antigravity is not installed.']);
@@ -562,7 +566,10 @@ test('the row offers only what the presets in its own state can do', async (t) =
     { run: core.run }
   );
   // The signed-out preset cannot sign in here: no Sign in that would sign the other one in again.
-  assert.deepEqual(words(memberRow('antigravity')), ['Signed out', 'Run agy in a terminal to sign in, then check again.']);
+  assert.deepEqual(words(memberRow('antigravity')), [
+    'Signed out',
+    'Run agy in a terminal to sign in, then check again.',
+  ]);
   assert.equal(button(agentRow(), 'Connect'), undefined);
   assert.deepEqual(core.begun(), []);
 
@@ -599,6 +606,30 @@ test('the row offers only what the presets in its own state can do', async (t) =
   assert.equal(fault(memberRow('antigravity')), '');
   assert.ok(button(memberRow('antigravity'), 'Update'));
   assert.equal(button(agentRow(), 'Retry'), undefined);
+});
+
+test('a ready preset card error is not duplicated in the bottom notice when a signed-out sibling has no error', async (t) => {
+  const answer = Promise.withResolvers();
+  const render = await mount(
+    t,
+    acpAgents(
+      true,
+      official('versionTooOld', { canInstall: true, version: '1.5.1' }),
+      cli('ready', { version: '1.5.16' })
+    ),
+    { invoke: () => answer.promise }
+  );
+  await act(async () => button(memberRow('antigravity'), 'Update').click());
+  await render(
+    acpAgents(
+      true,
+      official('signedOut', { version: '1.5.2', canSignIn: true }),
+      cli('ready', { version: '1.5.16', lastError: { action: 'update', message: '429' } })
+    )
+  );
+  await act(async () => answer.reject(new Error('Antigravity could not be updated: 429')));
+  assert.equal(fault(memberRow('antigravity-cli')), 'Update failed: 429');
+  assert.equal(dialog().textContent.split('429').length - 1, 1);
 });
 
 test('Back on a phone closes a sign-in of steps, the step under way included', async (t) => {
@@ -818,7 +849,10 @@ test('an account the agent refused can still be disconnected, to sign in with an
   const asked = [];
   await mount(
     t,
-    acpAgents(true, official('failed', { version: '1.5.2', canSignOut: true, message: 'This account is not eligible.' })),
+    acpAgents(
+      true,
+      official('failed', { version: '1.5.2', canSignOut: true, message: 'This account is not eligible.' })
+    ),
     {
       run: async (capability, args) => {
         calls.push([capability, args]);
@@ -846,7 +880,10 @@ test("the official server's sign-in asks a browser elsewhere for the address its
   );
   const form = signInDialog().querySelector('.settings-oauth-code');
   assert.equal(form.querySelector('b').textContent, 'Sign-in redirect URL or code');
-  assert.equal(form.querySelector('input[name="code"]').getAttribute('placeholder'), 'Paste the final redirect URL or code');
+  assert.equal(
+    form.querySelector('input[name="code"]').getAttribute('placeholder'),
+    'Paste the final redirect URL or code'
+  );
   await act(async () => button(signInDialog(), 'Cancel').click());
 });
 

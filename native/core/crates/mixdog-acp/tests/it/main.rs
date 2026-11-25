@@ -438,7 +438,11 @@ struct Registry {
     /// An unpack of a download that never ends goes on writing into its folder after the download was ended, as an
     /// extraction on its lane does, until `finish` is notified.
     lingers: AtomicBool,
+    /// Notified once `unpack` has recorded the download and armed any lingering writer.
+    entered: Notify,
     finish: Arc<Notify>,
+    /// Notified once the lingering writer has written its late file and released `Unpacking`.
+    late_done: Arc<Notify>,
     /// The answer to a post to each address.
     answers: Mutex<HashMap<String, Value>>,
     /// What was posted, in order: the address, the headers and the body.
@@ -489,17 +493,23 @@ impl mixdog_acp::registry::RegistryFetcher for Registry {
         if self.hangs.load(Ordering::SeqCst) {
             std::fs::create_dir_all(into).map_err(|error| error.to_string())?;
             if self.lingers.load(Ordering::SeqCst) {
-                let (finish, late) = (self.finish.clone(), into.join("late"));
+                let (finish, late, late_done) = (self.finish.clone(), into.join("late"), self.late_done.clone());
                 drop(tokio::spawn(async move {
                     finish.notified().await;
                     std::fs::create_dir_all(&late).and_then(|()| std::fs::write(late.join("part"), "written late")).expect("the late write");
                     drop(held);
+                    late_done.notify_one();
                 }));
             }
+            self.entered.notify_one();
             std::future::pending::<()>().await;
         }
+        self.entered.notify_one();
         std::fs::create_dir_all(into).map_err(|error| error.to_string())?;
         std::fs::copy(mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"), into.join(&build.cmd)).map_err(|error| error.to_string())?;
+        for helper in &build.helpers {
+            std::fs::write(into.join(helper), "").map_err(|error| error.to_string())?;
+        }
         Ok(())
     }
 
@@ -568,10 +578,13 @@ struct World {
     refusals: Arc<Kept>,
     /// The ACP registry, which cannot be reached until it is given an index.
     registry: Arc<Registry>,
+    /// Notified whenever the agents report a state change.
+    changed: Arc<Notify>,
     dir: tempfile::TempDir,
 }
 
 /// The agents of an app that starts over `presets` in `dir`: what `refusals` keeps is all they share with the ones before.
+#[allow(clippy::too_many_arguments, reason = "test harness helper wiring world collaborators")]
 fn agents_of(
     presets: &[AgentPreset],
     processes: &Arc<dyn ProcessManager>,
@@ -579,6 +592,7 @@ fn agents_of(
     enabled: &Arc<AtomicBool>,
     refusals: &Arc<Kept>,
     registry: &Arc<Registry>,
+    changed: &Arc<Notify>,
     dir: &std::path::Path,
 ) -> Arc<Agents> {
     let home = dir.join("home").to_string_lossy().into_owned();
@@ -591,7 +605,10 @@ fn agents_of(
             let enabled = enabled.clone();
             Arc::new(move || enabled.load(Ordering::SeqCst))
         },
-        changed: Arc::new(|| {}),
+        changed: {
+            let changed = changed.clone();
+            Arc::new(move || changed.notify_waiters())
+        },
         probe_cwd: dir.to_path_buf(),
         definitions: dir.join("acp-agents"),
         data_dir: dir.join("acp-agents"),
@@ -647,13 +664,22 @@ impl World {
                 let mut preset = shipped.iter().find(|preset| preset.id == *id).expect("a shipped preset").clone();
                 // A session handed tools starts the fake in a folder of its own, which has no settings file.
                 preset.env.extend(lines.iter().filter_map(|line| line.split_once('=')).map(|(name, value)| (name.to_owned(), value.to_owned())));
-                if let Distribution::Registry { .. } = preset.distribution {
+                if let Distribution::Registry { helpers, .. } = &preset.distribution {
+                    let helpers = helpers.clone();
                     preset.env.push(("FAKE_AGENT_OFFICIAL".into(), "1".into()));
                     let version = settings.iter().find(|(name, _)| *name == "FAKE_AGENT_VERSION").map_or("1.5.2", |(_, version)| *version);
                     let installed = json!({ "version": version, "cmd": fake, "args": ["acp", "--from-manifest"], "sha256": "" });
                     let folder = dir.path().join("acp-agents").join("bin").join(&preset.id);
+                    let build = folder.join(version);
                     #[allow(clippy::disallowed_methods, reason = "a test installs the fake as Mixdog keeps a registry agent's build")]
-                    std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(folder.join("installed.json"), installed.to_string())).expect("the install");
+                    {
+                        std::fs::create_dir_all(&build)
+                            .and_then(|()| std::fs::write(folder.join("installed.json"), installed.to_string()))
+                            .expect("the install");
+                        for helper in &helpers {
+                            std::fs::write(build.join(helper), "").expect("the helper");
+                        }
+                    }
                     sign_in_home(dir.path(), &preset.id);
                     keep_answers(dir.path(), &preset.id, settings);
                 } else {
@@ -676,7 +702,8 @@ impl World {
         std::fs::write(dir.path().join("note.txt"), "hello\nsecond line\n").expect("the note");
         let refusals: Arc<Kept> = Arc::default();
         let registry: Arc<Registry> = Arc::default();
-        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, &registry, dir.path());
+        let changed: Arc<Notify> = Arc::default();
+        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, &registry, &changed, dir.path());
         agents.bind_wake({
             let woken = woken.clone();
             Arc::new(move |thread: &ThreadId| {
@@ -684,13 +711,13 @@ impl World {
                 woken.1.notify_waiters();
             })
         });
-        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, registry, dir }
+        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, registry, changed, dir }
     }
 
     /// The app is started again: new agents, over what the ones before kept.
     fn restart(&mut self) {
         self.agents.release_all();
-        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, &self.registry, self.dir.path());
+        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, &self.registry, &self.changed, self.dir.path());
     }
 
     /// Waits for the fake agent to have logged `line`.
@@ -4726,6 +4753,28 @@ async fn a_build_whose_program_is_gone_is_not_installed_and_the_install_puts_it_
     assert_eq!((&agent["state"], &agent["version"]), (&json!("ready"), &json!("1.5.2")), "{agent}");
 }
 
+/// A build whose helper binary (`localharness_external[.exe]`) is gone while `installed.json` and the server remain is
+/// incomplete: a check finds it not installed, and the install repairs it.
+#[tokio::test]
+async fn a_build_whose_helper_is_gone_is_not_installed_and_the_install_puts_it_back() {
+    let world = World::official(&[]);
+    let builds = builds_of(&world);
+    let helper = if cfg!(windows) { "localharness_external.exe" } else { "localharness_external" };
+    let helper_path = builds.join("1.5.2").join(helper);
+    assert!(exists(&helper_path));
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build's helper binary")]
+    std::fs::remove_file(&helper_path).expect("the helper");
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["canInstall"]), (&json!("notInstalled"), &json!(true)), "{agent}");
+
+    world.registry.offer("1.5.2", ARCHIVE);
+    within("the install", world.agents.install()).await.expect("the install");
+    assert_eq!(world.registry.downloads(), [ARCHIVE]);
+    assert!(exists(&helper_path));
+    let agent = world.agents.status()["agents"][0].clone();
+    assert_eq!((&agent["state"], &agent["version"]), (&json!("ready"), &json!("1.5.2")), "{agent}");
+}
+
 /// An install ended while its unpack still writes into its folder leaves that unpack to finish before the next install
 /// clears away what it left: nothing of the next one starts meanwhile, and no folder of the ended one is left after.
 #[tokio::test]
@@ -4737,11 +4786,12 @@ async fn the_next_install_waits_for_an_ended_unpack_before_it_clears_what_that_l
     world.registry.offer("1.5.2", ARCHIVE);
     world.registry.hangs.store(true, Ordering::SeqCst);
     world.registry.lingers.store(true, Ordering::SeqCst);
+    let first_entered = world.registry.entered.notified();
+    tokio::pin!(first_entered);
+    first_entered.as_mut().enable();
     let installing = world.agents.install();
     let off = async {
-        while world.registry.downloads().is_empty() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        first_entered.await;
         world.enabled.store(false, Ordering::SeqCst);
         world.agents.status();
     };
@@ -4750,11 +4800,23 @@ async fn the_next_install_waits_for_an_ended_unpack_before_it_clears_what_that_l
 
     world.enabled.store(true, Ordering::SeqCst);
     world.registry.hangs.store(false, Ordering::SeqCst);
+    let late_done = world.registry.late_done.notified();
+    tokio::pin!(late_done);
+    late_done.as_mut().enable();
     let again = world.agents.install();
     let finish = async {
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        loop {
+            let changed = world.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if world.agents.status()["agents"][0]["state"] == "installing" {
+                break;
+            }
+            changed.await;
+        }
         assert_eq!(world.registry.downloads().len(), 1, "the next install started while the ended unpack still wrote");
         world.registry.finish.notify_one();
+        late_done.await;
     };
     let (installed, ()) = within("the install", async { tokio::join!(again, finish) }).await;
     installed.expect("the install");
@@ -4837,6 +4899,104 @@ async fn an_official_sign_in_finished_on_another_machine_delivers_the_pasted_add
 
     let browser = world.log().iter().find_map(|line| line.strip_prefix("official browser=").map(str::to_owned)).expect("the server's start");
     assert!(browser.contains("%s"), "the server's own browser is a command given the page: {browser:?}");
+}
+
+/// A bad pasted redirect URL or a non-2xx loopback answer submitted through `OAuthFlows::complete` ends the flow as
+/// `failed` and cancels the underlying `Authenticate` login so its server process, staging home and update guard
+/// (`Starting`) are released instead of blocking subsequent updates.
+#[tokio::test]
+async fn a_failed_pasted_redirect_through_oauth_flows_cancels_the_login_and_releases_the_update_lock() {
+    use mixdog_core_api::domain::common::EventSource;
+    use mixdog_core_api::domain::process::ProcessEvent;
+    use mixdog_core_api::feed_publisher::LoginFeeds;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+    use mixdog_core_domains::domains::ai_account::flows::DEFAULT_FLOW_TTL_MS;
+    use mixdog_core_domains::domains::ai_account::flows::OAuthFlows;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("a loopback listener");
+    let port = listener.local_addr().expect("a port").port();
+    let page = format!("https://accounts.example/o/oauth2/auth?redirect_uri=http%3A%2F%2F127.0.0.1%3A{port}%2Foauth2callback&state=st-1");
+    let world = World::official(&[("FAKE_AGENT_AUTH_PAGE", &page), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page")]);
+    let flows = OAuthFlows::new(Duration::from_millis(DEFAULT_FLOW_TTL_MS), Arc::new(LoginFeeds::new(Arc::new(MockScopedFeeds::new(MockLimits::default())))));
+
+    // Case 1: wrong-state pasted redirect URL fails in `complete`.
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    let proc = world.processes.list().into_iter().find(|p| p.exit.is_none()).expect("the login server process");
+    let mut events = world.processes.subscribe(&proc.handle, None).expect("process events");
+    let started = flows.register(&world.preset.provider, login, world.agents.settle_login(&world.preset)).expect("the flow");
+    let flow_id = started["flowId"].as_str().expect("flowId").to_owned();
+    assert_eq!(started["manualCodeSupported"], true);
+
+    let err = within("the wrong-state paste", flows.complete(&flow_id, "http://localhost:1/oauth2callback?state=another&code=c")).await.unwrap_err();
+    assert_eq!(err.message(), "The address is of another sign-in. Paste the address this sign-in's page ended on.");
+    assert_eq!(flows.status(&flow_id).expect("status")["state"], "failed");
+    within("the cancelled login server's exit", async {
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
+            }
+        }
+    })
+    .await;
+    within("the staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    // `_held: Starting` must have dropped so an update can acquire `begin_update`.
+    let builds = builds_of(&world);
+    world.registry.offer("1.5.3", ARCHIVE);
+    within("the update after failed paste", world.agents.install()).await.expect("the update");
+    assert_eq!(read_json(&builds.join("installed.json"))["version"], "1.5.3");
+
+    // Case 2: non-2xx loopback delivery also cancels and releases the login session cleanly.
+    let refused = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.expect("the delivery");
+        let (mut request, mut chunk) = (Vec::new(), [0_u8; 512]);
+        while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+            match connection.read(&mut chunk).await.expect("the request") {
+                0 => break,
+                read => request.extend_from_slice(&chunk[..read]),
+            }
+        }
+        connection.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.expect("the answer");
+    });
+    let login = within("the second sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    let proc = world.processes.list().into_iter().find(|p| p.exit.is_none()).expect("the second login server process");
+    let mut events = world.processes.subscribe(&proc.handle, None).expect("process events");
+    let started = flows.register(&world.preset.provider, login, world.agents.settle_login(&world.preset)).expect("the flow");
+    let flow_id = started["flowId"].as_str().expect("flowId").to_owned();
+
+    let err = within("the 400 loopback paste", flows.complete(&flow_id, "http://localhost:8085/oauth2callback?state=st-1&code=4/abc")).await.unwrap_err();
+    assert!(err.message().contains("HTTP 400"), "unexpected error: {}", err.message());
+    assert_eq!(flows.status(&flow_id).expect("status")["state"], "failed");
+    within("the listener", refused).await.expect("the listener");
+    within("the second cancelled login server's exit", async {
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
+            }
+        }
+    })
+    .await;
+    within("the second staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    world.registry.offer("1.5.4", ARCHIVE);
+    within("the update after 400 loopback", world.agents.install()).await.expect("the update");
+    assert_eq!(read_json(&builds.join("installed.json"))["version"], "1.5.4");
+    flows.cancel_all();
 }
 
 /// Where the registry's build does not run (an Intel Mac) the official server is unsupported: nothing is installed or

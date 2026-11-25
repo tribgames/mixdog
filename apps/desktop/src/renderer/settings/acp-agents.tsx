@@ -477,7 +477,10 @@ function AcpAgentRow({
                 tone={shown.tone}
                 description={shown.description}
                 fault={faultLine(member)}
-                dataAttributes={{ 'data-acp-member': member.id, 'data-acp-state': walking ? 'signingIn' : member.state }}
+                dataAttributes={{
+                  'data-acp-member': member.id,
+                  'data-acp-state': walking ? 'signingIn' : member.state,
+                }}
                 control={controlOf(
                   member,
                   walking,
@@ -616,8 +619,12 @@ export function AcpProviders({
   // carries its own way on. With no agent reported there is no row to carry it.
   const refreshShown = !groups.length || groups.some(({ ready }) => ready.length > 0);
   const checking = acpAgentsOf(value).some(running);
-  // The core's answer to a failed install is the failure an agent's row already says.
-  const said = groups.some(({ agent }) => agent.lastError);
+  // The core's answer to a failed install is the failure an agent's row or card already says.
+  const said = groups.some(({ agent, ready, pending }) =>
+    ready.length
+      ? ready.some((member) => member.lastError) || pending.some((member) => member.lastError)
+      : Boolean(agent.lastError)
+  );
   // A look again would bring a CLI up to date under its own running sign-in.
   const [signingIn, setSigningIn] = useState<ReadonlySet<string>>(() => new Set());
   const noteSignIn = useCallback(

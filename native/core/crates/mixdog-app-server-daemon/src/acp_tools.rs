@@ -572,10 +572,11 @@ impl RegistryDownloads {
     }
 
     /// Writes `block` at the end of `file`, a new file where `first`.
-    async fn write(&self, file: &std::path::Path, block: Vec<u8>, first: bool) -> Result<(), String> {
+    async fn write(&self, file: &std::path::Path, block: Vec<u8>, first: bool, unpacking: mixdog_acp::registry::Unpacking) -> Result<(), String> {
         let file = file.to_path_buf();
         #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a durability-lane job")]
         let job = move || {
+            let _unpacking = unpacking;
             use std::io::Write;
             std::fs::OpenOptions::new().create(true).write(true).append(!first).truncate(first).open(&file)?.write_all(&block)
         };
@@ -616,11 +617,11 @@ impl mixdog_acp::registry::RegistryFetcher for RegistryDownloads {
             hasher.update(&chunk);
             held.extend_from_slice(&chunk);
             if held.len() >= WRITE_BLOCK {
-                self.write(archive, std::mem::take(&mut held), first).await?;
+                self.write(archive, std::mem::take(&mut held), first, unpacking.clone()).await?;
                 first = false;
             }
         }
-        self.write(archive, held, first).await?;
+        self.write(archive, held, first, unpacking.clone()).await?;
         let digest: String = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
         if digest != build.sha256 {
             return Err(format!("the archive's SHA-256 is {digest}, not the registry's {}", build.sha256));
@@ -812,7 +813,7 @@ mod tests {
     }
 
     fn unpacking() -> mixdog_acp::registry::Unpacking {
-        mixdog_acp::registry::Unpacking(Arc::new(tokio::sync::Semaphore::new(1)).try_acquire_owned().expect("a free gate"))
+        mixdog_acp::registry::Unpacking(Arc::new(Arc::new(tokio::sync::Semaphore::new(1)).try_acquire_owned().expect("a free gate")))
     }
 
     /// A server of the test's own on a port of its own, which answers its first request with `answer`, and whether it

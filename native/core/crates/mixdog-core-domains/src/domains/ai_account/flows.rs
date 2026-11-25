@@ -390,7 +390,9 @@ impl OAuthFlows {
             }
             Err(LoginError::Failed(failure)) => {
                 let message = failure_text(&failure);
-                self.lock().finish(&key, State::Failed, Some(message.clone()), Ending::Threw(message.clone()));
+                if self.lock().finish(&key, State::Failed, Some(message.clone()), Ending::Threw(message.clone())) {
+                    session.cancel();
+                }
                 Err(Failure::error(message))
             }
             Err(LoginError::InputNotExpected) => Err(Failure::error("This OAuth provider does not accept a manual code.")),

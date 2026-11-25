@@ -6,9 +6,11 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
 
@@ -70,9 +72,10 @@ pub struct Build {
     pub helpers: Vec<String>,
 }
 
-/// Held for as long as anything of an unpack may still write into its folder, past the drop of the future that started
-/// it: the next unpack clears away what an ended one left only once it is let go.
-pub struct Unpacking(pub tokio::sync::OwnedSemaphorePermit);
+/// Held for as long as anything of an unpack or its staging folder's move and cleanup may still touch disk, past the
+/// drop of the future that started it: the next unpack clears away what an ended one left only once it is let go.
+#[derive(Clone)]
+pub struct Unpacking(pub Arc<tokio::sync::OwnedSemaphorePermit>);
 
 /// Downloads what the registry offers, and asks the HTTPS services an agent's own credential is for.
 #[async_trait]
@@ -163,11 +166,11 @@ impl Agents {
     }
 
     /// The build of `preset`'s registry agent this machine holds: its program (`cmd`, under the build's own folder
-    /// `<version>/` unless it is absolute) with the build's arguments, in the home Mixdog keeps for the agent. `Ok(None)`
-    /// where no build is installed, a record whose program is gone (removed, or quarantined) included: the install step
-    /// installs it again.
+    /// `<version>/` unless it is absolute) and any required helper programs beside it, with the build's arguments, in
+    /// the home Mixdog keeps for the agent. `Ok(None)` where no build is installed, a record whose program or a helper
+    /// is gone (removed, or quarantined) included: the install step installs it again.
     pub(crate) async fn installed(&self, preset: &AgentPreset) -> Result<Option<Installed>, String> {
-        let Distribution::Registry { home_env, .. } = &preset.distribution else { return Ok(None) };
+        let Distribution::Registry { home_env, helpers, .. } = &preset.distribution else { return Ok(None) };
         let folder = self.builds(preset);
         let file = absolute(folder.join(INSTALLED))?;
         let Ok(text) = self.parts.files.read(file).await else { return Ok(None) };
@@ -175,9 +178,15 @@ impl Agents {
         let installed: Value = serde_json::from_str(&text).map_err(|error| unreadable(&error.to_string()))?;
         let field = |key: &str| installed.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
         let (Some(version), Some(cmd)) = (field("version"), field("cmd")) else { return Err(unreadable("it names no version or no program")) };
-        let path = folder.join(version).join(cmd);
+        let build = folder.join(version);
+        let path = build.join(cmd);
         if self.parts.files.resolved(absolute(path.clone())?).await.is_err() {
             return Ok(None);
+        }
+        for helper in helpers {
+            if self.parts.files.resolved(absolute(build.join(helper))?).await.is_err() {
+                return Ok(None);
+            }
         }
         let args = installed.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
         Ok(Some(Installed {
@@ -290,28 +299,55 @@ impl Agents {
     async fn place(&self, preset: &AgentPreset, fetcher: &dyn RegistryFetcher, build: &Build) -> Result<(), String> {
         let files = &self.parts.files;
         let folder = self.builds(preset);
-        let held = Unpacking(self.unpacking.clone().acquire_owned().await.expect("the unpack gate is never closed"));
+        let held = Unpacking(Arc::new(self.unpacking.clone().acquire_owned().await.expect("the unpack gate is never closed")));
         // What an install that was ended before it was done left, once nothing of it writes any more.
         for name in files.folders(absolute(folder.clone())?).await.unwrap_or_default() {
             if name.starts_with(STAGING) {
-                let _ = files.remove_folder(absolute(folder.join(name))?).await;
+                let files = files.clone();
+                let target = absolute(folder.join(name))?;
+                let _ = finish_holding(held.clone(), async move { files.remove_folder(target).await }).await;
             }
         }
         let staging = absolute(folder.join(format!("{STAGING}{}", uuid::Uuid::new_v4().simple())))?;
-        files.make_folder(staging.clone()).await?;
+        {
+            let files = files.clone();
+            let target = staging.clone();
+            finish_holding(held.clone(), async move { files.make_folder(target).await }).await?;
+        }
         let placed = async {
             let unpacked = staging.as_path().join("build");
-            fetcher.unpack(build, &staging.as_path().join("archive"), &unpacked, held).await?;
+            fetcher.unpack(build, &staging.as_path().join("archive"), &unpacked, held.clone()).await?;
             let version = absolute(folder.join(build.version.to_string()))?;
-            files.remove_folder(version.clone()).await?;
-            files.rename(absolute(unpacked)?, version).await?;
+            {
+                let files = files.clone();
+                let target = version.clone();
+                finish_holding(held.clone(), async move { files.remove_folder(target).await }).await?;
+            }
+            {
+                let files = files.clone();
+                let from = absolute(unpacked)?;
+                finish_holding(held.clone(), async move { files.rename(from, version).await }).await?;
+            }
             let record = json!({ "version": build.version.to_string(), "cmd": build.cmd, "args": build.args, "sha256": build.sha256 });
-            files.replace(absolute(folder.join(INSTALLED))?, record.to_string()).await
+            let files = files.clone();
+            let target = absolute(folder.join(INSTALLED))?;
+            finish_holding(held.clone(), async move { files.replace(target, record.to_string()).await }).await
         }
         .await;
-        let _ = files.remove_folder(staging).await;
+        let files = files.clone();
+        let _ = finish_holding(held, async move { files.remove_folder(staging).await }).await;
         placed
     }
+}
+
+/// Runs a file-lane step to its end while keeping `held`, even if the caller's future is dropped mid-flight.
+async fn finish_holding<T: Send + 'static>(held: Unpacking, work: impl std::future::Future<Output = T> + Send + 'static) -> T {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    drop(mixdog_rt::spawn("acp.registry.place", TaskClass::Work, async move {
+        let _held = held;
+        let _ = tx.send(work.await);
+    }));
+    rx.await.expect("the place task never panics")
 }
 
 #[cfg(test)]
@@ -360,5 +396,164 @@ mod tests {
         }
         assert!(build_of(&index(good, DIGEST, "a"), "antigravity-acp", "darwin-x86_64", &hosts).is_err(), "no build for the target");
         assert!(build_of(&index(good, DIGEST, "a"), "other", "linux-x86_64", &hosts).is_err());
+    }
+
+    /// Cancelling `place` while a post-unpack file-lane rename is still in flight keeps `Unpacking` held until the
+    /// rename finishes, so the next install cannot acquire the gate and remove `.staging-*` underneath it.
+    #[tokio::test]
+    async fn cancelling_place_mid_rename_keeps_unpacking_held_until_rename_ends() {
+        use tokio::sync::Notify;
+
+        use crate::agents::AgentsParts;
+        use crate::agents::Refusals;
+        use crate::files::TextFiles;
+        use mixdog_core_api::domain::common::EventSource;
+        use mixdog_core_api::domain::process::ProcessError;
+        use mixdog_core_api::domain::process::ProcessEvent;
+        use mixdog_core_api::domain::process::ProcessInfo;
+        use mixdog_core_api::domain::process::ProcessManager;
+        use mixdog_core_api::domain::process::PtySize;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        use mixdog_core_api::domain::process::SpawnedProcess;
+        use mixdog_protocol::ProcessHandle;
+
+        struct NoRefusals;
+        #[async_trait]
+        impl Refusals for NoRefusals {
+            async fn read(&self) -> Result<std::collections::HashMap<String, String>, String> {
+                Ok(std::collections::HashMap::new())
+            }
+            async fn write(&self, _: &std::collections::HashMap<String, String>) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        struct NoProcesses;
+        #[async_trait]
+        impl ProcessManager for NoProcesses {
+            async fn spawn(&self, _: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            fn subscribe(&self, _: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            fn subscribe_holding(&self, _: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            async fn write_stdin(&self, _: &ProcessHandle, _: Vec<u8>) -> Result<(), ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            fn kill(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+                Err(ProcessError::UnknownHandle)
+            }
+            fn list(&self) -> Vec<ProcessInfo> {
+                Vec::new()
+            }
+        }
+
+        struct BlockingRename {
+            entered: Arc<Notify>,
+            release: Arc<Notify>,
+            done: Arc<Notify>,
+        }
+        #[async_trait]
+        impl TextFiles for BlockingRename {
+            async fn read(&self, _: AbsPath) -> Result<String, String> {
+                Err("none".into())
+            }
+            async fn resolved(&self, path: AbsPath) -> Result<AbsPath, String> {
+                Ok(path)
+            }
+            async fn create(&self, _: AbsPath, _: String) -> Result<(), String> {
+                Ok(())
+            }
+            async fn make_folder(&self, _: AbsPath) -> Result<(), String> {
+                Ok(())
+            }
+            async fn remove_folder(&self, _: AbsPath) -> Result<(), String> {
+                Ok(())
+            }
+            async fn folders(&self, _: AbsPath) -> Result<Vec<String>, String> {
+                Ok(Vec::new())
+            }
+            async fn replace(&self, _: AbsPath, _: String) -> Result<(), String> {
+                Ok(())
+            }
+            async fn rename(&self, _: AbsPath, _: AbsPath) -> Result<(), String> {
+                self.entered.notify_one();
+                self.release.notified().await;
+                self.done.notify_one();
+                Ok(())
+            }
+        }
+
+        struct InstantFetcher;
+        #[async_trait]
+        impl RegistryFetcher for InstantFetcher {
+            async fn index(&self, _: &str) -> Result<Value, String> {
+                Err("unused".into())
+            }
+            async fn unpack(&self, _: &Build, _: &Path, _: &Path, _held: Unpacking) -> Result<(), String> {
+                Ok(())
+            }
+            async fn post(&self, _: &str, _: &[(String, String)], _: Vec<u8>) -> Result<Value, String> {
+                Err("unused".into())
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let preset = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("official preset");
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let done = Arc::new(Notify::new());
+        let agents = Agents::new(AgentsParts {
+            refusals: Arc::new(NoRefusals),
+            presets: vec![preset.clone()],
+            processes: Arc::new(NoProcesses),
+            files: Arc::new(BlockingRename { entered: entered.clone(), release: release.clone(), done: done.clone() }),
+            enabled: Arc::new(|| true),
+            changed: Arc::new(|| {}),
+            probe_cwd: dir.path().to_path_buf(),
+            definitions: dir.path().join("acp-agents"),
+            data_dir: dir.path().join("acp-agents"),
+            env: Arc::new(|_: &str| None),
+            mcp_bridge: None,
+            registry: None,
+        });
+        let build = Build {
+            version: Version::new(1, 5, 2),
+            archive: "https://dl.google.com/agy-extensions/releases/x.zip".into(),
+            cmd: "agy_acp_server.exe".into(),
+            args: Vec::new(),
+            sha256: DIGEST.to_ascii_lowercase(),
+            hosts: vec!["dl.google.com".into()],
+            helpers: Vec::new(),
+        };
+        let rename_entered = entered.notified();
+        tokio::pin!(rename_entered);
+        rename_entered.as_mut().enable();
+        let rename_done = done.notified();
+        tokio::pin!(rename_done);
+        rename_done.as_mut().enable();
+
+        let task = tokio::spawn({
+            let agents = agents.clone();
+            let preset = preset.clone();
+            async move { agents.place(&preset, &InstantFetcher, &build).await }
+        });
+        rename_entered.await;
+        task.abort();
+        let _ = task.await;
+
+        assert!(agents.unpacking.try_acquire().is_err(), "Unpacking must stay held while post-unpack rename is still running");
+        release.notify_one();
+        rename_done.await;
+        let _permit = agents.unpacking.clone().acquire_owned().await.expect("Unpacking releases once rename completes");
     }
 }
