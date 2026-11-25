@@ -4,48 +4,63 @@ Read this at the workflow step, before recommending any model or roster.
 
 ## Model picks
 
-Recommend from `${MIXDOG_SKILL_DIR}/model-recommendations.json`, role by role.
+Model lineups change too fast to name models here. Pick from what the user's
+providers offer now: the models and effort levels each signed-in provider
+lists (`status providers`), judged by where a model stands in that provider's
+own lineup.
 
-- Use only providers the user is signed in to (`status providers`) and only a
-  model the provider's model list actually offers.
-- Picks are an ordered list of any length: recommend the first one that
-  qualifies, otherwise take the next.
-- A subscription sign-in comes first: when the user has one, take the first
-  qualifying pick it offers before any pick that would bill an API key; fall
-  back to API-key providers only when no subscription offers one.
-- A pick may carry `plans`: when the Lead provider's plan (`plan` in
-  `status providers`) is listed there, recommend that model instead. A null or
-  unlisted plan keeps the pick as is; never fail on an unknown plan.
-- Roles with `preferOtherProviderThan` (Reviewer, Advisor) work best with the
-  opposite tendency from the model doing the work: pick the first qualifying
-  model whose provider differs from the chosen Lead's and Heavy Worker's
-  providers, and fall back to the plain first pick only when the user has a
-  single signed-in provider. Give the reason in one line: a different model
-  family catches what the main one misses.
-- If `asOf` is older than `staleAfterDays`, say the list may be out of date.
+- Use only providers the user is signed in to, and only models their lists
+  offer. A subscription sign-in comes first; fall back to a provider billed by
+  API key only when no subscription offers a fitting model.
+- Lead, Bot default, Heavy Worker and Front Worker: the provider's most capable
+  coding model, at medium effort (Heavy Worker high). On a plan whose usage of
+  that model is tight, its next tier down serves these roles.
+- Worker and Writer: the provider's middle tier at medium effort.
+- Reviewer and Advisor: high effort, the Advisor the highest the model offers.
+  Take them from a provider other than the Lead's and Heavy Worker's when the
+  user has more than one: a different model family catches what the main one
+  misses. Say so in one line.
+- Web Search: a fast model at low effort.
+- Maintainer: the cheapest fast model at the lowest effort; it also decides
+  turns in group rooms.
+- Explore: a fast model at low effort that searches code for the Lead in
+  separate parallel sessions. In Mixdog's measurements the smallest budget
+  models missed about half the key locations, so leave Explore off when the
+  user has nothing above that tier.
 - Never print ids or file names.
-- Suggest turning on the Maintainer with a cheap model at the lowest effort; it
-  also decides turns in group rooms.
-- Offer Explore the same way, from its own picks: a cheap model that searches
-  code for the Lead in separate parallel sessions.
 
 ## Delegation and roster
 
-Delegation and roster come from `delegation` in the data file.
+Modes and the agents each turns on:
+
+- Solo (`none`): no agents.
+- Focused (`focused`): Worker, Reviewer.
+- Balanced (`balanced`): Worker, Reviewer, Heavy Worker, Advisor.
+- Swarm (`swarm`): Worker, Reviewer, Heavy Worker, Advisor, Writer, Front
+  Worker.
+
+Maintainer and Web Search are on in every mode. The default suggestion follows
+the Lead provider's plan (`plan` in `status providers`): no subscription or a
+free tier (Anthropic `none`; OpenAI `free`, `none`; Google `free-tier`) Solo;
+Anthropic `pro`, OpenAI `plus`, Google `standard-tier`, `legacy-tier` Focused;
+Anthropic `team`, `enterprise`, OpenAI `team`, `business`, `enterprise`, Google
+`g1-pro-tier` Balanced; Anthropic `max`, OpenAI `pro`, Google `g1-ultra-tier`
+Swarm. For a plan not listed, ask which plan the user has; if they do not
+know, suggest Focused.
 
 1. Ask once how the user likes to work: one agent doing everything, or
    splitting work across agents. Say plainly that Solo is a good choice at any
    plan: it is the most efficient, and with a strong model its quality is often
    not much lower; delegation trades more usage for speed and parallel work.
-2. Suggest the mode whose `plans` lists the Lead provider's plan (the default
-   suggestion); the user's preference overrides it. Ask once, set it with
-   `set_orchestration_mode`, and say it can be changed later in settings.
-3. The roster follows the chosen mode: turn on only `baseRoster` plus that
-   mode's `agents`, using `set_agent_route` with `route.disabled` false for
+2. Suggest the mode the plan points to (the default suggestion); the user's
+   preference overrides it. Ask once, set it with `set_orchestration_mode`, and
+   say it can be changed later in settings.
+3. The roster follows the chosen mode: turn on only Maintainer, Web Search and
+   that mode's agents, using `set_agent_route` with `route.disabled` false for
    what the user accepts and true for the rest; do not enable others.
-4. Offer `leanReview` for Solo or focused as a cost saver: the Lead reviews its
+4. For Solo or Focused, offer lean review as a cost saver: the Lead reviews its
    own work, Reviewer stays off, Advisor is on but used rarely (only when
-   stuck). Advisor in balanced or swarm is a light, occasional second opinion
+   stuck). Advisor in Balanced or Swarm is a light, occasional second opinion
    from a different model family at key decision points, not on every task.
 5. Say in one line that more agents can be turned on later on the Workflows
    page.

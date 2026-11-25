@@ -27,8 +27,7 @@ async function stubbedCheckout(t) {
     'test-failure-summary.mjs',
   ])
     await copyFile(join(here, 'lib', name), join(root, 'scripts', 'lib', name));
-  for (const name of ['check-changelog-locales', 'check-model-recommendations'])
-    await writeFile(join(root, 'scripts', `${name}.mjs`), '');
+  await writeFile(join(root, 'scripts', 'check-changelog-locales.mjs'), '');
   // Stand-in for scripts/test.mjs: `--list` prints one file of the selected
   // lane in the real runner's `<lane> <file>` form, so every lane gets a
   // shard; running a shard passes without running anything.
