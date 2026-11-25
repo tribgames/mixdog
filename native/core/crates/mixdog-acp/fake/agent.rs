@@ -614,10 +614,10 @@ impl Agent {
                             // `FAKE_AGENT_EMBEDDED`: an agent that takes a file's text as an embedded resource.
                             "promptCapabilities": { "image": setting("FAKE_AGENT_NO_IMAGES").is_none(), "embeddedContext": setting("FAKE_AGENT_EMBEDDED").is_some() },
                             // `FAKE_AGENT_CLOSE_NULL`: an agent that states the close it does not offer as `null`.
-                            "sessionCapabilities": if official() {
-                                json!({ "resume": {} })
-                            } else if setting("FAKE_AGENT_CLOSE_NULL").is_some() {
+                            "sessionCapabilities": if setting("FAKE_AGENT_CLOSE_NULL").is_some() {
                                 json!({ "resume": {}, "close": null })
+                            } else if official() {
+                                json!({ "resume": {} })
                             } else {
                                 json!({ "resume": {}, "close": {} })
                             },

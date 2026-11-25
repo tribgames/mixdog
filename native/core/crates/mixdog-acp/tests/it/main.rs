@@ -5090,14 +5090,45 @@ async fn the_apps_stop_ends_a_servers_start_whose_initialize_is_never_answered()
     assert!(world.server_temps().iter().all(|temp| !exists(temp)));
 }
 
-/// A close the agent never answers is not waited on: the question whose session it closes is answered.
+/// A close the agent never answers is cancelled on shutdown (and skipped on a retiring shared server) without a fixed
+/// timer: the question returns its answer and its process ends, and a retiring shared server closes via stdin EOF.
 #[tokio::test]
 async fn a_close_the_agent_never_answers_does_not_hold_up_the_question() {
     let world = World::new(&[("FAKE_AGENT_SILENT_CLOSE", "1")]);
+    world.checked().await;
+    let before = world.logged("session/close");
     let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
-    let answered = within("the answer", mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "SUMMARIZE", "whoami", now)).await;
+    let asking = mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "SUMMARIZE", "whoami", now);
+    let stop = async {
+        while world.logged("session/close") <= before {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        world.agents.shutdown().await;
+    };
+    let (answered, ()) = within("the answer and shutdown", async { tokio::join!(asking, stop) }).await;
     assert!(matches!(&answered, Ok(answered) if answered.text.starts_with("session=sess-1")), "{answered:?}");
-    assert!(world.logged("session/close") >= 1, "the question's session was asked to close: {:?}", world.log());
+    assert!(world.logged("session/close") > before, "the question's session was asked to close: {:?}", world.log());
+
+    // On a shared server that advertises close, a non-retiring detach sends session/close without a timer, while a
+    // retiring detach skips session/close and cancels any in-flight close as stdin closes.
+    let shared = World::build(&[("FAKE_AGENT_SILENT_CLOSE", "1")], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
+    shared.checked().await;
+    let before = shared.logged("session/close");
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    assert!(shared.answer_in(&a, &shared.cwd(), "whoami").await.starts_with("session=sess-1"));
+    assert!(shared.answer_in(&b, &shared.folder("b"), "whoami").await.starts_with("session=sess-2"));
+    let server = shared.agents.running(&a).expect("a's agent").connection.clone();
+    shared.agents.release(&a);
+    within("non-retiring session/close", async {
+        while shared.logged("session/close") <= before {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let after_a = shared.logged("session/close");
+    shared.agents.release(&b);
+    within("the retiring shared server's exit", server.exited().cancelled()).await;
+    assert_eq!(shared.logged("session/close"), after_a, "retiring shared server skips session/close: {:?}", shared.log());
 }
 
 /// An error the agent answers to no request (`"id": null`, as it answers a line it could not parse) ends nothing: the
@@ -5129,8 +5160,8 @@ async fn a_cancel_told_before_the_next_prompt_reaches_the_agent_ahead_of_it() {
     assert!(cancel < prompt, "{log:?}");
 }
 
-/// A cancelled prompt the agent never closes holds the next turn only for a while: the agent is then ended and the
-/// session opened again.
+/// Cancelling a turn that is waiting on a cancelled prompt the agent never closed ends the wedged process so the next
+/// turn opens cleanly without a fixed timer.
 #[tokio::test]
 async fn a_cancelled_prompt_the_agent_never_closes_does_not_hold_the_next_turn() {
     let world = World::new(&[("FAKE_AGENT_DEAF", "1")]);
@@ -5144,9 +5175,112 @@ async fn a_cancelled_prompt_the_agent_never_closes_does_not_hold_the_next_turn()
     assert_eq!(end, TurnEnd::Interrupted);
     let held = world.agents.running(&thread).expect("the session's agent");
     assert!(held.holds_cancelled_prompt());
-    let end = within("the next turn", world.prompt(&thread, &Surface::default(), "whoami", None, CancellationToken::new())).await;
-    assert!(completed_text(&end).starts_with("session=sess-1 resumed=false"), "{end:?}");
+
+    let (cancel_next, next_surface) = (CancellationToken::new(), Surface::default());
+    let waiting = world.serve(&next_surface, json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", cancel_next.clone());
+    let stop_next = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel_next.cancel();
+    };
+    let (end, ()) = within("cancelling the waiting turn", async { tokio::join!(waiting, stop_next) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
     within("the end of the agent that held the prompt", held.connection.exited().cancelled()).await;
+
+    let end = within("the recovered turn", world.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=true"), "{end:?}");
+}
+
+/// On a shared server with `Reopen::Resume`, a wedged/unclosed session is never resumed concurrently with its unclosed
+/// prompt or farewell `session/cancel`: an otherwise empty server retires so the next turn starts a fresh server, and
+/// a server still serving another session starts a fresh session instead of resuming the wedged id.
+#[tokio::test]
+async fn a_wedged_prompt_on_a_shared_server_is_never_resumed_while_its_cancel_or_prompt_is_open() {
+    // Alone on the shared server: cancelling the waiting turn retires the wedged server instead of keeping it leased.
+    let solo = World::official(&[("FAKE_AGENT_DEAF", "1")]);
+    let (cancel1, surface1) = (CancellationToken::new(), Surface::default());
+    let muted = solo.serve(&surface1, json!({ "role": "user", "content": "mute" }), None, "default", cancel1.clone());
+    let stop1 = async {
+        solo.logs("session/prompt").await;
+        cancel1.cancel();
+    };
+    let (end, ()) = within("first stop", async { tokio::join!(muted, stop1) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    let wedged = solo.agents.running(&thread()).expect("the session's agent");
+    assert!(wedged.holds_cancelled_prompt());
+    let server1 = wedged.connection.clone();
+
+    let (cancel2, surface2) = (CancellationToken::new(), Surface::default());
+    let waiting = solo.serve(&surface2, json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", cancel2.clone());
+    let stop2 = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel2.cancel();
+    };
+    let (end, ()) = within("second stop", async { tokio::join!(waiting, stop2) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    within("retiring the wedged shared server", server1.exited().cancelled()).await;
+    assert!(solo.agents.running(&thread()).is_none());
+
+    let end = within("recovered turn on fresh server", solo.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=true"), "{end:?}");
+    let fresh = solo.agents.running(&thread()).expect("the recovered session");
+    assert_ne!(fresh.connection.handle(), server1.handle());
+    assert_eq!(solo.logged("start acp"), 2, "{:?}", solo.log());
+
+    // Alongside another active session: the server keeps serving the keeper, while the wedged id is never resumed on it.
+    let shared = World::official(&[("FAKE_AGENT_DEAF", "1")]);
+    let keeper = ThreadId::from("sess_keeper");
+    assert!(shared.answer_in(&keeper, &shared.folder("keeper"), "whoami").await.starts_with("session=sess-1"));
+    let server = shared.agents.running(&keeper).expect("keeper's agent").connection.clone();
+
+    let (cancel1, surface1) = (CancellationToken::new(), Surface::default());
+    let muted = shared.serve(&surface1, json!({ "role": "user", "content": "mute" }), None, "default", cancel1.clone());
+    let stop1 = async {
+        while shared.logged("session/prompt") < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        cancel1.cancel();
+    };
+    let (end, ()) = within("shared first stop", async { tokio::join!(muted, stop1) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    assert!(shared.agents.running(&thread()).expect("wedged session").holds_cancelled_prompt());
+
+    let (cancel2, surface2) = (CancellationToken::new(), Surface::default());
+    let waiting = shared.serve(&surface2, json!({ "role": "user", "content": "whoami" }), Some("sess-2"), "default", cancel2.clone());
+    let stop2 = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel2.cancel();
+    };
+    let (end, ()) = within("shared second stop", async { tokio::join!(waiting, stop2) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    assert!(!server.exited().is_cancelled(), "the shared server stays up for the keeper");
+
+    let end = within("fresh session on shared server", shared.serve(&Surface::default(), json!({ "role": "user", "content": "whoami" }), Some("sess-2"), "default", CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-3 resumed=false"), "{end:?}");
+    assert_eq!(shared.logged("session/resume sess-2"), 0, "wedged sessionId must never be resumed on the same server: {:?}", shared.log());
+    assert_eq!(shared.agents.running(&thread()).expect("fresh session").connection.handle(), server.handle());
+    assert!(shared.answer_in(&keeper, &shared.folder("keeper"), "whoami").await.starts_with("session=sess-1"));
+
+    // Direct detach of a wedged session inside Agents::session (cwd change) also starts a fresh session cleanly.
+    let (cancel3, surface3) = (CancellationToken::new(), Surface::default());
+    let muted = shared.serve(&surface3, json!({ "role": "user", "content": "mute" }), Some("sess-3"), "default", cancel3.clone());
+    let stop3 = async {
+        while shared.logged("session/prompt") < 5 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        cancel3.cancel();
+    };
+    let (end, ()) = within("shared third stop", async { tokio::join!(muted, stop3) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    let moved = shared.folder("moved");
+    let reopened = within(
+        "reopening after cwd change",
+        shared.agents.session(&thread(), &shared.preset, moved, Some(held("sess-3")), Some("RULES".into())),
+    )
+    .await
+    .expect("fresh session opened");
+    assert_eq!(reopened.session_id, "sess-4");
+    assert!(reopened.restarted);
+    assert_eq!(shared.logged("session/resume sess-3"), 0, "{:?}", shared.log());
 }
 
 /// What the shared server sends of a session before the answer that opens it names it (a first report) reaches the session.
@@ -5172,15 +5306,30 @@ async fn what_a_failed_load_replayed_is_none_of_the_session_opened_in_its_place(
     assert!(!replayed(&surface.streamed()) && !rows.iter().any(|row| row["content"].as_str().is_some_and(replayed)), "{rows:?}");
 }
 
-/// An agent that states the close it does not offer as `null` is never asked to close a session.
+/// An agent that states the close it does not offer as `null` is never asked to close a session across `check_cli`,
+/// `probe`, one-off questions, and shared-server session detach.
 #[tokio::test]
 async fn an_agent_that_states_its_close_as_null_is_never_asked_to_close() {
-    let world = World::new(&[("FAKE_AGENT_CLOSE_NULL", "1")]);
-    world.checked().await;
-    let closed = world.logged("session/close");
+    let cli = World::new(&[("FAKE_AGENT_CLOSE_NULL", "1")]);
+    cli.checked().await;
+    assert_eq!(cli.logged("session/new"), 1, "check_cli probed a session: {:?}", cli.log());
+    assert_eq!(cli.logged("session/close"), 0, "check_cli must not send session/close when close is null: {:?}", cli.log());
     let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
-    within("the answer", mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "SUMMARIZE", "whoami", now)).await.expect("an answer");
-    assert_eq!(world.logged("session/close"), closed);
+    within("the answer", mixdog_acp::runs::ask_once(&cli.agents, &cli.preset, "default", "SUMMARIZE", "whoami", now)).await.expect("an answer");
+    assert_eq!(cli.logged("session/close"), 0, "session.close must not send session/close when close is null: {:?}", cli.log());
+
+    let official = World::official(&[("FAKE_AGENT_CLOSE_NULL", "1")]);
+    #[allow(clippy::disallowed_methods, reason = "force a fresh probe instead of reading the cached probe file")]
+    let _ = std::fs::remove_file(official.dir.path().join("acp-agents").join("probe-cache.json"));
+    official.checked().await;
+    assert_eq!(official.logged("session/new"), 1, "probe opened a session: {:?}", official.log());
+    assert_eq!(official.logged("session/close"), 0, "probe must not send session/close when close is null: {:?}", official.log());
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    assert!(official.answer_in(&a, &official.cwd(), "whoami").await.starts_with("session=sess-1"));
+    assert!(official.answer_in(&b, &official.folder("b"), "whoami").await.starts_with("session=sess-2"));
+    official.agents.release(&a);
+    official.agents.release(&b);
+    assert_eq!(official.logged("session/close"), 0, "shared detach must not send session/close when close is null: {:?}", official.log());
 }
 
 /// A reopen the agent refuses for a sign-in that no longer holds signs the agent out: no new session is opened in place

@@ -46,12 +46,6 @@ pub const PROTOCOL_VERSION: u64 = 1;
 /// How long an agent is given to answer `initialize`: one that does not is given up on, and its process ended.
 const INITIALIZE_LIMIT: Duration = Duration::from_secs(60);
 
-/// How long an agent is given to answer `session/close`: a close it does not answer is not waited for.
-const CLOSE_LIMIT: Duration = Duration::from_secs(2);
-
-/// How long an agent is given to close a prompt a turn cancelled: a session whose agent did not is not given another.
-const CANCEL_GRACE: Duration = Duration::from_secs(10);
-
 /// A model the agent offers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentModel {
@@ -341,17 +335,14 @@ pub async fn initialize(connection: &Connection) -> Result<Value, Fault> {
         .unwrap_or_else(|_| Err(Fault::Start(format!("it did not answer initialize within {} s", INITIALIZE_LIMIT.as_secs()))))
 }
 
-/// Asks the agent to close its session `session_id`: its answer is waited for within [`CLOSE_LIMIT`], and a refusal
-/// changes nothing.
+/// Asks the agent to close its session `session_id`: resolves when the agent answers or the connection exits, and a
+/// refusal changes nothing.
 pub(crate) async fn close_session(connection: &Connection, session_id: &str) {
-    let closing = connection.request("session/close", json!({ "sessionId": session_id }));
-    if mixdog_rt::time::timeout(CLOSE_LIMIT, closing).await.is_err() {
-        tracing::warn!("[acp] the agent did not answer session/close within {} s", CLOSE_LIMIT.as_secs());
-    }
+    let _ = connection.request("session/close", json!({ "sessionId": session_id })).await;
 }
 
 /// An optional capability the agent advertises: one omitted, `null` or `false` is not.
-fn offered(capability: Option<&Value>) -> bool {
+pub(crate) fn offered(capability: Option<&Value>) -> bool {
     capability.is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
 }
 
@@ -599,30 +590,38 @@ impl AgentSession {
         let mut restarted = false;
         let mut opened = None;
         if let Some(stored) = &open.stored {
-            let method = match quirks.reopen {
-                Reopen::Resume => "session/resume",
-                Reopen::Load => "session/load",
-            };
-            let params = with_prompt(json!({ "sessionId": stored, "cwd": cwd, "mcpServers": servers }));
-            match connection.request(method, params).await {
-                Ok(answer) => {
-                    // A load replays the conversation, which the Mixdog session already holds.
-                    if quirks.reopen == Reopen::Load
-                        && let Some(replayed) = replayed
-                    {
-                        drop_replayed(&connection, replayed).await;
+            if matches!(&host, Host::Shared(shared) if shared.is_unclosed(stored)) {
+                tracing::warn!(
+                    "[acp] {} could not reopen its session {stored}: its earlier prompt or cancel is still open on the shared server",
+                    open.preset.id
+                );
+                restarted = true;
+            } else {
+                let method = match quirks.reopen {
+                    Reopen::Resume => "session/resume",
+                    Reopen::Load => "session/load",
+                };
+                let params = with_prompt(json!({ "sessionId": stored, "cwd": cwd, "mcpServers": servers }));
+                match connection.request(method, params).await {
+                    Ok(answer) => {
+                        // A load replays the conversation, which the Mixdog session already holds.
+                        if quirks.reopen == Reopen::Load
+                            && let Some(replayed) = replayed
+                        {
+                            drop_replayed(&connection, replayed).await;
+                        }
+                        opened = Some((stored.clone(), answer));
                     }
-                    opened = Some((stored.clone(), answer));
-                }
-                // A sign-in that no longer holds is the agent's state: no session is opened in place of the stored one.
-                Err(Fault::Rpc(error)) if error.code != crate::agents::AUTH_REQUIRED => {
-                    tracing::warn!("[acp] {} could not reopen its session: {}", open.preset.id, error.message);
-                    restarted = true;
-                    if let Some(replayed) = replayed {
-                        drop_replayed(&connection, replayed).await;
+                    // A sign-in that no longer holds is the agent's state: no session is opened in place of the stored one.
+                    Err(Fault::Rpc(error)) if error.code != crate::agents::AUTH_REQUIRED => {
+                        tracing::warn!("[acp] {} could not reopen its session: {}", open.preset.id, error.message);
+                        restarted = true;
+                        if let Some(replayed) = replayed {
+                            drop_replayed(&connection, replayed).await;
+                        }
                     }
+                    Err(fault) => return Err(fault),
                 }
-                Err(fault) => return Err(fault),
             }
         }
         let (session_id, answer) = match opened {
@@ -792,6 +791,11 @@ impl AgentSession {
         lock(&self.routing).unanswered.is_some()
     }
 
+    /// A `session/cancel` task for this session has not finished writing yet.
+    pub(crate) fn has_pending_cancel(&self) -> bool {
+        *self.cancels.borrow() > 0
+    }
+
     /// The stream of a turn that starts now: what waited for it, then what the agent sends while it runs, which ends
     /// with the process: at once for a process that has already ended. A turn that sends a `prompt` ends the quiet a
     /// cancelled reply left.
@@ -871,28 +875,21 @@ impl AgentSession {
         }));
     }
 
-    /// Whether the agent closed the prompt a turn cancelled, or its process ended, within [`CANCEL_GRACE`]: the events
-    /// after which the agent takes a new prompt as a new turn. An agent that did neither still holds the prompt.
-    pub async fn cancelled_prompt_closed(&self) -> bool {
-        let closed = async {
-            loop {
-                let closed = self.closed_prompt.notified();
-                tokio::pin!(closed);
-                closed.as_mut().enable();
-                if !self.holds_cancelled_prompt() {
-                    return;
-                }
-                tokio::select! {
-                    () = closed => {}
-                    () = self.gone.cancelled() => return,
-                }
+    /// Waits until the agent closes the prompt a turn cancelled, or the session is gone: the events after which the
+    /// agent takes a new prompt as a new turn (or the session is reopened).
+    pub async fn cancelled_prompt_closed(&self) {
+        loop {
+            let closed = self.closed_prompt.notified();
+            tokio::pin!(closed);
+            closed.as_mut().enable();
+            if !self.holds_cancelled_prompt() {
+                return;
             }
-        };
-        let in_time = mixdog_rt::time::timeout(CANCEL_GRACE, closed).await.is_ok();
-        if !in_time {
-            tracing::warn!("[acp] {} did not close a cancelled prompt within {} s", self.preset.id, CANCEL_GRACE.as_secs());
+            tokio::select! {
+                () = closed => {}
+                () = self.gone.cancelled() => return,
+            }
         }
-        in_time
     }
 
     /// A row id for the agent's call `agent_id` made in `turn`: distinct from every id this session issued, and,

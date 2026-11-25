@@ -288,6 +288,8 @@ pub struct Agents {
     pub(crate) signing_out: Mutex<std::collections::HashSet<String>>,
     /// The app is stopping: no shared server starts from here on.
     pub(crate) stopping: std::sync::atomic::AtomicBool,
+    /// Fires when the app begins stopping, cancelling teardown waits such as `session/close`.
+    pub(crate) stop_token: CancellationToken,
     /// The stops of shared servers under way, each resolving once its server has exited: the app's stop waits for them.
     pub(crate) stops: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// The threads whose agent is being started, each with its start's number.
@@ -346,6 +348,7 @@ impl Agents {
             accounts: Mutex::default(),
             signing_out: Mutex::default(),
             stopping: std::sync::atomic::AtomicBool::new(false),
+            stop_token: CancellationToken::new(),
             stops: Mutex::default(),
             opening: Mutex::default(),
             grants: Mutex::default(),
@@ -678,16 +681,20 @@ impl Agents {
             return Err(Refusal::Off);
         }
         let running = lock(&self.sessions).get(thread).cloned();
-        // A session reopened on its preset's shared server keeps the server running until the new one is on it.
-        let _held = self.hold_shared(thread, preset);
+        let mut _held = None;
         if let Some(running) = running {
             if running.preset.id == preset.id && running.cwd == cwd && !running.gone().is_cancelled() {
                 // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
-                // closes that prompt first, which is the answer the protocol has it give to a cancel. One that does not
-                // close it in time is ended, and its session opened again.
-                if running.cancelled_prompt_closed().await && !running.gone().is_cancelled() {
+                // closes that prompt first, which is the answer the protocol has it give to a cancel.
+                running.cancelled_prompt_closed().await;
+                if !running.gone().is_cancelled() {
                     return Ok(running);
                 }
+            }
+            // A session reopened on its preset's shared server keeps the server running until the new one is on it,
+            // unless the detached session still has an unclosed prompt or pending cancel (let an empty server retire).
+            if running.preset.id == preset.id && !running.holds_cancelled_prompt() && !running.has_pending_cancel() {
+                _held = running.hold_server();
             }
             self.end_process(thread);
         }
@@ -808,7 +815,9 @@ impl Agents {
     /// Holds open the shared server `thread`'s session runs on, where it is `preset`'s, while the lease is kept: the
     /// session is about to be ended and another opened on the server.
     pub(crate) fn hold_shared(&self, thread: &ThreadId, preset: &AgentPreset) -> Option<crate::shared::Lease> {
-        self.running(thread).filter(|running| running.preset.id == preset.id).and_then(|running| running.hold_server())
+        self.running(thread)
+            .filter(|running| running.preset.id == preset.id && !running.holds_cancelled_prompt() && !running.has_pending_cancel())
+            .and_then(|running| running.hold_server())
     }
 
     /// Ends the process of `thread`'s agent, or takes its session alone off the shared server it runs on; the thread

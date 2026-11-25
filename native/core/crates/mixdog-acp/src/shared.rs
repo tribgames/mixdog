@@ -6,6 +6,7 @@
 //! [`ProcessScope::Shared`]: crate::preset::ProcessScope::Shared
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Weak;
@@ -43,9 +44,6 @@ use crate::session::launch;
 use crate::session::not_offered;
 use crate::session::unheld;
 
-/// What a session leaving a server tells it last.
-type Farewell = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
-
 /// How long a server is given to end after its input ended: it ends the process it keeps for each session first.
 pub(crate) fn grace(harnesses: usize) -> Duration {
     Duration::from_secs((2 + harnesses as u64).clamp(5, 12))
@@ -80,6 +78,8 @@ struct State {
     sessions: HashMap<String, Weak<AgentSession>>,
     /// The prompts it has not answered yet, each with the id of its session.
     prompts: HashMap<u64, String>,
+    /// Session ids detached while a prompt or cancel of theirs was still open: this server never resumes them.
+    unclosed: HashSet<String>,
     /// Opens of a session under way on it.
     opening: usize,
     /// The sessions it opened or reopened.
@@ -100,6 +100,8 @@ pub(crate) struct SharedServer {
     epoch: u64,
     agents: Weak<Agents>,
     files: Arc<dyn TextFiles>,
+    /// Fires when the server begins retiring or exits, cancelling any in-flight `session/close` farewell.
+    retiring: CancellationToken,
     state: Mutex<State>,
 }
 
@@ -161,8 +163,16 @@ impl SharedServer {
         };
         // A server that does not answer is ended, and its temporary folder goes with its exit.
         let capabilities = answered.inspect_err(|_| connection.kill())?;
-        let server =
-            Arc::new(Self { connection, capabilities, preset: preset.id.clone(), epoch, agents: Arc::downgrade(agents), files, state: Mutex::default() });
+        let server = Arc::new(Self {
+            connection,
+            capabilities,
+            preset: preset.id.clone(),
+            epoch,
+            agents: Arc::downgrade(agents),
+            files,
+            retiring: CancellationToken::new(),
+            state: Mutex::default(),
+        });
         drop(mixdog_rt::spawn("acp.shared", TaskClass::Work, route(server.clone(), incoming)));
         Ok(Some(server))
     }
@@ -228,11 +238,18 @@ impl SharedServer {
         lock(&self.state).prompts.remove(&id);
     }
 
-    /// Takes `session` off the server alone: nothing more of it reaches it, and the agent is asked to close it where it
-    /// closes sessions. The server goes on serving the others.
+    /// Whether `session_id` was detached from this server while a prompt or cancel of it was still open.
+    pub(crate) fn is_unclosed(&self, session_id: &str) -> bool {
+        lock(&self.state).unclosed.contains(session_id)
+    }
+
+    /// Takes `session` off the server alone: nothing more of it reaches it, and on a server that stays running the agent
+    /// is asked to cancel an open prompt and close the session where it closes sessions. A retiring or stopping server
+    /// skips `session/close` since its stdin is closing.
     pub(crate) fn detach(self: &Arc<Self>, session: &AgentSession) {
-        let (held, prompted) = {
+        let (held, prompted, retire, already_retired) = {
             let mut state = lock(&self.state);
+            let already_retired = state.retired;
             let held = state.sessions.get(&session.session_id).is_some_and(|held| std::ptr::eq(held.as_ptr(), session));
             let mut prompted = false;
             if held {
@@ -241,32 +258,49 @@ impl SharedServer {
                 state.prompts.retain(|_, owner| *owner != session.session_id);
                 prompted = state.prompts.len() != before;
             }
-            (held, prompted)
+            if prompted || session.holds_cancelled_prompt() || session.has_pending_cancel() {
+                state.unclosed.insert(session.session_id.clone());
+            }
+            let retire = !state.retired && state.opening == 0 && state.sessions.is_empty();
+            state.retired |= retire;
+            (held, prompted, retire, already_retired)
         };
         session.gone.cancel();
-        // A prompt it still works on is cancelled: the server would go on answering it for nobody. Told before a close of
-        // the server this leaving begins.
-        let farewell: Option<Farewell> = (prompted || (held && session.closes)).then(|| {
-            let (connection, id, closes) = (self.connection.clone(), session.session_id.clone(), held && session.closes);
-            Box::pin(async move {
-                if prompted {
+        if retire {
+            self.retiring.cancel();
+            let server = self.clone();
+            let closed = async move {
+                server.stop().await;
+            };
+            match self.agents.upgrade() {
+                Some(agents) => agents.retire_server(self, closed),
+                None => drop(mixdog_rt::spawn("acp.shared.retire", TaskClass::Work, closed)),
+            }
+            return;
+        }
+        let stopping = already_retired || self.agents.upgrade().is_some_and(|agents| agents.stopping.load(Ordering::SeqCst));
+        let cancels = !stopping && prompted;
+        let closes = !stopping && held && session.closes;
+        if cancels || closes {
+            let (connection, id, retiring) = (self.connection.clone(), session.session_id.clone(), self.retiring.clone());
+            drop(mixdog_rt::spawn("acp.shared.close", TaskClass::Work, async move {
+                if cancels {
                     let _ = connection.notify("session/cancel", json!({ "sessionId": id })).await;
                 }
                 if closes {
-                    close_session(&connection, &id).await;
+                    tokio::select! {
+                        biased;
+                        () = retiring.cancelled() => {}
+                        () = close_session(&connection, &id) => {}
+                    }
                 }
-            }) as Farewell
-        });
-        self.settle_after(farewell);
+            }));
+        }
     }
 
+    /// A server that serves no session and is opening none is retired: it is closed, and the next session starts a new
+    /// one. It holds a process of the agent's for each session it opened, until it exits.
     fn settle(self: &Arc<Self>) {
-        self.settle_after(None);
-    }
-
-    /// A server that serves no session and is opening none is retired: it is closed, after what `farewell` tells it, and
-    /// the next session starts a new one. It holds a process of the agent's for each session it opened, until it exits.
-    fn settle_after(self: &Arc<Self>, farewell: Option<Farewell>) {
         let retire = {
             let mut state = lock(&self.state);
             let retire = !state.retired && state.opening == 0 && state.sessions.is_empty();
@@ -274,16 +308,11 @@ impl SharedServer {
             retire
         };
         if !retire {
-            if let Some(farewell) = farewell {
-                drop(mixdog_rt::spawn("acp.shared.close", TaskClass::Work, farewell));
-            }
             return;
         }
+        self.retiring.cancel();
         let server = self.clone();
         let closed = async move {
-            if let Some(farewell) = farewell {
-                farewell.await;
-            }
             server.stop().await;
         };
         match self.agents.upgrade() {
@@ -300,6 +329,7 @@ impl SharedServer {
             state.retired = true;
             state.opened
         };
+        self.retiring.cancel();
         self.connection.close_gracefully(grace(harnesses)).await;
     }
 
@@ -357,7 +387,10 @@ impl SharedServer {
             let mut state = lock(&self.state);
             match named.as_deref().and_then(|id| open_in(&state, id)) {
                 Some(session) => session,
-                None if named.is_some() && state.opening > 0 && !matches!(message, Incoming::Response { .. }) => {
+                None if named.as_deref().is_some_and(|id| !state.unclosed.contains(id))
+                    && state.opening > 0
+                    && !matches!(message, Incoming::Response { .. }) =>
+                {
                     state.parked.push(message);
                     return;
                 }
@@ -383,6 +416,7 @@ impl SharedServer {
             state.parked.clear();
             state.sessions.drain().filter_map(|(_, session)| session.upgrade()).collect()
         };
+        self.retiring.cancel();
         if let Some(agents) = self.agents.upgrade() {
             agents.forget_shared(self);
         }
@@ -549,6 +583,7 @@ impl Agents {
         // It takes no session from here, and the last of its sessions to leave it does not close it a second time.
         if let SharedSlot::Running(server) = &slot {
             lock(&server.state).retired = true;
+            server.retiring.cancel();
         }
         let (done, stopped) = tokio::sync::oneshot::channel();
         self.track_stop(mixdog_rt::spawn("acp.shared.stop", TaskClass::Work, async move {
@@ -612,6 +647,7 @@ impl Agents {
         {
             let _shared = lock(&self.shared);
             self.stopping.store(true, Ordering::SeqCst);
+            self.stop_token.cancel();
         }
         self.close_shared();
         loop {
