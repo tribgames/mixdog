@@ -247,6 +247,9 @@ pub struct AgentsParts {
     /// Where the agent definitions a session's CLI starts with are kept: a folder of this user's own, as a definition
     /// found in a folder others can write would start the CLI with their tools and instructions.
     pub definitions: std::path::PathBuf,
+    /// The feature's own folder: the builds of the registry's agents Mixdog installs (`bin/<preset id>/`) and the homes
+    /// it keeps for them (`homes/<preset id>/`).
+    pub data_dir: std::path::PathBuf,
     /// The process environment, for the folders a preset's installer puts its CLI in.
     pub env: Arc<EnvRead>,
     /// The program an agent that takes no HTTP MCP server runs as the stdio end of its session's tool server
@@ -518,7 +521,7 @@ impl Agents {
                     "plan": slot.filter(|_| matches!(readiness, Some(Readiness::Ready { .. }))).and_then(|slot| slot.account.plan.clone()),
                     "canSignOut": slot.is_some_and(|slot| slot.account.sign_out) && matches!(readiness, Some(Readiness::Ready { .. })),
                     "lastError": slot.map_or(Value::Null, Slot::fault),
-                    "canInstall": preset.upkeep.installer.is_some(),
+                    "canInstall": matches!(preset.distribution, crate::preset::Distribution::Cli { installer: Some(_), .. }),
                     "canSignIn": preset.login.is_some(),
                 })
             })
@@ -527,7 +530,7 @@ impl Agents {
     }
 
     /// The picker's rows of the agents that can run a session now: the preset's own entry (the agent's default
-    /// model) and one per model the agent reports. Empty while the feature is off.
+    /// model) where it offers one, and one per model of its scope the agent reports. Empty while the feature is off.
     pub fn picker_rows(self: &Arc<Self>) -> Vec<Value> {
         if !self.enabled() {
             return Vec::new();
@@ -535,7 +538,9 @@ impl Agents {
         let mut rows = Vec::new();
         for preset in &self.parts.presets {
             let Some(Readiness::Ready { models, .. }) = self.known(preset) else { continue };
-            rows.push(self.with_window(preset, DEFAULT_MODEL, Self::plain_row(preset, DEFAULT_MODEL, &preset.label)));
+            if preset.quirks.offer_default {
+                rows.push(self.with_window(preset, DEFAULT_MODEL, Self::plain_row(preset, DEFAULT_MODEL, &preset.label)));
+            }
             rows.extend(
                 crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| self.with_window(preset, &listed.id, Self::listed_row(preset, listed))),
             );
@@ -605,9 +610,25 @@ impl Agents {
         }
     }
 
-    /// The preset's CLI as the last check found it.
-    pub(crate) fn program(&self, preset: &AgentPreset) -> String {
-        lock(&self.slots).get(&preset.id).and_then(|slot| slot.program.clone()).unwrap_or_else(|| preset.command.clone())
+    /// The preset's program as the last check found it.
+    pub(crate) fn program(&self, preset: &AgentPreset) -> crate::session::Program {
+        lock(&self.slots).get(&preset.id).and_then(|slot| slot.program.clone()).unwrap_or_else(|| crate::session::Program::at(preset.command.clone()))
+    }
+
+    /// Why `preset`'s agent is not asked to run `model`, a route's name of one: a model outside the preset's scope runs on
+    /// another preset of the agent, and the agent's default model only on a preset that offers it. The preset that runs
+    /// it is named. `None` for a model the preset runs.
+    pub(crate) fn refuses_model(&self, preset: &AgentPreset, model: &str) -> Option<String> {
+        let runs = |preset: &AgentPreset| if model == DEFAULT_MODEL { preset.quirks.offer_default } else { preset.quirks.model_scope.admits(model) };
+        if runs(preset) {
+            return None;
+        }
+        let what = if model == DEFAULT_MODEL { "its agent's default model".to_owned() } else { format!("the model \"{model}\"") };
+        let runner = self.parts.presets.iter().find(|other| other.id != preset.id && runs(other));
+        Some(match runner {
+            Some(runner) => format!("{} does not run {what}. Choose it under {}.", preset.label, runner.label),
+            None => format!("{} does not run {what}.", preset.label),
+        })
     }
 
     /// The agent of `thread`, started when the thread has none in `cwd` (and reopened from `stored`).

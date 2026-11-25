@@ -28,6 +28,7 @@ use crate::mcp::Handover;
 use crate::mcp::SERVER_NAME;
 use crate::mcp::ToolAsk;
 use crate::mcp::ToolServer;
+use crate::preset::AgentFile;
 use crate::preset::AgentPreset;
 use crate::preset::OwnToolsOff;
 use crate::preset::Reopen;
@@ -96,11 +97,28 @@ impl Models {
     }
 }
 
+/// The agent's program as it was found on this machine, with what it starts with besides the preset's own.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Program {
+    pub path: String,
+    /// Ahead of the preset's `args`.
+    pub args: Vec<String>,
+    /// Beside the preset's `env`.
+    pub env: Vec<(String, String)>,
+}
+
+impl Program {
+    /// The program at `path`, started with the preset's arguments and environment alone.
+    pub fn at(path: impl Into<String>) -> Self {
+        Self { path: path.into(), ..Self::default() }
+    }
+}
+
 /// What a session is opened with.
 pub struct Open<'a> {
     pub preset: &'a AgentPreset,
-    /// The preset's CLI as it was found on this machine.
-    pub program: &'a str,
+    /// The preset's program as it was found on this machine.
+    pub program: &'a Program,
     pub cwd: AbsPath,
     /// The user's own folder the agent definitions are kept in ([`crate::agents::AgentsParts::definitions`]).
     pub definitions: &'a std::path::Path,
@@ -226,6 +244,18 @@ fn nested(path: &[String], leaf: Value) -> Value {
     path.iter().rev().fold(leaf, |inner, key| Value::Object(std::iter::once((key.clone(), inner)).collect()))
 }
 
+/// `from` merged into `into`: a key both hold as an object is merged in turn, and every other key of `from` is set.
+fn merge(into: &mut Value, from: Value) {
+    match (into, from) {
+        (Value::Object(into), Value::Object(from)) => {
+            for (key, value) in from {
+                merge(into.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (into, from) => *into = from,
+    }
+}
+
 /// What tells one text of Mixdog's prompt from another, kept with the agent's session: the session is sent the
 /// prompt again only when it changed. FNV-1a over the text, which is the same in every process.
 pub fn digest(text: &str) -> String {
@@ -247,14 +277,20 @@ pub async fn initialize(connection: &Connection) -> Result<Value, Fault> {
         .await
 }
 
-/// The agent's ACP mode, started from `program` (the preset's CLI as it was found on this machine).
-pub fn launch(preset: &AgentPreset, program: &str, cwd: AbsPath) -> Launch {
-    Launch { program: program.to_owned(), args: preset.args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd }
+/// The agent's ACP mode, started from `program` (the preset's program as it was found on this machine).
+pub fn launch(preset: &AgentPreset, program: &Program, cwd: AbsPath) -> Launch {
+    Launch {
+        program: program.path.clone(),
+        args: program.args.iter().chain(&preset.args).cloned().collect(),
+        env: preset.env.iter().chain(&program.env).cloned().collect(),
+        env_remove: Vec::new(),
+        cwd,
+    }
 }
 
 /// As [`launch`], started in `home` with the agent that has none of the CLI's own tools: `home` holds the definition
 /// [`own_tools_off_home`] wrote.
-fn launch_without_own_tools(preset: &AgentPreset, program: &str, cwd: AbsPath, home: Option<(AbsPath, &OwnToolsOff)>) -> Launch {
+fn launch_without_own_tools(preset: &AgentPreset, program: &Program, cwd: AbsPath, home: Option<(AbsPath, &AgentFile)>) -> Launch {
     let mut launch = launch(preset, program, cwd);
     if let Some((home, off)) = home {
         launch.args.extend(off.args.iter().cloned());
@@ -271,7 +307,7 @@ async fn own_tools_off_home(
     files: &dyn TextFiles,
     definitions: &std::path::Path,
     preset_id: &str,
-    off: &OwnToolsOff,
+    off: &AgentFile,
     tools: &[String],
 ) -> Result<AbsPath, Fault> {
     let place = |path: std::path::PathBuf| AbsPath::new(path).ok_or_else(|| Fault::Start("the definitions folder has no absolute place".into()));
@@ -327,7 +363,7 @@ impl AgentSession {
         // The CLI's own tools are off only where the agent is handed the session's: it starts so when the server is
         // there, and starts again with its own tools when it turns out it cannot be given the server's entry.
         let bare = match (&started, &open.preset.own_tools_off, &open.handed) {
-            (Some(_), Some(off), Some(handed)) => {
+            (Some(_), Some(OwnToolsOff::AgentFile(off)), Some(handed)) => {
                 let tools = handed.listed().await.map_err(|error| Fault::Start(format!("the session's tools were not listed: {error}")))?;
                 Some((own_tools_off_home(files.as_ref(), open.definitions, open.preset.id.as_str(), off, &tools).await?, off))
             }
@@ -353,17 +389,29 @@ impl AgentSession {
         let cwd = open.cwd.as_path().to_string_lossy().into_owned();
         let quirks = &open.preset.quirks;
         let handed = open.handed.filter(|_| server.is_some());
-        // Mixdog's prompt for the session, and, with the tools handed over, the word to prefer them. It goes with every open of the agent's session, a reopen included.
-        let preference = handed.is_some().then(crate::mcp::preference);
+        // Mixdog's prompt for the session, and, with the tools handed over, the word to prefer them where the preset
+        // appends it. It goes with every open of the agent's session, a reopen included, as do the agent's settings.
+        let preference = (handed.is_some() && quirks.append_tool_guidance).then(crate::mcp::preference);
         let appendix: Vec<&str> = open.rules.as_deref().into_iter().chain(preference.as_deref()).filter(|text| !text.trim().is_empty()).collect();
         let appendix = (!appendix.is_empty()).then(|| appendix.join("\n\n"));
         let prompt = appendix.as_deref().map(digest);
         let appended = quirks.system_prompt_append.as_ref().filter(|path| {
             capabilities.pointer("/agentCapabilities/_meta").and_then(|meta| at(meta, path)).is_some_and(|flag| flag != &Value::Bool(false) && !flag.is_null())
         });
+        let settings = match &open.preset.own_tools_off {
+            Some(OwnToolsOff::SessionMeta(off)) => Some(nested(&off.path, off.settings(handed.is_some(), quirks.mcp_max_output_bytes))),
+            _ => None,
+        };
         let with_prompt = |mut params: Value| {
+            let mut meta = Value::Null;
             if let (Some(path), Some(appendix)) = (appended, &appendix) {
-                params["_meta"] = nested(path, json!(appendix));
+                merge(&mut meta, nested(path, json!(appendix)));
+            }
+            if let Some(settings) = &settings {
+                merge(&mut meta, settings.clone());
+            }
+            if !meta.is_null() {
+                params["_meta"] = meta;
             }
             params
         };
@@ -782,7 +830,14 @@ mod tests {
     }
 
     fn antigravity() -> AgentPreset {
-        crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset")
+        crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity-cli").expect("the preset")
+    }
+
+    fn agent_file(preset: &AgentPreset) -> &AgentFile {
+        match &preset.own_tools_off {
+            Some(OwnToolsOff::AgentFile(off)) => off,
+            other => panic!("the CLI is started with a definition: {other:?}"),
+        }
     }
 
     fn here() -> AbsPath {
@@ -797,10 +852,10 @@ mod tests {
     async fn a_handed_session_starts_the_cli_with_the_agent_that_has_none_of_its_own_tools() {
         let preset = antigravity();
         let files = Writes(Mutex::default(), true);
-        let off = preset.own_tools_off.as_ref().expect("the definition");
+        let off = agent_file(&preset);
         let tools = ["read".to_owned(), "grep".to_owned()];
         let home = own_tools_off_home(&files, &definitions(), &preset.id, off, &tools).await.expect("the home");
-        let started = launch_without_own_tools(&preset, "agy", here(), Some((home.clone(), off)));
+        let started = launch_without_own_tools(&preset, &Program::at("agy"), here(), Some((home.clone(), off)));
         assert_eq!(started.args, ["acp", "--disable-telemetry", "--agent", "mixdog", "--dangerously-skip-permissions"]);
         assert_eq!(started.cwd, home);
         let written = files.0.lock().unwrap().clone();
@@ -817,11 +872,30 @@ mod tests {
     #[tokio::test]
     async fn a_definition_that_cannot_be_written_fails_the_open_and_a_session_without_one_keeps_the_clis_own_tools() {
         let preset = antigravity();
-        let off = preset.own_tools_off.as_ref().expect("the definition");
+        let off = agent_file(&preset);
         let failed = own_tools_off_home(&Writes(Mutex::default(), false), &definitions(), &preset.id, off, &["read".to_owned()]).await;
         assert!(matches!(failed, Err(Fault::Start(ref why)) if why.contains("read-only")), "{failed:?}");
-        let started = launch_without_own_tools(&preset, "agy", here(), None);
+        let started = launch_without_own_tools(&preset, &Program::at("agy"), here(), None);
         assert_eq!(started.args, ["acp", "--disable-telemetry"]);
         assert_eq!(started.cwd, here());
+    }
+
+    /// A program found with arguments and variables of its own (an installed build's, its home) starts with them and
+    /// the preset's.
+    #[test]
+    fn a_program_starts_with_its_own_arguments_and_environment_beside_the_presets() {
+        let official = crate::preset::builtin().into_iter().find(|preset| preset.id == "antigravity").expect("the preset");
+        let program = Program { path: "server".into(), args: vec!["--uid=".into()], env: vec![("GEMINI_HOME".into(), "home".into())] };
+        let started = launch(&official, &program, here());
+        assert_eq!((started.program.as_str(), started.args.as_slice()), ("server", ["--uid=".to_owned()].as_slice()));
+        assert_eq!(started.env, [("AGY_ACP_FORCE_FILE_STORAGE".to_owned(), "1".to_owned()), ("GEMINI_HOME".to_owned(), "home".to_owned())]);
+    }
+
+    #[test]
+    fn settings_under_one_object_are_merged_into_it() {
+        let mut meta = Value::Null;
+        merge(&mut meta, json!({ "a": { "prompt": { "append": "R" } } }));
+        merge(&mut meta, json!({ "a": { "tools": [1] } }));
+        assert_eq!(meta, json!({ "a": { "prompt": { "append": "R" }, "tools": [1] } }));
     }
 }

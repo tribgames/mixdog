@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_acp::preset::AgentPreset;
-use mixdog_acp::preset::Upkeep;
 use mixdog_app_server_client::api::CallOptions;
 use mixdog_app_server_client::api::ClientError;
 use mixdog_app_server_client::api::ClientEvent;
@@ -102,10 +101,8 @@ impl InProcessLauncher {
     /// `agent_presets` without their upkeep: a one-shot run neither installs nor updates an agent's CLI, which stays the app's
     /// to keep current. Its check still finds the CLI where the installer puts it.
     pub fn new(executors: Arc<Executors>, tokens: LaneTokens, js_runtime: JsRuntime, ort_library: OrtRuntime, agent_presets: Vec<AgentPreset>) -> Self {
-        let agent_presets = agent_presets
-            .into_iter()
-            .map(|preset| AgentPreset { upkeep: Upkeep { installer: None, update_args: None, ..preset.upkeep }, ..preset })
-            .collect();
+        let agent_presets =
+            agent_presets.into_iter().map(|preset| AgentPreset { distribution: preset.distribution.without_mutations(), ..preset }).collect();
         Self { executors, tokens, install: std::sync::Mutex::new(Some((js_runtime, ort_library))), agent_presets }
     }
 }

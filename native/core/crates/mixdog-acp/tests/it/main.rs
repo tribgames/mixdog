@@ -20,8 +20,8 @@ use mixdog_acp::files::TextFiles;
 use mixdog_acp::mcp::SessionTools;
 use mixdog_acp::preset::AgentPreset;
 use mixdog_acp::preset::Command;
+use mixdog_acp::preset::Distribution;
 use mixdog_acp::preset::Location;
-use mixdog_acp::preset::Upkeep;
 use mixdog_acp::routes::AgentRouteFacts;
 use mixdog_acp::routes::AgentRouteWriter;
 use mixdog_acp::runs::Attachments;
@@ -398,7 +398,9 @@ impl TextFiles for Files {
 struct World {
     agents: Arc<Agents>,
     processes: Arc<dyn ProcessManager>,
+    /// The agent the world's sessions run on: the first of `presets`.
     preset: AgentPreset,
+    presets: Vec<AgentPreset>,
     enabled: Arc<AtomicBool>,
     /// The threads a wake asked a turn for.
     woken: Arc<(Mutex<Vec<ThreadId>>, Notify)>,
@@ -409,9 +411,9 @@ struct World {
     dir: tempfile::TempDir,
 }
 
-/// The agents of an app that starts over `preset` in `dir`: what `refusals` keeps is all they share with the ones before.
+/// The agents of an app that starts over `presets` in `dir`: what `refusals` keeps is all they share with the ones before.
 fn agents_of(
-    preset: &AgentPreset,
+    presets: &[AgentPreset],
     processes: &Arc<dyn ProcessManager>,
     opened: &Arc<Mutex<Vec<std::path::PathBuf>>>,
     enabled: &Arc<AtomicBool>,
@@ -421,7 +423,7 @@ fn agents_of(
     let home = dir.join("home").to_string_lossy().into_owned();
     Agents::new(AgentsParts {
         refusals: refusals.clone(),
-        presets: vec![preset.clone()],
+        presets: presets.to_vec(),
         processes: processes.clone(),
         files: Arc::new(Files(opened.clone())),
         enabled: {
@@ -431,6 +433,7 @@ fn agents_of(
         changed: Arc::new(|| {}),
         probe_cwd: dir.to_path_buf(),
         definitions: dir.join("acp-agents"),
+        data_dir: dir.join("acp-agents"),
         env: Arc::new(move |name: &str| (name == "FAKE_HOME").then(|| home.clone())),
         mcp_bridge: Some(Command { program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"), args: vec!["mcp-bridge".into()] }),
     })
@@ -442,8 +445,24 @@ impl World {
         Self::build(settings, |_, _| {})
     }
 
-    /// As [`World::new`], with the preset changed by `customize` (which is given the world's folder).
+    /// As [`World::new`], with the preset changed by `customize` (which is given the world's folder). The world's agent is
+    /// the CLI's preset, on whose default model the suite's turns run.
     fn build(settings: &[(&str, &str)], customize: impl FnOnce(&mut AgentPreset, &std::path::Path)) -> Self {
+        Self::of(&["antigravity-cli"], settings, |preset, dir| {
+            // Each preset's own offer of a default model is pinned by `each_preset_offers_and_runs_only_its_own_models`.
+            preset.quirks.offer_default = true;
+            customize(preset, dir);
+        })
+    }
+
+    /// The feature on, over the official server's fake with `settings`, installed where Mixdog keeps its build.
+    fn official(settings: &[(&str, &str)]) -> Self {
+        Self::of(&["antigravity"], settings, |_, _| {})
+    }
+
+    /// The feature on, over the shipped presets `ids` as they are, each on the fake: a CLI's command is the fake, and a
+    /// registry agent's installed build. The first, which `customize` changes, is the one the world's sessions run on.
+    fn of(ids: &[&str], settings: &[(&str, &str)], customize: impl FnOnce(&mut AgentPreset, &std::path::Path)) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
         // Every run of the fake starts in the world's folder and reads its settings there.
@@ -456,14 +475,31 @@ impl World {
         ]);
         #[allow(clippy::disallowed_methods, reason = "a test writes the fake agent's settings")]
         std::fs::write(dir.path().join("fake-agent.env"), lines.join("\n")).expect("the fake's settings");
-        let mut preset = mixdog_acp::preset::builtin().remove(0);
-        preset.command = mixdog_testkit::bin_exe!("mixdog-acp-fake-agent");
-        preset.args = vec!["acp".into()];
-        // A session handed tools starts the fake in a folder of its own, which has no settings file.
-        preset.env.extend(lines.iter().filter_map(|line| line.split_once('=')).map(|(name, value)| (name.to_owned(), value.to_owned())));
-        // No test runs the vendor's installer.
-        preset.upkeep = Upkeep { installer: None, installed_at: Vec::new(), update_args: Some(vec!["update".into()]) };
-        customize(&mut preset, dir.path());
+        let fake = mixdog_testkit::bin_exe!("mixdog-acp-fake-agent");
+        let shipped = mixdog_acp::preset::builtin();
+        let mut presets: Vec<AgentPreset> = ids
+            .iter()
+            .map(|id| {
+                let mut preset = shipped.iter().find(|preset| preset.id == *id).expect("a shipped preset").clone();
+                // A session handed tools starts the fake in a folder of its own, which has no settings file.
+                preset.env.extend(lines.iter().filter_map(|line| line.split_once('=')).map(|(name, value)| (name.to_owned(), value.to_owned())));
+                if let Distribution::Registry { .. } = preset.distribution {
+                    preset.env.push(("FAKE_AGENT_OFFICIAL".into(), "1".into()));
+                    let installed = json!({ "version": "1.5.2", "cmd": fake, "args": ["acp", "--from-manifest"], "sha256": "" });
+                    let folder = dir.path().join("acp-agents").join("bin").join(&preset.id);
+                    #[allow(clippy::disallowed_methods, reason = "a test installs the fake as Mixdog keeps a registry agent's build")]
+                    std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(folder.join("installed.json"), installed.to_string())).expect("the install");
+                } else {
+                    preset.command = fake.clone();
+                    preset.args = vec!["acp".into()];
+                    // No test runs the vendor's installer.
+                    preset.distribution = Distribution::Cli { installer: None, installed_at: Vec::new(), update_args: Some(vec!["update".into()]) };
+                }
+                preset
+            })
+            .collect();
+        customize(&mut presets[0], dir.path());
+        let preset = presets[0].clone();
         let processes: Arc<dyn ProcessManager> =
             Arc::new(mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, mixdog_spawn::ProcessConfig::default()));
         let enabled = Arc::new(AtomicBool::new(true));
@@ -472,7 +508,7 @@ impl World {
         #[allow(clippy::disallowed_methods, reason = "a test writes the file its agent reads")]
         std::fs::write(dir.path().join("note.txt"), "hello\nsecond line\n").expect("the note");
         let refusals: Arc<Kept> = Arc::default();
-        let agents = agents_of(&preset, &processes, &opened, &enabled, &refusals, dir.path());
+        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, dir.path());
         agents.bind_wake({
             let woken = woken.clone();
             Arc::new(move |thread: &ThreadId| {
@@ -480,13 +516,13 @@ impl World {
                 woken.1.notify_waiters();
             })
         });
-        Self { agents, processes, preset, enabled, woken, opened, refusals, dir }
+        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, dir }
     }
 
     /// The app is started again: new agents, over what the ones before kept.
     fn restart(&mut self) {
         self.agents.release_all();
-        self.agents = agents_of(&self.preset, &self.processes, &self.opened, &self.enabled, &self.refusals, self.dir.path());
+        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, self.dir.path());
     }
 
     /// Waits for the fake agent to have logged `line`.
@@ -575,6 +611,22 @@ impl World {
         };
         let context = TurnContext { model: model.to_owned(), calls: turns.calls.clone(), selected_window: turns.selected_window, ..self.context(cancel) };
         mixdog_acp::runs::serve(&self.agents, &self.preset, request, Arc::new(surface.clone()), context).await
+    }
+
+    /// The user's message `whoami` served on `preset` with the route's `model`, in a conversation that holds no agent session.
+    async fn serve_on(&self, preset: &AgentPreset, model: &str) -> TurnEnd {
+        let turns = Arc::new(Turns::default());
+        let request = TurnRequest {
+            thread: thread(),
+            cwd: self.cwd(),
+            stored: None,
+            rules: Some("RULES".into()),
+            input: json!({ "role": "user", "content": "whoami" }),
+            conversation: turns.clone(),
+            attachments: turns,
+        };
+        let context = TurnContext { model: model.to_owned(), ..self.context(CancellationToken::new()) };
+        mixdog_acp::runs::serve(&self.agents, preset, request, Arc::new(Surface::default()), context).await
     }
 
     /// A user's message `text` served as a turn of a conversation that holds no agent session.
@@ -683,7 +735,7 @@ async fn a_prompts_stream_becomes_live_items_and_committed_rows() {
     assert_eq!(rows[0]["toolCalls"][0]["name"], "shell");
     assert_eq!(rows[0]["toolCalls"][0]["arguments"], json!({ "command": "npm test" }));
     assert_eq!((&rows[1]["toolCallId"], &rows[1]["content"]), (&json!("turn-1.t1"), &json!("ok")));
-    assert_eq!(rows[2]["toolCalls"][0]["name"], "antigravity_edit");
+    assert_eq!(rows[2]["toolCalls"][0]["name"], "antigravity-cli_edit");
     let diff = rows[3]["uiDiff"].as_str().expect("the edit's diff");
     assert!(diff.contains("a.txt") && diff.contains("-one") && diff.contains("+two"), "{diff}");
     assert_eq!(rows[4]["toolCalls"][0]["name"], "todo");
@@ -729,11 +781,11 @@ async fn a_permission_request_is_asked_on_the_session_and_its_answer_returns_to_
         assert_eq!(completed_text(&end), said);
         let asks = surface.0.asks.lock().unwrap().clone();
         assert_eq!(asks.len(), 1);
-        assert_eq!(asks[0].tool.as_deref(), Some("antigravity_execute"));
+        assert_eq!(asks[0].tool.as_deref(), Some("antigravity-cli_execute"));
         assert_eq!(asks[0].reason.as_deref(), Some("Delete build"));
         assert_eq!(asks[0].payload["args"]["command"], "rm -rf build");
         // The card's words are the client's: the agent and whether its call has a title are data.
-        assert_eq!(asks[0].payload["agent"], json!({ "id": "antigravity", "label": "Antigravity ACP" }));
+        assert_eq!(asks[0].payload["agent"], json!({ "id": "antigravity-cli", "label": "Antigravity CLI" }));
         assert_eq!(asks[0].payload["untitled"], false);
         // The call has its card before the user is asked, under the id the ask names.
         let call = surface.rows()[0]["toolCalls"][0]["id"].as_str().expect("the call's id").to_owned();
@@ -920,8 +972,8 @@ async fn a_signed_out_cli_and_a_ready_one_are_told_apart() {
     ready.all_exited().await;
     let rows = ready.agents.picker_rows();
     let listed: Vec<(&str, &str)> = rows.iter().map(|row| (row["id"].as_str().unwrap(), row["display"].as_str().unwrap())).collect();
-    assert_eq!(listed, [("default", "Antigravity ACP"), ("m1", "Antigravity ACP · Model One"), ("m2", "Antigravity ACP · Model Two")]);
-    assert!(rows.iter().all(|row| row["provider"] == "acp-antigravity" && row["runner"] == "acp"));
+    assert_eq!(listed, [("default", "Antigravity CLI"), ("m1", "Antigravity CLI · Model One"), ("m2", "Antigravity CLI · Model Two")]);
+    assert!(rows.iter().all(|row| row["provider"] == "acp-antigravity-cli" && row["runner"] == "acp"));
 }
 
 #[tokio::test]
@@ -977,7 +1029,7 @@ async fn a_reply_the_agent_begins_after_its_turn_asks_for_a_turn_that_ends_with_
     assert_eq!(rows.iter().map(|row| row["role"].as_str().unwrap_or_default()).collect::<Vec<_>>(), ["assistant", "tool", "assistant"], "{rows:?}");
     let late = &rows[0]["toolCalls"][0];
     assert_ne!(late["id"], made);
-    assert_eq!((&late["name"], &late["arguments"]["resultOf"]), (&json!("antigravity_execute"), &made));
+    assert_eq!((&late["name"], &late["arguments"]["resultOf"]), (&json!("antigravity-cli_execute"), &made));
     assert_eq!((&rows[1]["toolCallId"], &rows[2]["content"]), (&late["id"], &json!("woke")));
     assert!(!session.woken());
     assert_eq!(world.logged("session/prompt"), 1, "a wake is never sent to the agent as a prompt");
@@ -1116,7 +1168,7 @@ async fn an_agent_session_that_starts_in_the_middle_of_a_conversation_is_sent_mi
     let end = world.ask(&surface, "whoami", Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() }).await;
     let lead = completed_text(&end).split_once(" lead=").expect("the lead").1;
     assert!(lead.starts_with("# The conversation before this session") && lead.contains("## User\nearlier talk"), "{end:?}");
-    assert_eq!(surface.notices(), ["The conversation above was summarized for Antigravity ACP, which starts a session of its own here."]);
+    assert_eq!(surface.notices(), ["The conversation above was summarized for Antigravity CLI, which starts a session of its own here."]);
     let next = Surface::default();
     let input = json!({ "role": "user", "content": "whoami" });
     let end = within("the next turn", world.serve(&next, input, Some("sess-1"), "default", CancellationToken::new())).await;
@@ -1139,7 +1191,7 @@ async fn a_summary_that_cannot_be_made_fails_the_turn_and_the_agent_is_not_start
     assert_eq!(
         end,
         TurnEnd::Failed {
-            message: "The conversation could not be summarized for Antigravity ACP: the summary route answered nothing".into(),
+            message: "The conversation could not be summarized for Antigravity CLI: the summary route answered nothing".into(),
             code: None,
             reported: false
         }
@@ -1196,7 +1248,7 @@ async fn a_prompts_images_are_sent_as_image_blocks_or_the_user_is_told_they_were
     let surface = Surface::default();
     let end = within("the turn", world.serve(&surface, input(), None, "default", CancellationToken::new())).await;
     assert!(completed_text(&end).ends_with(" images=0"), "{end:?}");
-    assert_eq!(surface.notices(), ["2 image(s) of this message were not sent to Antigravity ACP: Antigravity ACP takes no images."]);
+    assert_eq!(surface.notices(), ["2 image(s) of this message were not sent to Antigravity CLI: Antigravity CLI takes no images."]);
 }
 
 #[tokio::test]
@@ -1259,7 +1311,7 @@ async fn an_authentication_notice_the_reply_ends_on_fails_the_turn_and_signs_the
     no_notice_shown(&surface);
     assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
     let refusal = world.agents.selectable(&world.preset).err().expect("a signed-out agent runs no turn");
-    assert_eq!(refusal.message(&world.preset), "Antigravity ACP is signed out. Sign in to it in Settings.");
+    assert_eq!(refusal.message(&world.preset), "Antigravity CLI is signed out. Sign in to it in Settings.");
     // The refusal reaches the run as a sign-in failure, typed as a provider's authentication failure is.
     assert!(refusal.signed_out());
     let error = world.agents.failure(&world.preset, refusal.message(&world.preset), Some(-32000), json!({}), None).await;
@@ -1473,7 +1525,7 @@ async fn a_call_of_the_agents_own_whose_title_names_a_mixdog_tool_is_asked_on_a_
     // what they ask about is asked on the call's own card, and its row is the agent's call.
     let asks = surface.0.asks.lock().unwrap().clone();
     let args = json!({ "CommandLine": "ls mcp_mixdog_read", "title": "ls mcp_mixdog_read" });
-    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity_execute"), &args)]);
+    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity-cli_execute"), &args)]);
     assert_eq!(*tools.seen.lock().unwrap(), ["judge shell"]);
     assert_eq!(surface.rows()[0]["toolCalls"][0]["name"], "shell");
     assert!(tools.ran.lock().unwrap().is_empty(), "no tool of the session ran");
@@ -1527,7 +1579,7 @@ async fn an_agent_that_never_connects_to_the_sessions_tool_server_is_told_of_onc
     world.ask(&surface, "whoami", Turns::default()).await;
     assert_eq!(
         surface.notices(),
-        ["Antigravity ACP did not take Mixdog's tools: it never connected to the session's tool server, and works with its own tools only."]
+        ["Antigravity CLI did not take Mixdog's tools: it never connected to the session's tool server, and works with its own tools only."]
     );
     let next = Surface::default();
     let input = json!({ "role": "user", "content": "whoami" });
@@ -1664,16 +1716,16 @@ async fn a_route_on_an_agent_is_saved_as_a_providers_and_picked_only_while_the_a
     let config = serde_json::Map::new();
     // Signed out: a route saved on the agent is still the agent's, and picking it now is refused with its state.
     assert_eq!(world.checked().await["state"], "signedOut");
-    assert!(facts.is_known("acp-antigravity", &config));
-    let refused = facts.ensure_ready(&config, "acp-antigravity").await.expect_err("a signed-out agent was picked");
-    assert!(refused.contains("Antigravity ACP"), "{refused}");
+    assert!(facts.is_known("acp-antigravity-cli", &config));
+    let refused = facts.ensure_ready(&config, "acp-antigravity-cli").await.expect_err("a signed-out agent was picked");
+    assert!(refused.contains("Antigravity CLI"), "{refused}");
 
     let world = World::new(&[]);
     world.checked().await;
     let facts = AgentRouteFacts { inner: Arc::new(AnyCatalog), agents: world.agents.clone() };
-    assert!(facts.is_known("acp-antigravity", &config));
-    assert_eq!(facts.ensure_ready(&config, "acp-antigravity").await, Ok(()));
-    assert!(!facts.fast_capable("acp-antigravity", &Value::Null, None, &Value::Null) && facts.fast_capable("openai", &Value::Null, None, &Value::Null));
+    assert!(facts.is_known("acp-antigravity-cli", &config));
+    assert_eq!(facts.ensure_ready(&config, "acp-antigravity-cli").await, Ok(()));
+    assert!(!facts.fast_capable("acp-antigravity-cli", &Value::Null, None, &Value::Null) && facts.fast_capable("openai", &Value::Null, None, &Value::Null));
     // No row of the agent is marked for a session alone: it is saved wherever a provider's model is.
     assert!(world.agents.picker_rows().iter().all(|row| row.get("sessionOnly").is_none()));
 }
@@ -1700,7 +1752,7 @@ async fn an_agent_tells_its_accounts_plan_and_is_signed_out_with_the_protocols_l
     // An agent that does not advertise the method is not asked for it.
     let fixed = World::new(&[("FAKE_AGENT_NO_LOGOUT", "1")]);
     assert_eq!(fixed.checked().await["canSignOut"], false);
-    assert_eq!(within("the refused sign-out", fixed.agents.sign_out(&fixed.preset)).await, Err("Antigravity ACP offers no sign-out.".to_owned()));
+    assert_eq!(within("the refused sign-out", fixed.agents.sign_out(&fixed.preset)).await, Err("Antigravity CLI offers no sign-out.".to_owned()));
     assert_eq!(fixed.logged("logout"), 0);
 }
 
@@ -1716,7 +1768,7 @@ async fn a_model_the_agent_lists_at_several_tiers_is_one_row_and_the_routes_effo
     let row = |id: &str| rows.iter().find(|row| row["id"] == id).cloned().expect("the model's row");
     assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), ["default", "gem", "solo"]);
     let gem = row("gem");
-    assert_eq!((&gem["display"], &gem["modelName"], &gem["defaultEffort"]), (&json!("Antigravity ACP · Gem"), &json!("Gem"), &json!("low")));
+    assert_eq!((&gem["display"], &gem["modelName"], &gem["defaultEffort"]), (&json!("Antigravity CLI · Gem"), &json!("Gem"), &json!("low")));
     assert_eq!(gem["effortOptions"].as_array().expect("efforts").iter().map(|item| item["value"].as_str().unwrap()).collect::<Vec<_>>(), ["low", "high"]);
     assert!(!gem["notApplicable"].as_array().unwrap().contains(&json!("effort")));
     // A model the agent lists once has no effort to choose.
@@ -1770,7 +1822,7 @@ async fn an_agents_model_rows_carry_the_marks_saved_for_them_as_a_providers_rows
     world.checked().await;
     let ids: Vec<String> = world.agents.picker_rows().iter().filter_map(|row| row["id"].as_str().map(str::to_owned)).filter(|id| id != "default").collect();
     let (starred, hidden) = (ids[0].clone(), ids[1].clone());
-    let saved = json!({ format!("acp-antigravity/{starred}"): { "favorite": true }, format!("acp-antigravity/{hidden}"): { "hidden": true } });
+    let saved = json!({ format!("acp-antigravity-cli/{starred}"): { "favorite": true }, format!("acp-antigravity-cli/{hidden}"): { "hidden": true } });
     let list = mixdog_acp::routes::AgentModelList {
         inner: Arc::new(NoCatalogRows),
         agents: world.agents.clone(),
@@ -1786,8 +1838,8 @@ async fn an_agents_model_rows_carry_the_marks_saved_for_them_as_a_providers_rows
     let row = |id: &str| read["models"].as_array().expect("rows").iter().find(|row| row["id"] == id).cloned().expect("the model's row");
     assert_eq!((&row(&starred)["favorite"], &row(&starred)["savedHidden"]), (&json!(true), &Value::Null));
     assert_eq!((&row(&hidden)["favorite"], &row(&hidden)["savedHidden"]), (&Value::Null, &json!(true)));
-    assert_eq!(row(&starred)["agentLabel"], "Antigravity ACP");
-    assert_eq!(row(&starred)["display"], format!("Antigravity ACP · {}", row(&starred)["modelName"].as_str().expect("the model's own name")));
+    assert_eq!(row(&starred)["agentLabel"], "Antigravity CLI");
+    assert_eq!(row(&starred)["display"], format!("Antigravity CLI · {}", row(&starred)["modelName"].as_str().expect("the model's own name")));
 }
 
 #[tokio::test]
@@ -1923,7 +1975,7 @@ async fn a_route_refreshed_with_no_row_takes_the_agents_row_with_its_efforts_or_
 
     writer.set_route_state(&thread(), route("gem", Some("high")));
     let gem = within("the refresh", writer.refresh_route_effort(&thread(), None, true, None)).await.expect("refreshed").expect("written");
-    assert_eq!((&gem["effectiveEffort"], &gem["modelDisplay"], &gem["fastCapable"]), (&json!("high"), &json!("Antigravity ACP · Gem"), &json!(false)));
+    assert_eq!((&gem["effectiveEffort"], &gem["modelDisplay"], &gem["fastCapable"]), (&json!("high"), &json!("Antigravity CLI · Gem"), &json!(false)));
     let efforts: Vec<&str> = gem["effortOptions"].as_array().expect("the efforts").iter().filter_map(|item| item["value"].as_str()).collect();
     assert_eq!(efforts, ["low", "high"]);
     assert_eq!(writer.route(&thread()), gem, "the filled route is the session's");
@@ -1931,7 +1983,7 @@ async fn a_route_refreshed_with_no_row_takes_the_agents_row_with_its_efforts_or_
     writer.set_route_state(&thread(), route("solo", None));
     let solo = within("the refresh", writer.refresh_route_effort(&thread(), None, true, None)).await.expect("refreshed").expect("written");
     assert_eq!((&solo["effortOptions"], &solo["effectiveEffort"]), (&json!([]), &Value::Null), "{solo:?}");
-    assert_eq!((&solo["modelDisplay"], &solo["fastCapable"]), (&json!("Antigravity ACP · Solo"), &json!(false)));
+    assert_eq!((&solo["modelDisplay"], &solo["fastCapable"]), (&json!("Antigravity CLI · Solo"), &json!(false)));
 }
 
 /// A refresh whose lease names a session generation that has moved on writes nothing over the newer session.
@@ -2168,7 +2220,7 @@ async fn a_turn_of_the_loop_ends_the_agents_process_and_forgets_the_agents_sessi
     within("the agent's turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
     let session = world.agents.running(&thread()).expect("the session's agent");
     // The turn's start left the session on a route of Mixdog's own (a pick held for the turn): the loop runs it.
-    let header = json!({ "provider": "openai", mixdog_acp::runs::SESSION_KEY: { "agent": "antigravity", "sessionId": "sess-1" } })
+    let header = json!({ "provider": "openai", mixdog_acp::runs::SESSION_KEY: { "agent": "antigravity-cli", "sessionId": "sess-1" } })
         .as_object()
         .cloned()
         .expect("a header");
@@ -2982,11 +3034,14 @@ async fn a_session_whose_tools_are_not_bound_hands_its_agent_no_server() {
 fn uninstalled(settings: &[(&str, &str)]) -> World {
     World::build(settings, |preset, dir| {
         let installed = format!("bin/fake-agy{}", std::env::consts::EXE_SUFFIX);
-        preset.upkeep.installer = Some(Command {
-            program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"),
-            args: vec!["install-into".into(), dir.join("home").join(&installed).to_string_lossy().into_owned()],
-        });
-        preset.upkeep.installed_at = vec![Location { env: "FAKE_HOME".into(), path: installed }];
+        preset.distribution = Distribution::Cli {
+            installer: Some(Command {
+                program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"),
+                args: vec!["install-into".into(), dir.join("home").join(&installed).to_string_lossy().into_owned()],
+            }),
+            installed_at: vec![Location { env: "FAKE_HOME".into(), path: installed }],
+            update_args: Some(vec!["update".into()]),
+        };
         preset.command = "mixdog-acp-no-such-cli".into();
     })
 }
@@ -3011,7 +3066,7 @@ async fn a_missing_cli_is_installed_by_the_feature_and_found_without_a_restart()
 async fn a_failed_install_says_what_failed() {
     let world = uninstalled(&[("FAKE_AGENT_INSTALL_FAILS", "no route to the download server")]);
     let failed = within("the install", world.agents.install()).await.expect_err("the install fails");
-    assert_eq!(failed, "Antigravity ACP could not be installed: no route to the download server");
+    assert_eq!(failed, "Antigravity CLI could not be installed: no route to the download server");
     let agent = world.agents.status()["agents"][0].clone();
     assert_eq!(agent["state"], "notInstalled");
     assert_eq!(agent["lastError"], json!({ "action": "install", "message": "no route to the download server" }));
@@ -3515,7 +3570,7 @@ async fn an_attached_file_reaches_the_agent_as_its_text_or_a_link_to_where_it_is
         ] })
     };
     // Each file left out is named.
-    let told = ["Not sent to Antigravity ACP (not readable where the session keeps its attachments): \"lost.pdf\", \"old notes.txt\"."];
+    let told = ["Not sent to Antigravity CLI (not readable where the session keeps its attachments): \"lost.pdf\", \"old notes.txt\"."];
     let link = json!({ "type": "resource_link", "uri": "file:///C:/data%20dir/blobs/paper", "name": "paper.pdf", "mimeType": "application/pdf" });
     let sent = |end: &TurnEnd| {
         let (files, lead) = completed_text(end).strip_prefix("files=").expect("the files").rsplit_once(" lead=").expect("the lead");
@@ -3560,7 +3615,7 @@ async fn the_sessions_permissions_answer_the_agents_own_read_and_command_as_they
     assert_eq!(completed_text(&end), "option:once");
     let asks = surface.0.asks.lock().unwrap().clone();
     let args = json!({ "command": "rm -rf build", "title": "Delete build" });
-    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity_execute"), &args)]);
+    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity-cli_execute"), &args)]);
     assert_eq!(*tools.seen.lock().unwrap(), ["judge read", "judge shell"], "judged, and nothing of the session ran or was reported");
     assert!(tools.ran.lock().unwrap().is_empty());
 
@@ -3569,7 +3624,7 @@ async fn the_sessions_permissions_answer_the_agents_own_read_and_command_as_they
     assert_eq!(completed_text(&end), "option:no");
     assert!(surface.0.asks.lock().unwrap().is_empty(), "a refusal asks nobody");
     let notices = surface.notices();
-    assert!(notices.len() == 1 && notices[0].starts_with("Antigravity ACP's call \"Run it\" was not allowed in this session: "), "{notices:?}");
+    assert!(notices.len() == 1 && notices[0].starts_with("Antigravity CLI's call \"Run it\" was not allowed in this session: "), "{notices:?}");
 }
 
 /// A call of the agent's that touches several files is judged on every one: one the session refuses refuses the call,
@@ -3600,7 +3655,7 @@ async fn a_command_of_the_agents_own_with_no_command_line_is_asked_on_its_card()
     assert_eq!(completed_text(&end), "option:no");
     assert!(tools.seen.lock().unwrap().is_empty(), "nothing was judged");
     let asks = surface.0.asks.lock().unwrap().clone();
-    assert_eq!(asks.iter().map(|ask| ask.tool.as_deref()).collect::<Vec<_>>(), [Some("antigravity_execute")]);
+    assert_eq!(asks.iter().map(|ask| ask.tool.as_deref()).collect::<Vec<_>>(), [Some("antigravity-cli_execute")]);
 }
 
 /// The user's approval of the agent's tool for the rest of the session, from its card.
@@ -3647,7 +3702,7 @@ async fn a_call_the_session_would_run_only_changed_is_asked_on_its_card() {
     let asks = surface.0.asks.lock().unwrap().clone();
     assert_eq!(
         asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"]["command"])).collect::<Vec<_>>(),
-        [(Some("antigravity_execute"), &json!("moved here"))]
+        [(Some("antigravity-cli_execute"), &json!("moved here"))]
     );
 }
 
@@ -3723,4 +3778,160 @@ async fn a_questions_word_on_the_account_is_the_agents_state() {
         assert!(answered.is_err(), "{word}: {answered:?}");
         assert_eq!(world.agents.status()["agents"][0]["state"], state, "{word}");
     }
+}
+
+/// The official server's own tools, which every session of it has off.
+const OFFICIAL_TOOLS: [&str; 15] = [
+    "list_directory",
+    "search_directory",
+    "find_file",
+    "view_file",
+    "create_file",
+    "edit_file",
+    "run_command",
+    "ask_question",
+    "invoke_subagent",
+    "run_workflow",
+    "generate_image",
+    "search_web",
+    "read_url_content",
+    "schedule",
+    "finish",
+];
+
+/// The `_meta` the fake's session was opened with, as its `meta` answer `text` says it.
+fn meta_of(text: &str) -> Value {
+    serde_json::from_str(text.strip_prefix("meta=").unwrap_or_else(|| panic!("not the session's meta: {text}"))).expect("JSON")
+}
+
+/// The official server is the build Mixdog installed, started with the build's own arguments in a home of Mixdog's own and
+/// its sign-in kept in a file there; it is never run for a version, which it names in `initialize`, and one below the
+/// preset's minimum is asked nothing more. With no build installed nothing is started.
+#[tokio::test]
+async fn the_official_server_runs_from_its_installed_build_in_its_own_home_and_names_its_version_in_initialize() {
+    let world = World::official(&[]);
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["version"], &agent["minimumVersion"]), (&json!("ready"), &json!("1.5.2"), &json!("1.5.2")), "{agent}");
+    let home = world.dir.path().join("acp-agents").join("homes").join("antigravity");
+    let started = format!("official args=acp --from-manifest GEMINI_HOME={} AGY_ACP_FORCE_FILE_STORAGE=1", home.display());
+    assert_eq!(world.logged(&started), 1, "{:?}", world.log());
+    let end = within("the turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=false"), "{end:?}");
+    assert_eq!(world.logged(&started), 2, "a session's process starts as the check's did: {:?}", world.log());
+    assert_eq!(world.logged("version"), 0, "the server has no version flag");
+
+    let old = World::official(&[("FAKE_AGENT_VERSION", "1.5.1")]);
+    let agent = old.checked().await;
+    assert_eq!((&agent["state"], &agent["version"]), (&json!("versionTooOld"), &json!("1.5.1")));
+    let refused = within("the refusal", old.agents.session(&thread(), &old.preset, old.cwd(), None, None)).await.err();
+    assert_eq!(refused, Some(Refusal::NotReady(Readiness::VersionTooOld { version: "1.5.1".into() })));
+    assert_eq!((old.logged("version"), old.logged("session/new")), (0, 0), "{:?}", old.log());
+    old.all_exited().await;
+
+    let missing = World::official(&[]);
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
+    std::fs::remove_file(missing.dir.path().join("acp-agents").join("bin").join("antigravity").join("installed.json")).expect("the install");
+    let agent = missing.checked().await;
+    assert_eq!((&agent["state"], &agent["canInstall"], &agent["canSignIn"]), (&json!("notInstalled"), &json!(false), &json!(false)));
+    assert!(missing.processes.list().is_empty() && missing.log().is_empty(), "{:?}", missing.log());
+}
+
+/// The official server's session is opened and reopened with its settings deep-merged beside Mixdog's prompt under one
+/// `_meta.antigravity`: its own tools off, Mixdog's offered by name, their results whole, and no word on calling them.
+/// A question handed no tools has the server's own off alone. The CLI's session carries Mixdog's prompt and that word.
+#[tokio::test]
+async fn the_official_servers_sessions_carry_its_settings_and_the_clis_its_prompt_alone() {
+    let (world, _tools) = handing_in(World::official(&[]));
+    let handed = json!({ "antigravity": {
+        "systemPrompt": { "append": "RULES" },
+        "mcpMaxOutputBytes": 100_000,
+        "eagerMcpServers": ["mixdog"],
+        "disabledTools": OFFICIAL_TOOLS,
+    } });
+    let end = within("the turn", world.prompt(&thread(), &Surface::default(), "meta", None, CancellationToken::new())).await;
+    assert_eq!(meta_of(completed_text(&end)), handed);
+    let stored = world.agents.running(&thread()).expect("the session's agent").session_id.clone();
+    world.agents.release(&thread());
+    let end = within("the reopened turn", world.prompt(&thread(), &Surface::default(), "meta", Some(&stored), CancellationToken::new())).await;
+    assert_eq!(meta_of(completed_text(&end)), handed);
+    assert_eq!(world.logged("session/resume"), 1);
+
+    let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
+    let answered =
+        within("the answer", mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "SUMMARIZE", "meta", now)).await.expect("an answer");
+    assert_eq!(meta_of(&answered.text), json!({ "antigravity": { "systemPrompt": { "append": "SUMMARIZE" }, "disabledTools": OFFICIAL_TOOLS } }));
+
+    let (cli, _tools) = handing(&[]);
+    let end = within("the CLI's turn", cli.prompt(&thread(), &Surface::default(), "meta", None, CancellationToken::new())).await;
+    let prompt = format!("RULES\n\n{}", mixdog_acp::mcp::preference());
+    assert_eq!(meta_of(completed_text(&end)), json!({ "antigravity": { "systemPrompt": { "append": prompt } } }));
+}
+
+/// The official server names Mixdog's server and tool of a call under `_meta.mcp` alone: such a call is Mixdog's, shown
+/// once as that tool's call, and the server's question about it is answered without the user.
+#[tokio::test]
+async fn the_official_servers_calls_of_mixdog_tools_are_known_by_their_meta() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let end = tools.prompt(&world, &surface, r#"tool read {"path":"a.txt"}"#).await;
+    assert_eq!(completed_text(&end), r#"result:read ran with {"path":"a.txt"}"#);
+    assert_eq!(cards(&surface), ["read"], "{:?}", surface.rows());
+    assert_eq!(*tools.ran.lock().unwrap(), [(thread(), "read".to_owned(), json!({ "path": "a.txt" }))]);
+
+    let surface = Surface::default();
+    let end = within("the turn", world.prompt_with(&thread(), &surface, "asktool read", None, CancellationToken::new(), Some(tools.calls(&surface)))).await;
+    assert_eq!(completed_text(&end), "option:once");
+    assert!(surface.0.asks.lock().unwrap().is_empty() && cards(&surface).is_empty(), "{:?}", surface.rows());
+}
+
+/// A prompt the official server answers with -32002, the protocol's code for a resource it does not hold, lost its session
+/// whatever the message says: the conversation stops naming the session.
+#[tokio::test]
+async fn a_prompt_the_official_server_answers_with_the_lost_session_code_leaves_its_session_behind() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let input = json!({ "role": "user", "content": "lost" });
+    let end = within("the turn", world.serve_with(&surface, input, Some(held("sess-9")), Some("RULES"), "default", CancellationToken::new(), Turns::default()))
+        .await;
+    assert_eq!(end, TurnEnd::Failed { message: "Resource not found: sess-9".into(), code: Some(-32002), reported: true });
+    let changes: Vec<_> = surface.events().into_iter().filter_map(|event| if let Event::Header(change) = event { Some(change) } else { None }).collect();
+    assert_eq!(changes.last().map(|change| change.unset.clone()), Some(vec![mixdog_acp::runs::SESSION_KEY.to_owned()]));
+    assert!(world.agents.running(&thread()).is_none());
+}
+
+/// Antigravity's two presets split its models: each lists and runs only its own, the official server alone offers its
+/// default model, and a route on a model of the other preset is refused naming that preset, before any agent is asked.
+#[tokio::test]
+async fn each_preset_offers_and_runs_only_its_own_models() {
+    let models = json!([
+        { "modelId": "gemini-4-neon-high", "name": "Gemini 4 Neon (High)" },
+        { "modelId": "gemini-4-neon-low", "name": "Gemini 4 Neon (Low)" },
+        { "modelId": "claude-opus-5-5-high", "name": "Claude Opus 5.5 (High)" },
+        { "modelId": "claude-opus-5-5-low", "name": "Claude Opus 5.5 (Low)" },
+    ])
+    .to_string();
+    let world = World::of(&["antigravity", "antigravity-cli"], &[("FAKE_AGENT_MODELS", &models)], |_, _| {});
+    let cli = world.presets[1].clone();
+    world.checked().await;
+    within("the CLI's check", world.agents.look(&cli)).await;
+    let rows = world.agents.picker_rows();
+    let listed: Vec<(&str, &str)> = rows.iter().map(|row| (row["provider"].as_str().unwrap(), row["id"].as_str().unwrap())).collect();
+    assert_eq!(listed, [("acp-antigravity", "default"), ("acp-antigravity", "gemini-4-neon"), ("acp-antigravity-cli", "claude-opus-5-5")]);
+    let status = world.agents.status();
+    assert_eq!(status["agents"][0]["models"], json!([{ "id": "gemini-4-neon", "name": "Gemini 4 Neon" }]));
+    assert_eq!(status["agents"][1]["models"], json!([{ "id": "claude-opus-5-5", "name": "Claude Opus 5.5" }]));
+
+    let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
+    for (preset, model, said) in [
+        (&world.preset, "claude-opus-5-5", "Antigravity ACP does not run the model \"claude-opus-5-5\". Choose it under Antigravity CLI."),
+        (&cli, "gemini-4-neon-high", "Antigravity CLI does not run the model \"gemini-4-neon-high\". Choose it under Antigravity ACP."),
+        (&cli, "default", "Antigravity CLI does not run its agent's default model. Choose it under Antigravity ACP."),
+    ] {
+        let end = within("the refused turn", world.serve_on(preset, model)).await;
+        assert_eq!(end, TurnEnd::Failed { message: said.to_owned(), code: None, reported: false }, "{model}");
+        let asked = within("the refused question", mixdog_acp::runs::ask_once(&world.agents, preset, model, "SUMMARIZE", "whoami", now.clone())).await;
+        assert_eq!(asked, Err(said.to_owned()), "{model}");
+    }
+    assert!(world.agents.running(&thread()).is_none());
+    assert_eq!((world.logged("session/set_model"), world.logged("session/prompt")), (0, 0), "{:?}", world.log());
 }
