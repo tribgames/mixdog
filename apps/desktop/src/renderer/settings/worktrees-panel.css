@@ -1,49 +1,36 @@
-/* Settings → Worktrees (design/mockups/retention-settings frame A). */
+/* Settings → Worktrees. Groups and rows keep the shared settings look; only
+   this page's own parts are styled here. */
 
-/* The branch-menu look (design/mockups/branch-menu-groups): no rule between
-   rows, spacing separates them, and group labels are small and muted. Scoped
-   to this page; other pages keep the shared row rules. */
-.worktrees-page :is(.mixdog-settings__row, .settings-form-row, .settings-resource) {
-  border-bottom: 0;
-}
-.mixdog-settings-v2 .worktrees-page :is(.mixdog-settings__row, .settings-form-row) {
-  min-height: 0;
-  padding-block: 8px;
-}
-.worktrees-page .settings-group h3,
-.worktrees-page .worktree-advanced > summary {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-weight: 600;
-}
-.worktrees-page .settings-group + .settings-group,
-.worktrees-page .settings-group + .worktree-cleanup-note + .settings-group {
-  margin-top: 20px;
-}
-
-/* The cleanup options under the master toggle: indented, dimmed while it is off. */
-.worktree-cleanup-sub .mixdog-settings__row {
-  padding-left: 16px;
-}
+/* The options under the automatic cleanup switch stay in the rows' column and
+   dim while it is off. */
 .worktree-cleanup-sub.is-off {
   opacity: 0.45;
 }
-.worktree-cleanup-note,
-.worktree-prefix-example {
-  margin: 8px 0 0;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-}
-.worktree-prefix-example {
+
+/* A field error inside the Advanced card reads as a row of its own. */
+.worktree-advanced .settings-error {
   margin: 0;
-  padding: 0 0 12px;
-}
-.worktree-prefix-example[role="alert"] {
+  padding: 12px 0;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.worktree-advanced .settings-error:last-child {
+  border-bottom: 0;
 }
 
 .worktree-list .settings-group-head {
   align-items: center;
+}
+.worktree-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.worktree-list-actions > .extensions-action {
+  width: 28px;
+  padding: 0;
 }
 .worktree-list-notice {
   margin: 8px 0;
@@ -52,6 +39,7 @@
 }
 .worktree-table {
   width: 100%;
+  margin: 6px 0;
   border-collapse: collapse;
 }
 .worktree-table th,
@@ -60,6 +48,15 @@
   text-align: left;
   border: 0;
   vertical-align: middle;
+}
+.worktree-table :is(th, td):first-child {
+  padding-left: 0;
+}
+.worktree-table :is(th, td):last-child {
+  padding-right: 0;
+}
+.worktree-table tbody > tr > * {
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .worktree-table thead th {
   color: var(--mx-text-muted);
@@ -70,7 +67,7 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-/* Project label above its rows: small and muted, spaced instead of ruled. */
+/* Project label above its rows: small and muted. */
 .worktree-table-project th {
   padding-top: 14px;
   color: var(--mx-text-muted);
@@ -115,12 +112,36 @@
   flex-wrap: wrap;
 }
 
-/* The collapsed "Advanced" group at the bottom of the page. */
-.worktree-advanced {
-  margin-top: 18px;
-}
+/* The collapsed "Advanced" group at the bottom of the page: its summary is the
+   group title, the chevron the only fold cue. */
 .worktree-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  color: var(--mx-text);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  letter-spacing: var(--mx-tracking-tight);
   cursor: pointer;
-  font-weight: 600;
-  margin-bottom: 8px;
+}
+.worktree-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.worktree-advanced > summary > svg {
+  flex: none;
+  color: var(--mx-icon-muted);
+  transition: transform var(--mx-motion-ink);
+}
+.worktree-advanced[open] > summary {
+  margin-bottom: 16px;
+}
+.worktree-advanced[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.worktree-advanced > summary:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+  border-radius: var(--mx-radius-sm);
 }

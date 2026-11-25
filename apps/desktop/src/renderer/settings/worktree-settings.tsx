@@ -1,5 +1,6 @@
 // Settings → Worktrees: how Lead sessions create git worktrees and how
 // finished ones are cleaned up (the list itself: worktree-list.tsx).
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopWorktreeSettings } from '../../shared/contract';
@@ -52,7 +53,7 @@ export function normalizeBranchPrefix(text: string): string | null {
   return valid ? `${value}/` : null;
 }
 
-/** Creation and cleanup groups, then the never-removed note. */
+/** Creation and cleanup groups; the cleanup group's note names what is never removed. */
 export function WorktreeSettings({ active = true }: { active?: boolean }) {
   const settings = useWorktreeSettings(active);
   if (!settings) return null;
@@ -75,7 +76,7 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
       <Group title={t('Create')}>
         <SelectRow
           title={t('New task default')}
-          description={t('Choose whether new tasks work in the project folder or in a separate worktree.')}
+          description={t('Work in the project folder or a separate worktree.')}
           showDescription
           value={settings.newTaskDefault}
           options={[
@@ -85,10 +86,13 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
           onChange={(value) => save({ newTaskDefault: value as DesktopWorktreeSettings['newTaskDefault'] })}
         />
       </Group>
-      <Group title={t('Cleanup')}>
+      <Group
+        title={t('Cleanup')}
+        description={t('Favorite or running sessions and worktrees under an hour old are never cleaned up.')}
+      >
         <ToggleRow
           title={t('Clean up finished worktrees automatically')}
-          description={t('Worktrees with uncommitted or unmerged work are never deleted. Turning this off asks first.')}
+          description={t('Never deletes uncommitted or unmerged work. Asks before turning off.')}
           showDescription
           checked={settings.autoCleanup}
           // Turning off asks first, so the switch follows the saved setting, not the click.
@@ -109,7 +113,7 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
         <div className={`worktree-cleanup-sub${off ? ' is-off' : ''}`} aria-disabled={off || undefined}>
           <SelectRow
             title={t('Keep at most')}
-            description={t('Beyond this, the least recently used are cleaned up first.')}
+            description={t('Over the limit, least recently used go first.')}
             showDescription
             value={String(settings.maxWorktrees)}
             disabled={off}
@@ -117,24 +121,22 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
             onChange={(value) => save({ maxWorktrees: Number(value) })}
           />
           <SelectRow
-            title={t('Clean up worktrees unused for')}
+            title={t('Clean up if unused for')}
             value={String(settings.unusedDays)}
             disabled={off}
             options={dayOptions}
             onChange={(value) => save({ unusedDays: Number(value) })}
           />
           <ToggleRow
-            title={t("Clean up a session's worktrees when it is archived")}
+            title={t('Clean up when its session is archived')}
             checked={settings.cleanupArchived}
             disabled={off}
             optimistic={false}
             onChange={(cleanupArchived) => save({ cleanupArchived })}
           />
           <ToggleRow
-            title={t('Delete the branch when cleaning up')}
-            description={t(
-              'Deletes a branch created by the app once git considers it merged; when off, the branch and its commits stay.'
-            )}
+            title={t('Also delete the branch')}
+            description={t('Only branches the app created, once merged. When off, they stay.')}
             showDescription
             checked={settings.deleteBranch}
             disabled={off}
@@ -143,11 +145,6 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
           />
         </div>
       </Group>
-      <p className="worktree-cleanup-note">
-        {t(
-          'Favorite sessions, running sessions and worktrees created less than an hour ago are never cleaned up by any option.'
-        )}
-      </p>
     </>
   );
 }
@@ -159,11 +156,14 @@ export function WorktreeAdvancedSettings({ active = true }: { active?: boolean }
   if (!settings) return null;
   return (
     <details className="worktree-advanced">
-      <summary>{t('Advanced')}</summary>
+      <summary>
+        <span>{t('Advanced')}</span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </summary>
       <Group>
         <BranchPrefixRows prefix={settings.branchPrefix} />
         <AutoSaveRow
-          title={t('Size warning threshold (GiB)')}
+          title={t('Size warning (GiB)')}
           name="worktreeSizeWarnGb"
           value={String(settings.sizeWarnBytes / GIB)}
           placeholder="2"
@@ -181,7 +181,7 @@ export function WorktreeAdvancedSettings({ active = true }: { active?: boolean }
         />
         {sizeError && (
           <p className="settings-error" role="alert">
-            {t('Enter a valid non-negative size in GiB.')}
+            {t('Enter a number, 0 or more.')}
           </p>
         )}
       </Group>
@@ -222,6 +222,8 @@ function BranchPrefixRows({ prefix }: { prefix: string }) {
     <>
       <SelectRow
         title={t('Branch prefix')}
+        description={t('Example: {{name}}', { name: `${shown}${EXAMPLE_TASK}` })}
+        showDescription
         value={mode}
         options={[
           { value: 'none', label: t('None') },
@@ -254,9 +256,11 @@ function BranchPrefixRows({ prefix }: { prefix: string }) {
           }}
         />
       )}
-      <p className="worktree-prefix-example" role={error ? 'alert' : undefined}>
-        {error || t('Example: {{name}}', { name: `${shown}${EXAMPLE_TASK}` })}
-      </p>
+      {error && (
+        <p className="settings-error" role="alert">
+          {error}
+        </p>
+      )}
     </>
   );
 }
