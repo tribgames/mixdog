@@ -43,7 +43,7 @@ use crate::run::Run;
 use crate::run::add_usage;
 
 /// Post-compaction target: this share of the boundary.
-const CONTEXT_SHARE_RATIO: f64 = 0.25;
+const CONTEXT_SHARE_RATIO: f64 = 0.15;
 const COMPACT_TARGET_MIN_TOKENS: u64 = 4_000;
 const MAX_BUFFER_RATIO: f64 = 0.25;
 
@@ -349,11 +349,11 @@ mod tests {
     }
 
     #[test]
-    fn full_window_trigger_and_quarter_target() {
+    fn full_window_trigger_and_fifteen_percent_target() {
         let policy = CompactPolicy::resolve(&settings(200_000)).unwrap();
         assert_eq!(policy.boundary_tokens, 200_000);
         assert_eq!(policy.trigger_tokens, 200_000);
-        assert_eq!(policy.target_tokens, 50_000);
+        assert_eq!(policy.target_tokens, 30_000);
         // below the trigger by the 1% margin (up to 1,024) above the target
         assert!(policy.target_budget() < policy.trigger_tokens);
         assert!(!policy.single_shot);
@@ -534,8 +534,8 @@ impl Run {
     }
 
     /// The loop's answer to the cache owner's cold decision for the attempt it refused: the transcript is compacted when
-    /// a smaller valid one exists (sized as a manual compaction is when automatic compaction is off), else the user is told
-    /// why it goes out unchanged. `lease` is the claimed rewrite: resolved with the outcome, or, on a cancelled or surfaced
+    /// a smaller valid one exists (sized as a manual compaction is when automatic compaction is off), else it goes out
+    /// unchanged; only a failed compaction is told to the user. `lease` is the claimed rewrite: resolved with the outcome, or, on a cancelled or surfaced
     /// failure (or this future dropped), released undecided so a waiter takes it over. A failed reduction, whose notice
     /// this run gave, returns the leave of the request it was decided for: only this run holds it.
     pub(crate) async fn cold_pass(&mut self, lease: RewriteLease) -> Result<Option<mixdog_core_api::domain::cache_tail::Unreduced>, AgentError> {
@@ -545,13 +545,6 @@ impl Run {
 
     async fn cold_compaction(&mut self) -> Result<Resolution, AgentError> {
         // A turn is offered a rewrite only for a lifetime that ran out: a history with no send on record is sent as it is.
-        let lead = "The transcript's prompt cache expired.";
-        let notice = |this: &mut Self, why: &str| {
-            this.emit(RunEvent::Stage(Stage::Notice {
-                message: format!("{lead} {why}, so this request will resend the transcript unchanged."),
-                tone: Tone::Info,
-            }));
-        };
         let sized = self
             .env
             .compactor
@@ -559,7 +552,6 @@ impl Run {
             .zip(self.config.compact.clone())
             .and_then(|(compactor, settings)| CompactPolicy::resolve(&CompactSettings { auto: true, ..settings }).map(|policy| (compactor, policy)));
         let Some((compactor, policy)) = sized else {
-            notice(self, "No context window is configured");
             return Ok(Resolution::NoSizing);
         };
         compactor.prepare(&self.messages).await;
@@ -574,18 +566,18 @@ impl Run {
             latest_user_prefix: "",
         };
         if !compactor.reduces(&request).await {
-            notice(self, "No smaller valid transcript exists");
             return Ok(Resolution::Irreducible);
         }
         let pressure = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
         match self.run_compaction(compactor, &policy, CompactTrigger::CacheExpired, pressure, budget, false, true).await? {
             Ran::Changed => Ok(Resolution::Compacted),
-            Ran::Unchanged => {
-                notice(self, "No smaller valid transcript exists");
-                Ok(Resolution::Irreducible)
-            }
+            Ran::Unchanged => Ok(Resolution::Irreducible),
             Ran::QuietFailure => {
-                notice(self, "Compacting the transcript failed");
+                self.emit(RunEvent::Stage(Stage::Notice {
+                    message: "The transcript's prompt cache expired. Compacting the transcript failed, so this request will resend the transcript unchanged."
+                        .to_owned(),
+                    tone: Tone::Info,
+                }));
                 Ok(Resolution::Failed)
             }
         }

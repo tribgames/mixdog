@@ -4295,6 +4295,25 @@ async fn the_rewrite_of_an_expired_history_is_sent_under_its_fold() {
     assert_eq!(wire_dump(&sent[1])[..2], ["System:folded rules 1", "User:[summary]"]);
 }
 
+/// An expired history that no compaction shrinks is resent as it is, with nothing shown to the user.
+#[tokio::test]
+async fn an_expired_history_that_cannot_shrink_is_resent_without_a_notice() {
+    use mixdog_core_api::domain::cache_tail::{Cold, ColdRequest, TailGateHandle, TailRefusal};
+    let expired = TailRefusal::Rebuild(ColdRequest { ticket: 1, cold: Cold::Expired });
+    let mut h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(expired)), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    cfg.options.tail_gate = Some(TailGateHandle(Arc::new(OwnsRewrite)));
+    cfg.options.tail_generation = Some(1);
+    finish(h.run(cfg, vec![Echo::tool()], vec![system_message("rules"), AgentMessage::user("latest")])).await;
+    assert!(compact_marker(&h).is_empty());
+    let sent = h.provider.requests();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(wire_dump(&sent[1]), ["System:rules", "User:latest"]);
+    assert!(!h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { .. }))));
+}
+
 /// Migrates at the second boundary only: after the first send settled, so the loop holds a guard of the old system prompt.
 struct MigrateAfterSendMcp(AtomicU64);
 

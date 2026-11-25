@@ -130,12 +130,12 @@ async fn compact_of(session: Value, env: &[(&str, &str)]) -> mixdog_agent::bound
 }
 
 #[tokio::test]
-async fn a_session_with_a_window_compacts_at_that_window_and_aims_for_a_quarter_of_it() {
+async fn a_session_with_a_window_compacts_at_that_window_and_aims_for_fifteen_percent_of_it() {
     let settings = compact_of(json!({ "provider": "anthropic", "contextWindow": 200_000, "owner": "user" }), &[]).await;
     assert!(settings.auto);
     assert_eq!((settings.context_window, settings.buffer_tokens, settings.configured_reserve_tokens), (Some(200_000), 0, 0));
     let policy = CompactPolicy::resolve(&settings).expect("a window gives a boundary");
-    assert_eq!((policy.boundary_tokens, policy.target_tokens), (200_000, 50_000));
+    assert_eq!((policy.boundary_tokens, policy.target_tokens), (200_000, 30_000));
 }
 
 #[tokio::test]

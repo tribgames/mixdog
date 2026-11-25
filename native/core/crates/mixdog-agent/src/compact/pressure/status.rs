@@ -33,7 +33,7 @@ use mixdog_ai::registry::keys::Environment as Vars;
 
 const SYSTEM_REMINDER_OPEN: &str = "<system-reminder>";
 const COMPACT_SAFETY_PERCENT: f64 = 1.0;
-const CONTEXT_SHARE_RATIO: f64 = 0.25;
+const CONTEXT_SHARE_RATIO: f64 = 0.15;
 const COMPACT_TARGET_MIN_TOKENS: f64 = 4000.0;
 const DEFAULT_COMPACTION_BUFFER_RATIO: f64 = 0.0;
 const MAX_COMPACTION_BUFFER_RATIO: f64 = 0.25;
