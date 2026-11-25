@@ -18,6 +18,7 @@ import {
   rememberedSlotHeight,
 } from './ComposerIsland';
 import { ComposerQuotaCard, type ComposerQuotaCardModel } from './ComposerQuotaCard';
+import { ComposerConnectionLine } from './RemoteConnectionBanner';
 import type { DesktopSessionWorkspace } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
 import { BranchIslandSegment } from './WorktreeIslandSegment';
@@ -326,6 +327,7 @@ export function ComposerDock({
         />
       )}
       {!showProjectSelector && quotaCard ? <ComposerQuotaCard card={quotaCard} /> : null}
+      <ComposerConnectionLine />
       {children}
     </div>
   );

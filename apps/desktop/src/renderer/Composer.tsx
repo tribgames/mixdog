@@ -62,6 +62,7 @@ import { type SubmittedDraft, useComposerSubmission } from './use-composer-submi
 import { useComposerKeyboard } from './use-composer-keyboard';
 import { useComposerFocus } from './use-composer-focus';
 import { restoreDraftHandoff } from './composer-attachment-restore';
+import { useRemoteSendBlocked } from './RemoteConnectionBanner';
 import { useComposerHistory } from './use-composer-history';
 import { useComposerIme } from './use-composer-ime';
 import { useComposerMessageSelector } from './use-composer-message-selector';
@@ -736,12 +737,17 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     dictation.moveTo(identityScope, promoted);
   }, [identityScope, resetAttachments, clearNotice, palettes.reset, palettes.invalidateSearch, selector.reset]);
   useLayoutEffect(() => setRecoveryDrainScope(recoveryScope), [recoveryScope]);
-  const placeholder =
-    placeholderOverride ||
-    composerPlaceholder({
-      hasConversation,
-      fallback: COMPOSER_PLACEHOLDERS[0],
-    });
+  // A relay surface whose link is down (the connection line above says so) keeps the draft but sends nothing.
+  const sendBlocked = useRemoteSendBlocked();
+  const sendBlockedRef = useRef(sendBlocked);
+  sendBlockedRef.current = sendBlocked;
+  const placeholder = sendBlocked
+    ? t('You can send once connected')
+    : placeholderOverride ||
+      composerPlaceholder({
+        hasConversation,
+        fallback: COMPOSER_PLACEHOLDERS[0],
+      });
   // biome-ignore lint/correctness/useExhaustiveDependencies: setDraggingFiles identity is not guaranteed stable here; the effect must run only when transitioning changes
   useEffect(() => {
     if (!transitioning) return;
@@ -823,7 +829,11 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     void backfillAgentChatRoute(sessionId, { provider, model, ...(effort ? { effort } : {}) }).catch(() => {});
   }, [agentMode, sessionId, provider, model, effort]);
 
-  const { send: sendNow, stop, keepSubmissionId } = useComposerSubmission({
+  const {
+    send: sendNow,
+    stop,
+    keepSubmissionId,
+  } = useComposerSubmission({
     turnBusy,
     commandBusy,
     draftMode,
@@ -902,6 +912,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const waitingSend = useRef<{ draft: string; attachments: ComposerAttachment[] } | null>(null);
   const send = useCallback(
     async (slash = '', source: Parameters<typeof sendNow>[1] = 'form-submit', submitted?: SubmittedDraft) => {
+      if (sendBlockedRef.current) {
+        submitted?.settle(false);
+        return;
+      }
       if (!heldRef.current) return sendNow(slash, source, submitted);
       // Words not in the editor yet wait there, where an edit drops the send.
       submitted?.settle(false);
@@ -1251,7 +1265,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           dictation={dictation}
           stopOnly={stopOnly}
           voiceSend={voiceSend}
-          sendable={sendable}
+          sendable={sendable && !sendBlocked}
           onStop={() => void stop()}
           sessionId={sessionId}
           onOpenSettings={onOpenSettings}

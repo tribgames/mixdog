@@ -724,10 +724,10 @@ test('remote boot cannot bypass connection or hydration and offers a working ret
   window.addEventListener(REMOTE_WAKE_EVENT, () => {
     retries++;
   });
-  // The cold boot's failure is the unreachable state, never an endless mark (#134).
-  const retry = view.host.querySelector('.desktop-boot-cover .remote-unreachable button');
+  // The cold boot's wait is the connection line with a retry, never an endless mark (#134).
+  const retry = view.host.querySelector('.desktop-boot-cover .composer-connection-line button');
   assert.ok(retry, 'initial connection failure must offer retry outside the inert workspace');
-  assert.equal(retry.textContent, 'Try again');
+  assert.equal(retry.textContent, 'Retry now');
   await view.settle(() => retry.click());
   assert.equal(retries, 1);
   await view.settle(() => setRemoteConnectionState('syncing'));

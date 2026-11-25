@@ -51,7 +51,7 @@ public class MainActivity extends BridgeActivity {
             new OnBackPressedCallback(true) {
               @Override
               public void handleOnBackPressed() {
-                // The reconnect screen covers the page: Back leaves the failed PC for the pairing screen.
+                // The offline cover hides the page: Back leaves the failed PC for the pairing screen.
                 if (reconnect != null && reconnect.onBack()) return;
                 WebView webView = getBridge() == null ? null : getBridge().getWebView();
                 if (webView == null) {

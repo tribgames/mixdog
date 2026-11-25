@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import vm from 'node:vm';
 
 import { loadWorker, memoryCacheStorage, WORKER_ORIGIN } from './sw-test-harness.mjs';
 
@@ -90,6 +91,97 @@ test('a first launch with no cached shell still answers from the network', async
   assert.equal(await result.response.text(), 'asset');
   assert.equal(result.maintenance, null);
   assert.equal(await stored.text(), 'asset');
+});
+
+const offline = async () => {
+  throw new TypeError('Failed to fetch');
+};
+
+/** What a person sees of a document: its text outside scripts and styles. */
+const visibleText = (html) =>
+  html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/g, '')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+
+test('with no network and no saved shell a navigation answers the app background, never an error', async () => {
+  const { shellFirst } = loadWorker({ cache: stubCache(), fetchAsset: offline });
+  const result = await shellFirst({ url: 'https://relay/d/abc/', mode: 'navigate' });
+
+  assert.equal(result.maintenance, null);
+  assert.equal(result.response.status, 200);
+  assert.match(result.response.headers.get('content-type'), /^text\/html/);
+  assert.equal(result.response.headers.get('cache-control'), 'no-store');
+  const html = await result.response.text();
+  assert.match(html, /<html style="background:#111">/);
+  assert.equal(visibleText(html), '', 'no title, text or spinner');
+});
+
+test('a navigation outside the app documents still answers the background when offline', async () => {
+  const worker = loadWorker({ caches: memoryCacheStorage(), fetchAsset: offline });
+  let answer;
+  let done = Promise.resolve();
+  worker.listeners.get('fetch')({
+    request: { url: `${WORKER_ORIGIN}/connect`, mode: 'navigate', method: 'GET' },
+    respondWith: (promise) => {
+      answer = promise;
+    },
+    waitUntil: (promise) => {
+      done = promise;
+    },
+  });
+  const response = await answer;
+  await done;
+  assert.equal(response.status, 200);
+  assert.equal(visibleText(await response.text()), '');
+});
+
+test('the background frame reloads its document once it answers again', async () => {
+  const { shellFirst } = loadWorker({ cache: stubCache(), fetchAsset: offline });
+  const html = await (await shellFirst({ url: 'https://relay/d/abc/', mode: 'navigate' })).response.text();
+  const script = /<script>([\s\S]*)<\/script>/.exec(html)[1];
+  const timers = [];
+  const pageListeners = new Map();
+  const probes = [];
+  const answers = [() => Promise.reject(new TypeError('Failed to fetch')), () => Promise.resolve({ ok: false })];
+  let reloads = 0;
+  const page = {
+    location: { href: 'https://relay/d/abc/', reload: () => reloads++ },
+    document: {
+      visibilityState: 'visible',
+      addEventListener: (type, listener) => pageListeners.set(`document:${type}`, listener),
+    },
+    addEventListener: (type, listener) => pageListeners.set(type, listener),
+    setTimeout: (callback, ms) => timers.push({ callback, ms }) && timers.length,
+    clearTimeout: () => undefined,
+    fetch: (url, init) => {
+      probes.push({ url, init });
+      return answers.shift()?.() ?? Promise.resolve({ ok: true });
+    },
+  };
+  vm.runInNewContext(script, page);
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(probes.length, 0, 'nothing is fetched before the first wait');
+  assert.equal(timers.at(-1).ms, 2_000);
+  timers.at(-1).callback();
+  await settle();
+  assert.equal(probes[0].url, 'https://relay/d/abc/');
+  assert.equal(probes[0].init.cache, 'no-store', 'the probe is never answered from a cache');
+  assert.equal(reloads, 0, 'still offline');
+  assert.equal(timers.at(-1).ms, 4_000, 'the wait grows');
+  // The network coming back is tried at once; an error answer is not the document.
+  pageListeners.get('online')();
+  await settle();
+  assert.equal(reloads, 0);
+  page.document.visibilityState = 'hidden';
+  timers.at(-1).callback();
+  await settle();
+  assert.equal(probes.length, 2, 'a hidden page probes nothing');
+  page.document.visibilityState = 'visible';
+  pageListeners.get('document:visibilitychange')();
+  await settle();
+  assert.equal(reloads, 1, 'the document answered: the page loads it');
 });
 
 test('cache response is released before maintenance and burst trims coalesce', async () => {

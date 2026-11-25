@@ -11,6 +11,7 @@ import {
   reportRemoteConnectionIssue,
   setRemoteConnectionPhase,
   setRemoteConnectionState,
+  setRemoteRedialAt,
 } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { setRemoteHostName, setRemoteHostOpenAccess } from '../../desktop/src/renderer/remote-host-access.ts';
 import { publishMediaKey, revokeMediaKey } from '../../desktop/src/renderer/remote-media-lane.ts';
@@ -254,7 +255,10 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
           ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
           throw error;
         }
-        await pause(ladderDelay(attempt, random()));
+        const delay = ladderDelay(attempt, random());
+        setRemoteRedialAt(Date.now() + delay);
+        await pause(delay);
+        setRemoteRedialAt(null);
         assertCurrent();
         await untilForeground(assertCurrent);
       }
@@ -301,7 +305,13 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         ctx.limits.resetLearnedCaps();
         if (info.remote && !phone?.link.suspended) reportRemoteConnectionIssue('websocket-closed', undefined, code);
       },
-      dialing: () => setRemoteConnectionPhase('websocket'),
+      dialing: () => {
+        setRemoteRedialAt(null);
+        setRemoteConnectionPhase('websocket');
+      },
+      redialIn: (ms) => {
+        if (generation === pairingGeneration) setRemoteRedialAt(Date.now() + ms);
+      },
       encrypting: () => setRemoteConnectionPhase('encryption'),
       unresponsive: () => reportRemoteConnectionIssue('heartbeat-timeout'),
       probeAnswered: () => {

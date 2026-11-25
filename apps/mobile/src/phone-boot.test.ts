@@ -70,12 +70,18 @@ test('before the first connection the boot hands out the link being dialed, and 
     updateRequired() {},
   });
   void boot.start().catch(() => undefined);
+  const data = (page.document as { documentElement: { dataset: Record<string, string | undefined> } }).documentElement
+    .dataset;
   try {
     // The first redial of an outage leaves at once; the one after it waits out a backoff of hundreds of ms.
     await dial(2);
     assert.ok(boot.link, 'the link of the dial in progress');
+    await new Promise((r) => setTimeout(r, 5));
+    // The page's connection line counts down to that redial.
+    assert.ok(Number(data.mixdogRemoteRedialAt) > Date.now(), 'the next redial time is published');
     boot.link.wake();
     await dial(3);
+    assert.equal(data.mixdogRemoteRedialAt, undefined, 'a dial under way has no countdown');
   } finally {
     boot.resetPairing();
   }

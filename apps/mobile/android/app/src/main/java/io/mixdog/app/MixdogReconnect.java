@@ -10,16 +10,15 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
-import android.widget.TextView;
 
 /**
- * Brings a relay page back after a transient main-frame failure instead of
- * leaving the WebView on the browser's error page: a bundled, localized
- * "connecting" screen covers the WebView and the same URL is reloaded when the
- * backoff timer fires, a validated network appears, the app returns to the
- * foreground, or the screen's button is pressed. The decisions are
+ * Brings a relay page back after a main-frame failure instead of leaving the
+ * WebView on the browser's error page: the app's empty background (no text,
+ * no spinner) covers the WebView and the same URL is reloaded when the backoff
+ * timer fires, a validated network appears, or the app returns to the
+ * foreground; Back leaves for the pairing screen. The decisions are
  * ReconnectState's; this class owns the timer, the network callback and the
- * views. Everything runs on the UI thread except the network callback, which
+ * cover. Everything runs on the UI thread except the network callback, which
  * only posts to it.
  */
 final class MixdogReconnect {
@@ -35,24 +34,20 @@ final class MixdogReconnect {
   };
   private ConnectivityManager manager;
   private ConnectivityManager.NetworkCallback network;
-  private View screen;
-  private View spinner;
-  private View button;
-  private TextView title;
-  private TextView sub;
+  private View cover;
 
   MixdogReconnect(MainActivity activity) {
     this.activity = activity;
   }
 
-  /** A main-frame load failed with a WebViewClient.ERROR_* code. */
+  /** A main-frame load failed with a WebViewClient.ERROR_* code: whatever it was, its error page is never shown. */
   void onLoadError(String url, int errorCode) {
-    if (ReconnectState.isTransientError(errorCode)) fail(url);
+    fail(url, ReconnectState.isTransientError(errorCode));
   }
 
   /** A main-frame load answered with an HTTP error status. */
   void onHttpError(String url, int status) {
-    if (ReconnectState.isTransientStatus(status)) fail(url);
+    if (ReconnectState.isTransientStatus(status)) fail(url, true);
   }
 
   /** A main-frame load began: our own reload, or a navigation that ends the recovery. */
@@ -83,7 +78,7 @@ final class MixdogReconnect {
     unwatchNetwork();
   }
 
-  /** Back while the screen is up leaves the failed PC like its button does. True when it did. */
+  /** Back while the cover is up leaves the failed PC. True when it did. */
   boolean onBack() {
     if (!state.active()) return false;
     chooseAnotherPc();
@@ -98,7 +93,7 @@ final class MixdogReconnect {
     activity.getBridge().getWebView().loadUrl(activity.getBridge().getLocalUrl() + "/?manage=1");
   }
 
-  /** The recovery's timers, network watch and screen follow whether an episode is running. */
+  /** The recovery's timers, network watch and cover follow whether an episode is running. */
   private void sync() {
     if (!state.active()) {
       handler.removeCallbacks(timer);
@@ -110,11 +105,15 @@ final class MixdogReconnect {
     render();
   }
 
-  private void fail(String url) {
+  private void fail(String url, boolean waitable) {
     if (!ReconnectState.isRecoverableUrl(url, MixdogOrigins.saved(activity))) return;
-    long delay = state.failed(url);
     handler.removeCallbacks(timer);
-    if (delay >= 0 && foreground) handler.postDelayed(timer, delay);
+    if (waitable) {
+      long delay = state.failed(url);
+      if (delay >= 0 && foreground) handler.postDelayed(timer, delay);
+    } else {
+      state.failedPermanently(url);
+    }
     sync();
   }
 
@@ -171,23 +170,12 @@ final class MixdogReconnect {
 
   private void render() {
     boolean active = state.active();
-    if (screen == null) {
+    if (cover == null) {
       if (!active) return;
-      screen = LayoutInflater.from(activity).inflate(R.layout.mixdog_reconnect, null);
+      cover = LayoutInflater.from(activity).inflate(R.layout.mixdog_reconnect, null);
       activity.addContentView(
-          screen, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-      spinner = screen.findViewById(R.id.mixdog_reconnect_spinner);
-      title = screen.findViewById(R.id.mixdog_reconnect_title);
-      sub = screen.findViewById(R.id.mixdog_reconnect_sub);
-      button = screen.findViewById(R.id.mixdog_reconnect_button);
-      button.setOnClickListener(view -> reload(state.retryNow()));
-      screen.findViewById(R.id.mixdog_reconnect_other).setOnClickListener(view -> chooseAnotherPc());
+          cover, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
-    boolean gaveUp = state.phase() == ReconnectState.Phase.GAVE_UP;
-    spinner.setVisibility(gaveUp ? View.GONE : View.VISIBLE);
-    title.setText(gaveUp ? R.string.reconnect_failed : R.string.reconnect_connecting);
-    sub.setText(gaveUp ? R.string.reconnect_failed_sub : R.string.reconnect_connecting_sub);
-    button.setVisibility(gaveUp ? View.VISIBLE : View.GONE);
-    screen.setVisibility(active ? View.VISIBLE : View.GONE);
+    cover.setVisibility(active ? View.VISIBLE : View.GONE);
   }
 }
