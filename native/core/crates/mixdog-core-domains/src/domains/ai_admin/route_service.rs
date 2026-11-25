@@ -427,14 +427,12 @@ impl RouteService {
     }
 
     /// The desktop control session's route, created before any model is chosen, takes the route the
-    /// config resolves to and is readied as a task's is; a config that resolves to no model leaves
-    /// it as it is.
+    /// config resolves to and is prepared as a resumed thread's is. The session carries every desktop
+    /// call that names no thread, so a provider that cannot be readied does not refuse it: a turn on
+    /// the route is refused by its own check.
     pub async fn ready_control(&self, thread: &ThreadId) -> Result<(), String> {
         self.sync_empty_main_route(thread)?;
-        if self.route_lacks_model(thread) {
-            return Ok(());
-        }
-        self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
+        self.prepare_route(thread).await;
         Ok(())
     }
 

@@ -290,3 +290,16 @@ async fn a_default_route_with_no_model_is_told_to_choose_one_when_the_catalog_li
     assert_eq!(refused, "No model selected. Choose a model with /model first.");
     assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
 }
+
+/// The control session carries the desktop's thread-less calls (settings reads, image resizes): a Lead route whose
+/// provider cannot be readied (an agent not installed) still starts it, on that route as it is.
+#[tokio::test]
+async fn a_control_session_starts_on_a_lead_route_that_cannot_be_readied() {
+    let thread = ThreadId::from("t");
+    let case = json!({ "config": {}, "live": { "provider": "acp-antigravity", "model": "gemini-4-neon" } });
+    let (service, writer, log, _dir) = rig(&case).await;
+    writer.refresh_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+    service.ready_control(&thread).await.expect("the control session starts");
+    assert_eq!(log.lock().unwrap().refreshes.len(), 1, "the route was offered to be readied");
+    assert_eq!(writer.route(&thread), obj(&case["live"]), "the route stands as it is");
+}
