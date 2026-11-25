@@ -233,7 +233,7 @@ fn an_automatic_pass_under_its_trigger_answers_below_threshold_and_changes_nothi
     modest.get_mut("compaction").unwrap()["mainBufferTokens"] = json!(10_000);
     let modest_plan = compaction_plan(&status(&modest, &messages, true, &[], &meter, &signer), true, false).unwrap().unwrap();
     assert_eq!((modest_plan.trigger_tokens, modest_plan.buffer_tokens), (90_000.0, 10_000.0), "a buffer within the cap is kept as asked");
-    assert_eq!(plan.budget, 25_000.0, "a quarter of the boundary is what a compacted conversation may take");
+    assert_eq!(plan.budget, 15_000.0, "15% of the boundary is what a compacted conversation may take");
     let answer = plan.below_threshold().expect("pressure is under the trigger");
     assert_eq!(answer["changed"], false);
     assert_eq!(answer["reason"], "below threshold");
@@ -242,7 +242,7 @@ fn an_automatic_pass_under_its_trigger_answers_below_threshold_and_changes_nothi
     assert_eq!(answer["beforeMessageTokens"], meter.messages(&messages));
     assert_eq!(answer["afterMessageTokens"], meter.messages(&messages));
     assert_eq!((answer["triggerTokens"].as_u64(), answer["boundaryTokens"].as_u64()), (Some(75_000), Some(100_000)));
-    assert_eq!(forced_target_budget(&input), Some(25_000.0));
+    assert_eq!(forced_target_budget(&input), Some(15_000.0));
 }
 
 #[test]
@@ -647,15 +647,15 @@ fn budget_with(vars: &MapVars, provider: &str) -> Option<f64> {
 
 #[test]
 fn the_budget_a_summary_is_asked_to_fit_is_the_target_in_the_providers_calibrated_tokens() {
-    // Target 25,000 (a quarter of the boundary) divided by the calibration, rounded down.
+    // Target 15,000 (15% of the boundary) divided by the calibration, rounded down.
     let none = MapVars(Vec::new());
     for (provider, want) in [
-        ("openai", 25_000.0),
-        ("anthropic", 17_857.0),
-        ("anthropic-oauth", 17_857.0),
-        ("gemini", 21_739.0),
-        ("google-vertex", 21_739.0),
-        ("Anthropic", 17_857.0),
+        ("openai", 15_000.0),
+        ("anthropic", 10_714.0),
+        ("anthropic-oauth", 10_714.0),
+        ("gemini", 13_043.0),
+        ("google-vertex", 13_043.0),
+        ("Anthropic", 10_714.0),
     ] {
         assert_eq!(budget_with(&none, provider), Some(want), "{provider}");
     }
@@ -664,20 +664,20 @@ fn the_budget_a_summary_is_asked_to_fit_is_the_target_in_the_providers_calibrate
 #[test]
 fn each_calibration_variable_changes_only_its_providers_budget_and_is_clamped_to_a_quarter_up_to_three() {
     let anthropic = |value| MapVars(vec![("MIXDOG_TOKEN_CALIBRATION_ANTHROPIC", value)]);
-    assert_eq!(budget_with(&anthropic("2"), "anthropic"), Some(12_500.0));
-    assert_eq!(budget_with(&anthropic("2"), "openai"), Some(25_000.0), "another provider keeps its own");
-    assert_eq!(budget_with(&anthropic("10"), "anthropic"), Some(8_333.0), "capped at 3");
-    assert_eq!(budget_with(&anthropic("0.1"), "anthropic"), Some(100_000.0), "floored at 0.25, which leaves the boundary as the budget");
+    assert_eq!(budget_with(&anthropic("2"), "anthropic"), Some(7_500.0));
+    assert_eq!(budget_with(&anthropic("2"), "openai"), Some(15_000.0), "another provider keeps its own");
+    assert_eq!(budget_with(&anthropic("10"), "anthropic"), Some(5_000.0), "capped at 3");
+    assert_eq!(budget_with(&anthropic("0.1"), "anthropic"), Some(60_000.0), "floored at 0.25");
     for unusable in ["0", "-1", "abc", ""] {
-        assert_eq!(budget_with(&anthropic(unusable), "anthropic"), Some(17_857.0), "{unusable:?} falls back to the default");
+        assert_eq!(budget_with(&anthropic(unusable), "anthropic"), Some(10_714.0), "{unusable:?} falls back to the default");
     }
     let gemini = MapVars(vec![("MIXDOG_TOKEN_CALIBRATION_GEMINI", "1.5")]);
-    assert_eq!(budget_with(&gemini, "gemini"), Some(16_666.0));
-    assert_eq!(budget_with(&gemini, "google"), Some(16_666.0), "google reads the gemini variable");
-    assert_eq!(budget_with(&gemini, "anthropic"), Some(17_857.0));
+    assert_eq!(budget_with(&gemini, "gemini"), Some(10_000.0));
+    assert_eq!(budget_with(&gemini, "google"), Some(10_000.0), "google reads the gemini variable");
+    assert_eq!(budget_with(&gemini, "anthropic"), Some(10_714.0));
     let default = MapVars(vec![("MIXDOG_TOKEN_CALIBRATION_DEFAULT", "1.25")]);
-    assert_eq!(budget_with(&default, "openai"), Some(20_000.0));
-    assert_eq!(budget_with(&default, "anthropic"), Some(17_857.0), "the default variable is for the other providers");
+    assert_eq!(budget_with(&default, "openai"), Some(12_000.0));
+    assert_eq!(budget_with(&default, "anthropic"), Some(10_714.0), "the default variable is for the other providers");
 }
 
 #[test]

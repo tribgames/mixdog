@@ -114,16 +114,16 @@ fn the_reserve_is_the_request_reserve_plus_the_operators_headroom_and_the_headro
 }
 
 #[test]
-fn the_target_is_a_quarter_of_the_boundary_but_never_under_the_floor_and_never_over_the_boundary() {
+fn the_target_is_a_share_of_the_boundary_but_never_under_the_floor_and_never_over_the_boundary() {
     let rows: [(&str, u64, Option<u64>, Option<f64>, Option<u64>, u64); 9] = [
-        ("a quarter of the boundary", 100_000, None, None, None, 25_000),
+        ("15% of the boundary", 100_000, None, None, None, 15_000),
         ("the floor holds a small boundary up", 10_000, None, None, None, 4_000),
         ("the floor never passes the boundary", 3_000, None, None, None, 3_000),
         ("explicit tokens", 100_000, Some(40_000), None, None, 40_000),
         ("explicit tokens over the boundary", 100_000, Some(500_000), None, None, 100_000),
         ("a ratio", 100_000, None, Some(0.5), None, 50_000),
         ("a ratio above one is a percent", 100_000, None, Some(40.0), None, 40_000),
-        ("a ratio of zero is the default", 100_000, None, Some(0.0), None, 25_000),
+        ("a ratio of zero is the default", 100_000, None, Some(0.0), None, 15_000),
         ("a larger floor wins over the share", 100_000, None, None, Some(30_000), 30_000),
     ];
     for (label, window, tokens, ratio, floor, want) in rows {
@@ -135,12 +135,12 @@ fn the_target_is_a_quarter_of_the_boundary_but_never_under_the_floor_and_never_o
 #[test]
 fn the_summary_budget_is_the_target_in_raw_tokens_kept_clear_of_the_next_trigger() {
     let calibrated = |calibration: f64| CompactSettings { buffer_tokens: 20_000, token_calibration: calibration, ..agent(100_000) };
-    assert_eq!(policy(&calibrated(1.0)).target_budget(), 25_000);
-    assert_eq!(policy(&calibrated(1.25)).target_budget(), 20_000, "floor(25,000 / 1.25)");
-    assert_eq!(policy(&calibrated(1.4)).target_budget(), 17_857);
+    assert_eq!(policy(&calibrated(1.0)).target_budget(), 15_000);
+    assert_eq!(policy(&calibrated(1.25)).target_budget(), 12_000, "floor(15,000 / 1.25)");
+    assert_eq!(policy(&calibrated(1.4)).target_budget(), 10_714);
     // The request reserve comes off the raw target and is added back for the budget.
     let reserved = CompactSettings { request_reserve_tokens: 3_000, ..calibrated(1.25) };
-    assert_eq!(policy(&reserved).target_budget(), 20_000);
+    assert_eq!(policy(&reserved).target_budget(), 12_000);
     // A target above the trigger is held one token under it.
     let high = CompactSettings { target_tokens: Some(90_000), ..calibrated(1.0) };
     assert_eq!(policy(&high).target_budget(), 79_999);

@@ -171,9 +171,9 @@ pub enum Verdict {
 pub enum Resolution {
     /// The transcript was replaced by a smaller one.
     Compacted,
-    /// No smaller valid transcript: it is resent unchanged, and the user was told.
+    /// No smaller valid transcript: it is resent unchanged.
     Irreducible,
-    /// The session knows no context window to size a compaction by: resent unchanged, and the user was told.
+    /// The session knows no context window to size a compaction by: resent unchanged.
     NoSizing,
     /// The compaction failed and the user was told: the request it was decided for goes out unchanged under the
     /// [`Unreduced`] leave its caller is handed. It decides nothing about the history.
