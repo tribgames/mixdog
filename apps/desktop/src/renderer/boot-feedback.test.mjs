@@ -71,6 +71,7 @@ function harness(installed = false, { language, systemLanguages, url = 'https://
   return {
     dom,
     document: dom.window.document,
+    pending: (delay) => timers.filter((timer) => timer.delay === delay).length,
     run(delay) {
       const pending = timers.filter((timer) => timer.delay === delay);
       for (const timer of pending) {
@@ -148,6 +149,24 @@ test('startup completing before the deadline never shows the timeout dialog', as
     await Promise.resolve();
     h.run(30000);
     assert.equal(h.document.querySelector('[role="alertdialog"]'), null);
+  } finally {
+    h.dom.window.close();
+  }
+});
+
+test('errors raised after the app has started are not collected for the start-up dialog', async () => {
+  const h = harness();
+  try {
+    h.document.getElementById('root').append(h.document.createElement('main'));
+    await Promise.resolve();
+    for (let index = 0; index < 3; index += 1) {
+      h.dom.window.dispatchEvent(
+        new h.dom.window.ErrorEvent('error', {
+          message: 'ResizeObserver loop completed with undelivered notifications',
+        })
+      );
+    }
+    assert.equal(h.pending(400), 0, 'no start-up dialog is scheduled for a running app');
   } finally {
     h.dom.window.close();
   }
