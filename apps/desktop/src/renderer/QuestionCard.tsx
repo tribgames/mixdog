@@ -255,10 +255,6 @@ export function QuestionCard({
       aria-label={t('Agent question')}
       data-multi={multi || undefined}
       data-agent-mode={agentMode || undefined}
-      // The card is the turn's waiting end: answering it resumes the reply
-      // below, so a press or Enter on its controls must not let go of the
-      // followed tail the way an expander does.
-      data-transcript-keeps-follow=""
     >
       <div className="question-head">
         <span className="question-icon" aria-hidden="true">

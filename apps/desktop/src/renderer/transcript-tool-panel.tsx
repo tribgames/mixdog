@@ -396,7 +396,6 @@ function ToolCopy({ value }: { value: string }) {
       aria-busy={armed || undefined}
       aria-label={t('Copy')}
       data-tooltip={t('Copy')}
-      data-transcript-keeps-follow=""
       onClick={() => {
         setArmed(true);
         gate.load?.();

@@ -1647,7 +1647,7 @@ test('a finger lifted above the end vouches for the momentum scrolls after it', 
   }
 });
 
-test('pressing, or pressing Enter or Space on, a control lets go of follow; prose and code do not', async () => {
+test('a press, Enter or Space on a control in the followed transcript keeps following, as prose and code do', async () => {
   const harness = await tailHarness('press-control');
   const { state, row, viewport } = harness;
   try {
@@ -1655,32 +1655,54 @@ test('pressing, or pressing Enter or Space on, a control lets go of follow; pros
     const label = document.createElement('span');
     button.appendChild(label);
     const code = document.createElement('pre');
-    const kept = document.createElement('button');
-    kept.setAttribute('data-transcript-keeps-follow', '');
-    viewport.append(button, code, kept);
-    await harness.pointerDown(row);
-    await harness.pointerDown(code);
-    await harness.pointerDown(viewport);
-    await harness.pointerDown(kept);
-    harness.key({ key: 'Enter', target: row });
-    harness.key({ key: 'Enter', target: kept });
-    assert.equal(state.hook.followingRef.current, true, 'prose, code, chrome and a keep-follow control keep it');
-    await harness.pointerDown(label);
-    assert.equal(state.hook.followingRef.current, false, 'pressing inside a control lets go');
-    await harness.rearm();
-    harness.key({ key: 'Enter', target: button });
-    assert.equal(state.hook.followingRef.current, false, 'Enter on a control lets go');
-    await harness.rearm();
-    // Space on a control activates it: that is the leave, not a scroll.
-    harness.key({ key: ' ', shiftKey: true, target: button });
-    assert.equal(state.hook.followingRef.current, false, 'Shift+Space on a focused button leaves via the control');
-    await harness.rearm();
-    const field = document.createElement('input');
-    viewport.appendChild(field);
-    harness.key({ key: ' ', target: field });
-    assert.equal(state.hook.followingRef.current, true, 'a space typed in a field leaves nothing');
+    viewport.append(button, code);
+    for (const target of [row, code, viewport, label, button]) {
+      await harness.pointerDown(target);
+      await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    }
+    for (const target of [row, button]) {
+      harness.key({ key: 'Enter', target });
+      harness.key({ key: ' ', target });
+      harness.key({ key: ' ', shiftKey: true, target });
+    }
+    assert.equal(state.hook.followingRef.current, true, 'no press or activation lets go of the end');
+    assert.equal(state.hook.following, true, 'and the end is still kept');
+    // The reply grows under the clicked control: an unvouched move up is put back.
+    state.now += 1_100;
+    const before = state.restores;
+    await harness.scroll(1900);
+    assert.equal(state.hook.followingRef.current, true);
+    assert.equal(state.restores, before + 1, 'the end is asked for again');
   } finally {
     await harness.dispose();
+  }
+});
+
+test('a reader who pages up and straight back down to the end with the keys follows again', async () => {
+  const rig = await mountFollowRig({ sessionKey: 'key-return', startedAt: 600_000 });
+  const { React, viewport, VIEWPORT, state, frame, flush, grow, advance } = rig;
+  const scroll = (to) => {
+    state.native = to;
+    return React.act(async () => rig.follow.handleScroll());
+  };
+  const key = (name) => React.act(async () => rig.follow.handleKeyDown({ key: name, target: viewport }));
+  try {
+    await scroll(state.native);
+    advance(1_000);
+    await key('PageUp');
+    await scroll(state.native - 350);
+    assert.equal(rig.follow.followingRef.current, false, 'the page up lets go');
+    advance(300);
+    await key('End');
+    await scroll(state.content - VIEWPORT);
+    assert.equal(rig.follow.followingRef.current, true, "back at the end inside the up key's window: following again");
+    advance(1_000);
+    await frame();
+    await flush();
+    await grow(40);
+    assert.equal(state.native, state.content - VIEWPORT, 'and the reply streaming on is followed');
+  } finally {
+    await rig.cleanup();
   }
 });
 
@@ -2005,41 +2027,6 @@ test('a search hit opened from the end: follow waits while the place is opened, 
   }
 });
 
-test('a press on a control at the end lets go until its click has landed: what the click grew shows the jump control, a click that changed nothing follows again', async () => {
-  const h = await endHarness('press-at-end');
-  const { state } = h;
-  const expander = document.createElement('button');
-  h.viewport.appendChild(expander);
-  const press = () =>
-    h.act(async () =>
-      h.follow.handlePointerDown({ target: expander, currentTarget: h.viewport, button: 0, pointerType: 'mouse' })
-    );
-  const lift = () => h.act(async () => window.dispatchEvent(new window.Event('pointerup')));
-  try {
-    await press();
-    state.now += 500;
-    await h.frame();
-    assert.deepEqual(h.shown(), { following: false, jump: false }, 'held: the press is the reader’s, in flight');
-    await lift();
-    await h.resize(2600);
-    state.now += 1_000;
-    await h.frame();
-    assert.deepEqual(h.shown(), { following: false, jump: true }, 'the row it expanded pushed the end down');
-    // Back at the end; a press whose click changes nothing.
-    await h.act(async () => h.follow.arm());
-    await h.scroll(2200);
-    await press();
-    await lift();
-    await h.frame();
-    assert.equal(h.shown().following, false, 'the click is still landing');
-    state.now += 1_000;
-    await h.frame();
-    assert.deepEqual(h.shown(), { following: true, jump: false }, 'then the view at the end follows again');
-  } finally {
-    await h.dispose();
-  }
-});
-
 test('entering another session starts with no selection hold: its end is anchored from the entry', async () => {
   const h = await endHarness('held-before');
   const { state } = h;
@@ -2097,44 +2084,6 @@ test('a thumb dragged down near the end takes follow back when it is let go, not
     assert.equal(state.restores, before + 1, 'and the end is asked for');
   } finally {
     await harness.dispose();
-  }
-});
-
-test('Space held on a control at the end is in flight until the key is released, there or elsewhere, and its click has landed', async () => {
-  const h = await endHarness('space-held');
-  const { state } = h;
-  const expander = document.createElement('button');
-  h.viewport.appendChild(expander);
-  const keyDown = () =>
-    h.act(async () => h.follow.handleKeyDown({ key: ' ', target: expander, currentTarget: h.viewport }));
-  const keyUp = (target, key = ' ') =>
-    h.act(async () => target.dispatchEvent(new window.KeyboardEvent('keyup', { key, bubbles: true })));
-  try {
-    await keyDown();
-    state.now += 2_000;
-    await h.frame();
-    assert.deepEqual(h.shown(), { following: false, jump: false }, 'held: the key is the reader’s, in flight');
-    await keyUp(expander);
-    await h.resize(2600);
-    state.now += 1_000;
-    await h.frame();
-    assert.deepEqual(h.shown(), { following: false, jump: true }, 'the row its click expanded pushed the end down');
-    // Back at the end; the key is released after focus moved elsewhere.
-    await h.act(async () => h.follow.arm());
-    await h.scroll(2200);
-    await keyDown();
-    await keyUp(document.body, 'a');
-    state.now += 2_000;
-    await h.frame();
-    assert.equal(h.shown().following, false, 'another key released ends nothing');
-    await keyUp(document.body);
-    await h.frame();
-    assert.equal(h.shown().following, false, 'the click is still landing');
-    state.now += 1_000;
-    await h.frame();
-    assert.deepEqual(h.shown(), { following: true, jump: false }, 'then the view at the end follows again');
-  } finally {
-    await h.dispose();
   }
 });
 
