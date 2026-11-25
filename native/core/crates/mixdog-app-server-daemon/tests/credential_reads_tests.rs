@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use mixdog_ai::registry::keys::ApiKeyStore;
 use mixdog_ai::registry::keys::ProcessEnv;
-use mixdog_ai::registry::keys::SecretVault;
 use mixdog_core::run_host::vault::KeychainVault;
 use mixdog_core_domains::domains::ai_account::admin::ProviderAdmin;
 use mixdog_core_domains::domains::ai_account::oauth_credentials::credential_file;
@@ -54,6 +53,7 @@ fn the_admin_key_variable_probe_is_one_credential_read() {
 #[cfg(windows)]
 #[tokio::test]
 async fn the_windows_store_counts_one_read_per_lookup_and_a_constant_fallback_check_reads_nothing() {
+    use mixdog_ai::registry::keys::SecretVault;
     let dir = tempfile::tempdir().unwrap();
     let store = mixdog_secrets::default_store(mixdog_rt::testing::tokens().durability_io, dir.path());
     let vault = KeychainVault::new(store);
