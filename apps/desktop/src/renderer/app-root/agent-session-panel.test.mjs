@@ -312,8 +312,10 @@ test('a sub-agent the dock covers and shows again is presented anew: its transcr
   assert.equal(painted.at(-1), true, 'shown once they hold them');
 });
 
-test("a sub-agent the side panel shows over the state kept from before it was let go paints none of that state's rows: its first rows are its live state", async (t) => {
-  // The real PaneConversation in the panel, over the real lane store; frames and lane delivery are driven here.
+/** The real PaneConversation of sub-agent `sub` in the side panel, over the real lane store; frames, lane delivery and
+ *  the panel's fold are driven by the test. `painted` gets what each commit and frame shows of the panel's transcript:
+ *  nothing while it is covered, held hidden or folded away. */
+async function panelOverLaneStore(t) {
   const pane = await installPhonePaneDom(t, { mobile: false });
   await (await import('../markdown-body-loader.ts')).preloadMarkdownBody();
   const { AgentSessionPanel } = await import('../AgentSessionPanel.tsx');
@@ -328,39 +330,30 @@ test("a sub-agent the side panel shows over the state kept from before it was le
     delete pane.dom.window.mixdogDesktop;
     store.setShownSessionIds([]);
   });
-  const state = (answer) => ({
-    sessionId: 'sub',
-    snapshot: {
-      sessionId: 'sub',
-      items: [
-        { kind: 'user', id: 'u1', text: 'the brief' },
-        { kind: 'assistant', id: `r-${answer}`, text: `answer ${answer}` },
-      ],
-    },
-  });
-  // What the renderer kept of the sub-agent from before its session was let go (the panel folded, its lane hidden).
-  store.apply(state('then'));
-  // Shown again: the window registers the panel's session, which waits for its first frame since.
-  store.setShownSessionIds(['sub']);
-  // What each commit and each frame paints of the panel's transcript: nothing while covered or held hidden.
   const painted = [];
   const paint = () => {
-    const log = doc.querySelector('.agent-session-panel .transcript');
-    const covered = Boolean(doc.querySelector('.agent-session-panel .pane-surface-cover'));
+    const panel = doc.querySelector('.agent-session-panel:not([hidden])');
+    const log = panel?.querySelector('.transcript');
+    const covered = Boolean(panel?.querySelector('.pane-surface-cover'));
     if (log && !covered && log.style.visibility !== 'hidden') painted.push(log.textContent);
   };
-  const panel = React.createElement(AgentSessionPanel, {
-    target: { sessionId: 'sub', title: 'Worker' },
-    active: true,
-    renderConversation: () =>
-      React.createElement(
-        React.Profiler,
-        { id: 'panel', onRender: paint },
-        React.createElement(pane.PaneConversation, { ...pane.props('sub'), focused: false })
-      ),
-    onOpenAsTab() {},
-    onClose() {},
-  });
+  const render = (active) =>
+    act(async () =>
+      pane.root.render(
+        React.createElement(AgentSessionPanel, {
+          target: { sessionId: 'sub', title: 'Worker' },
+          active,
+          renderConversation: () =>
+            React.createElement(
+              React.Profiler,
+              { id: 'panel', onRender: paint },
+              React.createElement(pane.PaneConversation, { ...pane.props('sub'), focused: false })
+            ),
+          onOpenAsTab() {},
+          onClose() {},
+        })
+      )
+    );
   const frames = async (count) => {
     for (let step = 0; step < count; step += 1) {
       await act(async () => {
@@ -372,10 +365,41 @@ test("a sub-agent the side panel shows over the state kept from before it was le
       paint();
     }
   };
-  await act(async () => pane.root.render(panel));
+  // The dock folds: the panel stays mounted and the window no longer registers its session.
+  const fold = async () => {
+    await render(false);
+    await act(async () => store.setShownSessionIds([]));
+    await frames(4);
+  };
+  // Shown again: the window registers the panel's session, which waits for its first frame since.
+  const unfold = async () => {
+    await act(async () => store.setShownSessionIds(['sub']));
+    painted.length = 0;
+    await render(true);
+  };
+  return { store, painted, render, frames, fold, unfold, window: pane.dom.window };
+}
+
+const subAgentState = (answer) => ({
+  sessionId: 'sub',
+  snapshot: {
+    sessionId: 'sub',
+    items: [
+      { kind: 'user', id: 'u1', text: 'the brief' },
+      { kind: 'assistant', id: `r-${answer}`, text: `answer ${answer}` },
+    ],
+  },
+});
+
+test("a sub-agent the side panel shows over the state kept from before it was let go paints none of that state's rows: its first rows are its live state", async (t) => {
+  const { store, painted, render, frames } = await panelOverLaneStore(t);
+  // What the renderer kept of the sub-agent from before its session was let go (the panel folded, its lane hidden).
+  store.apply(subAgentState('then'));
+  store.setShownSessionIds(['sub']);
+  await render(true);
   await frames(12);
   // The live frame lands.
-  await act(async () => store.apply(state('now')));
+  await act(async () => store.apply(subAgentState('now')));
   await frames(12);
   assert.ok(painted.length > 0, 'the panel paints its rows');
   assert.ok(painted.at(-1).includes('answer now'), `it rests on its live state: ${painted.at(-1)}`);
@@ -383,6 +407,68 @@ test("a sub-agent the side panel shows over the state kept from before it was le
     painted.filter((text) => text.includes('answer then')),
     [],
     'no frame paints the state kept from before'
+  );
+});
+
+test('a sub-agent the folded side panel shows again is covered until its live state lands: no frame paints it empty', async (t) => {
+  const { store, painted, render, frames, fold, unfold } = await panelOverLaneStore(t);
+  store.setShownSessionIds(['sub']);
+  store.apply(subAgentState('then'));
+  await render(true);
+  await frames(12);
+  assert.ok(painted.at(-1)?.includes('answer then'), 'the first visit shows its live state');
+  await fold();
+  await unfold();
+  await frames(12);
+  await act(async () => store.apply(subAgentState('now')));
+  await frames(12);
+  assert.ok(painted.at(-1)?.includes('answer now'), `it rests on its live state: ${painted.at(-1)}`);
+  assert.deepEqual(
+    painted.filter((text) => !text.includes('answer now')),
+    [],
+    'every frame before its live rows shows its cover'
+  );
+});
+
+test('a sub-agent whose read expired on an earlier visit of the side panel waits for its live state on the next', async (t) => {
+  const { store, painted, render, frames, fold, unfold, window } = await panelOverLaneStore(t);
+  const { TRANSCRIPT_READ_TIMEOUT_MS } = await import('../../shared/transcript-read-policy.ts');
+  // The panel's read waits are expired by the test.
+  const expiries = new Map();
+  const { setTimeout: setTimer, clearTimeout: clearTimer } = window;
+  let expiryId = 1e9;
+  window.setTimeout = (callback, delay, ...rest) => {
+    if (delay !== TRANSCRIPT_READ_TIMEOUT_MS) return setTimer.call(window, callback, delay, ...rest);
+    expiryId += 1;
+    expiries.set(expiryId, callback);
+    return expiryId;
+  };
+  window.clearTimeout = (id) => (expiries.delete(id) ? undefined : clearTimer.call(window, id));
+  t.after(() => {
+    window.setTimeout = setTimer;
+    window.clearTimeout = clearTimer;
+  });
+  // Kept from before its session was let go; shown, it waits for a frame that does not come.
+  store.apply(subAgentState('then'));
+  store.setShownSessionIds(['sub']);
+  await render(true);
+  await frames(6);
+  assert.equal(expiries.size, 1, 'the visit waits for the live state');
+  await act(async () => {
+    for (const expire of expiries.values()) expire();
+    expiries.clear();
+  });
+  await frames(12);
+  await fold();
+  await unfold();
+  await frames(12);
+  await act(async () => store.apply(subAgentState('now')));
+  await frames(12);
+  assert.ok(painted.at(-1)?.includes('answer now'), `it rests on its live state: ${painted.at(-1)}`);
+  assert.deepEqual(
+    painted.filter((text) => text.includes('answer then')),
+    [],
+    'no frame of the new visit paints the state kept from before'
   );
 });
 

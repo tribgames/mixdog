@@ -234,6 +234,7 @@ export const PaneConversation = memo(function PaneConversation({
   const lane = heldSnapshot ?? (presentation.preparing && !live ? null : liveLane);
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
+    visit: presentation.visit,
     hasLane: lane !== null && lane.transcriptPreview !== true,
     hidden,
     reconcileOnMount,
@@ -380,17 +381,18 @@ export const PaneConversation = memo(function PaneConversation({
   // identities between the conversation's own commits (a session switch is
   // several), so the transcript and the memoised island skip those renders.
   const coverHold = hidden ? undefined : transcriptHidden;
+  // Each visit is covered until it is ready, as a fresh mount is: the side dock's has no conversation behind it.
   const surfaceCover = useMemo(
     () => (
       <PaneSurfaceCover
         ready={surfaceReady}
         label={t('Loading conversation…')}
-        transitionKey={coverKey}
+        transitionKey={`${coverKey}\n${visit}`}
         holdSignal={coverHold}
         revealOnReady
       />
     ),
-    [surfaceReady, coverKey, coverHold]
+    [surfaceReady, coverKey, visit, coverHold]
   );
   const goalIsland = useMemo(
     () => <PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />,

@@ -20,31 +20,35 @@ function useRestoreOwed(sessionId: string, enabled: boolean): boolean {
 /** An accepted read is not readiness: only an actual lane releases the cover. */
 export function useSessionLaneRead({
   sessionId,
+  visit,
   hasLane,
   hidden,
   reconcileOnMount,
   read,
 }: {
   sessionId: string;
+  /** The presentation's visit (pane-presentation.ts): each waits for the lane, and fails to get it, on its own. */
+  visit: number;
   hasLane: boolean;
   hidden: boolean;
   reconcileOnMount: boolean;
   /** `signal` aborts when this pane stops waiting (unmount, session change, its watch); `retry` is the user's Retry. */
   read(sessionId: string, options?: { signal: AbortSignal; retry?: boolean }): Promise<boolean>;
 }) {
-  const [unavailableSession, setUnavailableSession] = useState('');
+  const [unavailableWait, setUnavailableWait] = useState('');
   const [retry, setRetry] = useState<{ sessionId: string } | null>(null);
   const handledRetry = useRef<typeof retry>(null);
   const restoreOwed = useRestoreOwed(sessionId, !hidden);
   // The pane waits for a lane it does not have, or for the restore of the one it shows.
   const waiting = !hasLane || restoreOwed;
+  const wait = `${sessionId}\n${visit}`;
   useEffect(() => {
     if (!sessionId || hidden || !waiting) return;
     let current = true;
     const asking = new AbortController();
-    setUnavailableSession('');
+    setUnavailableWait('');
     const fail = () => {
-      if (current) setUnavailableSession(sessionId);
+      if (current) setUnavailableWait(wait);
     };
     // A pending IPC or an accepted read with a missing push must not leave a
     // logo-only pane forever, nor a restore that never ends its stale rows.
@@ -71,9 +75,9 @@ export function useSessionLaneRead({
       asking.abort();
       window.clearTimeout(timer);
     };
-  }, [hasLane, hidden, read, reconcileOnMount, retry, sessionId, waiting]);
+  }, [hasLane, hidden, read, reconcileOnMount, retry, sessionId, wait, waiting]);
   return {
-    readUnavailable: Boolean(sessionId) && !hidden && waiting && unavailableSession === sessionId,
+    readUnavailable: Boolean(sessionId) && !hidden && waiting && unavailableWait === wait,
     retryRead: () => setRetry({ sessionId }),
   };
 }
