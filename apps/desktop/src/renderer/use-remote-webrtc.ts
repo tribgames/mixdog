@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 
 import type { DesktopApi, DesktopRemoteBrowserControl } from '../shared/contract';
 import type { RemoteWebrtcPageInput, RemoteWebrtcResize } from '../shared/remote-webrtc';
+import { devInfo } from './dev-console';
 import type { createRemoteBrowserInputQueue } from './remote-browser-input';
 import type { RemoteInputFrame } from './remote-browser-input-client';
 import { remoteWebrtcHost, remoteWebrtcSignal } from './remote-webrtc-bridge';
@@ -111,7 +112,7 @@ export function useRemoteWebrtc({
       stream: setStream,
       failure: (message) => failureRef.current(message),
       statsIntervalMs,
-      log: (line) => console.info(line),
+      log: devInfo,
     });
     viewerRef.current = viewer;
     const unsubscribe = listen((signal) => viewer.handle(signal));

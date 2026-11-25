@@ -6,6 +6,7 @@ import {
   shouldPublishSessionState,
 } from '../../main/state-delta';
 import { reportTranscriptRead } from '../../shared/transcript-read-diagnostics';
+import { emitReadDiagnostic } from '../session-read-diagnostics';
 import type { SessionLanes } from './api-sessions.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
@@ -70,7 +71,7 @@ export function createSessionStates(connection: DirectContext['connection'], lan
     const answersRecovery = sessionId ? takeRecovery(sessionId) : false;
     const answersRead = takeReadTrace(sessionId, update.readTraceId) || answersRecovery;
     if (!sessionId || (!answersRead && !shouldPublishSessionState(sessionId, update.snapshot, visible, reads))) {
-      reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden');
+      reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden', {}, emitReadDiagnostic);
       return;
     }
     if (update.snapshot && !answersRead && service.isReleasingThread(sessionId)) return;
@@ -81,7 +82,7 @@ export function createSessionStates(connection: DirectContext['connection'], lan
     }
     const { readTraceId, ...baseline } = update;
     latest.set(sessionId, baseline);
-    reportTranscriptRead(sessionId, readTraceId, 'ipc-send');
+    reportTranscriptRead(sessionId, readTraceId, 'ipc-send', {}, emitReadDiagnostic);
     emit(update);
   };
   session.subscribeSessionStates(receive);
@@ -119,7 +120,7 @@ export function createSessionStates(connection: DirectContext['connection'], lan
         emit({ sessionId, snapshot: null } as unknown as DesktopSessionStateUpdate)
       );
       if (released.length > 0) {
-        console.info(
+        globalThis.window?.mixdogDesktop?.perfLog?.(
           `[mixdog-lane] baseline released count=${released.length} visible=${ids.length} ids=${released
             .slice(0, 6)
             .map((sessionId) => sessionId.slice(-8))
