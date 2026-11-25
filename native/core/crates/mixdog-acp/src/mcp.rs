@@ -2,9 +2,10 @@
 //! the session's tool surface and passes every call to the session's turn, where it runs through
 //! Mixdog's pipeline and is shown as any other call of a Mixdog tool.
 //!
-//! The server is one listener on the loopback interface, started with the agent's process and
-//! closed with it. Its address carries no secret; every request must carry the bearer token made
-//! for that one process, which only the agent's `session/new` (or its reopen) is told.
+//! The server is one listener on the loopback interface for each session, started with the
+//! session and closed the moment the session closes or its process ends, also where one process
+//! serves several sessions. Its address carries no secret; every request must carry the bearer
+//! token made for that one session, which only that session's `session/new` (or its reopen) is told.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -241,7 +242,8 @@ impl ToolServer {
     pub async fn start(thread: ThreadId, tools: Arc<dyn SessionTools>) -> std::io::Result<(Self, mpsc::UnboundedReceiver<ToolAsk>)> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let port = listener.local_addr()?.port();
-        // 244 random bits: the one thing that tells the session's agent from every other program on this machine.
+        // 244 random bits: the one thing that tells the session's agent, in this session, from every other program on
+        // this machine and every other session of a shared agent.
         let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
         let stop = CancellationToken::new();
         let (asks, calls) = mpsc::unbounded_channel();

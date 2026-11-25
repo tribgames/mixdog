@@ -345,9 +345,15 @@ impl OutsideAgents for AgentTurns {
         self.preset_of(header).is_some()
     }
 
-    /// An agent still being checked has no refusal yet: its own turn waits for the check.
+    /// An agent still being checked has no refusal yet: its own turn waits for the check. Nor has a route on a model of
+    /// another preset of the agent, whatever this preset's state: its own turn refuses it naming that preset, and it does
+    /// not hop to a fallback provider as a route on an agent that cannot run does.
     fn refusal(&self, header: &Header) -> Option<String> {
         let preset = self.preset_of(header)?;
+        let model = header.get("model").and_then(Value::as_str).unwrap_or(mixdog_acp::agents::DEFAULT_MODEL);
+        if self.agents.refuses_model(preset, model).is_some() {
+            return None;
+        }
         match self.agents.selectable(preset) {
             Err(refusal) if refusal != Refusal::NotReady(Readiness::Checking) => Some(refusal.message(preset)),
             _ => None,
@@ -603,6 +609,44 @@ mod tests {
         assert_eq!(admission.admits("anthropic"), None, "no agent's route");
         enabled.store(false, Ordering::SeqCst);
         assert!(matches!(admission.admits(&preset.provider), Some(Err(_))));
+    }
+
+    /// A route on a model another preset of the agent runs (a saved route, or `mixdog exec --provider acp-antigravity
+    /// --model claude-…`) is no refusal of the agent's state, whatever that state is: the turn path would hop such a route
+    /// to its fallback provider, or tell the user to install or sign in. The agent's own turn refuses it, naming the preset
+    /// that runs the model.
+    #[tokio::test]
+    async fn a_route_on_a_model_of_the_other_preset_is_refused_by_its_turn_before_the_agents_state() {
+        let dir = tempfile::tempdir().expect("a data folder");
+        let agents = Agents::new(AgentsParts {
+            refusals: Arc::new(KeptRefusals::in_data_dir(dir.path(), mixdog_rt::testing::tokens().durability_io)),
+            presets: builtin_presets(),
+            processes: Arc::new(NeverStarts),
+            files: Arc::new(NoFiles),
+            enabled: Arc::new(|| false),
+            changed: Arc::new(|| {}),
+            probe_cwd: dir.path().to_path_buf(),
+            definitions: dir.path().join("acp-agents"),
+            data_dir: dir.path().join("acp-agents"),
+            env: Arc::new(|_: &str| None),
+            mcp_bridge: None,
+        });
+        let turns = AgentTurns {
+            agents: agents.clone(),
+            now_ms: Arc::new(|| 0_i64),
+            blobs: BlobStore::new(dir.path()),
+            interactive: mixdog_rt::testing::tokens().interactive_io,
+            ledger: Arc::new(|| None::<Arc<dyn UsageSink>>),
+            pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(warm_catalog(dir.path()).await)),
+        };
+        let header = |model: &str| serde_json::json!({ "provider": "acp-antigravity", "model": model }).as_object().cloned().expect("a header");
+        assert_eq!(turns.refusal(&header("claude-opus-5-5")), None, "the model's refusal is the turn's");
+        let official = shipped("antigravity");
+        assert_eq!(
+            agents.refuses_model(&official, "claude-opus-5-5").as_deref(),
+            Some("Antigravity (acp-antigravity) does not run the model \"claude-opus-5-5\". Choose it under Antigravity (acp-antigravity-cli).")
+        );
+        assert_eq!(turns.refusal(&header("gemini-4-neon")), Some("ACP agents are turned off in Settings.".to_owned()), "a model of its own is refused by the state");
     }
 
     /// A port that takes every report and keeps the usage reports.

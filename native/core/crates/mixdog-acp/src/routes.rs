@@ -130,8 +130,8 @@ impl AgentAsk for AgentQuestion {
     }
 }
 
-/// [`RouteWriter`] for a session that may be on an agent's route: leaving the agent's route ends the agent's process,
-/// and an agent's route has no provider usage to read.
+/// [`RouteWriter`] for a session that may be on an agent's route: leaving the agent's preset's route ends the session
+/// there, and an agent's route has no provider usage to read.
 pub struct AgentRouteWriter {
     pub inner: Arc<dyn RouteWriter>,
     pub agents: Arc<Agents>,
@@ -149,10 +149,12 @@ impl RouteWriter for AgentRouteWriter {
         self.inner.route(thread)
     }
 
-    /// A session that leaves an agent's route has no use for the agent's process from that moment: it is ended here,
-    /// not at the session's next turn, which may never come.
+    /// A session whose route leaves the preset its agent runs on (for a provider, or for another preset of the agent)
+    /// has no use for that agent's session from that moment: it is ended here, not at the session's next turn, which may
+    /// never come. On a shared server the session alone leaves it.
     fn set_route_state(&self, thread: &ThreadId, route: Route) {
-        if !self.on_agent(&route) {
+        let preset = route.get("provider").and_then(Value::as_str).and_then(|provider| self.agents.preset_of_route(provider));
+        if self.agents.running(thread).is_some_and(|running| preset.is_none_or(|preset| preset.id != running.preset.id)) {
             self.agents.end_process(thread);
         }
         self.inner.set_route_state(thread, route);

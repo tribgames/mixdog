@@ -670,11 +670,11 @@ pub struct Real {
     pub turn_review: Arc<mixdog_core_review::turn_review::TurnReview>,
     #[cfg(test)]
     pub tool_pool: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>,
-    /// The ACP agents and the session tools they are handed, as composed. Kept for the tests that read a session's handed surface off
+    /// The session tools the ACP agents are handed, as composed. Kept for the tests that read a session's handed surface off
     /// the composition; a release core does not carry them.
     #[cfg(test)]
     pub handed_tools: Arc<crate::acp_tools::AgentSessionTools>,
-    #[cfg(test)]
+    /// The ACP agents: `runtime_stop_steps` closes their shared servers.
     pub acp_agents: Arc<mixdog_acp::agents::Agents>,
     /// The agent registry, as composed: a test reads the worker rows through it, as the pool and the status do.
     #[cfg(test)]
@@ -933,6 +933,8 @@ impl Real {
     /// The stop steps after the directory's, in the order of Node's `shutdown(reason)` (`daemon.mjs:272`); each failure is logged as Node logs it and the next step runs.
     /// - the durable-write drain (`:339`, `drainProcessWrites`): the usage ledger's queued rows land, then its writers are released (`closeUsageLedgers`);
     /// - `gatewaySessionRoutesSettled` (`:345`), the statusline route changes queued by the closed sessions;
+    /// - the ACP agents' shared servers, each closed as the end of its input closes it, so none leaves what it unpacked in its
+    ///   temporary folder (before the process manager ends what is left by force);
     /// - `releaseAllComputerSessions` (`:356`);
     /// - the room host: Node's desktop service unregisters its room host when it ends (`desktop-service.ts:792`); here the core's registration ends, so a relay refuses with Node's text;
     /// - the terminals: Node's desktop host disposes its terminal manager when it ends (`desktop-operations.ts:681` `terminals.disposeAll`); here the core owns the tabs;
@@ -958,6 +960,8 @@ impl Real {
         );
         let routes = self.gateway_routes.clone();
         let gateway: StopStep = ("gateway routes", Box::pin(async move { routes.settled().await }));
+        let agents = self.acp_agents.clone();
+        let acp: StopStep = ("acp-agents", Box::pin(async move { agents.shutdown().await }));
         let computer = self.computer.clone();
         let computers: StopStep = (
             "computer sessions",
@@ -1013,6 +1017,7 @@ impl Real {
             agent_index,
             drain,
             gateway,
+            acp,
             computers,
             detach,
             terminals,
@@ -5800,7 +5805,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         tool_pool: kept_tool_pool,
         #[cfg(test)]
         handed_tools: kept_handed_tools,
-        #[cfg(test)]
         acp_agents,
         #[cfg(test)]
         agent_registry,

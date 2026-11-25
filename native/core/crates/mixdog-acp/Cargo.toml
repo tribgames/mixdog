@@ -44,6 +44,7 @@ mixdog-core-run = { workspace = true }
 mixdog-core-session = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
 serde_json = { workspace = true }

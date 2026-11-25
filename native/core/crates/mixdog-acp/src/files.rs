@@ -24,6 +24,18 @@ pub trait TextFiles: Send + Sync {
     /// Puts `text` in a new file at `path`, its folders made: the file appears with all of its text at once, and one
     /// already there is kept. The agent definitions Mixdog starts a CLI with, each at a place its text names.
     async fn create(&self, path: AbsPath, text: String) -> Result<(), String>;
+    /// Makes the folder `path` with its parents; one already there is kept. The temporary folder of an agent's server.
+    async fn make_folder(&self, _path: AbsPath) -> Result<(), String> {
+        Err("no folder is made here".to_owned())
+    }
+    /// Removes the folder `path` with all it holds; one that is not there is removed already.
+    async fn remove_folder(&self, _path: AbsPath) -> Result<(), String> {
+        Err("no folder is removed here".to_owned())
+    }
+    /// The names of the folders directly in `path`; none where `path` is not there.
+    async fn folders(&self, _path: AbsPath) -> Result<Vec<String>, String> {
+        Err("no folder is listed here".to_owned())
+    }
 }
 
 /// [`TextFiles`] over the core's file service.
@@ -67,6 +79,49 @@ impl TextFiles for ServiceFiles {
         match job {
             Ok(job) => job.await.map_err(|_| "the file could not be written".to_owned())?.map_err(|error| error.to_string()),
             Err(_) => Err("the file could not be written".to_owned()),
+        }
+    }
+
+    async fn make_folder(&self, path: AbsPath) -> Result<(), String> {
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| std::fs::create_dir_all(path.as_path()));
+        match job {
+            Ok(job) => job.await.map_err(|_| "the folder could not be made".to_owned())?.map_err(|error| error.to_string()),
+            Err(_) => Err("the folder could not be made".to_owned()),
+        }
+    }
+
+    async fn remove_folder(&self, path: AbsPath) -> Result<(), String> {
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| match std::fs::remove_dir_all(path.as_path()) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            removed => removed,
+        });
+        match job {
+            Ok(job) => job.await.map_err(|_| "the folder could not be removed".to_owned())?.map_err(|error| error.to_string()),
+            Err(_) => Err("the folder could not be removed".to_owned()),
+        }
+    }
+
+    async fn folders(&self, path: AbsPath) -> Result<Vec<String>, String> {
+        #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a lane job")]
+        let job = self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| {
+            let entries = match std::fs::read_dir(path.as_path()) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+                entries => entries?,
+            };
+            let mut folders = Vec::new();
+            for entry in entries {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    folders.push(entry.file_name().to_string_lossy().into_owned());
+                }
+            }
+            Ok::<_, std::io::Error>(folders)
+        });
+        match job {
+            Ok(job) => job.await.map_err(|_| "the folder could not be listed".to_owned())?.map_err(|error| error.to_string()),
+            Err(_) => Err("the folder could not be listed".to_owned()),
         }
     }
 }

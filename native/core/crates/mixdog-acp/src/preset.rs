@@ -138,6 +138,16 @@ pub struct Location {
     pub path: String,
 }
 
+/// How many sessions one process of the agent serves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessScope {
+    /// A process of its own for each session, ended by force with it.
+    PerSession,
+    /// One process, started when the first session needs it, serves every later session of the preset, each with its own
+    /// folder, tool server and settings. It runs with a temporary folder of its own and is closed by the end of its stdin.
+    Shared,
+}
+
 /// How the agent's program gets onto this machine and stays current.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Distribution {
@@ -255,14 +265,18 @@ impl AgentFile {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentPreset {
     pub id: String,
-    /// The picker entry's name.
+    /// The picker entry's name. The presets of one agent share it: the user sees one agent, and the presets apart by
+    /// their providers.
     pub label: String,
+    /// The name the cards of the agent's own tools' calls go by, `<tool_prefix>_<kind>`: the presets of one agent share it.
+    pub tool_prefix: String,
     /// The route provider id a session on this agent carries.
     pub provider: String,
     /// The CLI as `PATH` finds it; for an agent of the registry, the name its program goes by.
     pub command: String,
     /// The arguments that start the agent's ACP mode.
     pub args: Vec<String>,
+    pub scope: ProcessScope,
     /// `None` for an agent whose own tools stay on when a session is handed Mixdog's.
     pub own_tools_off: Option<OwnToolsOff>,
     /// The arguments that print the CLI's version and exit; an agent of the registry is never run for its version.
@@ -339,11 +353,14 @@ fn antigravity_quirks() -> Quirks {
 pub fn builtin() -> Vec<AgentPreset> {
     let official = AgentPreset {
         id: "antigravity".into(),
-        // Mixdog has a provider of its own that signs in with the same vendor: this is the agent, and reads apart from it.
-        label: "Antigravity ACP".into(),
+        // One Antigravity to the user: the two presets are told apart by their providers alone.
+        label: "Antigravity".into(),
+        tool_prefix: "antigravity".into(),
         provider: "acp-antigravity".into(),
         command: "agy_acp_server".into(),
         args: Vec::new(),
+        // It takes 4-6 s to start and about 300 MB, and each start unpacks about 137 MB into its temporary folder.
+        scope: ProcessScope::Shared,
         // With every built-in tool off, the server offers its model the MCP tools and its resource reads alone.
         own_tools_off: Some(OwnToolsOff::SessionMeta(SessionMeta {
             path: vec!["antigravity".into()],
@@ -407,10 +424,13 @@ pub fn builtin() -> Vec<AgentPreset> {
     };
     let cli = AgentPreset {
         id: "antigravity-cli".into(),
-        label: "Antigravity CLI".into(),
+        label: "Antigravity".into(),
+        tool_prefix: "antigravity".into(),
         provider: "acp-antigravity-cli".into(),
         command: "agy".into(),
         args: vec!["acp".into(), "--disable-telemetry".into()],
+        // Its own tools are off through the agent definition in the folder it starts in, which differs by session.
+        scope: ProcessScope::PerSession,
         // A custom agent whose `tools` list is empty has none of the CLI's file, shell, search and planning tools. The
         // CLI asks the client before each call of an MCP tool, and with none of its own tools all it asks about are
         // Mixdog's calls, which the session's own pipeline judges: it asks nothing.
@@ -463,8 +483,9 @@ mod tests {
     #[test]
     fn the_official_server_runs_the_gemini_models_and_the_cli_every_other() {
         let (official, cli) = (shipped("antigravity"), shipped("antigravity-cli"));
-        assert_eq!((official.provider.as_str(), official.label.as_str()), ("acp-antigravity", "Antigravity ACP"));
-        assert_eq!((cli.provider.as_str(), cli.label.as_str()), ("acp-antigravity-cli", "Antigravity CLI"));
+        // One Antigravity to the user: one name, and one name for its own tools' cards.
+        assert_eq!((official.provider.as_str(), official.label.as_str(), official.tool_prefix.as_str()), ("acp-antigravity", "Antigravity", "antigravity"));
+        assert_eq!((cli.provider.as_str(), cli.label.as_str(), cli.tool_prefix.as_str()), ("acp-antigravity-cli", "Antigravity", "antigravity"));
         for model in ["gemini-4-neon-high", "gemini-3.8-flash", "claude-opus-5-5-low", "gpt-oss-120b-medium", "m1"] {
             let runs = [&official, &cli].map(|preset| preset.quirks.model_scope.admits(model));
             assert_eq!(runs, [model.starts_with("gemini-"), !model.starts_with("gemini-")], "{model}");

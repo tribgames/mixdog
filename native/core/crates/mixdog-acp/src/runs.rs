@@ -32,6 +32,7 @@ use crate::agents::Readiness;
 use crate::agents::Refusal;
 use crate::agents::lock;
 use crate::preset::AgentPreset;
+use crate::preset::ProcessScope;
 use crate::surface::TurnSurface;
 use crate::turn::Ask;
 use crate::turn::TurnContext;
@@ -276,9 +277,11 @@ async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachme
 pub async fn serve(agents: &Arc<Agents>, preset: &AgentPreset, request: TurnRequest, surface: Arc<dyn TurnSurface>, context: TurnContext) -> TurnEnd {
     let thread = request.thread.clone();
     if is_wake(&request.input) {
-        // The reply is in the process that asked for this turn. A process started since has none of it, and a
-        // prompt's turn that ran first has shown it: the wake then has nothing to show, and is never a prompt.
-        let Some(session) = agents.running(&thread).filter(|running| running.woken() && !running.connection.exited().is_cancelled()) else {
+        // The reply is in the session that asked for this turn. One opened since has none of it, a prompt's turn that ran
+        // first has shown it, and one of another preset (the route moved meanwhile) is not this route's to show: the wake
+        // then has nothing to show, and is never a prompt.
+        let session = agents.running(&thread).filter(|running| running.preset.id == preset.id && running.woken() && !running.gone().is_cancelled());
+        let Some(session) = session else {
             return TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 };
         };
         return crate::turn::run(&session, surface, Ask::Reply, context).await;
@@ -638,12 +641,21 @@ impl TurnSurface for Unshown {
     }
 }
 
-/// Ends the process of a question's own session when the question is over, however it ends.
+/// Ends the process of a question's own session when the question is over, however it ends: a server whose preset shares
+/// one among its sessions as the end of its input closes it, so it clears away what it unpacked; a CLI by force.
 struct Ended(Arc<crate::session::AgentSession>);
 
 impl Drop for Ended {
     fn drop(&mut self) {
-        self.0.connection.kill();
+        match self.0.preset.scope {
+            ProcessScope::PerSession => self.0.connection.kill(),
+            ProcessScope::Shared => {
+                let connection = self.0.connection.clone();
+                drop(mixdog_rt::spawn("acp.question.close", mixdog_rt::TaskClass::Work, async move {
+                    connection.close_gracefully(crate::shared::grace(1)).await;
+                }));
+            }
+        }
     }
 }
 
@@ -668,6 +680,12 @@ pub async fn ask_once(
     let cwd = AbsPath::new(agents.parts.probe_cwd.clone()).ok_or_else(|| "the agents have no folder to start a question's session in".to_owned())?;
     // Held to the answer: the CLI is not replaced under a process no session holds.
     let (program, _starting) = agents.ready_program(preset).await.map_err(|refusal| refusal.message(preset))?;
+    // A question has a short-lived process of its own, never the preset's shared server: on such a preset it has a
+    // temporary folder of its own as the server has.
+    let temp = match preset.scope {
+        ProcessScope::PerSession => None,
+        ProcessScope::Shared => Some(agents.server_temp().await.map_err(|fault| Refusal::Fault(fault).message(preset))?),
+    };
     let open = crate::session::Open {
         preset,
         program: &program,
@@ -678,6 +696,7 @@ pub async fn ask_once(
         held: None,
         grants: Arc::default(),
         handed: None,
+        temp,
     };
     let session = crate::session::AgentSession::open(agents.parts.processes.clone(), agents.parts.files.clone(), open, Arc::new(|| {}), Box::new(|| {}))
         .await
