@@ -144,14 +144,9 @@ export function useRoutePaneContent({
     return parameter ? modelParameterLabel(parameter) : '';
   };
 
-  /** ArrowLeft walks back out of the pane it was pressed in; the other keys
-   *  rove between its options. */
-  const paneOptionKeyDown = (target: RouteSheetPane) => (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (moveRouteFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      closePane(target, true);
-    }
+  /** The arrow keys rove between the pane's options (ArrowLeft back out is useSubmenu's). */
+  const paneOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    moveRouteFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)');
   };
 
   const paneBody = (target: RouteSheetPane): ReactNode => {
@@ -164,7 +159,7 @@ export function useRoutePaneContent({
         tuningDisabled,
         onChangeEffort,
         onChangeAutoEffort,
-        onOptionKeyDown: paneOptionKeyDown('effort'),
+        onOptionKeyDown: paneOptionKeyDown,
       });
     }
     if (target === 'speed') {
@@ -174,7 +169,7 @@ export function useRoutePaneContent({
         ultrafastAvailable,
         tuningDisabled,
         onChangeSpeed,
-        onOptionKeyDown: paneOptionKeyDown('speed'),
+        onOptionKeyDown: paneOptionKeyDown,
       });
     }
     if (target === 'context') {
@@ -196,7 +191,7 @@ export function useRoutePaneContent({
       });
     }
     const choice = sessionChoice(target);
-    if (choice) return routeSessionChoicePane({ choice, onOptionKeyDown: paneOptionKeyDown(target) });
+    if (choice) return routeSessionChoicePane({ choice, onOptionKeyDown: paneOptionKeyDown });
     const parameter = parameterFor(target);
     if (!parameter) return null;
     return routeParameterPane({
@@ -204,7 +199,7 @@ export function useRoutePaneContent({
       value: modelParameters[parameter.id],
       tuningDisabled,
       onChangeModelParameter,
-      onOptionKeyDown: paneOptionKeyDown(target),
+      onOptionKeyDown: paneOptionKeyDown,
     });
   };
 

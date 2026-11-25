@@ -155,6 +155,15 @@ export function useStudioRouteMenuPanels({
     setDrill(false);
   }, []);
 
+  /** True where the pane would take the sheet's place instead of opening beside it. */
+  const paneDrills = (id: string) => {
+    const node = trigger.current;
+    const rect = node?.getBoundingClientRect();
+    if (!node || !rect) return true;
+    const { viewport, sheet: nextSheet } = measuredSheet(node, rect, sheetHeight, field);
+    return paneLayout(nextSheet, id, viewport).drilled;
+  };
+
   return {
     open,
     closing,
@@ -176,6 +185,7 @@ export function useStudioRouteMenuPanels({
     show,
     openPane,
     closePane,
+    paneDrills,
   };
 }
 

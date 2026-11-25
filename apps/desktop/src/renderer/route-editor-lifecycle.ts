@@ -1,7 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { useMobileBack } from './mobile-back';
 import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
-import { useRouteDismissal } from './route-editor-effects';
 import { useRouteFlyoutFit, useRouteLayout } from './route-editor-layout';
 import type { RoutePanelBox, RouteSheetPane } from './route-editor-logic';
 import { currentViewport, ROUTE_CLOSE_DURATION } from './route-editor-panes';
@@ -48,7 +47,6 @@ export function useRouteSheet({
   const modelFlyout = useRef<HTMLDivElement>(null);
   const optionFlyout = useRef<HTMLDivElement>(null);
   const rowButtons = useRef<Partial<Record<RouteSheetPane, HTMLButtonElement | null>>>({});
-  const hoverLock = useRef<RouteSheetPane | null>(null);
   const closeTimer = useRef<number | null>(null);
   // The sheet scales out of the trigger pill, so the
   // pill's size at open time drives the starting transform.
@@ -59,7 +57,6 @@ export function useRouteSheet({
   const labelWidth = useRef<number | null>(null);
 
   const finishClose = useCallback(() => {
-    hoverLock.current = null;
     setClosing(false);
     setPane(null);
     setSheetBox(null);
@@ -91,7 +88,6 @@ export function useRouteSheet({
   );
 
   const closePane = useCallback((closedPane: RouteSheetPane, restoreFocus = false) => {
-    hoverLock.current = closedPane;
     setPane(null);
     setFlyoutBox(null);
     setDrill(false);
@@ -100,7 +96,7 @@ export function useRouteSheet({
     }
   }, []);
 
-  const { measureSheet, layoutFor, layout } = useRouteLayout({
+  const { measureSheet, layoutFor, layout, paneDrills } = useRouteLayout({
     trigger,
     rowButtons,
     labelWidth,
@@ -128,7 +124,6 @@ export function useRouteSheet({
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
-    hoverLock.current = null;
     setClosing(false);
     morphFrom.current = triggerRect ? { width: triggerRect.width, height: triggerRect.height } : null;
     if (triggerRect) {
@@ -157,14 +152,11 @@ export function useRouteSheet({
     open,
     closing,
     surfaceActive,
-    mounted,
     visible,
     pane,
     layout,
     closeAll,
-    closePane,
     closeTimer,
-    refs: { trigger, sheet, modelFlyout, optionFlyout },
   });
 
   return {
@@ -177,8 +169,10 @@ export function useRouteSheet({
     drill,
     sheetBox,
     flyoutBox,
-    refs: { trigger, sheet, modelFlyout, optionFlyout, rowButtons, hoverLock, morphFrom },
+    refs: { trigger, sheet, modelFlyout, optionFlyout, rowButtons, morphFrom },
+    layout,
     layoutFor,
+    paneDrills,
     show,
     toggle,
     closeAll,
@@ -186,47 +180,35 @@ export function useRouteSheet({
   };
 }
 
-/** Everything that closes the sheet or keeps it placed: a hidden surface,
- *  the mobile back gesture, outside clicks / Escape, and re-layout on pane
- *  change. */
+/** What closes the sheet or keeps it placed besides its dismissal
+ *  (useRouteDismissal): a hidden surface, the mobile back gesture, and
+ *  re-layout on pane change. */
 function useRouteSheetGuards({
   open,
   closing,
   surfaceActive,
-  mounted,
   visible,
   pane,
   layout,
   closeAll,
-  closePane,
   closeTimer,
-  refs,
 }: {
   open: boolean;
   closing: boolean;
   surfaceActive: boolean;
-  mounted: boolean;
   visible: boolean;
   pane: RouteSheetPane | null;
   layout: () => void;
   closeAll: (restoreFocus?: boolean, immediate?: boolean) => void;
-  closePane: (pane: RouteSheetPane, restoreFocus?: boolean) => void;
   closeTimer: { current: number | null };
-  refs: RouteSheetRefs;
 }) {
   useEffect(() => {
     if (!surfaceActive && (open || closing)) closeAll(false, true);
   }, [closeAll, closing, open, surfaceActive]);
 
-  // ABB: sheet and drilled pane each own ONE back step, in the order they
-  // opened — back walks the pane away first, then the sheet, exactly like
-  // Escape does above.
+  // ABB: the sheet owns ONE back step; an open pane owns the one above it
+  // (useSubmenu), so back walks the pane away first, like Escape.
   useMobileBack(open, () => closeAll(true));
-  useMobileBack(Boolean(pane), () => {
-    if (pane) closePane(pane, true);
-  });
-
-  useRouteDismissal({ mounted, pane, layout, closeAll, closePane, ...refs });
 
   useEffect(() => {
     if (!visible || !pane) return;
@@ -241,14 +223,13 @@ function useRouteSheetGuards({
   );
 }
 
-/** Opening panes: the row hover/click/arrow gestures, the /model picker
- *  request, and moving focus into a freshly opened pane. */
+/** Opening panes (the rows' gestures are useSubmenu's), the /model picker
+ *  request, and moving focus into a pane opened from the keyboard. */
 export function useRoutePaneNavigation({
   tuningDisabled,
   respondsToModelPicker,
   onOpenModelPane,
   setPane,
-  hoverLock,
   layoutFor,
   show,
   refs,
@@ -257,20 +238,15 @@ export function useRoutePaneNavigation({
   respondsToModelPicker: boolean;
   onOpenModelPane?: () => void;
   setPane: (pane: RouteSheetPane) => void;
-  hoverLock: { current: RouteSheetPane | null };
   layoutFor: (pane: RouteSheetPane) => void;
   show: () => void;
   refs: Pick<RouteSheetRefs, 'sheet' | 'modelFlyout' | 'optionFlyout'>;
 }) {
   // Materialize the full flyout on first use, then reuse its rows across opens.
   const [modelCatalogReady, setModelCatalogReady] = useState(false);
-  // Safe hover: while a flyout is open, passing over the other rows on the
-  // way to it must NOT switch panes — a switch needs a short dwell.
-  const hoverSwitchTimer = useRef<number | null>(null);
 
   const openPane = (next: RouteSheetPane) => {
     if (next !== 'model' && tuningDisabled) return;
-    hoverLock.current = null;
     if (next === 'model') {
       setModelCatalogReady(true);
       onOpenModelPane?.();
@@ -295,13 +271,6 @@ export function useRoutePaneNavigation({
     return () => window.removeEventListener(OPEN_MODEL_PICKER_EVENT, onRequest);
   }, [respondsToModelPicker]);
 
-  useEffect(
-    () => () => {
-      if (hoverSwitchTimer.current !== null) window.clearTimeout(hoverSwitchTimer.current);
-    },
-    []
-  );
-
   const focusPane = (next: RouteSheetPane) => {
     window.setTimeout(() => {
       // Read the DOM rather than `drill`: this runs right after the opening
@@ -325,5 +294,5 @@ export function useRoutePaneNavigation({
     }, 0);
   };
 
-  return { modelCatalogReady, hoverSwitchTimer, openPane, focusPane };
+  return { modelCatalogReady, openPane, focusPane };
 }

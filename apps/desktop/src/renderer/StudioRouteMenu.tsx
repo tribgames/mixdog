@@ -14,8 +14,8 @@ import {
   StudioPaneHeader,
   StudioSheetRow,
   StudioSliderPane,
-  useStudioRowHoverSwitch,
 } from './studio-route-menu-panes';
+import { useSubmenu } from './submenu';
 import { studioSheetStyle, useStudioRouteMenuPanels, useStudioViewportRelayout } from './use-studio-route-menu-panels';
 
 export type { StudioModelEntry, StudioOptionRow, StudioSliderRow } from './studio-route-menu-model';
@@ -101,8 +101,18 @@ export function StudioRouteMenu({
     show,
     openPane,
     closePane,
+    paneDrills,
   } = useStudioRouteMenuPanels({ field, rowCount: 1 + rows.length + (slider ? 1 : 0), rows });
-  const hover = useStudioRowHoverSwitch();
+  const submenu = useSubmenu<string>({
+    menuOpen: open,
+    openKey: pane,
+    open: openPane,
+    close: closePane,
+    panel: () => (drill ? sheet.current : flyout.current),
+    // A drilled pane takes the rows' place: those open on click.
+    hoverable: (id) => !paneDrills(id),
+    trigger: (id) => rowButtons.current[id],
+  });
   const clickGuard = useImmediateOverlayClickGuard();
 
   const current = entries.find((entry) => entry.lane === lane && entry.model === model);
@@ -114,10 +124,9 @@ export function StudioRouteMenu({
       else show();
     });
 
-  // ABB: back closes the drilled pane first, then the sheet — same order the
-  // Escape handler below walks.
+  // ABB: the sheet owns ONE back step; an open pane owns the one above it
+  // (useSubmenu), so back walks the pane away first, like Escape below.
   useMobileBack(open, () => closeAll());
-  useMobileBack(Boolean(pane), closePane);
 
   // Outside click, Escape and Tab: the shared popup contract (menu-dismiss.ts).
   // Escape steps out of an open pane first, then closes the sheet.
@@ -129,19 +138,16 @@ export function StudioRouteMenu({
     onEscape: (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!pane) return false;
-      closePane();
-      return true;
+      return submenu.escape();
     },
   });
 
   useStudioViewportRelayout(mounted, layout);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: both timers are stable refs owned by the hooks above; unmount-only cleanup
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the close timer is a stable ref owned by the hook above; unmount-only cleanup
   useEffect(
     () => () => {
       if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-      if (hover.timer.current !== null) window.clearTimeout(hover.timer.current);
     },
     []
   );
@@ -155,10 +161,8 @@ export function StudioRouteMenu({
       label={label}
       value={value}
       disabled={rowDisabled}
-      pane={pane}
       rowButtons={rowButtons}
-      hover={hover}
-      openPane={openPane}
+      submenu={submenu}
     />
   );
 

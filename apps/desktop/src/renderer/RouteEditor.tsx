@@ -7,7 +7,7 @@ import { ModelCatalog } from './model-catalog';
 import { ROUTE_SPEED_NAMES, type RouteSpeed, routeSpeed } from './model-route-utils';
 import { DAYBREAK_PARAMETER_ID, routeDaybreakBlue } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
-import { useRouteFontWarmup } from './route-editor-effects';
+import { useRouteDismissal, useRouteFontWarmup } from './route-editor-effects';
 import { useRoutePaneNavigation, useRouteSheet } from './route-editor-lifecycle';
 import { useRoutePaneContent } from './route-editor-pane-content';
 import {
@@ -19,6 +19,7 @@ import {
 } from './route-editor-logic';
 import type { RouteAutoEffort, RouteSessionChoice } from './route-editor-panes';
 import { RouteRow, RouteSheetRows, RouteTrigger, routeMorphStyle } from './route-editor-sheet';
+import { useSubmenu } from './submenu';
 
 // The rule between the model rows and the conversation's own settings.
 const ROUTE_SEPARATOR_HEIGHT = 9;
@@ -249,17 +250,42 @@ export function RouteEditor({
     onOpenSheet,
   });
   const { closing, visible, mounted, pane, setPane, drill, sheetBox, flyoutBox, refs } = sheetState;
-  const { layoutFor, show, toggle, closeAll, closePane } = sheetState;
-  const { trigger, sheet, optionFlyout, modelFlyout, rowButtons, hoverLock, morphFrom } = refs;
-  const { modelCatalogReady, hoverSwitchTimer, openPane, focusPane } = useRoutePaneNavigation({
+  const { layout, layoutFor, paneDrills, show, toggle, closeAll, closePane } = sheetState;
+  const { trigger, sheet, optionFlyout, modelFlyout, rowButtons, morphFrom } = refs;
+  const { modelCatalogReady, openPane, focusPane } = useRoutePaneNavigation({
     tuningDisabled,
     respondsToModelPicker: answersModelPickerRequests && surfaceActive && !modelDisabled,
     onOpenModelPane,
     setPane,
-    hoverLock,
     layoutFor,
     show,
     refs,
+  });
+  const submenu = useSubmenu<RouteSheetPane>({
+    menuOpen: visible,
+    openKey: pane,
+    open: openPane,
+    close: () => {
+      if (pane) closePane(pane);
+    },
+    panel: () => {
+      if (drill) return sheet.current;
+      return pane === 'model' ? modelFlyout.current : optionFlyout.current;
+    },
+    // A drilled pane or a dropdown takes the rows' place: those open on click.
+    hoverable: (next) => !paneDrills(next),
+    focusPanel: focusPane,
+    trigger: (key) => rowButtons.current[key],
+  });
+  useRouteDismissal({
+    mounted,
+    layout,
+    closeAll,
+    escapePane: submenu.escape,
+    trigger,
+    sheet,
+    modelFlyout,
+    optionFlyout,
   });
   const { paneLabel, paneHeader, paneBody } = useRoutePaneContent({
     pane,
@@ -298,14 +324,9 @@ export function RouteEditor({
       label={label}
       value={value}
       disabled={disabled}
-      pane={pane}
-      dropdown={dropdown}
-      hoverLock={hoverLock}
-      hoverSwitchTimer={hoverSwitchTimer}
+      submenu={submenu}
       rowButtons={rowButtons}
       sheet={sheet}
-      openPane={openPane}
-      focusPane={focusPane}
     />
   );
   const drilled = drill && Boolean(pane);
@@ -395,6 +416,7 @@ export function RouteEditor({
                 daybreakOn={daybreakOn}
                 tuningDisabled={tuningDisabled}
                 sessionChoices={sessionChoices}
+                plainItem={submenu.item()}
                 onChangeModelParameter={onChangeModelParameter}
               />
             )}

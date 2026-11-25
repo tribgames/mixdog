@@ -245,5 +245,15 @@ export function useRouteLayout({
     [measureSheet, paneLayout, trigger, setSheetBox, setFlyoutBox, setDrill]
   );
   const layout = useCallback(() => layoutFor(pane), [layoutFor, pane]);
-  return { measureSheet, layoutFor, layout };
+  /** True where the pane would take the sheet's place instead of opening beside it. */
+  const paneDrills = useCallback(
+    (target: RouteSheetPane) => {
+      const triggerRect = trigger.current?.getBoundingClientRect();
+      if (!triggerRect) return true;
+      const viewport = currentViewport(trigger.current);
+      return paneLayout(measureSheet(triggerRect, viewport), target, viewport).drilled;
+    },
+    [measureSheet, paneLayout, trigger]
+  );
+  return { measureSheet, layoutFor, layout, paneDrills };
 }

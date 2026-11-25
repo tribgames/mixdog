@@ -34,7 +34,8 @@ html[data-mixdog-mobile-tabs] {
 }
 .mx-menu-item:hover:not(:disabled),
 .mx-menu-item[data-active="true"]:not(:disabled),
-.row-overflow-menu > button:hover:not(:disabled) {
+.row-overflow-menu > button:hover:not(:disabled),
+.row-overflow-menu > button[aria-expanded="true"] {
   background: var(--mx-hover);
 }
 .mx-menu-item:focus-visible,

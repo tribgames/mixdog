@@ -1420,7 +1420,8 @@
   cursor: pointer;
 }
 .dock-scm-context-menu button:hover:not(:disabled),
-.dock-scm-context-menu button:focus-visible {
+.dock-scm-context-menu button:focus-visible,
+.dock-scm-context-menu button[aria-expanded="true"] {
   background: var(--mx-hover);
   outline: 0;
 }

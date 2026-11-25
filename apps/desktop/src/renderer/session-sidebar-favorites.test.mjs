@@ -81,8 +81,10 @@ test('the ⋯ menu Show sections submenu toggles section visibility and persists
       .find((item) => item.textContent === 'Show sections')
       .click()
   );
+  // The submenu opens beside the ⋯ menu, which stays open with its own checks.
+  const submenu = [...document.querySelectorAll('.row-overflow-menu')].at(-1);
   assert.deepEqual(
-    items()
+    [...submenu.querySelectorAll('[role^="menuitem"]')]
       .filter((item) => item.hasAttribute('aria-checked'))
       .map((item) => [item.textContent, item.getAttribute('aria-checked')]),
     [

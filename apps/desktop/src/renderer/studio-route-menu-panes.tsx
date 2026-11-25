@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
-import { type PointerEvent, type RefObject, useRef } from 'react';
+import { type RefObject, useRef } from 'react';
 
 import { t } from './i18n';
 import { ProviderIcon } from './provider-display';
@@ -12,47 +12,24 @@ import {
   studioModelLanes,
 } from './studio-route-menu-model';
 import { emptyStateHost } from './empty-state-host';
-
-/** Safe hover: once a pane is open, only a dwell on another row switches, so
- *  the pointer can travel across intermediate rows into the open flyout. */
-export function useStudioRowHoverSwitch() {
-  const timer = useRef<number | null>(null);
-  const clear = () => {
-    if (timer.current !== null) {
-      window.clearTimeout(timer.current);
-      timer.current = null;
-    }
-  };
-  const dwell = (run: () => void) => {
-    clear();
-    timer.current = window.setTimeout(() => {
-      timer.current = null;
-      run();
-    }, 140);
-  };
-  return { timer, clear, dwell };
-}
+import type { Submenu } from './submenu';
 
 /** One sheet row: its label and current value, opening its pane beside (or
- *  inside) the sheet on hover or click. */
+ *  inside) the sheet as a submenu (useSubmenu). */
 export function StudioSheetRow({
   id,
   label,
   value,
   disabled = false,
-  pane,
   rowButtons,
-  hover,
-  openPane,
+  submenu,
 }: {
   id: string;
   label: string;
   value: string;
   disabled?: boolean;
-  pane: string | null;
   rowButtons: RefObject<Record<string, HTMLButtonElement | null>>;
-  hover: { clear(): void; dwell(run: () => void): void };
-  openPane(id: string): void;
+  submenu: Submenu<string>;
 }) {
   return (
     <button
@@ -62,24 +39,8 @@ export function StudioSheetRow({
       type="button"
       className="route-sheet-row"
       role="menuitem"
-      aria-haspopup="menu"
-      aria-expanded={pane === id}
       disabled={disabled}
-      onPointerEnter={(event: PointerEvent<HTMLButtonElement>) => {
-        if (event.pointerType === 'touch' || pane === id || disabled) return;
-        if (pane) {
-          hover.dwell(() => openPane(id));
-          return;
-        }
-        openPane(id);
-      }}
-      onPointerLeave={hover.clear}
-      onClick={() => {
-        hover.clear();
-        // Click always OPENS (hover already opened it — a toggle would close
-        // the flyout under the very click that targeted it).
-        if (pane !== id) openPane(id);
-      }}
+      {...submenu.trigger(id, disabled)}
     >
       <span className="route-sheet-label">{label}</span>
       <span className="route-sheet-value">{value}</span>

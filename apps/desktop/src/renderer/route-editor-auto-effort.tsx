@@ -1,8 +1,11 @@
 import { t } from './i18n';
+import type { SubmenuItemProps } from './submenu';
 
 type RouteSheetSwitchProps = {
   enabled: boolean;
   disabled: boolean;
+  /** Its place among the sheet's pane rows: resting on it closes an open pane. */
+  itemProps?: SubmenuItemProps;
   onChange(enabled: boolean): void;
 };
 
@@ -25,10 +28,16 @@ function RouteSheetSwitch({
   dataRow,
   enabled,
   disabled,
+  itemProps,
   onChange,
 }: RouteSheetSwitchProps & { label: string; description?: string; dataRow?: string }) {
   return (
-    <label className="route-sheet-row route-sheet-toggle" title={description} data-route-toggle={dataRow}>
+    <label
+      className="route-sheet-row route-sheet-toggle"
+      title={description}
+      data-route-toggle={dataRow}
+      {...itemProps}
+    >
       <span className="route-sheet-label">{label}</span>
       <span className="mixdog-settings__switch compact-switch">
         <input

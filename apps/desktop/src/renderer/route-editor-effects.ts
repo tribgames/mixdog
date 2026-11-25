@@ -1,26 +1,24 @@
 import { type RefObject, useEffect } from 'react';
 import { t } from './i18n';
 import { useMenuDismiss } from './menu-dismiss';
-import type { RouteSheetPane } from './route-editor-logic';
 
 /** While the sheet is mounted: outside-click and Escape dismiss it, and any
  *  viewport movement re-places the panels. */
 export function useRouteDismissal({
   mounted,
-  pane,
   layout,
   closeAll,
-  closePane,
+  escapePane,
   trigger,
   sheet,
   modelFlyout,
   optionFlyout,
 }: {
   mounted: boolean;
-  pane: RouteSheetPane | null;
   layout: () => void;
   closeAll: (restoreFocus?: boolean, immediate?: boolean) => void;
-  closePane: (closedPane: RouteSheetPane, restoreFocus?: boolean) => void;
+  /** Steps out of the open pane (useSubmenu `escape`); false when none is open. */
+  escapePane: () => boolean;
   trigger: RefObject<HTMLElement | null>;
   sheet: RefObject<HTMLElement | null>;
   modelFlyout: RefObject<HTMLElement | null>;
@@ -36,8 +34,7 @@ export function useRouteDismissal({
     onEscape: (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (pane) closePane(pane, true);
-      else closeAll(true);
+      if (!escapePane()) closeAll(true);
       return true;
     },
   });

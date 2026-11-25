@@ -230,6 +230,7 @@
 }
 .route-sheet-row:hover,
 .route-sheet-row:focus-visible,
+.route-sheet-row[aria-expanded="true"],
 .route-sheet-option:hover,
 .route-sheet-option:focus-visible {
   outline: 0;

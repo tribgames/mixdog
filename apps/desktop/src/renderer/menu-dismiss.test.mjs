@@ -359,10 +359,13 @@ function RouteHarness({ calls, pane = null }) {
   const optionFlyout = React.useRef(null);
   useRouteDismissal({
     mounted: true,
-    pane,
     layout: () => {},
     closeAll: (restoreFocus) => calls.push(['closeAll', Boolean(restoreFocus)]),
-    closePane: (closed, restoreFocus) => calls.push(['closePane', closed, Boolean(restoreFocus)]),
+    escapePane: () => {
+      if (!pane) return false;
+      calls.push(['escapePane', pane]);
+      return true;
+    },
     trigger,
     sheet,
     modelFlyout,
@@ -404,7 +407,7 @@ test('model picker sheet: Escape closes it (flyout first), Tab and outside point
   view = await mount(React.createElement(RouteHarness, { calls, pane: 'model' }));
   document.getElementById('add').focus();
   await press('Escape');
-  assert.deepEqual(calls.splice(0), [['closePane', 'model', true]], 'Escape inside the flyout steps out of the pane');
+  assert.deepEqual(calls.splice(0), [['escapePane', 'model']], 'Escape inside the flyout steps out of the pane');
   await press('Tab');
   assert.deepEqual(calls.splice(0), [['closeAll', false]]);
   assert.equal(document.activeElement, document.getElementById('trigger'), 'focus escaped into the flyout button');

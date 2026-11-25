@@ -487,15 +487,6 @@
   flex: 0 0 auto;
   color: var(--mx-text-muted);
 }
-.row-overflow-menu .row-overflow-back {
-  color: var(--mx-text-muted);
-}
-.row-overflow-menu .row-overflow-back > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .row-overflow-menu button.danger {
   color: var(--mx-danger);
 }

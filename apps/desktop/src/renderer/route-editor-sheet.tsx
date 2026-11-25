@@ -15,44 +15,27 @@ import {
   type RouteSessionChoice,
   routeSpeedClassName,
 } from './route-editor-panes';
+import type { Submenu, SubmenuItemProps } from './submenu';
 
-// Safe hover: while a flyout is open, passing over the other rows on the way
-// to it must NOT switch panes — a switch needs a short dwell.
-const HOVER_SWITCH_DWELL = 140;
-
-/** One row of the route sheet; hovering or clicking opens its pane. */
+/** One row of the route sheet; it opens its pane as a submenu (useSubmenu). */
 export function RouteRow({
   id,
   label,
   value,
   disabled,
-  pane,
-  dropdown,
-  hoverLock,
-  hoverSwitchTimer,
+  submenu,
   rowButtons,
   sheet,
-  openPane,
-  focusPane,
 }: {
   id: RouteSheetPane;
   label: string;
   value: ReactNode;
   disabled: boolean;
-  pane: RouteSheetPane | null;
-  dropdown: boolean;
-  hoverLock: MutableRefObject<RouteSheetPane | null>;
-  hoverSwitchTimer: MutableRefObject<number | null>;
+  submenu: Submenu<RouteSheetPane>;
   rowButtons: MutableRefObject<Partial<Record<RouteSheetPane, HTMLButtonElement | null>>>;
   sheet: RefObject<HTMLDivElement | null>;
-  openPane(pane: RouteSheetPane): void;
-  focusPane(pane: RouteSheetPane): void;
 }) {
-  const cancelHoverSwitch = () => {
-    if (hoverSwitchTimer.current === null) return;
-    window.clearTimeout(hoverSwitchTimer.current);
-    hoverSwitchTimer.current = null;
-  };
+  const opener = submenu.trigger(id, disabled);
   return (
     <button
       ref={(node) => {
@@ -61,43 +44,11 @@ export function RouteRow({
       type="button"
       className="route-sheet-row"
       role="menuitem"
-      aria-haspopup="menu"
-      aria-expanded={pane === id}
       disabled={disabled}
-      onPointerEnter={(event) => {
-        // A dropdown's pane replaces the rows: only a click may do that.
-        if (dropdown || event.pointerType === 'touch' || hoverLock.current === id) return;
-        if (pane === id) return;
-        if (pane) {
-          // Another pane is open: only a dwell switches, so the pointer can
-          // travel across intermediate rows into the open flyout.
-          if (hoverSwitchTimer.current !== null) window.clearTimeout(hoverSwitchTimer.current);
-          hoverSwitchTimer.current = window.setTimeout(() => {
-            hoverSwitchTimer.current = null;
-            openPane(id);
-          }, HOVER_SWITCH_DWELL);
-          return;
-        }
-        openPane(id);
-      }}
-      onPointerLeave={() => {
-        cancelHoverSwitch();
-        if (hoverLock.current === id) hoverLock.current = null;
-      }}
-      onClick={() => {
-        cancelHoverSwitch();
-        // Click always OPENS (hover already opened it — a toggle here would
-        // close the flyout under the very click that targeted it). Escape /
-        // ArrowLeft / outside-click remain the ways to close.
-        if (pane !== id) openPane(id);
-      }}
+      {...opener}
       onKeyDown={(event) => {
         if (moveRouteFocus(event, sheet.current, '.route-sheet-row:not(:disabled)')) return;
-        if (event.key === 'ArrowRight') {
-          event.preventDefault();
-          openPane(id);
-          focusPane(id);
-        }
+        opener.onKeyDown(event);
       }}
     >
       <span className="route-sheet-label">{label}</span>
@@ -265,9 +216,12 @@ export function RouteSheetRows({
   daybreakOn,
   tuningDisabled,
   sessionChoices,
+  plainItem,
   onChangeModelParameter,
 }: {
   row(id: RouteSheetPane, label: string, value: ReactNode, disabled?: boolean): ReactNode;
+  /** A row without a pane among the pane rows (useSubmenu `item`). */
+  plainItem: SubmenuItemProps;
   rows: RouteSheetPane[];
   triggerModel: string;
   effortLabel: string;
@@ -303,6 +257,7 @@ export function RouteSheetRows({
         <RouteDaybreakToggle
           enabled={daybreakOn}
           disabled={tuningDisabled || !onChangeModelParameter}
+          itemProps={plainItem}
           onChange={(enabled) => onChangeModelParameter?.(DAYBREAK_PARAMETER_ID, enabled ? 'on' : 'off')}
         />
       )}

@@ -30,6 +30,8 @@ const ENTRIES = [
 ];
 
 const wait = (ms) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+// Well past the hover delay, and the longest a "short" one may take.
+const REST = 400;
 const click = (node) => act(async () => node.click());
 const sheetRow = (label) =>
   [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.startsWith(label));
@@ -143,7 +145,9 @@ test('option rows pick only a new value', async () => {
   try {
     await click(view.trigger());
     await hover(sheetRow('Aspect'));
-    assert.equal(sheetRow('Aspect').getAttribute('aria-expanded'), 'true', 'hover opens with no pane open');
+    assert.equal(sheetRow('Aspect').getAttribute('aria-expanded'), 'false', 'hover opened with no delay');
+    await wait(REST);
+    assert.equal(sheetRow('Aspect').getAttribute('aria-expanded'), 'true', 'resting on a row opens its pane');
     const options = () => [...document.querySelectorAll('.route-sheet-option')];
     assert.deepEqual(
       options().map((node) => [node.textContent, node.getAttribute('aria-checked')]),
@@ -166,11 +170,38 @@ test('hovering another row with a pane open switches after a dwell', async () =>
   try {
     await click(view.trigger());
     await hover(sheetRow('Aspect'));
+    await wait(REST);
     await hover(sheetRow('Size'));
     assert.equal(sheetRow('Aspect').getAttribute('aria-expanded'), 'true', 'no switch before the dwell');
-    await wait(200);
+    await wait(REST);
     assert.equal(sheetRow('Size').getAttribute('aria-expanded'), 'true');
     assert.equal(document.querySelector('.route-sheet-flyout').getAttribute('aria-label'), 'Size');
+  } finally {
+    await view.dispose();
+  }
+});
+
+test('ArrowRight opens a pane on its first option; ArrowLeft and Escape close the pane back onto its row', async () => {
+  const view = await mount({ rows: aspectAndSizeRows([]) });
+  const key = (name) =>
+    act(async () => {
+      document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  try {
+    await click(view.trigger());
+    sheetRow('Aspect').focus();
+    await key('ArrowRight');
+    assert.equal(sheetRow('Aspect').getAttribute('aria-expanded'), 'true');
+    assert.equal(document.activeElement.textContent, 'Square');
+    await key('ArrowLeft');
+    assert.equal(document.querySelector('.route-sheet-flyout'), null);
+    assert.equal(document.activeElement, sheetRow('Aspect'));
+    await key('ArrowRight');
+    await key('Escape');
+    assert.equal(document.querySelector('.route-sheet-flyout'), null, 'Escape closes the pane first');
+    assert.ok(document.querySelector('.route-sheet[data-state="open"]'), 'the sheet stays open');
+    assert.equal(document.activeElement, sheetRow('Aspect'));
   } finally {
     await view.dispose();
   }
@@ -181,6 +212,7 @@ test('Escape closes an open pane before the sheet', async () => {
   try {
     await click(view.trigger());
     await hover(sheetRow('Aspect'));
+    await wait(REST);
     await act(async () =>
       document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     );

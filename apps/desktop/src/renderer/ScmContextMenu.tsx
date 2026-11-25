@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { closeOnUserScroll } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { RailPinIcon } from './RailPinIcon';
+import { type Submenu, SubmenuPanel, useSubmenu } from './submenu';
 
 export const ENABLED_MENU_ITEM_SELECTOR =
   "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)";
@@ -31,8 +32,8 @@ export interface ScmContextMenuItem {
   pinned?: boolean;
   /** A separate pin control keeps the destination menu open. */
   onTogglePin?(): void;
-  /** Opens a second level in place of the menu (with a Back row on top). */
-  children?: ScmContextMenuItem[];
+  /** A submenu that opens beside the item. */
+  children?: Omit<ScmContextMenuItem, 'children'>[];
 }
 
 /** Item tooltip: the blocking reason when there is one, else the missing-channel note for an unsupported action. */
@@ -116,12 +117,16 @@ function menuPosition(
 /** One menu entry: its action button, plus the separate pin control when it has one. */
 function ScmContextMenuRow({
   item,
+  submenu,
   onActivate,
 }: {
   item: ScmContextMenuItem;
+  /** The menu level's submenus; absent inside a submenu. */
+  submenu?: Submenu<string>;
   onActivate(item: ScmContextMenuItem): void;
 }) {
-  const hasChildren = Boolean(item.children?.length);
+  const opener = item.children?.length && submenu ? submenu.trigger(item.id, item.disabled) : null;
+  const intent = opener ?? submenu?.item();
   const action = (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is menuitemradio/menuitemcheckbox whenever checked is defined
     <button
@@ -136,20 +141,26 @@ function ScmContextMenuRow({
           .join(' ') || undefined
       }
       disabled={item.disabled}
-      aria-haspopup={hasChildren ? 'menu' : undefined}
       title={item.title}
-      onPointerEnter={item.onPrefetch}
-      onFocus={item.onPrefetch}
+      {...intent}
+      onPointerEnter={(event) => {
+        item.onPrefetch?.();
+        intent?.onPointerEnter(event);
+      }}
+      onFocus={(event) => {
+        item.onPrefetch?.();
+        intent?.onFocus(event);
+      }}
       onPointerDown={(event) => {
         if (event.button === 0) item.onPrefetch?.();
       }}
-      onClick={() => onActivate(item)}
+      onClick={opener ? opener.onClick : () => onActivate(item)}
     >
       <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>
         {item.icon ?? (item.checked && <Check size={12} aria-hidden="true" />)}
       </span>
       <span className="dock-scm-context-label">{item.label}</span>
-      {hasChildren && <ChevronRight size={12} aria-hidden="true" />}
+      {opener && <ChevronRight size={12} aria-hidden="true" />}
     </button>
   );
   if (!item.onTogglePin) return action;
@@ -164,6 +175,7 @@ function ScmContextMenuRow({
         aria-checked={item.pinned}
         aria-label={`${item.pinned ? t('Unpin') : t('Pin')}: ${item.label}`}
         title={item.pinned ? t('Unpin') : t('Pin')}
+        {...submenu?.item()}
         onClick={item.onTogglePin}
       >
         <RailPinIcon pinned={Boolean(item.pinned)} size={14} />
@@ -182,27 +194,27 @@ export function ScmContextMenu({
   anchorRef?: React.RefObject<HTMLElement | null>;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const subPanel = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({ position: 'fixed', left: 0, top: 0 });
   const open = Boolean(state);
-  // Id of the submenu item whose children are showing; a new menu starts at the root.
-  const [submenuId, setSubmenuId] = useState('');
+  // Id of the item whose submenu is open; a new menu starts with none.
+  const [submenuId, setSubmenuId] = useState<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: state identity is the trigger
-  useEffect(() => setSubmenuId(''), [state]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each submenu level refocuses its first item
-  useEffect(() => {
-    if (open)
-      queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)?.focus());
-  }, [open, submenuId]);
+  useEffect(() => setSubmenuId(null), [state]);
+  const submenu = useSubmenu<string>({
+    menuOpen: open,
+    openKey: submenuId,
+    open: setSubmenuId,
+    close: () => setSubmenuId(null),
+    panel: () => subPanel.current,
+  });
   const x = state?.x ?? 0;
   const y = state?.y ?? 0;
 
-  // Opening or leaving a submenu swaps the rendered items and so resizes the
-  // panel; placement is measured again so the taller list stays on screen.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: submenuId changes the measured panel size
   useLayoutEffect(() => {
     if (!open) return;
     setStyle(menuPosition(panel.current, x, y, state?.alignEnd, state?.flipY));
-  }, [open, x, y, submenuId, state]);
+  }, [open, x, y, state]);
 
   // Owners may pass a fresh onClose on every render (a live agent update
   // re-renders them): read it through a ref, so only the open transition
@@ -215,22 +227,24 @@ export function ScmContextMenu({
     // Keyboard users land ON the menu; closing hands focus back to the row.
     const previous = document.activeElement as HTMLElement | null;
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)?.focus());
+    const inside = (target: Node | null) =>
+      Boolean(panel.current?.contains(target) || subPanel.current?.contains(target));
     const dismiss = (event: Event) => {
-      if (panel.current?.contains(event.target as Node) || anchorRef?.current?.contains(event.target as Node)) return;
+      if (inside(event.target as Node) || anchorRef?.current?.contains(event.target as Node)) return;
       onClose();
     };
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       // The dock's other Escape handlers (branch panel, row selection) must
-      // not fire on the keystroke that only closed this menu.
+      // not fire on the keystroke that only closed this menu or its submenu.
       event.stopPropagation();
-      onClose();
+      if (!submenu.escape()) onClose();
     };
     const close = () => onClose();
     document.addEventListener('pointerdown', dismiss, true);
     document.addEventListener('keydown', keydown, true);
     window.addEventListener('resize', close);
-    const stopScrollDismiss = closeOnUserScroll(close, (target) => Boolean(panel.current?.contains(target)));
+    const stopScrollDismiss = closeOnUserScroll(close, inside);
     return () => {
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
@@ -238,36 +252,23 @@ export function ScmContextMenu({
       stopScrollDismiss();
       if (previous?.isConnected) previous.focus?.();
     };
-  }, [open, anchorRef]);
+  }, [open, anchorRef, submenu]);
 
   // ABB: hardware back closes the menu instead of leaving the PWA.
   useMobileBack(open, onClose);
 
   if (!state) return null;
 
-  const submenuParent = submenuId ? state.items.find((item) => item.id === submenuId) : undefined;
-  const visibleItems: ScmContextMenuItem[] = submenuParent?.children
-    ? [
-        { id: '__back', label: t('Back'), icon: <ChevronLeft size={12} aria-hidden="true" /> },
-        ...submenuParent.children,
-      ]
-    : state.items;
-
   const activate = (item: ScmContextMenuItem) => {
-    if (item.id === '__back') {
-      setSubmenuId('');
-      return;
-    }
-    if (item.children?.length) {
-      setSubmenuId(item.id);
-      return;
-    }
     onClose();
     item.onSelect?.();
   };
+  const parent = state.items.find((item) => item.id === submenuId);
+  const children = parent?.children;
 
+  // Roving focus over the items of the panel (menu or submenu) the key was pressed in.
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR) || [])];
+    const entries = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)];
     if (!entries.length) return;
     const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
     let next = -1;
@@ -298,9 +299,22 @@ export function ScmContextMenu({
           {state.heading}
         </div>
       )}
-      {visibleItems.map((item) => (
-        <ScmContextMenuRow key={item.id} item={item} onActivate={activate} />
+      {state.items.map((item) => (
+        <ScmContextMenuRow key={item.id} item={item} submenu={submenu} onActivate={activate} />
       ))}
+      {parent && children?.length ? (
+        <SubmenuPanel
+          anchor={submenu.element(parent.id)}
+          panelRef={subPanel}
+          className="dock-scm-context-menu"
+          label={parent.label}
+          onKeyDown={onMenuKeyDown}
+        >
+          {children.map((item) => (
+            <ScmContextMenuRow key={item.id} item={item} onActivate={activate} />
+          ))}
+        </SubmenuPanel>
+      ) : null}
     </div>,
     document.body
   );
