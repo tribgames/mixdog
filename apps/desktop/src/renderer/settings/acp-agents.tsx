@@ -191,6 +191,8 @@ function AcpAgentRow({
   signInAfterInstall,
   onSignInAfterInstall,
   onSigningIn,
+  onCheckAgain,
+  checkBlocked,
   run,
   confirm,
 }: {
@@ -205,6 +207,9 @@ function AcpAgentRow({
   onSignInAfterInstall(): void;
   /** Told when the agent's sign-in starts or stops waiting. */
   onSigningIn(id: string, pending: boolean): void;
+  /** Has the core look at every agent again; `checkBlocked` while that would cut into work under way. */
+  onCheckAgain(): void;
+  checkBlocked: boolean;
   run: PanelContext['run'];
   confirm: PanelContext['confirm'];
 }) {
@@ -365,6 +370,13 @@ function AcpAgentRow({
         {t('Connect')}
       </ExtensionAction>
     );
+  } else if (!running(agent) && agent.state !== 'unsupported') {
+    // A row with no action of its own goes on by the core looking again, as its words say.
+    control = (
+      <ExtensionAction disabled={checkBlocked} onClick={onCheckAgain}>
+        {t('Check again')}
+      </ExtensionAction>
+    );
   }
   // A signed-in agent is the provider account card, with the one account its CLI holds.
   const card = agent.state === 'ready';
@@ -511,6 +523,9 @@ export function AcpProviders({
   // Asking for the agents while they are on has the core look at every agent's programs again.
   const onCheckAgain = () => void run('setBuiltinToolEnabled', ['acpAgents', true], 'acp-check-again');
   const groups = acpAgentGroups(value);
+  // As on a provider's card, the section's refresh is offered once an account is connected; before that each row
+  // carries its own way on. With no agent reported there is no row to carry it.
+  const refreshShown = !groups.length || groups.some(({ agent }) => agent.state === 'ready');
   const checking = acpAgentsOf(value).some(running);
   // The core's answer to a failed install is the failure an agent's row already says.
   const said = groups.some(({ agent }) => agent.lastError);
@@ -527,20 +542,23 @@ export function AcpProviders({
       }),
     []
   );
+  const checkBlocked = busy || install.running || checking || signingIn.size > 0;
   if (!enabled) return null;
   return (
     <section className="settings-group settings-provider-cards" data-acp-agents="true">
       <header>
         <div className="settings-group-head">
           <h3>{t('Antigravity ACP')}</h3>
-          <ExtensionAction
-            ariaLabel={t('Check again')}
-            tooltip={t('Check again')}
-            disabled={busy || install.running || checking || signingIn.size > 0}
-            onClick={onCheckAgain}
-          >
-            <RefreshCw size={14} aria-hidden="true" />
-          </ExtensionAction>
+          {refreshShown && (
+            <ExtensionAction
+              ariaLabel={t('Check again')}
+              tooltip={t('Check again')}
+              disabled={checkBlocked}
+              onClick={onCheckAgain}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+            </ExtensionAction>
+          )}
         </div>
       </header>
       {groups.length ? (
@@ -554,6 +572,8 @@ export function AcpProviders({
               signInAfterInstall={signInNext}
               onSignInAfterInstall={() => setSignInNext(false)}
               onSigningIn={noteSignIn}
+              onCheckAgain={onCheckAgain}
+              checkBlocked={checkBlocked}
               run={run}
               confirm={confirm}
             />

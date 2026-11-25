@@ -232,7 +232,11 @@ test('every agent state the core can report reads truthfully and leaves a next s
     const row = agentRow(`a${index}`);
     assert.deepEqual(words(row), expected, `${state} ${extra.id ?? ''}`);
     assert.equal(row.getAttribute('data-tone'), tone, state);
+    // Short of a check under way, the row itself holds the next step (held while the other agents' check runs).
+    if (tone !== 'muted') assert.ok(row.querySelector('button'), `${state} ${extra.id ?? ''}`);
   });
+  // Nothing is connected: the section's refresh waits for an account, as on a provider's card.
+  assert.equal(checkAgain(), null);
   // A failed update beside an agent that still works: it stays Ready and says what failed.
   await render(
     acpAgents(
@@ -242,9 +246,9 @@ test('every agent state the core can report reads truthfully and leaves a next s
   );
   assert.deepEqual(card(agentRow()), signedIn);
   assert.equal(fault(agentRow()), 'Update failed: npm exited with 1');
-  // A state not understood is never a check in progress: Check again stays available.
+  // A state not understood is never a check in progress: its row's Check again stays available.
   await render(acpAgents(true, agent('paused')));
-  assert.equal(checkAgain().disabled, false);
+  assert.equal(button(agentRow(), 'Check again').disabled, false);
   // On, with no agent reported: the section says so, and Check again is the way on.
   await render(acpAgents(true));
   assert.match(dialog().textContent, /No agents were reported/);
@@ -259,15 +263,21 @@ test('Check again asks the core to look again while the agents stay on', async (
       return { acpAgents: acpAgents(true, agent('checking', { version: '1.5.15' })) };
     },
   });
-  await act(async () => checkAgain().click());
+  // Signed out with no sign-in of its own, the row looks again.
+  await act(async () => button(agentRow(), 'Check again').click());
   await render(acpAgents(true, agent('checking', { version: '1.5.15' })));
   assert.deepEqual(calls, [['setBuiltinToolEnabled', ['acpAgents', true]]]);
   assert.deepEqual(words(agentRow()), ['Checking…', 'Looking for agy…']);
-  assert.equal(checkAgain().disabled, true);
+  assert.equal(agentRow().querySelector('button'), null);
 
+  // Connected, the section's refresh looks again.
   await render(acpAgents(true, agent('ready', { version: '1.5.15' })));
   assert.deepEqual(card(agentRow()), signedIn);
-  assert.equal(checkAgain().disabled, false);
+  await act(async () => checkAgain().click());
+  assert.deepEqual(calls, [
+    ['setBuiltinToolEnabled', ['acpAgents', true]],
+    ['setBuiltinToolEnabled', ['acpAgents', true]],
+  ]);
 });
 
 test('Install and Update run the core install, show its progress, and a failure beside a Retry', async (t) => {
@@ -282,7 +292,7 @@ test('Install and Update run the core install, show its progress, and a failure 
   assert.deepEqual(words(agentRow()), ['Not found', 'Antigravity is not installed.']);
   await act(async () => button(agentRow(), 'Install').click());
   assert.deepEqual(installs, [{ capability: 'installBuiltinFeature', args: ['acpAgents'] }]);
-  assert.equal(checkAgain().disabled, true);
+  assert.equal(button(agentRow(), 'Install').disabled, true);
   // The core's progress is the agent's state.
   await render(acpAgents(true, agent('installing', { canInstall: true })));
   assert.deepEqual(words(agentRow()), ['Installing…', 'Downloading and installing Antigravity.']);
@@ -623,7 +633,7 @@ test('Sign in opens the page the core hands over, takes the code, and can be can
   assert.deepEqual(calls.at(-1), ['beginOAuthProviderLogin', ['acp-antigravity']]);
   assert.deepEqual(words(agentRow()), ['Signing in…', 'Finish signing in in your browser.']);
   // No look again (which updates the CLI) while the CLI's own sign-in runs; the dialog names no OAuth.
-  assert.equal(checkAgain().disabled, true);
+  assert.equal(agentRow().querySelector('button'), null);
   const signIn = document.querySelector('.settings-oauth-dialog');
   assert.doesNotMatch(
     [...signIn.querySelectorAll('[aria-label]')].map((node) => node.getAttribute('aria-label')).join(' '),
@@ -644,7 +654,7 @@ test('Sign in opens the page the core hands over, takes the code, and can be can
   assert.deepEqual(calls.at(-1), ['cancelOAuthProviderLogin', ['f1']]);
   assert.equal(document.querySelector('.settings-oauth-dialog'), null);
   assert.deepEqual(words(agentRow()), ['Signed out', 'Sign in to use Antigravity here.']);
-  assert.equal(checkAgain().disabled, false);
+  assert.equal(button(agentRow(), 'Connect').disabled, false);
 });
 
 test('a signed-in agent is the provider account card: one account in use under its plan, its usage, and no rename', async (t) => {
