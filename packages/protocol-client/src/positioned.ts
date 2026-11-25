@@ -3,7 +3,7 @@
 // `thread/transcript/changed` tell them (protocol: `SnapshotWindow`, `ThreadWindowChangedParams`, `TranscriptChange`).
 import { asObj } from './obj.ts';
 import type { Obj } from './obj.ts';
-import { countMergedRows, rowsOf } from './rows.ts';
+import { countMergedRows, heldInPlace, rowsOf } from './rows.ts';
 
 /** The range a followed tail makes (the core's `TAIL_RANGE`). */
 export const TAIL_RANGE = 'tail';
@@ -80,8 +80,9 @@ export function rangeRows(window: HeldWindow, id: string): number {
   return rows;
 }
 
-/** Called with every row a unit folds to and the core item it came from. */
-export type RowOwner = (row: Obj, item: string) => void;
+/** Called with every row a unit folds to and the core item it came from; returns the row held in its place, when the fold
+ *  already holds that row (`heldInPlace`). */
+export type RowOwner = (row: Obj, item: string) => Obj | undefined;
 
 const list = (value: unknown): readonly unknown[] => (Array.isArray(value) ? value : []);
 const edge = (value: unknown): string | null => {
@@ -110,14 +111,22 @@ export function adoptHeldText(row: Obj, held: Obj): void {
   }
 }
 
-/** `unit` with the texts of the rows `held` shows under the same ids. */
+/** `unit` with the rows `held` shows under the same ids where they are the same rows (`heldInPlace`), and with their texts
+ *  where they are not. */
 function adoptHeldUnit(unit: HeldUnit, held: HeldUnit | undefined): HeldUnit {
   if (!held || held === unit) return unit;
-  for (const row of unit.rows) {
+  let rows: Obj[] | undefined;
+  for (let at = 0; at < unit.rows.length; at += 1) {
+    const row = unit.rows[at]!;
     const prior = held.rows.find((candidate) => candidate.id === row.id);
-    if (prior && prior !== row) adoptHeldText(row, prior);
+    if (!prior || prior === row) continue;
+    if (!heldInPlace(row, prior)) adoptHeldText(row, prior);
+    else {
+      rows ??= unit.rows.slice();
+      rows[at] = prior;
+    }
   }
-  return unit;
+  return rows ? { ...unit, rows } : unit;
 }
 
 /** A `TranscriptUnit` as its rows. */
@@ -130,10 +139,7 @@ export function unitOf(value: unknown, own: RowOwner): { position: string; unit:
     const item = asObj(raw);
     const id = typeof item.id === 'string' ? item.id : undefined;
     if (id !== undefined) items.push(id);
-    for (const row of rowsOf(item)) {
-      if (id !== undefined) own(row, id);
-      rows.push(row);
-    }
+    for (const row of rowsOf(item)) rows.push((id !== undefined && own(row, id)) || row);
   }
   return {
     position: u.position,
@@ -404,11 +410,12 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
   }
   const read = unitOf(c.unit, own);
   if (!read) return null;
-  const { position, unit } = read;
+  const { position } = read;
+  const unit = adoptHeldUnit(read.unit, held.units.get(position));
   if (c.op === 'replace') {
     if (!held.units.has(position)) return null;
     const was = held.units.get(position)!;
-    const units = toldUnits(held.units, position, adoptHeldUnit(unit, was));
+    const units = toldUnits(held.units, position, unit);
     noteChange(held.units, units, position);
     carryShown(held.units, units, position);
     const window: HeldWindow = { ...held, units };

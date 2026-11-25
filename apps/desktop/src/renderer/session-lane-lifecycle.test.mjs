@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate } from 'node:timers/promises';
+import { enforceRendererCacheBudget, totalBudgetedChars } from './renderer-cache-budget.ts';
+import { RendererLruCache } from './renderer-lru-cache.ts';
 import { createSessionLaneStore } from './session-lane-store.ts';
 import { createTranscriptSnapshotDecorator } from './snapshot-transcript-decoration.ts';
 
@@ -33,6 +35,69 @@ test('an oversized release does not evict another useful small cached lane', () 
   close();
   assert.equal(store.get('small'), small);
   assert.equal(store.get('large'), null);
+  store.clear();
+});
+
+test('a shown lane counts in the renderer cache budget, which lets hidden lanes go before it', () => {
+  const store = createSessionLaneStore({ decorator, budget: true });
+  const baseline = totalBudgetedChars();
+  update(store, 'hidden', 'h'.repeat(20_000));
+  const close = store.subscribe('shown', () => {});
+  update(store, 'shown', 'x'.repeat(40_000));
+  const counted = totalBudgetedChars() - baseline;
+  assert.ok(counted >= 60_000, `the lanes count ${counted} characters`);
+  assert.ok(store.stats().estimatedBytes >= 120_000, 'the shown lane is in the estimate');
+  enforceRendererCacheBudget(baseline + 45_000);
+  assert.equal(store.get('hidden'), null, 'the hidden lane makes room');
+  assert.notEqual(store.get('shown'), null, 'the shown lane stays');
+  close();
+  store.clear();
+});
+
+test('lanes shown past the budget leave the other caches their reserve', () => {
+  const store = createSessionLaneStore({ decorator, budget: true });
+  const other = new RendererLruCache({
+    name: 'lane-reserve-probe',
+    maxEntries: 8,
+    maxChars: 1_000_000,
+    measure: (value) => value.length,
+  });
+  const close = store.subscribe('shown', () => {});
+  update(store, 'shown', 'x'.repeat(40_000));
+  other.set('kept', 'y'.repeat(5_000));
+  // The shown lane alone is past this budget; a quarter of it stays the other caches'.
+  enforceRendererCacheBudget(30_000);
+  assert.equal(other.get('kept')?.length, 5_000, 'the other cache keeps what fits its reserve');
+  assert.notEqual(store.get('shown'), null);
+  other.dispose();
+  close();
+  store.clear();
+});
+
+test('a lane a pane shows, or is about to show, is never let go by the budget', () => {
+  const store = createSessionLaneStore({ decorator, budget: true });
+  store.setShownSessionIds(['pane-a', 'pane-b']);
+  const close = store.subscribe('pane-a', () => {});
+  update(store, 'pane-a', 'a'.repeat(20_000));
+  // Pane b's frame lands before its pane subscribes; a new task's lane is seeded before its pane shows it.
+  update(store, 'pane-b', 'b'.repeat(20_000));
+  store.seedCreatedSession('created', { sessionId: 'created', items: [{ id: 'c', text: 'c'.repeat(20_000) }] });
+  store.seedPreview('previewed', { sessionId: 'previewed', items: [{ id: 'p', text: 'p'.repeat(20_000) }] });
+  update(store, 'hidden', 'h'.repeat(20_000));
+  // No shown-set update since the seeds: whether a pane shows them is not settled.
+  enforceRendererCacheBudget(1_000);
+  assert.notEqual(store.get('pane-b'), null, 'the lane a pane shows stays');
+  assert.ok(store.liveSessionIds().has('pane-b'));
+  assert.notEqual(store.get('created'), null, 'a seeded lane waits for the shown set');
+  assert.notEqual(store.get('previewed'), null, 'a seeded preview waits for the shown set');
+  assert.equal(store.get('hidden'), null, 'a lane no pane shows makes room');
+  // The next shown set settles the seeds: the one a pane shows stays, the one left out goes like any hidden lane.
+  store.setShownSessionIds(['pane-a', 'pane-b', 'created']);
+  enforceRendererCacheBudget(1_000);
+  assert.notEqual(store.get('created'), null, 'the seed a pane shows is kept as shown');
+  assert.equal(store.get('previewed'), null, 'the seed no pane shows makes room');
+  assert.notEqual(store.get('pane-b'), null);
+  close();
   store.clear();
 });
 

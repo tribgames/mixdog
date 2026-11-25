@@ -3,7 +3,7 @@ import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, StreamPo
 import { streamPositionReached } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
-import { itemRows, mergeToolRows, mergeToolRowsFrom, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
+import { heldInPlace, itemRows, mergeToolRows, mergeToolRowsFrom, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
 import {
   adoptHeldText,
   cutAfter,
@@ -123,13 +123,17 @@ function boundaryItem(s: SessionFold, held: readonly string[], shown: string): n
 // ───────────────────────────── a positioned window ─────────────────────────────
 
 const ownRow: RowOwner = (row, item) => void rowItems.set(row, item);
-/** `ownRow` for a record stored after its rows were shown: its rows take the texts of the rows shown for it (`adoptHeldText`). */
+/** `ownRow` for a record stored after its rows were shown: a row shown for it is held in place of the stored row when the
+ *  two are the same row (`heldInPlace`); otherwise the stored row takes its texts (`adoptHeldText`). */
 const ownShown = (shown: readonly Obj[] | undefined): RowOwner => {
   if (!shown?.length) return ownRow;
   return (row, item) => {
     ownRow(row, item);
     const prior = shown.find((candidate) => candidate.id === row.id && rowItems.get(candidate) === item);
-    if (prior) adoptHeldText(row, prior);
+    if (!prior) return undefined;
+    if (heldInPlace(row, prior)) return prior;
+    adoptHeldText(row, prior);
+    return undefined;
   };
 };
 const itemOfRow = (row: Obj): string | undefined => rowItems.get(row);

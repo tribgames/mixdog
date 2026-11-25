@@ -31,9 +31,20 @@ const atField = (m: Obj): Obj => (finite(m.at) ? { at: m.at } : {});
 
 /** Stored history positions are not display ids or serialized row attributes. An aggregate has a different edge in each direction. */
 const positions = new WeakMap<object, { before: string | undefined; after: string | undefined }>();
+/** A card made of rows stands where they do, read when asked: a row it was made from may take its record's position after
+ *  the card was made (`heldInPlace`), and the card is then not made again. */
+const cardEdges = new WeakMap<object, { first: object; last: object }>();
 export function historyPositionOf(row: unknown, direction: 'before' | 'after' = 'before'): string | undefined {
-  return row && typeof row === 'object' ? positions.get(row)?.[direction] : undefined;
+  if (!row || typeof row !== 'object') return undefined;
+  const own = positions.get(row);
+  if (own) return own[direction];
+  const edges = cardEdges.get(row);
+  return edges ? historyPositionOf(direction === 'before' ? edges.first : edges.last, direction) : undefined;
 }
+const standsAt = <T extends object>(card: T, first: object, last: object): T => {
+  cardEdges.set(card, { first, last });
+  return card;
+};
 export function setHistoryPositions<T extends object>(
   row: T,
   before: string | undefined,
@@ -41,6 +52,41 @@ export function setHistoryPositions<T extends object>(
 ): T {
   if (before !== undefined || after !== undefined) positions.set(row, { before, after });
   return row;
+}
+
+/** Two values folded from the core hold the same JSON. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let at = 0; at < a.length; at += 1) if (!sameJson(a[at], b[at])) return false;
+    return true;
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  let keys = 0;
+  for (const key in left) {
+    if (!Object.hasOwn(left, key)) continue;
+    keys += 1;
+    if (!Object.hasOwn(right, key) || !sameJson(left[key], right[key])) return false;
+  }
+  for (const key in right) if (Object.hasOwn(right, key)) keys -= 1;
+  return keys === 0;
+}
+
+/** `held`, a row the fold holds for what `told` shows (the same record and id, folded again from a later frame), when the two
+ *  are the same row: then the fold holds `held` in its place, and it and every reader keep one row where a reader that keeps
+ *  the row it has, as the desktop does, would otherwise keep a second. A row shown before its record was stored has no
+ *  position yet: it takes the record's. Null when they differ. */
+export function heldInPlace(told: Obj, held: Obj): Obj | null {
+  if (liveRows.has(told) !== liveRows.has(held) || stoppedRows.has(told) !== stoppedRows.has(held)) return null;
+  const at = positions.get(told);
+  const was = positions.get(held);
+  if (was && (was.before !== at?.before || was.after !== at?.after)) return null;
+  if (!sameJson(told, held)) return null;
+  if (at && !was) positions.set(held, at);
+  return held;
 }
 
 /** One `ThreadItem` as its transcript row; `null` for an item that has none (reasoning: today's thinking is the `thinking` state
@@ -526,7 +572,8 @@ const sealed = (card: Obj, headerFinalized: boolean): Obj => {
   const at = headerFinalized ? 1 : 0;
   let out = held[at];
   if (!out) {
-    out = setHistoryPositions({ ...card, headerFinalized }, historyPositionOf(card), historyPositionOf(card, 'after'));
+    const edges = cardEdges.get(card);
+    out = standsAt({ ...card, headerFinalized }, edges?.first ?? card, edges?.last ?? card);
     held[at] = out;
     sealedCards.set(card, held);
   }
@@ -665,7 +712,7 @@ export function* mergeToolRowsSteps(
       const card = yield* aggregateRowSteps(members, live);
       // Node archives the card itself (compaction-view.mjs `archivedItem`): a card of calls a compaction took dims as they do.
       const shown = members.every((member) => member.item.archived === true) ? { ...card, archived: true } : card;
-      setHistoryPositions(shown, historyPositionOf(members[0]!.item), historyPositionOf(members.at(-1)!.item, 'after'));
+      standsAt(shown, members[0]!.item, members.at(-1)!.item);
       runCards.set(members[0]!.item, { live, rows: members.map((member) => member.item), card: shown });
       merged.push(shown);
     } else for (const member of members) merged.push(member.item);
@@ -701,11 +748,7 @@ export function* mergeToolRowsSteps(
       // A live standalone card (`standaloneCardSpec`) is sealed (`finalizeToolHeaders`) and shown (`materialize`) when its turn ends.
       let card = live ? standaloneCards.get(item) : item;
       if (!card) {
-        card = setHistoryPositions(
-          { ...item, headerFinalized: true, deferredDisplayReady: true },
-          historyPositionOf(item),
-          historyPositionOf(item, 'after')
-        );
+        card = standsAt({ ...item, headerFinalized: true, deferredDisplayReady: true }, item, item);
         standaloneCards.set(item, card);
       }
       merged.push(card);

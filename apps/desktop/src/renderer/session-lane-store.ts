@@ -8,6 +8,7 @@ import { desktopAgentIdentity } from '../shared/agent-activity';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { estimateSessionSnapshotBytes } from './app-session-snapshots';
 import { SessionLaneCache } from './session-lane-cache';
+import { registerBudgetedCache } from './renderer-cache-budget';
 import { reportSessionReadFrame } from './session-read-diagnostics';
 import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
@@ -83,6 +84,7 @@ interface SessionLaneStore {
 const SESSION_LANE_CACHE_LIMIT = 64;
 const SESSION_LANE_CACHE_BYTE_LIMIT = 24 * 1024 * 1024;
 const SESSION_LANE_ESTIMATE_INTERVAL_MS = 1_000;
+let laneStoreSequence = 0;
 /** The rows kept of a session no pane shows (its lane is the state it had when the core let it go: a return reads the
  *  session again, and rows that come back equal keep the objects, and so the rendered bodies, held here). */
 export const HIDDEN_SESSION_ROW_BUDGET = 512;
@@ -486,6 +488,7 @@ export function createSessionLaneStore({
   maxEntries = SESSION_LANE_CACHE_LIMIT,
   maxBytes = SESSION_LANE_CACHE_BYTE_LIMIT,
   decorator = sharedTranscriptSnapshotDecorator,
+  budget = false,
 }: {
   maxEntries?: number;
   maxBytes?: number;
@@ -493,12 +496,22 @@ export function createSessionLaneStore({
    *  instances re-issued row identities on pane focus swaps (rows remounted,
    *  transcript jumped). */
   decorator?: TranscriptSnapshotDecorator;
+  /** Count the lanes in the renderer cache budget (`renderer-cache-budget.ts`): the kept ones as pinned, which the other
+   *  caches make room for down to their reserve, and the others, which the budget may let go. */
+  budget?: boolean;
 } = {}): SessionLaneStore {
   const listeners = new Map<string, Set<() => void>>();
+  /** Lanes seeded (`seedPreview`, `seedCreatedSession`) since the shown sessions were last set: the next set says whether a
+   *  pane shows them. */
+  const seeded = new Set<string>();
+  const subscribed = (sessionId: string): boolean => (listeners.get(sessionId)?.size || 0) > 0;
   const snapshots = new SessionLaneCache({
     maxEntries,
     maxBytes,
-    subscribed: (sessionId) => (listeners.get(sessionId)?.size || 0) > 0,
+    subscribed,
+    // A pane shows a session before it subscribes to its lane (its shown ids are set first), and the pane of a seeded
+    // session shows it after the seed.
+    kept: (sessionId) => subscribed(sessionId) || shown.has(sessionId) || seeded.has(sessionId),
   });
   const notificationKeys = new Map<string, object>();
   /** Each session's shown feed position and who hears it move, and the sessions whose lane ended as gone. */
@@ -629,6 +642,7 @@ export function createSessionLaneStore({
     // A genuine teardown ends the session's identity baseline and failure scope, and no answer seeds it again.
     if (!update.snapshot && update.laneEnd === 'gone') {
       decorator.forget?.(sessionId);
+      seeded.delete(sessionId);
       positions.delete(sessionId);
       notifiedAt.delete(sessionId);
       if (!ended.has(sessionId)) {
@@ -758,6 +772,20 @@ export function createSessionLaneStore({
       scheduleLayoutFrame(key, () => notify(sessionId));
     }
   };
+  // Measured whenever the budget is enforced: every budgeted cache's write enforces it, the decorator's on each frame
+  // that changes rows.
+  if (budget) {
+    registerBudgetedCache({
+      name: `session-lanes-${++laneStoreSequence}`,
+      chars: () => snapshots.chars,
+      pinned: () => snapshots.keptChars,
+      trim(target) {
+        const gone = snapshots.trimTo(target);
+        for (const sessionId of gone) decorator.forget?.(sessionId);
+        if (gone.length > 0) syncApprovals();
+      },
+    });
+  }
   const sweepHidden = (): void => {
     snapshots.sweep((sessionId, snapshot) => {
       const kept = keptOfHiddenLane(sessionId, snapshot);
@@ -783,6 +811,7 @@ export function createSessionLaneStore({
         listeners.set(sessionId, bucket);
       }
       bucket.add(listener);
+      seeded.delete(sessionId);
       let released = false;
       return () => {
         if (released) return;
@@ -809,6 +838,8 @@ export function createSessionLaneStore({
     questionSessionIds: () => questions,
     setShownSessionIds(sessionIds) {
       shown = new Set(sessionIds);
+      // Every seed is settled: one a pane shows is kept as shown, one none shows may go like any such lane.
+      seeded.clear();
       // A newly shown session waits for its first frame; one no longer shown leaves.
       setLive(new Set([...live].filter((id) => shown.has(id))));
     },
@@ -852,10 +883,12 @@ export function createSessionLaneStore({
     apply,
     seedPreview(sessionId, snapshot) {
       if (ended.has(sessionId) || snapshots.get(sessionId)) return;
+      seeded.add(sessionId);
       apply({ sessionId, snapshot: { ...snapshot, transcriptPreview: true }, frameSource: 'replay' });
     },
     seedCreatedSession(sessionId, snapshot) {
       if (ended.has(sessionId) || snapshots.get(sessionId)) return;
+      seeded.add(sessionId);
       apply({ sessionId, snapshot, frameSource: 'live' });
     },
     streamReached(sessionId, mark) {
@@ -879,7 +912,7 @@ export function createSessionLaneStore({
     hiddenRows: () => snapshots.inactiveRows,
     stats: () => ({
       entries: snapshots.size,
-      estimatedBytes: snapshots.bytes,
+      estimatedBytes: 2 * snapshots.chars,
       subscribedSessions: listeners.size,
       notificationKeys: notificationKeys.size,
     }),
@@ -887,6 +920,7 @@ export function createSessionLaneStore({
       for (const key of notificationKeys.values()) cancelLayoutFrame(key);
       notificationKeys.clear();
       snapshots.clear();
+      seeded.clear();
       positions.clear();
       notifiedAt.clear();
       ended.clear();
@@ -902,7 +936,7 @@ export function createSessionLaneStore({
 }
 
 /** Shared store for the app renderer; components use the hook below. */
-export const defaultSessionLaneStore = createSessionLaneStore();
+export const defaultSessionLaneStore = createSessionLaneStore({ budget: true });
 
 /** The lane's authoritative content revision (the publication envelope's,
  *  not anything inside the snapshot); re-renders only when it moves. */
