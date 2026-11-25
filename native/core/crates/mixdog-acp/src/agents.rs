@@ -683,9 +683,9 @@ impl Agents {
         if let Some(running) = running {
             if running.preset.id == preset.id && running.cwd == cwd && !running.gone().is_cancelled() {
                 // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
-                // closes that prompt first, which is the answer the protocol has it give to a cancel.
-                running.cancelled_prompt_closed().await;
-                if !running.gone().is_cancelled() {
+                // closes that prompt first, which is the answer the protocol has it give to a cancel. One that does not
+                // close it in time is ended, and its session opened again.
+                if running.cancelled_prompt_closed().await && !running.gone().is_cancelled() {
                     return Ok(running);
                 }
             }
@@ -737,6 +737,10 @@ impl Agents {
             }
         };
         let _ = slot.set(Arc::downgrade(&session));
+        // A reopened session whose answer listed no models runs the agent's models as its last check listed them.
+        if let Some(Readiness::Ready { models, .. }) = lock(&self.slots).get(&preset.id).and_then(|slot| slot.readiness.as_ref()) {
+            session.adopt_models(models);
+        }
         // The feature may have been turned off, or the thread closed, while the agent started: the newest holder wins,
         // and a switch that is off holds none.
         if !self.enabled() {
@@ -748,6 +752,11 @@ impl Agents {
         if !opening.current() {
             session.end();
             return Err(Refusal::Closed);
+        }
+        // A session gone already (its process exited, or its server was retired, while it opened) may have had its end
+        // told before the slot above was set, which then forgot nothing: it is not kept.
+        if session.gone().is_cancelled() {
+            return Err(Refusal::Fault(session.closed()));
         }
         if let Some(replaced) = sessions.insert(thread.clone(), session.clone()) {
             replaced.end();

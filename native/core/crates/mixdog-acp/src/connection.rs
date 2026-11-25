@@ -35,6 +35,9 @@ use crate::files::TextFiles;
 
 /// How much of the agent's stderr is kept for an error message.
 const STDERR_TAIL_BYTES: usize = 4096;
+/// How much of one line of the agent's stderr is told: the rest of a longer line (a progress bar redrawn with `\r`) is
+/// passed over.
+const STDERR_LINE_BYTES: usize = 32 * 1024;
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(0);
 
@@ -235,6 +238,32 @@ impl Drop for KillUnlessExited {
 
 type Waiting = HashMap<u64, oneshot::Sender<Result<Value, Fault>>>;
 
+/// Runs its action when dropped, unless it was disarmed: a call dropped before it ended (a time limit, a stop) still
+/// takes its request's id out of what is waited on.
+struct OnDrop<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> OnDrop<F> {
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(action) = self.0.take() {
+            action();
+        }
+    }
+}
+
+/// Tells each who asks for them the whole line `line` of stderr.
+fn tell_line(told: &mut Vec<mpsc::UnboundedSender<String>>, line: &[u8]) {
+    let text = String::from_utf8_lossy(line).trim().to_owned();
+    if !text.is_empty() {
+        told.retain(|tx| tx.send(text.clone()).is_ok());
+    }
+}
+
 pub struct Connection {
     processes: Arc<dyn ProcessManager>,
     handle: ProcessHandle,
@@ -332,14 +361,22 @@ impl Connection {
         keep_tail(&mut tail, bytes);
         let mut told = lock(&self.stderr_lines);
         for byte in bytes {
-            if *byte != b'\n' {
+            if *byte == b'\n' {
+                tell_line(&mut told, &std::mem::take(line));
+            } else if line.len() < STDERR_LINE_BYTES {
                 line.push(*byte);
-                continue;
             }
-            let text = String::from_utf8_lossy(&std::mem::take(line)).trim().to_owned();
-            if !text.is_empty() {
-                told.retain(|tx| tx.send(text.clone()).is_ok());
-            }
+        }
+    }
+
+    /// A whole line the process wrote to stdout: a message, or a line that is none, which is passed over.
+    fn stdout_line(&self, text: &[u8], out: &mpsc::UnboundedSender<Incoming>) {
+        if text.iter().all(u8::is_ascii_whitespace) {
+            return;
+        }
+        match serde_json::from_slice::<Value>(text) {
+            Ok(message) => self.dispatch(message, out),
+            Err(error) => tracing::warn!("[acp] a line of the agent's output is not JSON: {error}"),
         }
     }
 
@@ -372,15 +409,14 @@ impl Connection {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         lock(&self.waiting).insert(id, tx);
+        let _waited = OnDrop(Some(|| {
+            lock(&self.waiting).remove(&id);
+        }));
         // The reader fails what waits only after it fired the token: a request entered after that is failed here.
         if self.exited.is_cancelled() {
-            lock(&self.waiting).remove(&id);
             return Err(self.closed());
         }
-        if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
-            lock(&self.waiting).remove(&id);
-            return Err(fault);
-        }
+        self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
         rx.await.unwrap_or_else(|_| Err(self.closed()))
     }
 
@@ -399,10 +435,11 @@ impl Connection {
     /// [`Connection::send`] under the id [`Connection::reserve`] gave.
     pub async fn send_as(&self, id: u64, method: &str, params: Value) -> Result<(), Fault> {
         lock(&self.sent).insert(id);
-        if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
+        let unsent = OnDrop(Some(|| {
             lock(&self.sent).remove(&id);
-            return Err(fault);
-        }
+        }));
+        self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
+        unsent.disarm();
         Ok(())
     }
 
@@ -444,6 +481,14 @@ impl Connection {
         let incoming = match (method, message.get("id")) {
             (Some(method), Some(id)) if !id.is_null() => Incoming::Request { id: id.clone(), method, params },
             (Some(method), _) => Incoming::Notification { method, params },
+            // The agent's answer to a line it could not read as a request (JSON-RPC's parse error, invalid request): it
+            // answers no request of this client's, and the process goes on.
+            (None, Some(id)) if id.is_null() => {
+                if let Some(error) = message.get("error").filter(|error| !error.is_null()) {
+                    tracing::warn!("[acp] the agent reported an error of no request: {}", rpc_error(error).message);
+                }
+                return;
+            }
             (None, Some(id)) => {
                 let result = match message.get("error") {
                     Some(error) if !error.is_null() => Err(rpc_error(error)),
@@ -456,6 +501,8 @@ impl Connection {
                         return;
                     }
                     (None, Some(id)) => Incoming::Response { id, result },
+                    // A request whose call was dropped before its answer came: nobody waits for the answer.
+                    (None, None) if id.as_u64().is_some_and(|id| id < self.next_id.load(Ordering::Relaxed)) => return,
                     // An answer to no request of this client: the request it was meant for would wait for ever.
                     (None, None) => return self.break_off("it answered a request this client never made"),
                 }
@@ -490,17 +537,10 @@ async fn read(
         match event {
             ProcessEvent::Output { stream: OutputStream::Stdout, bytes, .. } => {
                 for byte in bytes {
-                    if byte != b'\n' {
+                    if byte == b'\n' {
+                        connection.stdout_line(&std::mem::take(&mut line), &out);
+                    } else {
                         line.push(byte);
-                        continue;
-                    }
-                    let text = std::mem::take(&mut line);
-                    if text.iter().all(u8::is_ascii_whitespace) {
-                        continue;
-                    }
-                    match serde_json::from_slice::<Value>(&text) {
-                        Ok(message) => connection.dispatch(message, &out),
-                        Err(error) => tracing::warn!("[acp] a line of the agent's output is not JSON: {error}"),
                     }
                 }
             }
@@ -512,6 +552,11 @@ async fn read(
         }
     }
     let connection = connection.upgrade();
+    // What the process wrote last with no end of line after it is a whole line too, read before its exit fails what waits.
+    if let Some(connection) = &connection {
+        connection.stdout_line(&line, &out);
+        tell_line(&mut lock(&connection.stderr_lines), &err_line);
+    }
     // A source that ended without the exit tells nothing of the process: it is ended here.
     if let Some(connection) = connection.as_ref().filter(|_| !exited) {
         connection.kill();
@@ -525,5 +570,78 @@ async fn read(
     let waiting: Vec<_> = lock(&connection.waiting).drain().collect();
     for (_, waiter) in waiting {
         let _ = waiter.send(Err(connection.closed()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::process::ProcessInfo;
+    use mixdog_core_api::domain::process::PtySize;
+    use mixdog_core_api::domain::process::SpawnedProcess;
+
+    use super::*;
+
+    /// A process that takes none of its input and writes nothing until it is ended.
+    struct Stalled;
+
+    struct Silent;
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Silent {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            std::future::pending().await
+        }
+    }
+
+    #[async_trait]
+    impl ProcessManager for Stalled {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            Ok(SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            Ok(Box::new(Silent))
+        }
+
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
+
+        async fn write_stdin(&self, _handle: &ProcessHandle, _bytes: Vec<u8>) -> Result<(), ProcessError> {
+            std::future::pending().await
+        }
+
+        fn close_stdin(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn resize_pty(&self, _handle: &ProcessHandle, _size: PtySize) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn kill(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_request_whose_call_is_dropped_leaves_no_answer_awaited() {
+        mixdog_rt::testing::tokens();
+        let cwd = AbsPath::new(std::env::temp_dir()).expect("an absolute folder");
+        let launch = Launch { program: "agent".into(), args: Vec::new(), env: Vec::new(), env_remove: Vec::new(), cwd };
+        let (connection, _incoming) = Connection::start(Arc::new(Stalled), launch).await.expect("the process starts");
+        let limit = Duration::from_millis(20);
+        assert!(mixdog_rt::time::timeout(limit, connection.request("initialize", json!({}))).await.is_err());
+        let id = connection.reserve();
+        assert!(mixdog_rt::time::timeout(limit, connection.send_as(id, "session/prompt", json!({}))).await.is_err());
+        assert!(lock(&connection.waiting).is_empty(), "the request's answer is awaited no more");
+        assert!(lock(&connection.sent).is_empty(), "the prompt's answer is awaited no more");
     }
 }

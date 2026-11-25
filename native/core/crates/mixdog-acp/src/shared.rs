@@ -21,6 +21,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::agents::Agents;
 use crate::agents::lock;
@@ -35,8 +36,12 @@ use crate::files::read_text_file;
 use crate::preset::AgentPreset;
 use crate::session::AgentSession;
 use crate::session::Program;
+use crate::session::Routed;
+use crate::session::close_session;
 use crate::session::initialize;
 use crate::session::launch;
+use crate::session::not_offered;
+use crate::session::unheld;
 
 /// What a session leaving a server tells it last.
 type Farewell = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -51,12 +56,22 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// What the agents hold of a preset's shared server.
 pub(crate) enum SharedSlot {
-    /// Being started: every open that needs the server meanwhile waits for this one start.
+    /// Being started: every open that needs the server meanwhile waits for this one start, which `stop` ends.
     Starting {
         id: u64,
-        started: watch::Receiver<Option<Result<Arc<SharedServer>, Fault>>>,
+        started: watch::Receiver<Option<Started>>,
+        stop: CancellationToken,
     },
     Running(Arc<SharedServer>),
+}
+
+/// How a server's start ended.
+#[derive(Clone)]
+pub(crate) enum Started {
+    Up(Arc<SharedServer>),
+    Failed(Fault),
+    /// Its stop came first, and it exited: an open that waited for it goes round.
+    Stopped,
 }
 
 #[derive(Default)]
@@ -71,6 +86,9 @@ struct State {
     opened: usize,
     /// It takes no more sessions: it is being closed, or it has exited.
     retired: bool,
+    /// What it sent of a session it does not serve while an open is under way, in order: the session being opened
+    /// may be that one, which the server tells of before its open is answered.
+    parked: Vec<Incoming>,
 }
 
 pub(crate) struct SharedServer {
@@ -96,26 +114,57 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        lock(&self.0.state).opening -= 1;
+        // With no open under way, nothing kept is any session's.
+        let unclaimed = {
+            let mut state = lock(&self.0.state);
+            state.opening -= 1;
+            if state.opening == 0 { std::mem::take(&mut state.parked) } else { Vec::new() }
+        };
+        for message in unclaimed {
+            self.0.unclaimed(message);
+        }
         self.0.settle();
     }
 }
 
+/// The open session `id` names among `state`'s.
+fn open_in(state: &State, id: &str) -> Option<Arc<AgentSession>> {
+    state.sessions.get(id).and_then(Weak::upgrade).filter(|session| !session.gone.is_cancelled())
+}
+
+/// The session a request or a notification of the agent's names by its `sessionId`.
+fn named_id(message: &Incoming) -> Option<&str> {
+    match message {
+        Incoming::Request { params, .. } | Incoming::Notification { params, .. } => params.get("sessionId").and_then(Value::as_str),
+        _ => None,
+    }
+}
+
 impl SharedServer {
-    /// Starts `preset`'s server from `program` in a temporary folder of its own, and has it answer `initialize`.
-    async fn start(agents: &Arc<Agents>, preset: &AgentPreset, program: &Program) -> Result<Arc<Self>, Fault> {
+    /// Starts `preset`'s server from `program` in a temporary folder of its own, and has it answer `initialize`; `None` for
+    /// a start `stop` ended first, whose server is closed as the end of its input closes it.
+    async fn start(agents: &Arc<Agents>, preset: &AgentPreset, program: &Program, stop: &CancellationToken) -> Result<Option<Arc<Self>>, Fault> {
         let cwd = AbsPath::new(agents.parts.probe_cwd.clone())
             .ok_or_else(|| Fault::Start(format!("{} is not an absolute folder to start the agent in", agents.parts.probe_cwd.display())))?;
         let files = agents.parts.files.clone();
         let epoch = agents.account_epoch(&preset.id);
         let temp = Temp { folder: agents.server_temp().await?, files: files.clone() };
         let (connection, incoming) = Connection::start_in(agents.parts.processes.clone(), launch(preset, program, cwd), Some(temp)).await?;
+        let answered = tokio::select! {
+            biased;
+            () = stop.cancelled() => None,
+            answered = initialize(&connection) => Some(answered),
+        };
+        let Some(answered) = answered else {
+            connection.close_gracefully(grace(0)).await;
+            return Ok(None);
+        };
         // A server that does not answer is ended, and its temporary folder goes with its exit.
-        let capabilities = initialize(&connection).await.inspect_err(|_| connection.kill())?;
+        let capabilities = answered.inspect_err(|_| connection.kill())?;
         let server =
             Arc::new(Self { connection, capabilities, preset: preset.id.clone(), epoch, agents: Arc::downgrade(agents), files, state: Mutex::default() });
         drop(mixdog_rt::spawn("acp.shared", TaskClass::Work, route(server.clone(), incoming)));
-        Ok(server)
+        Ok(Some(server))
     }
 
     /// The server for one more open of a session; `None` once it takes no more.
@@ -130,18 +179,35 @@ impl SharedServer {
 
     /// `session` was opened on the server: what the agent sends of it reaches it from here. A server that has exited
     /// meanwhile has nothing more of it to send, and an earlier session under the same id is told apart from it no more.
-    /// `true` for the first session the server opened.
-    pub(crate) fn register(&self, session: &Arc<AgentSession>) -> bool {
+    /// `true` for the first session the server opened. What the server sent of the session before its open was answered
+    /// reaches it first, in order: what it sends later is delivered only once it finds the session here.
+    pub(crate) fn register(self: &Arc<Self>, session: &Arc<AgentSession>) -> bool {
         let mut state = lock(&self.state);
         state.opened += 1;
         let first = state.opened == 1;
+        let mut routed = Vec::new();
         let earlier = match state.retired {
             true => Some(session.clone()),
-            false => state.sessions.insert(session.session_id.clone(), Arc::downgrade(session)).and_then(|earlier| earlier.upgrade()),
+            false => {
+                let earlier = state.sessions.insert(session.session_id.clone(), Arc::downgrade(session)).and_then(|earlier| earlier.upgrade());
+                let (theirs, others): (Vec<Incoming>, Vec<Incoming>) =
+                    std::mem::take(&mut state.parked).into_iter().partition(|message| named_id(message) == Some(session.session_id.as_str()));
+                state.parked = others;
+                routed = theirs.into_iter().filter_map(|message| self.hand(session, message)).collect();
+                earlier
+            }
         };
         drop(state);
         if let Some(gone) = earlier {
             gone.gone.cancel();
+        }
+        if !routed.is_empty() {
+            let (server, session) = (self.clone(), session.clone());
+            drop(mixdog_rt::spawn("acp.shared.parked", TaskClass::Work, async move {
+                for routed in routed {
+                    server.act(&session, routed).await;
+                }
+            }));
         }
         first
     }
@@ -187,7 +253,7 @@ impl SharedServer {
                     let _ = connection.notify("session/cancel", json!({ "sessionId": id })).await;
                 }
                 if closes {
-                    let _ = connection.request("session/close", json!({ "sessionId": id })).await;
+                    close_session(&connection, &id).await;
                 }
             }) as Farewell
         });
@@ -237,64 +303,74 @@ impl SharedServer {
         self.connection.close_gracefully(grace(harnesses)).await;
     }
 
-    /// The open session `params` names by its `sessionId`.
-    fn named(&self, params: &Value) -> Option<Arc<AgentSession>> {
-        let id = params.get("sessionId").and_then(Value::as_str)?;
-        self.session(id)
+    /// Answers a request of the server's in a task of its own: what it sends of the other sessions does not wait for the
+    /// write.
+    fn answer(&self, id: Value, result: Result<Value, RpcError>) {
+        let connection = self.connection.clone();
+        drop(mixdog_rt::spawn("acp.shared.answer", TaskClass::Work, async move { connection.respond(id, result).await }));
     }
 
-    fn session(&self, id: &str) -> Option<Arc<AgentSession>> {
-        lock(&self.state).sessions.get(id).and_then(Weak::upgrade).filter(|session| !session.gone.is_cancelled())
+    /// What the server sent of a session it does not serve: a request is answered as one of no open session (a question
+    /// cancelled, a read refused), and nothing else of it is kept.
+    fn unclaimed(&self, message: Incoming) {
+        if let Incoming::Request { id, method, .. } = message {
+            self.answer(id, unheld(&method));
+        }
     }
 
-    /// Hands `message` to the session it is of. A read is answered from that session's folder alone, and a question about
-    /// a session that is not open is cancelled; nothing else of such a session is kept.
-    async fn deliver(&self, message: Incoming) {
-        let session = match &message {
+    /// Hands `message` to `session`, the open session it is of: a read is answered from that session's folder alone, in a
+    /// task of its own so the other sessions' messages do not wait for the file; the rest the session takes.
+    fn hand(&self, session: &AgentSession, message: Incoming) -> Option<Routed> {
+        match message {
             Incoming::Request { id, method, params } if method == "fs/read_text_file" => {
-                match self.named(params) {
-                    // Read in a task of its own: the other sessions' messages do not wait for the file.
-                    Some(session) => {
-                        let (connection, files, id, params) = (self.connection.clone(), self.files.clone(), id.clone(), params.clone());
-                        drop(mixdog_rt::spawn("acp.shared.read", TaskClass::Work, async move {
-                            connection.respond(id, read_text_file(files.as_ref(), &session.cwd, &params).await).await;
-                        }));
-                    }
-                    None => {
-                        let unnamed = RpcError { code: -32602, message: "the read names no session this client holds open".to_owned(), data: Value::Null };
-                        self.connection.respond(id.clone(), Err(unnamed)).await;
-                    }
-                }
+                let (connection, files, cwd) = (self.connection.clone(), self.files.clone(), session.cwd.clone());
+                drop(mixdog_rt::spawn("acp.shared.read", TaskClass::Work, async move {
+                    connection.respond(id, read_text_file(files.as_ref(), &cwd, &params).await).await;
+                }));
+                None
+            }
+            message => Some(session.take(message)),
+        }
+    }
+
+    async fn act(&self, session: &AgentSession, routed: Routed) {
+        match routed {
+            Routed::Refuse(id) => self.answer(id, Ok(json!({ "outcome": { "outcome": "cancelled" } }))),
+            routed => session.act(routed).await,
+        }
+    }
+
+    /// Hands `message` to the session it is of. What names a session that is not open is kept while an open is under
+    /// way, for the session being opened may be that one; else it is [`Self::unclaimed`].
+    async fn deliver(&self, message: Incoming) {
+        let named = match &message {
+            Incoming::Request { id, method, .. } if method != "fs/read_text_file" && method != "session/request_permission" => {
+                self.answer(id.clone(), Err(not_offered(method)));
                 return;
             }
-            Incoming::Request { id, method, .. } if method != "session/request_permission" => {
-                let refused = RpcError { code: -32601, message: format!("{method} is not offered by this client"), data: Value::Null };
-                self.connection.respond(id.clone(), Err(refused)).await;
-                return;
-            }
-            Incoming::Request { id, params, .. } => match self.named(params) {
-                Some(session) => session,
-                None => {
-                    self.connection.respond(id.clone(), Ok(json!({ "outcome": { "outcome": "cancelled" } }))).await;
-                    return;
-                }
-            },
-            Incoming::Notification { params, .. } => match self.named(params) {
-                Some(session) => session,
-                None => return,
-            },
-            Incoming::Response { id, .. } => {
-                let owner = lock(&self.state).prompts.remove(id);
-                match owner.and_then(|owner| self.session(&owner)) {
-                    Some(session) => session,
-                    None => return,
-                }
-            }
+            Incoming::Response { id, .. } => lock(&self.state).prompts.remove(id),
             // A session's tool calls reach it through its own tool server.
             Incoming::Tool(_) => return,
+            message => named_id(message).map(str::to_owned),
         };
-        let routed = session.take(message);
-        session.act(routed).await;
+        let session = {
+            let mut state = lock(&self.state);
+            match named.as_deref().and_then(|id| open_in(&state, id)) {
+                Some(session) => session,
+                None if named.is_some() && state.opening > 0 && !matches!(message, Incoming::Response { .. }) => {
+                    state.parked.push(message);
+                    return;
+                }
+                None => {
+                    drop(state);
+                    self.unclaimed(message);
+                    return;
+                }
+            }
+        };
+        if let Some(routed) = self.hand(&session, message) {
+            self.act(&session, routed).await;
+        }
     }
 
     /// The process ended and all it wrote was delivered: the next session starts a new server, and every session it
@@ -304,6 +380,7 @@ impl SharedServer {
             let mut state = lock(&self.state);
             state.retired = true;
             state.prompts.clear();
+            state.parked.clear();
             state.sessions.drain().filter_map(|(_, session)| session.upgrade()).collect()
         };
         if let Some(agents) = self.agents.upgrade() {
@@ -349,7 +426,7 @@ impl Agents {
             };
             let outcome = started.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone());
             match outcome {
-                Some(Ok(server)) => {
+                Some(Started::Up(server)) => {
                     // The switch or the app's stop may have come while it started: it is leased under the lock they are
                     // taken under, as a running one is. One taken out of use meanwhile (it holds an account left) is not
                     // leased: the open goes round and starts the next.
@@ -363,7 +440,10 @@ impl Agents {
                         return Ok(lease);
                     }
                 }
-                Some(Err(fault)) => return Err(fault),
+                Some(Started::Failed(fault)) => return Err(fault),
+                // Stopped while it started (the app's stop, a sign-out, an account left): the open goes round, and is
+                // refused where no server may start now.
+                Some(Started::Stopped) => {}
                 None => return Err(Fault::Start("its start was ended".to_owned())),
             }
         }
@@ -388,25 +468,30 @@ impl Agents {
         shared: &mut HashMap<String, SharedSlot>,
         preset: &AgentPreset,
         program: &Program,
-    ) -> watch::Receiver<Option<Result<Arc<SharedServer>, Fault>>> {
+    ) -> watch::Receiver<Option<Started>> {
         let id = self.next_check.fetch_add(1, Ordering::Relaxed);
         let (tell, started) = watch::channel(None);
-        shared.insert(preset.id.clone(), SharedSlot::Starting { id, started: started.clone() });
+        let stop = CancellationToken::new();
+        shared.insert(preset.id.clone(), SharedSlot::Starting { id, started: started.clone(), stop: stop.clone() });
         let (agents, preset, program) = (self.clone(), preset.clone(), program.clone());
         drop(mixdog_rt::spawn("acp.shared.start", TaskClass::Work, async move {
-            let outcome = SharedServer::start(&agents, &preset, &program).await;
+            let outcome = match SharedServer::start(&agents, &preset, &program, &stop).await {
+                Ok(Some(server)) => Started::Up(server),
+                Ok(None) => Started::Stopped,
+                Err(fault) => Started::Failed(fault),
+            };
             // Held until every open that waited for the start has leased the server or given up: a server none of
             // them leases serves no session, and the hold's end closes it as such.
             let held = {
                 let mut shared = lock(&agents.shared);
                 let current = matches!(shared.get(&preset.id), Some(SharedSlot::Starting { id: slot, .. }) if *slot == id);
                 match &outcome {
-                    Ok(server) if current => {
+                    Started::Up(server) if current => {
                         shared.insert(preset.id.clone(), SharedSlot::Running(server.clone()));
                         server.lease()
                     }
-                    Ok(_) => None,
-                    Err(_) => {
+                    Started::Up(_) => None,
+                    Started::Failed(_) | Started::Stopped => {
                         if current {
                             shared.remove(&preset.id);
                         }
@@ -458,8 +543,8 @@ impl Agents {
         stops.push(stopping);
     }
 
-    /// Closes `slot`'s server, which just left `_shared` (the servers, whose lock the caller holds), one still starting once
-    /// it started, in a task the app's stop waits for; the receiver is told once it has exited.
+    /// Closes `slot`'s server, which just left `_shared` (the servers, whose lock the caller holds), in a task the app's stop
+    /// waits for: one still starting is stopped where it waits for the agent's answer; the receiver is told once it has exited.
     fn stop_slot(&self, _shared: &mut HashMap<String, SharedSlot>, slot: SharedSlot) -> tokio::sync::oneshot::Receiver<()> {
         // It takes no session from here, and the last of its sessions to leave it does not close it a second time.
         if let SharedSlot::Running(server) = &slot {
@@ -469,8 +554,12 @@ impl Agents {
         self.track_stop(mixdog_rt::spawn("acp.shared.stop", TaskClass::Work, async move {
             let server = match slot {
                 SharedSlot::Running(server) => Some(server),
-                SharedSlot::Starting { mut started, .. } => {
-                    started.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone()).and_then(Result::ok)
+                SharedSlot::Starting { mut started, stop, .. } => {
+                    stop.cancel();
+                    match started.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone()) {
+                        Some(Started::Up(server)) => Some(server),
+                        _ => None,
+                    }
                 }
             };
             if let Some(server) = server {

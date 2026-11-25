@@ -5047,3 +5047,290 @@ async fn a_turn_waiting_on_an_approval_card_ends_when_its_session_leaves_the_sha
     let (end, ()) = within("the turn's end", async { tokio::join!(asking, release) }).await;
     assert!(matches!(&end, TurnEnd::Failed { message, .. } if message == "The agent's session was closed."), "{end:?}");
 }
+
+/// The prompt `text` as a turn of `world`'s thread on the session it has, its route on `gem` at the effort `high`.
+fn serve_on_gem<'a>(world: &'a World, text: &str, stored: Option<Stored>) -> impl Future<Output = TurnEnd> + 'a {
+    let turns = Arc::new(Turns::default());
+    let request = TurnRequest {
+        thread: thread(),
+        cwd: world.cwd(),
+        stored,
+        rules: Some("RULES".to_owned()),
+        input: json!({ "role": "user", "content": text }),
+        conversation: turns.clone(),
+        attachments: turns,
+    };
+    let context = TurnContext { model: "gem".to_owned(), effort: Some("high".to_owned()), ..world.context(CancellationToken::new()) };
+    mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), context)
+}
+
+/// The fake's models, `gem` at two efforts beside `solo`.
+const TIERED: &str = r#"[{"modelId":"gem-low","name":"Gem (Low)"},{"modelId":"gem-high","name":"Gem (High)"},{"modelId":"solo","name":"Solo"}]"#;
+
+/// One prompt turn of `session`, reported to `surface`.
+async fn run_on(world: &World, session: &Arc<mixdog_acp::session::AgentSession>, surface: &Surface, text: &str) -> TurnEnd {
+    let ask = Ask::Prompt(vec![json!({ "type": "text", "text": text })]);
+    within("the turn", mixdog_acp::turn::run(session, Arc::new(surface.clone()), ask, world.context(CancellationToken::new()))).await
+}
+
+/// A shared server whose start never gets its `initialize` answered is stopped by the app's stop: the stop does not wait on
+/// the answer, the server is closed as the end of its input closes it, and the open that waited for it is refused.
+#[tokio::test]
+async fn the_apps_stop_ends_a_servers_start_whose_initialize_is_never_answered() {
+    let world = World::official(&[("FAKE_AGENT_SILENT_INIT", "1")]);
+    let thread = thread();
+    let opening = world.agents.session(&thread, &world.preset, world.cwd(), None, None);
+    let stop = async {
+        world.logs("initialize").await;
+        world.agents.shutdown().await;
+    };
+    let (opened, ()) = within("the open and the stop", async { tokio::join!(opening, stop) }).await;
+    assert!(matches!(opened, Err(Refusal::Fault(_))));
+    assert!(world.processes.list().iter().all(|process| process.exit == Some(CLOSED)), "{:?}", world.log());
+    assert!(world.server_temps().iter().all(|temp| !exists(temp)));
+}
+
+/// A close the agent never answers is not waited on: the question whose session it closes is answered.
+#[tokio::test]
+async fn a_close_the_agent_never_answers_does_not_hold_up_the_question() {
+    let world = World::new(&[("FAKE_AGENT_SILENT_CLOSE", "1")]);
+    let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
+    let answered = within("the answer", mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "SUMMARIZE", "whoami", now)).await;
+    assert!(matches!(&answered, Ok(answered) if answered.text.starts_with("session=sess-1")), "{answered:?}");
+    assert!(world.logged("session/close") >= 1, "the question's session was asked to close: {:?}", world.log());
+}
+
+/// An error the agent answers to no request (`"id": null`, as it answers a line it could not parse) ends nothing: the
+/// turn goes on in the same process.
+#[tokio::test]
+async fn an_error_the_agent_answers_to_no_request_leaves_its_process_running() {
+    let world = World::new(&[]);
+    let end = within("the turn", world.prompt(&thread(), &Surface::default(), "nullerror", None, CancellationToken::new())).await;
+    assert_eq!(completed_text(&end), "fine");
+    let session = world.agents.running(&thread()).expect("the session's agent");
+    let next = run_on(&world, &session, &Surface::default(), "whoami").await;
+    assert!(matches!(next, TurnEnd::Completed { .. }), "{next:?}");
+    assert!(!session.connection.exited().is_cancelled());
+}
+
+/// A cancel told while no prompt was open (a stop that came as the agent answered the prompt) is written ahead of the next
+/// prompt: the agent never reads it as the cancel of that one.
+#[tokio::test]
+async fn a_cancel_told_before_the_next_prompt_reaches_the_agent_ahead_of_it() {
+    let world = World::new(&[]);
+    within("the first turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    let session = world.agents.running(&thread()).expect("the session's agent");
+    session.cancel(None);
+    let end = run_on(&world, &session, &Surface::default(), "whoami").await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+    let log = world.log();
+    let cancel = log.iter().position(|line| line == "session/cancel").expect("the cancel");
+    let prompt = log.iter().rposition(|line| line == "session/prompt").expect("the prompt");
+    assert!(cancel < prompt, "{log:?}");
+}
+
+/// A cancelled prompt the agent never closes holds the next turn only for a while: the agent is then ended and the
+/// session opened again.
+#[tokio::test]
+async fn a_cancelled_prompt_the_agent_never_closes_does_not_hold_the_next_turn() {
+    let world = World::new(&[("FAKE_AGENT_DEAF", "1")]);
+    let (thread, surface, cancel) = (thread(), Surface::default(), CancellationToken::new());
+    let muted = world.prompt(&thread, &surface, "mute", None, cancel.clone());
+    let stop = async {
+        world.logs("session/prompt").await;
+        cancel.cancel();
+    };
+    let (end, ()) = within("the stop", async { tokio::join!(muted, stop) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    let held = world.agents.running(&thread).expect("the session's agent");
+    assert!(held.holds_cancelled_prompt());
+    let end = within("the next turn", world.prompt(&thread, &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=false"), "{end:?}");
+    within("the end of the agent that held the prompt", held.connection.exited().cancelled()).await;
+}
+
+/// What the shared server sends of a session before the answer that opens it names it (a first report) reaches the session.
+#[tokio::test]
+async fn what_the_shared_server_sends_of_a_session_before_its_open_is_answered_reaches_it() {
+    let world = World::official(&[("FAKE_AGENT_EARLY_UPDATE", "1")]);
+    let session = within("the open", world.agents.session(&thread(), &world.preset, world.cwd(), None, None)).await.expect("the session");
+    assert_eq!(session.context_use(), Some(mixdog_acp::session::ContextUse { used: 7, size: 700 }));
+}
+
+/// What a load that failed replayed of the stored session is none of the session opened in its place.
+#[tokio::test]
+async fn what_a_failed_load_replayed_is_none_of_the_session_opened_in_its_place() {
+    let world = World::build(&[("FAKE_AGENT_LOAD_FAILS", "1")], |preset, _| preset.quirks.reopen = mixdog_acp::preset::Reopen::Load);
+    within("the first turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    world.agents.release(&thread());
+    let surface = Surface::default();
+    let end = within("the reopened turn", world.prompt(&thread(), &surface, "whoami", Some("sess-1"), CancellationToken::new())).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=false loaded=false"), "{end:?}");
+    assert_eq!(world.logged("session/load"), 1);
+    let replayed = |text: &str| text.contains("replayed");
+    let rows = surface.rows();
+    assert!(!replayed(&surface.streamed()) && !rows.iter().any(|row| row["content"].as_str().is_some_and(replayed)), "{rows:?}");
+}
+
+/// An agent that states the close it does not offer as `null` is never asked to close a session.
+#[tokio::test]
+async fn an_agent_that_states_its_close_as_null_is_never_asked_to_close() {
+    let world = World::new(&[("FAKE_AGENT_CLOSE_NULL", "1")]);
+    world.checked().await;
+    let closed = world.logged("session/close");
+    let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
+    within("the answer", mixdog_acp::runs::ask_once(&world.agents, &world.preset, "default", "SUMMARIZE", "whoami", now)).await.expect("an answer");
+    assert_eq!(world.logged("session/close"), closed);
+}
+
+/// A reopen the agent refuses for a sign-in that no longer holds signs the agent out: no new session is opened in place
+/// of the stored one.
+#[tokio::test]
+async fn a_reopen_refused_for_the_sign_in_signs_the_agent_out_and_opens_no_new_session() {
+    let world = World::new(&[("FAKE_AGENT_RESUME_AUTH", "1")]);
+    within("the first turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
+    world.agents.release(&thread());
+    let opened = within("the reopen", world.agents.session(&thread(), &world.preset, world.cwd(), Some(held("sess-1")), Some("RULES".into()))).await;
+    let refused = opened.err();
+    assert!(refused.as_ref().is_some_and(Refusal::signed_out), "{refused:?}");
+    assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
+}
+
+/// What the agent writes last before it exits, with no end of line after it, arrives: the prompt's answer on stdout, and
+/// the line on stderr.
+#[tokio::test]
+async fn what_the_agent_writes_last_with_no_end_of_line_still_arrives() {
+    let world = World::new(&[]);
+    let session = within("the open", world.agents.session(&thread(), &world.preset, world.cwd(), None, None)).await.expect("the agent starts");
+    let mut lines = session.connection.stderr_lines();
+    let end = run_on(&world, &session, &Surface::default(), "lastword").await;
+    assert!(matches!(&end, TurnEnd::Failed { message, code: Some(-32603), reported: true } if message == "out of words"), "{end:?}");
+    let mut told = Vec::new();
+    while let Some(line) = within("the end of stderr", lines.recv()).await {
+        told.push(line);
+    }
+    assert!(told.iter().any(|line| line == "the last stderr words"), "{told:?}");
+}
+
+/// A stderr line is told up to its bound, however long the agent makes it.
+#[tokio::test]
+async fn a_stderr_line_is_told_up_to_its_bound() {
+    let world = World::new(&[]);
+    let session = within("the open", world.agents.session(&thread(), &world.preset, world.cwd(), None, None)).await.expect("the agent starts");
+    let mut lines = session.connection.stderr_lines();
+    run_on(&world, &session, &Surface::default(), "noisy").await;
+    let line = within("the line", lines.recv()).await.expect("the line");
+    assert_eq!(line.len(), 32 * 1024);
+}
+
+/// A session whose shared server was retired while it opened is not kept as the thread's.
+#[tokio::test]
+async fn a_session_whose_server_was_retired_while_it_opened_is_not_kept() {
+    let world = World::official(&[("FAKE_AGENT_NEW_UNTIL", "answer-the-open")]);
+    let thread = thread();
+    let opening = world.agents.session(&thread, &world.preset, world.cwd(), None, None);
+    let retire = async {
+        world.logs("session/new").await;
+        world.agents.release_all();
+        #[allow(clippy::disallowed_methods, reason = "the agent answers the open")]
+        std::fs::write(world.dir.path().join("answer-the-open"), "").expect("the answer");
+    };
+    let (opened, ()) = within("the open", async { tokio::join!(opening, retire) }).await;
+    assert!(world.agents.running(&thread).is_none(), "a session gone while it opened is not kept");
+    assert!(opened.is_err());
+}
+
+/// A model option of the agent's whose choices are grouped lists the choices of every group.
+#[test]
+fn a_grouped_model_option_lists_the_models_of_every_group() {
+    let answer = json!({ "configOptions": [{ "id": "model", "category": "model", "type": "select", "currentValue": "b", "options": [
+        { "group": "fast", "name": "Fast", "options": [{ "value": "a", "name": "A" }] },
+        { "group": "deep", "name": "Deep", "options": [{ "value": "b", "name": "B" }, { "value": "c" }] },
+    ] }] });
+    let models = mixdog_acp::session::Models::of(&answer);
+    assert_eq!(models.available.iter().map(|model| model.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+    assert_eq!((models.current.as_deref(), models.config_option.as_deref()), (Some("b"), Some("model")));
+}
+
+/// The model the agent tells it put itself on (its model option at its `thought_level`) is the session's: a route's model
+/// is set again where it is not that one.
+#[tokio::test]
+async fn a_model_the_agent_tells_it_is_on_is_the_sessions_and_the_routes_is_set_again() {
+    let world = World::new(&[("FAKE_AGENT_MODELS", TIERED)]);
+    within("the switch", serve_on_gem(&world, "switch gem low", None)).await;
+    let session = world.agents.running(&thread()).expect("the session's agent");
+    assert_eq!(session.models().current.as_deref(), Some("gem-low"));
+    let end = within("the next turn", serve_on_gem(&world, "whoami", Some(held("sess-1")))).await;
+    assert!(completed_text(&end).contains(" model=gem-high "), "{end:?}");
+}
+
+/// A reopened session whose answer lists no models runs the route's model at its effort, as the agent listed it.
+#[tokio::test]
+async fn a_reopened_session_whose_answer_lists_no_models_runs_the_routes_effort() {
+    let world = World::new(&[("FAKE_AGENT_MODELS", TIERED)]);
+    let end = within("the first turn", serve_on_gem(&world, "whoami", None)).await;
+    assert!(completed_text(&end).contains(" model=gem-high "), "{end:?}");
+    world.agents.release(&thread());
+    let end = within("the reopened turn", serve_on_gem(&world, "whoami", Some(held("sess-1")))).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=true") && completed_text(&end).contains(" model=gem-high "), "{end:?}");
+}
+
+/// A call an earlier turn left running that ends while a cancelled prompt is still open is shown by the next turn.
+#[tokio::test]
+async fn a_background_call_that_ends_while_a_cancelled_prompt_is_open_is_shown_by_the_next_turn() {
+    let world = World::new(&[]);
+    let first = Surface::default();
+    within("the first turn", world.prompt(&thread(), &first, "keep", None, CancellationToken::new())).await;
+    let made = first.rows()[0]["toolCalls"][0]["id"].clone();
+    let (thread, surface, cancel) = (thread(), Surface::default(), CancellationToken::new());
+    let muted = world.prompt(&thread, &surface, "mute", None, cancel.clone());
+    let stop = async {
+        while world.logged("session/prompt") < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        cancel.cancel();
+    };
+    let (end, ()) = within("the stop", async { tokio::join!(muted, stop) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    let next = Surface::default();
+    let end = within("the next turn", world.prompt(&thread, &next, "whoami", None, CancellationToken::new())).await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+    let rows = next.rows();
+    assert!(rows.iter().any(|row| row["toolCalls"][0]["arguments"]["resultOf"] == made), "{rows:?}");
+}
+
+/// A report of its context the agent makes after its prompt was answered is told by the next turn, and its window is kept.
+#[tokio::test]
+async fn a_report_the_agent_makes_after_its_prompt_is_answered_is_told_by_the_next_turn() {
+    let world = World::new(&[]);
+    let input = |text: &str| json!({ "role": "user", "content": text });
+    within("the turn", world.serve(&Surface::default(), input("latereport"), None, "default", CancellationToken::new())).await;
+    let session = world.agents.running(&thread()).expect("the session's agent");
+    within("the late report", async {
+        while session.context_use().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let next = Surface::default();
+    within("the next turn", world.serve(&next, input("whoami"), Some("sess-1"), "default", CancellationToken::new())).await;
+    let windows: Vec<Value> = next
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Header(change) => change.set.get("rawContextWindow").cloned(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(windows, [json!(2000)], "{:?}", next.events());
+    assert_eq!(world.agents.reported_window(&world.preset, "default"), Some(2000));
+}
+
+/// A read the agent of a session's own process makes in the name of another session is refused.
+#[tokio::test]
+async fn a_read_that_names_another_session_than_the_processs_own_is_refused() {
+    let world = World::new(&[]);
+    let note = world.dir.path().join("note.txt");
+    let end = within("the turn", world.prompt(&thread(), &Surface::default(), &format!("readas sess-9 {}", note.display()), None, CancellationToken::new())).await;
+    assert_eq!(completed_text(&end), "error:the read names no session this client holds open");
+}

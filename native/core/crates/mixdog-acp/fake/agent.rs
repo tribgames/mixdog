@@ -52,6 +52,10 @@ struct Session {
     hanging: Option<Value>,
     /// The prompt taken and answered nothing until it is cancelled.
     muted: Option<Value>,
+    /// A call a turn left running, which ends when the next cancelled prompt is cancelled.
+    kept: Option<String>,
+    /// The session took a prompt.
+    prompted: bool,
     /// The MCP servers the session was opened or reopened with.
     servers: Value,
     /// The `_meta` the session was opened or reopened with.
@@ -261,6 +265,7 @@ impl Agent {
         if !self.session().servers[0].is_null() && setting("FAKE_AGENT_LATE_MCP").is_some() {
             self.connect();
         }
+        self.session().prompted = true;
         let once_or_no = json!([{ "optionId": "once", "name": "Allow", "kind": "allow_once" }, { "optionId": "no", "name": "Reject", "kind": "reject_once" }]);
         match word {
             // A command of the agent's own whose title holds the name of a Mixdog tool.
@@ -384,6 +389,51 @@ impl Agent {
                 self.end(&id);
             }
             "mute" => self.session().muted = Some(id),
+            // A turn that ends with a call left running, which ends when a muted prompt is cancelled.
+            "keep" => {
+                self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "k1", "title": "Watch", "kind": "execute", "status": "in_progress" }));
+                self.say("kept");
+                self.end(&id);
+                self.session().kept = Some("k1".to_owned());
+            }
+            // An error answered to no request, as an agent answers a line it could not parse, and the turn going on.
+            "nullerror" => {
+                send(json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": "Parse error" } }));
+                self.say("fine");
+                self.end(&id);
+            }
+            // The process's last words on both its outputs, with no end of line after them, and its exit.
+            "lastword" => {
+                eprint!("the last stderr words");
+                std::io::stderr().flush().unwrap();
+                print!("{}", json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603, "message": "out of words" } }));
+                std::io::stdout().flush().unwrap();
+                std::process::exit(1);
+            }
+            // A stderr line far longer than any the client tells whole.
+            "noisy" => {
+                eprintln!("{}", "x".repeat(100_000));
+                self.say("noisy");
+                self.end(&id);
+            }
+            // A report of its context made after the prompt's answer.
+            "latereport" => {
+                self.say("done");
+                self.end(&id);
+                self.update(json!({ "sessionUpdate": "usage_update", "used": 300, "size": 2000 }));
+            }
+            // The agent puts itself on the model `<model>` (at `<level>`), and tells its config options.
+            "switch" => {
+                let (model, level) = rest.split_once(' ').map_or((rest, None), |(model, level)| (model, Some(level)));
+                self.session().model = level.map_or_else(|| model.to_owned(), |level| format!("{model}-{level}"));
+                let mut options = vec![json!({ "id": "model", "category": "model", "type": "select", "currentValue": model, "options": [{ "value": model }] })];
+                if let Some(level) = level {
+                    options.push(json!({ "id": "thought_level", "category": "thought_level", "type": "select", "currentValue": level, "options": [{ "value": level }] }));
+                }
+                self.update(json!({ "sessionUpdate": "config_option_update", "configOptions": options }));
+                self.say("switched");
+                self.end(&id);
+            }
             "hang" => {
                 self.say("working");
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "h1", "title": "Long build", "kind": "execute", "status": "in_progress" }));
@@ -549,6 +599,8 @@ impl Agent {
             }
         }
         match method {
+            // `FAKE_AGENT_SILENT_INIT`: an agent that reads its input and never answers `initialize`.
+            "initialize" if setting("FAKE_AGENT_SILENT_INIT").is_some() => {}
             "initialize" => {
                 self.client = params["clientCapabilities"].clone();
                 answer(
@@ -561,7 +613,14 @@ impl Agent {
                             "mcpCapabilities": { "http": setting("FAKE_AGENT_STDIO_MCP").is_none() },
                             // `FAKE_AGENT_EMBEDDED`: an agent that takes a file's text as an embedded resource.
                             "promptCapabilities": { "image": setting("FAKE_AGENT_NO_IMAGES").is_none(), "embeddedContext": setting("FAKE_AGENT_EMBEDDED").is_some() },
-                            "sessionCapabilities": if official() { json!({ "resume": {} }) } else { json!({ "resume": {}, "close": {} }) },
+                            // `FAKE_AGENT_CLOSE_NULL`: an agent that states the close it does not offer as `null`.
+                            "sessionCapabilities": if official() {
+                                json!({ "resume": {} })
+                            } else if setting("FAKE_AGENT_CLOSE_NULL").is_some() {
+                                json!({ "resume": {}, "close": null })
+                            } else {
+                                json!({ "resume": {}, "close": {} })
+                            },
                             // `FAKE_AGENT_NO_LOGOUT`: an agent that cannot be signed out through the protocol.
                             "auth": if setting("FAKE_AGENT_NO_LOGOUT").is_some() { json!({}) } else { json!({ "logout": {} }) },
                             // `FAKE_AGENT_NO_APPEND`: an agent whose system prompt takes nothing from its client.
@@ -623,6 +682,8 @@ impl Agent {
             }
             // A CLI that hangs: the request is never answered.
             "session/new" if setting("FAKE_AGENT_SILENT_NEW").is_some() => {}
+            // `FAKE_AGENT_SILENT_CLOSE`: a close of a session that took a prompt is never answered.
+            "session/close" if setting("FAKE_AGENT_SILENT_CLOSE").is_some() && self.session().prompted => {}
             "session/close" => answer(&id, json!({})),
             // The protocol's sign-out: the CLI forgets its own sign-in (`FAKE_AGENT_SIGNED_OUT_FILE` says it did).
             "logout" => {
@@ -642,6 +703,10 @@ impl Agent {
                 self.current = format!("sess-{}", self.numbered);
                 self.session().model = "m1".to_owned();
                 self.opened(params);
+                // `FAKE_AGENT_EARLY_UPDATE`: the new session's first report, sent ahead of the answer that names it.
+                if setting("FAKE_AGENT_EARLY_UPDATE").is_some() {
+                    self.update(json!({ "sessionUpdate": "usage_update", "used": 7, "size": 700 }));
+                }
                 answer(
                     &id,
                     json!({
@@ -658,6 +723,15 @@ impl Agent {
             "session/resume" if official() && setting("FAKE_AGENT_FORGETS").is_some() && !self.sessions.contains_key(&self.current) => {
                 let asked = self.current.strip_prefix("sess-").and_then(|number| number.parse().ok()).unwrap_or(0);
                 self.numbered = self.numbered.max(asked);
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32002, "message": format!("Resource not found: {}", self.current) } }));
+            }
+            // `FAKE_AGENT_RESUME_AUTH`: a resume refused for a sign-in that no longer holds, while a new session opens.
+            "session/resume" if setting("FAKE_AGENT_RESUME_AUTH").is_some() => {
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "Authentication required" } }));
+            }
+            // `FAKE_AGENT_LOAD_FAILS`: a load that replays a part of the session, then fails.
+            "session/load" if setting("FAKE_AGENT_LOAD_FAILS").is_some() => {
+                self.say("replayed");
                 send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32002, "message": format!("Resource not found: {}", self.current) } }));
             }
             "session/resume" | "session/load" => {
@@ -678,6 +752,8 @@ impl Agent {
                 answer(&id, json!({}));
             }
             "session/prompt" => self.prompt(id, &params["prompt"]),
+            // `FAKE_AGENT_DEAF`: an agent that never closes a cancelled prompt.
+            "session/cancel" if setting("FAKE_AGENT_DEAF").is_some() => {}
             // Only the session it names is cancelled.
             "session/cancel" => {
                 if let Some(prompt) = self.session().hanging.take() {
@@ -685,6 +761,10 @@ impl Agent {
                     answer(&prompt, json!({ "stopReason": "cancelled" }));
                 }
                 if let Some(prompt) = self.session().muted.take() {
+                    // The call an earlier turn left running ends before the cancelled prompt is closed.
+                    if let Some(kept) = self.session().kept.take() {
+                        self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": kept, "status": "completed" }));
+                    }
                     answer(&prompt, json!({ "stopReason": "cancelled" }));
                 }
             }
