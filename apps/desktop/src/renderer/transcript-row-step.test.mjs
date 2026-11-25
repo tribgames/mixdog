@@ -164,6 +164,24 @@ test('a user row followed only by rows that paint nothing ends its turn', async 
   });
 });
 
+test('a prompt keeps its room under a message sent while its turn runs, before and after the answer starts', async () => {
+  await withList(async ({ render, spacing }) => {
+    const gap = { _tag: 'TurnGap', key: 's:gap', turnKey: 't2' };
+    const sent = {
+      _tag: 'UserMessage',
+      key: 's:u2',
+      turnKey: 't2',
+      item: { kind: 'user', id: 'u2', text: 'next', steer: 'pending' },
+    };
+    await render([user, thinking]);
+    const room = spacing('s:u');
+    await render([user, gap, sent, thinking]);
+    assert.deepEqual(spacing('s:u'), room);
+    await render([user, reply, gap, sent, thinking]);
+    assert.deepEqual(spacing('s:u'), room);
+  });
+});
+
 test('a compaction divider takes the working band’s seat, under a prompt and under the turn’s output', async () => {
   await withList(async ({ render, marks }) => {
     const divider = {
