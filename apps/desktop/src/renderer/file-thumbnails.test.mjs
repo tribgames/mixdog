@@ -338,7 +338,7 @@ test('attachment cards draw content thumbnails over a name bar, with no gradient
         )
       )
     );
-    await settle();
+    await settleUntil(() => pageSrc(dom) !== null);
     const [pdf, sheet, code, pasted, image] = dom.window.document.querySelectorAll('.attachment-card');
     // The page and both minimaps share one inset paper frame inside the shot.
     assert.equal(
