@@ -80,6 +80,13 @@ for (const label of ['release-gate.yml', 'rust-core-unix.yml']) {
           assert.ok(name === 'complete', `${name} downloads a pattern`);
           continue;
         }
+        // a mixdogd core-real waits for is read through the Actions API the wait polls: the artifact lookup of a plain
+        // download can lag the listing that told the wait it exists
+        if (name === 'core-real' && (step.with.name === SHIPPED_MIXDOGD || stem(step.with.name) === 'mixdogd-dev-'))
+          assert.ok(
+            step.with['github-token'] === '${{ github.token }}' && step.with['run-id'] === '${{ github.run_id }}',
+            `core-real downloads ${step.with.name} through the Actions API it waited on`
+          );
         // the release's own build of mixdogd, which core-real waits for on the release's call (wiring.mjs SHIPPED_MIXDOGD)
         if (name === 'core-real' && step.with.name === SHIPPED_MIXDOGD) continue;
         // the development mixdogd core-real smokes on a run without a release build: waited for, as the release's is, not needed

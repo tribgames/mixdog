@@ -280,7 +280,7 @@ pub struct Agents {
     /// The one server of each preset whose process serves all its sessions, by preset id, while it starts and runs.
     pub(crate) shared: Mutex<HashMap<String, crate::shared::SharedSlot>>,
     /// Held while `probe-cache.json` is read or replaced.
-    pub(crate) probe_writes: tokio::sync::Mutex<()>,
+    pub(crate) probe_writes: tokio::sync::Semaphore,
     /// How often each preset's account changed hands (a sign-in became the agent's, or it signed out), by preset id: what a
     /// server or a check started before the last change learns is of an account left. Never reset.
     pub(crate) accounts: Mutex<HashMap<String, u64>>,
@@ -342,7 +342,7 @@ impl Agents {
             windows: Mutex::default(),
             sessions: Mutex::default(),
             shared: Mutex::default(),
-            probe_writes: tokio::sync::Mutex::new(()),
+            probe_writes: tokio::sync::Semaphore::new(1),
             accounts: Mutex::default(),
             signing_out: Mutex::default(),
             stopping: std::sync::atomic::AtomicBool::new(false),

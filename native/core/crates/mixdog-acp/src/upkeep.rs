@@ -45,7 +45,10 @@ const PROBE_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// What an agent started for a check answered.
 enum Probe {
-    Opened { capabilities: Value, answer: Value },
+    Opened {
+        capabilities: Value,
+        answer: Value,
+    },
     /// It names no version, or one below the preset's minimum, in `initialize`: it was asked nothing more.
     TooOld(Option<Version>),
     /// It asked for a sign-in in the browser.
@@ -141,9 +144,11 @@ impl Probed {
     fn read(value: &Value) -> Option<Self> {
         let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
         let models = value.get("models")?;
-        let available = models.get("available")?.as_array()?.iter().filter_map(|model| {
-            Some(AgentModel { id: model.get("id")?.as_str()?.to_owned(), name: model.get("name")?.as_str()?.to_owned() })
-        });
+        let available = models
+            .get("available")?
+            .as_array()?
+            .iter()
+            .filter_map(|model| Some(AgentModel { id: model.get("id")?.as_str()?.to_owned(), name: model.get("name")?.as_str()?.to_owned() }));
         Some(Self {
             version: text(value.get("version"))?,
             models: Models { available: available.collect(), current: text(models.get("current")), config_option: text(models.get("configOption")) },
@@ -578,7 +583,7 @@ impl Agents {
             return;
         }
         {
-            let _held = self.probe_writes.lock().await;
+            let _held = self.probe_writes.acquire().await.expect("the probe file gate is never closed");
             let mut slots = lock(&self.slots);
             let Some(slot) = slots.get_mut(&preset.id).filter(|slot| slot.signed_in == Some(sign_in)) else { return };
             slot.signed_in = None;
@@ -638,7 +643,7 @@ impl Agents {
         let mut kept = self.read_probe_file().await;
         let changed = match probed {
             Some(probed) => kept.insert(preset.id.clone(), probed.value()).is_none_or(|was| was != probed.value()),
-            None => kept.remove(&preset.id).is_some(),
+            None => kept.shift_remove(&preset.id).is_some(),
         };
         if changed && let Err(error) = self.parts.files.replace(file, Value::Object(kept).to_string()).await {
             tracing::warn!("[acp] what {} told of itself was not kept: {error}", preset.label);
@@ -648,7 +653,7 @@ impl Agents {
     /// What stands of `preset`'s account, read as one: what is kept of it, which is the account shown, else a sign-in
     /// whose answer is to come. A kept answer that lists no models stands for nothing.
     async fn standing(&self, preset: &AgentPreset) -> Standing {
-        let _held = self.probe_writes.lock().await;
+        let _held = self.probe_writes.acquire().await.expect("the probe file gate is never closed");
         let kept = self.read_probe_file().await.get(&preset.id).and_then(Probed::read).filter(|kept| !kept.models.available.is_empty());
         let mut slots = lock(&self.slots);
         let slot = slots.get_mut(&preset.id);
@@ -668,7 +673,7 @@ impl Agents {
 
     /// What `preset`'s agent told of itself stands no longer, and no sign-in's answer is to come.
     pub(crate) async fn forget_told(&self, preset: &AgentPreset) {
-        let _held = self.probe_writes.lock().await;
+        let _held = self.probe_writes.acquire().await.expect("the probe file gate is never closed");
         self.write_told(preset, None).await;
         if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
             slot.signed_in = None;
@@ -686,7 +691,7 @@ impl Agents {
     /// own, and what was told of the account left is forgotten. `signed_in` is the sign-in whose answer is to come.
     /// Returns the hand-over's number.
     pub(crate) async fn hand_over(&self, preset: &AgentPreset, signed_in: Option<u64>) -> u64 {
-        let _held = self.probe_writes.lock().await;
+        let _held = self.probe_writes.acquire().await.expect("the probe file gate is never closed");
         let epoch = {
             let mut accounts = lock(&self.accounts);
             let epoch = accounts.entry(preset.id.clone()).or_default();
@@ -712,7 +717,7 @@ impl Agents {
     /// `sign_in`, only while that sign-in's answer is the one to come. Any answer kept stands over a sign-in's to come.
     /// `true` where it was kept.
     async fn keep_told(&self, preset: &AgentPreset, mut probed: Probed, epoch: u64, sign_in: Option<u64>) -> bool {
-        let _held = self.probe_writes.lock().await;
+        let _held = self.probe_writes.acquire().await.expect("the probe file gate is never closed");
         if self.account_epoch(&preset.id) != epoch {
             return false;
         }

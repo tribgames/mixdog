@@ -1694,7 +1694,10 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     out.insert(
         "points".into(),
         Value::Array(
-            decimate(clip_points(&points, domain_from, domain_to), domain_from, domain_to).iter().map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()])).collect(),
+            decimate(clip_points(&points, domain_from, domain_to), domain_from, domain_to)
+                .iter()
+                .map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()]))
+                .collect(),
         ),
     );
     out.insert("focus".into(), focus.map_or(Value::Null, focus_value));
@@ -2291,8 +2294,7 @@ mod tests {
 
         let answer = read_quota_history(&conn, &query, now as i64).unwrap();
 
-        let points: Vec<(f64, f64)> =
-            answer["points"].as_array().unwrap().iter().map(|p| (p[0].as_f64().unwrap(), p[1].as_f64().unwrap())).collect();
+        let points: Vec<(f64, f64)> = answer["points"].as_array().unwrap().iter().map(|p| (p[0].as_f64().unwrap(), p[1].as_f64().unwrap())).collect();
         assert_eq!(answer["domain"]["fromMs"].as_f64(), Some(from));
         assert!(points.iter().all(|&(at, _)| at >= from && at <= now), "{points:?}");
         assert_eq!(points[0].0, from, "{points:?}");

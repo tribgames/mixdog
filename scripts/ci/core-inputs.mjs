@@ -91,6 +91,10 @@ export const REVIEWED = {
     reads: ['packages/protocol-client/src/launch/ensure-core.mjs'],
     why: 'the Node client launcher the same-PID attach test imports',
   },
+  'native/core/crates/mixdog-cli/src/exec/tests/acp_tests.rs': {
+    reads: ['src/', 'package.json'],
+    why: 'the package root its mixdogd exec install names: the composition reads the shipped prompt files and the version',
+  },
   'native/core/crates/mixdog-tools/src/code_graph/tests.rs': {
     reads: [],
     why: 'measure_the_heap_of_this_repositorys_graph walks the whole checkout, but is #[ignore] ("a measurement, not a check") and run by no profile',

@@ -499,8 +499,10 @@ fn probe_cache(dir: &std::path::Path) -> std::path::PathBuf {
 #[allow(clippy::disallowed_methods, reason = "a test keeps what the server told of itself")]
 fn keep_answers(dir: &std::path::Path, id: &str, settings: &[(&str, &str)]) {
     let setting = |name: &str| settings.iter().find(|(key, _)| *key == name).map(|(_, value)| *value);
-    let listed: Value = setting("FAKE_AGENT_MODELS")
-        .map_or_else(|| json!([{ "modelId": "m1", "name": "Model One" }, { "modelId": "m2", "name": "Model Two" }]), |models| serde_json::from_str(models).expect("JSON"));
+    let listed: Value = setting("FAKE_AGENT_MODELS").map_or_else(
+        || json!([{ "modelId": "m1", "name": "Model One" }, { "modelId": "m2", "name": "Model Two" }]),
+        |models| serde_json::from_str(models).expect("JSON"),
+    );
     let available: Vec<Value> = listed.as_array().into_iter().flatten().map(|model| json!({ "id": model["modelId"], "name": model["name"] })).collect();
     let mut kept = serde_json::Map::new();
     kept.insert(
@@ -3991,7 +3993,11 @@ async fn the_official_server_runs_from_its_installed_build_in_its_own_home_and_a
     let world = World::official(&[("FAKE_AGENT_MODELS", &models)]);
     let agent = world.checked().await;
     assert_eq!((&agent["state"], &agent["version"], &agent["minimumVersion"]), (&json!("ready"), &json!("1.5.2"), &json!("1.5.2")), "{agent}");
-    assert_eq!(agent["models"], json!([{ "id": "gemini-a", "name": "Gemini A" }, { "id": "gemini-b", "name": "Gemini B" }]), "the models it told when it last ran");
+    assert_eq!(
+        agent["models"],
+        json!([{ "id": "gemini-a", "name": "Gemini A" }, { "id": "gemini-b", "name": "Gemini B" }]),
+        "the models it told when it last ran"
+    );
     assert!(world.processes.list().is_empty(), "{:?}", world.log());
     let home = home_of(world.dir.path(), "antigravity");
     let started = format!("official args=acp --from-manifest GEMINI_HOME={} AGY_ACP_FORCE_FILE_STORAGE=1", home.display());
@@ -4072,8 +4078,8 @@ async fn a_prompt_the_official_server_answers_with_the_lost_session_code_leaves_
     let world = World::official(&[]);
     let surface = Surface::default();
     let input = json!({ "role": "user", "content": "lost" });
-    let end = within("the turn", world.serve_with(&surface, input, Some(held("sess-9")), Some("RULES"), "default", CancellationToken::new(), Turns::default()))
-        .await;
+    let end =
+        within("the turn", world.serve_with(&surface, input, Some(held("sess-9")), Some("RULES"), "default", CancellationToken::new(), Turns::default())).await;
     assert_eq!(end, TurnEnd::Failed { message: "Resource not found: sess-9".into(), code: Some(-32002), reported: true });
     let changes: Vec<_> = surface.events().into_iter().filter_map(|event| if let Event::Header(change) = event { Some(change) } else { None }).collect();
     assert_eq!(changes.last().map(|change| change.unset.clone()), Some(vec![mixdog_acp::runs::SESSION_KEY.to_owned()]));
@@ -4104,8 +4110,16 @@ async fn each_preset_offers_and_runs_only_its_own_models() {
 
     let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
     for (preset, model, said) in [
-        (&world.preset, "claude-opus-5-5", "Antigravity (acp-antigravity) does not run the model \"claude-opus-5-5\". Choose it under Antigravity (acp-antigravity-cli)."),
-        (&cli, "gemini-4-neon-high", "Antigravity (acp-antigravity-cli) does not run the model \"gemini-4-neon-high\". Choose it under Antigravity (acp-antigravity)."),
+        (
+            &world.preset,
+            "claude-opus-5-5",
+            "Antigravity (acp-antigravity) does not run the model \"claude-opus-5-5\". Choose it under Antigravity (acp-antigravity-cli).",
+        ),
+        (
+            &cli,
+            "gemini-4-neon-high",
+            "Antigravity (acp-antigravity-cli) does not run the model \"gemini-4-neon-high\". Choose it under Antigravity (acp-antigravity).",
+        ),
         (&cli, "default", "Antigravity (acp-antigravity-cli) does not run its agent's default model. Choose it under Antigravity (acp-antigravity)."),
     ] {
         let end = within("the refused turn", world.serve_on(preset, model)).await;
@@ -4440,10 +4454,19 @@ async fn a_wake_on_another_presets_route_shows_nothing_of_the_reply() {
     let session = world.agents.running(&thread()).expect("the session's agent");
     let wake = json!({ "role": "user", "content": WAKE_TEXT, "meta": { "source": "task-notification" } });
     let turns = Arc::new(Turns::default());
-    let request =
-        TurnRequest { thread: thread(), cwd: world.cwd(), stored: None, rules: Some("RULES".into()), input: wake, conversation: turns.clone(), attachments: turns };
+    let request = TurnRequest {
+        thread: thread(),
+        cwd: world.cwd(),
+        stored: None,
+        rules: Some("RULES".into()),
+        input: wake,
+        conversation: turns.clone(),
+        attachments: turns,
+    };
     let surface = Surface::default();
-    let end = within("the wake", mixdog_acp::runs::serve(&world.agents, &official, request, Arc::new(surface.clone()), world.context(CancellationToken::new()))).await;
+    let end =
+        within("the wake", mixdog_acp::runs::serve(&world.agents, &official, request, Arc::new(surface.clone()), world.context(CancellationToken::new())))
+            .await;
     assert_eq!(end, TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 });
     assert!(surface.rows().is_empty(), "{:?}", surface.rows());
     assert!(session.woken(), "the reply waits for its own route's turn");
@@ -4549,7 +4572,8 @@ async fn turning_the_feature_off_ends_a_download_of_the_official_server() {
     world.registry.hangs.store(false, Ordering::SeqCst);
     within("the install", world.agents.install()).await.expect("the install");
     #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test lists the builds' folder")]
-    let left: Vec<String> = std::fs::read_dir(&builds).expect("the builds").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    let left: Vec<String> =
+        std::fs::read_dir(&builds).expect("the builds").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
     assert!(!left.iter().any(|name| name.starts_with(".staging-")), "{left:?}");
 }
 
@@ -4616,8 +4640,7 @@ async fn the_official_server_is_started_for_its_state_only_where_nothing_it_told
 /// the account left; the next look finds the agent ready.
 #[tokio::test]
 async fn an_official_sign_in_runs_in_a_staging_home_and_its_success_replaces_the_running_servers_account() {
-    let world =
-        World::official(&[("FAKE_AGENT_ACCOUNT", "the new account"), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page"), ("FAKE_AGENT_LINGERS", "1")]);
+    let world = World::official(&[("FAKE_AGENT_ACCOUNT", "the new account"), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page"), ("FAKE_AGENT_LINGERS", "1")]);
     world.answer_in(&thread(), &world.cwd(), "whoami").await;
     let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
 
@@ -4632,7 +4655,8 @@ async fn an_official_sign_in_runs_in_a_staging_home_and_its_success_replaces_the
 
     // Told done once the sign-in is the agent's: the sign-in's server, which lingers after its input ends, is still to end.
     assert_eq!(credential_of(&world).as_deref(), Some("the new account"));
-    let staged = world.log().iter().find_map(|line| line.strip_prefix("authenticate oauth-personal GEMINI_HOME=").map(std::path::PathBuf::from)).expect("the sign-in");
+    let staged =
+        world.log().iter().find_map(|line| line.strip_prefix("authenticate oauth-personal GEMINI_HOME=").map(std::path::PathBuf::from)).expect("the sign-in");
     assert_ne!(staged, home_of(world.dir.path(), "antigravity"));
     assert!(exists(&staged), "the staging home goes after the sign-in's server ended");
     // The server of the account left takes no session from here and is closed.
@@ -4985,11 +5009,8 @@ async fn the_apps_stop_during_a_servers_start_refuses_its_waiters_and_waits_for_
 /// it opens on a new server, not on the one of the account left.
 #[tokio::test]
 async fn an_open_waiting_for_a_server_retired_by_a_sign_in_opens_on_a_new_server() {
-    let world = World::official(&[
-        ("FAKE_AGENT_SLOW_START", "1500"),
-        ("FAKE_AGENT_ACCOUNT", "the new account"),
-        ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page"),
-    ]);
+    let world =
+        World::official(&[("FAKE_AGENT_SLOW_START", "1500"), ("FAKE_AGENT_ACCOUNT", "the new account"), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page")]);
     let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
     login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
     let thread = thread();

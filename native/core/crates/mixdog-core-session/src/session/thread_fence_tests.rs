@@ -430,11 +430,16 @@ async fn a_closed_owner_never_queues_or_wakes_a_completion() {
     let (rig, directory) = (&real.rig, &real.directory);
     let id = listed_thread(&real).await;
     let before = seen(rig, directory, &id).await;
+    // The card shows once its record is stored: a row of no turn, unlike the rows of the turn the completion wakes.
+    let turnless = |frames: &[(u64, String, Value)]| {
+        frames.iter().filter(|(_, method, params)| method == "item/completed" && params["turnId"].as_str().is_none_or(str::is_empty)).count()
+    };
+    let before_cards = turnless(&rig.feeds.frames(id.as_str()));
     finished(directory, &id, "shell_1", COMPLETION).await;
-    let open = seen(rig, directory, &id).await;
-    assert_eq!(open.cards - before.cards, 1, "the open thread's client sees the completion");
-    // The completion wakes a turn once its queue entry is durable: settled when that turn started and ended.
     let handle = directory.handle(&id).expect("loaded");
+    crate::eventually_on!(&[&handle.cell.stepped], || (turnless(&rig.feeds.frames(id.as_str())) > before_cards).then_some(())).await;
+    assert_eq!(turnless(&rig.feeds.frames(id.as_str())) - before_cards, 1, "the open thread's client sees the completion");
+    // The completion wakes a turn once its queue entry is durable: settled when that turn started and ended.
     let woke = || rig.feeds.frames(id.as_str()).iter().filter(|(_, method, _)| method == "turn/started").count() > before.turns;
     crate::eventually_on!(&[&handle.cell.stepped], || (woke() && super::tests::idle(&handle) && handle.cell.queued.load().is_empty()).then_some(())).await;
     drop(handle);

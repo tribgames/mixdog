@@ -561,15 +561,15 @@ impl RegistryDownloads {
 #[async_trait]
 impl mixdog_acp::registry::RegistryFetcher for RegistryDownloads {
     async fn index(&self, url: &str) -> Result<Value, String> {
-        let response = self.client.get(url).timeout(INDEX_TIMEOUT).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
+        let response =
+            self.client.get(url).timeout(INDEX_TIMEOUT).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
         let bytes = response.bytes().await.map_err(|error| error.to_string())?;
         serde_json::from_slice(&bytes).map_err(|error| format!("the registry's index is not JSON: {error}"))
     }
 
     async fn unpack(&self, build: &mixdog_acp::registry::Build, archive: &std::path::Path, into: &std::path::Path) -> Result<(), String> {
         use sha2::Digest;
-        let mut response =
-            self.client.get(&build.archive).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
+        let mut response = self.client.get(&build.archive).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
         let too_large = || format!("the archive of {} is larger than {} MiB", build.archive, MAX_ARCHIVE_BYTES / 1024 / 1024);
         if response.content_length().is_some_and(|length| length > MAX_ARCHIVE_BYTES) {
             return Err(too_large());
@@ -739,9 +739,10 @@ mod tests {
             sha256: "ab".repeat(32),
         };
         use mixdog_acp::registry::RegistryFetcher;
-        let given_up = tokio::time::timeout(std::time::Duration::from_secs(20), downloads.unpack(&build, &dir.path().join("archive"), &dir.path().join("build")))
-            .await
-            .expect("the download is given up at the stall time");
+        let given_up =
+            mixdog_rt::time::timeout(std::time::Duration::from_secs(20), downloads.unpack(&build, &dir.path().join("archive"), &dir.path().join("build")))
+                .await
+                .expect("the download is given up at the stall time");
         assert!(given_up.is_err(), "{given_up:?}");
         held.abort();
     }
@@ -782,7 +783,11 @@ mod tests {
             agents.refuses_model(&official, "claude-opus-5-5").as_deref(),
             Some("Antigravity (acp-antigravity) does not run the model \"claude-opus-5-5\". Choose it under Antigravity (acp-antigravity-cli).")
         );
-        assert_eq!(turns.refusal(&header("gemini-4-neon")), Some("ACP agents are turned off in Settings.".to_owned()), "a model of its own is refused by the state");
+        assert_eq!(
+            turns.refusal(&header("gemini-4-neon")),
+            Some("ACP agents are turned off in Settings.".to_owned()),
+            "a model of its own is refused by the state"
+        );
     }
 
     /// A port that takes every report and keeps the usage reports.

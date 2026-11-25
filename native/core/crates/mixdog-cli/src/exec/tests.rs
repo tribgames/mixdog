@@ -930,7 +930,8 @@ async fn a_tool_call_shown_first_as_its_card_starts_there_with_its_arguments() {
     assert_eq!(run_exec(opts, host, never()).await, 0, "{:?}", sink.stderr());
 
     let lines = json_lines(&sink);
-    let tool = |kind: &str| lines.iter().find(|line| line["type"] == kind && line["item"]["type"] == "tool_call").unwrap_or_else(|| panic!("no {kind}: {lines:?}"));
+    let tool =
+        |kind: &str| lines.iter().find(|line| line["type"] == kind && line["item"]["type"] == "tool_call").unwrap_or_else(|| panic!("no {kind}: {lines:?}"));
     let (started, done) = (&tool("item.started")["item"], &tool("item.completed")["item"]);
     assert_eq!((&started["id"], &started["arguments"], &done["arguments"]), (&json!("call_1"), &input, &input));
     assert_eq!(done["started_at"], started["started_at"], "the call started at its card");

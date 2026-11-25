@@ -444,7 +444,7 @@ impl AgentSession {
             replayed: Some(&mut incoming),
         };
         let (session, _) = Self::open_session(open, on, wake).await?;
-        drop(mixdog_rt::spawn("acp.route",mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
+        drop(mixdog_rt::spawn("acp.route", mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
         Ok(session)
     }
 

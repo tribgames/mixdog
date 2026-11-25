@@ -699,8 +699,7 @@ pub async fn ask_once(
         handed: None,
         temp,
     };
-    let opened =
-        crate::session::AgentSession::open(agents.parts.processes.clone(), agents.parts.files.clone(), open, Arc::new(|| {}), Box::new(|| {})).await;
+    let opened = crate::session::AgentSession::open(agents.parts.processes.clone(), agents.parts.files.clone(), open, Arc::new(|| {}), Box::new(|| {})).await;
     let session = match opened {
         Ok(session) => session,
         Err(fault) => {
