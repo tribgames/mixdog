@@ -2956,7 +2956,7 @@ jobs:
         if: needs.changes.outputs.core_daemon == 'true'
         run: |
           cd native/core
-          cargo clippy --manifest-path Cargo.toml --locked -p mixdog-app-server-daemon --all-targets 2>&1 | tee "$RUNNER_TEMP/clippy.log"
+          cargo clippy --color never --manifest-path Cargo.toml --locked -p mixdog-app-server-daemon --all-targets 2>&1 | tee "$RUNNER_TEMP/clippy.log"
           if grep -E '^warning: .* generated [0-9]+ warnings?' "$RUNNER_TEMP/clippy.log"; then
             echo "::error::clippy reported the warnings above"
             exit 1
