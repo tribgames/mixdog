@@ -547,6 +547,35 @@ fn value_at(points: &[Point], time: f64) -> f64 {
     }
 }
 
+/// The path within `[from_ms, to_ms]`: a drawn stretch that crosses an edge is cut there, at its value on the edge.
+fn clip_points(points: &[Point], from_ms: f64, to_ms: f64) -> Vec<Point> {
+    let mut out: Vec<Point> = Vec::new();
+    let push = |out: &mut Vec<Point>, at: f64, percent: f64, kind: u8| {
+        let kind = if out.is_empty() { MOVE } else { kind };
+        out.push(Point { at, percent, kind });
+    };
+    for (index, &point) in points.iter().enumerate() {
+        let drawn_from = index.checked_sub(1).map(|i| points[i]).filter(|_| point.kind != MOVE);
+        let edge = |prev: Point, at: f64| round_to(prev.percent + ((point.percent - prev.percent) * (at - prev.at)) / (point.at - prev.at), 2);
+        if let Some(prev) = drawn_from
+            && prev.at < from_ms
+            && point.at > from_ms
+        {
+            push(&mut out, from_ms, edge(prev, from_ms), MOVE);
+        }
+        if point.at >= from_ms && point.at <= to_ms {
+            push(&mut out, point.at, point.percent, point.kind);
+        }
+        if let Some(prev) = drawn_from
+            && prev.at < to_ms
+            && point.at > to_ms
+        {
+            push(&mut out, to_ms, edge(prev, to_ms), point.kind);
+        }
+    }
+    out
+}
+
 /// Thin a long path to the first, last, highest and lowest vertex per step.
 fn decimate(points: Vec<Point>, from_ms: f64, to_ms: f64) -> Vec<Point> {
     if points.len() <= MAX_POINTS {
@@ -1665,7 +1694,7 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     out.insert(
         "points".into(),
         Value::Array(
-            decimate(points.clone(), domain_from, domain_to).iter().map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()])).collect(),
+            decimate(clip_points(&points, domain_from, domain_to), domain_from, domain_to).iter().map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()])).collect(),
         ),
     );
     out.insert("focus".into(), focus.map_or(Value::Null, focus_value));
@@ -2240,6 +2269,34 @@ mod tests {
         assert_eq!((hour["slotMs"].as_f64(), slots.len(), hour["domain"]["toMs"].as_f64()), (Some(30.0 * MIN_MS), 48, Some(now)));
         assert!(slots.iter().all(|s| s["future"] == false), "{slots:?}");
         assert_eq!(closed["domain"]["toMs"].as_f64(), Some(now - 24.0 * HOUR_MS));
+    }
+
+    #[test]
+    fn a_window_that_opened_before_the_period_is_drawn_from_the_period_start_at_its_meter_there() {
+        let now = 1_795_500_000_000.0;
+        let mut conn = ledger(&[]);
+        let reset = now + HOUR_MS;
+        record_quota_samples(&mut conn, &[reading("5H", false, now - 4.0 * HOUR_MS, 40.0, reset)]).unwrap();
+        record_quota_samples(&mut conn, &[reading("5H", false, now - 30.0 * MIN_MS, 80.0, reset)]).unwrap();
+        let from = now - 2.0 * HOUR_MS;
+        let query = QuotaHistoryQuery {
+            provider: "prov".into(),
+            account: "acc".into(),
+            label: "5H".into(),
+            view: "custom".into(),
+            from_ms: Some(from),
+            to_ms: Some(now),
+            ..QuotaHistoryQuery::default()
+        };
+
+        let answer = read_quota_history(&conn, &query, now as i64).unwrap();
+
+        let points: Vec<(f64, f64)> =
+            answer["points"].as_array().unwrap().iter().map(|p| (p[0].as_f64().unwrap(), p[1].as_f64().unwrap())).collect();
+        assert_eq!(answer["domain"]["fromMs"].as_f64(), Some(from));
+        assert!(points.iter().all(|&(at, _)| at >= from && at <= now), "{points:?}");
+        assert_eq!(points[0].0, from, "{points:?}");
+        assert!(points[0].1 > 40.0 && points[0].1 < 80.0, "{points:?}");
     }
 
     #[test]

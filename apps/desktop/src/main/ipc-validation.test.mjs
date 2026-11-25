@@ -404,14 +404,14 @@ test('ACP agents toggle and install through the desktop IPC boundary, the instal
   ]) {
     assert.deepEqual(requiredDesktopCapabilityRequest(request), request);
   }
-  assert.throws(
-    () =>
-      requiredDesktopCapabilityRequest({
-        capability: 'installBuiltinFeature',
-        args: ['acpAgents', { engines: ['x'] }],
-      }),
-    /engines:\[ids\] for tidy/
-  );
+  // The feature's one install covers every agent: no agent of it installs alone.
+  for (const options of [{ engines: ['x'] }, { agent: 'antigravity-cli' }]) {
+    assert.throws(
+      () => requiredDesktopCapabilityRequest({ capability: 'installBuiltinFeature', args: ['acpAgents', options] }),
+      /engines:\[ids\] for tidy/,
+      JSON.stringify(options)
+    );
+  }
 });
 
 test('Media generation toggles but never installs, and its generator pin is a one-argument write', () => {

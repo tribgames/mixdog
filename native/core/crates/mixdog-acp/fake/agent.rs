@@ -13,6 +13,9 @@
 //! prompt of a session it lost answered with -32002, every session-scoped method logged again with the session's id,
 //! its temporary folder logged (and, where it is one of Mixdog's, unpacked into as the server's build unpacks itself), and
 //! the end of its input logged before it exits. `FAKE_AGENT_FORGETS` has it refuse to resume a session it does not hold.
+//! Its sign-in is the files of its home (`GEMINI_HOME`): `authenticate` names the sign-in page on its stderr and writes
+//! them, `logout` removes the credential, and with no credential `session/new` asks for a sign-in in the browser as
+//! `authenticate` does, and answers nothing.
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -124,6 +127,24 @@ fn setting(name: &str) -> Option<String> {
         let file = std::fs::read_to_string("fake-agent.env").ok()?;
         file.lines().find_map(|line| line.strip_prefix(name)?.strip_prefix('=').map(str::to_owned))
     })
+}
+
+/// The line the official server writes on its stderr, the page to sign in on after it, whenever it asks for a sign-in.
+const SIGN_IN_LINE: &str = "Open the following link to authenticate the ACP server: https://accounts.example/o/oauth2/auth?state=acp";
+
+/// `FAKE_AGENT_NEW_UNTIL` (a session opens), `FAKE_AGENT_LOGOUT_UNTIL` (a sign-out answers): what the setting `name`
+/// holds back waits until the file it names is there.
+fn wait_for(name: &str) {
+    if let Some(file) = setting(name) {
+        while !std::path::Path::new(&file).exists() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+}
+
+/// A file of the official server's home (`GEMINI_HOME`), under its own folder there.
+fn home_file(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(&std::env::var("GEMINI_HOME").unwrap_or_default()).join("antigravity-acp").join(name)
 }
 
 fn signed_out() -> bool {
@@ -490,6 +511,7 @@ impl Agent {
         match what {
             Asked::Permission => {
                 let outcome = &message["result"]["outcome"];
+                log(&format!("permission answered {} {}", self.current, outcome["outcome"].as_str().unwrap_or_default()));
                 let selected = outcome["outcome"] == "selected";
                 self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": if selected { "completed" } else { "failed" } }));
                 self.say(&if selected { format!("option:{}", outcome["optionId"].as_str().unwrap_or_default()) } else { "cancelled".to_owned() });
@@ -538,8 +560,51 @@ impl Agent {
                             "_meta": { "antigravity": { "systemPrompt": { "append": setting("FAKE_AGENT_NO_APPEND").is_none() } } },
                         },
                         "agentInfo": { "name": "fake", "version": version() },
+                        "authMethods": if official() {
+                            json!([{ "id": "oauth-personal", "name": "Sign in with Google" }, { "id": "gemini-api-key", "name": "Use a Gemini API key" }])
+                        } else {
+                            json!([])
+                        },
                     }),
                 );
+            }
+            // The official server's sign-in: it names the page on its stderr and answers once the user signed in there
+            // (`FAKE_AGENT_AUTH_HANGS`: never; `FAKE_AGENT_AUTH_FAILS`: with that error), its sign-in kept in its home.
+            "authenticate" if official() => {
+                log(&format!("authenticate {} GEMINI_HOME={}", params["methodId"].as_str().unwrap_or_default(), std::env::var("GEMINI_HOME").unwrap_or_default()));
+                eprintln!("{SIGN_IN_LINE}");
+                if setting("FAKE_AGENT_AUTH_HANGS").is_some() {
+                    return;
+                }
+                // `FAKE_AGENT_AUTH_UNTIL`: the user signs in on the page once that file is there.
+                if let Some(file) = setting("FAKE_AGENT_AUTH_UNTIL") {
+                    while !std::path::Path::new(&file).exists() {
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                }
+                if let Some(why) = setting("FAKE_AGENT_AUTH_FAILS") {
+                    send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603, "message": why } }));
+                    return;
+                }
+                std::fs::create_dir_all(home_file("settings.json").parent().unwrap()).unwrap();
+                std::fs::write(home_file("settings.json"), r#"{"auth":{"type":"oauth-personal"}}"#).unwrap();
+                // `FAKE_AGENT_AUTH_NO_TOKEN`: a sign-in that leaves its settings and no credential.
+                if setting("FAKE_AGENT_AUTH_NO_TOKEN").is_none() {
+                    std::fs::write(home_file("acp_token.json"), setting("FAKE_AGENT_ACCOUNT").unwrap_or_else(|| "token".into())).unwrap();
+                }
+                answer(&id, json!({ "_meta": { "antigravity": { "tier": { "name": "Google AI Ultra" } } } }));
+            }
+            // With no credential in its home the official server asks for a sign-in in the browser where its settings name
+            // the way to sign in, and refuses the session where they name none.
+            // A credential `expired` is one the server no longer takes.
+            "session/new" if official() && !std::fs::read_to_string(home_file("acp_token.json")).is_ok_and(|token| token != "expired") => {
+                wait_for("FAKE_AGENT_NEW_UNTIL");
+                if home_file("settings.json").exists() {
+                    log("browser sign-in");
+                    eprintln!("{SIGN_IN_LINE}");
+                } else {
+                    send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "Authentication required" } }));
+                }
             }
             "session/new" if signed_out() => {
                 send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "Authentication required" } }));
@@ -549,12 +614,18 @@ impl Agent {
             "session/close" => answer(&id, json!({})),
             // The protocol's sign-out: the CLI forgets its own sign-in (`FAKE_AGENT_SIGNED_OUT_FILE` says it did).
             "logout" => {
+                wait_for("FAKE_AGENT_LOGOUT_UNTIL");
                 if let Some(file) = setting("FAKE_AGENT_SIGNED_OUT_FILE") {
                     std::fs::write(file, "signed out").unwrap();
+                }
+                // The official server forgets the credential of its home.
+                if official() {
+                    let _ = std::fs::remove_file(home_file("acp_token.json"));
                 }
                 answer(&id, json!({}));
             }
             "session/new" => {
+                wait_for("FAKE_AGENT_NEW_UNTIL");
                 self.numbered += 1;
                 self.current = format!("sess-{}", self.numbered);
                 self.session().model = "m1".to_owned();
@@ -725,6 +796,10 @@ pub fn run(args: Vec<String>) {
         _ => {}
     }
     log("start acp");
+    // `FAKE_AGENT_SLOW_START`: a server that reads nothing for that many milliseconds after it started.
+    if let Some(millis) = setting("FAKE_AGENT_SLOW_START").and_then(|millis| millis.parse().ok()) {
+        std::thread::sleep(std::time::Duration::from_millis(millis));
+    }
     // The official server's build unpacks itself into its temporary folder, and leaves what it unpacked when it is ended
     // by force. Only a folder of Mixdog's own is unpacked into: a check runs the server in the system's.
     if official() {
@@ -750,5 +825,9 @@ pub fn run(args: Vec<String>) {
     }
     if official() {
         log("eof");
+        // `FAKE_AGENT_LINGERS`: a server that goes on for a while after the end of its input.
+        if setting("FAKE_AGENT_LINGERS").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
     }
 }

@@ -4,11 +4,21 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-Mixdog 1.5.0 xây dựng lại bộ máy bằng Rust. Đây là một dự án lớn được thực hiện cho tương lai lâu dài của Mixdog, giúp ứng dụng dùng ít bộ nhớ hơn nhiều, xử lý đồng thời nhiều phiên và agent tốt hơn, đồng thời chạy nhanh và ổn định hơn.
+Xin chào tất cả mọi người yêu mến Mixdog. Tôi là Plankton, người duy trì Mixdog.
 
-Bản cập nhật này mất nhiều thời gian hơn dự kiến rất nhiều. Chúng tôi xin lỗi vì để bạn phải chờ đợi và cảm ơn bạn đã kiên nhẫn đồng hành cùng chúng tôi. Ngay sau khi chuyển đổi có thể vẫn còn sót một vài lỗi, nhưng từ giờ chúng tôi sẽ quay lại phản hồi và khắc phục sự cố nhanh chóng như trước. Với nền tảng mới này, chúng tôi có thể cải thiện và ổn định Mixdog nhanh hơn trong thời gian tới.
+Trước hết, tôi thật lòng xin lỗi vì bản cập nhật này đã đến muộn hơn rất nhiều so với dự kiến. Chân thành cảm ơn mọi người đã chờ đợi suốt thời gian dài như vậy.
 
-Nếu gặp bất kỳ sự cố nào, vui lòng báo lại trên [GitHub Issues](https://github.com/tribgames/mixdog/issues) hoặc trong ứng dụng tại Cài đặt › Giới thiệu › Gửi phản hồi. Lưu ý rằng 1.4.5 không thể mở thư mục dữ liệu đã từng khởi chạy với 1.5.0. Nếu bạn có thể muốn quay lại, hãy sao chép thư mục dữ liệu trước khi cập nhật; để trở về 1.4.5, hãy cài đặt lại phiên bản đó và đưa bản sao ấy trở lại.
+Trong Mixdog 1.5.0, tôi đã xây dựng lại bộ máy bằng Rust. Đây là một bước chuyển đổi lớn được thực hiện với tầm nhìn cho tương lai lâu dài của Mixdog. Nhờ vậy, bộ máy dùng ít bộ nhớ hơn nhiều, xử lý nhiều phiên và agent cùng lúc tốt hơn, đồng thời chạy nhanh và ổn định hơn.
+
+Trước tình trạng tài khoản Antigravity bị tạm ngưng ngày càng nhiều gần đây, tôi đã đưa vào Antigravity ACP để kết nối tới máy chủ ACP chính thức của Google. Cách này đi qua máy chủ chính thức và được biết là có nguy cơ bị tạm ngưng thấp hơn nhiều so với cách trước đây. Từ nay về sau, xin vui lòng sử dụng Antigravity bằng cách cài đặt và kết nối Antigravity ACP tại Cài đặt › Nhà cung cấp › Antigravity ACP.
+
+Ngay sau khi chuyển đổi có thể vẫn còn sót một vài lỗi, nhưng từ giờ tôi sẽ quay lại phản hồi và khắc phục ngay lập tức như trước đây. Tôi sẽ cố gắng hết sức để mọi người thấy Mixdog cải thiện thật nhanh.
+
+Trong lần khởi chạy đầu tiên sau khi cập nhật, dữ liệu hiện có của bạn sẽ được chuyển đổi sang định dạng mới và tiến trình sẽ được hiển thị. Nếu bạn có nhiều dữ liệu, quá trình này có thể mất một lúc, nên vui lòng đừng đóng ứng dụng cho đến khi hoàn tất.
+
+Nếu gặp bất kỳ sự cố nào, vui lòng báo cho tôi biết trên [GitHub Issues](https://github.com/tribgames/mixdog/issues) hoặc trong ứng dụng tại Cài đặt › Giới thiệu › Gửi phản hồi. Lưu ý rằng một khi 1.5.0 đã chạy trên một thư mục dữ liệu, 1.4.5 sẽ không thể mở thư mục đó nữa. Nếu bạn có khả năng muốn quay lại 1.4.5, hãy sao chép thư mục dữ liệu của mình (`~/.mixdog/data`, hoặc `C:\Users\<username>\.mixdog\data` trên Windows) trước khi cập nhật. Để quay lại, hãy cài đặt lại 1.4.5 và thay thư mục dữ liệu bằng bản sao đó.
+
+Một lần nữa, tôi xin gửi lời cảm ơn chân thành đến tất cả những ai đã luôn quan tâm và chờ đợi Mixdog.
 
 ## v1.4.5 - 2026-11-03
 

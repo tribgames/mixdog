@@ -450,6 +450,8 @@ pub struct Built {
     pub js_runtime: crate::compose::JsRuntime,
     /// `ComposeConfig::agent_presets`.
     pub agent_presets: Vec<mixdog_acp::preset::AgentPreset>,
+    /// `ComposeConfig::acp_data_dir`.
+    pub acp_data_dir: Option<std::path::PathBuf>,
     #[cfg(test)]
     pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
     pub env: mixdog_core::run_host::run_seams::EnvReader,
@@ -1629,8 +1631,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         // A CLI's version, check, install, update and sign-in runs start in the system's temp folder, none of Mixdog's own.
         probe_cwd: std::env::temp_dir(),
         definitions: b.data_dir.join("acp-agents"),
-        data_dir: b.data_dir.join("acp-agents"),
+        // The host's own where the core is a run's (`mixdog exec`): the build the app installed and the sign-in it holds.
+        data_dir: b.acp_data_dir.clone().unwrap_or_else(|| crate::acp_tools::acp_data_dir(&b.data_dir)),
         env: b.env.clone(),
+        registry: match crate::acp_tools::RegistryDownloads::new(b.tokens.durability_io) {
+            Ok(downloads) => Some(Arc::new(downloads)),
+            Err(error) => {
+                tracing::warn!("[acp] the ACP registry cannot be reached from this process: {error}");
+                None
+            }
+        },
         // An agent that takes no HTTP MCP server starts this program, in its bridge mode, as its session's tool server.
         mcp_bridge: std::env::current_exe().ok().map(|program| mixdog_acp::preset::Command {
             program: program.to_string_lossy().into_owned(),
@@ -1639,6 +1649,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     // The window each agent reported before this start is the one its routes are sized by until it reports again.
     acp_agents.restore_windows().await;
+    // What earlier runs left: the servers' temporary folders of daemons gone since, builds that are not the installed one,
+    // and the staging homes of sign-ins that did not end.
+    acp_agents.sweep_leftovers().await;
     // The turn path's own request source, for the tools an agent is handed (bound to the agents once the dispatcher is).
     let acp_next = side_wiring.next();
     // A reply an agent begins with no prompt open gets a turn of its own, queued as a notification of the thread.

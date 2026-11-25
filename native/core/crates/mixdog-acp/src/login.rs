@@ -1,6 +1,9 @@
 //! Signing in to an agent: the CLI's own interactive login, run for the user. The page it prints
 //! is the flow's state for the client to open, a code that page shows is written to the CLI, and
 //! the CLI stores the credential itself: Mixdog reads the page's address and the exit, nothing else.
+//! A registry agent is asked the protocol's `authenticate` in a process of its own with a staging
+//! home: it opens the page itself and writes it on its stderr, and the sign-in it stores there is
+//! moved into the agent's home once it succeeded.
 //!
 //! A sign-in is a [`LoginSession`] kept by the account service's flow registry, so it is started,
 //! read, completed and cancelled by the `account/*OAuthProviderLogin` calls every provider
@@ -38,6 +41,7 @@ use mixdog_core_domains::domains::ai_account::flows::Settle;
 use mixdog_protocol::ProcessHandle;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
+use serde_json::json;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -45,9 +49,18 @@ use crate::agents::AccountEvent;
 use crate::agents::Agents;
 use crate::agents::Readiness;
 use crate::agents::lock;
+use crate::connection::Connection;
+use crate::connection::Fault;
 use crate::connection::Launch;
+use crate::connection::Temp;
+use crate::connection::remove_folder;
 use crate::connection::spawn_piped;
 use crate::preset::AgentPreset;
+use crate::preset::Distribution;
+use crate::preset::Login;
+use crate::session::Program;
+use crate::session::initialize;
+use crate::session::launch;
 
 const DOMAIN: &str = "account";
 const BEGIN: &str = "account/beginOAuthProviderLogin";
@@ -72,6 +85,8 @@ struct Shared {
     handle: ProcessHandle,
     /// Fired by a cancel and by the feature being turned off.
     stop: CancellationToken,
+    /// The sign-in takes a code the page shows, as a line of its stdin.
+    takes_code: bool,
 }
 
 impl Shared {
@@ -141,6 +156,76 @@ async fn follow(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEven
     }
 }
 
+/// A sign-in through the protocol's `authenticate`, asked of a process of the agent's own in the staging home `staging`.
+struct Authenticate {
+    agents: Arc<Agents>,
+    preset: AgentPreset,
+    method_id: String,
+    /// What starts the agent's stderr line that names the sign-in page.
+    link_line: String,
+    staging: AbsPath,
+    /// Holds the build the sign-in's process runs from against an update until the sign-in is over.
+    _held: crate::upkeep::Starting,
+}
+
+impl Authenticate {
+    /// Asks the agent to sign in, shows the page it names, and keeps the sign-in once it answers; a cancelled or failed
+    /// sign-in leaves the agent's home and its server as they were. The staging home goes either way.
+    async fn run(self, shared: Arc<Shared>, connection: Arc<Connection>) {
+        let mut lines = connection.stderr_lines();
+        let asked = async {
+            let capabilities = initialize(&connection).await.map_err(|fault| fault.to_string())?;
+            let mut methods = capabilities.get("authMethods").and_then(Value::as_array).into_iter().flatten();
+            if !methods.any(|method| method.get("id").and_then(Value::as_str) == Some(self.method_id.as_str())) {
+                return Err(format!("{} offers no {} sign-in.", self.preset.label, self.method_id));
+            }
+            connection.request("authenticate", json!({ "methodId": self.method_id })).await.map_err(|fault| fault.to_string())?;
+            Ok(capabilities)
+        };
+        // The agent opens the page itself; it is shown with no form for a code, as the agent receives the sign-in itself.
+        let shown = async {
+            while let Some(line) = lines.recv().await {
+                if line.contains(self.link_line.as_str())
+                    && let Some(page) = page_in(&line)
+                {
+                    shared.advance(LoginState::Authorize { url: page, manual_url: None });
+                }
+            }
+            std::future::pending::<()>().await
+        };
+        let outcome = tokio::select! {
+            biased;
+            () = shared.stop.cancelled() => None,
+            () = shown => None,
+            asked = asked => Some(asked),
+        };
+        // The sign-in is told as soon as it is the agent's. What its server, signed in already, tells of the account in a
+        // session it opens in the staging home follows: no other server is started for it. Ending the sign-in's
+        // process (which may take its whole grace) and clearing its staging home and temporary folder come after.
+        let (adopted, told) = match outcome {
+            Some(Ok(capabilities)) => match self.agents.adopt_sign_in(&self.preset, &self.staging).await {
+                Ok(sign_in) => (Ok(LoginState::Done { account: None }), Some((sign_in, capabilities))),
+                Err(message) => (Err(message), None),
+            },
+            Some(Err(message)) => (Err(message), None),
+            None => (Ok(LoginState::Cancelled), None),
+        };
+        match adopted {
+            Ok(state) => shared.advance(state),
+            Err(message) => shared.failed(message),
+        }
+        if let Some(((sign_in, epoch), capabilities)) = told {
+            let told = self.agents.told_by_sign_in(&self.preset, &connection, &capabilities).await;
+            self.agents.sign_in_told(&self.preset, sign_in, epoch, told).await;
+            connection.close_gracefully(crate::shared::grace(0)).await;
+        } else {
+            connection.kill();
+            connection.exited().cancelled().await;
+        }
+        remove_folder(self.agents.parts.files.as_ref(), self.staging, "the sign-in's staging home").await;
+    }
+}
+
 struct AgentLogin(Arc<Shared>);
 
 #[async_trait]
@@ -177,7 +262,7 @@ impl LoginSession for AgentLogin {
         let LoginInput::AuthorizationCode(code) = input;
         match &*self.0.state.borrow() {
             state if state.is_terminal() => return Err(LoginError::Finished),
-            LoginState::Authorize { .. } | LoginState::Waiting => {}
+            LoginState::Authorize { .. } | LoginState::Waiting if self.0.takes_code => {}
             _ => return Err(LoginError::InputNotExpected),
         }
         let mut line = code.trim().as_bytes().to_vec();
@@ -211,22 +296,104 @@ impl Agents {
             prior.cancel();
         }
         self.account_left(&preset.id, AccountEvent::Left);
-        let launch = Launch { program: self.program(preset).path, args: login.args.clone(), env: preset.env.clone(), env_remove: login.env_remove.clone(), cwd };
-        let (handle, events) =
-            spawn_piped(&self.parts.processes, launch).await.map_err(|fault| format!("{}'s sign-in did not start: {fault}", preset.label))?;
-        let (state, cursor) = watch::channel(LoginState::Starting);
-        let shared = Arc::new(Shared {
-            state,
-            cursor: Mutex::new(Some(cursor)),
-            next_turn: mixdog_rt::Gate::default(),
-            ended: CancellationToken::new(),
-            delivered_terminal: AtomicBool::new(false),
-            processes: self.parts.processes.clone(),
-            handle,
-            stop,
-        });
-        drop(mixdog_rt::spawn("acp.login", TaskClass::Work, follow(shared.clone(), events)));
-        Ok(Box::new(AgentLogin(shared)))
+        let shared = |handle: ProcessHandle, takes_code: bool| {
+            let (state, cursor) = watch::channel(LoginState::Starting);
+            Arc::new(Shared {
+                state,
+                cursor: Mutex::new(Some(cursor)),
+                next_turn: mixdog_rt::Gate::default(),
+                ended: CancellationToken::new(),
+                delivered_terminal: AtomicBool::new(false),
+                processes: self.parts.processes.clone(),
+                handle,
+                stop: stop.clone(),
+                takes_code,
+            })
+        };
+        match login {
+            Login::Cli { args, env_remove } => {
+                let launch = Launch { program: self.program(preset).path, args: args.clone(), env: preset.env.clone(), env_remove: env_remove.clone(), cwd };
+                let (handle, events) =
+                    spawn_piped(&self.parts.processes, launch).await.map_err(|fault| format!("{}'s sign-in did not start: {fault}", preset.label))?;
+                let shared = shared(handle, true);
+                drop(mixdog_rt::spawn("acp.login", TaskClass::Work, follow(shared.clone(), events)));
+                Ok(Box::new(AgentLogin(shared)))
+            }
+            Login::AcpAuthenticate { method_id, link_line, .. } => {
+                let held = self.hold_program(preset);
+                let (connection, staging) = self.start_authenticate(preset, cwd).await?;
+                let shared = shared(connection.handle().clone(), false);
+                let asked = Authenticate {
+                    agents: self.clone(),
+                    preset: preset.clone(),
+                    method_id: method_id.clone(),
+                    link_line: link_line.clone(),
+                    staging,
+                    _held: held,
+                };
+                drop(mixdog_rt::spawn("acp.login", TaskClass::Work, asked.run(shared.clone(), connection)));
+                Ok(Box::new(AgentLogin(shared)))
+            }
+        }
+    }
+
+    /// Starts `preset`'s installed build for a sign-in, in a temporary folder of its own and with a home of its own, a new
+    /// staging folder `<acp data>/homes/<preset id>.login-<n>` beside the agent's home: the sign-in the agent already
+    /// holds, and the server that runs on it, stay as they are until this one succeeds.
+    async fn start_authenticate(self: &Arc<Self>, preset: &AgentPreset, cwd: AbsPath) -> Result<(Arc<Connection>, AbsPath), String> {
+        let Distribution::Registry { home_env, .. } = &preset.distribution else { return Err(format!("{} signs in with its CLI.", preset.label)) };
+        let installed = self.installed(preset).await?.ok_or_else(|| format!("{} is not installed. Install it in Settings.", preset.label))?;
+        let home = self.home(preset);
+        let staging = home.with_file_name(format!("{}{}{}", preset.id, crate::registry::LOGIN_HOME, uuid::Uuid::new_v4().simple()));
+        let staging = AbsPath::new(&staging).ok_or_else(|| format!("{} is not an absolute folder", staging.display()))?;
+        let files = self.parts.files.clone();
+        files.make_folder(staging.clone()).await?;
+        let started = async {
+            let program = Program { env: vec![(home_env.clone(), staging.as_path().to_string_lossy().into_owned())], ..installed.program };
+            let temp = Temp { folder: self.server_temp().await?, files: files.clone() };
+            let (connection, _incoming) = Connection::start_in(self.parts.processes.clone(), launch(preset, &program, cwd), Some(temp)).await?;
+            Ok::<_, Fault>(connection)
+        }
+        .await;
+        match started {
+            Ok(connection) => Ok((connection, staging)),
+            Err(fault) => {
+                let _ = files.remove_folder(staging).await;
+                Err(format!("{}'s sign-in did not start: {fault}", preset.label))
+            }
+        }
+    }
+
+    /// The sign-in a staging home `staging` holds is `preset`'s from here: its files are written into the agent's home,
+    /// each whole and the credential last, and stay in the staging home for the sign-in's server, which goes on running
+    /// on them. What the agent told of the account before stands no longer, and the server that runs on the account it
+    /// held before is taken out of use, its sessions off it, and closed in the background. Every file is read before
+    /// any is written: a sign-in that cannot be read whole leaves the home as it was. Returns the sign-in's id and the
+    /// hand-over's number, under which what its server tells of the account is kept.
+    async fn adopt_sign_in(&self, preset: &AgentPreset, staging: &AbsPath) -> Result<(u64, u64), String> {
+        let home = self.home(preset);
+        let sign_in_files = match &preset.distribution {
+            Distribution::Registry { sign_in_files, .. } => sign_in_files.as_slice(),
+            Distribution::Cli { .. } => &[],
+        };
+        let mut read = Vec::with_capacity(sign_in_files.len());
+        for file in sign_in_files {
+            let (from, to) = (AbsPath::new(staging.as_path().join(file)), AbsPath::new(home.join(file)));
+            let (Some(from), Some(to)) = (from, to) else { return Err(format!("{file} has no absolute place")) };
+            let text = self.parts.files.read(from).await.map_err(|error| format!("the sign-in's {file} was not read: {error}"))?;
+            read.push((file, to, text));
+        }
+        for (file, to, text) in read {
+            self.parts.files.replace(to, text).await.map_err(|error| format!("the sign-in's {file} was not kept: {error}"))?;
+        }
+        // Nothing started before learns of the account from here, a check that runs ends, and what was told of the
+        // account left stands no longer.
+        let sign_in = self.next_check.fetch_add(1, Ordering::Relaxed);
+        let epoch = self.hand_over(preset, Some(sign_in)).await;
+        // Its server is out of use from here; it ends in the background, within the grace its input's end gives it. A
+        // session opened from here starts a server on the new account.
+        drop(self.retire_shared(&preset.id));
+        Ok((sign_in, epoch))
     }
 
     /// What a finished sign-in leaves to do: the CLI is looked at again, and the sign-in held only if it now opens a session.

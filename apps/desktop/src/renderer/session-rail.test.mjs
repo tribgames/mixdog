@@ -2173,6 +2173,63 @@ test("the Branch row's tab is a popup in the body: its row and its own presses o
   assert.equal(host(), null, 'Escape');
 });
 
+test('the Branch popup and the goal editor close with the panel’s surface, with no press (a dock covering the panel), and stay closed when it is shown again', async (t) => {
+  const { BranchIslandSegment, clearBranchSegmentCache } = await import('./WorktreeIslandSegment.tsx');
+  const { useSessionGoal } = await import('./SessionGoalIsland.tsx');
+  const { GoalSection } = await import('./session-rail-goal.tsx');
+  const { SurfaceActiveContext } = await import('./surface-activity.ts');
+  clearBranchSegmentCache();
+  const menu = {
+    workspace: worktreeWorkspace(),
+    branches: [{ name: 'main' }, { name: 'feature' }],
+    occupancy: [{ branch: 'main', kind: 'current' }],
+    retainedWorktree: null,
+  };
+  function Goal() {
+    const model = useSessionGoal(goalSnapshot(goalOf('active')));
+    return React.createElement(GoalSection, { model, open: true, onToggle() {} });
+  }
+  const panel = (active) =>
+    React.createElement(
+      SurfaceActiveContext.Provider,
+      { value: active },
+      React.createElement(
+        'div',
+        { className: 'probe-panel' },
+        React.createElement(BranchIslandSegment, {
+          sessionId: LEAD,
+          workspace: worktreeWorkspace(),
+          projectPath: worktreeProject,
+          renderTrigger: (button) =>
+            React.createElement('button', { ...button, type: 'button', className: 'probe-branch-row' }, 'Branch'),
+        }),
+        React.createElement(Goal)
+      )
+    );
+  const { document, root } = await mount(t, panel(true), {
+    invokeCapability: async ({ capability }) => ({ value: capability === 'getBranchMenu' ? menu : null }),
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  const popup = () => document.querySelector('.branch-tab-host');
+  const editor = () => document.querySelector('.composer-goal-dialog');
+  await act(async () => document.querySelector('.probe-branch-row').click());
+  await settle();
+  assert.ok(popup(), 'the Branch popup is open');
+  await act(async () => root.render(panel(false)));
+  assert.equal(popup(), null, 'covered: the popup closes');
+  await act(async () => root.render(panel(true)));
+  await settle();
+  assert.equal(popup(), null, 'shown again: still closed');
+  assert.equal(document.querySelector('.probe-branch-row').getAttribute('aria-expanded'), 'false');
+
+  await act(async () => document.querySelector('[data-category="goal"] [aria-label="Edit goal"]').click());
+  assert.ok(editor(), 'the goal editor is open');
+  await act(async () => root.render(panel(false)));
+  assert.equal(editor(), null, 'covered: the editor closes');
+  await act(async () => root.render(panel(true)));
+  assert.equal(editor(), null, 'shown again: still closed');
+});
+
 test("the Changes head reads the island's files head: Files N and the lines added and removed, with no count; its foot's View changes carries an icon", async (context) => {
   const { ChangesSection } = await import('./session-rail-changes.tsx');
   const entry = (additions, deletions) => ({
@@ -2473,8 +2530,9 @@ async function railPanes(t) {
       hasConversation: !draft,
     });
   };
-  /** One pane: `selection` its shown tab; `retained` a conversation kept behind it; `rail` false for no panel. */
-  const pane = ({ leafId, selection, retained = null, rail = true }) =>
+  /** One pane: `selection` its shown tab; `retained` a conversation kept behind it; `rail` false for no panel;
+   *  `covered` its panel under a dock at the pane's side. */
+  const pane = ({ leafId, selection, retained = null, rail = true, covered = false }) =>
     React.createElement(
       'div',
       { key: leafId, className: 'probe-cell', 'data-leaf': leafId },
@@ -2485,6 +2543,7 @@ async function railPanes(t) {
           draftId: selection.kind === 'new' ? selection.draftId : '',
           width: 400,
           reserve: 408,
+          covered,
         }),
       React.createElement('div', { 'data-conversation': 'shown' }, conversation(selection, leafId)),
       retained &&
@@ -2664,5 +2723,79 @@ test("a draft beside a session: each pane's panel draws its own conversation, ne
   );
   assert.deepEqual([infos('left'), sessionInfo('left')], [1, true]);
   assert.deepEqual([infos('right'), draftInfo('right'), sessionInfo('right')], [1, true, false]);
+  await act(async () => view.root.render(null));
+});
+
+test('a panel a dock covers runs nothing: no observer or read while covered; shown again it reads what it missed, its rows where its reader left them', async (t) => {
+  const view = await railPanes(t);
+  const { defaultSessionLaneStore: store } = await import('./session-lane-store.ts');
+  const sessionId = 'covered-rail';
+  // Every node an observer watches (the motion's, the edge fades', a row's size), as observe, unobserve and
+  // disconnect leave it.
+  const observing = new Map();
+  const tracked = (Base) =>
+    class extends Base {
+      observe(target, options) {
+        if (!observing.has(this)) observing.set(this, new Set());
+        observing.get(this).add(target);
+        return super.observe(target, options);
+      }
+      unobserve(target) {
+        observing.get(this)?.delete(target);
+        return super.unobserve(target);
+      }
+      disconnect() {
+        observing.delete(this);
+        return super.disconnect();
+      }
+    };
+  window.MutationObserver = tracked(window.MutationObserver);
+  globalThis.ResizeObserver = tracked(globalThis.ResizeObserver);
+  const reads = [];
+  const invoke = window.mixdogDesktop.invokeCapability;
+  window.mixdogDesktop.invokeCapability = (request) => {
+    if (request.capability === 'contextStatus') reads.push(request.sessionId);
+    return invoke(request);
+  };
+  store.setShownSessionIds([sessionId]);
+  t.after(() => store.setShownSessionIds([]));
+  const reading = (tokens) =>
+    store.apply({
+      sessionId,
+      snapshot: {
+        sessionId,
+        contextTokens: 200000,
+        stats: { currentContextTokens: tokens, currentContextSource: 'last_api_request' },
+      },
+      frameSource: 'live',
+    });
+  reading(80000);
+  const selection = { kind: 'session', id: sessionId };
+  await view.render({ leafId: 'covered', selection });
+  const aside = view.cell('covered').querySelector('.session-rail');
+  const watched = () =>
+    [...observing.values()].filter((targets) => [...targets].some((target) => aside.contains(target))).length;
+  const body = view.body('covered');
+  const info = body.querySelector('[data-category="info"]');
+  assert.ok(body.querySelector('[data-category="context"]'), 'its Context shows the reading');
+  assert.deepEqual(reads, [sessionId], 'and reads what the window holds');
+  assert.ok(watched() > 0, 'shown, the panel watches its rows');
+  body.scrollTop = 180;
+
+  await view.render({ leafId: 'covered', selection, covered: true });
+  assert.equal(aside.hidden, true, 'covered: not drawn');
+  assert.equal(watched(), 0, 'covered: nothing watches it');
+  reads.length = 0;
+  await act(async () => reading(120000));
+  await view.settle();
+  assert.deepEqual(reads, [], 'covered: a new reading reads nothing');
+
+  await view.render({ leafId: 'covered', selection });
+  assert.equal(aside.hidden, false);
+  assert.deepEqual(reads, [sessionId], 'shown again, it reads what it missed');
+  assert.ok(watched() > 0, 'and watches its rows again');
+  assert.equal(view.body('covered'), body);
+  assert.equal(body.querySelector('[data-category="info"]'), info, 'the same rows');
+  assert.equal(body.scrollTop, 180, 'where its reader left them');
   await act(async () => view.root.render(null));
 });

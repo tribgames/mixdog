@@ -207,6 +207,14 @@ async fn until(due: Option<tokio::time::Instant>) {
 /// A call of a Mixdog tool the agent made, as far as it got.
 type Running = std::pin::Pin<Box<dyn std::future::Future<Output = Handed> + Send>>;
 
+/// A call of a Mixdog tool the turn stopped waiting for.
+enum Unfinished {
+    /// Not over when its answer was due: it goes on as it got.
+    Due(Running),
+    /// The session is gone: the call was ended where it was.
+    Gone,
+}
+
 /// When a call of a Mixdog tool that reached the session's server at `received` is answered at the latest, for an agent
 /// that gives such a call up after `deadline`: a tenth of the deadline before it, for the answer's way back. `None`
 /// for an agent that waits until the call ends.
@@ -374,20 +382,27 @@ impl Reply<'_> {
     }
 
     /// Runs `call`, a call of a Mixdog tool, until `due` where there is one, its tool's own hold ending by then: its
-    /// outcome, or the call as far as it got where it was not over by then.
-    async fn run_handed(&mut self, calls: Arc<HandedCalls>, call: ToolCall, due: Due) -> Result<Handed, Running> {
+    /// outcome, or the call as far as it got where it was not over by then. A session that is gone meanwhile ends the
+    /// call where it is, an approval it waits on included: nobody is left to take its result.
+    async fn run_handed(&mut self, calls: Arc<HandedCalls>, call: ToolCall, due: Due) -> Result<Handed, Unfinished> {
+        let gone = self.session.gone().clone();
         let mut running: Running = Box::pin(async move { calls.call_by(call, due.hold).await });
         let ended = self
             .piped(async {
                 tokio::select! {
                     biased;
-                    outcome = &mut running => Some(outcome),
-                    () = until(due.answer) => None,
+                    outcome = &mut running => Ok(outcome),
+                    () = gone.cancelled() => Err(false),
+                    () = until(due.answer) => Err(true),
                 }
             })
             .await;
         self.mark_after_call().await;
-        ended.ok_or(running)
+        match ended {
+            Ok(outcome) => Ok(outcome),
+            Err(true) => Err(Unfinished::Due(running)),
+            Err(false) => Err(Unfinished::Gone),
+        }
     }
 
     /// The agent reported its context: the window it names is the session's.
@@ -662,7 +677,11 @@ impl Reply<'_> {
         self.context.mark(|progress, now| progress.tool_call(None, now));
         let (row, answer) = match ran {
             Ok(outcome) => (rows::tool_message(new_item_id(), &outcome.message), crate::mcp::rendered(&outcome)),
-            Err((calls, running)) => {
+            Err((_, Unfinished::Gone)) => {
+                let text = "The agent's session ended before this call did.".to_owned();
+                (rows::tool_result(new_item_id(), &id, text.clone(), true, None), crate::mcp::result_text(text, true))
+            }
+            Err((calls, Unfinished::Due(running))) => {
                 calls.let_go(&id).await;
                 let task = self.keep(handed, &name, (calls, id.clone()), running);
                 self.session.keep_call(name.clone(), arguments, task.clone());
@@ -1130,18 +1149,39 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
         };
         let step = match incoming {
             Incoming::Notification { method, params } if method == "session/update" => reply.update(params.get("update").unwrap_or(&Value::Null)).await,
-            Incoming::Request { id, params, .. } => match reply.permission(&params).await {
-                Ok(answer) => {
-                    session.connection.respond(id, Ok(answer)).await;
-                    Ok(())
+            Incoming::Request { id, params, .. } => {
+                // A session that is gone while its question is open (on a card, or in the session's own judging) has
+                // nobody to answer: the turn ends with it.
+                let answered = tokio::select! {
+                    biased;
+                    () = session.gone().cancelled() => None,
+                    answered = reply.permission(&params) => Some(answered),
+                };
+                match answered {
+                    // A shared server goes on with its other sessions: its question is not left without an answer.
+                    None => {
+                        session.connection.respond(id, Ok(outcome(None))).await;
+                        break Ended::Gone;
+                    }
+                    Some(Ok(answer)) => {
+                        session.connection.respond(id, Ok(answer)).await;
+                        Ok(())
+                    }
+                    Some(Err(error)) => {
+                        session.connection.respond(id, Ok(outcome(None))).await;
+                        Err(error)
+                    }
                 }
-                Err(error) => {
-                    session.connection.respond(id, Ok(outcome(None))).await;
-                    Err(error)
-                }
-            },
+            }
             Incoming::Response { id, result } if Some(id) == prompt => break Ended::Agent(Some(result)),
-            Incoming::Tool(ask) => reply.handed(ask).await,
+            Incoming::Tool(ask) => {
+                let handed = reply.handed(ask).await;
+                // A call the session's loss ended ends the turn with it.
+                if session.gone().is_cancelled() {
+                    break Ended::Gone;
+                }
+                handed
+            }
             _ => Ok(()),
         };
         if step.is_err() {

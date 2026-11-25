@@ -12,6 +12,7 @@ use mixdog_protocol::ThreadId;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
+use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -24,14 +25,132 @@ use crate::connection::Connection;
 use crate::connection::Fault;
 use crate::connection::Launch;
 use crate::connection::Ran;
+use crate::connection::Temp;
 use crate::connection::run_to_exit;
 use crate::preset::AgentPreset;
 use crate::preset::Distribution;
+use crate::preset::Login;
+use crate::preset::ProcessScope;
 use crate::preset::Version;
+use crate::session::AgentModel;
 use crate::session::Models;
 use crate::session::Program;
 use crate::session::initialize;
 use crate::session::launch;
+
+/// The file of the feature's folder that keeps what each registry agent last told of itself.
+const PROBE_CACHE: &str = "probe-cache.json";
+/// How long a server started to learn what it tells of itself is given to open a session.
+const PROBE_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What an agent started for a check answered.
+enum Probe {
+    Opened { capabilities: Value, answer: Value },
+    /// It names no version, or one below the preset's minimum, in `initialize`: it was asked nothing more.
+    TooOld(Option<Version>),
+    /// It asked for a sign-in in the browser.
+    SignIn,
+}
+
+/// Opens a session in the agent `connection` runs, which it is asked to forget again where it closes sessions. With a
+/// `minimum`, an agent whose `initialize` names no version or an older one is asked nothing more.
+async fn open_probe(connection: &Connection, cwd: &AbsPath, minimum: Option<Version>) -> Result<Probe, Fault> {
+    let capabilities = initialize(connection).await?;
+    if let Some(minimum) = minimum {
+        let named = capabilities.pointer("/agentInfo/version").and_then(Value::as_str).and_then(Version::find);
+        if named.is_none_or(|found| found < minimum) {
+            return Ok(Probe::TooOld(named));
+        }
+    }
+    let answer = open_told(connection, cwd, &capabilities).await?;
+    Ok(Probe::Opened { capabilities, answer })
+}
+
+/// Opens a session in the initialized agent `connection` runs, for what it answers of itself, and asks it to forget the
+/// session again where its `capabilities` close sessions.
+async fn open_told(connection: &Connection, cwd: &AbsPath, capabilities: &Value) -> Result<Value, Fault> {
+    let answer = connection.request("session/new", json!({ "cwd": cwd.as_path().to_string_lossy(), "mcpServers": [] })).await?;
+    if let (Some(_), Some(id)) = (capabilities.pointer("/agentCapabilities/sessionCapabilities/close"), answer.get("sessionId").and_then(Value::as_str)) {
+        let _ = connection.request("session/close", json!({ "sessionId": id })).await;
+    }
+    Ok(answer)
+}
+
+/// What `preset`'s agent told of itself in its `capabilities` and the `answer` to a session it opened; `version` where
+/// it names none.
+fn told(preset: &AgentPreset, capabilities: &Value, answer: &Value, version: String) -> Probed {
+    let version = capabilities.pointer("/agentInfo/version").and_then(Value::as_str).map_or(version, str::to_owned);
+    Probed { version, models: Models::of(answer), account: account_of(preset, capabilities, answer) }
+}
+
+/// Resolves once the agent wrote the line `link` starts, which asks for a sign-in in the browser; never for an agent that
+/// writes none.
+async fn asks_sign_in(lines: &mut mpsc::UnboundedReceiver<String>, link: Option<&str>) {
+    if let Some(link) = link {
+        while let Some(line) = lines.recv().await {
+            if line.contains(link) {
+                return;
+            }
+        }
+    }
+    std::future::pending().await
+}
+
+/// What a check finds of an agent whose session could not be opened for `fault`.
+fn unopened(fault: Fault, version: Option<String>) -> Readiness {
+    match fault {
+        Fault::NotFound => Readiness::NotInstalled,
+        Fault::Rpc(error) if error.code == AUTH_REQUIRED => Readiness::SignedOut { version: version.unwrap_or_default(), message: error.message },
+        fault => Readiness::Failed { version, message: fault.to_string() },
+    }
+}
+
+/// The name of the plan the signed-in account is on, as `preset`'s agent gives it in a session's `answer`.
+pub(crate) fn plan_of(preset: &AgentPreset, answer: &Value) -> Option<String> {
+    let path = preset.quirks.plan_name.as_ref()?;
+    let named = path.iter().try_fold(answer.get("_meta")?, |at, key| at.get(key))?;
+    named.as_str().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned)
+}
+
+/// What the agent's `initialize` answer `capabilities` and a session's `answer` tell of the account.
+pub(crate) fn account_of(preset: &AgentPreset, capabilities: &Value, answer: &Value) -> Account {
+    let sign_out = capabilities.pointer("/agentCapabilities/auth/logout").is_some_and(|logout| !logout.is_null() && logout != &Value::Bool(false));
+    Account { plan: plan_of(preset, answer), sign_out }
+}
+
+/// What a registry agent last told of itself, kept across a restart of the app so that a check starts nothing for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Probed {
+    /// The version it named in `initialize`.
+    pub(crate) version: String,
+    pub(crate) models: Models,
+    pub(crate) account: Account,
+}
+
+impl Probed {
+    fn value(&self) -> Value {
+        let available: Vec<Value> = self.models.available.iter().map(|model| json!({ "id": model.id, "name": model.name })).collect();
+        json!({
+            "version": self.version,
+            "models": { "available": available, "current": self.models.current, "configOption": self.models.config_option },
+            "plan": self.account.plan,
+            "signOut": self.account.sign_out,
+        })
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
+        let models = value.get("models")?;
+        let available = models.get("available")?.as_array()?.iter().filter_map(|model| {
+            Some(AgentModel { id: model.get("id")?.as_str()?.to_owned(), name: model.get("name")?.as_str()?.to_owned() })
+        });
+        Some(Self {
+            version: text(value.get("version"))?,
+            models: Models { available: available.collect(), current: text(models.get("current")), config_option: text(models.get("configOption")) },
+            account: Account { plan: text(value.get("plan")), sign_out: value.get("signOut").and_then(Value::as_bool).unwrap_or(false) },
+        })
+    }
+}
 
 /// What a running check is doing, as the Settings row words it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +220,35 @@ pub(crate) struct Slot {
     pub(crate) account: Account,
     /// The quota reads running on the CLI, by id: the feature's switch and a sign-out end every one.
     usage_reads: Vec<(u64, CancellationToken)>,
+    /// A turn found the agent signed out: what it last told of itself stands no longer.
+    pub(crate) stale_probe: bool,
+    /// The sign-in that succeeded last, while what its server tells of the account is still to come: the agent is ready
+    /// without it, and anything kept of the agent from then on stands over it.
+    pub(crate) signed_in: Option<u64>,
+    /// What `probe-cache.json` keeps of the agent, as last read or written under its lock: a check that ends shows the
+    /// models it lists, whatever was kept while the check ran.
+    told: Option<Probed>,
+}
+
+/// A sign-out of `preset` under way, which no session opens on; its end, however it ends, lets them open again.
+struct SigningOut<'a> {
+    agents: &'a Agents,
+    preset: &'a str,
+}
+
+impl Drop for SigningOut<'_> {
+    fn drop(&mut self) {
+        lock(&self.agents.signing_out).remove(self.preset);
+    }
+}
+
+/// What stands of a registry agent's account without starting it.
+enum Standing {
+    /// What it told of itself, kept.
+    Told(Probed),
+    /// A sign-in succeeded and what its server tells follows.
+    SignedIn,
+    Unknown,
 }
 
 /// What an agent tells of the account its CLI is signed in with. It names no one: the plan is all it says.
@@ -134,6 +282,14 @@ impl Drop for Starting {
         if let Some(slot) = lock(&self.agents.slots).get_mut(&self.preset) {
             slot.starting = slot.starting.saturating_sub(1);
         }
+    }
+}
+
+impl Agents {
+    /// Holds `preset`'s program against an update, as a session's start does, for as long as the guard lives.
+    pub(crate) fn hold_program(self: &Arc<Self>, preset: &AgentPreset) -> Starting {
+        lock(&self.slots).entry(preset.id.clone()).or_default().starting += 1;
+        Starting { agents: self.clone(), preset: preset.id.clone() }
     }
 }
 
@@ -171,22 +327,25 @@ impl Agents {
         Err(Fault::NotFound)
     }
 
-    fn set_step(&self, preset: &AgentPreset, check: u64, step: Step) {
+    pub(crate) fn set_step(&self, preset: &AgentPreset, check: u64, step: Step) {
         if let Some(running) = lock(&self.slots).get_mut(&preset.id).and_then(|slot| slot.running.as_mut()).filter(|running| running.id == check) {
             running.step = step;
         }
         (self.parts.changed)();
     }
 
-    fn set_fault(&self, preset: &AgentPreset, fault: Option<(Action, String)>) {
+    pub(crate) fn set_fault(&self, preset: &AgentPreset, fault: Option<(Action, String)>) {
         if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
             slot.fault = fault;
         }
     }
 
-    /// Whether the CLI may be replaced now: no session's agent runs on it and none is being started.
-    fn begin_update(&self, preset: &AgentPreset, check: u64) -> bool {
-        let in_use = lock(&self.sessions).values().any(|session| session.preset.id == preset.id && !session.connection.exited().is_cancelled());
+    /// Whether the program may be replaced now: no session's agent runs on it, none is being started, no server of it
+    /// runs, starts or is still ending, and no sign-in runs on it.
+    pub(crate) fn begin_update(&self, preset: &AgentPreset, check: u64) -> bool {
+        let in_use = lock(&self.sessions).values().any(|session| session.preset.id == preset.id && !session.connection.exited().is_cancelled())
+            || lock(&self.shared).contains_key(&preset.id)
+            || lock(&self.stops).iter().any(|stop| !stop.is_finished());
         let mut slots = lock(&self.slots);
         let Some(slot) = slots.get_mut(&preset.id) else { return false };
         if in_use || slot.starting > 0 {
@@ -234,28 +393,6 @@ impl Agents {
         located
     }
 
-    /// The build of `preset`'s registry agent this machine holds, as `<acp data>/bin/<preset id>/installed.json` names it:
-    /// its program (`cmd`, under the build's own folder `<version>/` unless it is absolute) with the build's arguments,
-    /// in the home Mixdog keeps for the agent, which `home_env` names. `Ok(None)` where no build is installed.
-    async fn installed(&self, preset: &AgentPreset, home_env: &str) -> Result<Option<Program>, String> {
-        let folder = self.parts.data_dir.join("bin").join(&preset.id);
-        let Some(file) = AbsPath::new(folder.join("installed.json")) else {
-            return Err(format!("{} is not an absolute folder to keep the agents in", self.parts.data_dir.display()));
-        };
-        let Ok(text) = self.parts.files.read(file).await else { return Ok(None) };
-        let unreadable = |why: &str| format!("the record of {}'s installed build cannot be read: {why}", preset.label);
-        let installed: Value = serde_json::from_str(&text).map_err(|error| unreadable(&error.to_string()))?;
-        let field = |key: &str| installed.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
-        let (Some(version), Some(cmd)) = (field("version"), field("cmd")) else { return Err(unreadable("it names no version or no program")) };
-        let args = installed.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-        let home = self.parts.data_dir.join("homes").join(&preset.id);
-        Ok(Some(Program {
-            path: folder.join(version).join(cmd).to_string_lossy().into_owned(),
-            args,
-            env: vec![(home_env.to_owned(), home.to_string_lossy().into_owned())],
-        }))
-    }
-
     /// One check of `preset`'s program, with the upkeep `plan` allows.
     async fn examine(&self, preset: &AgentPreset, plan: Plan, check: u64) -> Readiness {
         // What an agent refused before the app last stopped stands over what this check finds.
@@ -263,77 +400,138 @@ impl Agents {
         let Some(cwd) = AbsPath::new(self.parts.probe_cwd.clone()) else {
             return Readiness::Failed { version: None, message: format!("{} is not an absolute folder to check the CLI in", self.parts.probe_cwd.display()) };
         };
-        // A CLI prints its version, and one too old is never started in ACP mode; an agent of the registry has no version
-        // run and names its version in `initialize`.
-        let (program, printed) = match &preset.distribution {
-            Distribution::Cli { .. } => match self.examine_cli(preset, plan, check, &cwd).await {
-                Ok((path, ran)) => match Version::find(&ran.stdout) {
-                    Some(found) => (Program::at(path), Some(found)),
-                    None => {
-                        self.found_program(preset, Program::at(path));
-                        return Readiness::VersionUnknown;
-                    }
-                },
-                Err(Fault::NotFound) => return Readiness::NotInstalled,
-                Err(fault) => return Readiness::Failed { version: None, message: fault.to_string() },
-            },
-            Distribution::Registry { supported: false, .. } => {
-                return Readiness::Failed { version: None, message: format!("{} does not run on this system.", preset.label) };
-            }
-            Distribution::Registry { home_env, .. } => match self.installed(preset, home_env).await {
-                Ok(Some(program)) => (program, None),
-                Ok(None) => return Readiness::NotInstalled,
-                Err(message) => return Readiness::Failed { version: None, message },
-            },
-        };
-        self.found_program(preset, program.clone());
-        if let Some(found) = printed.filter(|found| *found < preset.minimum_version) {
-            return Readiness::VersionTooOld { version: found.to_string() };
+        match &preset.distribution {
+            Distribution::Cli { .. } => self.check_cli(preset, plan, check, &cwd).await,
+            Distribution::Registry { .. } => self.check_registry(preset, plan, check, &cwd).await,
         }
-        // Whether the user is signed in shows only when a session is opened; the agent is asked to forget it again.
-        let mut named = printed;
+    }
+
+    /// A CLI prints its version, and one too old is never started in ACP mode. Whether the user is signed in shows only
+    /// when a session is opened, which the agent is asked to forget again.
+    async fn check_cli(&self, preset: &AgentPreset, plan: Plan, check: u64, cwd: &AbsPath) -> Readiness {
+        let (path, ran) = match self.examine_cli(preset, plan, check, cwd).await {
+            Ok(located) => located,
+            Err(Fault::NotFound) => return Readiness::NotInstalled,
+            Err(fault) => return Readiness::Failed { version: None, message: fault.to_string() },
+        };
+        let program = Program::at(path);
+        self.found_program(preset, program.clone());
+        let Some(found) = Version::find(&ran.stdout) else { return Readiness::VersionUnknown };
+        let version = found.to_string();
+        if found < preset.minimum_version {
+            return Readiness::VersionTooOld { version };
+        }
         let opened = async {
             let (connection, _incoming) = Connection::start(self.parts.processes.clone(), launch(preset, &program, cwd.clone())).await?;
-            let opened = async {
-                let capabilities = initialize(&connection).await?;
-                if named.is_none() {
-                    named = capabilities.pointer("/agentInfo/version").and_then(Value::as_str).and_then(Version::find);
-                }
-                // An agent whose version is unknown or too old is asked nothing more.
-                if named.is_none_or(|found| found < preset.minimum_version) {
-                    return Ok(None);
-                }
-                let answer = connection.request("session/new", json!({ "cwd": cwd.as_path().to_string_lossy(), "mcpServers": [] })).await?;
-                if let (Some(_), Some(id)) =
-                    (capabilities.pointer("/agentCapabilities/sessionCapabilities/close"), answer.get("sessionId").and_then(Value::as_str))
-                {
-                    let _ = connection.request("session/close", json!({ "sessionId": id })).await;
-                }
-                Ok::<_, Fault>(Some((answer, capabilities)))
-            }
-            .await;
+            let opened = open_probe(&connection, cwd, None).await;
             connection.kill();
             opened
         }
         .await;
-        let version = named.map(|found| found.to_string());
-        match (opened, version) {
-            (Ok(Some((answer, capabilities))), Some(version)) => {
-                let plan = preset.quirks.plan_name.as_ref().and_then(|path| {
-                    let named = path.iter().try_fold(answer.get("_meta")?, |at, key| at.get(key))?;
-                    named.as_str().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned)
-                });
-                let sign_out = capabilities.pointer("/agentCapabilities/auth/logout").is_some_and(|logout| !logout.is_null() && logout != &Value::Bool(false));
-                if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
-                    slot.account = Account { plan, sign_out };
-                }
+        match opened {
+            Ok(Probe::Opened { capabilities, answer }) => {
+                self.set_account(preset, account_of(preset, &capabilities, &answer));
                 Readiness::Ready { version, models: Models::of(&answer) }
             }
-            (Ok(_), None) => Readiness::VersionUnknown,
-            (Ok(None), Some(version)) => Readiness::VersionTooOld { version },
-            (Err(Fault::NotFound), _) => Readiness::NotInstalled,
-            (Err(Fault::Rpc(error)), version) if error.code == AUTH_REQUIRED => Readiness::SignedOut { version: version.unwrap_or_default(), message: error.message },
-            (Err(fault), version) => Readiness::Failed { version, message: fault.to_string() },
+            Ok(_) => Readiness::VersionUnknown,
+            Err(fault) => unopened(fault, Some(version)),
+        }
+    }
+
+    /// The registry's build is found from what this machine holds, and nothing is started for it while what the agent
+    /// last told of itself stands: its build, the sign-in its home holds, and its answers kept in `probe-cache.json`. A
+    /// system the registry's build does not run on has no build, and nothing stands in for it.
+    async fn check_registry(&self, preset: &AgentPreset, plan: Plan, check: u64, cwd: &AbsPath) -> Readiness {
+        if matches!(preset.distribution, Distribution::Registry { supported: false, .. }) {
+            return Readiness::Unsupported;
+        }
+        let installed = match self.installed(preset).await {
+            Ok(installed) => installed,
+            Err(message) => return Readiness::Failed { version: None, message },
+        };
+        let Some(installed) = self.keep_current(preset, plan, check, installed).await else { return Readiness::NotInstalled };
+        self.found_program(preset, installed.program.clone());
+        let version = installed.version.clone();
+        match Version::find(&version) {
+            None => return Readiness::VersionUnknown,
+            Some(found) if found < preset.minimum_version => return Readiness::VersionTooOld { version },
+            Some(_) => {}
+        }
+        if !self.home_signed_in(preset).await {
+            return Readiness::SignedOut { version, message: format!("{} is not signed in.", preset.label) };
+        }
+        let stale = lock(&self.slots).get_mut(&preset.id).is_some_and(|slot| std::mem::take(&mut slot.stale_probe));
+        if stale {
+            self.forget_told(preset).await;
+        } else {
+            match self.standing(preset).await {
+                Standing::Told(probed) if Version::find(&probed.version) == Version::find(&version) => {
+                    return Readiness::Ready { version, models: probed.models };
+                }
+                // Signed in a moment ago: what the sign-in's server tells of the account follows.
+                Standing::SignedIn => return Readiness::Ready { version, models: Models::default() },
+                _ => {}
+            }
+        }
+        self.probe(preset, &installed.program, cwd, version).await
+    }
+
+    /// Starts `preset`'s server to learn what it tells of itself, in a temporary folder of its own, and closes it as the end
+    /// of its input closes it. One that asks for a sign-in in the browser is signed out, and is closed at once.
+    async fn probe(&self, preset: &AgentPreset, program: &Program, cwd: &AbsPath, version: String) -> Readiness {
+        let epoch = self.account_epoch(&preset.id);
+        let link = preset.login.as_ref().and_then(Login::link_line);
+        let probed = async {
+            let temp = Temp { folder: self.server_temp().await?, files: self.parts.files.clone() };
+            let (connection, _incoming) = Connection::start_in(self.parts.processes.clone(), launch(preset, program, cwd.clone()), Some(temp)).await?;
+            let mut lines = connection.stderr_lines();
+            let probed = tokio::select! {
+                biased;
+                () = asks_sign_in(&mut lines, link) => Ok(Probe::SignIn),
+                () = mixdog_rt::time::sleep(PROBE_LIMIT) => Err(Fault::Start(format!("it did not open a session within {} s", PROBE_LIMIT.as_secs()))),
+                probed = open_probe(&connection, cwd, Some(preset.minimum_version)) => probed,
+            };
+            connection.close_gracefully(crate::shared::grace(1)).await;
+            probed
+        }
+        .await;
+        match probed {
+            Ok(Probe::Opened { capabilities, answer }) => {
+                let probed = told(preset, &capabilities, &answer, version);
+                let (version, models) = (probed.version.clone(), probed.models.clone());
+                // Of an account left where it changed hands while the check ran: the check's end shows nothing of it.
+                self.keep_told(preset, probed, epoch, None).await;
+                Readiness::Ready { version, models }
+            }
+            Ok(Probe::TooOld(Some(found))) => Readiness::VersionTooOld { version: found.to_string() },
+            Ok(Probe::TooOld(None)) => Readiness::VersionUnknown,
+            Ok(Probe::SignIn) => Readiness::SignedOut { version, message: format!("{} asks for a sign-in.", preset.label) },
+            Err(fault) => unopened(fault, Some(version)),
+        }
+    }
+
+    /// What the initialized, signed-in sign-in server `connection` of `preset` tells of itself in a session it opens, in
+    /// the probe's bound; `None` where it opens none.
+    pub(crate) async fn told_by_sign_in(&self, preset: &AgentPreset, connection: &Connection, capabilities: &Value) -> Option<Probed> {
+        let cwd = AbsPath::new(self.parts.probe_cwd.clone())?;
+        let version = capabilities.pointer("/agentInfo/version").and_then(Value::as_str)?.to_owned();
+        let answer = mixdog_rt::time::timeout(PROBE_LIMIT, open_told(connection, &cwd, capabilities)).await;
+        match answer {
+            Ok(Ok(answer)) => Some(told(preset, capabilities, &answer, version)),
+            Ok(Err(fault)) => {
+                tracing::warn!("[acp] {}'s sign-in server opened no session after the sign-in: {fault}", preset.label);
+                None
+            }
+            Err(_) => {
+                tracing::warn!("[acp] {}'s sign-in server opened no session within {} s of the sign-in", preset.label, PROBE_LIMIT.as_secs());
+                None
+            }
+        }
+    }
+
+    pub(crate) fn set_account(&self, preset: &AgentPreset, account: Account) {
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            slot.account = account;
         }
     }
 
@@ -341,6 +539,206 @@ impl Agents {
         if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
             slot.program = Some(program);
         }
+    }
+
+    /// Whether `preset`'s home holds every file of a sign-in.
+    async fn home_signed_in(&self, preset: &AgentPreset) -> bool {
+        let Distribution::Registry { sign_in_files, .. } = &preset.distribution else { return false };
+        let home = self.home(preset);
+        for file in sign_in_files {
+            let Some(path) = AbsPath::new(home.join(file)) else { return false };
+            if !self.parts.files.read(path).await.is_ok_and(|text| !text.trim().is_empty()) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `preset`'s shared server, started while the account's hand-overs stood at `epoch`, opened its first session with
+    /// `answer`: what it told of itself is kept and shown, over what was kept before where it tells nothing of it (a
+    /// reopened session lists no models and no plan).
+    pub(crate) async fn server_told(&self, preset: &AgentPreset, capabilities: &Value, answer: &Value, epoch: u64) {
+        let (Distribution::Registry { .. }, Some(version)) = (&preset.distribution, capabilities.pointer("/agentInfo/version").and_then(Value::as_str)) else {
+            return;
+        };
+        if self.keep_told(preset, told(preset, capabilities, answer, version.to_owned()), epoch, None).await {
+            (self.parts.changed)();
+        }
+    }
+
+    /// What the server of the sign-in `sign_in`, which became the agent's at the hand-over `epoch`, told of the account
+    /// it signed in; `None` where it told nothing. It is kept and shown only while nothing newer was kept of the agent (a
+    /// server started since told it, or the account changed hands again). One that is not kept for telling nothing
+    /// leaves the agent to a check of its own, not one that began before.
+    pub(crate) async fn sign_in_told(self: &Arc<Self>, preset: &AgentPreset, sign_in: u64, epoch: u64, probed: Option<Probed>) {
+        if let Some(probed) = probed
+            && self.keep_told(preset, probed, epoch, Some(sign_in)).await
+        {
+            (self.parts.changed)();
+            return;
+        }
+        {
+            let _held = self.probe_writes.lock().await;
+            let mut slots = lock(&self.slots);
+            let Some(slot) = slots.get_mut(&preset.id).filter(|slot| slot.signed_in == Some(sign_in)) else { return };
+            slot.signed_in = None;
+        }
+        loop {
+            let running = {
+                let mut slots = lock(&self.slots);
+                // The feature turned off, or the account changed hands again, while a check ran: none is this one's to start.
+                if !self.enabled() || self.account_epoch(&preset.id) != epoch {
+                    return;
+                }
+                match slots.get(&preset.id).and_then(|slot| slot.running.as_ref()) {
+                    Some(running) => running.done.clone(),
+                    None => {
+                        drop(self.share_check(&mut slots, preset, Plan::Look));
+                        return;
+                    }
+                }
+            };
+            ended(running).await;
+        }
+    }
+
+    /// The account `preset`'s registry agent was signed in with is left: the files of its sign-in leave its home, so that
+    /// nothing started later finds one to try, and what the agent told of the account stands no longer.
+    async fn forget_sign_in(&self, preset: &AgentPreset) {
+        let Distribution::Registry { sign_in_files, .. } = &preset.distribution else { return };
+        let home = self.home(preset);
+        for file in sign_in_files {
+            if let Some(path) = AbsPath::new(home.join(file))
+                && let Err(error) = self.parts.files.remove_file(path).await
+            {
+                tracing::warn!("[acp] {file} of {}'s home was not removed: {error}", preset.label);
+            }
+        }
+        self.forget_told(preset).await;
+    }
+
+    /// The file the agents' answers are kept in, `<acp data>/probe-cache.json`.
+    fn probe_file(&self) -> Option<AbsPath> {
+        AbsPath::new(self.parts.data_dir.join(PROBE_CACHE))
+    }
+
+    async fn read_probe_file(&self) -> serde_json::Map<String, Value> {
+        let Some(file) = self.probe_file() else { return serde_json::Map::new() };
+        let text = self.parts.files.read(file).await.unwrap_or_default();
+        match serde_json::from_str(&text) {
+            Ok(Value::Object(kept)) => kept,
+            _ => serde_json::Map::new(),
+        }
+    }
+
+    /// Puts `probed` in `probe-cache.json` as what `preset`'s agent last told of itself, `None` removing it; the caller holds
+    /// `probe_writes`.
+    async fn write_told(&self, preset: &AgentPreset, probed: Option<&Probed>) {
+        let Some(file) = self.probe_file() else { return };
+        let mut kept = self.read_probe_file().await;
+        let changed = match probed {
+            Some(probed) => kept.insert(preset.id.clone(), probed.value()).is_none_or(|was| was != probed.value()),
+            None => kept.remove(&preset.id).is_some(),
+        };
+        if changed && let Err(error) = self.parts.files.replace(file, Value::Object(kept).to_string()).await {
+            tracing::warn!("[acp] what {} told of itself was not kept: {error}", preset.label);
+        }
+    }
+
+    /// What stands of `preset`'s account, read as one: what is kept of it, which is the account shown, else a sign-in
+    /// whose answer is to come. A kept answer that lists no models stands for nothing.
+    async fn standing(&self, preset: &AgentPreset) -> Standing {
+        let _held = self.probe_writes.lock().await;
+        let kept = self.read_probe_file().await.get(&preset.id).and_then(Probed::read).filter(|kept| !kept.models.available.is_empty());
+        let mut slots = lock(&self.slots);
+        let slot = slots.get_mut(&preset.id);
+        let signed_in = slot.as_ref().is_some_and(|slot| slot.signed_in.is_some());
+        if let Some(slot) = slot {
+            if let Some(kept) = &kept {
+                slot.account = kept.account.clone();
+            }
+            slot.told.clone_from(&kept);
+        }
+        match kept {
+            Some(kept) => Standing::Told(kept),
+            None if signed_in => Standing::SignedIn,
+            None => Standing::Unknown,
+        }
+    }
+
+    /// What `preset`'s agent told of itself stands no longer, and no sign-in's answer is to come.
+    pub(crate) async fn forget_told(&self, preset: &AgentPreset) {
+        let _held = self.probe_writes.lock().await;
+        self.write_told(preset, None).await;
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            slot.signed_in = None;
+            slot.told = None;
+        }
+    }
+
+    /// The hand-overs of `preset`'s account so far.
+    pub(crate) fn account_epoch(&self, preset_id: &str) -> u64 {
+        lock(&self.accounts).get(preset_id).copied().unwrap_or(0)
+    }
+
+    /// `preset`'s account changes hands: nothing a server or a check started before learns of an account is kept from
+    /// here (a write under way ends first), the check that runs is ended so that a look after this starts one of its
+    /// own, and what was told of the account left is forgotten. `signed_in` is the sign-in whose answer is to come.
+    /// Returns the hand-over's number.
+    pub(crate) async fn hand_over(&self, preset: &AgentPreset, signed_in: Option<u64>) -> u64 {
+        let _held = self.probe_writes.lock().await;
+        let epoch = {
+            let mut accounts = lock(&self.accounts);
+            let epoch = accounts.entry(preset.id.clone()).or_default();
+            *epoch += 1;
+            *epoch
+        };
+        self.write_told(preset, None).await;
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            if let Some(running) = slot.running.take() {
+                running.cancel.cancel();
+            }
+            slot.signed_in = signed_in;
+            slot.told = None;
+            slot.stale_probe = false;
+            slot.account = Account::default();
+        }
+        epoch
+    }
+
+    /// Keeps `probed`, told of `preset`'s account by a server or check started at the hand-over `epoch`, and shows it:
+    /// merged into what is kept where it tells nothing of a part (a reopened session lists no models and no plan), read
+    /// and written as one step. Nothing is kept of an account left, nor an answer that lists no models even merged; with
+    /// `sign_in`, only while that sign-in's answer is the one to come. Any answer kept stands over a sign-in's to come.
+    /// `true` where it was kept.
+    async fn keep_told(&self, preset: &AgentPreset, mut probed: Probed, epoch: u64, sign_in: Option<u64>) -> bool {
+        let _held = self.probe_writes.lock().await;
+        if self.account_epoch(&preset.id) != epoch {
+            return false;
+        }
+        if sign_in.is_some() && lock(&self.slots).get(&preset.id).is_none_or(|slot| slot.signed_in != sign_in) {
+            return false;
+        }
+        if let Some(kept) = self.read_probe_file().await.get(&preset.id).and_then(Probed::read) {
+            if probed.models.available.is_empty() {
+                probed.models = kept.models;
+            }
+            probed.account.plan = probed.account.plan.or(kept.account.plan);
+        }
+        if probed.models.available.is_empty() {
+            return false;
+        }
+        self.write_told(preset, Some(&probed)).await;
+        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
+            slot.signed_in = None;
+            slot.account = probed.account.clone();
+            if let Some(Readiness::Ready { version, models }) = &mut slot.readiness {
+                version.clone_from(&probed.version);
+                models.clone_from(&probed.models);
+            }
+            slot.told = Some(probed);
+        }
+        true
     }
 
     /// The running check of `preset`, or a new one with `plan`.
@@ -372,6 +770,11 @@ impl Agents {
                     Some(Readiness::SignedOut { .. }) => Some(AccountEvent::Left),
                     _ => None,
                 };
+                // What a server told of the account while the check ran (a sign-in's answer) is what it lists.
+                let mut found = found;
+                if let (Some(Readiness::Ready { models, .. }), Some(told)) = (&mut found, &slot.told) {
+                    models.clone_from(&told.models);
+                }
                 slot.readiness = found;
             }
             (agents.parts.changed)();
@@ -482,6 +885,12 @@ impl Agents {
         if !self.enabled() {
             return Err("ACP agents are turned off in Settings.".to_owned());
         }
+        // One sign-out of an agent at a time; no session opens on it, and so no server starts for it, until the sign-in's
+        // files are gone.
+        if !lock(&self.signing_out).insert(preset.id.clone()) {
+            return Err(format!("{} is already signing out.", preset.label));
+        }
+        let gate = SigningOut { agents: self.as_ref(), preset: &preset.id };
         // Held against an update of the CLI, as a session's start is.
         let (program, starting) = {
             let mut slots = lock(&self.slots);
@@ -494,24 +903,61 @@ impl Agents {
             (slot.program.clone().unwrap_or_else(|| Program::at(preset.command.clone())), Starting { agents: self.clone(), preset: preset.id.clone() })
         };
         let Some(cwd) = AbsPath::new(self.parts.probe_cwd.clone()) else { return Err("ACP agents have no folder to start in.".to_owned()) };
+        // A shared server that runs is asked itself, held open for it however its sessions leave it; else a process of
+        // the agent's own, which on such a preset runs in a temporary folder of its own and is closed as the end of its
+        // input closes it.
+        let running = match preset.scope {
+            ProcessScope::Shared => self.lease_shared(&preset.id),
+            ProcessScope::PerSession => None,
+        };
         let asked = async {
-            let (connection, _incoming) = Connection::start(self.parts.processes.clone(), launch(preset, &program, cwd)).await?;
-            let done = async {
-                initialize(&connection).await?;
-                connection.request("logout", json!({})).await
+            if let Some(held) = &running {
+                return held.server().connection.request("logout", json!({})).await.map(drop);
             }
-            .await;
-            connection.kill();
-            done.map(|_| ())
+            let temp = match preset.scope {
+                ProcessScope::Shared => Some(Temp { folder: self.server_temp().await?, files: self.parts.files.clone() }),
+                ProcessScope::PerSession => None,
+            };
+            let graceful = temp.is_some();
+            let (connection, _incoming) = Connection::start_in(self.parts.processes.clone(), launch(preset, &program, cwd), temp).await?;
+            let mut lines = connection.stderr_lines();
+            let link = preset.login.as_ref().and_then(Login::link_line);
+            let done = tokio::select! {
+                biased;
+                // An agent that asks for a sign-in has none to leave.
+                () = asks_sign_in(&mut lines, link) => Ok(()),
+                () = mixdog_rt::time::sleep(PROBE_LIMIT) => Err(Fault::Start(format!("it did not sign out within {} s", PROBE_LIMIT.as_secs()))),
+                done = async {
+                    initialize(&connection).await?;
+                    connection.request("logout", json!({})).await.map(drop)
+                } => done,
+            };
+            if graceful {
+                connection.close_gracefully(crate::shared::grace(0)).await;
+            } else {
+                connection.kill();
+            }
+            done
         };
         asked.await.map_err(|fault: Fault| fault.to_string())?;
         drop(starting);
+        // Nothing a server or a check started before learns of the account left is kept from here.
+        self.hand_over(preset, None).await;
         self.account_left(&preset.id, AccountEvent::Left);
-        // The agents that ran under the account hold a session of it no longer.
+        // The agents that ran under the account hold a session of it no longer. A shared server leaves use before its
+        // sessions leave it, and the files of the sign-in go only once the server asked has exited.
+        if preset.scope == ProcessScope::Shared {
+            self.stop_shared(&preset.id).await;
+        }
+        if let Some(held) = running {
+            held.server().connection.exited().cancelled().await;
+        }
         let ran: Vec<ThreadId> = lock(&self.sessions).iter().filter(|(_, session)| session.preset.id == preset.id).map(|(thread, _)| thread.clone()).collect();
         for thread in &ran {
             self.end_process(thread);
         }
+        self.forget_sign_in(preset).await;
+        drop(gate);
         // Whoever signs in next is not the account the agent refused.
         self.answered(preset).await;
         self.look(preset).await;

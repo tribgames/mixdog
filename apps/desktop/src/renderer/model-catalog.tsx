@@ -15,6 +15,7 @@ import {
 import type { ModelPreferenceChange } from './model-visibility';
 import { record } from './record-utils';
 import {
+  agentServiceProvider,
   modelDisplayName,
   modelOptionDescription,
   ProviderIcon,
@@ -171,8 +172,8 @@ function rowModelName(option: DesktopModelOption): string {
 }
 
 /** Where an agent's group stands: below the OAuth group of the same service, else below the last OAuth group. */
-function agentGroupIndex(entries: Array<[string, DesktopModelOption[]]>, agent: string | undefined): number {
-  const sibling = entries.findIndex(([id]) => id === `${agent}-oauth`);
+function agentGroupIndex(entries: Array<[string, DesktopModelOption[]]>, provider: string): number {
+  const sibling = entries.findIndex(([id]) => id === agentServiceProvider(provider));
   if (sibling >= 0) return sibling + 1;
   return entries.reduce((index, [id], at) => (id.endsWith('-oauth') ? at + 1 : index), 0);
 }
@@ -182,10 +183,19 @@ function sortedProviderEntries(
   resolveProviderLabel: (id: string) => string
 ): Array<[string, DesktopModelOption[]]> {
   const entries = new Map<string, DesktopModelOption[]>();
+  // The presets an agent runs for one service are one agent: their rows are one group, under the first preset's
+  // provider.
+  const agentGroups = new Map<string, string>();
   for (const option of models) {
-    const options = entries.get(option.provider) || [];
+    let key = option.provider;
+    if (agentEntry(option)) {
+      const service = agentServiceProvider(option.provider) ?? option.provider;
+      key = agentGroups.get(service) ?? option.provider;
+      agentGroups.set(service, key);
+    }
+    const options = entries.get(key) || [];
     options.push(option);
-    entries.set(option.provider, options);
+    entries.set(key, options);
   }
   const sorted = [...entries].sort(
     ([left], [right]) =>
@@ -195,7 +205,7 @@ function sortedProviderEntries(
   );
   const providers = sorted.filter(([, options]) => !agentEntry(options[0]));
   for (const group of sorted.filter(([, options]) => agentEntry(options[0]))) {
-    providers.splice(agentGroupIndex(providers, group[1][0].agent), 0, group);
+    providers.splice(agentGroupIndex(providers, group[0]), 0, group);
   }
   return providers;
 }

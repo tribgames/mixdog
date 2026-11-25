@@ -379,6 +379,7 @@ fn a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one() {
                     stop: mixdog_rt::CancellationToken::new(),
                     catalog_http: crate::compose_test_support::offline_http(),
                     agent_presets: crate::acp_tools::builtin_presets(),
+                    acp_data_dir: None,
                     pg_install: None,
                 },
             )

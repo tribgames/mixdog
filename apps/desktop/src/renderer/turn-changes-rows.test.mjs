@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { projectSettledTranscriptRows } from './transcript-rows.ts';
 import { transcriptRowNode } from './conversation-support.tsx';
-import { takeRequestedBuiltInFeature } from './settings/built-in-feature-request.ts';
 // The changes card under a turn's row, listing none of its preview card's files.
 import { PreviewedTurnChangesCard as TurnChangesCard } from './transcript-visualize-card.tsx';
 
@@ -237,7 +236,7 @@ test('a sign-in-expired failure offers Sign in again and a retry for after signi
   assert.deepEqual(retried, ['turn:u1']);
 });
 
-test("Sign in again opens an agent route's card among the built-in features, and a provider's under Providers", () => {
+test("Sign in again opens Providers, for an agent route's card as for a provider's", () => {
   const opened = [];
   const press = (provider) => {
     const items = [
@@ -272,8 +271,7 @@ test("Sign in again opens an agent route's card among the built-in features, and
     press('anthropic-oauth');
     assert.deepEqual(opened, ['providers']);
     press('acp-antigravity');
-    assert.deepEqual(opened, ['providers', 'plugins']);
-    assert.equal(takeRequestedBuiltInFeature(), 'acpAgents');
+    assert.deepEqual(opened, ['providers', 'providers']);
   } finally {
     globalThis.window = previous;
   }

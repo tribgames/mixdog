@@ -9,6 +9,8 @@ import { transcriptScrollPosition } from './use-transcript-follow';
 // reading (`data-reserved`) is not waited for: the read is the core's to answer, and may never be.
 const DOCK_MOTION = '.composer-island-slot[data-motion]';
 const ROW_PENDING = '[data-transcript-pending]';
+// A turn's changes read (TurnChangesCard.tsx): on the phone it crosses the relay behind the link's slow reads.
+const BODY_PENDING = '[data-transcript-pending]:not([data-transcript-pending="read"])';
 const ROW = '.transcript-virtual-row';
 // A reply still streaming: its box and what it parses change for as long as it streams, and are never waited for.
 const STREAMING = '.message.streaming';
@@ -33,8 +35,8 @@ function chromeUnsettled(scope: Element | null | undefined, entry: boolean): boo
 }
 
 /** Whether a row under `root` that is not streaming still holds a pending body or card. */
-function settlingPending(root: Element): boolean {
-  for (const marker of root.querySelectorAll(ROW_PENDING)) {
+function settlingPending(root: Element, selector = ROW_PENDING): boolean {
+  for (const marker of root.querySelectorAll(selector)) {
     if (!marker.closest(ROW)?.querySelector(STREAMING)) return true;
   }
   return false;
@@ -51,9 +53,11 @@ const readerPlaced = () => true;
  * exactly the extents the list gave them, else in the first frame they
  * agree across two samples. What is waited for is work that ends by itself
  * inside the renderer, from data it holds: a body parsed (or failed, which
- * shows its text), a module loaded, a motion ended, the fonts. A view never
- * waits for a read of the core, and no elapsed time presents one. No scroll
- * is written here.
+ * shows its text), a module loaded, a motion ended, the fonts; and the one
+ * read of the core whose answer sizes a mounted row, a turn's changes read
+ * (TurnChangesCard.tsx), which an eager reveal does not wait on. No elapsed
+ * time presents a view. No scroll is
+ * written here.
  */
 export function useTranscriptReveal({
   identity,
@@ -253,5 +257,5 @@ function isExact(root: HTMLElement, rows: readonly HTMLElement[], ends: readonly
 /** An eager reveal needs real rows only: a visible row and no suspended
  *  Markdown body, which would paint an empty row that grows a frame later. */
 function eagerReady(space: HTMLDivElement, visible: number): boolean {
-  return visible > 0 && !settlingPending(space);
+  return visible > 0 && !settlingPending(space, BODY_PENDING);
 }

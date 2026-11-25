@@ -1002,7 +1002,7 @@ fn the_pristine_config_names_only_the_explicit_route_and_binds_the_key_in_memory
     let preset = json!({ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "tools": "full", "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true });
     let config = |provider: Value| {
         json!({
-            "builtins": {}, "providers": { "openai": provider }, "presets": [preset], "default": "workflow-lead",
+            "builtins": {}, "modules": { "acpAgents": { "enabled": false } }, "providers": { "openai": provider }, "presets": [preset], "default": "workflow-lead",
             "workflow": { "active": "headless" }, "workflowRoutes": {}, "agents": {},
             "modelSettings": { "openai/gpt-x": { "effort": "high", "fast": true } }, "mcpServers": {},
         })

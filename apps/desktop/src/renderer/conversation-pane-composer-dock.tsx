@@ -1,4 +1,4 @@
-import { type ComponentProps, type RefObject, useContext, useMemo } from 'react';
+import { Activity, type ComponentProps, type RefObject, useContext, useLayoutEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BranchChip } from './BranchChip';
 import { Composer, OrchestrationModeSelect, WorkflowSelect } from './Composer';
@@ -12,7 +12,7 @@ import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
 import { PaneHandOverContext, sessionRailPlace, useSessionRailSlot } from './session-rail-layout';
-import { useSurfaceActive } from './surface-activity';
+import { SurfaceActiveContext, useSurfaceActive } from './surface-activity';
 import { deferredModule, useDeferredModule } from './deferred-module';
 import { useAgentChatSession } from './agent-chat-mode';
 import { transcriptRowNamespace } from './transcript-virtual-cache';
@@ -164,6 +164,14 @@ function conversationContextBar({
   );
 }
 
+/** Whether a session panel no longer shown (a dock at the pane's side covers it) holds its rows apart: once a commit
+ *  has let its surface go, so its popups closed with it; at once when it is shown again. */
+function useRailHeld(shown: boolean): boolean {
+  const [held, setHeld] = useState(!shown);
+  useLayoutEffect(() => setHeld(!shown), [shown]);
+  return !shown && held;
+}
+
 /** The dock below the viewport: the island, the context bar, the review bar
  *  and the composer. */
 export function ConversationComposerDock(props: ConversationComposerDockProps) {
@@ -261,59 +269,66 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const railHost = railPlace.host;
   const contextControls = Boolean(showProjectSelector) && !agentMode;
   const railShown = railPlace.taken;
+  const railHeld = useRailHeld(railShown);
   return (
     <>
       {SessionRail &&
         railHost &&
         createPortal(
-          <SessionRail
-            sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
-            reviewSessionId={reviewSessionId}
-            workspace={routeSnapshot.workspace ?? null}
-            projectPath={activeProjectPath}
-            projectLabel={props.activeProjectLabel}
-            routeProject={routeProject}
-            projects={props.projects}
-            agentMode={agentMode}
-            goalSubmissionId={submission.goalSubmissionId}
-            reviewItems={submission.reviewItems}
-            reviewActive={reviewActive}
-            reviewBusy={reviewBusy}
-            pendingInput={pendingInput}
-            model={{
-              ...route,
-              sessionId: routeSessionId,
-              modelDisabled: transitioning,
-              tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
-              invokeResult: actions.composerInvokeResult,
-              applySnapshot: actions.composerApplySnapshot,
-              onOpenSettings: actions.composerOnOpenSettings,
-              onDraftModelSelection: draftMode ? onDraftModelSelection : undefined,
-              onRoutePreferenceApplied,
-            }}
-            sessionChoices={sessionChoices}
-            onOpenSessionDiff={onOpenSessionDiff}
-            onOpenAgentSession={onOpenAgentSession}
-            onMoveSessionToProject={props.onMoveSessionToProject}
-            onAddProject={props.onAddProject}
-            onOpenCommandSurface={actions.composerOnOpenCommandSurface}
-            draft={
-              draftMode
-                ? {
-                    draftId,
-                    contextControls,
-                    projectDisabled: transitioning || Boolean(snapshot.busy),
-                    routeDisabled: transitioning,
-                    workflow: props.draftWorkflow ?? null,
-                    orchestrationMode: props.draftOrchestrationMode ?? null,
-                    onClearProject: props.onClearProject,
-                    onSelectProject: props.onSelectProject,
-                    onWorkflow: props.onDraftWorkflow,
-                    onOrchestrationMode: props.onDraftOrchestrationMode,
-                  }
-                : undefined
-            }
-          />,
+          // A covered panel keeps its rows, scrolled where they were, and runs nothing (no reads, watches, timers,
+          // observers or animations) until the commit that shows it again, where it catches up.
+          <Activity mode={railHeld ? 'hidden' : 'visible'}>
+            <SurfaceActiveContext.Provider value={railShown}>
+              <SessionRail
+                sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
+                reviewSessionId={reviewSessionId}
+                workspace={routeSnapshot.workspace ?? null}
+                projectPath={activeProjectPath}
+                projectLabel={props.activeProjectLabel}
+                routeProject={routeProject}
+                projects={props.projects}
+                agentMode={agentMode}
+                goalSubmissionId={submission.goalSubmissionId}
+                reviewItems={submission.reviewItems}
+                reviewActive={reviewActive && railShown}
+                reviewBusy={reviewBusy}
+                pendingInput={pendingInput}
+                model={{
+                  ...route,
+                  sessionId: routeSessionId,
+                  modelDisabled: transitioning,
+                  tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
+                  invokeResult: actions.composerInvokeResult,
+                  applySnapshot: actions.composerApplySnapshot,
+                  onOpenSettings: actions.composerOnOpenSettings,
+                  onDraftModelSelection: draftMode ? onDraftModelSelection : undefined,
+                  onRoutePreferenceApplied,
+                }}
+                sessionChoices={sessionChoices}
+                onOpenSessionDiff={onOpenSessionDiff}
+                onOpenAgentSession={onOpenAgentSession}
+                onMoveSessionToProject={props.onMoveSessionToProject}
+                onAddProject={props.onAddProject}
+                onOpenCommandSurface={actions.composerOnOpenCommandSurface}
+                draft={
+                  draftMode
+                    ? {
+                        draftId,
+                        contextControls,
+                        projectDisabled: transitioning || Boolean(snapshot.busy),
+                        routeDisabled: transitioning,
+                        workflow: props.draftWorkflow ?? null,
+                        orchestrationMode: props.draftOrchestrationMode ?? null,
+                        onClearProject: props.onClearProject,
+                        onSelectProject: props.onSelectProject,
+                        onWorkflow: props.onDraftWorkflow,
+                        onOrchestrationMode: props.onDraftOrchestrationMode,
+                      }
+                    : undefined
+                }
+              />
+            </SurfaceActiveContext.Provider>
+          </Activity>,
           railHost
         )}
       <ComposerDock

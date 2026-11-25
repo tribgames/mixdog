@@ -611,7 +611,13 @@ function renderPaneDockMain(
         onWidthDrag={panelWidthDrag}
         widthRange={widthRange}
         resizable={widthResizable}
-        renderView={(id, active, titleDragProps) => (dockBodyMounted ? renderView(id, active, titleDragProps) : null)}
+        // A sub-agent's conversation under a surface is not shown, so it runs nothing until uncovered; the other views
+        // keep what they show under it (a Changes list's turn behind its stacked diff).
+        renderView={(id, active, titleDragProps) =>
+          dockBodyMounted
+            ? renderView(id, id === 'agent-session' ? active && !surfacesActive : active, titleDragProps)
+            : null
+        }
         hiddenKey={dockBodyMounted ? 'body' : ''}
       />
     </div>
@@ -867,8 +873,9 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     },
   });
   const { width: railWidth, reserve: railReserve, presentation: railPresentation } = layout.rail;
-  // A dock open at the pane's side covers the panel (paneDockRailLayout).
-  const railShown = railWanted && !(openNow && !bottom);
+  // A dock open at the pane's side covers the panel (paneDockRailLayout): it
+  // stays mounted under it, so it comes back as the reader left it.
+  const railCovered = openNow && !bottom;
   const { diffDesired, twoDepth, pairShowing, overlay: sideOverlay, baseAsideWidth, diffWidth } = layout.dock;
   const overlay = sideOverlay && !bottom;
   const dockExpanded = expanded && openNow && !mobileSheet;
@@ -968,7 +975,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
             })}
         </div>
       </PaneDockExpandContext.Provider>
-      {railShown && (
+      {railWanted && (
         <SessionRailCard
           leafId={leafId}
           sessionId={sessionId}
@@ -976,6 +983,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
           width={railWidth}
           reserve={railReserve}
           presentation={railPresentation}
+          covered={railCovered}
           onFocusPane={focused ? undefined : onFocusPane}
         />
       )}

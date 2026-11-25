@@ -460,6 +460,7 @@ function TurnChangesCardBody({
   const running = turnCardHeld({ checkpointId, boundary, trailing, reclosed }, surface.turnRunning);
   const {
     reply: read,
+    reading,
     error,
     stalled,
     adopt,
@@ -470,13 +471,15 @@ function TurnChangesCardBody({
     boundary,
     enabled: !running,
   });
-  // No view waits for the core's read, and what a read brings later displaces nothing the reader is looking at.
-  // Until the read answers, the card is the one the turn's own rows describe (the files its edit and write calls
-  // name), drawn in the row's first frame. The read's card is laid out in its place and measured before it is
-  // painted: as tall as what the row showed, it stays. Of another height (more or fewer files, a wrapped line, a card
-  // where none was drawn, none where one was), it stays too unless rows in view would move for it; then the row goes
-  // back to what it showed, in that same frame, until the row is out of view, the list follows the end with nothing
-  // in view below the row (where a growing last row keeps the view on the end), or the reader presses the card.
+  // While the read is out, the row is marked pending: a conversation is revealed once the cards it mounts have their
+  // reads (use-transcript-reveal.ts), so its first frame shows each card as the core lists it. A card mounted in a
+  // shown conversation (a turn's end, a row scrolled into view) displaces nothing the reader is looking at. Until
+  // the read answers, the card is the one the turn's own rows describe (the files its edit and write calls name),
+  // drawn in the row's first frame. The read's card is laid out in its place and measured before it is painted: as
+  // tall as what the row showed, it stays. Of another height (more or fewer files, a wrapped line, a card where none
+  // was drawn, none where one was), it stays too unless rows in view would move for it; then the row goes back to
+  // what it showed, in that same frame, until the row is out of view, the list follows the end with nothing in view
+  // below the row (where a growing last row keeps the view on the end), or the reader presses the card.
   const rowsOf = useContext(TurnRowsContext);
   const project = useContext(MarkdownProjectContext) || '';
   const withheld = useContext(TurnCardsWithheldContext);
@@ -597,8 +600,16 @@ function TurnChangesCardBody({
     [reply, needsCounts, lane, visualized]
   );
   if (running) return null;
+  const pending = reading ? <span hidden data-transcript-pending="read" /> : null;
   // No card shown, and one that may come: the row is found from here.
-  if (!reply || listed.length === 0) return superseded || trying ? <span hidden ref={seat} /> : null;
+  if (!reply || listed.length === 0) {
+    return (
+      <>
+        {pending}
+        {superseded || trying ? <span hidden ref={seat} /> : null}
+      </>
+    );
+  }
 
   const { revision } = reply;
   const unread = fromRecords && Boolean(error || stalled);
@@ -689,7 +700,12 @@ function TurnChangesCardBody({
       />
     </section>
   );
-  return frame ? frame(card) : card;
+  return (
+    <>
+      {pending}
+      {frame ? frame(card) : card}
+    </>
+  );
 }
 
 /** A turn's changed-files card; renders nothing outside a session surface, while its turn runs, or without recorded changes. `frame` seats a shown card. */

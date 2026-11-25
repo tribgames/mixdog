@@ -1,41 +1,32 @@
 import { Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { type AcpAgentStatus, acpAgentsOf } from '../acp-agent-status';
-import { CapabilityIcon } from '../CapabilityIcon';
+import { type AcpAgentGroup, type AcpAgentStatus, acpAgentGroups, acpAgentsOf } from '../acp-agent-status';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
+import { ProviderIcon } from '../provider-display';
 import { type ProviderAccountPool, type ProviderAccountSource, ProviderAccountsList } from '../ProviderAccountsList';
 import { record } from '../record-utils';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { useSection } from '../section-store';
 import {
   getUsageDashboardSnapshot,
   refreshUsageDashboard,
   refreshUsageDashboardAfterAuth,
 } from '../usage-dashboard-store';
 import { SlotProgress } from './built-in-install-progress';
-import { ActionButton } from './capability-controls';
-import type { PanelContext, RecordValue } from './capability-data';
+import { ActionButton, ListEmpty } from './capability-controls';
+import { invalidateCapabilitySettings, type PanelContext, type RecordValue } from './capability-data';
 import { openExternalUrl } from './desktop-bridge';
-import {
-  ExtensionAction,
-  ExtensionItemList,
-  ExtensionItemRow,
-  ExtensionNote,
-  ExtensionSection,
-  type ExtensionItemTone,
-} from './extension-detail';
+import { ExtensionAction, ExtensionItemRow, ExtensionNote, type ExtensionItemTone } from './extension-detail';
 import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 
 /** A check, install or update the core is running for the agent. */
 const running = (agent: AcpAgentStatus) =>
   agent.state === 'checking' || agent.state === 'installing' || agent.state === 'updating';
 
-/** Turned on, and no agent can run a session or is still being looked at. */
-export function acpAgentsBlocking(value: unknown): boolean {
-  return (
-    record(value).enabled === true && acpAgentsOf(value).every((agent) => agent.state !== 'ready' && !running(agent))
-  );
-}
+const reason = (error: unknown): string =>
+  String((error as Error)?.message || error || '') || t('Something went wrong');
 
 /** The agent's state in words: the status pill, its tone and what to do about it. A value the core left out
  *  leaves its sentence, never a blank in one. */
@@ -91,6 +82,12 @@ export function acpAgentWords(agent: AcpAgentStatus): { status: string; tone: Ex
       else if (agent.command) description = t('Run {{command}} in a terminal to sign in, then check again.', values);
       return { status: t('Signed out'), tone: 'warn', description };
     }
+    case 'unsupported':
+      return {
+        status: t('Not supported'),
+        tone: 'muted',
+        description: t('{{name}} does not run on this computer.', values),
+      };
     case 'failed':
       return {
         status: t('Failed'),
@@ -101,8 +98,7 @@ export function acpAgentWords(agent: AcpAgentStatus): { status: string; tone: Ex
       return {
         status: t('Checking…'),
         tone: 'muted',
-        // A CLI that never answers keeps the check running: turning the feature off is what stops it.
-        description: `${agent.command ? t('Looking for {{command}}…', values) : t('Looking for {{name}}…', values)} ${t('To stop, turn Antigravity ACP off.')}`,
+        description: agent.command ? t('Looking for {{command}}…', values) : t('Looking for {{name}}…', values),
       };
     case 'off':
       return {
@@ -132,15 +128,26 @@ function faultLine(agent: AcpAgentStatus): string {
     : t('Update failed: {{message}}', message);
 }
 
-/** The one account an agent's CLI is signed in with, as a provider's roster: its usage is the usage dashboard's
- *  entry of the agent, and a refresh reads that entry again. The CLI names no account and keeps no other, so
- *  nothing else of the roster changes. */
-function agentAccountSource(provider: string, plan: string): ProviderAccountSource {
+/** What each Antigravity preset's sign-in is for, as its step of the agent's one sign-in. */
+const SIGN_IN_STEP_TITLES: Readonly<Record<string, () => string>> = {
+  'acp-antigravity': () => t('Google sign-in for Gemini models'),
+  'acp-antigravity-cli': () => t('Google sign-in for Claude models'),
+};
+
+function signInStepTitle(member: AcpAgentStatus): string {
+  return SIGN_IN_STEP_TITLES[member.provider]?.() ?? t('Sign in to {{name}}', { name: member.label });
+}
+
+/** The one account an agent is signed in with, as a provider's roster: its usage is the usage dashboard's entry of
+ *  whichever of its presets reports one, and a refresh reads them again. The agent names no account and keeps no
+ *  other, so nothing else of the roster changes. */
+function agentAccountSource(providers: readonly string[], plan: string): ProviderAccountSource {
+  const [provider] = providers;
   const read = async (): Promise<ProviderAccountPool> => {
     const { dashboard, refreshedAt } = getUsageDashboardSnapshot();
     // Every row, not `usageRows`: the agent's own reading also when a provider's row lists it (`sameQuotaAs`).
     const rows = record(dashboard).rows;
-    const row = (Array.isArray(rows) ? rows.map(record) : []).find((entry) => entry.id === provider);
+    const row = (Array.isArray(rows) ? rows.map(record) : []).find((entry) => providers.includes(String(entry.id)));
     const windows = (Array.isArray(row?.windows) ? row.windows.map(record) : []).map((window) => ({
       label: String(window.label || ''),
       usedPct: typeof window.usedPct === 'number' ? window.usedPct : null,
@@ -169,7 +176,7 @@ function agentAccountSource(provider: string, plan: string): ProviderAccountSour
     read,
     update: async (change) => {
       if (change.refreshUsage === true) {
-        await refreshUsageDashboard(window.mixdogDesktop, { force: true, providers: [provider] });
+        await refreshUsageDashboard(window.mixdogDesktop, { force: true, providers: [...providers] });
       }
       return read();
     },
@@ -177,24 +184,36 @@ function agentAccountSource(provider: string, plan: string): ProviderAccountSour
 }
 
 function AcpAgentRow({
-  agent,
+  group,
   busy,
   installRequested,
   onInstall,
+  signInAfterInstall,
+  onSignInAfterInstall,
   onSigningIn,
   run,
   confirm,
 }: {
-  agent: AcpAgentStatus;
+  group: AcpAgentGroup;
   busy: boolean;
   /** The app's install request is still open. */
   installRequested: boolean;
   onInstall(): void;
+  /** An install just ended well: the sign-in it leaves to do opens by itself. */
+  signInAfterInstall: boolean;
+  /** Told once the row has acted on `signInAfterInstall`. */
+  onSignInAfterInstall(): void;
   /** Told when the agent's sign-in starts or stops waiting. */
   onSigningIn(id: string, pending: boolean): void;
   run: PanelContext['run'];
   confirm: PanelContext['confirm'];
 }) {
+  const { agent, members } = group;
+  // The one sign-in's steps (the members it walks, in the core's order) and the step under way.
+  const [steps, setSteps] = useState<AcpAgentStatus[]>([]);
+  const [step, setStep] = useState(0);
+  // Counts sign-ins, so a step's flow the core starts after its sign-in was closed is cancelled rather than shown.
+  const walk = useRef(0);
   const login = useOAuthLoginFlow({
     run,
     keyId: `acp-${agent.id}`,
@@ -203,24 +222,62 @@ function AcpAgentRow({
     statusError: t('Sign-in status could not be checked.'),
     // The core opens no browser for this sign-in: this window opens its page below.
     remote: false,
-    // A finished sign-in has the core look at the CLI again; the row follows its report, and the account's usage is
-    // read again without holding the dialog for it.
+    // Back closes the whole sign-in, between two steps too.
+    dialog: { open: steps.length > 0, close: closeSignIn },
+    // A finished sign-in has the core look at the agent again; the row follows its report, and the account's usage
+    // is read again without holding the dialog for it.
     refresh: async () => {
-      void refreshUsageDashboardAfterAuth(window.mixdogDesktop, [agent.provider]);
+      void refreshUsageDashboardAfterAuth(
+        window.mixdogDesktop,
+        members.map((member) => member.provider)
+      );
       return undefined;
     },
+    // A completed step hands over to the next in the same dialog; the last one closes it, the row then showing the
+    // signed-in account.
+    onDone: () => {
+      const next = step + 1;
+      if (next >= steps.length) {
+        closeSignIn();
+        return;
+      }
+      setStep(next);
+      begin(steps[next], walk.current);
+    },
   });
+  function begin(member: AcpAgentStatus, sign: number) {
+    void login.start(async () => {
+      const started = await run<RecordValue>(
+        'beginOAuthProviderLogin',
+        [member.provider],
+        `acp-sign-in-${member.id}`,
+        false,
+        false,
+        'throw'
+      );
+      if (walk.current === sign) return started;
+      const startedId = String(record(started).flowId || '');
+      if (startedId) void run('cancelOAuthProviderLogin', [startedId], `oauth-cancel-acp-${agent.id}`, false);
+      return null;
+    });
+  }
   const { flow } = login;
   const flowId = String(flow?.flowId || '');
   const flowState = String(flow?.state || '');
   const page = String(flow?.url || flow?.manualUrl || '');
   const opened = useRef('');
+  const current = steps[step];
+  // A core that opens the browser itself does so on its own machine: a window on another one still opens the page.
+  const opensItself = current?.loginOpensBrowser === true && !isRemoteHostRenderer();
   useEffect(() => {
-    if (!flowId || flowState !== 'pending' || !page || opened.current === flowId) return;
+    if (opensItself || !flowId || flowState !== 'pending' || !page || opened.current === flowId) return;
     opened.current = flowId;
     openExternalUrl(page);
-  }, [flowId, flowState, page]);
-  const signingIn = flowState === 'pending';
+  }, [opensItself, flowId, flowState, page]);
+  // Between two steps no flow is open yet: the dialog waits on the next one.
+  let dialogFlow = flow;
+  if (!dialogFlow && steps.length) dialogFlow = { state: login.error ? 'failed' : 'pending' };
+  const signingIn = Boolean(current) && String(dialogFlow?.state || '') === 'pending';
   useEffect(() => {
     onSigningIn(agent.id, signingIn);
     return () => onSigningIn(agent.id, false);
@@ -228,29 +285,58 @@ function AcpAgentRow({
   const words = signingIn
     ? { status: t('Signing in…'), tone: 'muted' as const, description: t('Finish signing in in your browser.') }
     : acpAgentWords(agent);
-  const fault =
-    faultLine(agent) || (!flow && login.error ? t('Sign-in failed: {{message}}', { message: login.error }) : '');
+  const fault = faultLine(agent);
   const name = { name: agent.label };
   const blocked = busy || installRequested || running(agent);
-  const signIn = () =>
-    void login.start(() =>
-      run<RecordValue>('beginOAuthProviderLogin', [agent.provider], `acp-sign-in-${agent.id}`, false, false, 'throw')
-    );
-  const accounts = useMemo(() => agentAccountSource(agent.provider, agent.plan), [agent.provider, agent.plan]);
+  // One Sign in walks each member that is signed out as a step of one dialog, in the core's order (the official
+  // server's browser consent, then the CLI's login); signed in, it signs each in again with another account.
+  const signIn = () => {
+    const walked = members.filter((member) => member.canSignIn && member.state === agent.state);
+    if (!walked.length) return;
+    walk.current += 1;
+    setSteps(walked);
+    setStep(0);
+    begin(walked[0], walk.current);
+  };
+  // Closed or cancelled, the sign-in ends at its step: the steps already completed stay signed in.
+  function closeSignIn() {
+    walk.current += 1;
+    setSteps([]);
+    setStep(0);
+    login.close();
+  }
+  // Right after an install, a sign-in it leaves to do opens by itself; any other state it ends in only ends the wait.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: it acts when the install's end meets the state the core settles on.
+  useEffect(() => {
+    if (!signInAfterInstall || running(agent)) return;
+    onSignInAfterInstall();
+    if (agent.state === 'signedOut' && agent.canSignIn) signIn();
+  }, [signInAfterInstall, agent.state, agent.canSignIn]);
+  const providers = members.map((member) => member.provider).join(' ');
+  const accounts = useMemo(() => agentAccountSource(providers.split(' '), agent.plan), [providers, agent.plan]);
+  const signOuts = members.filter((member) => member.canSignOut);
+  // Only a CLI that shares its sign-in with its own command outside Mixdog signs that command out too.
+  const external = signOuts.find((member) => member.sharesExternalSignIn);
   const disconnect = () =>
     confirm({
       title: t('Disconnect account?'),
-      description: t(
-        'Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.',
-        { ...name, command: agent.command }
-      ),
+      description: external
+        ? t(
+            'Every {{name}} session running in Mixdog ends now. The {{command}} command outside Mixdog uses the same sign-in, so it is signed out too.',
+            { ...name, command: external.command }
+          )
+        : t('Every {{name}} session running in Mixdog ends now.', name),
       confirmLabel: t('Disconnect'),
       danger: true,
-      // The agent signs itself out; its row follows the state the core then reports.
+      // Each member signs itself out; the row follows the state the core then reports.
       onConfirm: async () => {
-        await run('forgetProviderAuth', [agent.provider], `acp-sign-out-${agent.id}`);
+        for (const member of signOuts) {
+          await run('forgetProviderAuth', [member.provider], `acp-sign-out-${member.id}`);
+        }
       },
     });
+  // Only the official server (Gemini) has a platform it does not run on; the CLI's models stay.
+  const geminiUnavailable = agent.state !== 'unsupported' && members.some((member) => member.state === 'unsupported');
   let control = null;
   if (agent.state === 'installing' || agent.state === 'updating') {
     control = (
@@ -275,8 +361,8 @@ function AcpAgentRow({
     );
   } else if (agent.canSignIn && agent.state === 'signedOut') {
     control = (
-      <ExtensionAction disabled={blocked} ariaLabel={t('Sign in to {{name}}', name)} onClick={signIn}>
-        {t('Sign in')}
+      <ExtensionAction disabled={blocked} ariaLabel={t('Connect {{name}}', name)} onClick={signIn}>
+        {t('Connect')}
       </ExtensionAction>
     );
   }
@@ -303,7 +389,7 @@ function AcpAgentRow({
                   type="button"
                   className="provider-account-add-button"
                   disabled={blocked || signingIn}
-                  // The CLI keeps one account: its own sign-in, run again, puts another in this one's place.
+                  // The agent keeps one account: its own sign-in, run again, puts another in this one's place.
                   aria-label={t('Sign in with another account')}
                   title={t('Sign in with another account. It replaces this one: {{name}} keeps one account.', name)}
                   onClick={signIn}
@@ -317,7 +403,7 @@ function AcpAgentRow({
         </div>
       ) : (
         <ExtensionItemRow
-          icon={<CapabilityIcon kind="builtin" name="acpAgents" size={16} />}
+          icon={<ProviderIcon provider={agent.provider} width={16} height={16} />}
           title={agent.label}
           status={words.status}
           tone={words.tone}
@@ -327,15 +413,24 @@ function AcpAgentRow({
           control={control}
         />
       )}
-      {flow && (
+      {geminiUnavailable && <ExtensionNote>{t('Gemini is not available on this computer.')}</ExtensionNote>}
+      {dialogFlow && (
         <OAuthLoginDialog
           portal
           id={`acp-${agent.id}`}
           closeLabel={t('Close sign-in')}
-          flow={flow}
+          flow={dialogFlow}
           error={login.error}
+          step={
+            current && {
+              title: signInStepTitle(current),
+              // A single sign-in is no numbered step.
+              position:
+                steps.length > 1 ? t('Step {{step}} of {{count}}', { step: step + 1, count: steps.length }) : undefined,
+            }
+          }
           paste={
-            flow.manualCodeSupported === true
+            flow?.manualCodeSupported === true
               ? {
                   title: t('Code from the sign-in page'),
                   placeholder: t('Paste the code'),
@@ -346,7 +441,7 @@ function AcpAgentRow({
                     login.setPasteError('');
                     void run<RecordValue>(
                       'completeOAuthProviderLogin',
-                      [flow.flowId, code],
+                      [flowId, code],
                       `acp-sign-in-code-${agent.id}`,
                       false,
                       false,
@@ -363,40 +458,62 @@ function AcpAgentRow({
               : undefined
           }
           disabled={false}
-          onClose={login.close}
+          onClose={closeSignIn}
         />
       )}
     </>
   );
 }
 
-/** Each agent the core reports with the state of its CLI, its install, update and sign-in, and a way to look
- *  again. */
-export function AcpAgentsSection({
-  value,
-  busy,
-  installRequested,
-  error,
-  onCheckAgain,
-  onInstall,
+/** Antigravity ACP among the providers: each agent the core reports, its presets as one, with its state, its install,
+ *  update and sign-in, and a way to look again. */
+export function AcpProviders({
+  api,
+  data,
+  pending,
   run,
   confirm,
-}: {
-  confirm: PanelContext['confirm'];
-  /** The settings value's `acpAgents`. */
-  value: unknown;
-  busy: boolean;
-  installRequested: boolean;
-  /** The install request's own failure, shown when no agent's `lastError` already says it. */
-  error: string;
-  onCheckAgain(): void;
-  onInstall(): void;
-  run: PanelContext['run'];
-}) {
-  const agents = acpAgentsOf(value);
-  const checking = agents.some(running);
+}: Pick<PanelContext, 'api' | 'data' | 'pending' | 'run' | 'confirm'>) {
+  // The live value over the settings read, as every reader of `toolModules` takes it.
+  const live = useSection<RecordValue>('toolModules');
+  const value = { ...record(data.toolModules), ...record(live) }.acpAgents;
+  const enabled = record(value).enabled === true;
+  const busy = Boolean(pending);
+  // The install or update: the core fetches every agent's programs and answers at the end, its progress showing as
+  // each agent's state. It is sent outside the panel's queued commands, so switching Antigravity ACP off (which ends
+  // the install) is not held behind it.
+  const [install, setInstall] = useState({ running: false, error: '' });
+  // An install that ended well hands the row the sign-in it leaves to do.
+  const [signInNext, setSignInNext] = useState(false);
+  const on = useRef(false);
+  on.current = enabled;
+  // A failure belongs to the agents it was about: switching them off ends them, and the failure with them.
+  useEffect(() => {
+    if (enabled) return;
+    setInstall((current) => (current.error ? { ...current, error: '' } : current));
+    setSignInNext(false);
+  }, [enabled]);
+  const onInstall = () => {
+    if (install.running || !api.invokeCapability) return;
+    setInstall({ running: true, error: '' });
+    void Promise.resolve(
+      api.invokeCapability<RecordValue>({ capability: 'installBuiltinFeature', args: ['acpAgents'] })
+    ).then(
+      () => {
+        invalidateCapabilitySettings(api, 'installBuiltinFeature');
+        setInstall({ running: false, error: '' });
+        setSignInNext(on.current);
+      },
+      // An install ended by switching Antigravity ACP off is no failure to report.
+      (error: unknown) => setInstall({ running: false, error: on.current ? reason(error) : '' })
+    );
+  };
+  // Asking for the agents while they are on has the core look at every agent's programs again.
+  const onCheckAgain = () => void run('setBuiltinToolEnabled', ['acpAgents', true], 'acp-check-again');
+  const groups = acpAgentGroups(value);
+  const checking = acpAgentsOf(value).some(running);
   // The core's answer to a failed install is the failure an agent's row already says.
-  const said = agents.some((agent) => agent.lastError);
+  const said = groups.some(({ agent }) => agent.lastError);
   // A look again would bring a CLI up to date under its own running sign-in.
   const [signingIn, setSigningIn] = useState<ReadonlySet<string>>(() => new Set());
   const noteSignIn = useCallback(
@@ -410,40 +527,44 @@ export function AcpAgentsSection({
       }),
     []
   );
+  if (!enabled) return null;
   return (
-    <ExtensionSection
-      title={t('Agents')}
-      dataAttributes={{ 'data-acp-agents': 'true' }}
-      action={
-        <ExtensionAction
-          ariaLabel={t('Check again')}
-          tooltip={t('Check again')}
-          disabled={busy || installRequested || checking || signingIn.size > 0}
-          onClick={onCheckAgain}
-        >
-          <RefreshCw size={14} aria-hidden="true" />
-        </ExtensionAction>
-      }
-    >
-      {agents.length ? (
-        <ExtensionItemList>
-          {agents.map((agent) => (
+    <section className="settings-group settings-provider-cards" data-acp-agents="true">
+      <header>
+        <div className="settings-group-head">
+          <h3>{t('Antigravity ACP')}</h3>
+          <ExtensionAction
+            ariaLabel={t('Check again')}
+            tooltip={t('Check again')}
+            disabled={busy || install.running || checking || signingIn.size > 0}
+            onClick={onCheckAgain}
+          >
+            <RefreshCw size={14} aria-hidden="true" />
+          </ExtensionAction>
+        </div>
+      </header>
+      {groups.length ? (
+        groups.map((group) => (
+          <div className="settings-group-body" key={group.agent.id}>
             <AcpAgentRow
-              key={agent.id}
-              agent={agent}
+              group={group}
               busy={busy}
-              installRequested={installRequested}
+              installRequested={install.running}
               onInstall={onInstall}
+              signInAfterInstall={signInNext}
+              onSignInAfterInstall={() => setSignInNext(false)}
               onSigningIn={noteSignIn}
               run={run}
               confirm={confirm}
             />
-          ))}
-        </ExtensionItemList>
+          </div>
+        ))
       ) : (
-        <ExtensionNote>{t('No agents were reported. Check again, or update Mixdog if none appear.')}</ExtensionNote>
+        <div className="settings-group-body">
+          <ListEmpty text={t('No agents were reported. Check again, or update Mixdog if none appear.')} />
+        </div>
       )}
-      <ErrorNotice errors={[said ? '' : error]} />
-    </ExtensionSection>
+      <ErrorNotice errors={[said ? '' : install.error]} />
+    </section>
   );
 }

@@ -385,8 +385,8 @@ function cardsAround(
 const NO_TURNS: ReadonlySet<string> = new Set();
 
 /** The changed-files cards of the rows around `place` in `items` are asked for as the rows arrive, so that a row
- *  mounts with the reply held where the core has answered by then (TurnChangesCard.tsx starts from it). Nothing waits
- *  for the answers: a read of the core may never end. */
+ *  mounts with the reply held where the core has answered by then (TurnChangesCard.tsx starts from it). Only the cards
+ *  a view mounts hold its reveal for their reads; nothing waits for these. */
 function usePlaceCards(sessionId: string, items: readonly unknown[] | null, place: ReaderPlace | null): void {
   const projector = useRef<ReturnType<typeof createSettledProjector> | null>(null);
   projector.current ??= createSettledProjector();

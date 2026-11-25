@@ -10,7 +10,7 @@ const modules = toolModulesSource();
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   jsdom: { url: 'https://mixdog.test/' },
-  expose: ['HTMLElement', 'Event', 'FormData'],
+  expose: ['HTMLElement', 'Event', 'FormData', 'history'],
   actEnvironment: false,
 });
 globalThis.React = React;
@@ -38,7 +38,7 @@ window.mixdogDesktop = {
   },
 };
 
-const { CategoryPanel } = await import('./capability-panels.tsx');
+const { AcpProviders } = await import('./acp-agents.tsx');
 const { SettingsConfirmDialog } = await import('./capability-controls.tsx');
 
 // The core's `acpAgents` value (mixdog-acp agents.rs `status`).
@@ -102,10 +102,7 @@ async function mount(t, value, handlers) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (next) =>
-    act(async () =>
-      root.render(React.createElement(CategoryPanel, { category: 'builtins', context: context(next, handlers) }))
-    );
+  const render = (next) => act(async () => root.render(React.createElement(AcpProviders, context(next, handlers))));
   await render(value);
   t.after(async () => {
     await act(async () => root.unmount());
@@ -114,11 +111,8 @@ async function mount(t, value, handlers) {
   return render;
 }
 
-const listRow = () => document.querySelector('button[data-built-in-feature="acpAgents"]');
-const dialog = () => document.querySelector('[data-feature-id="acpAgents"]');
-const open = () => act(async () => listRow().click());
-const toggle = () =>
-  [...dialog().querySelectorAll('input')].find((input) => input.getAttribute('aria-label') === 'Antigravity ACP');
+/** The Antigravity ACP section among the providers. */
+const dialog = () => document.querySelector('[data-acp-agents]');
 const agentRow = (id = 'antigravity') => dialog().querySelector(`[data-acp-agent="${id}"]`);
 const words = (row) => [
   row.querySelector('.extensions-item-status').textContent,
@@ -151,34 +145,24 @@ const fault = (row) =>
 const button = (root, text) => [...root.querySelectorAll('button')].find((node) => node.textContent === text);
 const checkAgain = () => dialog().querySelector('button[aria-label="Check again"]');
 
-test('Antigravity ACP is listed off by default; turning it on asks the core and shows its report', async (t) => {
-  const calls = [];
-  const render = await mount(t, acpAgents(false, agent('off')), {
-    run: async (capability, args) => {
-      calls.push([capability, args]);
-      return { acpAgents: acpAgents(true, agent('checking')) };
-    },
-  });
-  assert.equal(listRow().getAttribute('data-enabled'), 'false');
-  await open();
-  assert.equal(toggle().checked, false);
-  assert.equal(dialog().querySelector('[data-acp-agents]'), null);
+test('Antigravity ACP is among the providers with the core report, and has no switch', async (t) => {
+  const render = await mount(t, acpAgents(true, agent('checking')));
+  assert.equal(dialog().querySelector('h3').textContent, 'Antigravity ACP');
+  assert.equal(dialog().querySelector('input[type="checkbox"]'), null);
+  assert.deepEqual(words(agentRow()), ['Checking…', 'Looking for agy…']);
 
-  await act(async () => toggle().click());
-  await render(acpAgents(true, agent('checking')));
-  assert.deepEqual(calls, [['setBuiltinToolEnabled', ['acpAgents', true]]]);
-  assert.deepEqual(words(agentRow()), ['Checking…', 'Looking for agy… To stop, turn Antigravity ACP off.']);
-
+  // Signed in, the agent is the provider account card.
   await render(acpAgents(true, agent('ready', { version: '1.5.15', models: [{ id: 'g', name: 'Gemini' }] })));
-  assert.equal(listRow().getAttribute('data-enabled'), 'true');
-  // Signed in, the agent is the provider account card; its CLI's version is the dialog's Info.
   assert.deepEqual(card(agentRow()), signedIn);
-  assert.match(dialog().textContent, /1\.5\.15/);
+
+  // Off only where the core reports it so (the environment's override, or a host with none): no section.
+  await render(acpAgents(false, agent('off')));
+  assert.equal(dialog(), null);
 });
 
 test('every agent state the core can report reads truthfully and leaves a next step', async (t) => {
   const reported = [
-    ['checking', {}, ['Checking…', 'Looking for agy… To stop, turn Antigravity ACP off.'], 'muted'],
+    ['checking', {}, ['Checking…', 'Looking for agy…'], 'muted'],
     ['installing', { canInstall: true }, ['Installing…', 'Downloading and installing Antigravity.'], 'muted'],
     [
       'updating',
@@ -238,9 +222,12 @@ test('every agent state the core can report reads truthfully and leaves a next s
   ];
   const render = await mount(
     t,
-    acpAgents(true, ...reported.map(([state, extra], index) => agent(state, { ...extra, id: `a${index}` })))
+    // Agents of no shared service: each is its own row.
+    acpAgents(
+      true,
+      ...reported.map(([state, extra], index) => agent(state, { ...extra, id: `a${index}`, provider: `acp-a${index}` }))
+    )
   );
-  await open();
   reported.forEach(([state, extra, expected, tone], index) => {
     const row = agentRow(`a${index}`);
     assert.deepEqual(words(row), expected, `${state} ${extra.id ?? ''}`);
@@ -258,14 +245,13 @@ test('every agent state the core can report reads truthfully and leaves a next s
   // A state not understood is never a check in progress: Check again stays available.
   await render(acpAgents(true, agent('paused')));
   assert.equal(checkAgain().disabled, false);
-  assert.match(listRow().textContent, /Setup needed/);
   // On, with no agent reported: the section says so, and Check again is the way on.
   await render(acpAgents(true));
-  assert.match(dialog().querySelector('[data-acp-agents]').textContent, /No agents were reported/);
+  assert.match(dialog().textContent, /No agents were reported/);
   assert.equal(checkAgain().disabled, false);
 });
 
-test('Check again asks the core to look again without turning the feature off', async (t) => {
+test('Check again asks the core to look again while the agents stay on', async (t) => {
   const calls = [];
   const render = await mount(t, acpAgents(true, agent('signedOut', { version: '1.5.15' })), {
     run: async (capability, args) => {
@@ -273,12 +259,10 @@ test('Check again asks the core to look again without turning the feature off', 
       return { acpAgents: acpAgents(true, agent('checking', { version: '1.5.15' })) };
     },
   });
-  await open();
   await act(async () => checkAgain().click());
   await render(acpAgents(true, agent('checking', { version: '1.5.15' })));
   assert.deepEqual(calls, [['setBuiltinToolEnabled', ['acpAgents', true]]]);
-  assert.equal(toggle().checked, true);
-  assert.deepEqual(words(agentRow()), ['Checking…', 'Looking for agy… To stop, turn Antigravity ACP off.']);
+  assert.deepEqual(words(agentRow()), ['Checking…', 'Looking for agy…']);
   assert.equal(checkAgain().disabled, true);
 
   await render(acpAgents(true, agent('ready', { version: '1.5.15' })));
@@ -295,16 +279,14 @@ test('Install and Update run the core install, show its progress, and a failure 
       return answer.promise;
     },
   });
-  await open();
   assert.deepEqual(words(agentRow()), ['Not found', 'Antigravity is not installed.']);
   await act(async () => button(agentRow(), 'Install').click());
   assert.deepEqual(installs, [{ capability: 'installBuiltinFeature', args: ['acpAgents'] }]);
   assert.equal(checkAgain().disabled, true);
-  // The core's progress is the agent's state; the feature's switch stays usable, turning it off ends the install.
+  // The core's progress is the agent's state.
   await render(acpAgents(true, agent('installing', { canInstall: true })));
   assert.deepEqual(words(agentRow()), ['Installing…', 'Downloading and installing Antigravity.']);
   assert.ok(agentRow().querySelector('[role="progressbar"]'));
-  assert.equal(toggle().disabled, false);
 
   const failed = acpAgents(
     true,
@@ -317,7 +299,7 @@ test('Install and Update run the core install, show its progress, and a failure 
   // The core's answer is the failure the row already says: it is said once.
   assert.equal(dialog().textContent.split('Download failed: 503').length - 1, 1);
 
-  // A failure no agent says shows under Agents, and goes with the agents it was about when the feature is off.
+  // A failure no agent says shows under the section, and goes with the agents it was about when they are switched off.
   answer = Promise.withResolvers();
   await act(async () => button(agentRow(), 'Retry').click());
   await render(acpAgents(true, agent('notInstalled', { canInstall: true })));
@@ -342,6 +324,280 @@ test('Install and Update run the core install, show its progress, and a failure 
   assert.equal(fault(agentRow()), '');
 });
 
+// The two shipped presets (mixdog-acp preset.rs `builtin`), both labelled "Antigravity": Google's ACP server for
+// Gemini, whose sign-in opens the browser itself, and the agy CLI for the rest, whose sign-in is agy's own.
+const official = (state, extra = {}) =>
+  agent(state, { minimumVersion: '1.5.2', loginOpensBrowser: true, sharesExternalSignIn: false, ...extra });
+const cli = (state, extra = {}) => agent(state, { id: 'antigravity-cli', provider: 'acp-antigravity-cli', ...extra });
+const agentRows = () => dialog().querySelectorAll('[data-acp-agent]');
+
+test("Antigravity's two presets are one row: its state combines both, and one Install installs both", async (t) => {
+  const installs = [];
+  const render = await mount(
+    t,
+    acpAgents(true, official('ready', { version: '1.5.2' }), cli('notInstalled', { canInstall: true })),
+    {
+      invoke: (request) => {
+        installs.push(request.args);
+        return { value: null };
+      },
+    }
+  );
+  assert.equal(agentRows().length, 1);
+  // Short of ready while either preset needs an install.
+  assert.deepEqual(words(agentRow()), ['Not found', 'Antigravity is not installed.']);
+  await act(async () => button(agentRow(), 'Install').click());
+  assert.deepEqual(installs, [['acpAgents']]);
+
+  await render(
+    acpAgents(true, official('ready', { version: '1.5.2' }), cli('signedOut', { version: '1.5.16', canSignIn: true }))
+  );
+  assert.deepEqual(words(agentRow()), ['Signed out', 'Sign in to use Antigravity here.']);
+
+  // Ready when both are: one account card.
+  await render(acpAgents(true, official('ready', { version: '1.5.2' }), cli('ready', { version: '1.5.16' })));
+  assert.equal(agentRows().length, 1);
+  assert.deepEqual(card(agentRow()), signedIn);
+});
+
+test('an official server that does not run on this computer leaves Antigravity usable and says Gemini is not available', async (t) => {
+  const note = () => dialog().querySelector('.extensions-note')?.textContent ?? '';
+  const render = await mount(
+    t,
+    acpAgents(true, official('unsupported', { canInstall: true }), cli('ready', { version: '1.5.16' }))
+  );
+  assert.equal(agentRows().length, 1);
+  assert.deepEqual(card(agentRow()), signedIn);
+  assert.equal(note(), 'Gemini is not available on this computer.');
+
+  await render(
+    acpAgents(true, official('unsupported', { canInstall: true }), cli('notInstalled', { canInstall: true }))
+  );
+  assert.deepEqual(words(agentRow()), ['Not found', 'Antigravity is not installed.']);
+  assert.ok(button(agentRow(), 'Install'));
+  assert.equal(note(), 'Gemini is not available on this computer.');
+
+  // With nothing else to run, the agent itself does not run here, and nothing installs.
+  await render(acpAgents(true, official('unsupported', { canInstall: true })));
+  assert.deepEqual(words(agentRow()), ['Not supported', 'Antigravity does not run on this computer.']);
+  assert.equal(agentRow().querySelector('button'), null);
+  assert.equal(note(), '');
+});
+
+/** The core's sign-in flows as the window starts them: each `beginOAuthProviderLogin` opens the next numbered flow. */
+function signInCore() {
+  const calls = [];
+  let flow = 0;
+  const run = async (capability, args) => {
+    calls.push([capability, args]);
+    return capability === 'beginOAuthProviderLogin'
+      ? { flowId: `fs${++flow}`, provider: args[0], url: null, state: 'pending' }
+      : {};
+  };
+  return { calls, run, begun: () => calls.filter(([capability]) => capability === 'beginOAuthProviderLogin') };
+}
+const signInDialog = () => document.querySelector('.settings-oauth-dialog');
+/** The dialog's step as the user reads it: its counter (none for a single step) and what it signs in to. */
+const signInStep = () => {
+  const step = signInDialog().querySelector('[data-oauth-step]');
+  return step && [step.querySelector('small')?.textContent ?? null, step.querySelector('b').textContent];
+};
+const waitLine = () => signInDialog().querySelector('.settings-oauth-wait').textContent;
+const consentPage = 'https://accounts.google.com/o/oauth2/auth?client=acp';
+const cliPage = 'https://antigravity.example/cli-login';
+
+test('one Sign in walks the signed-out presets as numbered steps of one dialog, Gemini first, and closes after the last', async (t) => {
+  const core = signInCore();
+  await mount(t, acpAgents(true, official('signedOut', { canSignIn: true }), cli('signedOut', { canSignIn: true })), {
+    run: core.run,
+  });
+  const before = opened.length;
+  await act(async () => button(agentRow(), 'Connect').click());
+  assert.deepEqual(core.begun(), [['beginOAuthProviderLogin', ['acp-antigravity']]]);
+  assert.deepEqual(signInStep(), ['Step 1 of 2', 'Google sign-in for Gemini models']);
+  // The core opened the browser for the official server: the dialog shows its link, and the window opens no tab.
+  await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'pending', url: consentPage }));
+  assert.equal(opened.length, before);
+  assert.equal(signInDialog().querySelector('.settings-oauth-host').textContent, 'accounts.google.com');
+  for (const action of ['Open again', 'Copy link']) assert.ok(signInDialog().querySelector(`[aria-label="${action}"]`));
+
+  // That step done, the same dialog moves on to the CLI's, whose page the window opens.
+  const dialogShown = signInDialog();
+  await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'complete' }));
+  await act(async () => undefined);
+  assert.equal(signInDialog(), dialogShown);
+  assert.deepEqual(core.begun().at(-1), ['beginOAuthProviderLogin', ['acp-antigravity-cli']]);
+  assert.deepEqual(signInStep(), ['Step 2 of 2', 'Google sign-in for Claude models']);
+  await act(async () => pushLogin('fs2', { flowId: 'fs2', state: 'pending', url: cliPage }));
+  assert.deepEqual(opened.slice(before), [cliPage]);
+
+  // The last step done, the dialog closes by itself and cancels nothing.
+  await act(async () => pushLogin('fs2', { flowId: 'fs2', state: 'complete' }));
+  await act(async () => undefined);
+  assert.equal(signInDialog(), null);
+  assert.equal(core.begun().length, 2);
+  assert.ok(core.calls.every(([capability]) => capability !== 'cancelOAuthProviderLogin'));
+});
+
+test('an install that ends well opens the sign-in it leaves to do; one that leaves the agent ready opens none', async (t) => {
+  const core = signInCore();
+  let answer = Promise.withResolvers();
+  const render = await mount(t, acpAgents(true, official('notInstalled', { canInstall: true })), {
+    run: core.run,
+    invoke: () => answer.promise,
+  });
+  await act(async () => button(agentRow(), 'Install').click());
+  await render(acpAgents(true, official('installing', { canInstall: true })));
+  await act(async () => answer.resolve({ value: null }));
+  // The core is still looking at what it installed: nothing opens yet.
+  await render(acpAgents(true, official('checking', { canInstall: true })));
+  assert.equal(signInDialog(), null);
+  await render(acpAgents(true, official('signedOut', { canInstall: true, canSignIn: true })));
+  assert.deepEqual(core.begun(), [['beginOAuthProviderLogin', ['acp-antigravity']]]);
+  assert.ok(signInDialog());
+  await act(async () => button(signInDialog(), 'Cancel').click());
+  // The sign-in opens once per install: the row signed out again opens nothing by itself.
+  await render(acpAgents(true, official('signedOut', { version: '1.5.2', canInstall: true, canSignIn: true })));
+  assert.equal(core.begun().length, 1);
+
+  answer = Promise.withResolvers();
+  await render(acpAgents(true, official('versionTooOld', { canInstall: true, version: '1.5.1' })));
+  await act(async () => button(agentRow(), 'Update').click());
+  await act(async () => answer.resolve({ value: null }));
+  await render(acpAgents(true, official('ready', { version: '1.5.2', canInstall: true, canSignIn: true })));
+  assert.equal(signInDialog(), null);
+  assert.equal(core.begun().length, 1);
+
+  // Switched off before the core settled on what it installed, the agents leave no sign-in for the next time on.
+  answer = Promise.withResolvers();
+  await render(acpAgents(true, official('notInstalled', { canInstall: true })));
+  await act(async () => button(agentRow(), 'Install').click());
+  await render(acpAgents(true, official('installing', { canInstall: true })));
+  await act(async () => answer.resolve({ value: null }));
+  await render(acpAgents(true, official('checking', { canInstall: true })));
+  await render(acpAgents(false, official('off')));
+  await render(acpAgents(true, official('signedOut', { canInstall: true, canSignIn: true })));
+  assert.equal(signInDialog(), null);
+  assert.equal(core.begun().length, 1);
+});
+
+test('a preset already signed in is skipped: the missing sign-in is one step with no counter', async (t) => {
+  const core = signInCore();
+  const render = await mount(
+    t,
+    acpAgents(true, official('ready', { version: '1.5.2' }), cli('signedOut', { canSignIn: true })),
+    {
+      run: core.run,
+    }
+  );
+  await act(async () => button(agentRow(), 'Connect').click());
+  assert.deepEqual(core.begun(), [['beginOAuthProviderLogin', ['acp-antigravity-cli']]]);
+  assert.deepEqual(signInStep(), [null, 'Google sign-in for Claude models']);
+  await act(async () => button(signInDialog(), 'Cancel').click());
+
+  // The official server's step alone; a window on another machine opens its page, the core's browser being the host's.
+  await render(acpAgents(true, official('signedOut', { canSignIn: true }), cli('ready', { version: '1.5.16' })));
+  window.mixdogRemoteServer = 'wss://host.example';
+  t.after(() => delete window.mixdogRemoteServer);
+  const before = opened.length;
+  await act(async () => button(agentRow(), 'Connect').click());
+  assert.deepEqual(core.begun().at(-1), ['beginOAuthProviderLogin', ['acp-antigravity']]);
+  assert.deepEqual(signInStep(), [null, 'Google sign-in for Gemini models']);
+  await act(async () => pushLogin('fs2', { flowId: 'fs2', state: 'pending', url: consentPage }));
+  assert.deepEqual(opened.slice(before), [consentPage]);
+  await act(async () => button(signInDialog(), 'Cancel').click());
+});
+
+test('the row offers only what the presets in its own state can do', async (t) => {
+  const core = signInCore();
+  const render = await mount(
+    t,
+    acpAgents(true, official('signedOut', { version: '1.5.2' }), cli('ready', { version: '1.5.16', canSignIn: true })),
+    { run: core.run }
+  );
+  // The signed-out preset cannot sign in here: no Sign in that would sign the other one in again.
+  assert.deepEqual(words(agentRow()), ['Signed out', 'Run agy in a terminal to sign in, then check again.']);
+  assert.equal(button(agentRow(), 'Connect'), undefined);
+  assert.deepEqual(core.begun(), []);
+
+  // A preset that does not run here lends its sibling no Install and no failure.
+  await render(
+    acpAgents(
+      true,
+      official('unsupported', { canInstall: true, lastError: { action: 'install', message: 'Download failed: 503' } }),
+      cli('notInstalled')
+    )
+  );
+  assert.equal(button(agentRow(), 'Install'), undefined);
+  assert.equal(fault(agentRow()), '');
+
+  // Nor does a usable preset in another state: its failure stays with its own row state.
+  await render(
+    acpAgents(
+      true,
+      official('updating', { canInstall: true, version: '1.5.1' }),
+      cli('notInstalled', { canInstall: true, lastError: { action: 'install', message: 'Download failed: 503' } })
+    )
+  );
+  assert.deepEqual(words(agentRow()), ['Updating…', 'Updating Antigravity to the newest version.']);
+  assert.equal(fault(agentRow()), '');
+  await render(
+    acpAgents(
+      true,
+      official('versionTooOld', { canInstall: true, version: '1.5.1' }),
+      cli('ready', { version: '1.5.16', lastError: { action: 'update', message: '429' } })
+    )
+  );
+  assert.equal(fault(agentRow()), '');
+  assert.ok(button(agentRow(), 'Update'));
+  assert.equal(button(agentRow(), 'Retry'), undefined);
+});
+
+test('Back on a phone closes a sign-in of steps, the step under way included', async (t) => {
+  document.documentElement.setAttribute('data-mixdog-mobile-tabs', '1');
+  t.after(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
+  const core = signInCore();
+  await mount(t, acpAgents(true, official('signedOut', { canSignIn: true }), cli('signedOut', { canSignIn: true })), {
+    run: core.run,
+  });
+  await act(async () => button(agentRow(), 'Connect').click());
+  await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'complete' }));
+  await act(async () => undefined);
+  assert.deepEqual(signInStep(), ['Step 2 of 2', 'Google sign-in for Claude models']);
+  await act(async () => window.dispatchEvent(new window.Event('popstate')));
+  assert.equal(signInDialog(), null);
+  assert.deepEqual(core.calls.slice(-1), [['cancelOAuthProviderLogin', ['fs2']]]);
+  assert.equal(core.begun().length, 2);
+});
+
+test('cancelling or a failed step ends the sign-in at that step, the steps before it staying signed in', async (t) => {
+  const core = signInCore();
+  await mount(t, acpAgents(true, official('signedOut', { canSignIn: true }), cli('signedOut', { canSignIn: true })), {
+    run: core.run,
+  });
+  await act(async () => button(agentRow(), 'Connect').click());
+  await act(async () => pushLogin('fs1', { flowId: 'fs1', state: 'complete' }));
+  await act(async () => undefined);
+  assert.deepEqual(signInStep(), ['Step 2 of 2', 'Google sign-in for Claude models']);
+  await act(async () => button(signInDialog(), 'Cancel').click());
+  // Only the open step's flow is cancelled; nothing signs the completed one out, and no step follows.
+  assert.deepEqual(core.calls.slice(-1), [['cancelOAuthProviderLogin', ['fs2']]]);
+  assert.equal(signInDialog(), null);
+  assert.equal(core.begun().length, 2);
+  assert.ok(core.calls.every(([capability]) => capability !== 'forgetProviderAuth'));
+
+  // A step that fails stays on show, at its step, until closed; the next step does not start.
+  await act(async () => button(agentRow(), 'Connect').click());
+  await act(async () => pushLogin('fs3', { flowId: 'fs3', state: 'failed', error: 'consent was denied' }));
+  await act(async () => undefined);
+  assert.deepEqual(signInStep(), ['Step 1 of 2', 'Google sign-in for Gemini models']);
+  assert.equal(waitLine(), 'Failed');
+  assert.equal(core.begun().length, 3);
+  await act(async () => button(signInDialog(), 'Close').click());
+  assert.equal(signInDialog(), null);
+  assert.equal(core.begun().length, 3);
+});
+
 test('Sign in opens the page the core hands over, takes the code, and can be cancelled', async (t) => {
   const calls = [];
   let flow = 0;
@@ -362,9 +618,8 @@ test('Sign in opens the page the core hands over, takes the code, and can be can
   };
   const signedOut = acpAgents(true, agent('signedOut', { version: '1.5.15', canSignIn: true }));
   await mount(t, signedOut, { run });
-  await open();
   assert.deepEqual(words(agentRow()), ['Signed out', 'Sign in to use Antigravity here.']);
-  await act(async () => button(agentRow(), 'Sign in').click());
+  await act(async () => button(agentRow(), 'Connect').click());
   assert.deepEqual(calls.at(-1), ['beginOAuthProviderLogin', ['acp-antigravity']]);
   assert.deepEqual(words(agentRow()), ['Signing in…', 'Finish signing in in your browser.']);
   // No look again (which updates the CLI) while the CLI's own sign-in runs; the dialog names no OAuth.
@@ -376,8 +631,9 @@ test('Sign in opens the page the core hands over, takes the code, and can be can
   );
   // The page arrives on the flow's feed; the window opens it once.
   const page = 'https://accounts.example/sign-in?code=1';
+  const before = opened.length;
   await act(async () => pushLogin('f1', { flowId: 'f1', state: 'pending', url: page, manualCodeSupported: true }));
-  assert.deepEqual(opened, [page]);
+  assert.deepEqual(opened.slice(before), [page]);
 
   const form = document.querySelector('.settings-oauth-code');
   form.querySelector('input[name="code"]').value = 'ABCD-1234';
@@ -412,7 +668,6 @@ test('a signed-in agent is the provider account card: one account in use under i
     t,
     acpAgents(true, agent('ready', { version: '1.5.15', plan: 'Google AI Ultra', canSignIn: true, canSignOut: true }))
   );
-  await open();
   // The agent names no one: the plan it reports stands where a provider's row says who the account is.
   assert.deepEqual(card(agentRow()), {
     title: 'Antigravity',
@@ -448,7 +703,6 @@ test('Disconnect asks first, then has the core sign the agent out; the row follo
       confirm: (options) => asked.push(options),
     }
   );
-  await open();
   await act(async () => button(agentRow(), 'Disconnect').click());
   assert.deepEqual(calls, []);
   assert.equal(asked.length, 1);
@@ -480,7 +734,31 @@ test('Disconnect asks first, then has the core sign the agent out; the row follo
 
   await render(acpAgents(true, agent('signedOut', { version: '1.5.15', canSignIn: true })));
   assert.deepEqual(words(agentRow()), ['Signed out', 'Sign in to use Antigravity here.']);
-  assert.ok(button(agentRow(), 'Sign in'));
+  assert.ok(button(agentRow(), 'Connect'));
+
+  // One Disconnect signs both presets out; the CLI's sign-in is agy's own, so it warns of agy outside Mixdog.
+  calls.length = 0;
+  await render(
+    acpAgents(
+      true,
+      official('ready', { version: '1.5.2', canSignOut: true }),
+      cli('ready', { version: '1.5.16', canSignOut: true })
+    )
+  );
+  await act(async () => button(agentRow(), 'Disconnect').click());
+  assert.equal(
+    asked[1].description,
+    'Every Antigravity session running in Mixdog ends now. The agy command outside Mixdog uses the same sign-in, so it is signed out too.'
+  );
+  await act(async () => asked[1].onConfirm());
+  assert.deepEqual(calls, [
+    ['forgetProviderAuth', ['acp-antigravity']],
+    ['forgetProviderAuth', ['acp-antigravity-cli']],
+  ]);
+  // With only the official server to sign out, whose sign-in is Mixdog's own, it warns of the sessions alone.
+  await render(acpAgents(true, official('ready', { version: '1.5.2', canSignOut: true }), cli('ready')));
+  await act(async () => button(agentRow(), 'Disconnect').click());
+  assert.equal(asked[2].description, 'Every Antigravity session running in Mixdog ends now.');
 });
 
 test('the + of a signed-in agent runs its sign-in again, which replaces the one account it keeps', async (t) => {
@@ -492,7 +770,6 @@ test('the + of a signed-in agent runs its sign-in again, which replaces the one 
       : {};
   };
   await mount(t, acpAgents(true, agent('ready', { version: '1.5.15', canSignIn: true })), { run });
-  await open();
   const add = () => agentRow().querySelector('button[aria-label="Sign in with another account"]');
   assert.match(add().getAttribute('title'), /replaces this one/);
   await act(async () => add().click());
@@ -518,7 +795,6 @@ test("the agent's card shows its reading also when a provider's row lists the sa
     ],
   });
   await mount(t, acpAgents(true, agent('ready', { version: '1.5.15' })));
-  await open();
   assert.deepEqual(card(agentRow()).usage, [['7D', '20%']]);
 });
 
@@ -537,7 +813,6 @@ test('a reading the core withdrew is no longer painted, and a sign-in from the c
       ? { flowId: 'f-usage', provider: 'acp-antigravity', url: null, state: 'pending' }
       : {};
   await mount(t, acpAgents(true, agent('ready', { version: '1.5.15', canSignIn: true })), { run });
-  await open();
   assert.deepEqual(card(agentRow()).usage, [['PRO', '40%']]);
 
   // Signed out, or another account signed in: the core's dashboard holds no reading of the agent any more.

@@ -726,7 +726,7 @@
 /* The session panel (session-rail.css, 3) shows beside a dock only below the
    conversation (a dock open at the side covers it): the dock's height edge,
    reaching up over the panel, stays above it. */
-.pane-cell:has(> .session-rail) > .pane-side-dock:not([data-expanded="true"]) {
+.pane-cell:has(> .session-rail:not([hidden])) > .pane-side-dock:not([data-expanded="true"]) {
   z-index: 4;
 }
 /* Mica clears --mx-window-band inside the main panel; the widened header must

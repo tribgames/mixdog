@@ -978,6 +978,18 @@
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-semibold);
 }
+.settings-oauth-step {
+  display: grid;
+  gap: 2px;
+}
+.settings-oauth-step > small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.settings-oauth-step > b {
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+}
 .settings-oauth-code-row {
   display: flex;
   align-items: center;

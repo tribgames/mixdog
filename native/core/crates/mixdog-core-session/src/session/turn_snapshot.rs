@@ -69,6 +69,13 @@ impl TurnSnapshot {
         rx.wait_for(Option::is_some).await.ok().and_then(|token| token.clone()).flatten()
     }
 
+    /// The checkpoint the turn's changes are recorded under, once its review began: the turn's own, or the one a
+    /// completion wake continues.
+    pub fn checkpoint(&self) -> Option<String> {
+        let token = self.inner.started.get()?.borrow().clone().flatten()?;
+        Some(token.checkpoint_id).filter(|id| !id.is_empty())
+    }
+
     /// `tracker.finish(signal)`: a cancelled turn keeps its edits as a change record, sealed in
     /// the background once its baseline exists, and only the generation it began; any other turn
     /// is sealed before it reports settled, for at most [`TURN_CLEANUP_SETTLE`]: the seal then

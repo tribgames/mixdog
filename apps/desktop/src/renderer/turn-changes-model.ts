@@ -341,12 +341,16 @@ export function useTurnChanges({
   // Of the read asked for now, until it answers: a newer boundary, epoch or `invalidate` is read again.
   const answered = state.key === key && state.reply !== null;
   const now = waiting?.key === key && !answered ? waiting : null;
-  const unread = enabled && Boolean(sessionId && checkpointId) && reply === null && now === null;
+  const asked = enabled && Boolean(sessionId && checkpointId);
+  const unread = asked && reply === null && now === null;
+  const fresh = answered || cachedTurnChanges(sessionId, checkpointId, boundary, epoch) !== null;
   return {
     reply,
     unread,
     /** `reply` answers the read asked for now, not an earlier boundary, epoch or `invalidate` kept on screen. */
-    fresh: answered || cachedTurnChanges(sessionId, checkpointId, boundary, epoch) !== null,
+    fresh,
+    /** The read asked for now is out: the core has neither answered it nor said the turn is still recording. */
+    reading: asked && !fresh && now === null,
     /** The runtime is still recording this turn: there is no answer yet. */
     recording: now?.phase === 'recording',
     /** Still recording at the last re-ask: nothing asks again until `invalidate` or a newer end. */

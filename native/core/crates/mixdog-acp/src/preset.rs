@@ -174,6 +174,11 @@ pub enum Distribution {
         /// The variable that gives the agent a home of Mixdog's own, `<acp data>/homes/<preset id>`: its sign-in and
         /// settings are none of another client's.
         home_env: String,
+        /// The files of its home, relative to it, that hold its sign-in, the credential last: all of them there is an
+        /// agent signed in, and a sign-in moves them into the home.
+        sign_in_files: Vec<String>,
+        /// Mixdog installs the build and keeps it current; `false` for a run that only uses the build the app installed.
+        kept_current: bool,
     },
 }
 
@@ -182,18 +187,43 @@ impl Distribution {
     pub fn without_mutations(self) -> Self {
         match self {
             Self::Cli { installed_at, .. } => Self::Cli { installer: None, installed_at, update_args: None },
-            registry @ Self::Registry { .. } => registry,
+            Self::Registry { index_url, agent_id, allowed_archive_hosts, supported, home_env, sign_in_files, .. } => {
+                Self::Registry { index_url, agent_id, allowed_archive_hosts, supported, home_env, sign_in_files, kept_current: false }
+            }
         }
     }
 }
 
-/// The CLI's own interactive sign-in: it prints the page to open, reads the code that page shows from its
-/// stdin where the page gives one, and exits 0 once it stored the credential itself.
+/// How the user signs in to an agent from the app.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Login {
-    pub args: Vec<String>,
-    /// Variables the login runs without, so it prints its link instead of opening a browser of its own.
-    pub env_remove: Vec<String>,
+pub enum Login {
+    /// The CLI's own interactive sign-in: it prints the page to open, reads the code that page shows from its stdin where
+    /// the page gives one, and exits 0 once it stored the credential itself.
+    Cli {
+        args: Vec<String>,
+        /// Variables the login runs without, so it prints its link instead of opening a browser of its own.
+        env_remove: Vec<String>,
+    },
+    /// The protocol's `authenticate` with the method `method_id`, asked of a process of its own in a home of its own: the
+    /// agent writes the line `link_line` followed by the page to open on its stderr, and answers once the user signed in
+    /// there.
+    AcpAuthenticate {
+        method_id: String,
+        /// The agent opens the page in the system's browser itself.
+        opens_browser: bool,
+        /// What starts the agent's stderr line that names the sign-in page: it writes it whenever it asks for a sign-in.
+        link_line: String,
+    },
+}
+
+impl Login {
+    /// What starts the agent's stderr line that asks for a sign-in in the browser; `None` for a CLI's own sign-in.
+    pub fn link_line(&self) -> Option<&str> {
+        match self {
+            Self::AcpAuthenticate { link_line, .. } => Some(link_line),
+            Self::Cli { .. } => None,
+        }
+    }
 }
 
 /// The CLI's own report of the signed-in account's quota: run to its exit, it prints one JSON object whose
@@ -417,8 +447,15 @@ pub fn builtin() -> Vec<AgentPreset> {
             // 1.5.2 hangs at its start on an Intel Mac.
             supported: !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64")),
             home_env: "GEMINI_HOME".into(),
+            sign_in_files: vec!["antigravity-acp/settings.json".into(), "antigravity-acp/acp_token.json".into()],
+            kept_current: true,
         },
-        login: None,
+        // Google's own sign-in, which the server opens in the system's browser itself.
+        login: Some(Login::AcpAuthenticate {
+            method_id: "oauth-personal".into(),
+            opens_browser: true,
+            link_line: "Open the following link to authenticate the ACP server:".into(),
+        }),
         usage: None,
         same_quota_as: Some("antigravity-oauth".into()),
     };
@@ -450,7 +487,7 @@ pub fn builtin() -> Vec<AgentPreset> {
             update_args: Some(vec!["update".into()]),
         },
         // Without a display the CLI prints its sign-in link only.
-        login: Some(Login { args: vec!["acp".into(), "--login".into()], env_remove: vec!["DISPLAY".into(), "WAYLAND_DISPLAY".into()] }),
+        login: Some(Login::Cli { args: vec!["acp".into(), "--login".into()], env_remove: vec!["DISPLAY".into(), "WAYLAND_DISPLAY".into()] }),
         // The `/usage` command in print mode: the account's quota as data, with no turn.
         usage: Some(UsageReport { args: vec!["--print".into(), "/usage".into(), "--output-format".into(), "json".into()] }),
         same_quota_as: Some("antigravity-oauth".into()),

@@ -36,6 +36,29 @@ pub trait TextFiles: Send + Sync {
     async fn folders(&self, _path: AbsPath) -> Result<Vec<String>, String> {
         Err("no folder is listed here".to_owned())
     }
+    /// Puts `text` in the file at `path`, its folders made, in place of one already there: a reader finds the old text
+    /// whole or the new text whole. What the agents keep of their builds and of what they told.
+    async fn replace(&self, _path: AbsPath, _text: String) -> Result<(), String> {
+        Err("no file is written here".to_owned())
+    }
+    /// Moves the file or folder `from` to `to`, the folders of `to` made; a file at `to` is replaced at once.
+    async fn rename(&self, _from: AbsPath, _to: AbsPath) -> Result<(), String> {
+        Err("nothing is moved here".to_owned())
+    }
+    /// Removes the file `path`; one that is not there is removed already.
+    async fn remove_file(&self, _path: AbsPath) -> Result<(), String> {
+        Err("no file is removed here".to_owned())
+    }
+}
+
+impl ServiceFiles {
+    /// Runs `job` on the files' lane; `what` names what it does, for its failure.
+    async fn on_lane<R: Send + 'static>(&self, what: &str, job: impl FnOnce() -> std::io::Result<R> + Send + 'static) -> Result<R, String> {
+        match self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| job()) {
+            Ok(job) => job.await.map_err(|_| format!("{what} failed"))?.map_err(|error| error.to_string()),
+            Err(_) => Err(format!("{what} failed")),
+        }
+    }
 }
 
 /// [`TextFiles`] over the core's file service.
@@ -123,6 +146,43 @@ impl TextFiles for ServiceFiles {
             Ok(job) => job.await.map_err(|_| "the folder could not be listed".to_owned())?.map_err(|error| error.to_string()),
             Err(_) => Err("the folder could not be listed".to_owned()),
         }
+    }
+
+    async fn replace(&self, path: AbsPath, text: String) -> Result<(), String> {
+        // Written whole beside its place, then moved onto it.
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = move || {
+            let folder = path.as_path().parent().ok_or_else(|| std::io::Error::other("the file has no folder"))?;
+            std::fs::create_dir_all(folder)?;
+            let staged = folder.join(format!(".{}.staged", uuid::Uuid::new_v4().simple()));
+            std::fs::write(&staged, text)?;
+            let renamed = std::fs::rename(&staged, path.as_path());
+            if renamed.is_err() {
+                let _ = std::fs::remove_file(&staged);
+            }
+            renamed
+        };
+        self.on_lane("writing the file", job).await
+    }
+
+    async fn rename(&self, from: AbsPath, to: AbsPath) -> Result<(), String> {
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = move || {
+            if let Some(folder) = to.as_path().parent() {
+                std::fs::create_dir_all(folder)?;
+            }
+            std::fs::rename(from.as_path(), to.as_path())
+        };
+        self.on_lane("moving the file", job).await
+    }
+
+    async fn remove_file(&self, path: AbsPath) -> Result<(), String> {
+        #[allow(clippy::disallowed_methods, reason = "a lane job")]
+        let job = move || match std::fs::remove_file(path.as_path()) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            removed => removed,
+        };
+        self.on_lane("removing the file", job).await
     }
 }
 

@@ -3,7 +3,6 @@ import type {
   DesktopLibreOfficeStatus,
   DesktopLinuxComputerReadiness,
 } from '../../shared/contract';
-import { acpAgentsOf } from '../acp-agent-status';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
@@ -154,12 +153,6 @@ export function BuiltInFeatureInfo({
     ]);
   }
   if (feature.id === 'localProvider') facts.push(...localProviderFacts(state.localProvider));
-  if (feature.id === 'acpAgents') {
-    facts.push(['Control protocol', 'Agent Client Protocol (ACP)']);
-    // Each agent's CLI version: the account card above says nothing of the program.
-    const versions = acpAgentsOf(info).flatMap((agent) => (agent.version ? [agent.version] : []));
-    facts.push(['Version', versions.join(' · ')]);
-  }
   if (feature.id === 'autoEffort') {
     facts.push(
       // Mixdog's own judge, fine-tuned from the backbone calibration.json names.

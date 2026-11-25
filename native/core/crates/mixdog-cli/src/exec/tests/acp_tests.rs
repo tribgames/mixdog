@@ -71,11 +71,10 @@ fn exec_in(dir: &Path) {
     let manifest = json!({ "program": "./node", "packageRoot": package }).to_string();
     std::fs::write(core.join(mixdog_app_server_daemon::js_runtime::MANIFEST_FILE), manifest).unwrap();
     let js = mixdog_app_server_daemon::js_runtime::resolve(&core.join("mixdogd"), None).expect("the install");
-    // The host's settings: the ACP agents turned on, as the desktop's switch writes them.
+    // The host's settings: nothing stored, so the ACP agents are on as they are by default.
     let host_data = dir.join("host-data");
     std::fs::create_dir_all(&host_data).unwrap();
-    let settings = json!({ "agent": { "builtins": { mixdog_acp::FEATURE: { "installed": true } } } });
-    std::fs::write(host_data.join("mixdog-config.json"), settings.to_string()).unwrap();
+    std::fs::write(host_data.join("mixdog-config.json"), json!({ "agent": {} }).to_string()).unwrap();
     let (ws, tmp) = (dir.join("ws"), dir.join("tmp"));
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
@@ -83,7 +82,7 @@ fn exec_in(dir: &Path) {
     let preset = fake_preset();
     let provider = preset.provider.clone();
     let (executors, tokens) = mixdog_app_server_daemon::boot_executors().expect("the executors");
-    let launcher = InProcessLauncher::new(executors, tokens, js, OrtRuntime::NoBinding, vec![preset]);
+    let launcher = InProcessLauncher::new(executors, tokens, js, OrtRuntime::NoBinding, vec![preset], &host_data);
     let sink = Arc::new(Out::default());
     let host = Host {
         launcher: &launcher,
@@ -185,22 +184,22 @@ fn boundary_on(dir: &Path, provider: &str, host: &Path, host_env: &BTreeMap<Stri
     })
 }
 
-/// The ACP agents' switch is the host's, as the app reads it: off until the feature is installed, off again when its module is
-/// turned off, and on by the environment's override. A run it refuses says so before anything starts and leaves no root.
+/// The ACP agents' switch is the host's, as the app reads it: on by default, off once switched off in Providers or by the
+/// environment's override. A run it refuses says so before anything starts and leaves no root.
 #[test]
 fn an_acp_lead_runs_only_while_the_hosts_switch_of_the_agents_is_on() {
-    let off = [json!({}), json!({ "builtins": { "acpAgents": { "installed": true } }, "modules": { "acpAgents": { "enabled": false } } })];
-    for agent in off {
+    let none = BTreeMap::new();
+    let overridden: BTreeMap<String, String> = [("MIXDOG_FEATURE_ACP_AGENTS".to_owned(), "0".to_owned())].into();
+    for (agent, env) in [(json!({ "modules": { "acpAgents": { "enabled": false } } }), &none), (json!({}), &overridden)] {
         let dir = tempfile::tempdir().unwrap();
         let host = host_settings(dir.path(), agent.clone());
-        let refused = boundary_on(dir.path(), "acp-antigravity", &host, &BTreeMap::new(), None).err().expect("refused");
+        let refused = boundary_on(dir.path(), "acp-antigravity", &host, env, None).err().expect("refused");
         assert_eq!(refused, "route \"lead\" provider \"acp-antigravity\" is the ACP agent Antigravity: ACP agents are turned off in Settings.", "{agent}");
         assert_eq!(std::fs::read_dir(dir.path().join("tmp")).unwrap().count(), 0, "{agent}");
     }
     let dir = tempfile::tempdir().unwrap();
     let host = host_settings(dir.path(), json!({}));
-    let overridden: BTreeMap<String, String> = [("MIXDOG_FEATURE_ACP_AGENTS".to_owned(), "1".to_owned())].into();
-    let boundary = boundary_on(dir.path(), "acp-antigravity", &host, &overridden, None).expect("the environment turns the agents on");
+    let boundary = boundary_on(dir.path(), "acp-antigravity", &host, &none, None).expect("the agents are on by default");
     std::fs::remove_dir_all(&boundary.root_dir).unwrap();
 }
 
@@ -209,11 +208,11 @@ fn an_acp_lead_runs_only_while_the_hosts_switch_of_the_agents_is_on() {
 #[test]
 fn the_pristine_run_of_an_acp_lead_switches_the_agents_on_and_binds_no_credential() {
     let dir = tempfile::tempdir().unwrap();
-    let host = host_settings(dir.path(), json!({ "builtins": { "acpAgents": { "installed": true } } }));
+    let host = host_settings(dir.path(), json!({}));
     let boundary = boundary_on(dir.path(), "acp-antigravity", &host, &BTreeMap::new(), None).expect("the switch is on");
     let written: Value = serde_json::from_str(&std::fs::read_to_string(boundary.data_dir.join("mixdog-config.json")).unwrap()).unwrap();
     let agent = &written["agent"];
-    assert_eq!(agent["builtins"], json!({ "acpAgents": { "installed": true } }));
+    assert_eq!(agent["modules"], json!({ "acpAgents": { "enabled": true } }));
     assert_eq!(agent["providers"], json!({}), "the agent is no provider of the registry");
     assert_eq!((&agent["presets"][0]["provider"], &agent["presets"][0]["model"]), (&json!("acp-antigravity"), &json!("default")));
     assert_eq!(boundary.runtime_config, *agent);
@@ -226,7 +225,7 @@ fn the_pristine_run_of_an_acp_lead_switches_the_agents_on_and_binds_no_credentia
 #[test]
 fn a_route_profiles_role_on_an_acp_agent_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
-    let host = host_settings(dir.path(), json!({ "builtins": { "acpAgents": { "installed": true } } }));
+    let host = host_settings(dir.path(), json!({}));
     let profile = r#"{"routes": {"worker": {"provider": "acp-antigravity", "model": "default"}}}"#;
     let refused = boundary_on(dir.path(), "openai", &host, &BTreeMap::new(), Some(profile)).err().expect("refused");
     assert_eq!(

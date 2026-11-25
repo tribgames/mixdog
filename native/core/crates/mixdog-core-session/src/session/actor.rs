@@ -589,6 +589,8 @@ struct RunSlot {
     /// failure record that no end item states is built from.
     started_at: i64,
     transcript: Value,
+    /// The turn's review: its end names the checkpoint the review records under.
+    review: super::turn_snapshot::TurnSnapshot,
     /// What the turn's stream and cards counted, for the live end of a failure.
     live: super::live_end::LiveCounts,
     /// `completionVerb` (`pickDoneVerb(stats.turns)` at `beginTurn`).
@@ -5895,6 +5897,7 @@ impl SessionActor {
             last_model,
             started_at: self.deps.clock.now_ms(),
             transcript: input_body.pointer("/meta/transcript").cloned().unwrap_or(Value::Null),
+            review: review.clone(),
             live: Default::default(),
             verb: super::live_end::done_verb(self.turns_closed),
             live_call: Default::default(),

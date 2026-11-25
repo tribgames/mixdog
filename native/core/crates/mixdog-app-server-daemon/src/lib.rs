@@ -279,6 +279,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         stop: stop.clone(),
         catalog_http,
         agent_presets: acp_tools::builtin_presets(),
+        acp_data_dir: None,
         #[cfg(test)]
         pg_install: None,
     };

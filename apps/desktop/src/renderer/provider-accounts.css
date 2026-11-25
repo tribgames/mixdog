@@ -490,10 +490,9 @@
 .settings-custom-providers .settings-group-head {
   align-items: center;
 }
-.settings-custom-providers .settings-group-head .settings-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.settings-custom-providers .settings-group-head > .extensions-action {
+  width: 28px;
+  padding: 0;
 }
 /* Providers without a connected account: one card, one compact row each. */
 .provider-accounts-sublabel {

@@ -15,20 +15,24 @@ const { normalizedProviderModels } = await import('../shared/desktop-transcript-
 
 const NOT_APPLICABLE = ['effort', 'autoEffort', 'fast', 'fallbacks'];
 const provider = (id, model, display) => ({ provider: id, id: model, name: display, display });
-// `model/list` as the core answers it with Antigravity ACP ready: providers' models, then the agent's rows.
-// A model the agent runs at several tiers is one row whose tiers are its efforts; the others take no effort.
+// `model/list` as the core answers it with Antigravity ready: providers' models, then the rows of its two presets,
+// both labelled "Antigravity" (mixdog-acp agents.rs `picker_rows`): the official server's default entry and its
+// Gemini models, then the CLI's every other model, with no default entry of its own. A model the agent runs at
+// several tiers is one row whose tiers are its efforts; the others take no effort.
+const OFFICIAL = { provider: 'acp-antigravity', agent: 'antigravity' };
+const CLI = { provider: 'acp-antigravity-cli', agent: 'antigravity-cli' };
 const agentRows = [
-  ['default', 'Antigravity ACP', []],
-  ['gemini-3.8-flash', 'Antigravity ACP · Gemini 3.8 Flash', ['low', 'medium', 'high']],
-  ['gpt-oss-120b', 'Antigravity ACP · GPT-OSS 120B', ['medium']],
-  ['gemini-pro-orchestrator-neon', 'Antigravity ACP · Orchestrator (Neon)', []],
-].map(([id, display, efforts]) => ({
-  provider: 'acp-antigravity',
+  [OFFICIAL, 'default', 'Antigravity', []],
+  [OFFICIAL, 'gemini-3.8-flash', 'Antigravity · Gemini 3.8 Flash', ['low', 'medium', 'high']],
+  [OFFICIAL, 'gemini-4-neon', 'Antigravity · Gemini 4 Neon', ['low', 'high']],
+  [CLI, 'gpt-oss-120b', 'Antigravity · GPT-OSS 120B', ['medium']],
+  [CLI, 'claude-opus-5-5', 'Antigravity · Claude Opus 5.5', []],
+].map(([agent, id, display, efforts]) => ({
+  ...agent,
   id,
   name: display,
   display,
   runner: 'acp',
-  agent: 'antigravity',
   notApplicable: efforts.length ? NOT_APPLICABLE.filter((control) => control !== 'effort') : NOT_APPLICABLE,
   ...(efforts.length
     ? { effortOptions: efforts.map((value) => ({ value, label: value })), defaultEffort: efforts[0] }
@@ -42,7 +46,7 @@ const providerRows = [
 ];
 const models = normalizedProviderModels([...providerRows, ...agentRows]);
 const setup = { oauth: [{ id: 'openai-oauth', authenticated: true }], api: [], local: [] };
-const AGENT_ROWS = ['Default', 'Gemini 3.8 Flash', 'GPT-OSS 120B', 'Orchestrator (Neon)'];
+const AGENT_ROWS = ['Default', 'Gemini 3.8 Flash', 'Gemini 4 Neon', 'GPT-OSS 120B', 'Claude Opus 5.5'];
 
 const groups = () =>
   [...document.querySelectorAll('.model-group')].map((section) => [
@@ -50,7 +54,9 @@ const groups = () =>
     [...section.querySelectorAll('[role="option"]')].map((node) => node.textContent),
   ]);
 const agentGroup = () =>
-  [...document.querySelectorAll('.model-group')].find((section) => section.textContent.startsWith('Antigravity ACP'));
+  [...document.querySelectorAll('.model-group')].find(
+    (section) => section.querySelector('h3').textContent === 'Antigravity'
+  );
 
 async function mount(t, props) {
   const root = createRoot(document.querySelector('main'));
@@ -73,12 +79,12 @@ async function mount(t, props) {
   );
 }
 
-test('Antigravity ACP is a provider group right below Antigravity OAuth, each row naming its model alone', async (t) => {
+test("Antigravity is one provider group right below Antigravity OAuth, holding both presets' models once each", async (t) => {
   await mount(t, {});
   assert.deepEqual(groups(), [
     ['OpenAI OAuth', ['GPT-5.5']],
     ['Antigravity OAuth', ['Gemini 3.8 Flash']],
-    ['Antigravity ACP', AGENT_ROWS],
+    ['Antigravity', AGENT_ROWS],
     ['Cursor OAuth', ['Composer 2.5']],
     ['OpenAI API', ['GPT-5.4']],
   ]);
@@ -92,22 +98,25 @@ test('without Antigravity OAuth the agent group follows the last OAuth group', a
   await mount(t, { models: models.filter((option) => option.provider !== 'antigravity-oauth') });
   assert.deepEqual(
     groups().map(([title]) => title),
-    ['OpenAI OAuth', 'Cursor OAuth', 'Antigravity ACP', 'OpenAI API']
+    ['OpenAI OAuth', 'Cursor OAuth', 'Antigravity', 'OpenAI API']
   );
 });
 
 test("an agent's model is marked, recent and searched like a provider's, and choosing it picks the agent's route", async (t) => {
-  window.localStorage.setItem('mixdog.desktop-recent-models', JSON.stringify(['model:acp-antigravity:gpt-oss-120b']));
+  window.localStorage.setItem(
+    'mixdog.desktop-recent-models',
+    JSON.stringify(['model:acp-antigravity-cli:gpt-oss-120b'])
+  );
   t.after(() => window.localStorage.clear());
   const chosen = [];
   const preferences = [];
   await mount(t, {
-    provider: 'acp-antigravity',
+    provider: 'acp-antigravity-cli',
     model: 'gpt-oss-120b',
     onSelect: (option) => chosen.push(option),
     onSetModelPreference: (option, change) => preferences.push([option.provider, option.model, change]),
   });
-  assert.deepEqual(groups()[0], ['Recent', ['GPT-OSS 120B (Antigravity ACP)']]);
+  assert.deepEqual(groups()[0], ['Recent', ['GPT-OSS 120B (Antigravity)']]);
   assert.deepEqual(
     [...agentGroup().querySelectorAll('[aria-selected="true"]')].map((node) => node.textContent),
     ['GPT-OSS 120B']
@@ -115,10 +124,10 @@ test("an agent's model is marked, recent and searched like a provider's, and cho
 
   const search = document.querySelector('.model-search input');
   await act(async () => {
-    search.value = 'orchestrator';
+    search.value = 'claude';
     search.dispatchEvent(new window.Event('input', { bubbles: true }));
   });
-  assert.deepEqual(groups(), [['Antigravity ACP', ['Orchestrator (Neon)']]]);
+  assert.deepEqual(groups(), [['Antigravity', ['Claude Opus 5.5']]]);
 
   const agentRow = agentGroup().querySelector('[role="option"]');
   // An agent's model is made a favourite from its row's menu, as a provider's is.
@@ -128,7 +137,7 @@ test("an agent's model is marked, recent and searched like a provider's, and cho
   const favorite = [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Favorite model');
   assert.ok(favorite, 'the row menu offers the favourite');
   await act(async () => favorite.click());
-  assert.deepEqual(preferences, [['acp-antigravity', 'gemini-pro-orchestrator-neon', { favorite: true }]]);
+  assert.deepEqual(preferences, [['acp-antigravity-cli', 'claude-opus-5-5', { favorite: true }]]);
 
   await act(async () => agentRow.click());
   assert.deepEqual(
@@ -140,8 +149,8 @@ test("an agent's model is marked, recent and searched like a provider's, and cho
     })),
     [
       {
-        provider: 'acp-antigravity',
-        model: 'gemini-pro-orchestrator-neon',
+        provider: 'acp-antigravity-cli',
+        model: 'claude-opus-5-5',
         runner: 'acp',
         notApplicable: NOT_APPLICABLE,
       },
@@ -157,9 +166,15 @@ test("an agent's models are offered where a pick is saved, as a connected provid
   ]) {
     assert.deepEqual(
       filterConfiguredModels(models, providerSetup, error)
-        .filter((option) => option.provider === 'acp-antigravity')
-        .map((option) => option.model),
-      ['default', 'gemini-3.8-flash', 'gpt-oss-120b', 'gemini-pro-orchestrator-neon']
+        .filter((option) => option.provider.startsWith('acp-'))
+        .map((option) => `${option.provider}/${option.model}`),
+      [
+        'acp-antigravity/default',
+        'acp-antigravity/gemini-3.8-flash',
+        'acp-antigravity/gemini-4-neon',
+        'acp-antigravity-cli/gpt-oss-120b',
+        'acp-antigravity-cli/claude-opus-5-5',
+      ]
     );
   }
   // A provider that is not connected stays out; the agent needs no entry of the provider setup.

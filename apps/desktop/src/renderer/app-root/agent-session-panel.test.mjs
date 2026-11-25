@@ -228,6 +228,89 @@ test('an ended sub-agent keeps its final transcript across a host chat switch, u
   assert.equal(shell.surfaces.heldAgentLanes.has('sub-a'), false, 'released with its panel target');
 });
 
+test('a sub-agent the dock covers and shows again is presented anew: its transcript is not painted until its rows hold their boxes', async (t) => {
+  const frames = new Map();
+  let frameId = 0;
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><div id="root"></div><div id="viewport"><div id="content" style="height:100px"><div class="transcript-virtual-row" data-index="0" data-timeline-key="r0" style="top:0px"></div></div></div>',
+    globals: {
+      requestAnimationFrame(callback) {
+        frames.set(++frameId, callback);
+        return frameId;
+      },
+      cancelAnimationFrame(id) {
+        frames.delete(id);
+      },
+    },
+  });
+  const { document } = dom.window;
+  const { AgentSessionPanel } = await import('../AgentSessionPanel.tsx');
+  const { usePanePresentation } = await import('../pane-presentation.ts');
+  const { useTranscriptReveal } = await import('../use-transcript-reveal.ts');
+  // The sub-agent's viewport at its end, its one row in view as layout reads it back.
+  const viewport = { current: document.getElementById('viewport') };
+  const content = { current: document.getElementById('content') };
+  Object.defineProperties(viewport.current, { clientHeight: { value: 100 }, scrollHeight: { value: 100 } });
+  document.querySelector('.transcript-virtual-row').getBoundingClientRect = () => ({
+    height: 100,
+    top: 0,
+    bottom: 100,
+    width: 600,
+  });
+  const painted = [];
+  // The conversation's timeline (use-conversation-timeline.ts): revealed per visit of its pane presentation.
+  function Transcript() {
+    const revealed = useTranscriptReveal({
+      identity: 'sub',
+      visit: usePanePresentation().visit,
+      enabled: true,
+      draft: false,
+      viewport,
+      content,
+      hasScrollGesture: () => false,
+    });
+    React.useLayoutEffect(() => {
+      painted.push(revealed);
+    });
+    return null;
+  }
+  const root = createRoot(document.getElementById('root'));
+  const render = (active) =>
+    act(() =>
+      root.render(
+        React.createElement(AgentSessionPanel, {
+          target: { sessionId: 'sub', title: 'Worker' },
+          active,
+          renderConversation: () => React.createElement(Transcript),
+          onOpenAsTab() {},
+          onClose() {},
+        })
+      )
+    );
+  const frame = () =>
+    act(() => {
+      const due = [...frames.values()];
+      frames.clear();
+      for (const callback of due) callback(0);
+    });
+  t.after(async () => {
+    await act(async () => root.unmount());
+    restore();
+  });
+  render(true);
+  frame();
+  frame();
+  assert.equal(painted.at(-1), true, 'entered: its rows are shown');
+  // A browser or terminal in front of it, or the dock folded: the conversation stays mounted, its rows let go.
+  render(false);
+  painted.length = 0;
+  render(true);
+  assert.equal(painted[0], false, 'the commit that shows it again paints no rows still taking their boxes');
+  frame();
+  frame();
+  assert.equal(painted.at(-1), true, 'shown once they hold them');
+});
+
 test('an ended sub-agent stays read-only from the panel’s own copy, and a fresh frame makes it live again', async (t) => {
   const { dom } = installTestDom(null, { jsdom: { url: 'https://mixdog.test/' } });
   const { createSessionLaneStore } = await import('../session-lane-store.ts');

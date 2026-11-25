@@ -5,11 +5,21 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-Mixdog 1.5.0 rebuilds the engine in Rust. It was a large undertaking made for Mixdog's long term, and it lets the app use much less memory, handle many sessions and agents at once better, and run faster and steadier.
+Hello to everyone who loves Mixdog. I'm Plankton, the maintainer of Mixdog.
 
-This update took far longer than planned. We are sorry for the wait, and thank you for bearing with us. Some errors may still remain right after the switch, but from now on we will be back to responding and fixing issues quickly, as before. With this new base in place, we can improve and stabilize Mixdog faster going forward.
+First, I'm truly sorry that this update arrived much later than planned. Thank you sincerely for waiting so long.
 
-If you run into any issues, please report them on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or in the app via Settings › About › Give feedback. Note that 1.4.5 cannot open a data folder that 1.5.0 has started on. If you may go back, copy your data folder before updating; to return to 1.4.5, reinstall it and put that copy back.
+In Mixdog 1.5.0, I rebuilt the engine in Rust. It was a major transition made with Mixdog's long-term future in mind. As a result, the engine uses much less memory, better handles multiple sessions and agents at once, and runs faster and more steadily.
+
+With Antigravity account suspensions increasing recently, I introduced Antigravity ACP, which connects to Google's official ACP server. This method goes through the official server and is known to carry a much lower risk of suspension than the previous one. Going forward, please use Antigravity by installing and connecting Antigravity ACP in Settings › Providers › Antigravity ACP.
+
+Some errors may still remain right after the transition, but now I'll be back to responding to and fixing them right away, as before. I'll work hard to show you Mixdog improving quickly.
+
+On the first launch after updating, your existing data will be converted to the new format, and progress will be shown. If you have a lot of data, this may take a while, so please don't close the app until it finishes.
+
+If you run into any issues, please let me know on [GitHub Issues](https://github.com/tribgames/mixdog/issues) or in the app via Settings › About › Give feedback. Note that once 1.5.0 has run on a data folder, 1.4.5 cannot open it. If you might go back to 1.4.5, copy your data folder (`~/.mixdog/data`, or `C:\Users\<username>\.mixdog\data` on Windows) before updating. To return, reinstall 1.4.5 and replace the data folder with that copy.
+
+Once again, my sincere thanks to everyone who has cared about Mixdog and waited for it.
 
 ## v1.4.5 - 2026-11-03
 

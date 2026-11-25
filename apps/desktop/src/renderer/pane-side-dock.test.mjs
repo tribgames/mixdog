@@ -2100,7 +2100,7 @@ test('a dock at the side covering the session panel: the toggle reads Show, and 
   const { resetSessionRailWidth } = await import('./session-rail-layout.ts');
   const selection = { kind: 'session', id: 's-cover' };
   const toggle = () => document.querySelector('.workspace-tabs-trailing [data-view="session-panel"]');
-  const panel = () => document.querySelector('.session-rail')?.dataset.presentation ?? null;
+  const panel = () => document.querySelector('.session-rail:not([hidden])')?.dataset.presentation ?? null;
   const island = () => Boolean(document.querySelector('.probe-goal'));
   const seen = () => ({
     label: toggle().getAttribute('aria-label'),
@@ -2301,7 +2301,7 @@ test('the session panel changes presentation at the pane widths every side-dock 
 });
 
 test("a dock open at the pane's side covers the session panel, whose composer keeps the island; closing it or a dock below brings the panel back", async () => {
-  const { resetSessionRailWidth, sessionRailSlot } = await import('./session-rail-layout.ts');
+  const { resetSessionRailWidth, sessionRailPlace, sessionRailSlot } = await import('./session-rail-layout.ts');
   const { setSessionPanelShown, setSidePanelPosition } = await import('./side-panel-preferences.ts');
   const dock = mountResizableDock({ cellWidth: 1400 });
   resetSessionRailWidth();
@@ -2310,22 +2310,120 @@ test("a dock open at the pane's side covers the session panel, whose composer ke
     act(async () =>
       dock.root.render(React.createElement(PaneSideDock, { ...resizableDockProps(entry), sessionId: 's1' }))
     );
-  const panel = () => document.querySelector('.session-rail');
+  const panel = () => document.querySelector('.session-rail:not([hidden])');
+  const taken = () =>
+    sessionRailPlace(sessionRailSlot('pane-1'), { sessionId: 's1', onScreen: true, handOver: null }).taken;
   try {
     await render(closed());
     assert.equal(panel()?.dataset.presentation, 'beside', 'no dock: the panel');
-    assert.ok(sessionRailSlot('pane-1').element, 'its slot takes the composer island');
+    assert.equal(taken(), true, 'its slot takes the composer island');
     await render({ ...closed(), open: true });
     assert.equal(panel(), null, 'a dock at the side: no panel');
-    assert.equal(sessionRailSlot('pane-1').element, null, 'the composer keeps its island');
+    assert.equal(taken(), false, 'the composer keeps its island');
     assert.equal(document.getElementById('root').style.getPropertyValue('--session-rail-reserve'), '');
     await render(closed());
     assert.equal(panel()?.dataset.presentation, 'beside', 'closed: back');
+    assert.equal(taken(), true);
     await act(async () => setSidePanelPosition('bottom'));
     await render({ ...closed(), open: true });
     assert.equal(panel()?.dataset.presentation, 'beside', 'a dock below covers nothing');
   } finally {
     setSidePanelPosition('right');
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('the session panel a dock at the side covered comes back as its reader left it: the rows drawn in it, scrolled where they were', async () => {
+  const { createPortal } = await import('react-dom');
+  const { resetSessionRailWidth, sessionRailPlace, useSessionRailSlot } = await import('./session-rail-layout.ts');
+  const { setSessionPanelShown } = await import('./side-panel-preferences.ts');
+  const dock = mountResizableDock({ cellWidth: 1400 });
+  resetSessionRailWidth();
+  setSessionPanelShown(true);
+  // The pane's conversation draws its rows into the panel it is offered (conversation-pane-composer-dock.tsx).
+  function Conversation() {
+    const { host, taken } = sessionRailPlace(useSessionRailSlot('pane-1'), {
+      sessionId: 's1',
+      onScreen: true,
+      handOver: null,
+    });
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement('div', { className: 'probe-island', hidden: taken }),
+      host && createPortal(React.createElement('div', { className: 'probe-rows' }), host)
+    );
+  }
+  const render = (entry) =>
+    act(async () =>
+      dock.root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(PaneSideDock, { ...resizableDockProps(entry), sessionId: 's1' }),
+          React.createElement(Conversation)
+        )
+      )
+    );
+  const body = () => document.querySelector('.session-rail:not([hidden]) > .session-rail-body');
+  const island = () => !document.querySelector('.probe-island').hidden;
+  try {
+    await render(closed());
+    const rows = body().querySelector('.probe-rows');
+    assert.ok(rows, "the conversation's rows are in the panel");
+    body().scrollTop = 240;
+    for (const surface of ['', 'browser', 'terminal']) {
+      const label = surface || 'a panel view';
+      await render({ ...closed(), open: true, surface });
+      assert.equal(body(), null, `${label} covers the panel`);
+      assert.equal(island(), true, `${label}: the composer keeps its island`);
+      await render(closed());
+      assert.equal(island(), false, `${label} closed: the panel takes the island again`);
+      assert.equal(body().querySelector('.probe-rows'), rows, `${label} closed: the same rows`);
+      assert.equal(body().scrollTop, 240, `${label} closed: where the reader left them`);
+    }
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test("a sub-agent's conversation a side file covers is not shown until the file closes; the Changes list under its stacked diff stays shown", async () => {
+  const Icon = () => React.createElement('span');
+  const dock = mountResizableDock({ cellWidth: 1400 });
+  const shown = new Map();
+  const render = (entry) =>
+    act(async () =>
+      dock.root.render(
+        withEditors(
+          React.createElement(PaneSideDock, {
+            ...resizableDockProps(entry, [['agent-session'], ['session-diff'], ['terminal']]),
+            descriptors: new Map([
+              ['agent-session', { id: 'agent-session', label: 'Agent', icon: Icon }],
+              ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
+            ]),
+            renderFileSurface: (file) => React.createElement('div', { 'data-testid': `file-${file.rel}` }),
+            renderView: (id, active) => {
+              shown.set(id, active);
+              return React.createElement('div', { 'data-testid': `view-${id}` });
+            },
+          })
+        )
+      )
+    );
+  try {
+    const agent = { open: true, view: 'agent-session', surface: '', diff: null };
+    await render(agent);
+    assert.equal(shown.get('agent-session'), true, 'the sub-agent is shown');
+    await render(withPaneDockFileOpened(agent, fileLink, 1, { now: 1 }));
+    assert.ok(document.querySelector('[data-testid="file-src/a.ts"]'), 'a side file covers it');
+    assert.equal(shown.get('agent-session'), false, 'covered: not shown');
+    await render(agent);
+    assert.equal(shown.get('agent-session'), true, 'the file closed: shown again');
+    await render(withPaneDockFileOpened({ ...agent, view: 'session-diff' }, fileLink, 1, { now: 1 }));
+    assert.equal(shown.get('session-diff'), true, 'Changes keeps what it shows under a surface');
+  } finally {
     await act(async () => dock.root.unmount());
     dock.restore();
   }

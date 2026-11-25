@@ -7,6 +7,7 @@ import type { GoalSnapshot } from './desktop-types';
 import { t } from './i18n';
 import type { useSessionRailFolds } from './session-rail-folds';
 import { RailFold, RailSection } from './session-rail-parts';
+import { useSurfaceActive } from './surface-activity';
 import {
   GoalRing,
   phaseName,
@@ -55,6 +56,13 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
     setEditing(null);
     setConfirmStop(false);
   }, [goalId]);
+  // The edit dialog is a layer over the pane: it closes with the panel's surface (a dock covering the panel), as the
+  // panel's other popups do.
+  const surfaceActive = useSurfaceActive();
+  const editingShown = surfaceActive ? editing : null;
+  useEffect(() => {
+    if (!surfaceActive) setEditing(null);
+  }, [surfaceActive]);
   // As the island's stop confirmation: Cancel takes focus, and leaving it hands
   // focus back to Stop (or, once stopped, to what the line offers instead).
   const confirming = confirmStop && !terminal;
@@ -202,11 +210,11 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
           </p>
         ) : null}
       </div>
-      {editing && (
+      {editingShown && (
         <ComposerGoalDialog
           anchor={root}
           disabled={pending}
-          initialGoal={editing}
+          initialGoal={editingShown}
           onSave={(value) =>
             model.control('edit', { objective: value.objective, time_limit_minutes: value.timeLimitMinutes })
           }

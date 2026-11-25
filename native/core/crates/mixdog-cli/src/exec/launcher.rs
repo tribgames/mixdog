@@ -95,15 +95,31 @@ pub struct InProcessLauncher {
     tokens: LaneTokens,
     install: std::sync::Mutex<Option<(JsRuntime, OrtRuntime)>>,
     agent_presets: Vec<AgentPreset>,
+    /// The host's own folder of the ACP agents: the builds the app installed and the sign-ins it keeps.
+    acp_data_dir: PathBuf,
 }
 
 impl InProcessLauncher {
-    /// `agent_presets` without their upkeep: a one-shot run neither installs nor updates an agent's CLI, which stays the app's
-    /// to keep current. Its check still finds the CLI where the installer puts it.
-    pub fn new(executors: Arc<Executors>, tokens: LaneTokens, js_runtime: JsRuntime, ort_library: OrtRuntime, agent_presets: Vec<AgentPreset>) -> Self {
+    /// `agent_presets` without their upkeep: a one-shot run neither installs nor updates an agent, which stays the app's to
+    /// keep current. Its check still finds a CLI where the installer puts it, and a registry agent's build and sign-in in
+    /// the host's data folder `host_data_dir`.
+    pub fn new(
+        executors: Arc<Executors>,
+        tokens: LaneTokens,
+        js_runtime: JsRuntime,
+        ort_library: OrtRuntime,
+        agent_presets: Vec<AgentPreset>,
+        host_data_dir: &Path,
+    ) -> Self {
         let agent_presets =
             agent_presets.into_iter().map(|preset| AgentPreset { distribution: preset.distribution.without_mutations(), ..preset }).collect();
-        Self { executors, tokens, install: std::sync::Mutex::new(Some((js_runtime, ort_library))), agent_presets }
+        Self {
+            executors,
+            tokens,
+            install: std::sync::Mutex::new(Some((js_runtime, ort_library))),
+            agent_presets,
+            acp_data_dir: mixdog_app_server_daemon::acp_tools::acp_data_dir(host_data_dir),
+        }
     }
 }
 
@@ -185,6 +201,7 @@ impl CoreLauncher for InProcessLauncher {
             stop,
             catalog_http: mixdog_app_server_daemon::catalog::production_http().map_err(|error| error.to_string())?,
             agent_presets: self.agent_presets.clone(),
+            acp_data_dir: Some(self.acp_data_dir.clone()),
         };
         // Composed inside the executors, as the daemon composes its core: every ambient handle lands on them.
         let tokens = self.tokens.clone();

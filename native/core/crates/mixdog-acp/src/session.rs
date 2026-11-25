@@ -161,6 +161,8 @@ struct Routing {
     issued: HashSet<String>,
     /// The process ended and all it wrote was routed: the agent sends nothing more.
     ended: bool,
+    /// The session ends once the running turn is over: its route left the preset while the turn ran.
+    end_after_turn: bool,
 }
 
 impl Routing {
@@ -441,8 +443,8 @@ impl AgentSession {
             servers,
             replayed: Some(&mut incoming),
         };
-        let session = Self::open_session(open, on, wake).await?;
-        drop(mixdog_rt::spawn("acp.route", mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
+        let (session, _) = Self::open_session(open, on, wake).await?;
+        drop(mixdog_rt::spawn("acp.route",mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
         Ok(session)
     }
 
@@ -461,15 +463,19 @@ impl AgentSession {
             servers,
             replayed: None,
         };
-        let session = Self::open_session(open, on, wake).await?;
-        shared.register(&session);
+        let (session, answer) = Self::open_session(open, on, wake).await?;
+        let first = shared.register(&session);
         drop(lease);
         drop(mixdog_rt::spawn("acp.route.shared", mixdog_rt::TaskClass::Work, route_on_shared(session.clone(), tools, on_exit)));
+        if first {
+            shared.first_answered(&session.preset, &answer).await;
+        }
         Ok(session)
     }
 
     /// Opens the agent's session in the process `on` names, with Mixdog's prompt and the preset's settings.
-    async fn open_session(open: Open<'_>, on: On<'_>, wake: Wake) -> Result<Arc<Self>, Fault> {
+    /// The session, and the agent's answer that opened or reopened it.
+    async fn open_session(open: Open<'_>, on: On<'_>, wake: Wake) -> Result<(Arc<Self>, Value), Fault> {
         let On { connection, capabilities, host, gone, server, servers, replayed } = on;
         let cwd = open.cwd.as_path().to_string_lossy().into_owned();
         let quirks = &open.preset.quirks;
@@ -538,7 +544,7 @@ impl AgentSession {
         let holds = open.stored.as_deref() == Some(session_id.as_str()) && prompt == open.held;
         let unsent = appendix.filter(|_| appended.is_none() && !holds);
         let connected = server.map(ToolServer::initialized);
-        Ok(Arc::new(Self {
+        let session = Arc::new(Self {
             preset: open.preset.clone(),
             connection,
             host,
@@ -562,7 +568,8 @@ impl AgentSession {
             kept: Mutex::default(),
             closed_prompt: tokio::sync::Notify::new(),
             wake,
-        }))
+        });
+        Ok((session, answer))
     }
 
     /// Fires once nothing more of the session arrives: its process ended, or it left the shared server.
@@ -576,6 +583,16 @@ impl AgentSession {
         match &self.host {
             Host::Own => self.connection.kill(),
             Host::Shared(shared) => shared.detach(self),
+        }
+    }
+
+    /// Holds the shared server the session runs on open, as an open of a session on it does, while the lease is kept: a
+    /// session ended to be opened again on it does not leave it serving none in between. `None` on a process of its own,
+    /// or a server that takes no more sessions.
+    pub(crate) fn hold_server(&self) -> Option<crate::shared::Lease> {
+        match &self.host {
+            Host::Own => None,
+            Host::Shared(shared) => shared.lease(),
         }
     }
 
@@ -686,11 +703,12 @@ impl AgentSession {
     /// the agent sent the turn after its last read is sorted here as if no turn had run, in the order it was sent
     /// and before anything newer.
     pub async fn detach(&self, mut stream: mpsc::UnboundedReceiver<Incoming>, background: impl IntoIterator<Item = (String, Background)>) {
-        let unread: Vec<Routed> = {
+        let (unread, end): (Vec<Routed>, bool) = {
             let mut routing = lock(&self.routing);
             routing.turn = None;
             routing.background.extend(background);
-            std::iter::from_fn(|| stream.try_recv().ok()).map(|incoming| self.sort(&mut routing, incoming)).collect()
+            let unread = std::iter::from_fn(|| stream.try_recv().ok()).map(|incoming| self.sort(&mut routing, incoming)).collect();
+            (unread, std::mem::take(&mut routing.end_after_turn))
         };
         for routed in unread {
             self.act(routed).await;
@@ -698,6 +716,22 @@ impl AgentSession {
         // Ids carry their turn, so none of this turn's is issued again by a later one; a call left running keeps its
         // id, which the later turn that shows its result must not issue again.
         lock(&self.routing).turn_ended();
+        if end {
+            self.end();
+        }
+    }
+
+    /// Leaves the session's end ([`Self::end`]) to the end of the turn that runs in it; `false` where none runs, which
+    /// leaves it to the caller.
+    pub(crate) fn end_after_turn(&self) -> bool {
+        let mut routing = lock(&self.routing);
+        routing.end_after_turn = routing.turn.is_some();
+        routing.end_after_turn
+    }
+
+    /// An end left to the running turn's end is called off.
+    pub(crate) fn keep_after_turn(&self) {
+        lock(&self.routing).end_after_turn = false;
     }
 
     /// `session/cancel`. A `prompt` that is open is the agent's to close, and what it sends until then is that
