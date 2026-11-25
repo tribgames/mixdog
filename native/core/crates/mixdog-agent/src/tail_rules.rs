@@ -52,15 +52,15 @@ pub struct TailRule {
 /// The built-in rules every session's requests are matched against.
 ///
 /// Claude Opus 5.5 drifts into English in long agentic turns, where English tool results sit between the user's
-/// message and its answer. A conditional wording ("if you write user-facing text") did not reach the short notes
-/// between tool calls, which stayed English.
+/// message and its answer. Naming user-facing text alone, conditionally or not, did not reach the short notes between
+/// tool calls, which stayed English: the rule names them.
 pub const TAIL_REMINDER_RULES: &[TailRule] = &[TailRule {
     id: "opus-5-5-language",
     provider: &[],
     model: &["claude-opus-5-5"],
     language: &["ko", "ja", "zh-Hans", "zh-Hant", "es", "fr", "de", "pt", "ru", "it", "vi", "th", "id", "hi", "ar", "tr", "pl", "nl", "uk"],
     role: &["lead", "bot"],
-    text: "Write all user-facing text in {language}.",
+    text: "Write all user-facing text in {language}, including the short notes between tool calls.",
 }];
 
 /// A provider id's family, for rules written against the family.
