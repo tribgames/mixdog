@@ -8,7 +8,8 @@ import { uiNumber } from './ui-format';
 import { composerSubmitErrorText } from './composer-submit-error';
 import { relativeAge } from './pull-requests-model';
 import { localizedAttachmentName } from './attachment-name';
-import { effortTierLabel } from './effort-tier-label';
+import { modelRouteDisplayParts } from './provider-display';
+import { usageTierBadge } from './usage-model-tier';
 import { attachmentSummary, textWithoutAttachmentTokens } from './message-attachment-summary';
 import { restoreAttachmentsFromRecord } from './composer-attachment-restore';
 import { pastedTextFields } from './composer-support';
@@ -80,13 +81,13 @@ test('a pasted-text line count takes the plural form of the UI language', async 
   await i18n.changeLanguage('en');
 });
 
-test('reasoning effort tiers are named by their id in the UI language, and English keeps the core label', async () => {
-  assert.equal(effortTierLabel('xhigh', 'Extra high'), 'Extra high');
+test('effort and speed tier names stay English in every UI language', async () => {
   await i18n.changeLanguage('ko');
-  assert.equal(effortTierLabel('low', 'Low'), '낮음');
-  assert.equal(effortTierLabel('xhigh', 'XHigh'), '매우 높음');
-  assert.equal(effortTierLabel('custom-tier', 'Custom'), 'Custom');
-  assert.equal(effortTierLabel('none', 'None'), '없음');
+  assert.equal(modelRouteDisplayParts('', 'low').effort, 'Low');
+  assert.equal(modelRouteDisplayParts('', 'xhigh').effort, 'XHigh');
+  assert.equal(modelRouteDisplayParts('', 'none').effort, 'None');
+  assert.equal(usageTierBadge({ speedTier: 'fast' }).label, 'Fast');
+  assert.equal(usageTierBadge({ speedTier: 'ultrafast' }).label, 'Ultrafast');
   await i18n.changeLanguage('en');
 });
 

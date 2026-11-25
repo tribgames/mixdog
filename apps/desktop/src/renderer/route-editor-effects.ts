@@ -71,8 +71,6 @@ export function useRouteFontWarmup() {
           t('Reasoning effort'),
           t('Context'),
           t('Speed'),
-          t('Standard'),
-          t('Fast'),
           t('Default speed'),
           t('Increased speed, increased usage'),
           t('Search models…'),

@@ -82,6 +82,13 @@ export function preferredModelEffort(model: DesktopModelOption | undefined): str
 
 export type RouteSpeed = 'standard' | 'fast' | 'ultrafast';
 
+/** Speed tiers are product terms: every UI language shows these English names. */
+export const ROUTE_SPEED_NAMES: Record<RouteSpeed, string> = {
+  standard: 'Standard',
+  fast: 'Fast',
+  ultrafast: 'Ultrafast',
+};
+
 /** A model offers Ultrafast only through the `serviceTier` parameter entry. */
 export function modelOffersUltrafast(model: DesktopModelOption | undefined): boolean {
   return (model?.modelParameterOptions || []).some(

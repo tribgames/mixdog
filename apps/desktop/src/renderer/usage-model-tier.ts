@@ -1,4 +1,4 @@
-import { t } from './i18n';
+import { ROUTE_SPEED_NAMES } from './model-route-utils';
 import type { Row } from './usage-stats-model';
 
 function speedTier(row: Row) {
@@ -18,9 +18,9 @@ export const usageModelKey = (row: Row) => `${usageModelId(row)}\u0000${speedTie
 export function usageTierBadge(row: Row) {
   switch (speedTier(row)) {
     case 'fast':
-      return { label: t('Fast'), className: 'model-route-label-fast' };
+      return { label: ROUTE_SPEED_NAMES.fast, className: 'model-route-label-fast' };
     case 'ultrafast':
-      return { label: t('Ultrafast'), className: 'model-route-label-ultra' };
+      return { label: ROUTE_SPEED_NAMES.ultrafast, className: 'model-route-label-ultra' };
     default:
       return null;
   }

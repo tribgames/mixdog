@@ -2,10 +2,9 @@ import { Check } from 'lucide-react';
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { clampContextTokens, parseContextTokensInput } from './route-editor-context';
 import type { DesktopModelOption } from '../shared/contract';
-import { effortTierLabel } from './effort-tier-label';
 import { t, tExisting } from './i18n';
 import { wrappedNavigationIndex } from './list-navigation';
-import type { RouteSpeed } from './model-route-utils';
+import { ROUTE_SPEED_NAMES, type RouteSpeed } from './model-route-utils';
 import { formatContextWindow } from './provider-display';
 import { paneBounds } from './anchored-panel';
 import { ROUTE_SHEET_ROW_HEIGHT, type RouteSheetPane } from './route-editor-logic';
@@ -242,7 +241,7 @@ export function routeEffortPane({
             }}
             onKeyDown={onOptionKeyDown}
           >
-            <span>{effortTierLabel(option.value, option.label)}</span>
+            <span>{option.label}</span>
             {selected && <RouteSelectionCheck />}
           </button>
         );
@@ -274,11 +273,15 @@ export function routeSpeedPane({
   onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
 }): ReactNode {
   const options: Array<{ value: RouteSpeed; label: string; description: string }> = [
-    { value: 'standard', label: t('Standard'), description: t('Default speed') },
-    { value: 'fast', label: t('Fast'), description: t('Increased speed, increased usage') },
+    { value: 'standard', label: ROUTE_SPEED_NAMES.standard, description: t('Default speed') },
+    { value: 'fast', label: ROUTE_SPEED_NAMES.fast, description: t('Increased speed, increased usage') },
   ];
   if (ultrafastAvailable) {
-    options.push({ value: 'ultrafast', label: t('Ultrafast'), description: t('Fastest speed, highest usage') });
+    options.push({
+      value: 'ultrafast',
+      label: ROUTE_SPEED_NAMES.ultrafast,
+      description: t('Fastest speed, highest usage'),
+    });
   }
   return options.map((option) => {
     const selected = option.value === speed;

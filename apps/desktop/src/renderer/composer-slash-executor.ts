@@ -25,6 +25,7 @@ import { announceConnectorsChanged, openConnectorsTab, startConnectorLogin } fro
 import { connectorAccountRows } from './connectors-model';
 import { confirmText } from './confirm-text';
 import { t } from './i18n';
+import { modelRouteDisplayParts } from './provider-display';
 import { readHeldCapability } from './section-capabilities';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
 
@@ -447,7 +448,11 @@ async function runTheme(run: SlashRun, argument: string) {
 
 async function runEffort(run: SlashRun, argument: string) {
   const next = await commandCapability<unknown>(run, 'setEffort', [argument]);
-  if (!run.failed) run.deps.showNotice(t('Effort set to {{value}}', { value: String(next || argument) }));
+  if (!run.failed) {
+    run.deps.showNotice(
+      t('Effort set to {{value}}', { value: modelRouteDisplayParts('', String(next || argument)).effort })
+    );
+  }
 }
 
 async function runUsage(run: SlashRun, argument: string) {
