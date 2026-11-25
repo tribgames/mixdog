@@ -332,7 +332,7 @@ jobs:
           if [[ -n "$FEATURES" ]]; then features=(--features "$FEATURES"); fi
           cd native/core
           cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/members.json"
-          cargo tree --locked --charset utf8 -f '{p} {f}' --workspace "${features[@]}" > "$RUNNER_TEMP/tree-whole.txt"
+          cargo tree --locked --color never --charset utf8 -f '{p} {f}' --workspace "${features[@]}" > "$RUNNER_TEMP/tree-whole.txt"
           select=$SELECTION
           tree=()
           selection_features=$FEATURES
@@ -348,7 +348,7 @@ jobs:
             fi
             last="$packages|$selection_features"
             # shellcheck disable=SC2086
-            cargo tree --locked --charset utf8 -f '{p} {f}' $packages --features "$selection_features" > "$RUNNER_TEMP/tree-selection.txt"
+            cargo tree --locked --color never --charset utf8 -f '{p} {f}' $packages --features "$selection_features" > "$RUNNER_TEMP/tree-selection.txt"
             if node ../../scripts/ci/core-align.mjs check --whole "$RUNNER_TEMP/tree-whole.txt" --tree "$RUNNER_TEMP/tree-selection.txt"; then break; fi
             select=$packages
             tree=(--tree "$RUNNER_TEMP/tree-selection.txt")
