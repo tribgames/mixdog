@@ -70,6 +70,9 @@ pub(crate) struct Demand {
 #[derive(Clone, Default)]
 pub(crate) struct Calls {
     by_id: HashMap<String, Call>,
+    /// The results shown ahead of the stored record that made their call, by call id with the call's turn: a record is
+    /// shown before it is stored, and a call that ends at once is shown ended in between.
+    ahead: HashMap<String, (String, Arc<ThreadItem>)>,
 }
 
 #[derive(Clone)]
@@ -84,16 +87,23 @@ struct Call {
 }
 
 impl Calls {
-    /// The stored record `record` of the running turn `turn` made `call`.
+    /// The stored record `record` of the running turn `turn` made `call`: closed already when its result was shown
+    /// before the record was stored.
     pub fn opened(&mut self, call: &str, turn: &str, record: &str) {
-        self.by_id.insert(call.to_owned(), Call { turn: turn.to_owned(), record: record.to_owned(), ended: None, stored: false });
+        let ended = self.ahead.remove(call).filter(|(of, _)| of == turn).map(|(_, update)| update);
+        self.by_id.insert(call.to_owned(), Call { turn: turn.to_owned(), record: record.to_owned(), ended, stored: false });
     }
 
     /// `call` of the running turn `turn` ended with the result `update` carries; `stored`: its row is stored, else it
     /// was shown ahead of its row. The record that made the call, when it reads differently for it: a result shown
-    /// ahead changes nothing of a stored one.
+    /// ahead changes nothing of a stored one, and closes a call whose record is not stored yet once it is.
     pub fn ended(&mut self, call: &str, turn: &str, update: &ThreadItem, stored: bool) -> Option<String> {
-        let held = self.by_id.get_mut(call).filter(|held| held.turn == turn)?;
+        let Some(held) = self.by_id.get_mut(call).filter(|held| held.turn == turn) else {
+            if !stored {
+                self.ahead.insert(call.to_owned(), (turn.to_owned(), Arc::new(update.clone())));
+            }
+            return None;
+        };
         if stored {
             held.stored = true;
         } else if held.stored {
@@ -120,6 +130,7 @@ impl Calls {
     /// without one. Their records, which read differently for it. A call whose result is stored stays as it reads
     /// until the read of its record that carries the result ([`Self::read`]).
     pub fn turn_ended(&mut self, turn: &str) -> Vec<String> {
+        self.ahead.retain(|_, (of, _)| of != turn);
         let mut records = Vec::new();
         self.by_id.retain(|_, call| {
             if call.turn != turn || call.stored {
@@ -140,7 +151,7 @@ impl Calls {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+        self.by_id.is_empty() && self.ahead.is_empty()
     }
 
     fn held(&self, item: &ThreadItem) -> Option<&Call> {

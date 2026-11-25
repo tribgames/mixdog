@@ -6115,6 +6115,49 @@ fn a_call_whose_result_is_stored_stays_as_it_read_past_its_turn_until_its_record
     assert!(calls.is_empty(), "nothing is held once the record is read with the result");
 }
 
+/// Two calls of one record, the first answered at once: its result is shown after the record is shown and before it is
+/// stored. The record's unit reads that call closed with its result and its end time, its sibling still running.
+#[test]
+fn a_result_shown_before_its_calls_record_is_stored_closes_that_call_alone() {
+    let call = |id: &str, name: &str| {
+        let stored = json!({
+            "type": "toolCall", "id": format!("call:{id}"), "name": name, "input": {},
+            "run": { "callId": id, "count": 1, "completedCount": 1 }, "meta": { "status": "completed" },
+        });
+        serde_json::from_value::<ThreadItem>(stored).expect("an item")
+    };
+    let unit = mixdog_app_protocol::v2::thread::TranscriptUnit {
+        position: super::reads::record_position("a1"),
+        items: vec![call("c1", "agent"), call("c2", "shell")],
+        ordinal: Some(6),
+    };
+    let record = super::reads::StoredUnit { ordinal: 6, unit, bytes: 0 };
+    let early = json!({
+        "type": "toolCall", "id": "call:c1", "name": "", "input": null,
+        "run": { "callId": "c1", "completedAt": 1_000, "completedCount": 1 }, "meta": { "status": "completed" },
+    });
+    let mut early: ThreadItem = serde_json::from_value(early).expect("an item");
+    if let ThreadItem::ToolCall { run, .. } = &mut early {
+        run.result = Some(mixdog_protocol::MaybeBlob::Inline(mixdog_protocol::SharedText::from("agent task: t1")));
+    }
+    let mut calls = super::window::Calls::default();
+    assert_eq!(calls.ended("c1", "t1", &early, false), None, "the record that made the call is not stored yet");
+    calls.opened("c1", "t1", "a1");
+    calls.opened("c2", "t1", "a1");
+    let shown = calls.settled(&record).expect("the record's calls are held");
+    let completed_at = |call: &str| {
+        shown.unit.items.iter().find_map(|item| match item {
+            ThreadItem::ToolCall { run, .. } if run.call_id.as_deref() == Some(call) => Some(run.completed_at),
+            _ => None,
+        })
+    };
+    assert_eq!(completed_at("c1"), Some(Some(1_000)), "the call that ended keeps its own end");
+    assert_eq!(completed_at("c2"), Some(None), "its sibling has none");
+    let ended = Some((true, Some(1), Some(mixdog_protocol::ItemStatus::Completed)));
+    assert_eq!(call_state(shown.unit.items.clone(), "c1"), ended, "the call that ended reads closed with its result");
+    assert_eq!(call_state(shown.unit.items, "c2"), Some((false, Some(0), None)), "its sibling still runs");
+}
+
 /// A call whose result is stored more than 64 records after it, read once its turn has ended and again by a session
 /// opened anew from the store: a window anchored at the call shows it ended with that result both times.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
