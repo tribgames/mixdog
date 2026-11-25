@@ -91,8 +91,8 @@ test('each output is one row with its kind, name, version and time, newest first
     time: node.querySelector('time')?.textContent ?? null,
   }));
   assert.deepEqual(rows, [
-    { kind: 'html', icon: true, name: 'Agent list', version: 'v2', time: '31m' },
-    { kind: 'image', icon: true, name: 'session-list.png', version: null, time: '3h' },
+    { kind: 'html', icon: true, name: 'Agent list', version: 'v2', time: '31m ago' },
+    { kind: 'image', icon: true, name: 'session-list.png', version: null, time: '3h ago' },
   ]);
 });
 
