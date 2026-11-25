@@ -501,6 +501,8 @@ export interface DesktopRendererWhatsNewDiagnostic {
 export interface DesktopRendererFollowReleaseDiagnostic {
   kind: 'follow-release';
   reason: string;
+  /** The reader's upward input behind a scroll release (wheel, key, touch, ...), empty when none was named. */
+  input: string;
   top: number;
   delta: number;
   distance: number;

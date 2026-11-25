@@ -1174,6 +1174,24 @@ test('a wheel releases follow only through the scroll its vertical upward notch 
   }
 });
 
+test('a release is recorded where the scroll that let go took the view, with the input behind it', async () => {
+  const harness = await tailHarness('release-record');
+  const lines = [];
+  window.mixdogDesktop = { perfLog: (line) => lines.push(line) };
+  try {
+    harness.wheel({ deltaY: -100 });
+    await harness.scroll(1900);
+    assert.equal(harness.state.hook.followingRef.current, false);
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith('transcript-follow-release')),
+      ['transcript-follow-release reason=scroll input=wheel top=1900 delta=-100 distance=100']
+    );
+  } finally {
+    delete window.mixdogDesktop;
+    await harness.dispose();
+  }
+});
+
 test('a selection dragged out on a row holds follow: no end is written under it while output streams, and its collapse pins the end', async () => {
   const rig = await mountFollowRig({ sessionKey: 'selection-hold', startedAt: 600_000 });
   const { React, viewport, VIEWPORT, state, writes, flush, grow, advance } = rig;

@@ -15,6 +15,7 @@ import {
   wheelIsVerticalScroll,
   reportRearm,
   reportRelease,
+  type ReleaseObservation,
   type WheelLike,
   type PointerLike,
   type TouchLike,
@@ -264,10 +265,10 @@ export function useTranscriptFollow({
   );
 
   const stop = useCallback(
-    (reason = 'gesture', previousTop = 0) => {
+    (reason = 'gesture', previousTop = 0, observed?: ReleaseObservation) => {
       const element = viewport.current;
       if (!element || !followingRef.current) return;
-      reportRelease(reason, scrollMetrics(element), previousTop);
+      reportRelease(reason, scrollMetrics(element), previousTop, observed);
       publish(false);
     },
     [publish, viewport]

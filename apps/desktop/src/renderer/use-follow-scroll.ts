@@ -6,6 +6,7 @@ import {
   judgeScrollEvent,
   keyUpRecent,
   moveArrivesNearEnd,
+  type ReleaseObservation,
   reportRearm,
   scrollMetrics,
   touchEndRecent,
@@ -83,7 +84,7 @@ export function useFollowScrollJudge({
   hasReaderScroll(): boolean;
   markReaderMotion(): void;
   publish(next: boolean): void;
-  stop(reason?: string, previousTop?: number): void;
+  stop(reason?: string, previousTop?: number, observed?: ReleaseObservation): void;
   /** Put the viewport back at the end (the pinned resnap). */
   restore(): void;
 }) {
@@ -122,17 +123,20 @@ export function useFollowScrollJudge({
         state.arrived = !followingRef.current && moveArrivesNearEnd({ previousTop, top, distance, written });
       }
       const touchDown = fingerOnGlass();
-      const upward =
-        wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }) ||
-        keyUpRecent({ keyUpAt: state.keyUpAt, now }) ||
+      // The upward input of the reader's behind this move, named for the release it may make.
+      const upwardInput =
+        (wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }) && 'wheel') ||
+        (keyUpRecent({ keyUpAt: state.keyUpAt, now }) && 'key') ||
         // A focus a reader's key moved (own-scroll-writes.ts `readerKeyFocus`) vouches for this move as a scroll key does.
-        told?.reader === true ||
+        (told?.reader === true && 'focus') ||
         // A finger that travelled toward older rows, on the glass or dragging on from a row that has since left the
         // document.
-        ((touchDown || hasTouchScroll()) && state.touchMoved && state.touchDragsUp) ||
-        touchEndRecent({ touchEndUpAt: state.touchEndUpAt, now }) ||
-        chromePressHeld({ pressedAt: state.selectUpAt, now }) ||
-        (barHeld && movedUp && extent >= lastExtent.current);
+        ((touchDown || hasTouchScroll()) && state.touchMoved && state.touchDragsUp && 'touch') ||
+        (touchEndRecent({ touchEndUpAt: state.touchEndUpAt, now }) && 'fling') ||
+        (chromePressHeld({ pressedAt: state.selectUpAt, now }) && 'selection') ||
+        (barHeld && movedUp && extent >= lastExtent.current && 'scrollbar') ||
+        '';
+      const upward = upwardInput !== '';
       if (scrollEvent && barHeld) lastExtent.current = extent;
       const verdict = judgeScrollEvent({
         pinned: followingRef.current,
@@ -164,7 +168,7 @@ export function useFollowScrollJudge({
         // The end pin waits out the reader's gesture before it writes.
         restore();
       } else if (verdict === 'unpin') {
-        stop('scroll', previousTop);
+        stop('scroll', previousTop, { top, distance, input: upwardInput });
       } else if (verdict === 'restore') {
         restore();
       }
