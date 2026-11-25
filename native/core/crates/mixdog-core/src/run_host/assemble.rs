@@ -1364,11 +1364,15 @@ impl RunParts for HostRunParts {
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
         let policy = settings.compact.as_ref().and_then(mixdog_agent::boundary::CompactPolicy::resolve).filter(|policy| policy.boundary_tokens > 0);
+        let guards = match input.guards.clone() {
+            Some(guards) => guards,
+            None => self.turn_guards(&input, header, hidden).await,
+        };
         Ok(super::factory::OutsideAssembled {
             header: header.clone(),
             tools: self.run_tools(thread, header, &surface).await?,
             tool_env: self.tool_env(&input, header, &cwd)?,
-            guards: self.turn_guards(&input, header, hidden).await,
+            guards,
             gate: self.gate_builder(&directory, &input, &cwd, &Arc::default()),
             hooks: Some(self.tool_hooks(&input, header, &cwd, hidden)),
             reuse: Some(s.reuses.run(s.io, thread.as_str(), s.clock.clone())),

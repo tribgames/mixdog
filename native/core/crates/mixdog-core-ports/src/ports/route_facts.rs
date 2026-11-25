@@ -22,6 +22,11 @@ pub trait RouteFacts: Send + Sync {
     fn is_known(&self, provider: &str, config: &Obj) -> bool;
     /// `ensureProvidersReady(ensureProviderEnabled(config, provider))`.
     async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String>;
+    /// Readiness for a specific route (`provider` + `model`). Providers whose routes are not scoped by model defer to
+    /// [`Self::ensure_ready`]; an agent checks model admission alongside its CLI and account readiness.
+    async fn ensure_route_ready(&self, config: &Obj, provider: &str, _model: &str) -> Result<(), String> {
+        self.ensure_ready(config, provider).await
+    }
     /// `lookupModelMeta(provider, model)`.
     fn model_meta(&self, provider: &str, model: &str) -> Value;
     /// `lookupModelMeta(provider, model, { allowFetch: true })`: a placeholder answer is replaced by what the

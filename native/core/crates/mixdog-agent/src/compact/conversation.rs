@@ -1,6 +1,6 @@
 //! The conversation compaction measures and summarizes: user and assistant
-//! text (the memory-ingest projection) plus runtime conversation rows, cut in
-//! chunks; for a summary, bounded and with one line per tool call.
+//! text (the memory-ingest projection) plus runtime conversation rows and one
+//! line per tool call, cut in chunks; for a summary, runtime rows are bounded.
 
 use std::collections::HashMap;
 
@@ -149,7 +149,7 @@ fn conversation_rows(messages: &[AgentMessage], summary: bool) -> Vec<AgentMessa
         {
             out.extend(chunk(role, &content));
         }
-        if summary && m.role() == Role::Assistant && !m.tool_calls().is_empty() {
+        if m.role() == Role::Assistant && !m.tool_calls().is_empty() {
             let lines: Vec<String> = m.tool_calls().iter().map(|c| tool_call_line(&c.name, &c.arguments, results.get(c.id.as_str()).copied())).collect();
             out.extend(chunk(Role::Assistant, &lines.join("\n")));
         }

@@ -555,11 +555,13 @@ impl TranscriptSink for PortSink {
         // The run's leading system messages are the header's prompt (`system_messages`, put before the stored rows by `drive`),
         // not context rows: the next turn's request carries one system set, as `adoptCompactedTranscript` leaves one.
         let mut base = Vec::new();
+        let first_turn = lock(&self.turn).first().cloned();
         let replacement: Vec<(ItemId, Value)> = messages
             .iter()
             .skip_while(|m| m.role() == Role::System)
             .map(|m| {
-                let (iid, row) = (self.iid_of(m), row_of(m));
+                let iid = if m.message_id.is_none() && first_turn.as_deref() == Some(m) { self.applied.input.1.clone() } else { self.iid_of(m) };
+                let row = row_of(m);
                 let held = match &row {
                     Value::Object(map) => HistoryRow::Stored(Arc::new(mixdog_agent::message::StoredRow::new(map.clone()))),
                     _ => HistoryRow::Message(Box::new(m.clone())),

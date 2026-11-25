@@ -231,6 +231,8 @@ struct LeftTurn {
     input: Value,
     /// The whole model context, the input in its place, when the run added to it; empty when it added nothing.
     taken_over: Vec<(ItemId, Value)>,
+    /// The loop already produced work in this turn (committed at least one row after the turn's input).
+    produced: bool,
 }
 
 /// The model context as the run left it, read as [`close_cancelled`] reads it: the context its last rewrite left ([`Base`])
@@ -244,19 +246,31 @@ fn left_turn(sink: &PortSink, rows: &StoredRows, input_item: &ItemId) -> LeftTur
     let base = lock(&sink.base);
     let turn = lock(&sink.turn);
     let mut context: Vec<(ItemId, Value)> = base.rows.iter().map(|(iid, row)| (iid.clone(), Base::body(row))).collect();
-    // The input is the turn's first message: a rewrite during the run (a compaction) holds it among the rows it left.
-    let at = (base.held == 0).then_some(context.len());
+    let input = stored(&*turn[0]);
+    let input_msg_id = turn[0].message_id.as_deref();
+    // The input is the turn's first message: a rewrite during the run (a replay strip on an earlier hop, or a
+    // compaction) holds it among the rows it left.
+    let at = if base.held == 0 {
+        Some(context.len())
+    } else {
+        context.iter().rposition(|(iid, row)| {
+            iid == input_item
+                || input_msg_id.is_some_and(|id| message_of(row).ok().and_then(|m| m.message_id).as_deref() == Some(id))
+                || (input_msg_id.is_none() && row == &input)
+        })
+    };
     for (index, message) in turn.iter().enumerate().skip(base.held) {
         context.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, stored(&**message)));
     }
-    let input = stored(&*turn[0]);
+    let produced = turn.len() > 1;
+    let len = context.len();
     match at {
-        Some(at) if at + 1 == context.len() => {
+        Some(at) if !produced && at + 1 == len => {
             context.truncate(at);
-            LeftTurn { ahead: context, input, taken_over: Vec::new() }
+            LeftTurn { ahead: context, input, taken_over: Vec::new(), produced: false }
         }
-        Some(at) => LeftTurn { ahead: context[..at].to_vec(), input, taken_over: context },
-        None => LeftTurn { ahead: context.clone(), input, taken_over: context },
+        Some(at) => LeftTurn { ahead: context[..at].to_vec(), input, taken_over: context, produced: produced || at + 1 < len },
+        None => LeftTurn { ahead: context.clone(), input, taken_over: context, produced },
     }
 }
 
@@ -470,6 +484,8 @@ async fn drive(
                 notify,
                 on_tool_result,
                 taken_over: None,
+                loop_produced: false,
+                guards: None,
             })
             .await;
         }
@@ -504,6 +520,7 @@ async fn drive(
             notify,
             progress: tool_progress,
             agent_refusal: agent_refusal.as_deref(),
+            guards: None,
         })
         .await
     {
@@ -627,6 +644,9 @@ async fn drive(
     }
     sink.restart(history);
     let input_text = input.text();
+    if let Some(id) = &input.message_id {
+        lock(&sink.iids).insert(id.clone(), input_item.clone());
+    }
     rows.record(&input, input_body);
     sink.seed(&input);
     messages.push(input);
@@ -917,6 +937,8 @@ async fn drive(
                     notify,
                     on_tool_result,
                     taken_over: Some(left.taken_over),
+                    loop_produced: left.produced,
+                    guards: Some(guard_state),
                 })
                 .await;
             }

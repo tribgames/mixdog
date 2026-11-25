@@ -1347,7 +1347,7 @@ async fn an_agent_session_that_starts_in_the_middle_of_a_conversation_is_sent_mi
     let end = world.ask(&surface, "whoami", Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() }).await;
     let lead = completed_text(&end).split_once(" lead=").expect("the lead").1;
     assert!(lead.starts_with("# The conversation before this session") && lead.contains("## User\nearlier talk"), "{end:?}");
-    assert_eq!(surface.notices(), ["The conversation above was summarized for Antigravity, which starts a session of its own here."]);
+    assert!(surface.notices().is_empty());
     let next = Surface::default();
     let input = json!({ "role": "user", "content": "whoami" });
     let end = within("the next turn", world.serve(&next, input, Some("sess-1"), "default", CancellationToken::new())).await;
@@ -1907,6 +1907,24 @@ async fn a_route_on_an_agent_is_saved_as_a_providers_and_picked_only_while_the_a
     assert!(!facts.fast_capable("acp-antigravity-cli", &Value::Null, None, &Value::Null) && facts.fast_capable("openai", &Value::Null, None, &Value::Null));
     // No row of the agent is marked for a session alone: it is saved wherever a provider's model is.
     assert!(world.agents.picker_rows().iter().all(|row| row.get("sessionOnly").is_none()));
+}
+
+#[tokio::test]
+async fn route_facts_refuses_an_out_of_scope_agent_model_during_readiness() {
+    let world = World::build(&[], |preset, _| {
+        preset.quirks.model_scope = mixdog_acp::preset::ModelScope::OnlyPrefixes(vec!["gem-".into()]);
+        preset.quirks.runs_default = false;
+    });
+    world.checked().await;
+    let facts = AgentRouteFacts { inner: Arc::new(AnyCatalog), agents: world.agents.clone() };
+    let config = serde_json::Map::new();
+    let refused = facts
+        .ensure_route_ready(&config, "acp-antigravity-cli", "claude-opus-5-5")
+        .await
+        .expect_err("out-of-scope model must be refused during readiness");
+    assert!(refused.contains("claude-opus-5-5"), "{refused}");
+    assert!(facts.ensure_route_ready(&config, "acp-antigravity-cli", "").await.is_err());
+    assert_eq!(facts.ensure_route_ready(&config, "acp-antigravity-cli", "gem-pro").await, Ok(()));
 }
 
 /// The settings value names the plan the agent reports for the signed-in account, and the agent is signed out with

@@ -128,6 +128,7 @@ impl ProviderBuilder for Builder {
 struct Session {
     header: Header,
     log: Mutex<Vec<String>>,
+    routes: Mutex<Vec<Obj>>,
     pins: Mutex<Vec<Value>>,
     /// The step that fails: "write", "closed" (answers nothing), "pin" or "rebuild".
     fail: Mutex<&'static str>,
@@ -140,6 +141,7 @@ impl HopSession for Session {
     }
     async fn write_hop(&self, route: Obj, write: &HopWrite) -> Result<Option<Header>, PortError> {
         self.log.lock().unwrap().push(format!("hop {} index {}", text(route.get("model")), write.index));
+        self.routes.lock().unwrap().push(route);
         match *self.fail.lock().unwrap() {
             "write" => Err(PortError::Failed { capability: "session".into(), message: "session store is read-only".into() }),
             "closed" => Ok(None),
@@ -199,6 +201,9 @@ async fn catalog() -> Arc<CatalogService> {
 
 /// The route provider an agent outside the loop serves.
 const AGENT: &str = "acp-agent";
+/// A model outside [`AGENT`]'s scope, and the refusal its route facts return for it.
+const AGENT_WRONG_MODEL: &str = "wrong-model";
+const AGENT_WRONG_MODEL_STATE: &str = "Test Agent does not run the model \"wrong-model\".";
 /// The route provider of an agent outside the loop that is signed out, and what it says of that.
 const SIGNED_OUT: &str = "acp-signed-out";
 const SIGNED_OUT_STATE: &str = "Test Agent is signed out. Sign in to it in Settings.";
@@ -226,10 +231,22 @@ impl RouteFacts for Facts {
             _ => self.inner.ensure_ready(config, provider).await,
         }
     }
+    async fn ensure_route_ready(&self, config: &Obj, provider: &str, model: &str) -> Result<(), String> {
+        if provider == AGENT && model == AGENT_WRONG_MODEL {
+            return Err(AGENT_WRONG_MODEL_STATE.to_owned());
+        }
+        self.ensure_ready(config, provider).await
+    }
     fn model_meta(&self, provider: &str, model: &str) -> Value {
+        if provider == AGENT {
+            return json!({ "provider": AGENT, "id": model, "runner": "acp", "display": "Test Agent" });
+        }
         self.inner.model_meta(provider, model)
     }
     fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+        if provider == AGENT && model == "default" {
+            return Some(json!({ "contextWindow": 1_048_576, "maxContextWindow": 1_048_576 }));
+        }
         self.inner.window_meta(provider, model, meta)
     }
     fn catalog_knows(&self, model: &str, provider: &str) -> bool {
@@ -271,19 +288,30 @@ async fn facts(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) ->
     Arc::new(Facts { inner: CatalogFacts { catalog, readiness, registry, config }, _config_dir: dir })
 }
 
-async fn harness(script: Arc<Script>, header: Value) -> (RegistryHopHost, Arc<Session>, Arc<ProviderRegistry>) {
+async fn harness_with_config(script: Arc<Script>, header: Value, config: Value) -> (RegistryHopHost, Arc<Session>, Arc<ProviderRegistry>) {
     let registry = Arc::new(ProviderRegistry::new(Arc::new(Builder { script, fail_init: false, ghost: false })));
-    let session = Arc::new(Session { header: header.as_object().cloned().unwrap(), log: Mutex::default(), pins: Mutex::default(), fail: Mutex::new("") });
+    let session = Arc::new(Session {
+        header: header.as_object().cloned().unwrap(),
+        log: Mutex::default(),
+        routes: Mutex::default(),
+        pins: Mutex::default(),
+        fail: Mutex::new(""),
+    });
     let catalog = catalog().await;
+    let config_obj = config.as_object().cloned().unwrap_or_default();
     let deps = HopDeps {
         facts: facts(registry.clone(), catalog.clone()).await,
         catalog,
-        config: Arc::new(Obj::new),
+        config: Arc::new(move || config_obj.clone()),
         bots: Arc::new(NoBots),
         errors: Arc::new(|e| e.message.clone()),
         wiring: Arc::new(NoWiring),
     };
     (RegistryHopHost { deps, session: session.clone(), eligibility: None }, session, registry)
+}
+
+async fn harness(script: Arc<Script>, header: Value) -> (RegistryHopHost, Arc<Session>, Arc<ProviderRegistry>) {
+    harness_with_config(script, header, json!({})).await
 }
 
 fn route_of(header: &Value) -> Obj {
@@ -333,8 +361,9 @@ async fn a_route_an_agent_serves_is_the_agents_to_run_and_readies_no_provider() 
     let calls: Calls = Arc::default();
     let (host, _, registry) = harness(Arc::new(Script { calls: Some(calls.clone()), ..Script::default() }), json!({})).await;
     assert!(matches!(host.runner(AGENT).await, Ok(Some(Runner::Agent))));
-    assert_eq!(host.agent_ready(AGENT).await, Ok(()));
-    assert_eq!(host.agent_ready(SIGNED_OUT).await, Err(SIGNED_OUT_STATE.to_owned()));
+    assert_eq!(host.agent_ready(AGENT, "default").await, Ok(()));
+    assert_eq!(host.agent_ready(AGENT, AGENT_WRONG_MODEL).await, Err(AGENT_WRONG_MODEL_STATE.to_owned()));
+    assert_eq!(host.agent_ready(SIGNED_OUT, "default").await, Err(SIGNED_OUT_STATE.to_owned()));
     assert_eq!(host.unavailable_cause(AGENT).await, (None, false));
     assert!(calls.lock().unwrap().is_empty(), "{:?}", calls.lock().unwrap());
     assert!(registry.registered(AGENT).is_none());
@@ -343,10 +372,72 @@ async fn a_route_an_agent_serves_is_the_agents_to_run_and_readies_no_provider() 
 }
 
 #[tokio::test]
+async fn acp_window_meta_guides_context_overflow_without_writing_guessed_selected_window() {
+    use crate::run_host::route_fallback::{RouteDecision, RouteHop};
+    let header = json!({ "provider": "openai", "model": "gpt-4o", "agent": "lead", "rawContextWindow": 200_000 });
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{ "id": "lead-route", "provider": "openai", "model": "gpt-4o", "fallbacks": [{ "provider": AGENT, "model": "default" }] }],
+    });
+    let (host, session, _) = harness_with_config(Arc::new(Script::default()), header, config).await;
+    assert_eq!(host.raw_context_window(AGENT, "default", &json!({})), Some(1_048_576));
+    let hop = RouteHop::new(Arc::new(host));
+    let decision = hop.decide(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::NotSent), None).await;
+    assert!(matches!(decision, RouteDecision::Outside(_)), "1M ACP window outgrows 200K overflow");
+    let written = session.routes.lock().unwrap().clone();
+    assert_eq!(written.len(), 1);
+    assert_eq!(written[0].get("selectedContextWindow"), Some(&Value::Null), "must not clamp ACP route with catalog guess: {:?}", written[0]);
+}
+
+#[tokio::test]
+async fn an_out_of_scope_agent_model_is_skipped_to_the_next_fallback() {
+    use crate::run_host::route_fallback::{RouteDecision, RouteHop};
+    let header = json!({ "provider": "openai", "model": "gpt-4o", "agent": "lead" });
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{
+            "id": "lead-route",
+            "provider": "openai",
+            "model": "gpt-4o",
+            "fallbacks": [
+                { "provider": AGENT, "model": AGENT_WRONG_MODEL },
+                { "provider": "openrouter", "model": "m2" },
+            ],
+        }],
+        "providers": { "openrouter": { "enabled": true } },
+    });
+    let (host, _, _) = harness_with_config(Arc::new(Script::default()), header.clone(), config).await;
+    let hop = RouteHop::new(Arc::new(host));
+    let RouteDecision::Switch(switch) = hop.decide(ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::NotSent), None).await else {
+        panic!("out-of-scope agent fallback should skip cleanly to openrouter")
+    };
+    assert_eq!(switch.model, "m2");
+
+    let only_config = json!({
+        "default": "lead-route",
+        "presets": [{
+            "id": "lead-route",
+            "provider": "openai",
+            "model": "gpt-4o",
+            "fallbacks": [{ "provider": AGENT, "model": AGENT_WRONG_MODEL }],
+        }],
+    });
+    let (host, _, _) = harness_with_config(Arc::new(Script::default()), header, only_config).await;
+    let hop = RouteHop::new(Arc::new(host));
+    let RouteDecision::Surface(surface) = hop.decide(ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::NotSent), None).await else {
+        panic!("when out-of-scope agent is the only fallback, its refusal surfaces")
+    };
+    assert!(surface.error.message.contains(AGENT_WRONG_MODEL_STATE), "{}", surface.error.message);
+}
+
+#[tokio::test]
 async fn names_and_windows_read_as_a_notice_needs_them() {
     let (host, _, _) = harness(Arc::new(Script::default()), json!({ "provider": "openai", "model": "gpt-5" })).await;
     assert_eq!(host.model_label("openai", "gpt-5.4-2026-01-02"), "GPT-5.4");
     assert_eq!(host.model_label("custom", "custom-model-x"), "custom-model-x");
+    assert_eq!(host.provider_label("anthropic-oauth"), "Anthropic OAuth");
+    assert_eq!(host.provider_label("cursor-oauth"), "Cursor OAuth");
+    assert_eq!(host.provider_label(AGENT), "Test Agent");
     assert!(host.raw_context_window("openai", "gpt-5", &json!({})).is_some_and(|w| w > 0));
     assert_eq!(host.raw_context_window("openai", "", &json!({})), None);
     assert_eq!(host.session().unwrap()["model"], "gpt-5");

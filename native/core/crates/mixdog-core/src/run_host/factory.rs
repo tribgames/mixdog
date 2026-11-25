@@ -189,6 +189,8 @@ pub struct AssembleInput<'a> {
     /// The route is an outside agent's that cannot run now, and this is what the agent says why: the route hops to its
     /// fallback as a route whose provider is not available does, and with none the turn fails with it.
     pub agent_refusal: Option<&'a str>,
+    /// Already-started turn guards from an earlier loop phase of this turn, reused across mid-turn hand-over.
+    pub guards: Option<Arc<dyn TurnGuards>>,
 }
 
 #[async_trait]

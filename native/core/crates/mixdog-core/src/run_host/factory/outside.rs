@@ -192,19 +192,59 @@ impl History {
         (summarized && !conversation).then(|| Self::told(rows.iter().copied().filter(|row| row.get("role").and_then(Value::as_str) != Some("system"))))
     }
 
-    /// `rows` as the text an agent reads: each row that says something, under who said it.
+    /// `rows` as the text an agent reads: each row that says something or calls a tool, under who said it.
     fn told<'a>(rows: impl IntoIterator<Item = &'a Value>) -> Result<String, String> {
-        let mut text = Vec::new();
+        let mut decoded = Vec::new();
         for row in rows {
             let message = message_of(row).map_err(|error| format!("the summary holds a row this build cannot read: {error}"))?;
+            decoded.push(message);
+        }
+        let mut call_names: HashMap<&str, &str> = HashMap::new();
+        for message in &decoded {
+            if message.role() == Role::Assistant {
+                for call in message.tool_calls() {
+                    call_names.insert(call.id.as_str(), call.name.as_str());
+                }
+            }
+        }
+        let mut text = Vec::new();
+        for message in &decoded {
             let said = message.text();
-            if !mixdog_js::js_trim(&said).is_empty() {
-                let who = match message.role() {
-                    Role::Assistant => "Assistant",
-                    Role::Tool => "Tool result",
-                    _ => "User",
-                };
-                text.push(format!("## {who}\n{said}"));
+            let trimmed = mixdog_js::js_trim(&said);
+            match message.role() {
+                Role::Assistant => {
+                    let mut parts = Vec::new();
+                    if !trimmed.is_empty() {
+                        parts.push(said);
+                    }
+                    for call in message.tool_calls() {
+                        let args = match &call.arguments {
+                            Value::String(s) => s.clone(),
+                            Value::Null => "{}".to_owned(),
+                            other => mixdog_js::json_stringify(other),
+                        };
+                        parts.push(format!("[tool call] {}({args})", call.name));
+                    }
+                    if !parts.is_empty() {
+                        text.push(format!("## Assistant\n{}", parts.join("\n")));
+                    }
+                }
+                Role::Tool => {
+                    let name = message.tool_call_id().and_then(|id| call_names.get(id).copied());
+                    if !trimmed.is_empty() || name.is_some() {
+                        let heading = match name {
+                            Some(name) => format!("## Tool result ({name})"),
+                            None => "## Tool result".to_owned(),
+                        };
+                        let body = if trimmed.is_empty() { "(empty result)".to_owned() } else { said };
+                        text.push(format!("{heading}\n{body}"));
+                    }
+                }
+                _ => {
+                    if !trimmed.is_empty() {
+                        text.push(format!("## User\n{said}"));
+                    }
+                }
             }
         }
         Ok(text.join("\n\n"))
@@ -257,28 +297,65 @@ impl History {
         let rows: Vec<Value> = told.iter().map(|(_, row)| row.clone()).collect();
         let compacted = self.port.compact_for_heir(&rows, self.budget_tokens).await.map_err(|error| error.to_string())?;
         let message_id = |row: &Value| message_of(row).ok().and_then(|message| message.message_id);
-        let input = message_id(&self.input.1);
-        // The turn's input follows the summary in the stored context: a copy of it the summary kept is not stored twice.
-        let kept: Vec<Value> = compacted
+        let non_system: Vec<Value> = compacted
             .ok_or_else(|| "this session has no compaction to summarize it with".to_owned())?
             .into_iter()
             .filter(|row| row.get("role").and_then(Value::as_str) != Some("system"))
-            .filter(|row| input.is_none() || message_id(row) != input)
             .collect();
-        let text = Self::told(&kept)?;
-        let mut replacement = Vec::with_capacity(kept.len() + 1);
+        let input_id = message_id(&self.input.1);
+        let input_pos = non_system.iter().position(|row| match &input_id {
+            Some(id) => message_id(row).as_deref() == Some(id.as_str()),
+            None => !self.taken_over.is_empty() && row == &self.input.1,
+        });
+        // Rows from before the turn stay ahead of `self.input`; retained loop tool rows from this turn stay after it.
+        let (before, after): (Vec<Value>, Vec<Value>) = match input_pos {
+            Some(pos) => (non_system[..pos].to_vec(), non_system[pos + 1..].to_vec()),
+            None => {
+                let after_input = self
+                    .taken_over
+                    .iter()
+                    .position(|(item, row)| {
+                        item == &self.input.0 || input_id.as_deref().is_some_and(|id| message_id(row).as_deref() == Some(id))
+                    })
+                    .map(|pos| &self.taken_over[pos + 1..])
+                    .unwrap_or(&[]);
+                let after_ids: std::collections::HashSet<String> = after_input.iter().filter_map(|(_, row)| message_id(row)).collect();
+                let after_calls: std::collections::HashSet<String> = after_input
+                    .iter()
+                    .filter_map(|(_, row)| message_of(row).ok())
+                    .flat_map(|m| m.tool_calls().iter().map(|c| c.id.clone()).chain(m.tool_call_id().map(str::to_owned)).collect::<Vec<_>>())
+                    .collect();
+                let split = non_system.iter().position(|row| {
+                    message_id(row).is_some_and(|id| after_ids.contains(&id))
+                        || message_of(row)
+                            .ok()
+                            .is_some_and(|m| m.tool_calls().iter().any(|c| after_calls.contains(&c.id)) || m.tool_call_id().is_some_and(|id| after_calls.contains(id)))
+                });
+                match split {
+                    Some(pos) => (non_system[..pos].to_vec(), non_system[pos..].to_vec()),
+                    None => (non_system, Vec::new()),
+                }
+            }
+        };
+        let text = Self::told(before.iter().chain(after.iter()))?;
+        let mut replacement = Vec::with_capacity(before.len() + 1 + after.len());
         let item_of: HashMap<String, ItemId> = told.iter().filter_map(|(item, row)| Some((message_id(row)?, item.clone()))).collect();
-        for row in &kept {
-            let id = message_of(row).ok().and_then(|message| message.message_id);
-            replacement.push((id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()));
-        }
+        let push_rows = |out: &mut Vec<(ItemId, Value)>, slice: &[Value]| {
+            for row in slice {
+                let id = message_id(row);
+                out.push((id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()));
+            }
+        };
+        push_rows(&mut replacement, &before);
         // The calls the summary took out leave the session's context: the ids of the calls that enter it from here on
         // are told apart from theirs.
         self.port.calls_left(self.port.call_epoch() + 1);
         replacement.push(self.input.clone());
-        let compaction = Compaction { replacement, at: self.clock.now_ms(), dropped_count: rows.len().saturating_sub(kept.len()) as u64, dropped: None };
+        push_rows(&mut replacement, &after);
+        let kept_count = if self.taken_over.is_empty() { before.len() + after.len() } else { replacement.len() };
+        let compaction = Compaction { replacement, at: self.clock.now_ms(), dropped_count: rows.len().saturating_sub(kept_count) as u64, dropped: None };
         self.port.compacted(compaction).await.map_err(|error| format!("the summary could not be stored: {error:?}"))?;
-        self.held.store(kept.len(), Ordering::SeqCst);
+        self.held.store(before.len(), Ordering::SeqCst);
         // The reading was of the context the summary replaced: the session has none until the agent reports again.
         let now = mixdog_js::json_number(self.clock.now_ms() as f64);
         let set = [("lastContextTokens", json!(0)), ("lastContextTokensUpdatedAt", now), ("lastContextTokensStaleAfterCompact", json!(false))]
@@ -335,6 +412,10 @@ pub(super) struct Outside {
     /// The turn comes from a run of the loop that a route hop ended: its input is carried already, and this is the model
     /// context the run left, the input in its place ([`History`]). `None` for a turn the agent runs from its start.
     pub(super) taken_over: Option<Vec<(ItemId, Value)>>,
+    /// The loop half of the turn already produced work before handing over, so a user stop does not rewind the prompt.
+    pub(super) loop_produced: bool,
+    /// The turn's already-started guards from the loop half of the turn, preserved across mid-turn hand-over.
+    pub(super) guards: Option<Arc<dyn TurnGuards>>,
 }
 
 pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
@@ -373,6 +454,8 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         notify,
         on_tool_result,
         taken_over,
+        loop_produced,
+        guards,
     } = outside;
     let surface_now = surface.borrow().clone();
     let assembled = parts
@@ -394,6 +477,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
             notify,
             progress: tool_progress,
             agent_refusal: None,
+            guards,
         })
         .await;
     let OutsideAssembled {
@@ -577,9 +661,9 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
             let _ = end_port.settled(settled).await;
         }
         // A stopped turn closes as the loop closes one that produced nothing (its prompt handed back on a user's stop) when
-        // the agent added no row after the prompt: no reply text, call or result.
+        // neither the loop half nor the agent added work after the prompt: no reply text, call or result.
         RunOutcome::Interrupted if cancel.is_cancelled() => {
-            let produced = conversation_after(&redactor).await.is_none_or(|rows| rows.len() > held.load(Ordering::SeqCst));
+            let produced = loop_produced || conversation_after(&redactor).await.is_none_or(|rows| rows.len() > held.load(Ordering::SeqCst));
             if !produced {
                 close_stopped_prompt(&end_port, &stopped_item, &ended_input, signal.close_reason()).await;
             }

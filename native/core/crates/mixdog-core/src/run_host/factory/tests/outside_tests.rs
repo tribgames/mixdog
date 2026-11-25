@@ -597,8 +597,12 @@ struct OutFrom {
 
 impl OutFrom {
     fn new(rounds: Vec<Vec<StreamEvent>>, from: usize) -> Arc<Self> {
+        Self::named("primary", rounds, from)
+    }
+
+    fn named(id: &str, rounds: Vec<Vec<StreamEvent>>, from: usize) -> Arc<Self> {
         let script = Arc::new(Scripted {
-            id: ProviderId::from("primary"),
+            id: ProviderId::from(id),
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
@@ -728,4 +732,301 @@ async fn a_sub_agents_route_running_out_mid_turn_hands_what_was_done_to_the_agen
     assert!(matches!(handed.as_slice(), [Ok(Some(summary))] if summary.contains("the files were listed")), "{handed:?}");
     let (header, _) = lock(&agent.turns)[0].clone();
     assert_eq!((provider_of(&header), header["owner"].as_str()), (AGENT_ROUTE, Some("agent")));
+}
+
+/// Mid-turn tool-only hand-over through the real compactor (no stubbed `heir_rows`) summarizes the tool call, hands
+/// the agent the tool call name/args and labeled result, and stores the compacted transcript with the turn's input
+/// ahead of the retained loop tool rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mid_turn_tool_only_hand_over_uses_real_compactor_and_keeps_input_before_loop_tool_rows() {
+    let agent = Arc::new(Agent { hands_over: true, ..Agent::default() });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let round = vec![
+        StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
+        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+    ];
+    let primary = OutFrom::new(vec![round], 1);
+    let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>)]);
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": AGENT_ROUTE, "model": "gem" }] }],
+        "providers": { "primary": { "enabled": true } },
+    });
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Windowed { auto: false }),
+        true,
+        None,
+        Some(routed(providers, config)),
+    )
+    .await;
+    let header = json!({ "provider": "primary", "model": "m1", "agent": "reviewer", "owner": "agent", "routeFallbackSource": { "preset": "lead-route" } });
+    let (id, handle) = started_thread(&world, header).await;
+
+    start_turn(&id, &handle, "review the change").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let handed = lock(&agent.handed_over).clone();
+    let summary = match handed.as_slice() {
+        [Ok(Some(summary))] => summary.as_str(),
+        other => panic!("expected real-compactor hand-over summary: {other:?}"),
+    };
+    assert!(summary.contains(mixdog_agent::compact::fresh::SUMMARY_PREFIX), "{summary}");
+    assert!(summary.contains("acp-agent|gem|"), "summary came from the real compactor: {summary}");
+    assert!(summary.contains("[tool call] list({\"path\":\".\"})"), "tool call preserved: {summary}");
+    assert!(summary.contains("## Tool result (list)"), "tool result labeled with call name: {summary}");
+
+    let records = world.rig.store.records(&id);
+    let replacement = records
+        .iter()
+        .rev()
+        .find_map(|(_, record)| match record {
+            Record::Compacted(compacted) => match &compacted.replacement {
+                Slot::Inline(entries) => Some(entries.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("compacted record stored");
+    let user_pos = replacement.iter().position(|entry| prompt_text(&entry.body).starts_with("review the change")).expect("turn input kept");
+    let call_pos = replacement
+        .iter()
+        .position(|entry| entry.body["role"] == "assistant" && entry.body.to_string().contains("\"list\""))
+        .expect("loop tool-call row kept");
+    let tool_pos = replacement.iter().position(|entry| entry.body["role"] == "tool").expect("loop tool-result row kept");
+    assert!(user_pos < call_pos && call_pos < tool_pos, "input must precede loop tool rows: {replacement:?}");
+}
+
+/// Chained fallback (provider A -> provider B -> ACP agent) on a fresh session does not treat the turn's own input as
+/// prior conversation even though the first hop called `sink.replace` and raised `base.held`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chained_fallback_on_fresh_session_treats_turn_as_having_no_prior_conversation() {
+    let agent = Arc::new(Agent { hands_over: true, ..Agent::default() });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let primary = OutFrom::named("primary", Vec::new(), 0);
+    let secondary = OutFrom::named("secondary", Vec::new(), 0);
+    let providers = GatedProviders::new(vec![
+        ("primary", primary.clone() as Arc<dyn ProviderAdapter>),
+        ("secondary", secondary.clone() as Arc<dyn ProviderAdapter>),
+    ]);
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{
+            "id": "lead-route",
+            "provider": "primary",
+            "model": "m1",
+            "fallbacks": [
+                { "provider": "secondary", "model": "m2" },
+                { "provider": AGENT_ROUTE, "model": "gem" },
+            ],
+        }],
+        "providers": { "primary": { "enabled": true }, "secondary": { "enabled": true } },
+    });
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Config),
+        false,
+        None,
+        Some(routed(providers, config)),
+    )
+    .await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+
+    start_turn(&id, &handle, "fresh chained turn").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    assert_eq!(*lock(&agent.handed_over), [Ok(None)], "fresh session has no prior conversation to summarize");
+    let records = world.rig.store.records(&id);
+    assert!(!records.iter().any(|(_, record)| matches!(record, Record::Compacted(_))), "no spurious compaction record: {records:?}");
+}
+
+/// Stopping an ACP fallback turn after an earlier hop already completed tool work does not rewind the turn's prompt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stopping_acp_fallback_after_earlier_hop_and_tool_round_does_not_rewind_prompt() {
+    let agent = Arc::new(Agent { hold: true, hands_over: true, ..Agent::default() });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let round = vec![
+        StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
+        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+    ];
+    let primary = OutFrom::named("primary", Vec::new(), 0);
+    let secondary = OutFrom::named("secondary", vec![round], 1);
+    let providers = GatedProviders::new(vec![
+        ("primary", primary.clone() as Arc<dyn ProviderAdapter>),
+        ("secondary", secondary.clone() as Arc<dyn ProviderAdapter>),
+    ]);
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{
+            "id": "lead-route",
+            "provider": "primary",
+            "model": "m1",
+            "fallbacks": [
+                { "provider": "secondary", "model": "m2" },
+                { "provider": AGENT_ROUTE, "model": "gem" },
+            ],
+        }],
+        "providers": { "primary": { "enabled": true }, "secondary": { "enabled": true } },
+    });
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Config),
+        false,
+        None,
+        Some(routed(providers, config)),
+    )
+    .await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+    let input = json!({ "prompt": "run then stop", "options": { "clientSubmissionId": "sub-chain" } });
+    let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": input }), "op-1")).await.expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    eventually_on_awaiting(
+        || "the agent's turn".to_owned(),
+        &[&world.rig.store.committed, handle.stepped(), &agent.handed],
+        || (!lock(&agent.turns).is_empty()).then_some(()),
+    )
+    .await;
+
+    let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+    handle
+        .stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(true), submission_id: Some("sub-chain".to_owned()), ctx })
+        .await
+        .expect("stop");
+    until(&world, &handle, "the stopped turn's end", || true).await;
+
+    let records = world.rig.store.records(&id);
+    assert!(!records.iter().any(|(_, record)| matches!(record, Record::Rewind(_))), "work was performed so prompt must not rewind: {records:?}");
+}
+
+/// Mid-turn hand-over reuses the turn's existing `TodoGuards` instead of calling `start_turn` a second time, preserving
+/// both `todoCheck` mutation counts and any todo list finished during the loop half.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mid_turn_hand_over_preserves_todo_guards_and_finished_todo_list() {
+    use mixdog_tools::state::todo::{TodoList, TodoPhase, TodoStatus, TodoStore, TodoTask};
+
+    // Part 1: mutation count recorded during the loop half survives hand-over into saved `todoCheck`.
+    let agent = Arc::new(Agent::default());
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let edit_round = vec![
+        StreamEvent::ToolCallDone(ToolCall { id: "e1".into(), name: "edit".into(), arguments: json!({}), native_type: None }),
+        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+    ];
+    let primary = OutFrom::new(vec![edit_round], 1);
+    let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>)]);
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": AGENT_ROUTE, "model": "gem" }] }],
+        "providers": { "primary": { "enabled": true } },
+    });
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        Some(vec![named("list"), named("edit")]),
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Config),
+        false,
+        None,
+        Some(routed(providers, config.clone())),
+    )
+    .await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+    start_turn(&id, &handle, "edit then hand over").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+    assert_eq!(handle.live_header().header()["todoCheck"]["staleMutations"], json!(1), "{:?}", handle.live_header().header()["todoCheck"]);
+
+    // Part 2: a todo list finished during the loop half is not cleared by a second `start_turn(true)` on hand-over.
+    struct FinishTodo(ToolSpec, Arc<std::sync::OnceLock<(ThreadId, Arc<dyn TodoStore>)>>);
+    #[async_trait]
+    impl Tool for FinishTodo {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+            let (thread, store) = self.1.get().expect("todo store wired");
+            let done = TodoList {
+                phases: vec![TodoPhase {
+                    name: "Work".to_owned(),
+                    tasks: vec![TodoTask { content: "done step".to_owned(), status: TodoStatus::Completed, note: None }],
+                }],
+                updated_at_ms: 1,
+            };
+            store.update(thread, &mut |_| Ok(done.clone())).await.expect("update todos");
+            Ok(ToolOutput { parts: vec![ToolPart::Text("finished".into())], ..ToolOutput::default() })
+        }
+    }
+    let finish_slot = Arc::new(std::sync::OnceLock::new());
+    let finish_tool: Arc<dyn Tool> = Arc::new(FinishTodo(
+        ToolSpec {
+            name: "finish_todo".into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: "finish_todo".into(),
+            input_schema: json!({ "type": "object" }),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        },
+        finish_slot.clone(),
+    ));
+    let agent = Arc::new(Agent::default());
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let finish_round = vec![
+        StreamEvent::ToolCallDone(ToolCall { id: "f1".into(), name: "finish_todo".into(), arguments: json!({}), native_type: None }),
+        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+    ];
+    let primary = OutFrom::new(vec![finish_round], 1);
+    let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>)]);
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        Some(vec![named("list"), finish_tool]),
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Config),
+        false,
+        None,
+        Some(routed(providers, config)),
+    )
+    .await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+    let _ = finish_slot.set((id.clone(), world.rig.todos.clone() as Arc<dyn TodoStore>));
+    start_turn(&id, &handle, "finish todos then hand over").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+    let remaining = world.rig.todos.read(&id).await;
+    assert_eq!(remaining.phases.len(), 1, "finished todo list must not be cleared on mid-turn hand-over: {remaining:?}");
 }
