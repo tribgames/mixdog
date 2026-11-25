@@ -26,7 +26,7 @@ use windows_sys::Win32::System::Threading::WaitForSingleObject;
 /// `MAXIMUM_WAIT_OBJECTS` (winnt.h): the most handles one `WaitForMultipleObjects` takes.
 const MAXIMUM_WAIT_OBJECTS: usize = 64;
 
-/// How long the console hosts of a finished root are given to signal their exit. A host outlives it only while a console
+/// How long the console hosts of a finished root are given to signal their exit and leave its job. A host outlives it only while a console
 /// client is left, and every client is a member the job shows beside it, so this bounds a host that hangs.
 pub(crate) const SETTLE_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -111,17 +111,18 @@ fn members(job: HANDLE) -> Option<Vec<Member>> {
 /// After a root that ended on its own: a job left holding nothing but console hosts and processes already exiting is
 /// waited on until every one has exited, or for `deadline` at most; a job holding anything else has survivors and is not
 /// waited on. `before_wait` runs
-/// once it is known there are hosts to wait for.
-pub(crate) fn settle(job: HANDLE, deadline: Duration, before_wait: impl FnOnce()) {
+/// once it is known there are hosts to wait for. True when it waited for them.
+pub(crate) fn settle(job: HANDLE, deadline: Duration, before_wait: impl FnOnce()) -> bool {
     let Some(mut members) = members(job) else {
-        return;
+        return false;
     };
     // A member that already signalled its exit is leaving the job and is no survivor.
     members.retain(|member| !member.exited());
     if members.is_empty() || members.len() > MAXIMUM_WAIT_OBJECTS || !members.iter().all(Member::may_be_exiting_host) {
-        return;
+        return false;
     }
     before_wait();
     let handles: Vec<HANDLE> = members.iter().map(|m| m.0).collect();
     unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 1, deadline.as_millis() as u32) };
+    true
 }
