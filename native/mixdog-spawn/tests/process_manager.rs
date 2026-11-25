@@ -536,7 +536,20 @@ async fn pty_session_echoes_input_and_follows_resizes() {
     };
     m.spawn(pty_request(&h, command, PtySize { cols: 80, rows: 24 })).await.unwrap();
     assert_eq!(m.info(&h).unwrap().pty, Some(PtySize { cols: 80, rows: 24 }));
+    let mut events = m.subscribe(&h, Some(0)).unwrap();
+    let mut seen = String::new();
     m.write_input(&h, b"echo MIXDOG_PTY_OK\r".to_vec()).unwrap();
+    // The storm goes to a shell that is attached and reading: a size sent while the client attaches can be dropped by
+    // the console host (microsoft/terminal#10400; release gate run 45607620142 stayed at the storm's 116th size).
+    let attached = async {
+        while !seen.contains("MIXDOG_PTY_OK") {
+            match events.next().await.expect("the feed ends with the exit event") {
+                ProcessEvent::Output { bytes, .. } => seen.push_str(&text(&bytes)),
+                ProcessEvent::Exited { .. } => panic!("the shell ended before it was told to: {seen:?}"),
+            }
+        }
+    };
+    assert!(tokio::time::timeout(WAIT, attached).await.is_ok(), "the shell echoes its first command: {seen:?}");
     // A resize storm: the last size wins.
     for i in 0..200u16 {
         m.resize_pty(&h, PtySize { cols: 20 + (i * 37) % 180, rows: 10 + (i * 11) % 50 }).unwrap();
@@ -547,8 +560,6 @@ async fn pty_session_echoes_input_and_follows_resizes() {
     // (release gate run 45055219445: `mode con` answered a size from the middle of the storm). The last size wins once
     // they are all applied: the shell is asked until it answers that one.
     let query = if cfg!(windows) { "mode con\r" } else { "stty size\r" };
-    let mut events = m.subscribe(&h, Some(0)).unwrap();
-    let mut seen = String::new();
     let settled = async {
         loop {
             let from = seen.len();
