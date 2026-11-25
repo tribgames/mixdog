@@ -1,8 +1,14 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+#![allow(unsafe_code, reason = "the counting allocator wraps the system allocator")]
 
+use std::alloc::GlobalAlloc;
+use std::alloc::Layout;
+use std::alloc::System;
 use std::path::Path;
 #[cfg(windows)]
 use std::process::Command;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use mixdog_workspace::inplace::open_authorized_ro;
 use mixdog_workspace::pathguard::canonical;
@@ -59,36 +65,49 @@ fn a_directory_swapped_for_a_link_after_resolving_is_refused_at_open() {
     remove_link(&root.join("docs"));
 }
 
-#[cfg(windows)]
-fn peak_working_set() -> u64 {
-    use windows_sys::Win32::System::ProcessStatus::GetProcessMemoryInfo;
-    use windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS;
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    // SAFETY: a plain query of the current process into an out struct of the declared size.
-    unsafe {
-        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-        assert!(GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) != 0);
-        counters.PeakWorkingSetSize as u64
+/// The heap of this test binary, counted at each allocation. A read's buffers are heap memory, so their peak comes out the same every
+/// run, whatever else the process maps and whatever the system's page size: the whole process's peak working set counted both.
+struct CountingHeap;
+
+static HEAP_LIVE: AtomicUsize = AtomicUsize::new(0);
+static HEAP_PEAK: AtomicUsize = AtomicUsize::new(0);
+
+fn grew(size: usize) {
+    let live = HEAP_LIVE.fetch_add(size, Ordering::SeqCst) + size;
+    HEAP_PEAK.fetch_max(live, Ordering::SeqCst);
+}
+
+fn shrank(size: usize) {
+    HEAP_LIVE.fetch_sub(size, Ordering::SeqCst);
+}
+
+// SAFETY: every request goes to `System` with the caller's layout and its answer is returned unchanged; the counter only observes.
+unsafe impl GlobalAlloc for CountingHeap {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        grew(layout.size());
+        // SAFETY: the caller upholds `GlobalAlloc::alloc`'s contract, which `System` shares.
+        unsafe { System.alloc(layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        grew(layout.size());
+        // SAFETY: the caller upholds `GlobalAlloc::alloc_zeroed`'s contract, which `System` shares.
+        unsafe { System.alloc_zeroed(layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        shrank(layout.size());
+        grew(new_size);
+        // SAFETY: the caller upholds `GlobalAlloc::realloc`'s contract, which `System` shares.
+        unsafe { System.realloc(ptr, layout, new_size) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        shrank(layout.size());
+        // SAFETY: the caller upholds `GlobalAlloc::dealloc`'s contract, which `System` shares.
+        unsafe { System.dealloc(ptr, layout) }
     }
 }
 
-#[cfg(target_os = "macos")]
-fn peak_working_set() -> u64 {
-    // SAFETY: a plain query of the current process into a zeroed out struct; macOS reports the peak in bytes.
-    unsafe {
-        let mut usage: libc::rusage = std::mem::zeroed();
-        assert_eq!(libc::getrusage(libc::RUSAGE_SELF, &mut usage), 0);
-        usage.ru_maxrss as u64
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn peak_working_set() -> u64 {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap();
-    let kb: u64 = status.lines().find_map(|l| l.strip_prefix("VmHWM:")).and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok()).unwrap();
-    kb * 1024
-}
+#[global_allocator]
+static HEAP: CountingHeap = CountingHeap;
 
 #[test]
 fn a_2_gib_file_streams_with_memory_independent_of_its_size() {
@@ -102,60 +121,33 @@ fn a_2_gib_file_streams_with_memory_independent_of_its_size() {
     let transfers = Transfers::default();
     let opened = transfers.begin_project_read("dev", &root, "big.bin").unwrap();
     assert_eq!(opened.size, SIZE);
-    // Warm the allocator with a first page, then measure the rest.
+    // Warm the reader with a first page, then measure the rest.
     let first = transfers.read_range(&["dev"], &opened.transfer_id, 0, RANGE_MAX_BYTES, None).unwrap();
     assert_eq!(first.length, RANGE_MAX_BYTES);
     drop(first);
-    let baseline = peak_working_set();
-    // The pages after which the peak is taken as settled: the allocator has its buffers by then.
+    let held = HEAP_LIVE.load(Ordering::SeqCst);
+    HEAP_PEAK.store(held, Ordering::SeqCst);
+    // The pages after which the peak is taken as settled: every buffer a read makes has been made by then.
     const SETTLING: u64 = 16;
-    let (mut offset, mut pages, mut settled) = (RANGE_MAX_BYTES, 1u64, baseline);
+    let (mut offset, mut pages, mut settled) = (RANGE_MAX_BYTES, 1u64, held);
     loop {
         let page = transfers.read_range(&["dev"], &opened.transfer_id, offset, RANGE_MAX_BYTES, None).unwrap();
         offset += page.length;
         pages += 1;
         if pages == SETTLING {
-            settled = peak_working_set();
+            settled = HEAP_PEAK.load(Ordering::SeqCst);
         }
         if page.eof {
             break;
         }
     }
     assert_eq!((offset, pages), (SIZE, SIZE / RANGE_MAX_BYTES));
-    let peak = peak_working_set();
-    // The peak is the whole process's and counts whole OS pages: one step of it is the largest page of the systems this runs on.
-    const OS_PAGE: u64 = 64 * 1024;
-    // Independent of the size, as far as the peak shows it: the 496 pages read after the peak settled raise the observed peak by at most
-    // one rounding step. Memory kept per range shows here only once it makes the process touch pages it had not.
-    let later = peak.saturating_sub(settled);
-    assert!(later <= OS_PAGE, "peak working set grew {later} bytes over the {} pages read after it had settled", pages - SETTLING);
-    // And small: two pages of bytes plus their base64 text, each buffer whole in the system's own pages, and for what else the
-    // process touched while it settled (its allocator's own pages, a stack that grew, code first run) as many of the system's pages
-    // as the 64 KiB allowed before are of 4 KiB. That allowance was 4 pages where a page is 16 KiB, and the Apple silicon runner
-    // touched 13 (212 992 bytes beside the two pages' 19 595 264; release gate run 44959677392).
-    const OTHER_PAGES: u64 = 16;
-    let system_page = system_page();
-    let in_pages = |bytes: u64| bytes.div_ceil(system_page) * system_page;
-    let growth = peak.saturating_sub(baseline);
-    let two_pages = 2 * (in_pages(RANGE_MAX_BYTES) + in_pages(RANGE_MAX_BYTES * 4 / 3));
-    let bound = two_pages + OTHER_PAGES * system_page;
-    assert!(
-        growth <= bound,
-        "peak working set grew {growth} bytes over {pages} pages (bound {bound}: two pages' {two_pages} and {OTHER_PAGES} pages of {system_page})"
-    );
-    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (bound {bound}), {later} of them after page {SETTLING}");
-}
-
-/// The size of a page of this system's memory.
-#[cfg(unix)]
-fn system_page() -> u64 {
-    // SAFETY: `sysconf` takes a name and returns a number.
-    let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-    u64::try_from(size).expect("a page size")
-}
-
-/// The size of a page of this system's memory: 4 KiB on every Windows these tests run on (x64 and Arm64).
-#[cfg(windows)]
-fn system_page() -> u64 {
-    4096
+    let peak = HEAP_PEAK.load(Ordering::SeqCst);
+    // Independent of the size: the pages read after the peak settled keep nothing, so they raise it by nothing.
+    assert_eq!(peak, settled, "the heap's peak grew over the {} pages read after it had settled", pages - SETTLING);
+    // And small: a read holds one page's bytes and their base64 text at once, never a second page.
+    let page_buffers = usize::try_from(RANGE_MAX_BYTES + RANGE_MAX_BYTES.div_ceil(3) * 4).expect("a page's buffers");
+    let growth = peak - held;
+    assert!(growth < 2 * page_buffers, "the heap grew {growth} bytes over {pages} pages, a second page's buffers ({page_buffers} each)");
+    eprintln!("streamed {pages} pages of a 2 GiB file; the heap's peak grew {growth} bytes over what it held (one page's buffers {page_buffers})");
 }
