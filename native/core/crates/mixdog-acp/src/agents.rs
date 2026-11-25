@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 use crate::connection::Fault;
 use crate::files::TextFiles;
 use crate::preset::AgentPreset;
+use crate::preset::ProcessScope;
 use crate::session::AgentSession;
 use crate::session::Models;
 use crate::session::Open;
@@ -270,6 +271,10 @@ pub struct Agents {
     /// The window each agent last reported for its context, by preset id: what a route on the agent can be sized within.
     windows: Mutex<Windows>,
     pub(crate) sessions: Mutex<HashMap<ThreadId, Arc<AgentSession>>>,
+    /// The one server of each preset whose process serves all its sessions, by preset id, while it starts and runs.
+    pub(crate) shared: Mutex<HashMap<String, crate::shared::SharedSlot>>,
+    /// The temporary folders that daemons gone since left behind were cleared away.
+    pub(crate) swept_temps: std::sync::atomic::AtomicBool,
     /// The threads whose agent is being started, each with its start's number.
     opening: Mutex<HashMap<ThreadId, u64>>,
     /// What the user approved for the rest of each thread's session.
@@ -321,6 +326,8 @@ impl Agents {
             next_check: AtomicU64::new(0),
             windows: Mutex::default(),
             sessions: Mutex::default(),
+            shared: Mutex::default(),
+            swept_temps: std::sync::atomic::AtomicBool::new(false),
             opening: Mutex::default(),
             grants: Mutex::default(),
             refused: Mutex::default(),
@@ -617,17 +624,20 @@ impl Agents {
 
     /// Why `preset`'s agent is not asked to run `model`, a route's name of one: a model outside the preset's scope runs on
     /// another preset of the agent, and the agent's default model only on a preset that offers it. The preset that runs
-    /// it is named. `None` for a model the preset runs.
-    pub(crate) fn refuses_model(&self, preset: &AgentPreset, model: &str) -> Option<String> {
+    /// it is named, by its provider: the presets of one agent share its name. `None` for a model the preset runs. It
+    /// comes before every other refusal: a turn on such a route fails with it whatever state the preset's agent is in,
+    /// and never hops to a fallback provider.
+    pub fn refuses_model(&self, preset: &AgentPreset, model: &str) -> Option<String> {
         let runs = |preset: &AgentPreset| if model == DEFAULT_MODEL { preset.quirks.offer_default } else { preset.quirks.model_scope.admits(model) };
         if runs(preset) {
             return None;
         }
         let what = if model == DEFAULT_MODEL { "its agent's default model".to_owned() } else { format!("the model \"{model}\"") };
         let runner = self.parts.presets.iter().find(|other| other.id != preset.id && runs(other));
+        let refused = format!("{} ({}) does not run {what}.", preset.label, preset.provider);
         Some(match runner {
-            Some(runner) => format!("{} does not run {what}. Choose it under {}.", preset.label, runner.label),
-            None => format!("{} does not run {what}.", preset.label),
+            Some(runner) => format!("{refused} Choose it under {} ({}).", runner.label, runner.provider),
+            None => refused,
         })
     }
 
@@ -645,11 +655,11 @@ impl Agents {
         }
         let running = lock(&self.sessions).get(thread).cloned();
         if let Some(running) = running {
-            if running.preset.id == preset.id && running.cwd == cwd && !running.connection.exited().is_cancelled() {
-                // A process that holds a cancelled prompt would read the next prompt as part of it: the agent
+            if running.preset.id == preset.id && running.cwd == cwd && !running.gone().is_cancelled() {
+                // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
                 // closes that prompt first, which is the answer the protocol has it give to a cancel.
                 running.cancelled_prompt_closed().await;
-                if !running.connection.exited().is_cancelled() {
+                if !running.gone().is_cancelled() {
                     return Ok(running);
                 }
             }
@@ -683,8 +693,17 @@ impl Agents {
         };
         let handed = self.tools.get().map(|tools| crate::mcp::Handover { thread: thread.clone(), tools: tools.clone(), bridge: self.parts.mcp_bridge.clone() });
         let (stored, held) = stored.map(|stored| (stored.session_id, stored.prompt)).unzip();
-        let open = Open { preset, program: &program, cwd, definitions: &self.parts.definitions, stored, rules, held: held.flatten(), grants, handed };
-        let session = match AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, on_exit).await {
+        let open =
+            Open { preset, program: &program, cwd, definitions: &self.parts.definitions, stored, rules, held: held.flatten(), grants, handed, temp: None };
+        let opened = match preset.scope {
+            ProcessScope::PerSession => AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, on_exit).await,
+            // The preset's one server, started by the first session that needs it, serves this one beside the others.
+            ProcessScope::Shared => match self.shared_server(preset, &program).await {
+                Ok(lease) => AgentSession::open_on_shared(lease, open, wake, on_exit).await,
+                Err(fault) => Err(fault),
+            },
+        };
+        let session = match opened {
             Ok(session) => session,
             Err(fault) => {
                 self.open_failed(preset, &fault);
@@ -695,17 +714,17 @@ impl Agents {
         // The feature may have been turned off, or the thread closed, while the agent started: the newest holder wins,
         // and a switch that is off holds none.
         if !self.enabled() {
-            session.connection.kill();
+            session.end();
             return Err(Refusal::Off);
         }
         // The thread's close and this start meet under the sessions' lock: a start the close ended keeps nothing.
         let mut sessions = lock(&self.sessions);
         if !opening.current() {
-            session.connection.kill();
+            session.end();
             return Err(Refusal::Closed);
         }
         if let Some(replaced) = sessions.insert(thread.clone(), session.clone()) {
-            replaced.connection.kill();
+            replaced.end();
         }
         Ok(session)
     }
@@ -742,30 +761,38 @@ impl Agents {
         session.abandon_waiting(&format!("The turn this was asked in did not start: {why}")).await;
     }
 
-    /// Ends the process of `thread`'s agent; the thread stays the agent's, and its next turn starts one again.
+    /// Ends the process of `thread`'s agent, or takes its session alone off the shared server it runs on; the thread
+    /// stays the agent's, and its next turn starts or reopens one again.
     pub fn end_process(&self, thread: &ThreadId) {
-        if let Some(session) = lock(&self.sessions).remove(thread) {
-            session.connection.kill();
+        let session = lock(&self.sessions).remove(thread);
+        if let Some(session) = session {
+            session.end();
         }
     }
 
-    /// Ends the agent of `thread` with its whole process tree, one that is still starting included: the thread
-    /// closed, was deleted or left memory. What the user approved for the session goes with it.
+    /// Ends the agent of `thread` with its whole process tree, or takes its session alone off the shared server, one
+    /// that is still starting included: the thread closed, was deleted or left memory. What the user approved for the
+    /// session goes with it.
     pub fn release(&self, thread: &ThreadId) {
-        let mut sessions = lock(&self.sessions);
-        lock(&self.opening).remove(thread);
-        lock(&self.grants).remove(thread);
-        if let Some(session) = sessions.remove(thread) {
-            session.connection.kill();
+        let session = {
+            let mut sessions = lock(&self.sessions);
+            lock(&self.opening).remove(thread);
+            lock(&self.grants).remove(thread);
+            sessions.remove(thread)
+        };
+        if let Some(session) = session {
+            session.end();
         }
     }
 
-    /// Ends every agent, check and sign-in: the feature was turned off.
+    /// Ends every agent, shared server, check and sign-in: the feature was turned off.
     pub fn release_all(&self) {
         let sessions: Vec<_> = lock(&self.sessions).drain().collect();
         for (_, session) in sessions {
-            session.connection.kill();
+            session.end();
         }
+        // Each closes as the end of its input closes it, in a task of its own.
+        drop(self.close_shared());
         self.forget_checks();
         let logins: Vec<_> = lock(&self.logins).drain().collect();
         for (_, login) in logins {

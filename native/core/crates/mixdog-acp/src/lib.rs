@@ -3,7 +3,8 @@
 //! session, sends the prompt, shows what it streams back and answers its permission requests.
 //!
 //! - [`preset`]: what tells one agent from another, as data.
-//! - [`connection`], [`session`]: the agent's process and its session in it.
+//! - [`connection`], [`session`]: the agent's process and its session in it; `shared`: the one process of a preset that
+//!   serves all its sessions.
 //! - [`turn`], [`rows`], [`surface`]: one turn, reported to the run's port as any other run's.
 //! - [`agents`]: the feature's switch and the agent of every session.
 //! - [`upkeep`], [`login`]: each CLI's readiness, install and update, and the CLI's own sign-in.
@@ -22,6 +23,7 @@ pub mod routes;
 pub mod rows;
 pub mod runs;
 pub mod session;
+mod shared;
 pub mod surface;
 pub mod tiers;
 pub mod turn;

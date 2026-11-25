@@ -31,6 +31,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::lock;
+use crate::files::TextFiles;
 
 /// How much of the agent's stderr is kept for an error message.
 const STDERR_TAIL_BYTES: usize = 4096;
@@ -97,6 +98,33 @@ pub struct Launch {
     pub env: Vec<(String, String)>,
     pub env_remove: Vec<String>,
     pub cwd: AbsPath,
+}
+
+/// A temporary folder of a process's own, cleared away once the process has exited, however it ended: what it unpacked
+/// there goes with it.
+pub struct Temp {
+    pub folder: AbsPath,
+    pub files: Arc<dyn TextFiles>,
+}
+
+impl Temp {
+    /// The variables a program finds its temporary folder by.
+    fn env(&self) -> [(String, String); 3] {
+        let folder = self.folder.as_path().to_string_lossy().into_owned();
+        ["TEMP", "TMP", "TMPDIR"].map(|name| (name.to_owned(), folder.clone()))
+    }
+}
+
+/// Removes `folder` with all it holds. A folder whose files the process that just exited still held is tried once more
+/// shortly after.
+pub(crate) async fn remove_folder(files: &dyn TextFiles, folder: AbsPath) {
+    if files.remove_folder(folder.clone()).await.is_ok() {
+        return;
+    }
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(250)).await;
+    if let Err(error) = files.remove_folder(folder.clone()).await {
+        tracing::warn!("[acp] the agent's temporary folder {} was not removed: {error}", folder.as_path().display());
+    }
 }
 
 /// What a program run to its exit left.
@@ -233,9 +261,28 @@ fn rpc_error(error: &Value) -> RpcError {
 impl Connection {
     /// Starts the agent; what it sends unasked arrives on the returned channel, which ends with the process.
     pub async fn start(processes: Arc<dyn ProcessManager>, launch: Launch) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>), Fault> {
+        Self::start_in(processes, launch, None).await
+    }
+
+    /// [`Connection::start`], the process given `temp` as its temporary folder: the folder is cleared away once the
+    /// process has exited, before [`Connection::exited`] fires.
+    pub async fn start_in(
+        processes: Arc<dyn ProcessManager>,
+        mut launch: Launch,
+        temp: Option<Temp>,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>), Fault> {
+        launch.env.extend(temp.iter().flat_map(Temp::env));
         let request = spawn_request(launch, true);
         let handle = request.handle.clone();
-        let (_, events) = processes.spawn_subscribed(request).await.map_err(start_fault)?;
+        let events = match processes.spawn_subscribed(request).await {
+            Ok((_, events)) => events,
+            Err(error) => {
+                if let Some(temp) = temp {
+                    remove_folder(temp.files.as_ref(), temp.folder).await;
+                }
+                return Err(start_fault(error));
+            }
+        };
         let connection = Arc::new(Self {
             processes,
             handle,
@@ -247,7 +294,7 @@ impl Connection {
             broken: Mutex::default(),
         });
         let (tx, rx) = mpsc::unbounded_channel();
-        drop(mixdog_rt::spawn("acp.read", TaskClass::Work, read(Arc::downgrade(&connection), events, tx)));
+        drop(mixdog_rt::spawn("acp.read", TaskClass::Work, read(Arc::downgrade(&connection), events, tx, temp)));
         Ok((connection, rx))
     }
 
@@ -303,13 +350,24 @@ impl Connection {
 
     /// A request whose answer arrives as [`Incoming::Response`], after every notification the agent wrote before it.
     pub async fn send(&self, method: &str, params: Value) -> Result<u64, Fault> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.reserve();
+        self.send_as(id, method, params).await.map(|()| id)
+    }
+
+    /// The id of a request sent next with [`Connection::send_as`]: the reader can be told whose answer it is before the
+    /// agent can answer it.
+    pub fn reserve(&self) -> u64 {
+        self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// [`Connection::send`] under the id [`Connection::reserve`] gave.
+    pub async fn send_as(&self, id: u64, method: &str, params: Value) -> Result<(), Fault> {
         lock(&self.sent).insert(id);
         if let Err(fault) = self.write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await {
             lock(&self.sent).remove(&id);
             return Err(fault);
         }
-        Ok(id)
+        Ok(())
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), Fault> {
@@ -329,6 +387,19 @@ impl Connection {
     /// Ends the process tree; the exit follows on the channel.
     pub fn kill(&self) {
         let _ = self.processes.kill(&self.handle);
+    }
+
+    /// Ends the process as the end of its input ends it, so it clears away what it made: its stdin is closed, and a
+    /// process still running after `grace` is ended by force. Resolves once it has exited.
+    pub async fn close_gracefully(&self, grace: std::time::Duration) {
+        if !self.exited.is_cancelled() {
+            let _ = self.processes.close_stdin(&self.handle);
+            if mixdog_rt::time::timeout(grace, self.exited.cancelled()).await.is_err() {
+                tracing::warn!("[acp] the agent's process did not end within {} s of the end of its input: it is ended", grace.as_secs());
+                self.kill();
+            }
+        }
+        self.exited.cancelled().await;
     }
 
     fn dispatch(&self, message: Value, out: &mpsc::UnboundedSender<Incoming>) {
@@ -367,9 +438,14 @@ impl Drop for Connection {
     }
 }
 
-/// Reads the process to its exit. It holds the connection only while it handles an event: a connection nobody holds
-/// any more is dropped, which ends the process, and the exit ends this.
-async fn read(connection: std::sync::Weak<Connection>, mut events: Box<dyn EventSource<ProcessEvent>>, out: mpsc::UnboundedSender<Incoming>) {
+/// Reads the process to its exit, then clears away its temporary folder. It holds the connection only while it handles
+/// an event: a connection nobody holds any more is dropped, which ends the process, and the exit ends this.
+async fn read(
+    connection: std::sync::Weak<Connection>,
+    mut events: Box<dyn EventSource<ProcessEvent>>,
+    out: mpsc::UnboundedSender<Incoming>,
+    temp: Option<Temp>,
+) {
     let mut line: Vec<u8> = Vec::new();
     let mut exited = false;
     while let Some(event) = events.next().await {
@@ -398,11 +474,15 @@ async fn read(connection: std::sync::Weak<Connection>, mut events: Box<dyn Event
             }
         }
     }
-    let Some(connection) = connection.upgrade() else { return };
+    let connection = connection.upgrade();
     // A source that ended without the exit tells nothing of the process: it is ended here.
-    if !exited {
+    if let Some(connection) = connection.as_ref().filter(|_| !exited) {
         connection.kill();
     }
+    if let Some(temp) = temp {
+        remove_folder(temp.files.as_ref(), temp.folder).await;
+    }
+    let Some(connection) = connection else { return };
     connection.exited.cancel();
     let waiting: Vec<_> = lock(&connection.waiting).drain().collect();
     for (_, waiter) in waiting {

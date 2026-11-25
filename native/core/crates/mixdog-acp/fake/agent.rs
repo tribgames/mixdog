@@ -4,10 +4,15 @@
 //! cancelled), `mute` (answers nothing until cancelled), `background` (ends its turn with a call
 //! running, then replies on its own), `read <path>` (reads a file through the client), `whoami`
 //! (reports how it was started), `meta` (the `_meta` its session was opened with), and `servers`, `tools`,
-//! `tool <name> <json>` and `calls` (several such calls in one turn) (what the session's MCP server hands it).
+//! `tool <name> <json>` and `calls` (several such calls in one turn) (what the session's MCP server hands it), `cwd`
+//! (the folder the session was opened in), `readas <session id or -> <path>` (a read that names another session, or
+//! none) and `askas <session id>` (a question about a call that names another session). It holds any number of
+//! sessions, each its own: what it sends of one names that one.
 //! Started with `FAKE_AGENT_OFFICIAL` in its environment it is Google's official ACP server instead: no version
-//! flag, its version named in `initialize` alone, no `session/close`, an MCP call named under `_meta.mcp` only, and a
-//! prompt of a session it lost answered with -32002.
+//! flag, its version named in `initialize` alone, no `session/close`, an MCP call named under `_meta.mcp` only, a
+//! prompt of a session it lost answered with -32002, every session-scoped method logged again with the session's id,
+//! its temporary folder logged (and, where it is one of Mixdog's, unpacked into as the server's build unpacks itself), and
+//! the end of its input logged before it exits. `FAKE_AGENT_FORGETS` has it refuse to resume a session it does not hold.
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -15,36 +20,54 @@
     reason = "a plain blocking test process, not a runtime thread: it starts its own children and leaves the one it is asked to leave"
 )]
 
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::io::Write;
 
 use serde_json::Value;
 use serde_json::json;
 
-const PERMISSION: u64 = 9001;
-const READ: u64 = 9002;
-const AFTER_LEFTOVER: u64 = 9003;
+/// What a request of the agent's to the client is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    Permission,
+    Read,
+    AfterLeftover,
+}
 
 #[derive(Default)]
-struct Agent {
-    session: String,
+struct Session {
+    id: String,
     resumed: bool,
     loaded: bool,
     append: String,
     model: String,
-    client: Value,
+    cwd: String,
     /// The prompt that waits for the client's answer to a request of the agent's.
     asked: Option<Value>,
     /// The prompt that works until it is cancelled.
     hanging: Option<Value>,
     /// The prompt taken and answered nothing until it is cancelled.
     muted: Option<Value>,
-    /// A permission was asked for with no prompt open.
-    unprompted: bool,
     /// The MCP servers the session was opened or reopened with.
     servers: Value,
     /// The `_meta` the session was opened or reopened with.
     meta: Value,
+}
+
+#[derive(Default)]
+struct Agent {
+    client: Value,
+    sessions: HashMap<String, Session>,
+    /// How many sessions it opened: the next one is numbered after them.
+    numbered: u64,
+    /// The session the message being handled is of.
+    current: String,
+    /// The requests of the agent's the client has not answered, each with its session.
+    requests: HashMap<u64, (String, Asked)>,
+    next_request: u64,
+    /// A permission was asked for with no prompt open, in this session.
+    unprompted: Option<String>,
 }
 
 /// The official server's mode: set in the environment it is started with alone, so a CLI started in the same folder
@@ -127,23 +150,47 @@ fn first_json(text: &str) -> Value {
 }
 
 impl Agent {
+    /// The session the message being handled is of.
+    fn session(&mut self) -> &mut Session {
+        let id = self.current.clone();
+        self.sessions.entry(id.clone()).or_insert_with(|| Session { id, ..Session::default() })
+    }
+
+    fn held(&self) -> &Session {
+        self.sessions.get(&self.current).expect("the session being handled")
+    }
+
+    /// A request of the agent's about the current session, sent with a number of its own.
+    fn request(&mut self, method: &str, mut params: Value, what: Asked, named: bool) -> u64 {
+        self.next_request += 1;
+        let id = 9000 + self.next_request;
+        self.requests.insert(id, (self.current.clone(), what));
+        if named {
+            params["sessionId"] = json!(self.current);
+        }
+        send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+        id
+    }
+
     /// A session opened or reopened with `params`: what it was given is kept, and the agent connects to the first MCP
     /// server it was handed before it answers (`FAKE_AGENT_NO_MCP`: an agent that never connects to one).
     fn opened(&mut self, params: &Value) {
-        self.servers = params["mcpServers"].clone();
-        self.meta = params["_meta"].clone();
-        self.append = params["_meta"]["antigravity"]["systemPrompt"]["append"].as_str().unwrap_or_default().to_owned();
-        if !self.servers[0].is_null() && setting("FAKE_AGENT_NO_MCP").is_none() && setting("FAKE_AGENT_LATE_MCP").is_none() {
+        let session = self.session();
+        session.servers = params["mcpServers"].clone();
+        session.meta = params["_meta"].clone();
+        session.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
+        session.append = params["_meta"]["antigravity"]["systemPrompt"]["append"].as_str().unwrap_or_default().to_owned();
+        if !session.servers[0].is_null() && setting("FAKE_AGENT_NO_MCP").is_none() && setting("FAKE_AGENT_LATE_MCP").is_none() {
             self.connect();
         }
     }
 
     fn connect(&self) {
-        mcp(&self.servers[0], &json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {} } }));
+        mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {} } }));
     }
 
     fn update(&self, update: Value) {
-        send(json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": self.session, "update": update } }));
+        send(json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": self.current, "update": update } }));
     }
 
     fn say(&self, text: &str) {
@@ -159,7 +206,8 @@ impl Agent {
     /// and the answer's texts.
     fn call_tool(&self, call: &str, name: &str, arguments: Value) -> (String, String) {
         self.update(mcp_call("tool_call", call, name, "in_progress", &arguments));
-        let answer = mcp(&self.servers[0], &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": name, "arguments": arguments } }));
+        let answer =
+            mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": name, "arguments": arguments } }));
         self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed" }));
         let result = &answer["result"];
         let said = if result["isError"] == true { "error" } else { "result" };
@@ -172,11 +220,8 @@ impl Agent {
     /// Asks the client's permission for the call `call` with `options`; the prompt `id` ends with the answer.
     fn ask(&mut self, id: Value, call: Value, options: Value) {
         self.update(call.clone());
-        send(json!({
-            "jsonrpc": "2.0", "id": PERMISSION, "method": "session/request_permission",
-            "params": { "sessionId": self.session, "toolCall": call, "options": options },
-        }));
-        self.asked = Some(id);
+        self.request("session/request_permission", json!({ "toolCall": call, "options": options }), Asked::Permission, true);
+        self.session().asked = Some(id);
     }
 
     /// The prompt's last text block chooses what the turn does, by its first word; the text blocks before it are
@@ -188,7 +233,8 @@ impl Agent {
         let (text, lead) = texts.split_last().map_or(("", Vec::new()), |(last, lead)| (*last, lead.to_vec()));
         let (word, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
         // `FAKE_AGENT_LATE_MCP`: an agent whose connection to its session's MCP server is made after the session opened.
-        if setting("FAKE_AGENT_LATE_MCP").is_some() && !self.servers[0].is_null() {
+        // A prompt of a session it never opened is taken as one of a session it holds.
+        if !self.session().servers[0].is_null() && setting("FAKE_AGENT_LATE_MCP").is_some() {
             self.connect();
         }
         let once_or_no = json!([{ "optionId": "once", "name": "Allow", "kind": "allow_once" }, { "optionId": "no", "name": "Reject", "kind": "reject_once" }]);
@@ -256,10 +302,14 @@ impl Agent {
             // A prompt of a session it no longer holds, answered as `agy` answers one.
             "lost" => {
                 let (code, message) = if official() { (-32002, "Resource not found") } else { (-32602, "Session not found") };
-                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": format!("{message}: {}", self.session) } }));
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": format!("{message}: {}", self.current) } }));
             }
             "meta" => {
-                self.say(&format!("meta={}", self.meta));
+                self.say(&format!("meta={}", self.held().meta));
+                self.end(&id);
+            }
+            "cwd" => {
+                self.say(&format!("cwd={}", self.held().cwd));
                 self.end(&id);
             }
             // The whole reply of an account that may not use the agent.
@@ -295,19 +345,13 @@ impl Agent {
                 let name = rest.split_whitespace().next().filter(|word| word.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).unwrap_or("run_command");
                 let kind = if name == "delete_file" { "delete" } else { "execute" };
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "p1", "name": name, "title": "Delete build", "kind": kind, "status": "pending", "rawInput": { "command": "rm -rf build" } }));
-                send(json!({
-                    "jsonrpc": "2.0", "id": PERMISSION, "method": "session/request_permission",
-                    "params": {
-                        "sessionId": self.session,
-                        "toolCall": { "toolCallId": "p1" },
-                        "options": [
-                            { "optionId": "once", "name": "Allow", "kind": "allow_once" },
-                            { "optionId": "always", "name": "Always allow", "kind": "allow_always" },
-                            { "optionId": "no", "name": "Reject", "kind": "reject_once" },
-                        ],
-                    },
-                }));
-                self.asked = Some(id);
+                let options = json!([
+                    { "optionId": "once", "name": "Allow", "kind": "allow_once" },
+                    { "optionId": "always", "name": "Always allow", "kind": "allow_always" },
+                    { "optionId": "no", "name": "Reject", "kind": "reject_once" },
+                ]);
+                self.request("session/request_permission", json!({ "toolCall": { "toolCallId": "p1" }, "options": options }), Asked::Permission, true);
+                self.session().asked = Some(id);
             }
             // A report, then a last call of the agent's own, and the turn's end with no text after it.
             "report" => {
@@ -315,11 +359,11 @@ impl Agent {
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Save notes", "kind": "edit", "status": "completed" }));
                 self.end(&id);
             }
-            "mute" => self.muted = Some(id),
+            "mute" => self.session().muted = Some(id),
             "hang" => {
                 self.say("working");
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "h1", "title": "Long build", "kind": "execute", "status": "in_progress" }));
-                self.hanging = Some(id);
+                self.session().hanging = Some(id);
             }
             "background" => {
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "b1", "title": "Dev build", "kind": "execute", "status": "in_progress" }));
@@ -345,16 +389,14 @@ impl Agent {
             "selfask" => {
                 self.say("asked");
                 self.end(&id);
-                self.unprompted = true;
+                self.unprompted = Some(self.current.clone());
                 self.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "s1", "title": "Clean up", "kind": "execute", "status": "pending" }));
-                send(json!({
-                    "jsonrpc": "2.0", "id": PERMISSION, "method": "session/request_permission",
-                    "params": { "sessionId": self.session, "toolCall": { "toolCallId": "s1" }, "options": [{ "optionId": "once", "name": "Allow", "kind": "allow_once" }] },
-                }));
+                let params = json!({ "toolCall": { "toolCallId": "s1" }, "options": [{ "optionId": "once", "name": "Allow", "kind": "allow_once" }] });
+                self.request("session/request_permission", params, Asked::Permission, true);
             }
             // What the session was handed: its MCP servers, the tools the first one lists, and a call of one.
             "servers" => {
-                self.say(&format!("servers={}", self.servers));
+                self.say(&format!("servers={}", self.held().servers));
                 self.end(&id);
             }
             // The agent definition the CLI finds in the folder it was started in.
@@ -364,7 +406,7 @@ impl Agent {
                 self.end(&id);
             }
             "tools" => {
-                let listed = mcp(&self.servers[0], &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }));
+                let listed = mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }));
                 let names: Vec<&str> = listed["result"]["tools"].as_array().into_iter().flatten().filter_map(|tool| tool["name"].as_str()).collect();
                 self.say(&format!("tools={}", names.join(",")));
                 self.end(&id);
@@ -393,18 +435,31 @@ impl Agent {
                 self.end(&id);
             }
             "read" => {
-                send(json!({ "jsonrpc": "2.0", "id": READ, "method": "fs/read_text_file", "params": { "sessionId": self.session, "path": rest } }));
-                self.asked = Some(id);
+                self.request("fs/read_text_file", json!({ "path": rest }), Asked::Read, true);
+                self.session().asked = Some(id);
+            }
+            // A question about a call that names the session `<id>`.
+            "askas" => {
+                self.request("session/request_permission", json!({ "sessionId": rest, "toolCall": { "toolCallId": "p1" }, "options": once_or_no }), Asked::Permission, false);
+                self.session().asked = Some(id);
+            }
+            // A read that names the session `<id>`, or none for `-`.
+            "readas" => {
+                let (named, path) = rest.split_once(' ').unwrap_or((rest, ""));
+                let params = if named == "-" { json!({ "path": path }) } else { json!({ "sessionId": named, "path": path }) };
+                self.request("fs/read_text_file", params, Asked::Read, false);
+                self.session().asked = Some(id);
             }
             _ => {
                 let fs = &self.client["fs"];
+                let session = self.held();
                 self.say(&format!(
                     "session={} resumed={} loaded={} append={} model={} read={} write={} terminal={} lead={} images={images}",
-                    self.session,
-                    self.resumed,
-                    self.loaded,
-                    self.append,
-                    self.model,
+                    session.id,
+                    session.resumed,
+                    session.loaded,
+                    session.append,
+                    session.model,
                     fs["readTextFile"],
                     fs["writeTextFile"],
                     self.client["terminal"],
@@ -417,20 +472,23 @@ impl Agent {
 
     /// The client's answer to a request of the agent's.
     fn answered(&mut self, id: u64, message: &Value) {
-        if std::mem::take(&mut self.unprompted) {
+        let Some((session, what)) = self.requests.remove(&id) else { return };
+        if let Some(unprompted) = self.unprompted.take() {
+            self.current = unprompted;
             self.say("leftover");
             self.update(json!({ "sessionUpdate": "usage_update", "used": 130, "size": 1000 }));
             // A request behind what it said: the client's answer to it tells that the client has read all of the above.
-            send(json!({ "jsonrpc": "2.0", "id": AFTER_LEFTOVER, "method": "fs/read_text_file", "params": { "sessionId": self.session, "path": "" } }));
+            self.request("fs/read_text_file", json!({ "path": "" }), Asked::AfterLeftover, true);
             return;
         }
-        if id == AFTER_LEFTOVER {
+        if what == Asked::AfterLeftover {
             log("leftover read");
             return;
         }
-        let Some(prompt) = self.asked.take() else { return };
-        match id {
-            PERMISSION => {
+        self.current = session;
+        let Some(prompt) = self.session().asked.take() else { return };
+        match what {
+            Asked::Permission => {
                 let outcome = &message["result"]["outcome"];
                 let selected = outcome["outcome"] == "selected";
                 self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": if selected { "completed" } else { "failed" } }));
@@ -454,6 +512,12 @@ impl Agent {
             return;
         };
         log(method);
+        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
+            self.current = session.to_owned();
+            if official() {
+                log(&format!("{method} {session}"));
+            }
+        }
         match method {
             "initialize" => {
                 self.client = params["clientCapabilities"].clone();
@@ -491,13 +555,14 @@ impl Agent {
                 answer(&id, json!({}));
             }
             "session/new" => {
-                self.session = "sess-1".to_owned();
-                self.model = "m1".to_owned();
+                self.numbered += 1;
+                self.current = format!("sess-{}", self.numbered);
+                self.session().model = "m1".to_owned();
                 self.opened(params);
                 answer(
                     &id,
                     json!({
-                        "sessionId": self.session,
+                        "sessionId": self.current,
                         // `FAKE_AGENT_MODELS`: the models listed (a JSON array of `{modelId, name}`) in place of the two.
                         // `FAKE_AGENT_PLAN`: the plan the signed-in account is on.
                         "_meta": { "antigravity": { "tier": setting("FAKE_AGENT_PLAN").map_or(Value::Null, |name| json!({ "name": name, "id": "a-tier" })) } },
@@ -505,11 +570,18 @@ impl Agent {
                     }),
                 );
             }
+            // `FAKE_AGENT_FORGETS`: a server that kept nothing of the sessions an earlier process of it held, and never gives
+            // a new session the id of one it was asked for.
+            "session/resume" if official() && setting("FAKE_AGENT_FORGETS").is_some() && !self.sessions.contains_key(&self.current) => {
+                let asked = self.current.strip_prefix("sess-").and_then(|number| number.parse().ok()).unwrap_or(0);
+                self.numbered = self.numbered.max(asked);
+                send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32002, "message": format!("Resource not found: {}", self.current) } }));
+            }
             "session/resume" | "session/load" => {
-                self.session = params["sessionId"].as_str().unwrap_or_default().to_owned();
                 self.opened(params);
-                self.resumed = method == "session/resume";
-                self.loaded = method == "session/load";
+                let session = self.session();
+                session.resumed = method == "session/resume";
+                session.loaded = method == "session/load";
                 answer(&id, json!({}));
             }
             // A model request that is never answered.
@@ -519,16 +591,17 @@ impl Agent {
                 send(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": "Unknown model ID: refused" } }));
             }
             "session/set_model" => {
-                self.model = params["modelId"].as_str().unwrap_or_default().to_owned();
+                self.session().model = params["modelId"].as_str().unwrap_or_default().to_owned();
                 answer(&id, json!({}));
             }
             "session/prompt" => self.prompt(id, &params["prompt"]),
+            // Only the session it names is cancelled.
             "session/cancel" => {
-                if let Some(prompt) = self.hanging.take() {
+                if let Some(prompt) = self.session().hanging.take() {
                     self.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "h1", "status": "failed" }));
                     answer(&prompt, json!({ "stopReason": "cancelled" }));
                 }
-                if let Some(prompt) = self.muted.take() {
+                if let Some(prompt) = self.session().muted.take() {
                     answer(&prompt, json!({ "stopReason": "cancelled" }));
                 }
             }
@@ -652,6 +725,17 @@ pub fn run(args: Vec<String>) {
         _ => {}
     }
     log("start acp");
+    // The official server's build unpacks itself into its temporary folder, and leaves what it unpacked when it is ended
+    // by force. Only a folder of Mixdog's own is unpacked into: a check runs the server in the system's.
+    if official() {
+        let temp = std::env::var("TEMP").unwrap_or_default();
+        log(&format!("official temp={temp}"));
+        let temp = std::path::Path::new(&temp);
+        if temp.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("pid-")) {
+            std::fs::create_dir_all(temp.join("_MEIfake")).unwrap();
+            std::fs::write(temp.join("_MEIfake").join("base_library.zip"), "unpacked").unwrap();
+        }
+    }
     // `FAKE_AGENT_CHILD_PID_FILE`: the agent has a child of its own, whose pid it writes there.
     if let Some(file) = setting("FAKE_AGENT_CHILD_PID_FILE") {
         let child = std::process::Command::new(std::env::current_exe().unwrap()).arg("idle").spawn().unwrap();
@@ -663,5 +747,8 @@ pub fn run(args: Vec<String>) {
         if let Ok(message) = serde_json::from_str::<Value>(&line) {
             agent.handle(&message);
         }
+    }
+    if official() {
+        log("eof");
     }
 }

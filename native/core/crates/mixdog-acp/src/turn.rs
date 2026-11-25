@@ -329,6 +329,11 @@ impl Reply<'_> {
         &self.session.preset.id
     }
 
+    /// What the cards of the agent's own tools' calls are named after.
+    fn cards(&self) -> &str {
+        &self.session.preset.tool_prefix
+    }
+
     fn meta(&self) -> ItemMeta {
         ItemMeta { turn_id: Some(self.context.turn.clone()), ..ItemMeta::default() }
     }
@@ -516,7 +521,7 @@ impl Reply<'_> {
         let id = self.session.call_id(agent_id, self.context.turn.as_str(), self.epoch);
         let tool = &earlier.tool;
         self.late += 1;
-        let (name, arguments) = tool.late_card(self.agent(), &earlier.id);
+        let (name, arguments) = tool.late_card(self.cards(), &earlier.id);
         self.commit_assistant(surface.as_ref(), new_item_id(), "", vec![(id.clone(), name, arguments)]).await?;
         self.commit_result(rows::tool_result(new_item_id(), &id, tool.result_text(), tool.status == "failed", tool.diff(&self.differ))).await
     }
@@ -564,7 +569,7 @@ impl Reply<'_> {
             tool.merge(update);
             let (item, text) = self.text_before_call().await?;
             let id = self.session.call_id(&agent_id, self.context.turn.as_str(), self.epoch);
-            let (name, arguments) = tool.card(self.agent());
+            let (name, arguments) = tool.card(self.cards());
             self.context.mark(|progress, now| progress.tool_call(Some(&name), now));
             // The call is the turn's once its row is stored, and from then on the turn's end gives it a result: a row
             // the session did not take leaves no call to close, so no result is written for a call that is not there.
@@ -845,7 +850,7 @@ impl Reply<'_> {
         }
         let Some(agent_id) = self.call_card(&request).await? else { return Ok(outcome(None)) };
         let call = &self.calls[&agent_id];
-        let name = call.tool.name(self.agent());
+        let name = call.tool.name(self.cards());
         let key = call.tool.grant_key(self.agent());
         // Work of a kind Mixdog has a tool for (a read, an edit, a command) is judged first, as a call of that tool is
         // in this session: its surface, its PreToolUse hooks and its human gate, on every file the call touches. What
@@ -1052,7 +1057,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let sent = tokio::select! {
                 biased;
                 () = context.cancel.cancelled() => None,
-                sent = session.connection.send("session/prompt", json!({ "sessionId": session.session_id, "prompt": blocks })) => Some(sent),
+                sent = session.prompt(blocks) => Some(sent),
             };
             match sent {
                 Some(Ok(id)) => {
@@ -1069,15 +1074,15 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
                     Some(id)
                 }
                 // The process ended, or stopped reading, while the prompt was written: it may have read the prompt and
-                // written to it before it ended. The process is ended, and the turn reads what it wrote up to its end
-                // and fails as one whose agent exited.
+                // written to it before it ended. The session is ended (on a shared server it alone leaves it), and the
+                // turn reads what was sent of it up to its end and fails as one whose agent exited.
                 Some(Err(_)) => {
-                    session.connection.kill();
+                    session.end();
                     None
                 }
                 // The agent stopped reading while the prompt was written: how much of it it holds is unknown.
                 None => {
-                    session.connection.kill();
+                    session.end();
                     session.detach(stream, Vec::new()).await;
                     context.mark(|progress, now| progress.settle("done", now, false));
                     return TurnEnd::Interrupted;
@@ -1201,7 +1206,7 @@ pub async fn run(session: &Arc<AgentSession>, surface: Arc<dyn TurnSurface>, ask
             let _ = reply.show_held().await;
             reply.close(surface.as_ref(), ("The agent's process ended before this call did.", true)).await;
             session.detach(stream, Vec::new()).await;
-            TurnEnd::Failed { message: session.connection.closed().to_string(), code: None, reported: false }
+            TurnEnd::Failed { message: session.closed().to_string(), code: None, reported: false }
         }
         // The user stopped the turn, the agent says it was stopped, or the session is gone from under the turn: the
         // agent is told to stop unless it already closed the prompt, and what the turn showed is closed on a surface

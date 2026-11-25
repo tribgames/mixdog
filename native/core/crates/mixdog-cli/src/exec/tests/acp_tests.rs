@@ -194,7 +194,7 @@ fn an_acp_lead_runs_only_while_the_hosts_switch_of_the_agents_is_on() {
         let dir = tempfile::tempdir().unwrap();
         let host = host_settings(dir.path(), agent.clone());
         let refused = boundary_on(dir.path(), "acp-antigravity", &host, &BTreeMap::new(), None).err().expect("refused");
-        assert_eq!(refused, "route \"lead\" provider \"acp-antigravity\" is the ACP agent Antigravity ACP: ACP agents are turned off in Settings.", "{agent}");
+        assert_eq!(refused, "route \"lead\" provider \"acp-antigravity\" is the ACP agent Antigravity: ACP agents are turned off in Settings.", "{agent}");
         assert_eq!(std::fs::read_dir(dir.path().join("tmp")).unwrap().count(), 0, "{agent}");
     }
     let dir = tempfile::tempdir().unwrap();
@@ -231,7 +231,7 @@ fn a_route_profiles_role_on_an_acp_agent_is_refused_by_name() {
     let refused = boundary_on(dir.path(), "openai", &host, &BTreeMap::new(), Some(profile)).err().expect("refused");
     assert_eq!(
         refused,
-        "--route-profile route \"worker\" provider \"acp-antigravity\" is the ACP agent Antigravity ACP; mixdog exec runs an ACP agent only on the Lead's route"
+        "--route-profile route \"worker\" provider \"acp-antigravity\" is the ACP agent Antigravity; mixdog exec runs an ACP agent only on the Lead's route"
     );
     assert_eq!(std::fs::read_dir(dir.path().join("tmp")).unwrap().count(), 0);
 }

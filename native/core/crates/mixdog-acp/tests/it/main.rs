@@ -385,14 +385,26 @@ impl TextFiles for Files {
         AbsPath::new(resolved).ok_or_else(|| "not absolute".to_owned())
     }
 
-    // The agent definitions are made as the core makes them.
+    // The agent definitions and the servers' temporary folders are made and removed as the core makes and removes them.
     async fn create(&self, path: AbsPath, text: String) -> Result<(), String> {
-        let files = mixdog_acp::files::ServiceFiles {
-            files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
-            lane: mixdog_rt::testing::tokens().interactive_io,
-        };
-        files.create(path, text).await
+        service_files().create(path, text).await
     }
+
+    async fn make_folder(&self, path: AbsPath) -> Result<(), String> {
+        service_files().make_folder(path).await
+    }
+
+    async fn remove_folder(&self, path: AbsPath) -> Result<(), String> {
+        service_files().remove_folder(path).await
+    }
+
+    async fn folders(&self, path: AbsPath) -> Result<Vec<String>, String> {
+        service_files().folders(path).await
+    }
+}
+
+fn service_files() -> mixdog_acp::files::ServiceFiles {
+    mixdog_acp::files::ServiceFiles { files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()), lane: mixdog_rt::testing::tokens().interactive_io }
 }
 
 struct World {
@@ -685,6 +697,53 @@ impl World {
         let context = TurnContext { calls, ..self.context(cancel) };
         mixdog_acp::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(vec![json!({ "type": "text", "text": text })]), context).await
     }
+
+    /// The folder `name` of the world's folder, made: the folder of a session of its own.
+    fn folder(&self, name: &str) -> AbsPath {
+        let path = self.dir.path().join(name);
+        #[allow(clippy::disallowed_methods, reason = "a test makes a session's folder")]
+        std::fs::create_dir_all(&path).expect("the folder");
+        AbsPath::new(path).expect("an absolute folder")
+    }
+
+    /// One prompt turn of `thread` in `cwd`, its conversation holding the agent's session `stored`, reported to `surface`.
+    async fn prompt_in(&self, thread: &ThreadId, cwd: &AbsPath, surface: &Surface, text: &str, stored: Option<&str>, cancel: CancellationToken) -> TurnEnd {
+        let session = self.agents.session(thread, &self.preset, cwd.clone(), stored.map(held), Some("RULES".into())).await.expect("the agent starts");
+        mixdog_acp::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(vec![json!({ "type": "text", "text": text })]), self.context(cancel)).await
+    }
+
+    /// What the agent answers `text` in `thread`'s session in `cwd`.
+    async fn answer_in(&self, thread: &ThreadId, cwd: &AbsPath, text: &str) -> String {
+        let end = within("the turn", self.prompt_in(thread, cwd, &Surface::default(), text, None, CancellationToken::new())).await;
+        completed_text(&end).to_owned()
+    }
+
+    /// The temporary folders the starts of the official server were given, in order: Mixdog's own, not a check's.
+    fn server_temps(&self) -> Vec<std::path::PathBuf> {
+        let root = self.dir.path().join("acp-agents").join("tmp");
+        self.log().iter().filter_map(|line| line.strip_prefix("official temp=")).map(std::path::PathBuf::from).filter(|temp| temp.starts_with(&root)).collect()
+    }
+
+    /// How the process `handle` ended; `None` while it runs.
+    fn exit_of(&self, handle: &mixdog_protocol::ProcessHandle) -> Option<mixdog_core_api::domain::process::ProcessExit> {
+        self.processes.list().into_iter().find(|process| &process.handle == handle).and_then(|process| process.exit)
+    }
+}
+
+/// The exit of a process that ended as the end of its input ended it.
+const CLOSED: mixdog_core_api::domain::process::ProcessExit =
+    mixdog_core_api::domain::process::ProcessExit { status: mixdog_core_api::domain::process::ExitStatus::Code(0), killed: None };
+
+#[allow(clippy::disallowed_methods, reason = "a test looks at the folders the agents keep")]
+fn exists(path: &std::path::Path) -> bool {
+    path.exists()
+}
+
+/// The URL and the bearer token of the session's tool server, from the fake's `servers` answer.
+fn tool_server(said: &str) -> (String, String) {
+    let servers: Value = serde_json::from_str(said.strip_prefix("servers=").unwrap_or_else(|| panic!("not the session's servers: {said}"))).expect("JSON");
+    let token = servers[0]["headers"][0]["value"].as_str().expect("the token").to_owned();
+    (servers[0]["url"].as_str().expect("the URL").to_owned(), token)
 }
 
 /// The agent's session `id` as a conversation holds it, with no record of the prompt that session was given.
@@ -735,7 +794,7 @@ async fn a_prompts_stream_becomes_live_items_and_committed_rows() {
     assert_eq!(rows[0]["toolCalls"][0]["name"], "shell");
     assert_eq!(rows[0]["toolCalls"][0]["arguments"], json!({ "command": "npm test" }));
     assert_eq!((&rows[1]["toolCallId"], &rows[1]["content"]), (&json!("turn-1.t1"), &json!("ok")));
-    assert_eq!(rows[2]["toolCalls"][0]["name"], "antigravity-cli_edit");
+    assert_eq!(rows[2]["toolCalls"][0]["name"], "antigravity_edit");
     let diff = rows[3]["uiDiff"].as_str().expect("the edit's diff");
     assert!(diff.contains("a.txt") && diff.contains("-one") && diff.contains("+two"), "{diff}");
     assert_eq!(rows[4]["toolCalls"][0]["name"], "todo");
@@ -781,11 +840,11 @@ async fn a_permission_request_is_asked_on_the_session_and_its_answer_returns_to_
         assert_eq!(completed_text(&end), said);
         let asks = surface.0.asks.lock().unwrap().clone();
         assert_eq!(asks.len(), 1);
-        assert_eq!(asks[0].tool.as_deref(), Some("antigravity-cli_execute"));
+        assert_eq!(asks[0].tool.as_deref(), Some("antigravity_execute"));
         assert_eq!(asks[0].reason.as_deref(), Some("Delete build"));
         assert_eq!(asks[0].payload["args"]["command"], "rm -rf build");
         // The card's words are the client's: the agent and whether its call has a title are data.
-        assert_eq!(asks[0].payload["agent"], json!({ "id": "antigravity-cli", "label": "Antigravity CLI" }));
+        assert_eq!(asks[0].payload["agent"], json!({ "id": "antigravity-cli", "label": "Antigravity" }));
         assert_eq!(asks[0].payload["untitled"], false);
         // The call has its card before the user is asked, under the id the ask names.
         let call = surface.rows()[0]["toolCalls"][0]["id"].as_str().expect("the call's id").to_owned();
@@ -972,7 +1031,7 @@ async fn a_signed_out_cli_and_a_ready_one_are_told_apart() {
     ready.all_exited().await;
     let rows = ready.agents.picker_rows();
     let listed: Vec<(&str, &str)> = rows.iter().map(|row| (row["id"].as_str().unwrap(), row["display"].as_str().unwrap())).collect();
-    assert_eq!(listed, [("default", "Antigravity CLI"), ("m1", "Antigravity CLI · Model One"), ("m2", "Antigravity CLI · Model Two")]);
+    assert_eq!(listed, [("default", "Antigravity"), ("m1", "Antigravity · Model One"), ("m2", "Antigravity · Model Two")]);
     assert!(rows.iter().all(|row| row["provider"] == "acp-antigravity-cli" && row["runner"] == "acp"));
 }
 
@@ -1029,7 +1088,7 @@ async fn a_reply_the_agent_begins_after_its_turn_asks_for_a_turn_that_ends_with_
     assert_eq!(rows.iter().map(|row| row["role"].as_str().unwrap_or_default()).collect::<Vec<_>>(), ["assistant", "tool", "assistant"], "{rows:?}");
     let late = &rows[0]["toolCalls"][0];
     assert_ne!(late["id"], made);
-    assert_eq!((&late["name"], &late["arguments"]["resultOf"]), (&json!("antigravity-cli_execute"), &made));
+    assert_eq!((&late["name"], &late["arguments"]["resultOf"]), (&json!("antigravity_execute"), &made));
     assert_eq!((&rows[1]["toolCallId"], &rows[2]["content"]), (&late["id"], &json!("woke")));
     assert!(!session.woken());
     assert_eq!(world.logged("session/prompt"), 1, "a wake is never sent to the agent as a prompt");
@@ -1168,7 +1227,7 @@ async fn an_agent_session_that_starts_in_the_middle_of_a_conversation_is_sent_mi
     let end = world.ask(&surface, "whoami", Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() }).await;
     let lead = completed_text(&end).split_once(" lead=").expect("the lead").1;
     assert!(lead.starts_with("# The conversation before this session") && lead.contains("## User\nearlier talk"), "{end:?}");
-    assert_eq!(surface.notices(), ["The conversation above was summarized for Antigravity CLI, which starts a session of its own here."]);
+    assert_eq!(surface.notices(), ["The conversation above was summarized for Antigravity, which starts a session of its own here."]);
     let next = Surface::default();
     let input = json!({ "role": "user", "content": "whoami" });
     let end = within("the next turn", world.serve(&next, input, Some("sess-1"), "default", CancellationToken::new())).await;
@@ -1191,7 +1250,7 @@ async fn a_summary_that_cannot_be_made_fails_the_turn_and_the_agent_is_not_start
     assert_eq!(
         end,
         TurnEnd::Failed {
-            message: "The conversation could not be summarized for Antigravity CLI: the summary route answered nothing".into(),
+            message: "The conversation could not be summarized for Antigravity: the summary route answered nothing".into(),
             code: None,
             reported: false
         }
@@ -1248,7 +1307,7 @@ async fn a_prompts_images_are_sent_as_image_blocks_or_the_user_is_told_they_were
     let surface = Surface::default();
     let end = within("the turn", world.serve(&surface, input(), None, "default", CancellationToken::new())).await;
     assert!(completed_text(&end).ends_with(" images=0"), "{end:?}");
-    assert_eq!(surface.notices(), ["2 image(s) of this message were not sent to Antigravity CLI: Antigravity CLI takes no images."]);
+    assert_eq!(surface.notices(), ["2 image(s) of this message were not sent to Antigravity: Antigravity takes no images."]);
 }
 
 #[tokio::test]
@@ -1311,7 +1370,7 @@ async fn an_authentication_notice_the_reply_ends_on_fails_the_turn_and_signs_the
     no_notice_shown(&surface);
     assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
     let refusal = world.agents.selectable(&world.preset).err().expect("a signed-out agent runs no turn");
-    assert_eq!(refusal.message(&world.preset), "Antigravity CLI is signed out. Sign in to it in Settings.");
+    assert_eq!(refusal.message(&world.preset), "Antigravity is signed out. Sign in to it in Settings.");
     // The refusal reaches the run as a sign-in failure, typed as a provider's authentication failure is.
     assert!(refusal.signed_out());
     let error = world.agents.failure(&world.preset, refusal.message(&world.preset), Some(-32000), json!({}), None).await;
@@ -1525,7 +1584,7 @@ async fn a_call_of_the_agents_own_whose_title_names_a_mixdog_tool_is_asked_on_a_
     // what they ask about is asked on the call's own card, and its row is the agent's call.
     let asks = surface.0.asks.lock().unwrap().clone();
     let args = json!({ "CommandLine": "ls mcp_mixdog_read", "title": "ls mcp_mixdog_read" });
-    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity-cli_execute"), &args)]);
+    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity_execute"), &args)]);
     assert_eq!(*tools.seen.lock().unwrap(), ["judge shell"]);
     assert_eq!(surface.rows()[0]["toolCalls"][0]["name"], "shell");
     assert!(tools.ran.lock().unwrap().is_empty(), "no tool of the session ran");
@@ -1579,7 +1638,7 @@ async fn an_agent_that_never_connects_to_the_sessions_tool_server_is_told_of_onc
     world.ask(&surface, "whoami", Turns::default()).await;
     assert_eq!(
         surface.notices(),
-        ["Antigravity CLI did not take Mixdog's tools: it never connected to the session's tool server, and works with its own tools only."]
+        ["Antigravity did not take Mixdog's tools: it never connected to the session's tool server, and works with its own tools only."]
     );
     let next = Surface::default();
     let input = json!({ "role": "user", "content": "whoami" });
@@ -1718,7 +1777,7 @@ async fn a_route_on_an_agent_is_saved_as_a_providers_and_picked_only_while_the_a
     assert_eq!(world.checked().await["state"], "signedOut");
     assert!(facts.is_known("acp-antigravity-cli", &config));
     let refused = facts.ensure_ready(&config, "acp-antigravity-cli").await.expect_err("a signed-out agent was picked");
-    assert!(refused.contains("Antigravity CLI"), "{refused}");
+    assert!(refused.contains("Antigravity"), "{refused}");
 
     let world = World::new(&[]);
     world.checked().await;
@@ -1752,7 +1811,7 @@ async fn an_agent_tells_its_accounts_plan_and_is_signed_out_with_the_protocols_l
     // An agent that does not advertise the method is not asked for it.
     let fixed = World::new(&[("FAKE_AGENT_NO_LOGOUT", "1")]);
     assert_eq!(fixed.checked().await["canSignOut"], false);
-    assert_eq!(within("the refused sign-out", fixed.agents.sign_out(&fixed.preset)).await, Err("Antigravity CLI offers no sign-out.".to_owned()));
+    assert_eq!(within("the refused sign-out", fixed.agents.sign_out(&fixed.preset)).await, Err("Antigravity offers no sign-out.".to_owned()));
     assert_eq!(fixed.logged("logout"), 0);
 }
 
@@ -1768,7 +1827,7 @@ async fn a_model_the_agent_lists_at_several_tiers_is_one_row_and_the_routes_effo
     let row = |id: &str| rows.iter().find(|row| row["id"] == id).cloned().expect("the model's row");
     assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), ["default", "gem", "solo"]);
     let gem = row("gem");
-    assert_eq!((&gem["display"], &gem["modelName"], &gem["defaultEffort"]), (&json!("Antigravity CLI · Gem"), &json!("Gem"), &json!("low")));
+    assert_eq!((&gem["display"], &gem["modelName"], &gem["defaultEffort"]), (&json!("Antigravity · Gem"), &json!("Gem"), &json!("low")));
     assert_eq!(gem["effortOptions"].as_array().expect("efforts").iter().map(|item| item["value"].as_str().unwrap()).collect::<Vec<_>>(), ["low", "high"]);
     assert!(!gem["notApplicable"].as_array().unwrap().contains(&json!("effort")));
     // A model the agent lists once has no effort to choose.
@@ -1838,8 +1897,8 @@ async fn an_agents_model_rows_carry_the_marks_saved_for_them_as_a_providers_rows
     let row = |id: &str| read["models"].as_array().expect("rows").iter().find(|row| row["id"] == id).cloned().expect("the model's row");
     assert_eq!((&row(&starred)["favorite"], &row(&starred)["savedHidden"]), (&json!(true), &Value::Null));
     assert_eq!((&row(&hidden)["favorite"], &row(&hidden)["savedHidden"]), (&Value::Null, &json!(true)));
-    assert_eq!(row(&starred)["agentLabel"], "Antigravity CLI");
-    assert_eq!(row(&starred)["display"], format!("Antigravity CLI · {}", row(&starred)["modelName"].as_str().expect("the model's own name")));
+    assert_eq!(row(&starred)["agentLabel"], "Antigravity");
+    assert_eq!(row(&starred)["display"], format!("Antigravity · {}", row(&starred)["modelName"].as_str().expect("the model's own name")));
 }
 
 #[tokio::test]
@@ -1975,7 +2034,7 @@ async fn a_route_refreshed_with_no_row_takes_the_agents_row_with_its_efforts_or_
 
     writer.set_route_state(&thread(), route("gem", Some("high")));
     let gem = within("the refresh", writer.refresh_route_effort(&thread(), None, true, None)).await.expect("refreshed").expect("written");
-    assert_eq!((&gem["effectiveEffort"], &gem["modelDisplay"], &gem["fastCapable"]), (&json!("high"), &json!("Antigravity CLI · Gem"), &json!(false)));
+    assert_eq!((&gem["effectiveEffort"], &gem["modelDisplay"], &gem["fastCapable"]), (&json!("high"), &json!("Antigravity · Gem"), &json!(false)));
     let efforts: Vec<&str> = gem["effortOptions"].as_array().expect("the efforts").iter().filter_map(|item| item["value"].as_str()).collect();
     assert_eq!(efforts, ["low", "high"]);
     assert_eq!(writer.route(&thread()), gem, "the filled route is the session's");
@@ -1983,7 +2042,7 @@ async fn a_route_refreshed_with_no_row_takes_the_agents_row_with_its_efforts_or_
     writer.set_route_state(&thread(), route("solo", None));
     let solo = within("the refresh", writer.refresh_route_effort(&thread(), None, true, None)).await.expect("refreshed").expect("written");
     assert_eq!((&solo["effortOptions"], &solo["effectiveEffort"]), (&json!([]), &Value::Null), "{solo:?}");
-    assert_eq!((&solo["modelDisplay"], &solo["fastCapable"]), (&json!("Antigravity CLI · Solo"), &json!(false)));
+    assert_eq!((&solo["modelDisplay"], &solo["fastCapable"]), (&json!("Antigravity · Solo"), &json!(false)));
 }
 
 /// A refresh whose lease names a session generation that has moved on writes nothing over the newer session.
@@ -3066,7 +3125,7 @@ async fn a_missing_cli_is_installed_by_the_feature_and_found_without_a_restart()
 async fn a_failed_install_says_what_failed() {
     let world = uninstalled(&[("FAKE_AGENT_INSTALL_FAILS", "no route to the download server")]);
     let failed = within("the install", world.agents.install()).await.expect_err("the install fails");
-    assert_eq!(failed, "Antigravity CLI could not be installed: no route to the download server");
+    assert_eq!(failed, "Antigravity could not be installed: no route to the download server");
     let agent = world.agents.status()["agents"][0].clone();
     assert_eq!(agent["state"], "notInstalled");
     assert_eq!(agent["lastError"], json!({ "action": "install", "message": "no route to the download server" }));
@@ -3570,7 +3629,7 @@ async fn an_attached_file_reaches_the_agent_as_its_text_or_a_link_to_where_it_is
         ] })
     };
     // Each file left out is named.
-    let told = ["Not sent to Antigravity CLI (not readable where the session keeps its attachments): \"lost.pdf\", \"old notes.txt\"."];
+    let told = ["Not sent to Antigravity (not readable where the session keeps its attachments): \"lost.pdf\", \"old notes.txt\"."];
     let link = json!({ "type": "resource_link", "uri": "file:///C:/data%20dir/blobs/paper", "name": "paper.pdf", "mimeType": "application/pdf" });
     let sent = |end: &TurnEnd| {
         let (files, lead) = completed_text(end).strip_prefix("files=").expect("the files").rsplit_once(" lead=").expect("the lead");
@@ -3615,7 +3674,7 @@ async fn the_sessions_permissions_answer_the_agents_own_read_and_command_as_they
     assert_eq!(completed_text(&end), "option:once");
     let asks = surface.0.asks.lock().unwrap().clone();
     let args = json!({ "command": "rm -rf build", "title": "Delete build" });
-    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity-cli_execute"), &args)]);
+    assert_eq!(asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"])).collect::<Vec<_>>(), [(Some("antigravity_execute"), &args)]);
     assert_eq!(*tools.seen.lock().unwrap(), ["judge read", "judge shell"], "judged, and nothing of the session ran or was reported");
     assert!(tools.ran.lock().unwrap().is_empty());
 
@@ -3624,7 +3683,7 @@ async fn the_sessions_permissions_answer_the_agents_own_read_and_command_as_they
     assert_eq!(completed_text(&end), "option:no");
     assert!(surface.0.asks.lock().unwrap().is_empty(), "a refusal asks nobody");
     let notices = surface.notices();
-    assert!(notices.len() == 1 && notices[0].starts_with("Antigravity CLI's call \"Run it\" was not allowed in this session: "), "{notices:?}");
+    assert!(notices.len() == 1 && notices[0].starts_with("Antigravity's call \"Run it\" was not allowed in this session: "), "{notices:?}");
 }
 
 /// A call of the agent's that touches several files is judged on every one: one the session refuses refuses the call,
@@ -3655,7 +3714,7 @@ async fn a_command_of_the_agents_own_with_no_command_line_is_asked_on_its_card()
     assert_eq!(completed_text(&end), "option:no");
     assert!(tools.seen.lock().unwrap().is_empty(), "nothing was judged");
     let asks = surface.0.asks.lock().unwrap().clone();
-    assert_eq!(asks.iter().map(|ask| ask.tool.as_deref()).collect::<Vec<_>>(), [Some("antigravity-cli_execute")]);
+    assert_eq!(asks.iter().map(|ask| ask.tool.as_deref()).collect::<Vec<_>>(), [Some("antigravity_execute")]);
 }
 
 /// The user's approval of the agent's tool for the rest of the session, from its card.
@@ -3702,7 +3761,7 @@ async fn a_call_the_session_would_run_only_changed_is_asked_on_its_card() {
     let asks = surface.0.asks.lock().unwrap().clone();
     assert_eq!(
         asks.iter().map(|ask| (ask.tool.as_deref(), &ask.payload["args"]["command"])).collect::<Vec<_>>(),
-        [(Some("antigravity-cli_execute"), &json!("moved here"))]
+        [(Some("antigravity_execute"), &json!("moved here"))]
     );
 }
 
@@ -3923,9 +3982,9 @@ async fn each_preset_offers_and_runs_only_its_own_models() {
 
     let now: Arc<dyn Fn() -> i64 + Send + Sync> = Arc::new(|| 0_i64);
     for (preset, model, said) in [
-        (&world.preset, "claude-opus-5-5", "Antigravity ACP does not run the model \"claude-opus-5-5\". Choose it under Antigravity CLI."),
-        (&cli, "gemini-4-neon-high", "Antigravity CLI does not run the model \"gemini-4-neon-high\". Choose it under Antigravity ACP."),
-        (&cli, "default", "Antigravity CLI does not run its agent's default model. Choose it under Antigravity ACP."),
+        (&world.preset, "claude-opus-5-5", "Antigravity (acp-antigravity) does not run the model \"claude-opus-5-5\". Choose it under Antigravity (acp-antigravity-cli)."),
+        (&cli, "gemini-4-neon-high", "Antigravity (acp-antigravity-cli) does not run the model \"gemini-4-neon-high\". Choose it under Antigravity (acp-antigravity)."),
+        (&cli, "default", "Antigravity (acp-antigravity-cli) does not run its agent's default model. Choose it under Antigravity (acp-antigravity)."),
     ] {
         let end = within("the refused turn", world.serve_on(preset, model)).await;
         assert_eq!(end, TurnEnd::Failed { message: said.to_owned(), code: None, reported: false }, "{model}");
@@ -3934,4 +3993,335 @@ async fn each_preset_offers_and_runs_only_its_own_models() {
     }
     assert!(world.agents.running(&thread()).is_none());
     assert_eq!((world.logged("session/set_model"), world.logged("session/prompt")), (0, 0), "{:?}", world.log());
+}
+
+/// A route on a model of the other preset is refused by that model first, whatever this preset's state: an official
+/// server that is not installed is not what the user is told, and nothing is started.
+#[tokio::test]
+async fn a_route_on_the_other_presets_model_is_refused_by_the_model_before_the_presets_state() {
+    let world = World::of(&["antigravity", "antigravity-cli"], &[], |_, _| {});
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
+    std::fs::remove_file(world.dir.path().join("acp-agents").join("bin").join("antigravity").join("installed.json")).expect("the install");
+    let end = within("the refused turn", world.serve_on(&world.preset, "claude-opus-5-5")).await;
+    let said = "Antigravity (acp-antigravity) does not run the model \"claude-opus-5-5\". Choose it under Antigravity (acp-antigravity-cli).";
+    assert_eq!(end, TurnEnd::Failed { message: said.to_owned(), code: None, reported: false });
+    let gemini = within("the turn on its own model", world.serve_on(&world.preset, "gemini-4-neon")).await;
+    assert!(matches!(&gemini, TurnEnd::Failed { message, .. } if message.contains("is not installed")), "{gemini:?}");
+    assert!(world.processes.list().is_empty(), "{:?}", world.log());
+}
+
+/// The official server starts once, when the first session needs it, however many sessions start at once, and serves
+/// every later one; each session keeps its own folder, tool server with its own token, and settings.
+#[tokio::test]
+async fn one_official_server_serves_every_session_each_with_its_own_folder_tool_server_and_settings() {
+    let (world, _tools) = handing_in(World::official(&[]));
+    let (a, b, c) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"), ThreadId::from("sess_c"));
+    let (in_a, in_b) = (world.folder("a"), world.folder("b"));
+    let rules = || Some("RULES".to_owned());
+    let (first, second) = within("the first two sessions", async {
+        tokio::join!(world.agents.session(&a, &world.preset, in_a.clone(), None, rules()), world.agents.session(&b, &world.preset, in_b.clone(), None, rules()))
+    })
+    .await;
+    let (first, second) = (first.expect("a's agent"), second.expect("b's agent"));
+    assert_eq!(world.server_temps().len(), 1, "the concurrent first opens started one server: {:?}", world.log());
+    assert_eq!(first.connection.handle(), second.connection.handle());
+    assert_ne!(first.session_id, second.session_id);
+
+    assert_eq!(world.answer_in(&a, &in_a, "cwd").await, format!("cwd={}", in_a.as_path().display()));
+    assert_eq!(world.answer_in(&b, &in_b, "cwd").await, format!("cwd={}", in_b.as_path().display()));
+    let (url_a, token_a) = tool_server(&world.answer_in(&a, &in_a, "servers").await);
+    let (url_b, token_b) = tool_server(&world.answer_in(&b, &in_b, "servers").await);
+    assert!(url_a != url_b && token_a != token_b, "each session is handed a tool server of its own: {url_a} {url_b}");
+    let handed = json!({ "antigravity": {
+        "systemPrompt": { "append": "RULES" },
+        "mcpMaxOutputBytes": 100_000,
+        "eagerMcpServers": ["mixdog"],
+        "disabledTools": OFFICIAL_TOOLS,
+    } });
+    assert_eq!(meta_of(&world.answer_in(&a, &in_a, "meta").await), handed);
+    assert_eq!(meta_of(&world.answer_in(&b, &in_b, "meta").await), handed);
+
+    // A later session is the same server's.
+    assert!(world.answer_in(&c, &world.cwd(), "whoami").await.starts_with("session=sess-3 resumed=false"));
+    assert_eq!(world.agents.running(&c).expect("c's agent").connection.handle(), first.connection.handle());
+    assert_eq!((world.server_temps().len(), world.logged("start acp")), (1, 2), "the check's process, then the one server: {:?}", world.log());
+}
+
+/// What the server sends of a session reaches that session alone, while the others' turns run: its updates, its questions,
+/// its reads, which are answered from its own folder only, and its prompt's answer; a read or a question that names no
+/// session it holds open is refused. A cancel stops that session's prompt alone.
+#[tokio::test]
+async fn what_the_shared_server_sends_of_a_session_reaches_that_session_alone() {
+    let world = World::official(&[]);
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    let (in_a, in_b) = (world.folder("a"), world.folder("b"));
+    #[allow(clippy::disallowed_methods, reason = "a test writes the files its sessions read")]
+    {
+        std::fs::write(in_a.as_path().join("a.txt"), "alpha").expect("a's file");
+        std::fs::write(in_b.as_path().join("b.txt"), "beta").expect("b's file");
+    }
+    let (of_a, of_b) = (in_a.as_path().join("a.txt").display().to_string(), in_b.as_path().join("b.txt").display().to_string());
+    // A's session opens first: it is the server's first.
+    assert!(world.answer_in(&a, &in_a, "whoami").await.starts_with("session=sess-1"));
+
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let hanging = world.prompt_in(&a, &in_a, &working, "hang", None, stop.clone());
+    let others = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        let read = Surface::default();
+        let end = world.prompt_in(&b, &in_b, &read, &format!("read {of_b}"), None, CancellationToken::new()).await;
+        assert_eq!(completed_text(&end), "read:beta");
+        assert_eq!(read.streamed(), "read:beta", "only B's own reply");
+        let end = world.prompt_in(&b, &in_b, &Surface::default(), &format!("read {of_a}"), None, CancellationToken::new()).await;
+        assert!(completed_text(&end).starts_with("error:") && completed_text(&end).contains("outside the session's folder"), "{end:?}");
+        for named in ["-", "sess-9"] {
+            let end = world.prompt_in(&b, &in_b, &Surface::default(), &format!("readas {named} {of_b}"), None, CancellationToken::new()).await;
+            assert_eq!(completed_text(&end), "error:the read names no session this client holds open", "{named}");
+        }
+        let end = world.prompt_in(&b, &in_b, &Surface::default(), "askas sess-9", None, CancellationToken::new()).await;
+        assert_eq!(completed_text(&end), "cancelled", "a question about no open session is cancelled");
+        let asked = Surface::default();
+        let end = world.prompt_in(&b, &in_b, &asked, "permission", None, CancellationToken::new()).await;
+        assert_eq!(completed_text(&end), "option:no");
+        assert_eq!(asked.0.asks.lock().unwrap().len(), 1);
+        // Only A's prompt is cancelled.
+        stop.cancel();
+    };
+    let (end, ()) = within("the sessions' turns", async { tokio::join!(hanging, others) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    assert_eq!(working.streamed(), "working", "nothing of B's reached A's turn");
+    assert!(working.0.asks.lock().unwrap().is_empty());
+    world.logs("session/cancel sess-1").await;
+    assert_eq!(world.logged("session/cancel sess-2"), 0, "{:?}", world.log());
+    assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-2"));
+}
+
+/// A model switch and a close act on their session alone: the other session keeps its model, and a session that closes
+/// leaves the server (its tool server closed) while the server serves the others on.
+#[tokio::test]
+async fn a_model_switch_and_a_close_act_on_one_session_of_the_shared_server() {
+    let models = json!([{ "modelId": "gemini-a", "name": "Gemini A" }, { "modelId": "gemini-b", "name": "Gemini B" }]).to_string();
+    let (world, _tools) = handing_in(World::official(&[("FAKE_AGENT_MODELS", &models)]));
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    let in_b = world.folder("b");
+    let turns = Arc::new(Turns::default());
+    let request = TurnRequest {
+        thread: a.clone(),
+        cwd: world.cwd(),
+        stored: None,
+        rules: Some("RULES".into()),
+        input: json!({ "role": "user", "content": "whoami" }),
+        conversation: turns.clone(),
+        attachments: turns,
+    };
+    let context = TurnContext { model: "gemini-b".into(), ..world.context(CancellationToken::new()) };
+    let end = within("A's turn", mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), context)).await;
+    assert!(completed_text(&end).contains(" model=gemini-b "), "{end:?}");
+    assert!(world.answer_in(&b, &in_b, "whoami").await.contains(" model=m1 "), "B's session keeps its own model");
+    assert_eq!((world.logged("session/set_model sess-1"), world.logged("session/set_model sess-2")), (1, 0), "{:?}", world.log());
+
+    let (url, _) = tool_server(&world.answer_in(&a, &world.cwd(), "servers").await);
+    let port: u16 = url.trim_end_matches("/mcp").rsplit(':').next().and_then(|port| port.parse().ok()).expect("the port");
+    let server = world.agents.running(&a).expect("a's agent").connection.clone();
+    world.agents.release(&a);
+    within("A's tool server to close", async {
+        while tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(world.agents.running(&a).is_none());
+    assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-2"));
+    assert!(!server.exited().is_cancelled(), "the server serves B on");
+    assert_eq!(world.agents.running(&b).expect("b's agent").connection.handle(), server.handle());
+}
+
+/// A server that exits fails the turns running on it cleanly, and the next turn of each of its sessions starts one new
+/// server, in which each session is resumed with its id, a tool server of its own again and all its settings.
+#[tokio::test]
+async fn an_exited_shared_server_fails_its_turns_and_the_next_ones_resume_their_sessions_in_one_new_server() {
+    let (world, _tools) = handing_in(World::official(&[]));
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    let (in_a, in_b) = (world.folder("a"), world.folder("b"));
+    assert!(world.answer_in(&a, &in_a, "whoami").await.starts_with("session=sess-1"));
+    assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-2"));
+    let (_, token) = tool_server(&world.answer_in(&a, &in_a, "servers").await);
+
+    let working = Surface::default();
+    let hanging = world.prompt_in(&a, &in_a, &working, "hang", None, CancellationToken::new());
+    let dying = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        world.prompt_in(&b, &in_b, &Surface::default(), "die", None, CancellationToken::new()).await
+    };
+    let (hung, died) = within("the server's exit", async { tokio::join!(hanging, dying) }).await;
+    assert!(matches!(died, TurnEnd::Failed { code: None, .. }), "{died:?}");
+    assert!(matches!(&hung, TurnEnd::Failed { code: None, message, .. } if message.starts_with("the agent process ended")), "{hung:?}");
+    let rows = working.rows();
+    assert_eq!(rows.last().map(|row| row["content"].clone()), Some(json!("The agent's process ended before this call did.")), "{rows:?}");
+
+    let handed = json!({ "antigravity": {
+        "systemPrompt": { "append": "RULES" },
+        "mcpMaxOutputBytes": 100_000,
+        "eagerMcpServers": ["mixdog"],
+        "disabledTools": OFFICIAL_TOOLS,
+    } });
+    let (of_a, of_b) = (Surface::default(), Surface::default());
+    let (again_a, again_b) = within("the next turns", async {
+        tokio::join!(
+            world.prompt_in(&a, &in_a, &of_a, "meta", Some("sess-1"), CancellationToken::new()),
+            world.prompt_in(&b, &in_b, &of_b, "meta", Some("sess-2"), CancellationToken::new()),
+        )
+    })
+    .await;
+    assert_eq!((meta_of(completed_text(&again_a)), meta_of(completed_text(&again_b))), (handed.clone(), handed));
+    assert_eq!(world.server_temps().len(), 2, "one new server for both: {:?}", world.log());
+    assert_eq!((world.logged("session/resume sess-1"), world.logged("session/resume sess-2")), (1, 1), "{:?}", world.log());
+    let (_, resumed) = tool_server(&world.answer_in(&a, &in_a, "servers").await);
+    assert_ne!(resumed, token, "the resumed session is handed a new tool server");
+}
+
+/// A session the new server refuses to resume is opened anew, and the conversation is handed over as Mixdog's summary.
+#[tokio::test]
+async fn a_session_the_new_server_cannot_resume_is_opened_anew_with_the_conversations_summary() {
+    let world = World::official(&[("FAKE_AGENT_FORGETS", "1")]);
+    let input = || json!({ "role": "user", "content": "whoami" });
+    let first = within("the first turn", world.serve(&Surface::default(), input(), None, "default", CancellationToken::new())).await;
+    assert!(completed_text(&first).starts_with("session=sess-1 resumed=false"), "{first:?}");
+    let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
+    server.kill();
+    within("the server's exit", server.exited().cancelled()).await;
+
+    let surface = Surface::default();
+    let turns = Turns { summary: Some(Ok("## User\nearlier talk")), ..Turns::default() };
+    let end =
+        within("the next turn", world.serve_with(&surface, input(), Some(held("sess-1")), Some("RULES"), "default", CancellationToken::new(), turns)).await;
+    let said = completed_text(&end);
+    assert!(said.starts_with("session=sess-2 resumed=false") && said.contains("## User\nearlier talk"), "{end:?}");
+    assert_eq!(surface.notices(), ["Antigravity could not reopen its earlier session: the conversation above was summarized for the new one."]);
+    assert_eq!((world.logged("session/resume sess-1"), world.server_temps().len()), (1, 2), "{:?}", world.log());
+}
+
+/// The server keeps a process for each session that left it unclosed: once four have, and it serves and opens none, it is
+/// closed as the end of its input closes it, its temporary folder goes with it, and the next session starts a new one.
+#[tokio::test]
+async fn an_idle_shared_server_is_retired_once_four_sessions_left_it_unclosed() {
+    let world = World::official(&[]);
+    let keeper = ThreadId::from("sess_keeper");
+    world.answer_in(&keeper, &world.cwd(), "whoami").await;
+    let server = world.agents.running(&keeper).expect("the keeper's agent").connection.clone();
+    for n in 0..4 {
+        let thread = ThreadId::from(format!("sess_{n}"));
+        world.answer_in(&thread, &world.cwd(), "whoami").await;
+        world.agents.release(&thread);
+    }
+    // A session still open holds the server.
+    assert!(world.answer_in(&keeper, &world.cwd(), "whoami").await.starts_with("session=sess-1"));
+    assert!(!server.exited().is_cancelled());
+    let temp = world.server_temps().pop().expect("the server's temporary folder");
+    assert!(exists(&temp.join("_MEIfake")));
+
+    world.agents.release(&keeper);
+    within("the server's exit", server.exited().cancelled()).await;
+    assert_eq!(world.exit_of(server.handle()), Some(CLOSED), "closed by the end of its input");
+    assert_eq!(world.logged("eof"), 1);
+    assert!(!exists(&temp), "{temp:?}");
+    assert!(world.answer_in(&thread(), &world.cwd(), "whoami").await.starts_with("session=sess-1 resumed=false"));
+    assert_eq!(world.server_temps().len(), 2, "{:?}", world.log());
+}
+
+/// Each start of the server has a temporary folder of its own, removed once it exits however it ended; the first start
+/// of a daemon removes those that daemons gone since left behind, and keeps those of the daemon that runs.
+#[tokio::test]
+async fn each_server_start_has_its_own_temporary_folder_and_those_of_gone_daemons_are_swept() {
+    let world = World::official(&[]);
+    let tmp = world.dir.path().join("acp-agents").join("tmp");
+    let (gone, own) = (tmp.join("pid-2000000000-3"), tmp.join(format!("pid-{}-999999", std::process::id())));
+    #[allow(clippy::disallowed_methods, reason = "a test leaves what daemons left behind")]
+    {
+        std::fs::create_dir_all(gone.join("_MEI123")).expect("a gone daemon's folder");
+        std::fs::write(gone.join("_MEI123").join("python3.dll"), "unpacked").expect("its file");
+        std::fs::create_dir_all(&own).expect("this daemon's folder");
+    }
+    world.answer_in(&thread(), &world.cwd(), "whoami").await;
+    assert!(!exists(&gone) && exists(&own));
+    let temp = world.server_temps().pop().expect("the server's temporary folder");
+    assert!(temp.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with(&format!("pid-{}-", std::process::id()))), "{temp:?}");
+    assert!(exists(&temp.join("_MEIfake")));
+    // A server ended by force leaves nothing either.
+    let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
+    server.kill();
+    within("the server's exit", server.exited().cancelled()).await;
+    assert!(!exists(&temp), "{temp:?}");
+}
+
+/// The app's stop closes every shared server as the end of its input closes it, and nothing it unpacked is left.
+#[tokio::test]
+async fn the_apps_stop_closes_the_shared_server_and_leaves_nothing_it_unpacked() {
+    let world = World::official(&[]);
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    world.answer_in(&a, &world.cwd(), "whoami").await;
+    world.answer_in(&b, &world.folder("b"), "whoami").await;
+    let server = world.agents.running(&a).expect("a's agent").connection.clone();
+    let temp = world.server_temps().pop().expect("the server's temporary folder");
+    assert!(exists(&temp.join("_MEIfake")));
+    within("the stop", world.agents.shutdown()).await;
+    assert_eq!(world.exit_of(server.handle()), Some(CLOSED), "closed by the end of its input");
+    assert_eq!(world.logged("eof"), 1);
+    assert!(!exists(&temp), "{temp:?}");
+}
+
+/// The CLI's preset starts a process of its own for each session, as before.
+#[tokio::test]
+async fn the_clis_sessions_each_run_in_a_process_of_their_own() {
+    let world = World::new(&[]);
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    assert!(world.answer_in(&a, &world.cwd(), "whoami").await.starts_with("session=sess-1"));
+    assert!(world.answer_in(&b, &world.cwd(), "whoami").await.starts_with("session=sess-1"));
+    let (first, second) = (world.agents.running(&a).expect("a's agent"), world.agents.running(&b).expect("b's agent"));
+    assert_ne!(first.connection.handle(), second.connection.handle());
+    assert_eq!(world.logged("start acp"), 3, "the check's process and one per session");
+    world.agents.release(&a);
+    within("a's exit", first.connection.exited().cancelled()).await;
+    assert!(!second.connection.exited().is_cancelled());
+}
+
+/// A route that moves to the other preset of the agent ends the thread's session on the one it leaves: on the shared
+/// server only that session leaves it, and the server serves the others on.
+#[tokio::test]
+async fn a_route_moved_to_the_other_preset_takes_the_threads_session_off_the_shared_server_alone() {
+    let world = World::of(&["antigravity", "antigravity-cli"], &[], |_, _| {});
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    world.answer_in(&a, &world.cwd(), "whoami").await;
+    world.answer_in(&b, &world.folder("b"), "whoami").await;
+    let server = world.agents.running(&a).expect("a's agent").connection.clone();
+    let writer = AgentRouteWriter { inner: Arc::new(Routes::default()), agents: world.agents.clone() };
+    let route = |provider: &str| json!({ "provider": provider, "model": "default" }).as_object().cloned().expect("a route");
+    writer.set_route_state(&a, route("acp-antigravity"));
+    assert!(world.agents.running(&a).is_some(), "a route change on the same preset keeps the session");
+    writer.set_route_state(&a, route("acp-antigravity-cli"));
+    assert!(world.agents.running(&a).is_none());
+    assert!(world.answer_in(&b, &world.folder("b"), "whoami").await.starts_with("session=sess-2"));
+    assert!(!server.exited().is_cancelled(), "the server serves B on");
+    assert_eq!(world.logged("eof"), 0);
+}
+
+/// A reply an agent's session began on its own is the route's of that session's preset: a wake served on the other preset
+/// (the route moved meanwhile) shows nothing of it and starts no turn in the agent.
+#[tokio::test]
+async fn a_wake_on_another_presets_route_shows_nothing_of_the_reply() {
+    let world = World::of(&["antigravity-cli", "antigravity"], &[], |preset, _| preset.quirks.offer_default = true);
+    let official = world.presets[1].clone();
+    within("the turn", world.prompt(&thread(), &Surface::default(), "background", None, CancellationToken::new())).await;
+    world.wakes(1).await;
+    let session = world.agents.running(&thread()).expect("the session's agent");
+    let wake = json!({ "role": "user", "content": WAKE_TEXT, "meta": { "source": "task-notification" } });
+    let turns = Arc::new(Turns::default());
+    let request =
+        TurnRequest { thread: thread(), cwd: world.cwd(), stored: None, rules: Some("RULES".into()), input: wake, conversation: turns.clone(), attachments: turns };
+    let surface = Surface::default();
+    let end = within("the wake", mixdog_acp::runs::serve(&world.agents, &official, request, Arc::new(surface.clone()), world.context(CancellationToken::new()))).await;
+    assert_eq!(end, TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 });
+    assert!(surface.rows().is_empty(), "{:?}", surface.rows());
+    assert!(session.woken(), "the reply waits for its own route's turn");
+    assert_eq!(world.logged("session/prompt"), 1);
 }

@@ -671,7 +671,7 @@ mod tests {
         let rows = rig.section.nth(1).await;
         assert_eq!(rows[0]["id"], "openai-oauth", "the providers' rows stay as they were");
         let row = agent_row(&rows).expect("the agent's entry").clone();
-        assert_eq!((&row["label"], &row["authenticated"], &row["updatedAt"]), (&json!("Antigravity CLI"), &json!(true), &json!(42)));
+        assert_eq!((&row["label"], &row["authenticated"], &row["updatedAt"]), (&json!("Antigravity"), &json!(true), &json!(42)));
         let shown: Vec<(&str, f64, f64)> = row["windows"]
             .as_array()
             .expect("windows")

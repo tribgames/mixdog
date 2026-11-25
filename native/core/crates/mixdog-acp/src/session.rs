@@ -13,6 +13,7 @@ use mixdog_core_api::domain::process::ProcessManager;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::agents::lock;
 use crate::connection::Connection;
@@ -20,6 +21,7 @@ use crate::connection::Fault;
 use crate::connection::Incoming;
 use crate::connection::Launch;
 use crate::connection::RpcError;
+use crate::connection::Temp;
 use crate::files::TextFiles;
 use crate::files::read_text_file;
 use mixdog_tools::policy::GrantKey;
@@ -33,6 +35,8 @@ use crate::preset::AgentPreset;
 use crate::preset::OwnToolsOff;
 use crate::preset::Reopen;
 use crate::rows::AgentTool;
+use crate::shared::Lease;
+use crate::shared::SharedServer;
 
 /// The protocol version this client speaks.
 pub const PROTOCOL_VERSION: u64 = 1;
@@ -133,6 +137,8 @@ pub struct Open<'a> {
     pub grants: Arc<Mutex<HashSet<GrantKey>>>,
     /// The session's tools, for an agent that is handed them.
     pub handed: Option<Handover>,
+    /// A temporary folder of the process's own, cleared away once it exited; `None` leaves it the system's.
+    pub temp: Option<AbsPath>,
 }
 
 /// Asked for a turn when the agent starts a reply while none runs.
@@ -196,9 +202,21 @@ pub struct Background {
     pub tool: AgentTool,
 }
 
+/// Where a session runs.
+enum Host {
+    /// A process of its own.
+    Own,
+    /// The preset's one server, beside the preset's other sessions.
+    Shared(Arc<SharedServer>),
+}
+
 pub struct AgentSession {
     pub preset: AgentPreset,
+    /// The session's process: its own, or the server it shares with the preset's other sessions.
     pub connection: Arc<Connection>,
+    host: Host,
+    /// Fired once nothing more of the session arrives: its process ended, or it left the shared server.
+    pub(crate) gone: CancellationToken,
     pub session_id: String,
     pub cwd: AbsPath,
     /// The stored session could not be reopened and a new one was started.
@@ -215,7 +233,7 @@ pub struct AgentSession {
     /// The agent takes a file's text in a prompt as an embedded resource.
     pub embedded: bool,
     /// The agent closes a session it is asked to (`session/close`): one it closed is gone from its own list.
-    closes: bool,
+    pub(crate) closes: bool,
     /// The agent's last report of its own context.
     context: Mutex<Option<ContextUse>>,
     /// How many reports of its context the agent has made.
@@ -327,7 +345,7 @@ fn is_update(incoming: &Incoming) -> Option<&str> {
     }
 }
 
-enum Routed {
+pub(crate) enum Routed {
     Done,
     Wake,
     /// A permission request of a turn that was cancelled.
@@ -339,8 +357,54 @@ enum Routed {
 /// What a call of a Mixdog tool is answered with when its turn was stopped or none will take it.
 const NO_TURN: &str = "The turn this call was made in was stopped; the call was not run.";
 
+/// What a call of a Mixdog tool is answered with when its session left the shared server, or the server exited.
+const LEFT: &str = "The agent's session was closed; the call was not run.";
+
+/// A session's own tool server and the calls the agent makes through it.
+type Tools = (ToolServer, mpsc::UnboundedReceiver<ToolAsk>);
+
+/// The session's own tool server, where it is handed its tools: named in the session it opens or reopens, and nowhere
+/// else. One that does not start leaves the session with none.
+async fn start_tools(handed: Option<&Handover>) -> Option<Tools> {
+    let handed = handed?;
+    match ToolServer::start(handed.thread.clone(), handed.tools.clone()).await {
+        Ok(started) => Some(started),
+        Err(error) => {
+            tracing::warn!("[acp] the session's tool server did not start: {error}");
+            None
+        }
+    }
+}
+
+/// The `mcpServers` of a session of an agent that answered `initialize` with `capabilities`, and the tool server they
+/// name: an agent that takes no HTTP server is given the bridge program, and one that can be given neither no tools.
+fn handed_entry(capabilities: &Value, handed: Option<&Handover>, started: Option<Tools>) -> (Vec<Value>, Option<Tools>) {
+    if let (Some(handed), Some((started, calls))) = (handed, started) {
+        let http = capabilities.pointer("/agentCapabilities/mcpCapabilities/http") == Some(&Value::Bool(true));
+        if let Some(entry) = started.entry(http, handed.bridge.as_ref()) {
+            return (vec![entry], Some((started, calls)));
+        }
+    }
+    (Vec::new(), None)
+}
+
+/// The process a session is opened in, and what of it the session holds.
+struct On<'a> {
+    connection: Arc<Connection>,
+    /// The process's answer to `initialize`.
+    capabilities: &'a Value,
+    host: Host,
+    gone: CancellationToken,
+    /// The session's tool server, named in `servers`.
+    server: Option<&'a ToolServer>,
+    servers: Vec<Value>,
+    /// What the process sends the session's own way: a load's replay is dropped from it.
+    replayed: Option<&'a mut mpsc::UnboundedReceiver<Incoming>>,
+}
+
 impl AgentSession {
-    /// Starts the agent in `open.cwd` and opens its session: the stored one where there is one, else a new one.
+    /// Starts the agent in `open.cwd`, a process of the session's own, and opens its session: the stored one where there
+    /// is one, else a new one.
     pub async fn open(
         processes: Arc<dyn ProcessManager>,
         files: Arc<dyn TextFiles>,
@@ -348,18 +412,7 @@ impl AgentSession {
         wake: Wake,
         on_exit: Box<dyn FnOnce() + Send>,
     ) -> Result<Arc<Self>, Fault> {
-        // The session's tools go to this process alone: a server of its own, named in the session it opens or reopens.
-        // An agent that takes no HTTP server is given the bridge program; one that can be given neither gets no tools.
-        let started = match &open.handed {
-            Some(handed) => match ToolServer::start(handed.thread.clone(), handed.tools.clone()).await {
-                Ok(started) => Some(started),
-                Err(error) => {
-                    tracing::warn!("[acp] the session's tool server did not start: {error}");
-                    None
-                }
-            },
-            None => None,
-        };
+        let started = start_tools(open.handed.as_ref()).await;
         // The CLI's own tools are off only where the agent is handed the session's: it starts so when the server is
         // there, and starts again with its own tools when it turns out it cannot be given the server's entry.
         let bare = match (&started, &open.preset.own_tools_off, &open.handed) {
@@ -371,21 +424,53 @@ impl AgentSession {
         };
         let was_bare = bare.is_some();
         let launched = launch_without_own_tools(open.preset, open.program, open.cwd.clone(), bare);
-        let (mut connection, mut incoming) = Connection::start(processes.clone(), launched).await?;
+        let temp = open.temp.clone().map(|folder| Temp { folder, files: files.clone() });
+        let (mut connection, mut incoming) = Connection::start_in(processes.clone(), launched, temp).await?;
         let mut capabilities = initialize(&connection).await?;
-        let mut server = None;
-        let mut servers = Vec::new();
-        if let (Some(handed), Some((started, calls))) = (&open.handed, started) {
-            let http = capabilities.pointer("/agentCapabilities/mcpCapabilities/http") == Some(&Value::Bool(true));
-            if let Some(entry) = started.entry(http, handed.bridge.as_ref()) {
-                servers.push(entry);
-                server = Some((started, calls));
-            }
-        }
+        let (servers, server) = handed_entry(&capabilities, open.handed.as_ref(), started);
         if was_bare && server.is_none() {
             (connection, incoming) = Connection::start(processes, launch(open.preset, open.program, open.cwd.clone())).await?;
             capabilities = initialize(&connection).await?;
         }
+        let on = On {
+            connection: connection.clone(),
+            capabilities: &capabilities,
+            host: Host::Own,
+            gone: connection.exited().child_token(),
+            server: server.as_ref().map(|(server, _)| server),
+            servers,
+            replayed: Some(&mut incoming),
+        };
+        let session = Self::open_session(open, on, wake).await?;
+        drop(mixdog_rt::spawn("acp.route", mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
+        Ok(session)
+    }
+
+    /// Opens the session on the preset's shared server the lease holds, beside the sessions it already serves: the stored
+    /// one where there is one, else a new one. The session's tool server is its own, and so are its folder and settings.
+    pub(crate) async fn open_on_shared(lease: Lease, open: Open<'_>, wake: Wake, on_exit: Box<dyn FnOnce() + Send>) -> Result<Arc<Self>, Fault> {
+        let shared = lease.server().clone();
+        let started = start_tools(open.handed.as_ref()).await;
+        let (servers, tools) = handed_entry(&shared.capabilities, open.handed.as_ref(), started);
+        let on = On {
+            connection: shared.connection.clone(),
+            capabilities: &shared.capabilities,
+            host: Host::Shared(shared.clone()),
+            gone: CancellationToken::new(),
+            server: tools.as_ref().map(|(server, _)| server),
+            servers,
+            replayed: None,
+        };
+        let session = Self::open_session(open, on, wake).await?;
+        shared.register(&session);
+        drop(lease);
+        drop(mixdog_rt::spawn("acp.route.shared", mixdog_rt::TaskClass::Work, route_on_shared(session.clone(), tools, on_exit)));
+        Ok(session)
+    }
+
+    /// Opens the agent's session in the process `on` names, with Mixdog's prompt and the preset's settings.
+    async fn open_session(open: Open<'_>, on: On<'_>, wake: Wake) -> Result<Arc<Self>, Fault> {
+        let On { connection, capabilities, host, gone, server, servers, replayed } = on;
         let cwd = open.cwd.as_path().to_string_lossy().into_owned();
         let quirks = &open.preset.quirks;
         let handed = open.handed.filter(|_| server.is_some());
@@ -426,8 +511,10 @@ impl AgentSession {
             match connection.request(method, params).await {
                 Ok(answer) => {
                     // A load replays the conversation, which the Mixdog session already holds.
-                    if quirks.reopen == Reopen::Load {
-                        while incoming.try_recv().is_ok() {}
+                    if quirks.reopen == Reopen::Load
+                        && let Some(replayed) = replayed
+                    {
+                        while replayed.try_recv().is_ok() {}
                     }
                     opened = Some((stored.clone(), answer));
                 }
@@ -450,10 +537,12 @@ impl AgentSession {
         // A session that does not hold the prompt yet, in an agent whose system prompt takes none: its next prompt carries it.
         let holds = open.stored.as_deref() == Some(session_id.as_str()) && prompt == open.held;
         let unsent = appendix.filter(|_| appended.is_none() && !holds);
-        let connected = server.as_ref().map(|(server, _)| server.initialized());
-        let session = Arc::new(Self {
+        let connected = server.map(ToolServer::initialized);
+        Ok(Arc::new(Self {
             preset: open.preset.clone(),
             connection,
+            host,
+            gone,
             session_id,
             cwd: open.cwd,
             restarted,
@@ -473,9 +562,50 @@ impl AgentSession {
             kept: Mutex::default(),
             closed_prompt: tokio::sync::Notify::new(),
             wake,
-        });
-        drop(mixdog_rt::spawn("acp.route", mixdog_rt::TaskClass::Work, route(session.clone(), incoming, server, files, on_exit)));
-        Ok(session)
+        }))
+    }
+
+    /// Fires once nothing more of the session arrives: its process ended, or it left the shared server.
+    pub fn gone(&self) -> &CancellationToken {
+        &self.gone
+    }
+
+    /// Ends the session's own process, or takes the session alone off the shared server it runs on, which goes on serving
+    /// the others: nothing more of it arrives, and its tool server closes.
+    pub fn end(&self) {
+        match &self.host {
+            Host::Own => self.connection.kill(),
+            Host::Shared(shared) => shared.detach(self),
+        }
+    }
+
+    /// What a turn of the session fails with once it is gone: the end of its process, or its leaving the shared server.
+    pub fn closed(&self) -> Fault {
+        if self.connection.exited().is_cancelled() {
+            return self.connection.closed();
+        }
+        Fault::Rpc(RpcError { code: 0, message: "The agent's session was closed.".to_owned(), data: Value::Null })
+    }
+
+    /// Sends the turn's prompt `blocks`: the agent's answer to it arrives as [`Incoming::Response`] under the returned id,
+    /// on a shared server to this session alone.
+    pub async fn prompt(&self, blocks: Vec<Value>) -> Result<u64, Fault> {
+        let id = self.connection.reserve();
+        if let Host::Shared(shared) = &self.host {
+            shared.owns_prompt(id, &self.session_id);
+        }
+        let sent = self.connection.send_as(id, "session/prompt", json!({ "sessionId": self.session_id, "prompt": blocks })).await;
+        if let (Err(_), Host::Shared(shared)) = (&sent, &self.host) {
+            shared.disown_prompt(id);
+        }
+        sent.map(|()| id)
+    }
+
+    /// Nothing more of the session arrives: a running turn sees its stream close, and so does every turn that attaches later.
+    fn routing_ended(&self) {
+        let mut routing = lock(&self.routing);
+        routing.turn = None;
+        routing.ended = true;
     }
 
     pub fn models(&self) -> Models {
@@ -608,7 +738,7 @@ impl AgentSession {
             }
             tokio::select! {
                 () = closed => {}
-                () = self.connection.exited().cancelled() => return,
+                () = self.gone.cancelled() => return,
             }
         }
     }
@@ -647,7 +777,7 @@ impl AgentSession {
         lock(&self.kept).push((name, arguments, task));
     }
 
-    async fn act(&self, routed: Routed) {
+    pub(crate) async fn act(&self, routed: Routed) {
         match routed {
             Routed::Done => {}
             Routed::Wake => (self.wake)(),
@@ -674,7 +804,7 @@ impl AgentSession {
         *lock(&self.context)
     }
 
-    fn take(&self, incoming: Incoming) -> Routed {
+    pub(crate) fn take(&self, incoming: Incoming) -> Routed {
         // The agent's report of its context is the session's, whichever turn it arrives in or between.
         if let (Some("usage_update"), Incoming::Notification { params, .. }) = (is_update(&incoming), &incoming)
             && let Some(reported) = ContextUse::of(&params["update"])
@@ -752,10 +882,11 @@ impl AgentSession {
     }
 }
 
+/// Hands what a session's own process sends to the session, with the calls of its tool server, until the process ends.
 async fn route(
     session: Arc<AgentSession>,
     mut incoming: mpsc::UnboundedReceiver<Incoming>,
-    server: Option<(ToolServer, mpsc::UnboundedReceiver<ToolAsk>)>,
+    server: Option<Tools>,
     files: Arc<dyn TextFiles>,
     on_exit: Box<dyn FnOnce() + Send>,
 ) {
@@ -787,11 +918,32 @@ async fn route(
         session.act(routed).await;
     }
     // The process ended: a running turn sees its stream close, and so does every turn that attaches later.
-    {
-        let mut routing = lock(&session.routing);
-        routing.turn = None;
-        routing.ended = true;
+    session.routing_ended();
+    on_exit();
+}
+
+/// Hands a session on the shared server the calls of its own tool server, until it leaves the server or the server exits
+/// (what the server sends of it, the server's own routing hands it). Its tool server then closes, and what waited for a
+/// turn is answered.
+async fn route_on_shared(session: Arc<AgentSession>, tools: Option<Tools>, on_exit: Box<dyn FnOnce() + Send>) {
+    let (server, mut calls) = tools.unzip();
+    loop {
+        let ask = tokio::select! {
+            () = session.gone.cancelled() => break,
+            Some(ask) = async { calls.as_mut()?.recv().await } => ask,
+        };
+        let routed = session.take(Incoming::Tool(ask));
+        session.act(routed).await;
     }
+    drop(server);
+    if let Some(mut calls) = calls {
+        calls.close();
+        while let Ok(ask) = calls.try_recv() {
+            ask.refuse(LEFT);
+        }
+    }
+    session.routing_ended();
+    session.abandon_waiting(LEFT).await;
     on_exit();
 }
 
