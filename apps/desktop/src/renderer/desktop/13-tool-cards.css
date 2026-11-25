@@ -722,7 +722,7 @@ html[data-mixdog-mobile-tabs]
 .transcript-browser-peek.is-gone:hover {
   background: transparent;
 }
-/* "터미널 · <명령> · 보기" (terminal-peek-line.tsx): the browser line's shape,
+/* "터미널 · <커맨드> · 보기" (terminal-peek-line.tsx): the browser line's shape,
    with the command truncated between the two separators. */
 .transcript-terminal-peek {
   max-width: 100%;

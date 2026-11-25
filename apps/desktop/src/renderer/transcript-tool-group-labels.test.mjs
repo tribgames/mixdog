@@ -58,7 +58,7 @@ const CASES = [
     'git and shell commands',
     [finished('git', { command: ['git status', 'git diff'] }), finished('shell', { command: 'npm test' })],
     ['Run 2 Git commands, Run 1 command', 'Ran 2 Git commands, Ran 1 command'],
-    ['Git 명령 2회 실행, 명령 1회 실행', 'Git 명령 2회 실행, 명령 1회 실행'],
+    ['Git 커맨드 2회 실행, 커맨드 1회 실행', 'Git 커맨드 2회 실행, 커맨드 1회 실행'],
   ],
   [
     'a viewed image and a read resource are files read, one phrase',
@@ -165,8 +165,8 @@ const CASES = [
       'File editing failed, File lookup failed, Git command failed, Content search failed',
     ],
     [
-      '파일 1개 수정, 패턴 6개로 파일 찾기, Git 명령 실행, 코드 검색',
-      '파일 수정 실패, 파일 찾기 실패, Git 명령 실패, 내용 검색 실패',
+      '파일 1개 수정, 패턴 6개로 파일 찾기, Git 커맨드 실행, 코드 검색',
+      '파일 수정 실패, 파일 찾기 실패, Git 커맨드 실패, 내용 검색 실패',
     ],
   ],
   [
@@ -207,7 +207,7 @@ const CASES = [
       finished('terminal', { action: 'run', command: 'npm run dev' }),
     ],
     ['Goal, Reaction, Hand off to user, Terminal commands', 'Goal, Reaction, Hand off to user, Terminal commands'],
-    ['목표, 반응, 사용자에게 넘기기, 터미널 명령', '목표, 반응, 사용자에게 넘기기, 터미널 명령'],
+    ['목표, 반응, 사용자에게 넘기기, 터미널 커맨드', '목표, 반응, 사용자에게 넘기기, 터미널 커맨드'],
   ],
   [
     'closing a session and listing worktrees are not a project check',
@@ -267,7 +267,7 @@ const CASES = [
     'a stopped command is not counted as run',
     [finished('shell', { command: 'a' }, 's1'), stopped('shell', { command: 'b' }, 's2')],
     ['Run 2 commands', 'Ran 1 command, 1 stopped'],
-    ['명령 2회 실행', '명령 1회 실행, 1회 중지됨'],
+    ['커맨드 2회 실행', '커맨드 1회 실행, 1회 중지됨'],
   ],
   [
     'a command that ran to a failing exit ran; one that never started did not',
@@ -277,7 +277,7 @@ const CASES = [
       { ...failed('shell', { command: 'c' }, 's3'), callErrorCount: 1 },
     ],
     ['Run 3 commands', 'Ran 2 commands, 2 failed'],
-    ['명령 3회 실행', '명령 2회 실행, 2회 실패'],
+    ['커맨드 3회 실행', '커맨드 2회 실행, 2회 실패'],
   ],
   [
     'an interrupted cancel action did not cancel',
