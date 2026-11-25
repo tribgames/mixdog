@@ -14,6 +14,25 @@ npmRebuild: false
 nodeGypRebuild: false
 # Notarizes and staples a signed macOS app before its dmg and zip are made.
 afterSign: scripts/notarize-mac.cjs
+# Flipped in the executable before signing; scripts/electron-fuses.slow.test.mjs reads them back.
+electronFuses:
+  # The core starts this executable as Node: skill launchers, office authoring, doctor.
+  runAsNode: true
+  # Plaintext cookies of existing profiles stay readable and are encrypted when next written.
+  enableCookieEncryption: true
+  # Off, Electron removes NODE_EXTRA_CA_CERTS from the main process environment, which the core
+  # passes on to MCP servers and shells; with runAsNode on it would close no code path.
+  enableNodeOptionsEnvironmentVariable: true
+  enableNodeCliInspectArguments: false
+  # The executable carries the app.asar header hash: electron-builder embeds it, and FastDirect
+  # (scripts/dev-fast-direct.mjs) rewrites it in the Mixdog.exe it installs with each archive.
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  # The packaged renderer is a file:// page whose module scripts need file:// fetch.
+  grantFileProtocolExtraPrivileges: true
+  # An unsigned arm64 macOS build keeps a valid ad-hoc signature after the flip.
+  resetAdHocDarwinSignature: true
 extraMetadata:
   name: mixdog-desktop
   homepage: https://github.com/tribgames/mixdog#readme
