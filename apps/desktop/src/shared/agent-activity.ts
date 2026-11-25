@@ -27,81 +27,6 @@ function record(value: unknown): AgentRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as AgentRecord) : {};
 }
 
-function statusValues(value: unknown): string[] {
-  const entry = record(value);
-  return [entry.stage, entry.status]
-    .map((status) => String(status || '').trim())
-    .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
-}
-
-export function desktopAgentStatus(value: unknown): string {
-  return statusValues(value)[0] || '';
-}
-
-/** `stage` is a runtime phase copied in by the progress sweep and can briefly
- *  read idle/done/error beside a `running` status, so `status` decides and
- *  `stage` only for a row without one. A cancel in either ends the work. */
-export function isActiveDesktopAgentEntry(value: unknown): boolean {
-  const statuses = statusValues(value);
-  if (statuses.length === 0 || statuses.some((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status))) return false;
-  const lifecycle = String(record(value).status || '').trim() || statuses[0];
-  return !DESKTOP_TERMINAL_AGENT_STATUS.test(lifecycle) && DESKTOP_ACTIVE_AGENT_STATUS.test(lifecycle);
-}
-
-export function isQueuedDesktopAgentEntry(value: unknown): boolean {
-  if (!isActiveDesktopAgentEntry(value)) return false;
-  const statuses = statusValues(value);
-  return statuses.includes('resource_wait') || statuses.every((status) => DESKTOP_QUEUED_AGENT_STATUS.test(status));
-}
-
-export function isCancelledDesktopAgentEntry(value: unknown): boolean {
-  return statusValues(value).some((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status));
-}
-
-function isFailedDesktopAgentEntry(value: unknown): boolean {
-  const entry = record(value);
-  const lifecycle = String(entry.status || '').trim() || String(entry.stage || '').trim();
-  return DESKTOP_FAILED_AGENT_STATUS.test(lifecycle);
-}
-
-/** The reason of a failed row; '' for a row that did not fail. */
-export function desktopAgentFailureReason(value: unknown): DesktopAgentFailureReason | '' {
-  if (!isFailedDesktopAgentEntry(value)) return '';
-  const reason = String(record(value).failureReason || '').trim();
-  return reason === 'process-restart' || reason === 'stalled' ? reason : 'error';
-}
-
-export function isCancelUnconfirmedDesktopAgentEntry(value: unknown): boolean {
-  return statusValues(value).some((status) => DESKTOP_CANCEL_UNCONFIRMED_STATUS.test(status));
-}
-
-/** The runtime stamps `awaitingUser: 'approval'` on a worker/job row while its
- *  turn is blocked on a tool approval only the user can give. */
-function isAwaitingApprovalDesktopAgentEntry(value: unknown): boolean {
-  return record(value).awaitingUser === 'approval';
-}
-
-/** The runtime stamps `awaitingTask` on a row whose agent waits on background
- *  work it handed off: 'wait' while its turn sits in `task wait`, 'background'
- *  while it is idle with such a task still running. */
-export function isAwaitingTaskDesktopAgentEntry(value: unknown): boolean {
-  const awaiting = record(value).awaitingTask;
-  return awaiting === 'wait' || awaiting === 'background';
-}
-
-/** Agent work still in flight. A background shell job alone never makes a
- *  PARENT row wait; the agent that owns it reads waiting via `awaitingTask`. */
-export function hasPendingDesktopAgentWork(value: unknown): boolean {
-  return isActiveDesktopAgentEntry(value) || isCancelUnconfirmedDesktopAgentEntry(value);
-}
-
-/** The cancel status itself, not whichever of stage/status happens to come
- *  first: a row cancelled mid-turn still carries stage `running`, so
- *  desktopAgentStatus() would answer "running" for an entry that was stopped. */
-export function desktopAgentCancelStatus(value: unknown): string {
-  return statusValues(value).find((status) => DESKTOP_CANCELLED_AGENT_STATUS.test(status)) || '';
-}
-
 export type DesktopAgentActivityState =
   | 'queued'
   | 'running'
@@ -116,29 +41,141 @@ export type DesktopAgentActivityState =
   | 'unknown'
   | 'idle';
 
-/** Single lifecycle mapping for every agent surface. Precedence: cancelled
- *  (a cancelled row keeps its queued/running stage), failed, unknown,
- *  needs-user (active and awaiting approval), waiting (`awaitingTask`),
- *  queued, running, waiting (unsettled descendants or pending work), then
- *  done (unread) or idle. */
+/** Everything the lifecycle predicates read from one row, derived once per
+ *  row object: pool rows are immutable snapshots, and every surface asks the
+ *  same questions of the same rows on each publication. */
+interface DesktopAgentRowFacts {
+  /** Distinct non-empty `stage`, `status`, in that order. */
+  statuses: readonly string[];
+  cancelStatus: string;
+  cancelUnconfirmed: boolean;
+  active: boolean;
+  queued: boolean;
+  failureReason: DesktopAgentFailureReason | '';
+  awaitingTask: boolean;
+  /** The state when it does not depend on the caller's options; null when
+   *  waitingForTasks/unread decide it. */
+  settled: DesktopAgentActivityState | null;
+}
+
+function textOf(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function deriveRowFacts(value: unknown): DesktopAgentRowFacts {
+  const entry = record(value);
+  const stage = textOf(entry.stage);
+  const status = textOf(entry.status);
+  const statuses = [stage, status].filter((text, index, values) => Boolean(text) && values.indexOf(text) === index);
+  const cancelStatus = statuses.find((text) => DESKTOP_CANCELLED_AGENT_STATUS.test(text)) || '';
+  const cancelUnconfirmed = statuses.some((text) => DESKTOP_CANCEL_UNCONFIRMED_STATUS.test(text));
+  // `stage` is a runtime phase copied in by the progress sweep and can briefly
+  // read idle/done/error beside a `running` status, so `status` decides and
+  // `stage` only for a row without one. A cancel in either ends the work.
+  const lifecycle = status || stage;
+  const active =
+    statuses.length > 0 &&
+    !cancelStatus &&
+    !DESKTOP_TERMINAL_AGENT_STATUS.test(lifecycle) &&
+    DESKTOP_ACTIVE_AGENT_STATUS.test(lifecycle);
+  const queued =
+    active && (statuses.includes('resource_wait') || statuses.every((text) => DESKTOP_QUEUED_AGENT_STATUS.test(text)));
+  const failed = DESKTOP_FAILED_AGENT_STATUS.test(lifecycle);
+  const reason = textOf(entry.failureReason);
+  const failureReason: DesktopAgentFailureReason | '' = !failed
+    ? ''
+    : reason === 'process-restart' || reason === 'stalled'
+      ? reason
+      : 'error';
+  // The runtime stamps `awaitingTask` on a row whose agent waits on background
+  // work it handed off: 'wait' while its turn sits in `task wait`, 'background'
+  // while it is idle with such a task still running; `awaitingUser: 'approval'`
+  // while its turn is blocked on a tool approval only the user can give.
+  const awaitingTask = entry.awaitingTask === 'wait' || entry.awaitingTask === 'background';
+  const awaitingApproval = entry.awaitingUser === 'approval';
+  // Precedence: cancelled (a cancelled row keeps its queued/running stage),
+  // failed, unknown, needs-user, waiting (`awaitingTask`: parked on its own
+  // background work, not working and not finished), queued, running, waiting
+  // (pending work); the rest falls to the caller's options.
+  let settled: DesktopAgentActivityState | null = null;
+  if (cancelStatus) settled = cancelUnconfirmed ? 'cancel-unconfirmed' : 'cancelled';
+  else if (failed) settled = 'failed';
+  else if (statuses.includes('unknown')) settled = 'unknown';
+  else if (active && awaitingApproval) settled = 'needs-user';
+  else if (awaitingTask) settled = 'waiting';
+  else if (queued) settled = 'queued';
+  else if (active) settled = 'running';
+  else if (cancelUnconfirmed) settled = 'waiting';
+  return { statuses, cancelStatus, cancelUnconfirmed, active, queued, failureReason, awaitingTask, settled };
+}
+
+const ROW_FACTS = new WeakMap<object, DesktopAgentRowFacts>();
+const NO_ROW_FACTS = deriveRowFacts(undefined);
+
+function rowFacts(value: unknown): DesktopAgentRowFacts {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return NO_ROW_FACTS;
+  const cached = ROW_FACTS.get(value);
+  if (cached) return cached;
+  const facts = deriveRowFacts(value);
+  ROW_FACTS.set(value, facts);
+  return facts;
+}
+
+export function desktopAgentStatus(value: unknown): string {
+  return rowFacts(value).statuses[0] || '';
+}
+
+export function isActiveDesktopAgentEntry(value: unknown): boolean {
+  return rowFacts(value).active;
+}
+
+export function isQueuedDesktopAgentEntry(value: unknown): boolean {
+  return rowFacts(value).queued;
+}
+
+export function isCancelledDesktopAgentEntry(value: unknown): boolean {
+  return Boolean(rowFacts(value).cancelStatus);
+}
+
+/** The reason of a failed row; '' for a row that did not fail. */
+export function desktopAgentFailureReason(value: unknown): DesktopAgentFailureReason | '' {
+  return rowFacts(value).failureReason;
+}
+
+export function isCancelUnconfirmedDesktopAgentEntry(value: unknown): boolean {
+  return rowFacts(value).cancelUnconfirmed;
+}
+
+export function isAwaitingTaskDesktopAgentEntry(value: unknown): boolean {
+  return rowFacts(value).awaitingTask;
+}
+
+/** Agent work still in flight. A background shell job alone never makes a
+ *  PARENT row wait; the agent that owns it reads waiting via `awaitingTask`. */
+export function hasPendingDesktopAgentWork(value: unknown): boolean {
+  const facts = rowFacts(value);
+  return facts.active || facts.cancelUnconfirmed;
+}
+
+/** The cancel status itself, not whichever of stage/status happens to come
+ *  first: a row cancelled mid-turn still carries stage `running`, so
+ *  desktopAgentStatus() would answer "running" for an entry that was stopped. */
+export function desktopAgentCancelStatus(value: unknown): string {
+  return rowFacts(value).cancelStatus;
+}
+
+/** Single lifecycle mapping for every agent surface (precedence in
+ *  deriveRowFacts); a row that settles none of those is waiting while
+ *  descendants are unsettled, then done (unread) or idle. */
 export function desktopAgentActivityState(
   value: unknown,
-  options: { unread?: boolean; waitingForTasks?: boolean } = {}
+  options?: { unread?: boolean; waitingForTasks?: boolean }
 ): DesktopAgentActivityState {
-  if (isCancelledDesktopAgentEntry(value)) {
-    return isCancelUnconfirmedDesktopAgentEntry(value) ? 'cancel-unconfirmed' : 'cancelled';
-  }
-  if (isFailedDesktopAgentEntry(value)) return 'failed';
-  if (statusValues(value).includes('unknown')) return 'unknown';
-  if (isActiveDesktopAgentEntry(value) && isAwaitingApprovalDesktopAgentEntry(value)) return 'needs-user';
-  // Parked on its own background work (task wait, or idle with a handed-off
-  // task running): waiting, not working and not finished.
-  if (isAwaitingTaskDesktopAgentEntry(value)) return 'waiting';
-  if (isQueuedDesktopAgentEntry(value)) return 'queued';
-  if (isActiveDesktopAgentEntry(value)) return 'running';
-  if (options.waitingForTasks === true || hasPendingDesktopAgentWork(value)) return 'waiting';
+  const { settled } = rowFacts(value);
+  if (settled) return settled;
+  if (options?.waitingForTasks === true) return 'waiting';
   // A finished turn reads "Completed" until its reply is seen, then rests.
-  return options.unread === true ? 'done' : 'idle';
+  return options?.unread === true ? 'done' : 'idle';
 }
 
 export function desktopAgentIdentity(value: unknown): string {

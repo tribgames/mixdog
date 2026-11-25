@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, Snapshot, TodoSnapshot, TodoStatus, TodoTask } from './desktop-types';
@@ -428,7 +428,11 @@ export function useSessionGoal(snapshot: Snapshot) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const sessionId = String(snapshot.sessionId || '');
-  const agentWorking = liveAgentRows(snapshot).some((agent) => !agent.queued);
+  const { agentWorkers, agentJobs } = snapshot;
+  const agentWorking = useMemo(
+    () => liveAgentRows({ agentWorkers, agentJobs }).some((agent) => !agent.queued),
+    [agentWorkers, agentJobs]
+  );
   const backgroundWorking = goalHasBackgroundWork(snapshot, agentWorking);
   const displayStatus = goal ? goalDisplayStatus(goal, snapshot, agentWorking) : 'active';
   const waiting =

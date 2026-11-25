@@ -591,10 +591,9 @@ export function AgentActivityPane({
   // Showing this page never opens or switches a tab: only a row click does.
   const mixyFirst = useMixyFirstPane(active);
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
-  // Rows the user cleared ("Clear finished") stay out of every group.
-  const agents = useVisibleAgentPool(
-    useSyncExternalStore(poolStore.subscribe, poolStore.getSnapshot, poolStore.getSnapshot)
-  );
+  // Rows the user cleared ("Clear finished") stay out of every group. The view
+  // keeps its identity through progress the page does not show.
+  const agents = useVisibleAgentPool(useSyncExternalStore(poolStore.subscribe, poolStore.getView, poolStore.getView));
   const { hiddenOwnerIds, hideGroup } = useHiddenAgentGroups();
   const orderRef = useRef<Map<string, number>>(new Map());
   useAgentPoolCadence(poolStore);

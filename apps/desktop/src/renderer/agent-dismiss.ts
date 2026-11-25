@@ -1,15 +1,16 @@
 // "Clear finished": settled agent rows the user removed from view, kept in the
 // same per-session dismissed store as finished shell rows.
-import { useMemo } from 'react';
-import {
-  desktopAgentActivityState,
-  hasPendingDesktopAgentWork,
-  type DesktopAgentActivityState,
-} from '../shared/agent-activity';
+import { desktopAgentActivityState, type DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
-import { agentPoolStore, flattenAgentActivityNodes, type AgentActivityNode } from './agent-activity-model';
+import {
+  agentPoolStore,
+  descendantsHavePendingWork,
+  flattenAgentActivityNodes,
+  type AgentActivityNode,
+} from './agent-activity-model';
 import {
   type DismissedListing,
+  dismissedJobsRevision,
   dismissedShellJobs,
   dismissShellJobs,
   useDismissedJobsRevision,
@@ -55,10 +56,7 @@ function clearableAgentRow(agent: DesktopAgentPoolRow): boolean {
 /** Whether "Clear finished" may remove this tree node. A settled parent whose
  *  descendants still work is waiting on them, not finished, and stays. */
 export function clearableAgentNode(node: AgentActivityNode): boolean {
-  return (
-    clearableAgentRow(node.agent) &&
-    !flattenAgentActivityNodes(node.children).some(({ agent }) => hasPendingDesktopAgentWork(agent))
-  );
+  return clearableAgentRow(node.agent) && !descendantsHavePendingWork(node);
 }
 
 /** The clearable rows of an agent tree. */
@@ -134,12 +132,30 @@ export function dismissFinishedAgentRows(
   return cleared;
 }
 
+const VISIBLE_POOLS = new WeakMap<
+  readonly DesktopAgentPoolRow[],
+  { revision: number; rows: DesktopAgentPoolRow[] | null }
+>();
+
+/** `rows` without the cleared ones, built once per pool list and dismissal
+ *  and shared by every surface that shows it. */
+export function visibleAgentPool(
+  rows: readonly DesktopAgentPoolRow[] | null | undefined
+): DesktopAgentPoolRow[] | null {
+  if (!rows) return null;
+  const revision = dismissedJobsRevision();
+  const cached = VISIBLE_POOLS.get(rows);
+  if (cached?.revision === revision) return cached.rows;
+  const visible = withoutDismissedAgentRows(rows);
+  VISIBLE_POOLS.set(rows, { revision, rows: visible });
+  return visible;
+}
+
 /** The pool as the agent surfaces show it: cleared rows removed, recomputed
  *  whenever any session's dismissed set changes. */
 export function useVisibleAgentPool(
   rows: readonly DesktopAgentPoolRow[] | null | undefined
 ): DesktopAgentPoolRow[] | null {
-  const revision = useDismissedJobsRevision();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the dismissed-store change cue
-  return useMemo(() => withoutDismissedAgentRows(rows), [rows, revision]);
+  useDismissedJobsRevision();
+  return visibleAgentPool(rows);
 }

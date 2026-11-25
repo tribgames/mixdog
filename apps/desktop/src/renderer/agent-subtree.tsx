@@ -1,6 +1,6 @@
 // The sub-agents under a bot or Lead row on the bot page: the parent row's face as a toggle, and the pool's own tree rows (AgentActivityTree) beneath it.
 import type React from 'react';
-import { type AgentActivityNode, flattenAgentActivityNodes } from './agent-activity-model';
+import type { AgentActivityNode } from './agent-activity-model';
 import { agentGroupIndicator } from './agent-chat-summary';
 import { t } from './i18n';
 import './agent-subtree.css';
@@ -9,8 +9,18 @@ import './agent-subtree.css';
  *  the owner has no pool row of its own. */
 export function subAgentNodes(ownerId: string, nodes: readonly AgentActivityNode[] | undefined): AgentActivityNode[] {
   if (!nodes?.length) return [];
-  const root = flattenAgentActivityNodes(nodes).find((node) => node.sessionId === ownerId);
+  const root = findAgentNode(nodes, ownerId);
   return root ? [...root.children] : nodes.filter((node) => node.sessionId !== ownerId);
+}
+
+/** The first node, depth-first, of `sessionId`. */
+function findAgentNode(nodes: readonly AgentActivityNode[], sessionId: string): AgentActivityNode | undefined {
+  for (const node of nodes) {
+    if (node.sessionId === sessionId) return node;
+    const found = findAgentNode(node.children, sessionId);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** Owners whose sub-agents wait on the user: their rows open by themselves. */
