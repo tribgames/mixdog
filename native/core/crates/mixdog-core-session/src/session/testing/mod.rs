@@ -553,18 +553,24 @@ type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::
 /// What [`MemStore::record_gate`] holds.
 pub type RecordGate = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
 
-/// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held: the inline
-/// test backend runs the commit on the durability task's worker, whose LIFO slot may hold the actor the previous ack
-/// just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
+/// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held.
+fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    off_worker(|| wait_for_release(go, gate));
+}
+
+/// Runs `wait`, a held store call's wait, for a test that needs the session to step meanwhile: the inline test backend
+/// runs a lane job on the runtime worker that submitted it, whose LIFO slot may hold a task the call just woke (the
+/// actor, a turn's start), and no other worker takes a task from that slot; `block_in_place` hands that worker's queued
+/// tasks to another thread while this one waits.
 #[allow(
     clippy::disallowed_methods,
-    reason = "Test-support only: the inline store barrier must release the Tokio worker LIFO slot while the synchronous fake commit waits for explicit fixture release"
+    reason = "Test-support only: the inline store barrier must release the Tokio worker LIFO slot while the synchronous fake call waits for explicit fixture release"
 )]
-fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+fn off_worker<T>(wait: impl FnOnce() -> T) -> T {
     if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
-        tokio::task::block_in_place(|| wait_for_release(go, gate));
+        tokio::task::block_in_place(wait)
     } else {
-        wait_for_release(go, gate);
+        wait()
     }
 }
 
@@ -1192,7 +1198,7 @@ impl CallCounted {
         let (_, entered, release) = held.take().expect("checked above");
         drop(held);
         entered.send(()).expect("the test waits for the held call");
-        release.recv_timeout(HOLD_DEADLINE).unwrap_or_else(|_| panic!("the held store call {name} was never released"));
+        off_worker(|| release.recv_timeout(HOLD_DEADLINE)).unwrap_or_else(|_| panic!("the held store call {name} was never released"));
     }
 
     /// The name of each call so far, in order.
