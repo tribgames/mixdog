@@ -10,6 +10,7 @@ import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CustomModelEditor } from './custom-model-editor';
+import { ExtensionAction } from './extension-detail';
 import { blockedAuthHeader, blockedHeaderMessage, CustomProviderHeaders } from './custom-provider-headers';
 import {
   CustomProviderExtraKeys,
@@ -859,15 +860,14 @@ export function CustomProvidersSection({
       <header>
         <div className="settings-group-head">
           <h3>{t('Custom providers')}</h3>
-          <button
-            type="button"
-            className="settings-action"
+          <ExtensionAction
+            ariaLabel={t('Add custom provider')}
+            tooltip={t('Add custom provider')}
             disabled={busy || loading || editing !== null}
             onClick={() => openEditor('new')}
           >
             <Plus size={14} aria-hidden="true" />
-            {t('Add custom provider')}
-          </button>
+          </ExtensionAction>
         </div>
       </header>
       {providers.length === 0 && (

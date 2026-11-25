@@ -147,15 +147,16 @@ test('agent mode: the same card, seated by its frame only when it shows', async 
   });
 });
 
-// A card's files are known only from the core's read, which no view waits for: an unread card marks nothing pending.
-// The reply is taken where it moves no row in view (a pane not presented yet, the last end, a row out of view), which
-// a list with no layout always is.
-test('an unread card holds no view: it marks nothing pending, and takes its reply when it lands', async (t) => {
+// A card's files are known only from the core's read: while it is out, the card marks its row pending, so the
+// conversation's reveal (use-transcript-reveal.ts) waits for it. An answered, failed or still-recording read leaves
+// nothing pending. The reply is taken where it moves no row in view (a pane not presented yet, the last end, a row out
+// of view), which a list with no layout always is.
+test('an unread card marks its row pending until its read answers, and takes its reply when it lands', async (t) => {
   const pending = '[data-transcript-pending]';
-  await t.test('a read in flight: nothing pending, then the card in its place', async (t) => {
+  await t.test('a read in flight: pending, then the card in its place', async (t) => {
     let answer;
     const view = await mountCard(t, { reply: () => new Promise((resolve) => (answer = resolve)) });
-    assert.equal(view.q(pending), null, 'a read of the core holds no reveal');
+    assert.ok(view.q(pending), 'the read holds the reveal');
     assert.equal(view.q('.turn-changes-card'), null);
     await act(async () => answer(ready([file('mixdog-community-state.json', { additions: 1, deletions: 1 })])));
     await settle();
@@ -882,12 +883,13 @@ test('a card is drawn from its turn’s records before the read answers, and the
   const card = view.q('.turn-changes-card');
   assert.ok(card, 'in the commit that mounts its row, with the read still out');
   assert.equal(card.dataset.source, 'records');
-  assert.equal(view.q('[data-transcript-pending]'), null, 'no view waits for the read');
+  assert.ok(view.q('[data-transcript-pending]'), 'the row is pending while the read is out');
   assert.equal(view.qa('.turn-changes-file').length, 2);
   assert.equal(view.q('.turn-changes-action').disabled, true, 'nothing is undone before the core has read the turn');
   // The read names the same files: the same card, with what only the core knows.
   await act(async () => answer(ready([file('a.ts'), file('src/b.ts')])));
   await settle();
+  assert.equal(view.q('[data-transcript-pending]'), null);
   assert.equal(view.q('.turn-changes-card'), card, 'the card stays the element it was');
   assert.equal(card.dataset.source, undefined);
   assert.equal(view.qa('.turn-changes-file').length, 2);

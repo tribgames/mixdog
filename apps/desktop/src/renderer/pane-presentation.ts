@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 
 /** How a pane brings the conversation it switches to on screen. The pane keeps showing the conversation it showed
  *  until the one it switches to says it can be shown: that one is laid out behind it meanwhile (`preparing`), with its
@@ -27,4 +27,13 @@ export function usePanePresentation(): PanePresentation {
   const presentation = useContext(PanePresentationContext);
   presentation.heard = true;
   return presentation;
+}
+
+/** The presentation of a conversation outside the panes that is hidden and shown again in place (the side dock's
+ *  agent session view): each time it is shown again is a visit of its own, from the commit that shows it. */
+export function useShownPresentation(shown: boolean): PanePresentation {
+  const [visits, setVisits] = useState({ shown, visit: 0 });
+  if (visits.shown !== shown) setVisits({ shown, visit: shown ? visits.visit + 1 : visits.visit });
+  const { visit } = visits;
+  return useMemo(() => ({ preparing: false, visit, ready: SHOWN.ready, keep: SHOWN.keep }), [visit]);
 }

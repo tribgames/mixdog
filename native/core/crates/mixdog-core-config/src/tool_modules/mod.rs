@@ -51,6 +51,7 @@ pub const EFFORT_JUDGE_UNSUPPORTED: &str = "Auto effort is unsupported on darwin
 
 const TOGGLEABLE_BUILTINS: [&str; 8] = ["git", "office", "tidy", "localProvider", "autoEffort", "visualize", "media", "acpAgents"];
 const INSTALLABLE_BUILTINS: [&str; 7] = ["git", "memory", "office", "tidy", "localProvider", "autoEffort", "acpAgents"];
+const ACP_AGENTS_OFF: &str = "Antigravity ACP is off. Turn it on in Settings > Providers to install it.";
 
 /// What the config cannot tell and the side effects the setters trigger. The owners of the
 /// local provider, the effort judge, the embedder and the session surface implement it; reads
@@ -304,6 +305,15 @@ impl ToolModules {
                 "Built-in tool must be git, office, tidy, localProvider, autoEffort, visualize, media, or acpAgents.".into(),
             ));
         }
+        // Turned on while it is on, the core looks at every agent's programs again, and the value tells what it finds.
+        if name == "acpAgents" {
+            if enabled && value::builtin_feature_active(&self.config.agent(), name, &*self.env, false) {
+                let _ = self.prepare(name, None).await?;
+            } else {
+                self.write(move |doc| edit::set_module_enabled(doc, "acpAgents", enabled)).await?;
+            }
+            return Ok(self.refresh().await);
+        }
         if name == "localProvider" {
             if enabled {
                 let epoch = self.local_provider_off.load(Ordering::SeqCst);
@@ -327,10 +337,6 @@ impl ToolModules {
             return Err(ToolModulesError::Failed(EFFORT_JUDGE_UNSUPPORTED.into()));
         }
         if name == "autoEffort" && enabled {
-            let _ = self.prepare(name, None).await?;
-        }
-        // Turning ACP agents on while they are on starts a new look at each agent's CLI; the value tells what it finds.
-        if name == "acpAgents" && enabled && value::builtin_feature_active(&self.config.agent(), name, &*self.env, external.onnx_supported) {
             let _ = self.prepare(name, None).await?;
         }
         let owned = name.to_owned();
@@ -384,12 +390,10 @@ impl ToolModules {
             ));
         }
         if name == "acpAgents" {
-            // The feature is on before its CLIs are fetched: the agents do nothing while it is off.
-            self.write(|doc| {
-                edit::set_builtin_installed(doc, "acpAgents");
-                edit::set_module_enabled(doc, "acpAgents", true);
-            })
-            .await?;
+            // The agents do nothing while they are switched off, an install included.
+            if !value::builtin_feature_active(&self.config.agent(), name, &*self.env, false) {
+                return Err(ToolModulesError::Failed(ACP_AGENTS_OFF.into()));
+            }
             let installed = self.host.install_acp_agents().await.map_err(ToolModulesError::Failed);
             let settings = self.refresh().await;
             return installed.map(|()| settings);

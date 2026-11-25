@@ -22,7 +22,9 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   'command-code-oauth': 'Command Code',
   'mimo-oauth': 'MiMo',
   'antigravity-oauth': 'Antigravity OAuth',
-  'acp-antigravity': 'Antigravity ACP',
+  // Google's ACP server and the agy CLI: one agent to the user.
+  'acp-antigravity': 'Antigravity',
+  'acp-antigravity-cli': 'Antigravity',
   'cursor-oauth': 'Cursor OAuth',
   'devin-oauth': 'Devin',
   'mixdog-local': 'Local Provider',
@@ -287,6 +289,17 @@ export function agentRouteProvider(provider: string | null | undefined): boolean
     .startsWith('acp-');
 }
 
+/** The provider of the service an external agent's provider runs on: its icon, the group its picker group follows,
+ *  and the agent it is one of (an agent's presets for one service are one agent). */
+const AGENT_SERVICE_PROVIDERS: Readonly<Record<string, string>> = {
+  'acp-antigravity': 'antigravity-oauth',
+  'acp-antigravity-cli': 'antigravity-oauth',
+};
+
+export function agentServiceProvider(provider: string): string | undefined {
+  return AGENT_SERVICE_PROVIDERS[provider.toLowerCase()];
+}
+
 /** An external agent's model named as a provider's is: by the name the core lists it under, never built from its id.
  *  A model the agent runs at several tiers is listed once, its tier being the route's effort. Its own entry runs the
  *  agent's default model. */
@@ -428,12 +441,12 @@ type ProviderIconKind =
   | 'synthetic';
 
 function providerIconKind(provider: string): ProviderIconKind {
-  const normalized = provider.toLowerCase();
+  const normalized = agentServiceProvider(provider) ?? provider.toLowerCase();
   if (normalized === 'cursor-oauth') return 'cursor';
   if (normalized.startsWith('muse-code')) return 'meta';
   if (normalized.startsWith('mimo')) return 'xiaomi';
   if (normalized === 'command-code-oauth') return 'commandcode';
-  if (normalized === 'antigravity-oauth' || normalized === 'acp-antigravity') return 'antigravity';
+  if (normalized === 'antigravity-oauth') return 'antigravity';
   if (normalized === 'opencode-go-oauth') return 'opencode';
   if (normalized === 'openrouter') return 'openrouter';
   if (normalized === 'mixdog-local') return 'local';

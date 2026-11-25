@@ -219,6 +219,8 @@ struct Recorded {
     asks: Mutex<Vec<ApprovalAsk>>,
     /// The answers the next approvals get; none left answers as a session with no approval surface.
     answers: Mutex<VecDeque<ApprovalResolution>>,
+    /// An approval's card stays open: nobody answers it.
+    holds_asks: AtomicBool,
     /// The calls gone on in the background that ended, by id, as the approvals heard of each.
     released: Mutex<Vec<String>>,
     /// The turn's own surface refuses a call's result row and stops the turn with this token; the closing one takes it.
@@ -357,6 +359,10 @@ impl TurnSurface for Surface {
 
     async fn approve(&self, ask: ApprovalAsk) -> ApprovalResolution {
         self.0.asks.lock().unwrap().push(ask);
+        self.0.changed.notify_waiters();
+        if self.0.holds_asks.load(Ordering::SeqCst) {
+            return std::future::pending().await;
+        }
         self.0.answers.lock().unwrap().pop_front().unwrap_or(ApprovalResolution::Unavailable { at: 0 })
     }
 
@@ -401,10 +407,112 @@ impl TextFiles for Files {
     async fn folders(&self, path: AbsPath) -> Result<Vec<String>, String> {
         service_files().folders(path).await
     }
+
+    // The builds, homes and kept answers of the registry's agents are written, moved and removed as the core does it.
+    async fn replace(&self, path: AbsPath, text: String) -> Result<(), String> {
+        service_files().replace(path, text).await
+    }
+
+    async fn rename(&self, from: AbsPath, to: AbsPath) -> Result<(), String> {
+        service_files().rename(from, to).await
+    }
+
+    async fn remove_file(&self, path: AbsPath) -> Result<(), String> {
+        service_files().remove_file(path).await
+    }
 }
 
 fn service_files() -> mixdog_acp::files::ServiceFiles {
     mixdog_acp::files::ServiceFiles { files: Arc::new(mixdog_workspace::localfs::LocalFileService::new()), lane: mixdog_rt::testing::tokens().interactive_io }
+}
+
+/// The ACP registry as a test serves it: the index it was given, and a download that unpacks the fake agent as the build.
+#[derive(Default)]
+struct Registry {
+    /// The index it serves; `None` is a registry that cannot be reached.
+    index: Mutex<Option<Value>>,
+    /// The archives it was asked for, in order.
+    downloads: Mutex<Vec<String>>,
+    /// A download that never ends.
+    hangs: AtomicBool,
+}
+
+impl Registry {
+    /// Offers `version` of Google's official server, which is the fake agent, for this system, its archive at `archive`.
+    fn offer(&self, version: &str, archive: &str) {
+        let fake = mixdog_testkit::bin_exe!("mixdog-acp-fake-agent");
+        let cmd = std::path::Path::new(&fake).file_name().expect("the fake's name").to_string_lossy().into_owned();
+        let build = json!({ "archive": archive, "cmd": format!("./{cmd}"), "args": ["--uid="], "sha256": "ab".repeat(32) });
+        let mut builds = serde_json::Map::new();
+        builds.insert(mixdog_acp::registry::this_target().expect("a system the registry names").to_owned(), build);
+        *self.index.lock().unwrap() =
+            Some(json!({ "agents": [{ "id": "antigravity-acp", "version": version, "distribution": { "binary": Value::Object(builds) } }] }));
+    }
+
+    fn downloads(&self) -> Vec<String> {
+        self.downloads.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl mixdog_acp::registry::RegistryFetcher for Registry {
+    async fn index(&self, _url: &str) -> Result<Value, String> {
+        self.index.lock().unwrap().clone().ok_or_else(|| "the registry cannot be reached".to_owned())
+    }
+
+    #[allow(clippy::disallowed_methods, reason = "a test unpacks the fake agent as a build")]
+    async fn unpack(&self, build: &mixdog_acp::registry::Build, _archive: &std::path::Path, into: &std::path::Path) -> Result<(), String> {
+        self.downloads.lock().unwrap().push(build.archive.clone());
+        if self.hangs.load(Ordering::SeqCst) {
+            std::fs::create_dir_all(into).map_err(|error| error.to_string())?;
+            std::future::pending::<()>().await;
+        }
+        std::fs::create_dir_all(into).map_err(|error| error.to_string())?;
+        std::fs::copy(mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"), into.join(&build.cmd)).map_err(|error| error.to_string())?;
+        Ok(())
+    }
+}
+
+/// The address of the official server's archive on the host its builds come from.
+const ARCHIVE: &str = "https://dl.google.com/agy-extensions/releases/agy-acp-server.zip";
+
+/// The home Mixdog keeps for the preset `id` under the world's folder `dir`.
+fn home_of(dir: &std::path::Path, id: &str) -> std::path::PathBuf {
+    dir.join("acp-agents").join("homes").join(id)
+}
+
+/// The official server's home signed in, as its sign-in leaves it.
+#[allow(clippy::disallowed_methods, reason = "a test signs the official server's home in")]
+fn sign_in_home(dir: &std::path::Path, id: &str) {
+    let folder = home_of(dir, id).join("antigravity-acp");
+    std::fs::create_dir_all(&folder).expect("the home");
+    std::fs::write(folder.join("settings.json"), r#"{"auth":{"type":"oauth-personal"}}"#).expect("the settings");
+    std::fs::write(folder.join("acp_token.json"), "token").expect("the credential");
+}
+
+/// The world's `probe-cache.json`.
+fn probe_cache(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join("acp-agents").join("probe-cache.json")
+}
+
+/// What the official server preset `id`, run with `settings`, tells of itself, kept as a server that ran before told it.
+#[allow(clippy::disallowed_methods, reason = "a test keeps what the server told of itself")]
+fn keep_answers(dir: &std::path::Path, id: &str, settings: &[(&str, &str)]) {
+    let setting = |name: &str| settings.iter().find(|(key, _)| *key == name).map(|(_, value)| *value);
+    let listed: Value = setting("FAKE_AGENT_MODELS")
+        .map_or_else(|| json!([{ "modelId": "m1", "name": "Model One" }, { "modelId": "m2", "name": "Model Two" }]), |models| serde_json::from_str(models).expect("JSON"));
+    let available: Vec<Value> = listed.as_array().into_iter().flatten().map(|model| json!({ "id": model["modelId"], "name": model["name"] })).collect();
+    let mut kept = serde_json::Map::new();
+    kept.insert(
+        id.to_owned(),
+        json!({
+            "version": setting("FAKE_AGENT_VERSION").unwrap_or("1.5.2"),
+            "models": { "available": available, "current": "m1", "configOption": null },
+            "plan": setting("FAKE_AGENT_PLAN"),
+            "signOut": setting("FAKE_AGENT_NO_LOGOUT").is_none(),
+        }),
+    );
+    std::fs::write(probe_cache(dir), Value::Object(kept).to_string()).expect("the kept answers");
 }
 
 struct World {
@@ -420,6 +528,8 @@ struct World {
     opened: Arc<Mutex<Vec<std::path::PathBuf>>>,
     /// What the agents keep across a restart of the app.
     refusals: Arc<Kept>,
+    /// The ACP registry, which cannot be reached until it is given an index.
+    registry: Arc<Registry>,
     dir: tempfile::TempDir,
 }
 
@@ -430,6 +540,7 @@ fn agents_of(
     opened: &Arc<Mutex<Vec<std::path::PathBuf>>>,
     enabled: &Arc<AtomicBool>,
     refusals: &Arc<Kept>,
+    registry: &Arc<Registry>,
     dir: &std::path::Path,
 ) -> Arc<Agents> {
     let home = dir.join("home").to_string_lossy().into_owned();
@@ -448,6 +559,7 @@ fn agents_of(
         data_dir: dir.join("acp-agents"),
         env: Arc::new(move |name: &str| (name == "FAKE_HOME").then(|| home.clone())),
         mcp_bridge: Some(Command { program: mixdog_testkit::bin_exe!("mixdog-acp-fake-agent"), args: vec!["mcp-bridge".into()] }),
+        registry: Some(registry.clone()),
     })
 }
 
@@ -467,13 +579,15 @@ impl World {
         })
     }
 
-    /// The feature on, over the official server's fake with `settings`, installed where Mixdog keeps its build.
+    /// The feature on, over the official server's fake with `settings`, installed where Mixdog keeps its build, signed in,
+    /// and with what it told of itself when it last ran kept.
     fn official(settings: &[(&str, &str)]) -> Self {
         Self::of(&["antigravity"], settings, |_, _| {})
     }
 
     /// The feature on, over the shipped presets `ids` as they are, each on the fake: a CLI's command is the fake, and a
-    /// registry agent's installed build. The first, which `customize` changes, is the one the world's sessions run on.
+    /// registry agent's installed build (the version `FAKE_AGENT_VERSION` names), its home signed in and its answers kept
+    /// as a server that ran before left them. The first, which `customize` changes, is the one the world's sessions run on.
     fn of(ids: &[&str], settings: &[(&str, &str)], customize: impl FnOnce(&mut AgentPreset, &std::path::Path)) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let file = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
@@ -497,10 +611,13 @@ impl World {
                 preset.env.extend(lines.iter().filter_map(|line| line.split_once('=')).map(|(name, value)| (name.to_owned(), value.to_owned())));
                 if let Distribution::Registry { .. } = preset.distribution {
                     preset.env.push(("FAKE_AGENT_OFFICIAL".into(), "1".into()));
-                    let installed = json!({ "version": "1.5.2", "cmd": fake, "args": ["acp", "--from-manifest"], "sha256": "" });
+                    let version = settings.iter().find(|(name, _)| *name == "FAKE_AGENT_VERSION").map_or("1.5.2", |(_, version)| *version);
+                    let installed = json!({ "version": version, "cmd": fake, "args": ["acp", "--from-manifest"], "sha256": "" });
                     let folder = dir.path().join("acp-agents").join("bin").join(&preset.id);
                     #[allow(clippy::disallowed_methods, reason = "a test installs the fake as Mixdog keeps a registry agent's build")]
                     std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(folder.join("installed.json"), installed.to_string())).expect("the install");
+                    sign_in_home(dir.path(), &preset.id);
+                    keep_answers(dir.path(), &preset.id, settings);
                 } else {
                     preset.command = fake.clone();
                     preset.args = vec!["acp".into()];
@@ -520,7 +637,8 @@ impl World {
         #[allow(clippy::disallowed_methods, reason = "a test writes the file its agent reads")]
         std::fs::write(dir.path().join("note.txt"), "hello\nsecond line\n").expect("the note");
         let refusals: Arc<Kept> = Arc::default();
-        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, dir.path());
+        let registry: Arc<Registry> = Arc::default();
+        let agents = agents_of(&presets, &processes, &opened, &enabled, &refusals, &registry, dir.path());
         agents.bind_wake({
             let woken = woken.clone();
             Arc::new(move |thread: &ThreadId| {
@@ -528,13 +646,13 @@ impl World {
                 woken.1.notify_waiters();
             })
         });
-        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, dir }
+        Self { agents, processes, preset, presets, enabled, woken, opened, refusals, registry, dir }
     }
 
     /// The app is started again: new agents, over what the ones before kept.
     fn restart(&mut self) {
         self.agents.release_all();
-        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, self.dir.path());
+        self.agents = agents_of(&self.presets, &self.processes, &self.opened, &self.enabled, &self.refusals, &self.registry, self.dir.path());
     }
 
     /// Waits for the fake agent to have logged `line`.
@@ -3864,19 +3982,22 @@ fn meta_of(text: &str) -> Value {
 }
 
 /// The official server is the build Mixdog installed, started with the build's own arguments in a home of Mixdog's own and
-/// its sign-in kept in a file there; it is never run for a version, which it names in `initialize`, and one below the
-/// preset's minimum is asked nothing more. With no build installed nothing is started.
+/// its sign-in kept in a file there; it is never run for a version. Its state comes from its build, its home and what it
+/// told of itself when it last ran: a check starts nothing, and a build below the preset's minimum is never started. With
+/// no build installed nothing is started and nothing is downloaded.
 #[tokio::test]
-async fn the_official_server_runs_from_its_installed_build_in_its_own_home_and_names_its_version_in_initialize() {
-    let world = World::official(&[]);
+async fn the_official_server_runs_from_its_installed_build_in_its_own_home_and_a_check_starts_nothing() {
+    let models = json!([{ "modelId": "gemini-a", "name": "Gemini A" }, { "modelId": "gemini-b", "name": "Gemini B" }]).to_string();
+    let world = World::official(&[("FAKE_AGENT_MODELS", &models)]);
     let agent = world.checked().await;
     assert_eq!((&agent["state"], &agent["version"], &agent["minimumVersion"]), (&json!("ready"), &json!("1.5.2"), &json!("1.5.2")), "{agent}");
-    let home = world.dir.path().join("acp-agents").join("homes").join("antigravity");
+    assert_eq!(agent["models"], json!([{ "id": "gemini-a", "name": "Gemini A" }, { "id": "gemini-b", "name": "Gemini B" }]), "the models it told when it last ran");
+    assert!(world.processes.list().is_empty(), "{:?}", world.log());
+    let home = home_of(world.dir.path(), "antigravity");
     let started = format!("official args=acp --from-manifest GEMINI_HOME={} AGY_ACP_FORCE_FILE_STORAGE=1", home.display());
-    assert_eq!(world.logged(&started), 1, "{:?}", world.log());
     let end = within("the turn", world.prompt(&thread(), &Surface::default(), "whoami", None, CancellationToken::new())).await;
     assert!(completed_text(&end).starts_with("session=sess-1 resumed=false"), "{end:?}");
-    assert_eq!(world.logged(&started), 2, "a session's process starts as the check's did: {:?}", world.log());
+    assert_eq!(world.logged(&started), 1, "{:?}", world.log());
     assert_eq!(world.logged("version"), 0, "the server has no version flag");
 
     let old = World::official(&[("FAKE_AGENT_VERSION", "1.5.1")]);
@@ -3884,15 +4005,16 @@ async fn the_official_server_runs_from_its_installed_build_in_its_own_home_and_n
     assert_eq!((&agent["state"], &agent["version"]), (&json!("versionTooOld"), &json!("1.5.1")));
     let refused = within("the refusal", old.agents.session(&thread(), &old.preset, old.cwd(), None, None)).await.err();
     assert_eq!(refused, Some(Refusal::NotReady(Readiness::VersionTooOld { version: "1.5.1".into() })));
-    assert_eq!((old.logged("version"), old.logged("session/new")), (0, 0), "{:?}", old.log());
-    old.all_exited().await;
+    assert!(old.processes.list().is_empty() && old.log().is_empty(), "{:?}", old.log());
 
     let missing = World::official(&[]);
+    missing.registry.offer("1.5.2", ARCHIVE);
     #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
     std::fs::remove_file(missing.dir.path().join("acp-agents").join("bin").join("antigravity").join("installed.json")).expect("the install");
     let agent = missing.checked().await;
-    assert_eq!((&agent["state"], &agent["canInstall"], &agent["canSignIn"]), (&json!("notInstalled"), &json!(false), &json!(false)));
+    assert_eq!((&agent["state"], &agent["canInstall"], &agent["canSignIn"]), (&json!("notInstalled"), &json!(true), &json!(true)));
     assert!(missing.processes.list().is_empty() && missing.log().is_empty(), "{:?}", missing.log());
+    assert!(missing.registry.downloads().is_empty(), "a check downloads nothing");
 }
 
 /// The official server's session is opened and reopened with its settings deep-merged beside Mixdog's prompt under one
@@ -4044,7 +4166,7 @@ async fn one_official_server_serves_every_session_each_with_its_own_folder_tool_
     // A later session is the same server's.
     assert!(world.answer_in(&c, &world.cwd(), "whoami").await.starts_with("session=sess-3 resumed=false"));
     assert_eq!(world.agents.running(&c).expect("c's agent").connection.handle(), first.connection.handle());
-    assert_eq!((world.server_temps().len(), world.logged("start acp")), (1, 2), "the check's process, then the one server: {:?}", world.log());
+    assert_eq!((world.server_temps().len(), world.logged("start acp")), (1, 1), "the one server, and no process for the check: {:?}", world.log());
 }
 
 /// What the server sends of a session reaches that session alone, while the others' turns run: its updates, its questions,
@@ -4201,36 +4323,36 @@ async fn a_session_the_new_server_cannot_resume_is_opened_anew_with_the_conversa
     assert_eq!((world.logged("session/resume sess-1"), world.server_temps().len()), (1, 2), "{:?}", world.log());
 }
 
-/// The server keeps a process for each session that left it unclosed: once four have, and it serves and opens none, it is
-/// closed as the end of its input closes it, its temporary folder goes with it, and the next session starts a new one.
+/// The shared server runs while a session uses it: another session's leaving and a session reopened on it in another
+/// folder keep it, the last session's leaving closes it as the end of its input closes it with its temporary folder,
+/// and the next session starts a new one.
 #[tokio::test]
-async fn an_idle_shared_server_is_retired_once_four_sessions_left_it_unclosed() {
+async fn a_shared_server_runs_while_a_session_uses_it_and_closes_once_none_does() {
     let world = World::official(&[]);
-    let keeper = ThreadId::from("sess_keeper");
-    world.answer_in(&keeper, &world.cwd(), "whoami").await;
-    let server = world.agents.running(&keeper).expect("the keeper's agent").connection.clone();
-    for n in 0..4 {
-        let thread = ThreadId::from(format!("sess_{n}"));
-        world.answer_in(&thread, &world.cwd(), "whoami").await;
-        world.agents.release(&thread);
-    }
-    // A session still open holds the server.
-    assert!(world.answer_in(&keeper, &world.cwd(), "whoami").await.starts_with("session=sess-1"));
-    assert!(!server.exited().is_cancelled());
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    world.answer_in(&a, &world.cwd(), "whoami").await;
+    world.answer_in(&b, &world.cwd(), "whoami").await;
+    let server = world.agents.running(&a).expect("a's agent").connection.clone();
+    world.agents.release(&b);
+    assert!(!server.exited().is_cancelled(), "A's session holds it");
+    // A's session is ended and opened again in another folder: the server serves the new one with no close between.
+    let in_a = world.folder("a");
+    assert!(world.answer_in(&a, &in_a, "whoami").await.starts_with("session=sess-3"));
+    assert_eq!(world.agents.running(&a).expect("a's agent").connection.handle(), server.handle());
     let temp = world.server_temps().pop().expect("the server's temporary folder");
     assert!(exists(&temp.join("_MEIfake")));
 
-    world.agents.release(&keeper);
+    world.agents.release(&a);
     within("the server's exit", server.exited().cancelled()).await;
     assert_eq!(world.exit_of(server.handle()), Some(CLOSED), "closed by the end of its input");
     assert_eq!(world.logged("eof"), 1);
     assert!(!exists(&temp), "{temp:?}");
-    assert!(world.answer_in(&thread(), &world.cwd(), "whoami").await.starts_with("session=sess-1 resumed=false"));
-    assert_eq!(world.server_temps().len(), 2, "{:?}", world.log());
+    assert!(world.answer_in(&b, &world.cwd(), "whoami").await.starts_with("session=sess-1 resumed=false"));
+    assert_eq!((world.server_temps().len(), world.logged("start acp")), (2, 2), "{:?}", world.log());
 }
 
-/// Each start of the server has a temporary folder of its own, removed once it exits however it ended; the first start
-/// of a daemon removes those that daemons gone since left behind, and keeps those of the daemon that runs.
+/// Each start of the server has a temporary folder of its own, removed once it exits however it ended; the daemon's start
+/// removes those that daemons gone since left behind, and keeps those of the daemon that runs.
 #[tokio::test]
 async fn each_server_start_has_its_own_temporary_folder_and_those_of_gone_daemons_are_swept() {
     let world = World::official(&[]);
@@ -4242,8 +4364,10 @@ async fn each_server_start_has_its_own_temporary_folder_and_those_of_gone_daemon
         std::fs::write(gone.join("_MEI123").join("python3.dll"), "unpacked").expect("its file");
         std::fs::create_dir_all(&own).expect("this daemon's folder");
     }
-    world.answer_in(&thread(), &world.cwd(), "whoami").await;
+    // As the daemon's start sweeps them.
+    within("the sweep", world.agents.sweep_leftovers()).await;
     assert!(!exists(&gone) && exists(&own));
+    world.answer_in(&thread(), &world.cwd(), "whoami").await;
     let temp = world.server_temps().pop().expect("the server's temporary folder");
     assert!(temp.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with(&format!("pid-{}-", std::process::id()))), "{temp:?}");
     assert!(exists(&temp.join("_MEIfake")));
@@ -4324,4 +4448,584 @@ async fn a_wake_on_another_presets_route_shows_nothing_of_the_reply() {
     assert!(surface.rows().is_empty(), "{:?}", surface.rows());
     assert!(session.woken(), "the reply waits for its own route's turn");
     assert_eq!(world.logged("session/prompt"), 1);
+}
+
+/// The folder of the official server's builds in the world's folder.
+fn builds_of(world: &World) -> std::path::PathBuf {
+    world.dir.path().join("acp-agents").join("bin").join("antigravity")
+}
+
+#[allow(clippy::disallowed_methods, reason = "a test reads what Mixdog keeps")]
+fn read_json(path: &std::path::Path) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))).expect("JSON")
+}
+
+#[allow(clippy::disallowed_methods, reason = "a test reads the official server's home")]
+fn credential_of(world: &World) -> Option<String> {
+    std::fs::read_to_string(home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("acp_token.json")).ok()
+}
+
+/// The sign-ins' staging homes left beside the agents' homes.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test lists the agents' homes")]
+fn staging_homes(world: &World) -> Vec<std::path::PathBuf> {
+    let homes = world.dir.path().join("acp-agents").join("homes");
+    let entries = std::fs::read_dir(homes).map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).collect::<Vec<_>>()).unwrap_or_default();
+    entries.into_iter().filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.contains(".login-"))).collect()
+}
+
+/// The feature's install takes the official server from the ACP registry: the build for this system with its own
+/// arguments, named by `installed.json`, and never one from a host the preset does not name. A check of the installed
+/// build brings it to the registry's newest, never while its server runs, and keeps it where the registry cannot be
+/// reached.
+#[tokio::test]
+async fn the_official_server_is_installed_from_the_registry_and_kept_current_only_while_it_does_not_run() {
+    let world = World::official(&[]);
+    let builds = builds_of(&world);
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
+    std::fs::remove_file(builds.join("installed.json")).expect("the install");
+    world.registry.offer("1.5.2", "https://downloads.example/agy-acp-server.zip");
+    let refused = within("the refused install", world.agents.install()).await.expect_err("a build from another host");
+    assert!(refused.contains("is not on a host the build may come from"), "{refused}");
+    assert!(world.registry.downloads().is_empty());
+
+    world.registry.offer("1.5.2", ARCHIVE);
+    within("the install", world.agents.install()).await.expect("the install");
+    assert_eq!(world.registry.downloads(), [ARCHIVE]);
+    let installed = read_json(&builds.join("installed.json"));
+    assert_eq!((&installed["version"], &installed["args"]), (&json!("1.5.2"), &json!(["--uid="])), "{installed}");
+    let agent = world.agents.status()["agents"][0].clone();
+    assert_eq!((&agent["state"], &agent["version"], &agent["lastError"]), (&json!("ready"), &json!("1.5.2"), &Value::Null), "{agent}");
+    // A session's server is the build, started with the build's own arguments.
+    assert!(world.answer_in(&thread(), &world.cwd(), "whoami").await.starts_with("session=sess-1"));
+    let home = home_of(world.dir.path(), "antigravity");
+    assert!(world.logged(&format!("official args=--uid= GEMINI_HOME={} AGY_ACP_FORCE_FILE_STORAGE=1", home.display())) >= 1, "{:?}", world.log());
+
+    // A newer build is not installed while the server runs.
+    world.registry.offer("1.5.3", ARCHIVE);
+    assert_eq!(world.checked().await["version"], "1.5.2");
+    assert_eq!(world.registry.downloads().len(), 1);
+
+    let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
+    world.agents.release_all();
+    within("the server's exit", server.exited().cancelled()).await;
+    #[allow(clippy::disallowed_methods, reason = "the fake names the version of the build it was unpacked as")]
+    std::fs::write(world.dir.path().join("version"), "1.5.3").expect("the fake's version");
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["version"], &agent["lastError"]), (&json!("ready"), &json!("1.5.3"), &Value::Null), "{agent}");
+    assert_eq!(world.registry.downloads().len(), 2);
+    assert_eq!(read_json(&builds.join("installed.json"))["version"], "1.5.3");
+    assert!(exists(&builds.join("1.5.3")) && !exists(&builds.join("1.5.2")), "the build replaced is removed");
+
+    // A registry that cannot be reached leaves the installed build as it is, with no failure to tell.
+    *world.registry.index.lock().unwrap() = None;
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["version"], &agent["lastError"]), (&json!("ready"), &json!("1.5.3"), &Value::Null), "{agent}");
+    assert_eq!(world.registry.downloads().len(), 2);
+}
+
+/// Turning the feature off ends a download of the official server at once, and the next install clears what it left.
+#[tokio::test]
+async fn turning_the_feature_off_ends_a_download_of_the_official_server() {
+    let world = World::official(&[]);
+    let builds = builds_of(&world);
+    #[allow(clippy::disallowed_methods, reason = "a test removes the build it installed")]
+    std::fs::remove_file(builds.join("installed.json")).expect("the install");
+    world.registry.offer("1.5.2", ARCHIVE);
+    world.registry.hangs.store(true, Ordering::SeqCst);
+    let installing = world.agents.install();
+    let off = async {
+        while world.registry.downloads().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(world.agents.status()["agents"][0]["state"], "installing");
+        world.enabled.store(false, Ordering::SeqCst);
+        world.agents.status();
+    };
+    let (installed, ()) = within("the install's end", async { tokio::join!(installing, off) }).await;
+    assert_eq!(installed, Err("ACP agents were turned off before the install ended.".to_owned()));
+    assert!(!exists(&builds.join("installed.json")));
+
+    world.enabled.store(true, Ordering::SeqCst);
+    world.registry.hangs.store(false, Ordering::SeqCst);
+    within("the install", world.agents.install()).await.expect("the install");
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test lists the builds' folder")]
+    let left: Vec<String> = std::fs::read_dir(&builds).expect("the builds").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    assert!(!left.iter().any(|name| name.starts_with(".staging-")), "{left:?}");
+}
+
+/// Where the registry's build does not run (an Intel Mac) the official server is unsupported: nothing is installed or
+/// started, and no other build stands in for it.
+#[tokio::test]
+async fn an_official_server_that_does_not_run_on_this_system_is_unsupported_and_never_installed() {
+    let world = World::of(&["antigravity"], &[], |preset, _| {
+        if let Distribution::Registry { supported, .. } = &mut preset.distribution {
+            *supported = false;
+        }
+    });
+    world.registry.offer("1.5.2", ARCHIVE);
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["canInstall"]), (&json!("unsupported"), &json!(false)), "{agent}");
+    within("the install", world.agents.install()).await.expect("nothing to install");
+    let refused = within("the refusal", world.agents.session(&thread(), &world.preset, world.cwd(), None, None)).await.err();
+    assert_eq!(refused, Some(Refusal::NotReady(Readiness::Unsupported)));
+    assert!(world.registry.downloads().is_empty() && world.processes.list().is_empty(), "{:?}", world.log());
+}
+
+/// With nothing it told of itself kept, a check starts the official server in a temporary folder of its own, keeps what it
+/// tells, and closes it as the end of its input closes it; the next start of the app starts nothing. A server that asks
+/// for a sign-in in the browser is signed out and closed at once, and a home with no sign-in is signed out with nothing
+/// started.
+#[tokio::test]
+async fn the_official_server_is_started_for_its_state_only_where_nothing_it_told_stands() {
+    let mut world = World::official(&[("FAKE_AGENT_PLAN", "Google AI Ultra")]);
+    let cache = probe_cache(world.dir.path());
+    #[allow(clippy::disallowed_methods, reason = "a test forgets what the server told")]
+    std::fs::remove_file(&cache).expect("the kept answers");
+    let agent = world.checked().await;
+    assert_eq!((&agent["state"], &agent["plan"]), (&json!("ready"), &json!("Google AI Ultra")), "{agent}");
+    let temp = world.server_temps().pop().expect("the probe's temporary folder");
+    assert!(world.processes.list().iter().all(|process| process.exit == Some(CLOSED)), "closed by the end of its input");
+    assert!(!exists(&temp) && world.logged("eof") == 1, "{:?}", world.log());
+    let kept = read_json(&cache);
+    assert_eq!((&kept["antigravity"]["version"], &kept["antigravity"]["plan"]), (&json!("1.5.2"), &json!("Google AI Ultra")), "{kept}");
+
+    world.restart();
+    assert_eq!(world.checked().await["state"], "ready");
+    assert_eq!(world.logged("start acp"), 1, "the app's start starts no server");
+
+    #[allow(clippy::disallowed_methods, reason = "a test leaves a credential the server no longer takes")]
+    {
+        std::fs::write(home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("acp_token.json"), "expired").expect("the credential");
+        std::fs::remove_file(&cache).expect("the kept answers");
+    }
+    world.restart();
+    assert_eq!(world.checked().await["state"], "signedOut");
+    assert_eq!(world.logged("browser sign-in"), 1);
+    assert!(world.processes.list().iter().all(|process| process.exit.is_some()), "{:?}", world.log());
+    assert!(world.server_temps().iter().all(|temp| !exists(temp)));
+
+    #[allow(clippy::disallowed_methods, reason = "a test signs the home out")]
+    std::fs::remove_file(home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("acp_token.json")).expect("the credential");
+    world.restart();
+    assert_eq!(world.checked().await["state"], "signedOut");
+    assert_eq!(world.logged("start acp"), 2, "a home with no sign-in starts nothing");
+}
+
+/// The official sign-in asks `authenticate` of a server of its own in a staging home and shows the page it names, with
+/// no form for a code. Its success moves the sign-in into the agent's home and closes the running server, which holds
+/// the account left; the next look finds the agent ready.
+#[tokio::test]
+async fn an_official_sign_in_runs_in_a_staging_home_and_its_success_replaces_the_running_servers_account() {
+    let world =
+        World::official(&[("FAKE_AGENT_ACCOUNT", "the new account"), ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page"), ("FAKE_AGENT_LINGERS", "1")]);
+    world.answer_in(&thread(), &world.cwd(), "whoami").await;
+    let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
+
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    let shown = login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    assert_eq!(shown, LoginState::Authorize { url: "https://accounts.example/o/oauth2/auth?state=acp".into(), manual_url: None });
+    assert_eq!(login.provide(LoginInput::AuthorizationCode("a code".into())).await, Err(mixdog_core_api::domain::login::LoginError::InputNotExpected));
+    assert!(!server.exited().is_cancelled() && credential_of(&world).as_deref() == Some("token"), "nothing changes before the sign-in succeeds");
+    #[allow(clippy::disallowed_methods, reason = "the user signs in on the page")]
+    std::fs::write(world.dir.path().join("signed-in-on-the-page"), "").expect("the sign-in");
+    assert_eq!(login_state(login.as_ref(), LoginState::is_terminal).await, LoginState::Done { account: None });
+
+    // Told done once the sign-in is the agent's: the sign-in's server, which lingers after its input ends, is still to end.
+    assert_eq!(credential_of(&world).as_deref(), Some("the new account"));
+    let staged = world.log().iter().find_map(|line| line.strip_prefix("authenticate oauth-personal GEMINI_HOME=").map(std::path::PathBuf::from)).expect("the sign-in");
+    assert_ne!(staged, home_of(world.dir.path(), "antigravity"));
+    assert!(exists(&staged), "the staging home goes after the sign-in's server ended");
+    // The server of the account left takes no session from here and is closed.
+    assert!(world.agents.running(&thread()).is_none());
+    within("the old server's exit", server.exited().cancelled()).await;
+    within("the staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    assert_eq!(within("the sign-in's settle", (world.agents.settle_login(&world.preset))(true)).await, Ok(true));
+    assert_eq!(world.agents.status()["agents"][0]["state"], "ready");
+}
+
+/// A signed-out official server's sign-in shows the agent ready as soon as the sign-in is its own, before its server,
+/// signed in already, told the plan and models in a session it opens; they follow from it, and the sign-in's server is
+/// the only one started.
+#[tokio::test]
+async fn an_official_sign_in_makes_the_agent_ready_at_once_and_its_own_server_tells_the_plan_after() {
+    let models = json!([{ "modelId": "gemini-a", "name": "Gemini A" }]).to_string();
+    let world = World::official(&[
+        ("FAKE_AGENT_PLAN", "Google AI Ultra"),
+        ("FAKE_AGENT_MODELS", &models),
+        ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page"),
+        ("FAKE_AGENT_NEW_UNTIL", "session-opens"),
+    ]);
+    #[allow(clippy::disallowed_methods, reason = "the agent was never signed in")]
+    {
+        std::fs::remove_dir_all(home_of(world.dir.path(), "antigravity").join("antigravity-acp")).expect("the home's sign-in");
+        std::fs::remove_file(probe_cache(world.dir.path())).expect("what it told");
+    }
+    assert_eq!(world.checked().await["state"], "signedOut");
+
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    #[allow(clippy::disallowed_methods, reason = "the user signs in on the page")]
+    std::fs::write(world.dir.path().join("signed-in-on-the-page"), "").expect("the sign-in");
+    assert_eq!(login_state(login.as_ref(), LoginState::is_terminal).await, LoginState::Done { account: None });
+    assert_eq!(within("the sign-in's settle", (world.agents.settle_login(&world.preset))(true)).await, Ok(true));
+
+    // Ready while the sign-in's server has not opened its session yet.
+    let agent = world.agents.status()["agents"][0].clone();
+    assert_eq!((&agent["state"], &agent["plan"]), (&json!("ready"), &Value::Null), "{agent}");
+    assert!(agent["models"].as_array().is_none_or(Vec::is_empty), "{agent}");
+    let cache = probe_cache(world.dir.path());
+    assert!(!exists(&cache) || read_json(&cache).get("antigravity").is_none(), "nothing is kept of the account yet");
+
+    #[allow(clippy::disallowed_methods, reason = "the server opens its session")]
+    std::fs::write(world.dir.path().join("session-opens"), "").expect("the session");
+    let agent = within("the plan", async {
+        loop {
+            let agent = world.agents.status()["agents"][0].clone();
+            if agent["plan"] == "Google AI Ultra" {
+                return agent;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert_eq!((&agent["state"], &agent["models"]), (&json!("ready"), &json!([{ "id": "gemini-a", "name": "Gemini A" }])));
+    assert_eq!(read_json(&probe_cache(world.dir.path()))["antigravity"]["plan"], "Google AI Ultra");
+    within("the staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert_eq!(world.logged("start acp"), 1, "only the sign-in's server: {:?}", world.log());
+}
+
+/// A cancelled or failed official sign-in leaves the agent's home and its running server as they were, and its staging
+/// home goes.
+#[tokio::test]
+async fn a_cancelled_or_failed_official_sign_in_leaves_the_agents_home_and_server_as_they_were() {
+    let world = World::official(&[("FAKE_AGENT_AUTH_HANGS", "1")]);
+    world.answer_in(&thread(), &world.cwd(), "whoami").await;
+    let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    login.cancel();
+    assert_eq!(login_state(login.as_ref(), LoginState::is_terminal).await, LoginState::Cancelled);
+    within("the staging home's removal", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(!server.exited().is_cancelled() && world.agents.running(&thread()).is_some());
+    assert_eq!(credential_of(&world).as_deref(), Some("token"));
+
+    let failing = World::official(&[("FAKE_AGENT_AUTH_FAILS", "the browser was closed")]);
+    let login = within("the sign-in's start", failing.agents.begin_login(&failing.preset)).await.expect("the sign-in starts");
+    let ended = login_state(login.as_ref(), LoginState::is_terminal).await;
+    assert_eq!(ended, LoginState::Failed(LoginFailure::Failed { code: "agentLogin".into(), message: "the browser was closed".into() }));
+    within("the staging home's removal", async {
+        while !staging_homes(&failing).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert_eq!(credential_of(&failing).as_deref(), Some("token"));
+}
+
+/// The official server is signed out with `logout` on its running server, which is then closed, or on one started for it
+/// in a temporary folder of its own; its sign-in leaves its home and what it told of the account is forgotten. Only the
+/// CLI's sign-out is the vendor's sign-in outside Mixdog, and only the official server opens its page itself.
+#[tokio::test]
+async fn the_official_server_signs_out_with_logout_on_its_running_server_or_a_short_lived_one() {
+    let world = World::official(&[]);
+    assert_eq!(world.checked().await["canSignOut"], true);
+    world.answer_in(&thread(), &world.cwd(), "whoami").await;
+    let server = world.agents.running(&thread()).expect("the session's agent").connection.clone();
+    assert_eq!(within("the sign-out", world.agents.sign_out(&world.preset)).await, Ok(()));
+    assert_eq!((world.logged("logout"), world.logged("start acp")), (1, 1), "{:?}", world.log());
+    assert_eq!(world.exit_of(server.handle()), Some(CLOSED));
+    assert_eq!(credential_of(&world), None);
+    assert!(read_json(&probe_cache(world.dir.path())).get("antigravity").is_none());
+    assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
+
+    let idle = World::official(&[]);
+    assert_eq!(idle.checked().await["state"], "ready");
+    assert_eq!(within("the sign-out", idle.agents.sign_out(&idle.preset)).await, Ok(()));
+    assert_eq!((idle.logged("logout"), idle.server_temps().len()), (1, 1), "{:?}", idle.log());
+    assert!(idle.processes.list().iter().all(|process| process.exit == Some(CLOSED)));
+    assert!(idle.server_temps().iter().all(|temp| !exists(temp)));
+    assert_eq!(idle.agents.status()["agents"][0]["state"], "signedOut");
+
+    let both = World::of(&["antigravity", "antigravity-cli"], &[], |_, _| {});
+    both.checked().await;
+    within("the CLI's check", both.agents.look(&both.presets[1])).await;
+    let status = both.agents.status();
+    let flags = |agent: &Value| (agent["loginOpensBrowser"].clone(), agent["sharesExternalSignIn"].clone());
+    assert_eq!((flags(&status["agents"][0]), flags(&status["agents"][1])), ((json!(true), json!(false)), (json!(false), json!(true))));
+}
+
+/// A sign-out asked while one of the same agent is under way (a second window, a second press) is refused at once: the
+/// server is asked to log out once, and the sign-out under way ends as it would alone.
+#[tokio::test]
+async fn a_sign_out_asked_while_one_is_under_way_is_refused_and_the_server_logs_out_once() {
+    let world = World::official(&[]);
+    assert_eq!(world.checked().await["state"], "ready");
+
+    let (first, second) = within("both sign-outs", async { tokio::join!(world.agents.sign_out(&world.preset), world.agents.sign_out(&world.preset)) }).await;
+
+    assert_eq!(first, Ok(()));
+    assert_eq!(second, Err("Antigravity is already signing out.".to_owned()));
+    assert_eq!(world.logged("logout"), 1, "{:?}", world.log());
+    assert_eq!(world.agents.status()["agents"][0]["state"], "signedOut");
+}
+
+/// The app's stop waits for a server whose retirement began before it, closed by the end of its input with nothing it
+/// unpacked left, and no server starts once the stop began.
+#[tokio::test]
+async fn the_apps_stop_waits_for_a_retiring_server_and_no_server_starts_after_it() {
+    let world = World::official(&[]);
+    let keeper = ThreadId::from("sess_keeper");
+    world.answer_in(&keeper, &world.cwd(), "whoami").await;
+    let server = world.agents.running(&keeper).expect("the keeper's agent").connection.clone();
+    for n in 0..4 {
+        let thread = ThreadId::from(format!("sess_{n}"));
+        world.answer_in(&thread, &world.cwd(), "whoami").await;
+        world.agents.release(&thread);
+    }
+    let temp = world.server_temps().pop().expect("the server's temporary folder");
+    // The last session leaves it: its retirement begins in a task of its own.
+    world.agents.release(&keeper);
+    within("the stop", world.agents.shutdown()).await;
+    assert_eq!(world.exit_of(server.handle()), Some(CLOSED));
+    assert!(!exists(&temp), "{temp:?}");
+
+    let late = within("a start after the stop", world.agents.session(&ThreadId::from("sess_late"), &world.preset, world.cwd(), None, None)).await;
+    assert!(matches!(late, Err(Refusal::Fault(_))));
+    assert_eq!(world.server_temps().len(), 1, "{:?}", world.log());
+}
+
+/// A route that leaves the official preset while a turn runs (the switch takes effect at the next turn) does not cut the
+/// turn off: the session ends once the turn is over. A session taken off the server with its prompt open has that prompt
+/// cancelled there.
+#[tokio::test]
+async fn a_route_switch_during_a_turn_ends_the_session_after_it_and_a_detached_prompt_is_cancelled() {
+    let world = World::of(&["antigravity", "antigravity-cli"], &[], |_, _| {});
+    let writer = AgentRouteWriter { inner: Arc::new(Routes::default()), agents: world.agents.clone() };
+    let route = json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-5-5" }).as_object().cloned().expect("a route");
+    let (working, stop) = (Surface::default(), CancellationToken::new());
+    let thread = thread();
+    let hanging = world.prompt(&thread, &working, "hang", None, stop.clone());
+    let switch = async {
+        working.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        writer.set_route_state(&thread, route.clone());
+        let session = world.agents.running(&thread).expect("the session stays for its turn");
+        assert!(!session.gone().is_cancelled());
+        stop.cancel();
+        session
+    };
+    let (end, session) = within("the turn", async { tokio::join!(hanging, switch) }).await;
+    assert_eq!(end, TurnEnd::Interrupted);
+    within("the session's end", session.gone().cancelled()).await;
+
+    // The server it left serves none and was closed; on the next one a session that stays keeps it running while B's
+    // session is taken off it mid-prompt.
+    let (keeper, other) = (ThreadId::from("sess_keeper"), ThreadId::from("sess_b"));
+    assert!(world.answer_in(&keeper, &world.cwd(), "whoami").await.starts_with("session=sess-1"));
+    let surface = Surface::default();
+    let cwd = world.cwd();
+    let hanging = world.prompt_in(&other, &cwd, &surface, "hang", None, CancellationToken::new());
+    let release = async {
+        surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        world.agents.release(&other);
+    };
+    let (end, ()) = within("the released turn", async { tokio::join!(hanging, release) }).await;
+    assert!(matches!(end, TurnEnd::Failed { .. }), "{end:?}");
+    world.logs("session/cancel sess-2").await;
+    assert!(world.answer_in(&keeper, &world.cwd(), "whoami").await.starts_with("session=sess-1"), "the server serves the keeper on");
+}
+
+/// A turn whose call of a Mixdog tool waits on its approval card ends at once when its session leaves the shared server:
+/// the call gets its row, and nothing waits for the agent's deadline.
+#[tokio::test]
+async fn a_turn_whose_mixdog_call_waits_on_its_card_ends_when_its_session_leaves_the_shared_server() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    surface.0.holds_asks.store(true, Ordering::SeqCst);
+    let thread = thread();
+    let calling = world.prompt_with(&thread, &surface, r#"tool shell {"command":"ls"}"#, None, CancellationToken::new(), Some(tools.calls(&surface)));
+    let release = async {
+        while surface.0.asks.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        world.agents.release(&thread);
+    };
+    let (end, ()) = within("the turn's end", async { tokio::join!(calling, release) }).await;
+    assert!(matches!(&end, TurnEnd::Failed { message, .. } if message == "The agent's session was closed."), "{end:?}");
+    let rows = surface.rows();
+    assert!(rows.iter().any(|row| row["content"] == "The agent's session ended before this call did."), "{rows:?}");
+}
+
+/// A session taken off the shared server while the server's question about one of its calls is open has that question
+/// answered (cancelled): the server goes on serving the others.
+#[tokio::test]
+async fn a_question_of_a_session_taken_off_the_shared_server_is_answered_cancelled() {
+    let world = World::official(&[]);
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    let in_b = world.folder("b");
+    assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-1"));
+    let surface = Surface::default();
+    surface.0.holds_asks.store(true, Ordering::SeqCst);
+    let cwd = world.cwd();
+    let asking = world.prompt_in(&a, &cwd, &surface, "permission", None, CancellationToken::new());
+    let release = async {
+        while surface.0.asks.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        world.agents.release(&a);
+    };
+    let (end, ()) = within("the turn's end", async { tokio::join!(asking, release) }).await;
+    assert!(matches!(end, TurnEnd::Failed { .. }), "{end:?}");
+    world.logs("permission answered sess-2 cancelled").await;
+    assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-1"), "the server serves B on");
+}
+
+/// A build is not replaced while a server of it is still ending or a sign-in runs on it, and the daemon's start clears
+/// away the builds that are not the installed one and the staging homes of sign-ins that did not end.
+#[tokio::test]
+async fn a_build_is_not_replaced_while_a_process_of_it_still_runs_and_the_start_sweeps_what_updates_left() {
+    let world = World::official(&[("FAKE_AGENT_LINGERS", "1"), ("FAKE_AGENT_AUTH_HANGS", "1")]);
+    #[allow(clippy::disallowed_methods, reason = "the fake names the version of the build it was unpacked as")]
+    std::fs::write(world.dir.path().join("version"), "1.5.3").expect("the fake's version");
+    world.registry.offer("1.5.3", ARCHIVE);
+
+    // A sign-in runs on the build.
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    world.checked().await;
+    assert!(world.registry.downloads().is_empty(), "no update under a sign-in");
+    login.cancel();
+    within("the sign-in's end", async {
+        while !staging_homes(&world).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    // A server of the build is still ending (it lingers after its input ended, until its grace is over).
+    world.answer_in(&thread(), &world.cwd(), "whoami").await;
+    world.agents.release_all();
+    world.checked().await;
+    assert!(world.registry.downloads().is_empty(), "no update under a server that is still ending");
+    within("the update once nothing of the build runs", async {
+        while world.registry.downloads().is_empty() {
+            world.checked().await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    assert_eq!(world.agents.status()["agents"][0]["version"], "1.5.3");
+
+    let builds = builds_of(&world);
+    let homes = world.dir.path().join("acp-agents").join("homes");
+    #[allow(clippy::disallowed_methods, reason = "a test leaves what earlier runs left")]
+    for left in [builds.join("1.5.1"), builds.join(".staging-left"), homes.join("antigravity.login-left")] {
+        std::fs::create_dir_all(left.join("inside")).expect("a folder left behind");
+    }
+    within("the sweep", world.agents.sweep_leftovers()).await;
+    assert!(!exists(&builds.join("1.5.1")) && !exists(&builds.join(".staging-left")) && !exists(&homes.join("antigravity.login-left")));
+    assert!(exists(&builds.join("1.5.3")) && exists(&homes.join("antigravity")), "the installed build and the agent's home stay");
+}
+
+/// A turn that finds the official server signed out forgets what it told of itself on disk too: the next start of the app
+/// does not read it ready from what it told before, and starts it to learn its state.
+#[tokio::test]
+async fn a_turn_that_finds_the_official_server_signed_out_forgets_what_it_told_across_a_restart() {
+    let mut world = World::official(&[]);
+    assert_eq!(world.checked().await["state"], "ready");
+    let home = home_of(world.dir.path(), "antigravity").join("antigravity-acp");
+    #[allow(clippy::disallowed_methods, reason = "the server's sign-in is gone, as the user left it outside the app")]
+    std::fs::remove_dir_all(&home).expect("the home's sign-in");
+    let end = world.ask(&Surface::default(), "hello", Turns::default()).await;
+    assert!(matches!(end, TurnEnd::Failed { code: Some(-32000), .. }), "{end:?}");
+    assert!(read_json(&probe_cache(world.dir.path())).get("antigravity").is_none());
+
+    sign_in_home(world.dir.path(), "antigravity");
+    world.restart();
+    assert_eq!(world.checked().await["state"], "ready");
+    assert_eq!(world.logged("start acp"), 2, "the turn's server, then a start to learn its state: {:?}", world.log());
+}
+
+/// The app's stop while the shared server starts: the opens waiting for it are refused once it started, it is closed, and
+/// the stop waits for it.
+#[tokio::test]
+async fn the_apps_stop_during_a_servers_start_refuses_its_waiters_and_waits_for_it() {
+    let world = World::official(&[("FAKE_AGENT_SLOW_START", "1500")]);
+    let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+    let opens = async {
+        tokio::join!(world.agents.session(&a, &world.preset, world.cwd(), None, None), world.agents.session(&b, &world.preset, world.cwd(), None, None))
+    };
+    let stop = async {
+        world.logs("start acp").await;
+        world.agents.shutdown().await;
+    };
+    let ((opened_a, opened_b), ()) = within("the opens and the stop", async { tokio::join!(opens, stop) }).await;
+    assert!(matches!(opened_a, Err(Refusal::Fault(_))) && matches!(opened_b, Err(Refusal::Fault(_))));
+    assert!(world.processes.list().iter().all(|process| process.exit == Some(CLOSED)), "{:?}", world.log());
+    assert_eq!(world.logged("start acp"), 1);
+    assert!(world.server_temps().iter().all(|temp| !exists(temp)));
+}
+
+/// A sign-in that hands over while the shared server still starts takes that server out of use: the open that waited for
+/// it opens on a new server, not on the one of the account left.
+#[tokio::test]
+async fn an_open_waiting_for_a_server_retired_by_a_sign_in_opens_on_a_new_server() {
+    let world = World::official(&[
+        ("FAKE_AGENT_SLOW_START", "1500"),
+        ("FAKE_AGENT_ACCOUNT", "the new account"),
+        ("FAKE_AGENT_AUTH_UNTIL", "signed-in-on-the-page"),
+    ]);
+    let login = within("the sign-in's start", world.agents.begin_login(&world.preset)).await.expect("the sign-in starts");
+    login_state(login.as_ref(), |state| matches!(state, LoginState::Authorize { .. })).await;
+    let thread = thread();
+    let opening = world.agents.session(&thread, &world.preset, world.cwd(), None, None);
+    let hand_over = async {
+        within("the server's start", async {
+            while world.logged("start acp") < 2 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        #[allow(clippy::disallowed_methods, reason = "the user signs in on the page")]
+        std::fs::write(world.dir.path().join("signed-in-on-the-page"), "").expect("the sign-in");
+        login_state(login.as_ref(), LoginState::is_terminal).await
+    };
+    let (opened, signed_in) = within("the open and the sign-in", async { tokio::join!(opening, hand_over) }).await;
+    assert_eq!(signed_in, LoginState::Done { account: None });
+    let session = opened.unwrap_or_else(|refusal| panic!("the open is refused: {refusal:?}"));
+    assert!(!session.connection.exited().is_cancelled());
+    assert_eq!(world.logged("start acp"), 3, "the sign-in's server, the server retired while it started, a new one: {:?}", world.log());
+}
+
+/// A turn waiting on an approval card ends when its session leaves the shared server, instead of waiting on the card.
+#[tokio::test]
+async fn a_turn_waiting_on_an_approval_card_ends_when_its_session_leaves_the_shared_server() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    surface.0.holds_asks.store(true, Ordering::SeqCst);
+    let thread = thread();
+    let asking = world.prompt(&thread, &surface, "permission", None, CancellationToken::new());
+    let release = async {
+        while surface.0.asks.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        world.agents.release(&thread);
+    };
+    let (end, ()) = within("the turn's end", async { tokio::join!(asking, release) }).await;
+    assert!(matches!(&end, TurnEnd::Failed { message, .. } if message == "The agent's session was closed."), "{end:?}");
 }

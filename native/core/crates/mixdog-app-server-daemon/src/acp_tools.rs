@@ -508,6 +508,109 @@ impl mixdog_acp::agents::Refusals for KeptRefusals {
     }
 }
 
+/// The feature's own folder under the data folder `data_dir`: the builds and homes of the registry's agents, what they
+/// told of themselves, and their servers' temporary folders.
+pub fn acp_data_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("acp-agents")
+}
+
+/// The largest archive of an agent's build that is downloaded.
+const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
+/// How long the registry's index is waited for: past it the installed build stays as it is.
+const INDEX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+/// How long a request may go without a byte, its answer's headers or its body's, before it is given up.
+const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// How much of an archive is held before it is written out.
+const WRITE_BLOCK: usize = 8 * 1024 * 1024;
+
+/// The ACP registry over the network: its index, and a build's archive downloaded over HTTPS alone, checked against its
+/// SHA-256 and unpacked with the archive extraction of the managed engine installs.
+pub struct RegistryDownloads {
+    client: reqwest::Client,
+    lane: mixdog_rt::DurabilityIo,
+}
+
+impl RegistryDownloads {
+    pub fn new(lane: mixdog_rt::DurabilityIo) -> Result<Self, String> {
+        let client = Self::client(STALL_TIMEOUT).https_only(true).build().map_err(|error| error.to_string())?;
+        Ok(Self { client, lane })
+    }
+
+    /// A client that gives up a request going `stall` without a byte, before its answer's headers as in its body.
+    fn client(stall: std::time::Duration) -> reqwest::ClientBuilder {
+        reqwest::Client::builder().connect_timeout(INDEX_TIMEOUT).read_timeout(stall)
+    }
+
+    /// Runs `job` on the durability lane.
+    async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce() -> std::io::Result<R> + Send + 'static) -> Result<R, String> {
+        on_lane_wait(self.lane, &CancellationToken::new(), move |_| job()).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+    }
+
+    /// Writes `block` at the end of `file`, a new file where `first`.
+    async fn write(&self, file: &std::path::Path, block: Vec<u8>, first: bool) -> Result<(), String> {
+        let file = file.to_path_buf();
+        #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a durability-lane job")]
+        let job = move || {
+            use std::io::Write;
+            std::fs::OpenOptions::new().create(true).write(true).append(!first).truncate(first).open(&file)?.write_all(&block)
+        };
+        self.on_lane(job).await
+    }
+}
+
+#[async_trait]
+impl mixdog_acp::registry::RegistryFetcher for RegistryDownloads {
+    async fn index(&self, url: &str) -> Result<Value, String> {
+        let response = self.client.get(url).timeout(INDEX_TIMEOUT).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
+        let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+        serde_json::from_slice(&bytes).map_err(|error| format!("the registry's index is not JSON: {error}"))
+    }
+
+    async fn unpack(&self, build: &mixdog_acp::registry::Build, archive: &std::path::Path, into: &std::path::Path) -> Result<(), String> {
+        use sha2::Digest;
+        let mut response =
+            self.client.get(&build.archive).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
+        let too_large = || format!("the archive of {} is larger than {} MiB", build.archive, MAX_ARCHIVE_BYTES / 1024 / 1024);
+        if response.content_length().is_some_and(|length| length > MAX_ARCHIVE_BYTES) {
+            return Err(too_large());
+        }
+        let mut hasher = sha2::Sha256::new();
+        let (mut held, mut total, mut first) = (Vec::new(), 0_u64, true);
+        loop {
+            let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? else { break };
+            total += chunk.len() as u64;
+            if total > MAX_ARCHIVE_BYTES {
+                return Err(too_large());
+            }
+            hasher.update(&chunk);
+            held.extend_from_slice(&chunk);
+            if held.len() >= WRITE_BLOCK {
+                self.write(archive, std::mem::take(&mut held), first).await?;
+                first = false;
+            }
+        }
+        self.write(archive, held, first).await?;
+        let digest: String = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+        if digest != build.sha256 {
+            return Err(format!("the archive's SHA-256 is {digest}, not the registry's {}", build.sha256));
+        }
+        let (archive, into, cmd) = (archive.to_path_buf(), into.to_path_buf(), build.cmd.clone());
+        #[allow(clippy::disallowed_methods, reason = "a durability-lane job")]
+        let job = move || {
+            std::fs::create_dir_all(&into)?;
+            mixdog_services::tidy::extract::extract_zip(&archive, &into, |_| false).map_err(std::io::Error::other)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(into.join(&cmd), std::fs::Permissions::from_mode(0o755))?;
+            }
+            let _ = cmd;
+            std::fs::remove_file(&archive)
+        };
+        self.on_lane(job).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
@@ -601,6 +704,7 @@ mod tests {
             data_dir: dir.path().join("acp-agents"),
             env: Arc::new(|_: &str| None),
             mcp_bridge: None,
+            registry: None,
         });
         let admission = AgentAdmission(agents.clone());
 
@@ -609,6 +713,37 @@ mod tests {
         assert_eq!(admission.admits("anthropic"), None, "no agent's route");
         enabled.store(false, Ordering::SeqCst);
         assert!(matches!(admission.admits(&preset.provider), Some(Err(_))));
+    }
+
+    /// A download from a server that takes the request and sends nothing, not even its answer's headers, is given up once
+    /// it went the stall time without a byte: the install does not wait for the feature to be turned off.
+    #[tokio::test]
+    async fn a_build_download_whose_server_sends_no_headers_is_given_up_at_the_stall_time() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("a local listener");
+        let port = listener.local_addr().expect("its address").port();
+        let held = tokio::spawn(async move {
+            let (connection, _) = listener.accept().await.expect("the request");
+            std::future::pending::<()>().await;
+            drop(connection);
+        });
+        let dir = tempfile::tempdir().expect("a folder");
+        let downloads = RegistryDownloads {
+            client: RegistryDownloads::client(std::time::Duration::from_millis(300)).build().expect("the client"),
+            lane: mixdog_rt::testing::tokens().durability_io,
+        };
+        let build = mixdog_acp::registry::Build {
+            version: mixdog_acp::preset::Version::new(1, 5, 2),
+            archive: format!("http://127.0.0.1:{port}/agy-acp-server.zip"),
+            cmd: "agy_acp_server.exe".into(),
+            args: Vec::new(),
+            sha256: "ab".repeat(32),
+        };
+        use mixdog_acp::registry::RegistryFetcher;
+        let given_up = tokio::time::timeout(std::time::Duration::from_secs(20), downloads.unpack(&build, &dir.path().join("archive"), &dir.path().join("build")))
+            .await
+            .expect("the download is given up at the stall time");
+        assert!(given_up.is_err(), "{given_up:?}");
+        held.abort();
     }
 
     /// A route on a model another preset of the agent runs (a saved route, or `mixdog exec --provider acp-antigravity
@@ -630,6 +765,7 @@ mod tests {
             data_dir: dir.path().join("acp-agents"),
             env: Arc::new(|_: &str| None),
             mcp_bridge: None,
+            registry: None,
         });
         let turns = AgentTurns {
             agents: agents.clone(),

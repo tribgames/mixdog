@@ -144,13 +144,12 @@ fn hooked(data: &Path) -> Vec<String> {
     payloads.filter_map(|payload| payload["tool_name"].as_str().map(str::to_owned)).collect()
 }
 
-/// A user's settings with the ACP agents turned on and the Mixdog provider at `port`, which is also the Maintainer's route.
+/// A user's settings with the Mixdog provider at `port`, which is also the Maintainer's route; the ACP agents are on by default.
 fn seed(data: &Path, port: u16) {
     seed_hooks(data);
     crate::compose_test_support::seed_default_model(data);
     let file = data.join("mixdog-config.json");
     let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&file).expect("the settings file")).expect("JSON");
-    config["agent"]["builtins"] = json!({ mixdog_acp::FEATURE: { "installed": true } });
     config["agent"]["providers"][PROVIDER]["baseURL"] = json!(format!("http://127.0.0.1:{port}"));
     config["agent"]["agents"]["maintainer"] = json!({ "provider": PROVIDER, "model": MODEL });
     std::fs::write(file, config.to_string()).expect("the settings file");
@@ -299,6 +298,7 @@ impl World {
         let config = ComposeConfig {
             outgoing: outgoing.clone(),
             agent_presets: vec![preset.clone()],
+            acp_data_dir: None,
             ..tests::config_in(&data, dir, log, mixdog_rt::CancellationToken::new())
         };
         let core = Arc::new(compose(&tokens, config).await.expect("the composed core"));

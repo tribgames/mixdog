@@ -62,7 +62,7 @@ test('exhausted weekly usage is pinned; missing weekly data is never invented; k
   assert.equal(pinPercent(many), 12);
 });
 
-test('Antigravity ACP is an entry of its own beside the OAuth one, each with its own windows', () => {
+test('the Antigravity agent is an entry of its own beside the OAuth one, each with its own windows', () => {
   const oauth = {
     id: 'antigravity-oauth',
     label: 'Antigravity OAuth',
@@ -70,18 +70,21 @@ test('Antigravity ACP is an entry of its own beside the OAuth one, each with its
     authenticated: true,
     windows: [{ label: '7D', usedPct: 20 }],
   };
-  const acp = {
-    id: 'acp-antigravity',
-    label: 'Antigravity ACP',
+  // mixdog-app-server-daemon acp_usage.rs: the agent's reading comes from its CLI preset; the official server
+  // reports none. Either preset's row is the one agent's entry.
+  const cli = {
+    id: 'acp-antigravity-cli',
+    label: 'Antigravity',
     group: 'acp',
     authenticated: true,
     windows: [{ label: '7D', usedPct: 60 }],
   };
   const shown = (rows) => usagePinEntries({ rows }).map((entry) => [entry.key, entry.label, entry.percent]);
-  assert.deepEqual(shown([acp]), [['antigravity-acp', 'Antigravity ACP', 60]]);
-  assert.deepEqual(shown([acp, oauth]), [
+  assert.deepEqual(shown([cli]), [['antigravity-acp', 'Antigravity', 60]]);
+  assert.deepEqual(shown([{ ...cli, id: 'acp-antigravity' }]), [['antigravity-acp', 'Antigravity', 60]]);
+  assert.deepEqual(shown([cli, oauth]), [
     ['antigravity', 'Antigravity', 20],
-    ['antigravity-acp', 'Antigravity ACP', 60],
+    ['antigravity-acp', 'Antigravity', 60],
   ]);
   assert.deepEqual(shown([oauth]), [['antigravity', 'Antigravity', 20]]);
 });
@@ -90,8 +93,8 @@ test('an agent row whose quota a provider row shows is listed once, under that p
   const rows = [
     { id: 'antigravity-oauth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 20 }] },
     {
-      id: 'acp-antigravity',
-      label: 'Antigravity ACP',
+      id: 'acp-antigravity-cli',
+      label: 'Antigravity',
       group: 'acp',
       authenticated: true,
       sameQuotaAs: 'antigravity-oauth',

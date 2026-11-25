@@ -354,6 +354,7 @@ mod tests {
             stop,
             catalog_http: crate::compose_test_support::offline_http(),
             agent_presets: crate::acp_tools::builtin_presets(),
+            acp_data_dir: None,
             #[cfg(test)]
             pg_install: None,
         }
@@ -719,6 +720,9 @@ pub struct ComposeConfig {
     /// The ACP agents a session's route can name (the `acpAgents` feature): the shipped ones (`acp_tools::builtin_presets`) in the daemon,
     /// a fake agent's in a test.
     pub agent_presets: Vec<mixdog_acp::preset::AgentPreset>,
+    /// The ACP agents' own folder where it is not this data folder's (`acp_tools::acp_data_dir`): a run's core (`mixdog exec`)
+    /// uses the host's, which holds the builds the app installed and the sign-ins it keeps.
+    pub acp_data_dir: Option<PathBuf>,
     /// Compiled for tests only (the daemon always runs the bundled runtime's download). What runs when the memory database is first used to bring the PostgreSQL runtime: None in the daemon (the bundled runtime's download, nsureRuntime), a held or failing install in a test.
     #[cfg(test)]
     pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
@@ -1010,6 +1014,7 @@ async fn compose_inner(
         stop,
         catalog_http,
         agent_presets,
+        acp_data_dir,
         #[cfg(test)]
         pg_install,
     } = config;
@@ -1087,6 +1092,7 @@ async fn compose_inner(
         package_root: js_runtime.package_root.clone(),
         js_runtime,
         agent_presets,
+        acp_data_dir,
         #[cfg(test)]
         pg_install,
         env: process_env(),

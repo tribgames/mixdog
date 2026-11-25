@@ -172,9 +172,8 @@ fn minimal_config(
         preset.insert("fallbacks".into(), json!([fallback]));
     }
     let mut agent = contract["agentDefaults"].as_object().expect("agentDefaults").clone();
-    if on_agent {
-        agent.insert("builtins".into(), json!({ mixdog_acp::FEATURE: { "installed": true } }));
-    }
+    // The run's own switch of the ACP agents, which are on by default: on only for a Lead that is one.
+    agent.insert("modules".into(), json!({ "acpAgents": { "enabled": on_agent } }));
     agent.insert("providers".into(), Value::Object(providers));
     agent.insert("presets".into(), json!([Value::Object(preset)]));
     agent.insert("default".into(), json!(lead_preset));
@@ -314,8 +313,7 @@ fn scrubbed_env(
     env
 }
 
-/// The host's switch of the built-in feature `id`, as the app reads it: the environment's override, else the stored config's
-/// `builtins.<id>` and `modules.<id>`.
+/// The host's switch of the built-in feature `id`, as the app reads it from the environment's override and the stored config.
 fn host_feature_active(request: &BoundaryRequest<'_>, contract: &Value, id: &str) -> bool {
     let stored = std::fs::read_to_string(request.host_data_dir.join(contract["configFileName"].as_str().expect("configFileName")))
         .ok()

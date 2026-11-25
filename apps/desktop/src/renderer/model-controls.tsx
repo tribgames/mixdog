@@ -14,7 +14,6 @@ import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
 import { cachedAgentTierRoute, invalidateSharedModelCatalogRequest } from './model-catalog-cache';
 import { agentProvider, useAgentRoute } from './acp-agent-status';
-import { requestBuiltInFeature } from './settings/built-in-feature-request';
 import { useProviderModelCatalog } from './use-model-catalog';
 import { catalogProviderNames, customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
@@ -883,10 +882,9 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelManagement={(target) => {
-          // An agent's models are managed where the agent is: its own dialog among the built-in features.
+          // An agent's models are managed where the agent is: its card among the providers.
           if (target && agentProvider(target)) {
-            requestBuiltInFeature('acpAgents');
-            onOpenSettings('plugins');
+            onOpenSettings('providers');
             return;
           }
           if (target) requestModelManagementProvider(target);

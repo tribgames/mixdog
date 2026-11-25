@@ -668,6 +668,52 @@ async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     assert!(text.contains("a.txt") && text.contains("+two"), "{text}");
 }
 
+/// A completion wake submits no row and continues the review of the turn before it: its end names that turn's checkpoint,
+/// the one a client reads the wake's changes by (else its card reads a checkpoint the review never kept).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: a git workspace")]
+async fn a_completion_wakes_end_names_the_checkpoint_its_review_continues() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let ws = tempfile::tempdir().unwrap();
+    let root = ws.path().canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_owned();
+    assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&root).status().unwrap().success());
+    let cwd = root.clone();
+    rig.set_script(Arc::new(move |run| {
+        let cwd = cwd.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.review.start(&cwd);
+            assert!(run.review.ready().await.is_some(), "a review");
+            let mut result = mixdog_agent::agent_tool::flow::seams::TurnResult::default();
+            result.content = "done".into();
+            RunOutcome::Completed(Box::new(result))
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let input = json!({ "prompt": "start", "options": { "clientSubmissionId": "desktop-submit-1" } });
+    handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": input }), "op-1")).await.expect("turn/start");
+    let ends = || -> Vec<Value> {
+        rig.store
+            .records(&handle.id)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                mixdog_store::schema::record::Record::Item(row) => match row.body {
+                    mixdog_store::schema::blob::Slot::Inline(body) if body["kind"] == "turndone" => Some(body),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    eventually_on!(&[&rig.store.committed, &handle.cell.stepped], || (ends().len() == 1 && idle(&handle)).then_some(())).await;
+    directory.finished(&handle.id, "shell", "job-1", "completed", "Async shell task job-1 finished.".into()).await;
+    let ends = eventually_on!(&[&rig.store.committed], || Some(ends()).filter(|ends| ends.len() == 2)).await;
+    // The wake's end: the prompt's own end names its checkpoint only as the prompt row's transcript meta does.
+    assert_eq!(ends[1]["checkpointId"], json!("desktop-submit-1"), "{ends:?}");
+}
+
 fn drain(stage: DrainStage) -> DrainRequest {
     DrainRequest { stage, max_priority: Priority::Next }
 }

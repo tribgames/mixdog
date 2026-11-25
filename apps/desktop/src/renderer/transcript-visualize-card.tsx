@@ -419,7 +419,9 @@ export function ToolVisualizeCards({
   }, [sessionId, turnKey, calls]);
   const kept = superseded ? calls.filter((call) => !superseded.split('\n').includes(call.id)) : calls;
   const shown = useMemo(() => kept.map(previews.marked), [kept, previews.marked]);
-  if (!sessionId || !shown.length) return null;
+  // The turn's previews come with its changes read: the row is pending until it answers (use-transcript-reveal.ts).
+  const pending = previews.reading ? <span hidden data-transcript-pending="read" /> : null;
+  if (!sessionId || !shown.length) return pending;
   const cards = (
     <VisualizeTurnCard
       calls={shown}
@@ -428,7 +430,12 @@ export function ToolVisualizeCards({
       undo={turnChanges ? <TurnChangesUndo turnChanges={turnChanges} visualized={previews.visualized} /> : undefined}
     />
   );
-  return frame ? frame(cards) : cards;
+  return (
+    <>
+      {pending}
+      {frame ? frame(cards) : cards}
+    </>
+  );
 }
 
 const NO_CHANGED_FILES: readonly TurnChangesFile[] = [];
@@ -464,7 +471,7 @@ function useTurnPreviews({
   const changesSession = turnChanges ? (surface?.sessionId ?? '') : '';
   const checkpointId = turnChanges?.checkpointId ?? '';
   const running = turnCardHeld(turnChanges, surface?.turnRunning);
-  const { reply, fresh } = useTurnChanges({
+  const { reply, fresh, reading } = useTurnChanges({
     sessionId: changesSession,
     checkpointId,
     boundary: turnChanges?.boundary ?? '',
@@ -528,7 +535,7 @@ function useTurnPreviews({
     const order = turnPreviewOpenOrder(found);
     if (order.length) void openTurnPreviews(sessionId, order, { reveal: !agentOpens });
   }, [settled, changesSession, checkpointId, found, sessionId, agentOpens]);
-  return { calls, marked, visualized };
+  return { calls, marked, visualized, reading };
 }
 
 /** The turn's changed-files card, listing none of the files its preview card

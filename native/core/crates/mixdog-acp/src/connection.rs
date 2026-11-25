@@ -115,17 +115,16 @@ impl Temp {
     }
 }
 
-/// Removes `folder` with all it holds. A folder whose files the process that just exited still held is tried once more
-/// shortly after.
-pub(crate) async fn remove_folder(files: &dyn TextFiles, folder: AbsPath) {
-    if files.remove_folder(folder.clone()).await.is_ok() {
-        return;
-    }
-    mixdog_rt::time::sleep(std::time::Duration::from_millis(250)).await;
+/// Removes `folder`, which `kind` names, with all it holds. A folder that cannot be removed now is left to the sweep of the
+/// daemon's next start.
+pub(crate) async fn remove_folder(files: &dyn TextFiles, folder: AbsPath, kind: &str) {
     if let Err(error) = files.remove_folder(folder.clone()).await {
-        tracing::warn!("[acp] the agent's temporary folder {} was not removed: {error}", folder.as_path().display());
+        tracing::warn!("[acp] {kind} {} was not removed: {error}", folder.as_path().display());
     }
 }
+
+/// What [`remove_folder`] names a server's temporary folder.
+pub(crate) const TEMP_FOLDER: &str = "the agent's temporary folder";
 
 /// What a program run to its exit left.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -246,6 +245,8 @@ pub struct Connection {
     /// Fired by the reader once the process has exited, before it fails the waiting requests.
     exited: CancellationToken,
     stderr: Mutex<String>,
+    /// Who is told each whole line the process writes to stderr.
+    stderr_lines: Mutex<Vec<mpsc::UnboundedSender<String>>>,
     /// Why this client ended the process itself.
     broken: Mutex<Option<String>>,
 }
@@ -278,7 +279,7 @@ impl Connection {
             Ok((_, events)) => events,
             Err(error) => {
                 if let Some(temp) = temp {
-                    remove_folder(temp.files.as_ref(), temp.folder).await;
+                    remove_folder(temp.files.as_ref(), temp.folder, TEMP_FOLDER).await;
                 }
                 return Err(start_fault(error));
             }
@@ -291,6 +292,7 @@ impl Connection {
             sent: Mutex::default(),
             exited: CancellationToken::new(),
             stderr: Mutex::default(),
+            stderr_lines: Mutex::default(),
             broken: Mutex::default(),
         });
         let (tx, rx) = mpsc::unbounded_channel();
@@ -305,6 +307,40 @@ impl Connection {
     /// Fires once the process has exited.
     pub fn exited(&self) -> &CancellationToken {
         &self.exited
+    }
+
+    /// Each whole line the process writes to stderr, trimmed, from the earliest one of the kept end of its stderr on; the
+    /// channel ends with the process.
+    pub fn stderr_lines(&self) -> mpsc::UnboundedReceiver<String> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let tail = lock(&self.stderr);
+        let whole = tail.rfind('\n').map_or("", |end| &tail[..end]);
+        for line in whole.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            let _ = tx.send(line.to_owned());
+        }
+        let mut told = lock(&self.stderr_lines);
+        if !self.exited.is_cancelled() {
+            told.push(tx);
+        }
+        drop(told);
+        rx
+    }
+
+    /// The process wrote `bytes` to stderr, after the unfinished line `line`.
+    fn stderr_written(&self, line: &mut Vec<u8>, bytes: &[u8]) {
+        let mut tail = lock(&self.stderr);
+        keep_tail(&mut tail, bytes);
+        let mut told = lock(&self.stderr_lines);
+        for byte in bytes {
+            if *byte != b'\n' {
+                line.push(*byte);
+                continue;
+            }
+            let text = String::from_utf8_lossy(&std::mem::take(line)).trim().to_owned();
+            if !text.is_empty() {
+                told.retain(|tx| tx.send(text.clone()).is_ok());
+            }
+        }
     }
 
     /// The fault of a process that ended, with the end of what it wrote to stderr.
@@ -447,6 +483,7 @@ async fn read(
     temp: Option<Temp>,
 ) {
     let mut line: Vec<u8> = Vec::new();
+    let mut err_line: Vec<u8> = Vec::new();
     let mut exited = false;
     while let Some(event) = events.next().await {
         let Some(connection) = connection.upgrade() else { continue };
@@ -467,7 +504,7 @@ async fn read(
                     }
                 }
             }
-            ProcessEvent::Output { bytes, .. } => keep_tail(&mut lock(&connection.stderr), &bytes),
+            ProcessEvent::Output { bytes, .. } => connection.stderr_written(&mut err_line, &bytes),
             ProcessEvent::Exited { .. } => {
                 exited = true;
                 break;
@@ -480,10 +517,11 @@ async fn read(
         connection.kill();
     }
     if let Some(temp) = temp {
-        remove_folder(temp.files.as_ref(), temp.folder).await;
+        remove_folder(temp.files.as_ref(), temp.folder, TEMP_FOLDER).await;
     }
     let Some(connection) = connection else { return };
     connection.exited.cancel();
+    lock(&connection.stderr_lines).clear();
     let waiting: Vec<_> = lock(&connection.waiting).drain().collect();
     for (_, waiter) in waiting {
         let _ = waiter.send(Err(connection.closed()));

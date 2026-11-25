@@ -28,7 +28,6 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::AUTH_REQUIRED;
 use crate::agents::Agents;
 use crate::agents::DEFAULT_MODEL;
-use crate::agents::Readiness;
 use crate::agents::Refusal;
 use crate::agents::lock;
 use crate::preset::AgentPreset;
@@ -336,9 +335,7 @@ async fn account_learned(agents: &Agents, preset: &AgentPreset, end: &TurnEnd) {
     match end {
         TurnEnd::Refused { message } => agents.refused(preset, message).await,
         TurnEnd::Completed { .. } => agents.answered(preset).await,
-        TurnEnd::Failed { message, code: Some(AUTH_REQUIRED), .. } => {
-            agents.not_ready(preset, |version| Readiness::SignedOut { version, message: message.clone() })
-        }
+        TurnEnd::Failed { message, code: Some(AUTH_REQUIRED), .. } => agents.signed_out(preset, message.clone()).await,
         _ => {}
     }
 }
@@ -403,6 +400,8 @@ async fn begin(
             }
         }
     }
+    // The shared server the ended session ran on serves the session opened next on it, with no close in between.
+    let held = agents.hold_shared(&thread, preset);
     if stored.is_none() {
         // The conversation holds no agent session to continue (its first agent turn, or a fork, a rewind, a clear or
         // Mixdog's own turns since): a process still running for the thread holds one that is not this conversation's.
@@ -422,6 +421,7 @@ async fn begin(
             Err(refusal) => return Err(refused(refusal)),
         },
     };
+    drop(held);
     // What rides the prompt ahead of the user's own blocks.
     let mut lead: Vec<String> = Vec::new();
     let fresh = stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
@@ -643,7 +643,8 @@ impl TurnSurface for Unshown {
 
 /// Ends the process of a question's own session when the question is over, however it ends: a server whose preset shares
 /// one among its sessions as the end of its input closes it, so it clears away what it unpacked; a CLI by force.
-struct Ended(Arc<crate::session::AgentSession>);
+/// The app's stop waits for such a close.
+struct Ended(Arc<crate::session::AgentSession>, Arc<Agents>);
 
 impl Drop for Ended {
     fn drop(&mut self) {
@@ -651,7 +652,7 @@ impl Drop for Ended {
             ProcessScope::PerSession => self.0.connection.kill(),
             ProcessScope::Shared => {
                 let connection = self.0.connection.clone();
-                drop(mixdog_rt::spawn("acp.question.close", mixdog_rt::TaskClass::Work, async move {
+                self.1.track_stop(mixdog_rt::spawn("acp.question.close", mixdog_rt::TaskClass::Work, async move {
                     connection.close_gracefully(crate::shared::grace(1)).await;
                 }));
             }
@@ -698,13 +699,16 @@ pub async fn ask_once(
         handed: None,
         temp,
     };
-    let session = crate::session::AgentSession::open(agents.parts.processes.clone(), agents.parts.files.clone(), open, Arc::new(|| {}), Box::new(|| {}))
-        .await
-        .map_err(|fault| {
-            agents.open_failed(preset, &fault);
-            Refusal::Fault(fault).message(preset)
-        })?;
-    let _ended = Ended(session.clone());
+    let opened =
+        crate::session::AgentSession::open(agents.parts.processes.clone(), agents.parts.files.clone(), open, Arc::new(|| {}), Box::new(|| {})).await;
+    let session = match opened {
+        Ok(session) => session,
+        Err(fault) => {
+            agents.open_failed(preset, &fault).await;
+            return Err(Refusal::Fault(fault).message(preset));
+        }
+    };
+    let _ended = Ended(session.clone(), agents.clone());
     let answered = async {
         if model != DEFAULT_MODEL {
             let model = crate::tiers::agent_model(&session.models(), &preset.quirks.effort_tiers, model, None);

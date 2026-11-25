@@ -55,7 +55,8 @@ function StateColumnSizer({
 }
 
 /** The Agents category: the island's agent list (AgentGroupList), one fold a
- *  kind and one line an agent. Its head ends with the mark and how many are in
+ *  kind and one line an agent; as To-do's, it is as tall as its open folds,
+ *  with no scroll of its own. Its head ends with the mark and how many are in
  *  progress, neither with none in progress. Its foot
  *  is the agents' own usage and Clean up, the Lead's usage being Info's row. */
 export function AgentsSection({
@@ -100,7 +101,6 @@ export function AgentsSection({
       }
       open={open}
       onToggle={onToggle}
-      scroll
       foot={<AgentsSummary usage={usage} />}
       tidy={{
         kind: 'clear-finished',

@@ -355,7 +355,7 @@ pub fn run_command(options: ExecOptions) -> i32 {
             return 1;
         }
     };
-    let launcher = launcher::InProcessLauncher::new(executors, tokens, js, ort_library, agent_presets);
+    let launcher = launcher::InProcessLauncher::new(executors, tokens, js, ort_library, agent_presets, &host_data_dir);
     let host = run::Host {
         launcher: &launcher,
         credentials: &credentials,

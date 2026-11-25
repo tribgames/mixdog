@@ -448,8 +448,11 @@ test('a provider signed in from another window leaves the empty group on the cor
 test('the custom provider add action sits in the header and an empty list says so', async (t) => {
   await mountPanel(t);
   const section = document.querySelector('.settings-custom-providers');
-  const add = buttonIn(section, 'Add custom provider');
+  const add = section.querySelector('button[aria-label="Add custom provider"]');
   assert.equal(add.closest('.settings-group-head').querySelector('h3').textContent, 'Custom providers');
+  // The plus alone, its name on hover.
   assert.ok(add.querySelector('svg'));
+  assert.equal(add.textContent, '');
+  assert.equal(add.dataset.tooltip, 'Add custom provider');
   assert.equal(section.querySelector('.settings-empty').textContent, 'No custom providers yet.');
 });

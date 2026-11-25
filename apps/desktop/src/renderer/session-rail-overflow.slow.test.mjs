@@ -1660,7 +1660,8 @@ test("every scroller in the panel fades its content out at an edge with more bey
   });
   await frames(page);
   const scrollers = (await page.evaluate(() => window.fades())).map((fade) => fade.scroller);
-  assert.deepEqual(scrollers, ['panel', 'agents', 'shells', 'changes']);
+  // Agents, as To-do, grow with their open folds and scroll with the panel.
+  assert.deepEqual(scrollers, ['panel', 'shells', 'changes']);
   for (const [index, scroller] of scrollers.entries()) {
     for (const at of ['top', 'middle', 'end']) {
       await page.evaluate(

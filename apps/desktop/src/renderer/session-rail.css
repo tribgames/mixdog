@@ -5,8 +5,8 @@
    conversation when they do not, over the whole pane when that is too narrow
    (session-rail-layout.ts sessionRailFit, data-presentation). The 8px it
    takes beside its width (SESSION_RAIL_GAP) are its two edges' 4px. A dock
-   open at the pane's side covers it: it is not drawn meanwhile
-   (pane-side-dock.tsx paneDockRailLayout). */
+   open at the pane's side covers it: it is not drawn meanwhile, and keeps
+   its body (pane-side-dock.tsx paneDockRailLayout). */
 .pane-cell {
   --session-rail-surface: var(--mx-window-band);
 }
@@ -29,6 +29,9 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
   background: var(--session-rail-surface);
   box-shadow: inset 1px 0 0 var(--mx-border-muted);
 }
+.pane-cell > .session-rail[hidden] {
+  display: none;
+}
 /* Over the conversation, which keeps its width under it: the dock's overlay
    shadow (pane-layout.css .pane-side-dock[data-overlay]). */
 .pane-cell > .session-rail[data-presentation="overlay"] {
@@ -48,7 +51,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
 /* The tab strip, its end buttons with it, ends at the panel's edge
    (--session-rail-band, the panel's whole width). */
 :root:not([data-mixdog-mobile-tabs])
-  .pane-cell:has(> .session-rail:not([data-presentation="full"]))
+  .pane-cell:has(> .session-rail:not([hidden], [data-presentation="full"]))
   > .workspace-tabs-shell {
   margin-right: var(--session-rail-band);
   border-top-right-radius: 0;
@@ -990,8 +993,8 @@ button.session-rail-row:focus-visible {
   opacity: var(--mx-op-dim);
 }
 
-/* Agents and shells: the island's own lists. The section's body is the
-   scroller here, so the list keeps no height or scroll of its own. */
+/* Agents and shells: the island's own lists. The section's body sizes them
+   (a scroller for shells), so the list keeps no height or scroll of its own. */
 .session-rail .composer-island-jobs {
   max-height: none;
   margin: 0;

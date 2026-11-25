@@ -1239,7 +1239,7 @@ test("a search hit on turns whose changed files are never read: each card is dra
   assert.equal(filled.recorded, 0, 'each card now shows what the core read');
 });
 
-test('a cold return to a session whose changed files are no longer held and never read, left in old history: its end comes back with its cards', async (t) => {
+test('a cold return to a session whose changed files are no longer held, left in old history: its end comes back once its cards are read, with the cards the core lists', async (t) => {
   const p = await rig(t);
   await p.act(withChanges);
   await p.act(() => window.rig.ws.open(window.rig.ws.session('A')));
@@ -1251,7 +1251,7 @@ test('a cold return to a session whose changed files are no longer held and neve
       window.rig.ws.open(window.rig.ws.session(id));
     }, `M${n}`);
   }
-  // Nothing of A's cards is held, and the core answers none of them.
+  // Nothing of A's cards is held, and the core answers them only after minutes.
   await p.run(() => {
     window.rig.reclaim();
     window.rig.forgetChanges();
@@ -1260,20 +1260,19 @@ test('a cold return to a session whose changed files are no longer held and neve
   const before = await one(p);
   const frames = paneFrames(
     await p.frames(open('A'), {
-      count: 24,
-      at: { 8: ({ advance }) => advance(90_000), 14: ({ advance }) => advance(90_000) },
+      count: 30,
+      at: {
+        8: ({ advance }) => advance(90_000),
+        14: ({ advance }) => advance(90_000),
+        18: ({ core }) => core.answerReads(),
+      },
     })
   );
-  const arrived = assertHandover(frames, before, 'A', 'cold return, changes unread');
-  assertAtEnd(frames.slice(arrived), 'A:A-r300', 'cold return, changes unread');
+  const arrived = assertHandover(frames, before, 'A', 'cold return, changes read late');
+  assert.ok(arrived >= 18, `no elapsed time presents the return, its reads do (frame ${arrived + 1})`);
+  assertAtEnd(frames.slice(arrived), 'A:A-r300', 'cold return, changes read late');
   const drawn = await cards(p);
-  assert.ok(
-    drawn.count > 0 && drawn.recorded === drawn.count,
-    `the cards are drawn from the records (${JSON.stringify(drawn)})`
-  );
-  const presented = frames.at(-1);
-  const after = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
-  assertStill(after, presented, 'the changes read answered after the return');
+  assert.ok(drawn.count > 0 && drawn.recorded === 0, `the cards are the core's (${JSON.stringify(drawn)})`);
 });
 
 // A read whose card would change the row's height: what the turn's records named and what the core lists differ.
@@ -1361,27 +1360,25 @@ const cardsInView = (p) =>
         ])
       )
   );
-/** Session A, whose last turn wrote one file where the core lists two, opened at its end with the reads held. */
-async function lastTurnReadDiffers(p) {
+test("a session entered at its end whose last turn's read lists more files than its records: it is shown once the read answers, with the core's card from its first frame, and no row moves", async (t) => {
+  const p = await rig(t);
   await p.act(() => {
+    window.rig.core.seed('B', 12);
+    window.rig.ws.open(window.rig.ws.session('B'));
+  });
+  const before = await one(p);
+  await p.run(() => {
     window.rig.core.seed('A', 300, { tools: 1, writes: { 300: ['src/app.ts'] } });
     window.rig.core.changes('A-u300', ['src/app.ts', 'build/out.js']);
     window.rig.core.holdReads();
-    window.rig.ws.open(window.rig.ws.session('A'));
   });
-  const view = await one(p);
-  assert.equal(view.following, true);
-  assert.deepEqual((await cardsInView(p)).at(-1), [1, ''], "the last turn's card, from its records");
-  return view;
-}
-
-test("the last turn's card while the list follows the end takes a read of another height at once, and the view stays on the end", async (t) => {
-  const p = await rig(t);
-  await lastTurnReadDiffers(p);
-  const frames = paneFrames(await p.frames(({ core }) => core.answerReads(), { count: 12 }));
-  assertPainted(frames, 'the read answered at the end');
+  const frames = paneFrames(await p.frames(open('A'), { count: 24, at: { 8: ({ core }) => core.answerReads() } }));
+  const arrived = assertHandover(frames, before, 'A', 'entry with its last card unread');
+  assert.ok(arrived >= 8, `A is shown once the read answered (frame ${arrived + 1})`);
   assert.deepEqual((await cardsInView(p)).at(-1), [2, ''], 'the card the core read, its actions free');
-  const view = frames.at(-1);
+  assert.equal((await cards(p)).recorded, 0, 'no card is drawn from the records');
+  const view = await one(p);
+  assert.deepEqual(view.shown, frames.at(-1).shown, 'nothing moved after the entry');
   assert.equal(view.following, true);
   assert.ok(Math.abs(view.gap) <= 1, `the view is on the end (${view.gap})`);
   assert.equal(
@@ -1393,9 +1390,27 @@ test("the last turn's card while the list follows the end takes a read of anothe
   );
 });
 
-test('the same card with the reader scrolled up from the end keeps what it shows; back on the end it takes the read', async (t) => {
+/** Session A shown at its end, where its last turn then runs and ends, writing one file where the core lists two;
+ *  the read is held, so the card the turn's end shows is drawn from its records. */
+async function lastTurnEndsReadDiffering(p) {
+  await p.act(() => {
+    window.rig.core.seed('A', 299, { tools: 1 });
+    window.rig.ws.open(window.rig.ws.session('A'));
+  });
+  await p.act(() => {
+    window.rig.core.changes('A-u300', ['src/app.ts', 'build/out.js']);
+    window.rig.core.holdReads();
+    window.rig.core.turn('A', { tools: 1, writes: { 300: ['src/app.ts'] } });
+  });
+  const view = await one(p);
+  assert.equal(view.following, true);
+  assert.deepEqual((await cardsInView(p)).at(-1), [1, ''], "the last turn's card, from its records");
+  return view;
+}
+
+test('the card of a turn that ended in view, the reader scrolled up from the end: it keeps what it shows; back on the end it takes the read', async (t) => {
   const p = await rig(t);
-  await lastTurnReadDiffers(p);
+  await lastTurnEndsReadDiffering(p);
   await p.act(() => window.rig.wheel('pane-1', -40));
   const presented = await one(p);
   assert.equal(presented.following, false);
@@ -1414,7 +1429,7 @@ test('the same card with the reader scrolled up from the end keeps what it shows
 
 test("a press on Undo of a card kept back gives the read's card and does nothing else: no undo, no diff pane", async (t) => {
   const p = await rig(t);
-  await lastTurnReadDiffers(p);
+  await lastTurnEndsReadDiffering(p);
   await p.act(() => window.rig.wheel('pane-1', -40));
   await p.frames(({ core }) => core.answerReads(), { count: 12 });
   assert.deepEqual((await cardsInView(p)).at(-1), [1, 'updating']);

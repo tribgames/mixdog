@@ -37,6 +37,9 @@ type OAuthLoginFlowOptions = {
   onDone?(): void;
   /** Overrides "signs in on another machine" (default: a remote client). */
   remote?: boolean;
+  /** The caller's dialog when it spans several flows (a sign-in of steps): Back closes it with the caller's close
+   *  while it is open, between two flows too. */
+  dialog?: { open: boolean; close(): void };
 };
 
 const STICKY_FLOW_FIELDS = ['url', 'manualUrl', 'userCode'] as const;
@@ -187,11 +190,12 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
     }
   };
   const closeRef = useRef(close);
-  closeRef.current = close;
+  closeRef.current = options.dialog?.close ?? close;
+  const backCloses = options.dialog ? options.dialog.open : flowOpen;
   useEffect(() => {
-    if (!flowOpen) return undefined;
+    if (!backCloses) return undefined;
     return registerMobileBack(() => closeRef.current());
-  }, [flowOpen]);
+  }, [backCloses]);
   const mergeFlow = (next: RecordValue) =>
     setFlow((current) =>
       current && current.state === 'pending' && current.flowId === next.flowId
@@ -239,12 +243,15 @@ export function OAuthLoginDialog({
   disabled,
   onClose,
   portal = false,
+  step,
   children,
 }: {
   id: string;
   closeLabel: string;
   flow: RecordValue;
   error: string;
+  /** The step this flow is of a sign-in that walks several: what it signs in to, and where it stands among them. */
+  step?: { title: string; position?: string };
   /** Away from the host (or a manual-code provider): the final address or code is pasted back. */
   paste?: OAuthPaste;
   disabled: boolean;
@@ -312,6 +319,12 @@ export function OAuthLoginDialog({
           </button>
         </header>
         <div className="settings-oauth-body">
+          {step && (
+            <div className="settings-oauth-step" data-oauth-step>
+              {step.position && <small>{step.position}</small>}
+              <b>{step.title}</b>
+            </div>
+          )}
           {Boolean(url) && (
             <div className="settings-oauth-domain">
               <div>

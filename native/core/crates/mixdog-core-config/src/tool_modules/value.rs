@@ -124,8 +124,8 @@ pub fn builtin_feature_active(doc: &Doc, id: &str, env: Env<'_>, onnx_supported:
         "localProvider" => builtin_installed(doc, id) && module_enabled(doc, id),
         "autoEffort" => onnx_supported && var("MIXDOG_FEATURE_AUTO_EFFORT").unwrap_or_else(|| module_enabled(doc, id)),
         "media" => var("MIXDOG_FEATURE_MEDIA").unwrap_or_else(|| module_enabled(doc, id)),
-        // Off until it is turned on: turning it on is what marks it installed.
-        "acpAgents" => installed_and_enabled(doc, id, var("MIXDOG_FEATURE_ACP_AGENTS")),
+        // On unless switched off in Providers.
+        "acpAgents" => var("MIXDOG_FEATURE_ACP_AGENTS").unwrap_or_else(|| module_enabled(doc, id)),
         _ => false,
     }
 }

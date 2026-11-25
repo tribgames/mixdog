@@ -336,6 +336,7 @@ mod tests {
                 stop: mixdog_rt::CancellationToken::new(),
                 catalog_http: crate::compose_test_support::offline_http(),
                 agent_presets: crate::acp_tools::builtin_presets(),
+                acp_data_dir: None,
                 pg_install: None,
             },
         )

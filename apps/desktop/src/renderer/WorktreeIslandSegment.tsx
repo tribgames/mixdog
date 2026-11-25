@@ -21,6 +21,7 @@ import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
 import { RendererLruCache } from './renderer-lru-cache';
 import { usePaneKey } from './pane-key-context';
+import { useSurfaceActive } from './surface-activity';
 import { prefetchSessionChanges } from './session-changes-store';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import type { SettingsConfirmation } from './settings/capability-data';
@@ -260,7 +261,17 @@ export function BranchIslandSegment({
   const [query, setQuery] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
   const panelId = useId();
-  const [open, setOpen] = useComposerIslandTab('branch');
+  const [tabOpen, setOpen] = useComposerIslandTab('branch');
+  // The tab hosted as a popup and the name dialog are body layers: they close with the surface the segment is on (a
+  // session panel a dock covers), as BranchChip's menu does.
+  const surfaceActive = useSurfaceActive();
+  const open = tabOpen && surfaceActive;
+  const naming = namingBranch && surfaceActive;
+  useEffect(() => {
+    if (surfaceActive) return;
+    if (tabOpen) setOpen(false);
+    if (namingBranch) setNamingBranch(false);
+  }, [surfaceActive, tabOpen, namingBranch, setOpen]);
   const { menu, loading, notice, setNotice, load } = useBranchMenuData({
     draft: false,
     projectPath,
@@ -570,7 +581,7 @@ export function BranchIslandSegment({
       ) : (
         tab
       )}
-      {namingBranch && (
+      {naming && (
         <BranchNameDialog
           panelId={panelId}
           anchor={trigger}

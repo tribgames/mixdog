@@ -4,7 +4,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 import type { DesktopModelOption } from '../shared/contract';
 import { cachedModelCatalogRevision, cachedModelRow, subscribeCachedModelCatalog } from './model-catalog-cache';
-import { modelDisplayName } from './provider-display';
+import { agentServiceProvider, modelDisplayName } from './provider-display';
 import { record } from './record-utils';
 import { windowSectionStore } from './section-store';
 
@@ -19,6 +19,7 @@ export const ACP_AGENT_STATES = [
   'signedOut',
   'failed',
   'ready',
+  'unsupported',
 ] as const;
 
 /** A state the core reports; `unknown` is one this app does not know. */
@@ -45,6 +46,10 @@ export interface AcpAgentStatus {
   plan: string;
   /** The agent can be signed out from here. */
   canSignOut: boolean;
+  /** The core's sign-in opens the browser on its own machine. */
+  loginOpensBrowser: boolean;
+  /** The agent's sign-in is the one its CLI uses outside Mixdog. */
+  sharesExternalSignIn: boolean;
 }
 
 const KNOWN_STATES: ReadonlySet<string> = new Set(ACP_AGENT_STATES);
@@ -81,9 +86,67 @@ export function acpAgentsOf(value: unknown): AcpAgentStatus[] {
         canSignIn: agent.canSignIn === true,
         plan: String(agent.plan || ''),
         canSignOut: agent.canSignOut === true,
+        loginOpensBrowser: agent.loginOpensBrowser === true,
+        // A core that does not say is one whose only agent was the CLI.
+        sharesExternalSignIn: agent.sharesExternalSignIn !== false,
       },
     ];
   });
+}
+
+/** One agent as the user sees it: the presets the core runs for one service (its official server and its CLI). */
+export interface AcpAgentGroup {
+  /** The members as one agent: the state they combine to, told in the words of the member it comes from. */
+  agent: AcpAgentStatus;
+  /** In the core's order. */
+  members: AcpAgentStatus[];
+}
+
+/** Which member's state the group shows: the work under way, then what stops it, then what keeps it short of
+ *  ready; it is ready when every member is. */
+const GROUP_STATE_ORDER: readonly AcpAgentState[] = [
+  'installing',
+  'updating',
+  'checking',
+  'unknown',
+  'failed',
+  'notInstalled',
+  'versionUnknown',
+  'versionTooOld',
+  'signedOut',
+  'off',
+  'ready',
+];
+
+function groupAgent(members: AcpAgentStatus[]): AcpAgentStatus {
+  // A member that cannot run on this computer leaves the agent to the others.
+  const usable = members.filter((member) => member.state !== 'unsupported');
+  const telling = GROUP_STATE_ORDER.flatMap((state) => usable.filter((member) => member.state === state))[0];
+  const [first] = members;
+  // The row offers what the members in its own state can do: a sibling in another state lends it no action.
+  const shown = telling ? usable.filter((member) => member.state === telling.state) : [];
+  return {
+    ...(telling ?? first),
+    id: first.id,
+    label: first.label,
+    provider: first.provider,
+    models: members.flatMap((member) => member.models),
+    lastError: shown.find((member) => member.lastError)?.lastError ?? null,
+    canInstall: shown.some((member) => member.canInstall),
+    canSignIn: shown.some((member) => member.canSignIn),
+    plan: usable.find((member) => member.plan)?.plan ?? '',
+    canSignOut: usable.some((member) => member.canSignOut),
+  };
+}
+
+/** The agents of the settings value's `acpAgents` as the user sees them: the presets of one service are one agent. */
+export function acpAgentGroups(value: unknown): AcpAgentGroup[] {
+  const groups = new Map<string, AcpAgentStatus[]>();
+  for (const agent of acpAgentsOf(value)) {
+    const key = agentServiceProvider(agent.provider) ?? agent.id;
+    groups.set(key, [...(groups.get(key) ?? []), agent]);
+  }
+  return [...groups.values()].map((members) => ({ agent: groupAgent(members), members }));
 }
 
 /** Whether `provider` is an agent's route provider, by the window's settings value as it is now. */

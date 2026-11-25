@@ -7,6 +7,7 @@ import { PanelTop } from 'lucide-react';
 import { t } from './i18n';
 import { sessionTabGlyph } from './WorkspaceTabStrip';
 import { DockHeaderRow } from './pane-dock-chrome';
+import { PanePresentationContext, useShownPresentation } from './pane-presentation';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import type { AgentSessionPanelTarget } from './session-side-surface-policy';
 import { SurfaceActiveContext, useSurfaceActive } from './surface-activity';
@@ -53,7 +54,9 @@ export function AgentSessionPanel({
 }) {
   const held = useHeldSessionLane(target.sessionId, defaultSessionLaneStore, heldLanes);
   const title = target.title || t('Agent session');
-  const parentActive = useSurfaceActive();
+  const shown = useSurfaceActive() && active;
+  // Covered by another dock child or folded, the conversation stays mounted; shown again, it presents its rows anew.
+  const presentation = useShownPresentation(shown);
   return (
     <section className="agent-session-panel" aria-label={title} hidden={!active || undefined}>
       <DockHeaderRow
@@ -78,8 +81,10 @@ export function AgentSessionPanel({
         ]}
         onClose={onClose}
       />
-      <SurfaceActiveContext.Provider value={parentActive && active}>
-        <div className="agent-session-panel-body">{renderConversation(target.sessionId, target.title, held)}</div>
+      <SurfaceActiveContext.Provider value={shown}>
+        <PanePresentationContext.Provider value={presentation}>
+          <div className="agent-session-panel-body">{renderConversation(target.sessionId, target.title, held)}</div>
+        </PanePresentationContext.Provider>
       </SurfaceActiveContext.Provider>
     </section>
   );

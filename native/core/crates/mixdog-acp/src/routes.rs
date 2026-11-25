@@ -151,11 +151,17 @@ impl RouteWriter for AgentRouteWriter {
 
     /// A session whose route leaves the preset its agent runs on (for a provider, or for another preset of the agent)
     /// has no use for that agent's session from that moment: it is ended here, not at the session's next turn, which may
-    /// never come. On a shared server the session alone leaves it.
+    /// never come. A turn that runs in it meanwhile (the switch takes effect at the next turn) is not cut off: the session
+    /// ends when that turn is over, unless the route came back to the preset by then. On a shared server the session
+    /// alone leaves it.
     fn set_route_state(&self, thread: &ThreadId, route: Route) {
         let preset = route.get("provider").and_then(Value::as_str).and_then(|provider| self.agents.preset_of_route(provider));
-        if self.agents.running(thread).is_some_and(|running| preset.is_none_or(|preset| preset.id != running.preset.id)) {
-            self.agents.end_process(thread);
+        if let Some(running) = self.agents.running(thread) {
+            if preset.is_some_and(|preset| preset.id == running.preset.id) {
+                running.keep_after_turn();
+            } else if !running.end_after_turn() {
+                self.agents.end_process(thread);
+            }
         }
         self.inner.set_route_state(thread, route);
     }

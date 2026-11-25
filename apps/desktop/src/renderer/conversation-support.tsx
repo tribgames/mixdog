@@ -21,8 +21,6 @@ import type { CommandSurface as CommandSurfaceName, SettingsSection } from './sl
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { ImageRefusalActions } from './ImageRefusalActions';
 import { imageRefusalOf } from './image-refusal';
-import { agentRouteProvider } from './provider-display';
-import { requestBuiltInFeature } from './settings/built-in-feature-request';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { submissionIdentity, transcriptRowArchived, turnPromptText, type TranscriptRowModel } from './transcript-rows';
 import { showsResponseFooter, TranscriptResponseFooter, TranscriptRow } from './transcript-row';
@@ -422,16 +420,7 @@ function errorRowNode(
   else if (imageRefusal) action = <ImageRefusalActions refusal={imageRefusal} sessionId={sessionId} />;
   else if (reauth) {
     action = (
-      <button
-        type="button"
-        onClick={() => {
-          // An agent's sign-in lives in its card among the built-in features, not under Providers.
-          if (agentRouteProvider(row.failures.at(-1)?.item?.provider)) {
-            requestBuiltInFeature('acpAgents');
-            onOpenSettings('plugins');
-          } else onOpenSettings('providers');
-        }}
-      >
+      <button type="button" onClick={() => onOpenSettings('providers')}>
         {t('Sign in again')}
       </button>
     );

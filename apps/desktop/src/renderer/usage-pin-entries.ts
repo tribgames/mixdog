@@ -23,8 +23,10 @@ export { usageNumber };
 const ROW_MATCHERS: Record<string, (id: string, label: string) => boolean> = {
   'opencode-go-oauth': (id) => id === 'opencode-go-oauth',
   cursor: (id, label) => id === 'cursor-oauth' || label.includes('cursor oauth'),
-  antigravity: (id, label) => id === 'antigravity-oauth' || (id !== 'acp-antigravity' && label.includes('antigravity')),
-  'antigravity-acp': (id) => id === 'acp-antigravity',
+  // An external agent's row (`acp-…`) is its own entry, whatever its label says.
+  antigravity: (id, label) => id === 'antigravity-oauth' || (!id.startsWith('acp-') && label.includes('antigravity')),
+  // The agent's two presets are one agent: either one's reading is its entry.
+  'antigravity-acp': (id) => id === 'acp-antigravity' || id === 'acp-antigravity-cli',
 };
 
 /** Subscriptions matched inside the `oauth` group by id/label text. */

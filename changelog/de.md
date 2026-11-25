@@ -4,11 +4,21 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-Mixdog 1.5.0 baut die Engine in Rust neu auf. Das war ein großes Vorhaben für die langfristige Zukunft von Mixdog, dank dem die App deutlich weniger Speicher verbraucht, viele Sitzungen und Agenten gleichzeitig besser bewältigt sowie schneller und stabiler läuft.
+Hallo an alle, die Mixdog lieben. Ich bin Plankton, der Maintainer von Mixdog.
 
-Dieses Update hat viel länger gedauert als geplant. Es tut uns leid für die Wartezeit, und wir danken Ihnen für Ihre Geduld. Direkt nach dem Wechsel können vereinzelt noch Fehler bestehen, doch ab jetzt reagieren und beheben wir Probleme wieder so schnell wie zuvor. Mit dieser neuen Grundlage können wir Mixdog künftig schneller verbessern und stabilisieren.
+Zunächst tut es mir wirklich leid, dass dieses Update viel später erschienen ist als geplant. Vielen herzlichen Dank, dass Sie so lange gewartet haben.
 
-Wenn Sie auf Probleme stoßen, melden Sie diese bitte unter [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben. Beachten Sie, dass 1.4.5 keinen Datenordner öffnen kann, auf dem 1.5.0 bereits gestartet wurde. Falls Sie eventuell zurückkehren möchten, kopieren Sie vor dem Update Ihren Datenordner; um zu 1.4.5 zurückzukehren, installieren Sie diese Version neu und stellen Sie diese Kopie wieder her.
+In Mixdog 1.5.0 habe ich die Engine in Rust neu geschrieben. Das war ein großer Umbau mit Blick auf die langfristige Zukunft von Mixdog. Dadurch verbraucht die Engine deutlich weniger Speicher, kommt besser mit mehreren Sitzungen und Agenten gleichzeitig zurecht und läuft schneller und stabiler.
+
+Da es in letzter Zeit vermehrt zu Sperrungen von Antigravity-Konten gekommen ist, habe ich Antigravity ACP eingeführt, das eine Verbindung zum offiziellen ACP-Server von Google herstellt. Diese Methode läuft über den offiziellen Server und birgt bekanntermaßen ein deutlich geringeres Sperrrisiko als die bisherige. Bitte nutzen Sie Antigravity künftig, indem Sie Antigravity ACP unter Einstellungen › Anbieter › Antigravity ACP installieren und verbinden.
+
+Direkt nach dem Wechsel können vereinzelt noch Fehler bestehen, aber ab jetzt werde ich wieder wie gewohnt sofort darauf reagieren und sie beheben. Ich werde hart daran arbeiten, Ihnen zu zeigen, wie sich Mixdog schnell weiter verbessert.
+
+Beim ersten Start nach dem Update werden Ihre bestehenden Daten in das neue Format umgewandelt, und der Fortschritt wird angezeigt. Wenn Sie viele Daten haben, kann dies eine Weile dauern – schließen Sie die App bitte nicht, bis der Vorgang abgeschlossen ist.
+
+Falls Sie auf Probleme stoßen, teilen Sie sie mir bitte auf [GitHub Issues](https://github.com/tribgames/mixdog/issues) oder in der App über Einstellungen › Über › Feedback geben mit. Beachten Sie, dass 1.4.5 einen Datenordner nicht mehr öffnen kann, sobald 1.5.0 einmal darauf ausgeführt wurde. Wenn Sie eventuell zu 1.4.5 zurückkehren möchten, kopieren Sie vor dem Update Ihren Datenordner (`~/.mixdog/data`, unter Windows `C:\Users\<username>\.mixdog\data`). Um zurückzukehren, installieren Sie 1.4.5 neu und ersetzen Sie den Datenordner durch diese Kopie.
+
+Noch einmal meinen herzlichen Dank an alle, denen Mixdog am Herzen liegt und die darauf gewartet haben.
 
 ## v1.4.5 - 2026-11-03
 

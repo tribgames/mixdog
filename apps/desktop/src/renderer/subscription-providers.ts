@@ -10,9 +10,10 @@ export const SUBSCRIPTIONS = [
   { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
   { key: 'devin', label: 'Devin', provider: 'devin-oauth' },
   { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },
-  // The Antigravity CLI's own sign-in, read through the ACP agent; not listed
-  // when its row says the OAuth entry shows the same quota (`sameQuotaAs`).
-  { key: 'antigravity-acp', label: 'Antigravity ACP', provider: 'acp-antigravity' },
+  // The Antigravity agent's own sign-in, read through whichever of its presets
+  // reports it (the CLI's); not listed when its row says the OAuth entry
+  // shows the same quota (`sameQuotaAs`).
+  { key: 'antigravity-acp', label: 'Antigravity', provider: 'acp-antigravity-cli' },
   { key: 'opencode-go-oauth', label: 'OpenCode Go OAuth', provider: 'opencode-go-oauth' },
 ] as const;
 

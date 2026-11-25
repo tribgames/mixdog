@@ -374,8 +374,8 @@ fn build_language_section(paths: &LeadPaths, shared_format_active: bool, system_
         return String::new();
     };
     let mut lines = vec![
-        format!("- Always respond in {}, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.", language.prompt),
-        "- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.".to_owned(),
+        format!("- Write all user-facing text in {}; this sets the language only, not how often to write. It overrides output style; the user's latest explicit language request takes precedence.", language.prompt),
+        "- Your thinking, instructions, tool results, runtime/system tags and earlier replies do not change this language. Code comments follow the file's existing language.".to_owned(),
     ];
     // English output has nothing to mistranslate, so the translation guards would be dead text.
     if language.prompt != "English" {

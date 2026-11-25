@@ -9,8 +9,7 @@ export type BuiltInFeatureId =
   | 'localProvider'
   | 'autoEffort'
   | 'visualize'
-  | 'voice'
-  | 'acpAgents';
+  | 'voice';
 
 export interface BuiltInFeatureDefinition {
   id: BuiltInFeatureId;
@@ -74,10 +73,5 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     id: 'voice',
     title: 'Voice transcription',
     description: 'Turn what you say into text and enter it right away.',
-  },
-  {
-    id: 'acpAgents',
-    title: 'Antigravity ACP',
-    description: "Run a session on an external coding agent's CLI, which works with its own model and tools.",
   },
 ];

@@ -8,6 +8,7 @@ import {
   SESSION_RAIL_MAX_WIDTH,
   SESSION_RAIL_MIN_WIDTH,
   setSessionRailWidth,
+  useSessionRailSlot,
   useSessionRailWidth,
 } from './session-rail-layout';
 import { type PaneSidePresentation, SESSION_RAIL_WIDTH_KEY } from './pane-side-dock-model';
@@ -35,7 +36,9 @@ export function sessionRailWidthForKey(key: string, width: number): number | nul
  *  the pane's conversation draws its categories into from the top; over the
  *  whole pane, the conversation's whole width under the tab strip, with no
  *  edge to resize. It has no title row of its own: the tab strip's end holds
- *  its toggle (pane-dock-toggles.tsx), in every presentation. */
+ *  its toggle (pane-dock-toggles.tsx), in every presentation. Covered by a
+ *  dock, it is not drawn and gives the conversation nothing, but its body
+ *  stays as it is until the dock closes. */
 export function SessionRailCard({
   leafId,
   sessionId,
@@ -43,6 +46,7 @@ export function SessionRailCard({
   width,
   reserve,
   presentation = 'beside',
+  covered = false,
   onFocusPane,
 }: {
   leafId: string;
@@ -54,23 +58,29 @@ export function SessionRailCard({
   /** The width the conversation re-centres left of; 0 while its right margin holds the panel. */
   reserve: number;
   presentation?: PaneSidePresentation;
+  /** A dock open at the pane's side covers the panel (paneDockRailLayout). */
+  covered?: boolean;
   /** Present while the pane is not the focused one: a press in the panel selects it, as a press in the dock does. */
   onFocusPane?: () => void;
 }) {
   const root = useRef<HTMLElement | null>(null);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
-    publishSessionRailSlot(leafId, { element: body, sessionId, draftId });
-  }, [leafId, body, sessionId, draftId]);
+    publishSessionRailSlot(leafId, { element: body, sessionId, draftId, covered });
+  }, [leafId, body, sessionId, draftId, covered]);
   useLayoutEffect(() => () => publishSessionRailSlot(leafId, null), [leafId]);
+  // Shown again in the commit its conversation shows its rows again (it reads the same slot): a panel laid out before
+  // its rows are would clamp its scroll to the empty column.
+  const slotCovered = useSessionRailSlot(leafId).covered === true;
+  const hidden = covered || slotCovered;
   // The column's position, for its edge fades (session-rail.css).
-  useEffect(() => (body ? bindScrollProgress(body) : undefined), [body]);
+  useEffect(() => (body && !hidden ? bindScrollProgress(body) : undefined), [body, hidden]);
   const beside = presentation === 'beside';
   const full = presentation === 'full';
   // What the conversation gives up on its right (spent in session-rail.css); nothing while the panel floats over it.
   useLayoutEffect(() => {
     const cell = root.current?.parentElement;
-    if (!cell) return undefined;
+    if (!cell || covered) return undefined;
     cell.style.setProperty('--session-rail-reserve', `${beside ? reserve : 0}px`);
     // While the margin holds the panel, the scroller ends at the panel's edge instead.
     cell.style.setProperty('--session-rail-over', `${beside && reserve === 0 ? width + SESSION_RAIL_GAP : 0}px`);
@@ -82,16 +92,19 @@ export function SessionRailCard({
       cell.style.removeProperty('--session-rail-over');
       cell.style.removeProperty('--session-rail-band');
     };
-  }, [reserve, width, beside, full]);
+  }, [reserve, width, beside, full, covered]);
   // Over the whole pane the conversation under it is out of reach: no Tab stop, no typing into a hidden composer.
+  const overPane = full && !covered;
   useLayoutEffect(() => {
-    const stack = full ? root.current?.parentElement?.querySelector<HTMLElement>(':scope > .pane-surface-stack') : null;
+    const stack = overPane
+      ? root.current?.parentElement?.querySelector<HTMLElement>(':scope > .pane-surface-stack')
+      : null;
     if (!stack) return undefined;
     stack.inert = true;
     return () => {
       stack.inert = false;
     };
-  }, [full]);
+  }, [overPane]);
   // The edge's drag sets the one width every pane's panel takes; a cancel
   // puts back the width chosen before it, not this pane's fitted one.
   const dragRailWidth = usePanelWidthDrag({
@@ -111,6 +124,7 @@ export function SessionRailCard({
       className="session-rail"
       aria-label={t('Session')}
       data-presentation={presentation}
+      hidden={hidden || undefined}
       style={full ? undefined : { width }}
       onPointerDownCapture={(event) => {
         if (event.button === 0) onFocusPane?.();

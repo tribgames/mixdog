@@ -319,6 +319,17 @@ test('a phone entry still holds a row whose Markdown body has not rendered', asy
   assert.equal(entry.revealed(), true, 'revealed in the first frame its rows hold content');
 });
 
+test("a phone entry does not wait on a turn's changes read, which crosses the relay behind its slow reads", async (t) => {
+  const entry = mount(t, { eager: true });
+  const reading = document.createElement('span');
+  reading.hidden = true;
+  reading.setAttribute('data-transcript-pending', 'read');
+  document.getElementById('content').append(reading);
+  entry.visit('next');
+  await act(async () => {});
+  assert.equal(entry.revealed(), true);
+});
+
 test('a row whose body is pending holds the entry however long it takes; a streaming reply never does', (t) => {
   const entry = mount(t);
   entry.tick(3_000);

@@ -113,8 +113,10 @@ export function useSessionRailWidth(): number {
 // ── The slot each pane's panel offers its conversation ───────────────────
 
 /** `sessionId`: the session the pane shows, the only one the panel draws;
- *  `draftId`: the New Task draft it shows instead ('' with a session). */
-export type SessionRailSlot = { element: HTMLElement | null; sessionId: string; draftId: string };
+ *  `draftId`: the New Task draft it shows instead ('' with a session);
+ *  `covered`: a dock open at the pane's side covers the panel, which keeps
+ *  what is drawn in it, scrolled where it was, for when the dock closes. */
+export type SessionRailSlot = { element: HTMLElement | null; sessionId: string; draftId: string; covered?: boolean };
 
 const CLOSED_SLOT: SessionRailSlot = { element: null, sessionId: '', draftId: '' };
 const slots = new Map<string, SessionRailSlot>();
@@ -124,7 +126,12 @@ const listeners = new Set<() => void>();
 export function publishSessionRailSlot(leafId: string, slot: SessionRailSlot | null): void {
   const current = slots.get(leafId) ?? CLOSED_SLOT;
   const next = slot ?? CLOSED_SLOT;
-  if (current.element === next.element && current.sessionId === next.sessionId && current.draftId === next.draftId) {
+  if (
+    current.element === next.element &&
+    current.sessionId === next.sessionId &&
+    current.draftId === next.draftId &&
+    Boolean(current.covered) === Boolean(next.covered)
+  ) {
     return;
   }
   if (slot) slots.set(leafId, slot);
@@ -168,17 +175,18 @@ export const PaneHandOverContext = createContext<PaneHandOver>(null);
  *  hand-over is already the conversation switched to while the pane still
  *  shows the one before it: that one keeps the panel until the pane hands
  *  over, and the one switched to is laid out as the panel will leave it,
- *  drawing nothing until then. */
+ *  drawing nothing until then. A covered panel is still drawn in, and takes
+ *  nothing from the composer. */
 export function sessionRailPlace(
   slot: SessionRailSlot,
   conversation: { sessionId: string; draftId?: string; onScreen: boolean; handOver: PaneHandOver }
 ): { host: HTMLElement | null; taken: boolean } {
   if (conversation.handOver === 'outgoing') {
     const host = conversation.onScreen ? slot.element : null;
-    return { host, taken: Boolean(host) };
+    return { host, taken: Boolean(host) && !slot.covered };
   }
   const own = sessionRailHost(slot, conversation);
-  return { host: conversation.handOver === 'incoming' ? null : own, taken: Boolean(own) };
+  return { host: conversation.handOver === 'incoming' ? null : own, taken: Boolean(own) && !slot.covered };
 }
 
 /** The session panel of the pane the caller is drawn in. */

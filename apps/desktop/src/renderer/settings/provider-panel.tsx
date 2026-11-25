@@ -7,6 +7,7 @@ import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { sectionStoreFor } from '../section-store';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { AcpProviders } from './acp-agents';
 import { OAuthLoginDialog, pasteErrorText, useOAuthLoginFlow } from './oauth-login-flow';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import {
@@ -605,6 +606,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
         run={run}
         confirm={confirm}
       />
+      <AcpProviders api={api} data={data} pending={pending} run={run} confirm={confirm} />
       <Group className="settings-api-key-providers" title={t('API-key providers')}>
         {otherApiProviders.map(renderApiProvider)}
         {otherApiProviders.length === 0 && <ListEmpty text={t('No API-key providers available.')} />}

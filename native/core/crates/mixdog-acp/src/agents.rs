@@ -57,6 +57,8 @@ pub enum Readiness {
     /// Not looked at yet, or being looked at: what an asker is told that does not wait for the check.
     Checking,
     NotInstalled,
+    /// The agent's build does not run on this system, and nothing stands in for it.
+    Unsupported,
     /// The CLI ran but printed no version.
     VersionUnknown,
     VersionTooOld {
@@ -82,6 +84,7 @@ impl Readiness {
         match self {
             Self::Checking => "checking",
             Self::NotInstalled => "notInstalled",
+            Self::Unsupported => "unsupported",
             Self::VersionUnknown => "versionUnknown",
             Self::VersionTooOld { .. } => "versionTooOld",
             Self::SignedOut { .. } => "signedOut",
@@ -128,6 +131,7 @@ impl Refusal {
             }
             Self::NotReady(Readiness::SignedOut { .. }) => format!("{label} is signed out. Sign in to it in Settings."),
             Self::NotReady(Readiness::VersionUnknown) => format!("{label}'s version could not be read."),
+            Self::NotReady(Readiness::Unsupported) => format!("{label} ({}) does not run on this computer.", preset.provider),
             Self::NotReady(Readiness::Failed { message, .. }) => format!("{label} did not start: {message}"),
             Self::Closed => format!("The session was closed while {label} started."),
             Self::NotReady(_) => format!("{label} is still being checked."),
@@ -256,6 +260,8 @@ pub struct AgentsParts {
     /// The program an agent that takes no HTTP MCP server runs as the stdio end of its session's tool server
     /// ([`crate::mcp_bridge`]); `None` hands such an agent no tools.
     pub mcp_bridge: Option<crate::preset::Command>,
+    /// Where the builds of the registry's agents are downloaded from; `None` installs and updates none.
+    pub registry: Option<Arc<dyn crate::registry::RegistryFetcher>>,
 }
 
 /// Reads one variable of the process environment.
@@ -273,8 +279,17 @@ pub struct Agents {
     pub(crate) sessions: Mutex<HashMap<ThreadId, Arc<AgentSession>>>,
     /// The one server of each preset whose process serves all its sessions, by preset id, while it starts and runs.
     pub(crate) shared: Mutex<HashMap<String, crate::shared::SharedSlot>>,
-    /// The temporary folders that daemons gone since left behind were cleared away.
-    pub(crate) swept_temps: std::sync::atomic::AtomicBool,
+    /// Held while `probe-cache.json` is read or replaced.
+    pub(crate) probe_writes: tokio::sync::Mutex<()>,
+    /// How often each preset's account changed hands (a sign-in became the agent's, or it signed out), by preset id: what a
+    /// server or a check started before the last change learns is of an account left. Never reset.
+    pub(crate) accounts: Mutex<HashMap<String, u64>>,
+    /// The presets being signed out: no session opens on them until the files of the sign-in are gone.
+    pub(crate) signing_out: Mutex<std::collections::HashSet<String>>,
+    /// The app is stopping: no shared server starts from here on.
+    pub(crate) stopping: std::sync::atomic::AtomicBool,
+    /// The stops of shared servers under way, each resolving once its server has exited: the app's stop waits for them.
+    pub(crate) stops: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// The threads whose agent is being started, each with its start's number.
     opening: Mutex<HashMap<ThreadId, u64>>,
     /// What the user approved for the rest of each thread's session.
@@ -327,7 +342,11 @@ impl Agents {
             windows: Mutex::default(),
             sessions: Mutex::default(),
             shared: Mutex::default(),
-            swept_temps: std::sync::atomic::AtomicBool::new(false),
+            probe_writes: tokio::sync::Mutex::new(()),
+            accounts: Mutex::default(),
+            signing_out: Mutex::default(),
+            stopping: std::sync::atomic::AtomicBool::new(false),
+            stops: Mutex::default(),
             opening: Mutex::default(),
             grants: Mutex::default(),
             refused: Mutex::default(),
@@ -528,8 +547,16 @@ impl Agents {
                     "plan": slot.filter(|_| matches!(readiness, Some(Readiness::Ready { .. }))).and_then(|slot| slot.account.plan.clone()),
                     "canSignOut": slot.is_some_and(|slot| slot.account.sign_out) && matches!(readiness, Some(Readiness::Ready { .. })),
                     "lastError": slot.map_or(Value::Null, Slot::fault),
-                    "canInstall": matches!(preset.distribution, crate::preset::Distribution::Cli { installer: Some(_), .. }),
+                    "canInstall": match &preset.distribution {
+                        crate::preset::Distribution::Cli { installer, .. } => installer.is_some(),
+                        crate::preset::Distribution::Registry { supported, kept_current, .. } => *supported && *kept_current && self.parts.registry.is_some(),
+                    },
                     "canSignIn": preset.login.is_some(),
+                    // The agent opens its sign-in page in the system's browser itself: the page is shown, not opened.
+                    "loginOpensBrowser": matches!(preset.login, Some(crate::preset::Login::AcpAuthenticate { opens_browser: true, .. })),
+                    // The CLI keeps its sign-in where the vendor's CLI outside Mixdog finds it: signing out here signs that out too.
+                    // A registry agent keeps its own in the home Mixdog keeps for it.
+                    "sharesExternalSignIn": matches!(preset.distribution, crate::preset::Distribution::Cli { .. }),
                 })
             })
             .collect();
@@ -654,6 +681,8 @@ impl Agents {
             return Err(Refusal::Off);
         }
         let running = lock(&self.sessions).get(thread).cloned();
+        // A session reopened on its preset's shared server keeps the server running until the new one is on it.
+        let _held = self.hold_shared(thread, preset);
         if let Some(running) = running {
             if running.preset.id == preset.id && running.cwd == cwd && !running.gone().is_cancelled() {
                 // A session that holds a cancelled prompt would read the next prompt as part of it: the agent
@@ -706,7 +735,7 @@ impl Agents {
         let session = match opened {
             Ok(session) => session,
             Err(fault) => {
-                self.open_failed(preset, &fault);
+                self.open_failed(preset, &fault).await;
                 return Err(Refusal::Fault(fault));
             }
         };
@@ -731,10 +760,17 @@ impl Agents {
 
     /// A session of `preset`'s agent could not be opened for `fault`: one that says the user signed out since the last
     /// check is the agent's state.
-    pub(crate) fn open_failed(&self, preset: &AgentPreset, fault: &Fault) {
+    pub(crate) async fn open_failed(&self, preset: &AgentPreset, fault: &Fault) {
         if matches!(fault, Fault::Rpc(error) if error.code == AUTH_REQUIRED) {
-            self.not_ready(preset, |version| Readiness::SignedOut { version, message: fault.to_string() });
+            self.signed_out(preset, fault.to_string()).await;
         }
+    }
+
+    /// A turn or an open found `preset`'s agent signed out, saying `message`: what it last told of itself, the account
+    /// included, stands no longer, in memory and in `probe-cache.json`, so no later start of the app reads it ready.
+    pub(crate) async fn signed_out(&self, preset: &AgentPreset, message: String) {
+        self.not_ready(preset, |version| Readiness::SignedOut { version, message });
+        self.forget_told(preset).await;
     }
 
     /// A turn found `preset`'s agent unable to serve: its state is `state` of the version last found, until a check or
@@ -745,6 +781,8 @@ impl Agents {
             let version = slot.readiness.as_ref().and_then(|known| known.version().map(str::to_owned)).unwrap_or_default();
             let found = state(version);
             signed_out = matches!(found, Readiness::SignedOut { .. });
+            // What the agent last told of itself was of a sign-in that holds no longer.
+            slot.stale_probe |= signed_out;
             slot.readiness = Some(found);
         }
         (self.parts.changed)();
@@ -759,6 +797,12 @@ impl Agents {
     pub async fn unrun(&self, thread: &ThreadId, why: &str) {
         let Some(session) = self.running(thread) else { return };
         session.abandon_waiting(&format!("The turn this was asked in did not start: {why}")).await;
+    }
+
+    /// Holds open the shared server `thread`'s session runs on, where it is `preset`'s, while the lease is kept: the
+    /// session is about to be ended and another opened on the server.
+    pub(crate) fn hold_shared(&self, thread: &ThreadId, preset: &AgentPreset) -> Option<crate::shared::Lease> {
+        self.running(thread).filter(|running| running.preset.id == preset.id).and_then(|running| running.hold_server())
     }
 
     /// Ends the process of `thread`'s agent, or takes its session alone off the shared server it runs on; the thread
@@ -792,7 +836,7 @@ impl Agents {
             session.end();
         }
         // Each closes as the end of its input closes it, in a task of its own.
-        drop(self.close_shared());
+        self.close_shared();
         self.forget_checks();
         let logins: Vec<_> = lock(&self.logins).drain().collect();
         for (_, login) in logins {
