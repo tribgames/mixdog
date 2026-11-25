@@ -60,7 +60,7 @@ import {
   type SessionOrderPrefs,
 } from './session-order';
 import { ScmContextMenu } from './ScmContextMenu';
-import type { FavoriteSessionDrop, ProjectSessionGroup, SessionGapDrop } from './session-sidebar-sections';
+import type { ProjectSessionGroup, SectionSessionDrop, SessionGapDrop } from './session-sidebar-sections';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { useStableEvent } from './use-stable-event';
 import { useSidebarAgents } from './session-sidebar-agents';
@@ -539,8 +539,11 @@ function useProjectReveal(
   }, [activityProjectGroups, revealedProject, updateProjectOpen]);
 }
 
-/** Drop key of the Favorites section; project keys are paths, so no clash. */
+/** Drop keys of the Favorites and Recent sections; project keys are paths, so no clash. */
 const FAVORITES_DROP_KEY = ':favorites';
+const RECENT_DROP_KEY = ':recent';
+
+const NO_DRAG = { id: '', from: '' };
 
 /** Gap between open sections (10-rail-pages.css `.sidebar-recent + .sidebar-recent`). */
 const DROP_ZONE_REACH = 20;
@@ -561,7 +564,7 @@ function nearestDropZone(event: React.DragEvent<HTMLElement>): string {
 }
 
 /** Dragging a session row onto a project folder moves it there; onto
- *  Favorites, it stars it. */
+ *  Favorites, it stars it; onto Recent, it leaves the grouping it came from. */
 function useSessionFolderDrop(
   activityProjectGroups: readonly ProjectSessionGroup[],
   onMoveSessionToProject: ((sessionId: string, projectPath: string) => Promise<void>) | undefined,
@@ -577,7 +580,11 @@ function useSessionFolderDrop(
     for (const group of activityProjectGroups) for (const session of group.rows) keys.set(session.id, group.key);
     return keys;
   }, [activityProjectGroups]);
-  const [draggedSessionId, setDraggedSessionId] = useState('');
+  // The dragged session and the list its drag started in (the row's list
+  // key: 'favorites', 'recent' or 'project:<key>').
+  const [dragged, setDragged] = useState(NO_DRAG);
+  const draggedSessionId = dragged.id;
+  const setDraggedSession = useCallback((id: string, from = '') => setDragged(id ? { id, from } : NO_DRAG), []);
   const [sessionDropKey, setSessionDropKey] = useState('');
   // The native event a drop target already took, so the scroller above it
   // neither re-handles nor clears it.
@@ -610,7 +617,7 @@ function useSessionFolderDrop(
       claimedEvent.current = event.nativeEvent;
       const sessionId = draggedSessionId;
       setSessionDropKey('');
-      setDraggedSessionId('');
+      setDragged(NO_DRAG);
       updateProjectOpen((current) => withOpen(current, group.key, true));
       moveSession(sessionId, group.path);
       return true;
@@ -623,41 +630,62 @@ function useSessionFolderDrop(
     () => new Set(allRows.filter((session) => !session.favorite && !session.archived).map((session) => session.id)),
     [allRows]
   );
-  const canFavorite = Boolean(draggedSessionId) && favoriteCandidateIds.has(draggedSessionId);
-  const favoriteDrop: FavoriteSessionDrop = {
-    key: FAVORITES_DROP_KEY,
-    available: canFavorite,
-    active: sessionDropKey === FAVORITES_DROP_KEY,
+  // Favorites and Recent: one target spanning the whole section.
+  const sectionDrop = (key: string, available: boolean, drop: (sessionId: string) => void): SectionSessionDrop => ({
+    key,
+    available,
+    active: sessionDropKey === key,
     onDragOver: (event) => {
-      if (!canFavorite) return false;
+      if (!available) return false;
       event.preventDefault();
       claimedEvent.current = event.nativeEvent;
       event.dataTransfer.dropEffect = 'move';
-      setSessionDropKey(FAVORITES_DROP_KEY);
+      setSessionDropKey(key);
       return true;
     },
     onDragLeave: (event) => {
       if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-      setSessionDropKey((current) => (current === FAVORITES_DROP_KEY ? '' : current));
+      setSessionDropKey((current) => (current === key ? '' : current));
     },
     onDrop: (event) => {
-      if (!canFavorite) return false;
+      if (!available) return false;
       event.preventDefault();
       claimedEvent.current = event.nativeEvent;
       const sessionId = draggedSessionId;
       setSessionDropKey('');
-      setDraggedSessionId('');
-      void onFavoriteSession(sessionId, true).catch(() => {});
+      setDragged(NO_DRAG);
+      drop(sessionId);
       return true;
     },
+  });
+  const favoriteDrop = sectionDrop(
+    FAVORITES_DROP_KEY,
+    Boolean(draggedSessionId) && favoriteCandidateIds.has(draggedSessionId),
+    (sessionId) => void onFavoriteSession(sessionId, true).catch(() => {})
+  );
+  // Recent takes a session back out of the grouping its drag started in: out
+  // of Favorites it is unstarred, out of a project folder it leaves the
+  // project (the menu's Remove from project). Recent's own rows keep
+  // reordering the list.
+  const fromFavorites = dragged.from === 'favorites';
+  const fromProject = Boolean(onMoveSessionToProject) && dragged.from.startsWith('project:');
+  const recentDrop = sectionDrop(RECENT_DROP_KEY, fromFavorites || fromProject, (sessionId) => {
+    if (fromFavorites) void onFavoriteSession(sessionId, false).catch(() => {});
+    else moveSession(sessionId, '');
+  });
+  const sectionDrops = [favoriteDrop, recentDrop];
+  const gapTarget = (event: React.DragEvent<HTMLElement>) => {
+    const zone = event.target === event.currentTarget ? nearestDropZone(event) : '';
+    return {
+      section: sectionDrops.find((entry) => entry.key === zone),
+      group: activityProjectGroups.find((entry) => entry.key === zone),
+    };
   };
   const gapDrop: SessionGapDrop = {
     onDragOver: (event) => {
       if (claimedEvent.current === event.nativeEvent) return;
-      const zone = event.target === event.currentTarget ? nearestDropZone(event) : '';
-      const group = activityProjectGroups.find((entry) => entry.key === zone);
-      const taken =
-        zone === FAVORITES_DROP_KEY ? favoriteDrop.onDragOver(event) : group && sessionDrop?.onDragOver(group, event);
+      const { section, group } = gapTarget(event);
+      const taken = section ? section.onDragOver(event) : group && sessionDrop?.onDragOver(group, event);
       if (!taken) setSessionDropKey('');
     },
     // Leaving the sidebar (or the window) mid-drag ends no drop, so the
@@ -668,14 +696,22 @@ function useSessionFolderDrop(
     },
     onDrop: (event) => {
       if (claimedEvent.current === event.nativeEvent) return;
-      const zone = event.target === event.currentTarget ? nearestDropZone(event) : '';
-      const group = activityProjectGroups.find((entry) => entry.key === zone);
-      if (zone === FAVORITES_DROP_KEY) favoriteDrop.onDrop(event);
+      const { section, group } = gapTarget(event);
+      if (section) section.onDrop(event);
       else if (group) sessionDrop?.onDrop(group, event);
       setSessionDropKey('');
     },
   };
-  return { sessionGroupKeys, moveSession, sessionDrop, favoriteDrop, gapDrop, setDraggedSessionId, setSessionDropKey };
+  return {
+    sessionGroupKeys,
+    moveSession,
+    sessionDrop,
+    favoriteDrop,
+    recentDrop,
+    gapDrop,
+    setDraggedSession,
+    setSessionDropKey,
+  };
 }
 
 interface SessionSidebarProps {
@@ -822,14 +858,22 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     customOrders,
     updateProjectOpen: folders.updateProjectOpen,
   });
-  const { sessionGroupKeys, moveSession, sessionDrop, favoriteDrop, gapDrop, setDraggedSessionId, setSessionDropKey } =
-    useSessionFolderDrop(
-      activityProjectGroups,
-      onMoveSessionToProject,
-      folders.updateProjectOpen,
-      allRows,
-      onFavoriteSession
-    );
+  const {
+    sessionGroupKeys,
+    moveSession,
+    sessionDrop,
+    favoriteDrop,
+    recentDrop,
+    gapDrop,
+    setDraggedSession,
+    setSessionDropKey,
+  } = useSessionFolderDrop(
+    activityProjectGroups,
+    onMoveSessionToProject,
+    folders.updateProjectOpen,
+    allRows,
+    onFavoriteSession
+  );
   useCustomOrderSync({
     sessionsReady,
     orderPrefs,
@@ -968,7 +1012,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onFavoriteSession,
     openSessionMenu,
     onToggleFork: openState.toggleFork,
-    setDraggedSessionId,
+    setDraggedSession,
     setSessionDropKey,
   };
   const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
@@ -1007,6 +1051,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     projectOrder,
     sessionDrop,
     favoriteDrop,
+    recentDrop,
     gapDrop,
     archivedRows,
     visibleArchivedRows,

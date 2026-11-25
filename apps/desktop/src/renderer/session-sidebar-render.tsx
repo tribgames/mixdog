@@ -22,9 +22,9 @@ import {
   favoritesSection,
   projectsSection,
   recentSection,
-  type FavoriteSessionDrop,
   type ProjectSessionGroup,
   type RenderForkRows,
+  type SectionSessionDrop,
   type SessionGapDrop,
 } from './session-sidebar-sections';
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
@@ -65,7 +65,8 @@ export interface SessionRowContext {
   onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   openSessionMenu(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
   onToggleFork(sessionId: string): void;
-  setDraggedSessionId(sessionId: string): void;
+  /** The dragged session and the list key its drag started in ('' = none). */
+  setDraggedSession(sessionId: string, listKey?: string): void;
   setSessionDropKey(key: string): void;
   /** Owned by the sidebar for its lifetime (createRowReorderCache). */
   rowReorders: RowReorderCache;
@@ -139,11 +140,11 @@ export function renderSessionRow(
     ...base,
     onDragStart: (event) => {
       base.onDragStart(event);
-      ctx.setDraggedSessionId(sessionId);
+      ctx.setDraggedSession(sessionId, listKey);
     },
     onDragEnd: () => {
       base.onDragEnd();
-      ctx.setDraggedSessionId('');
+      ctx.setDraggedSession('');
       ctx.setSessionDropKey('');
     },
   });
@@ -456,7 +457,8 @@ export interface SidebarSectionContext {
   projectGroups: ProjectSessionGroup[];
   projectOrder: Pick<ListOrder, 'getReorderProps'>;
   sessionDrop: ProjectsSectionProps['sessionDrop'];
-  favoriteDrop: FavoriteSessionDrop;
+  favoriteDrop: SectionSessionDrop;
+  recentDrop: SectionSessionDrop;
   gapDrop: SessionGapDrop;
   archivedRows: readonly DesktopSessionSummary[];
   visibleArchivedRows: DesktopSessionSummary[];
@@ -568,6 +570,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           void ctx.updateSessionArchives('archive-recent', rows, true);
         },
         headerProps,
+        sessionDrop: ctx.recentDrop,
         allRows: rows,
         renderRows: (list, limit, sentinelRef) => renderForkRows(ctx, list, limit, 'recent', undefined, sentinelRef),
       });

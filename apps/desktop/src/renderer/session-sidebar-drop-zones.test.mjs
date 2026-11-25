@@ -19,17 +19,18 @@ const row = (id, extra = {}) => ({
   ...extra,
 });
 
-async function mount(t) {
+async function mount(t, sessions = [row('star', { favorite: true }), row('free')]) {
   const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
   window.requestAnimationFrame = globalThis.requestAnimationFrame;
   window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const favorited = [];
+  const moves = [];
   await act(async () =>
     root.render(
       React.createElement(SessionSidebar, {
         open: true,
-        sessions: [row('star', { favorite: true }), row('free')],
+        sessions,
         sessionsReady: true,
         projects: [A],
         selection: { kind: 'new' },
@@ -42,11 +43,13 @@ async function mount(t) {
           favorited.push([id, favorite]);
         },
         async onDeleteSession() {},
-        async onMoveSessionToProject() {},
+        async onMoveSessionToProject(id, path) {
+          moves.push([id, path]);
+        },
       })
     )
   );
-  return { document, window, favorited };
+  return { document, window, favorited, moves };
 }
 
 const dataTransfer = () => ({ setData() {}, getData: () => '', setDragImage() {}, effectAllowed: '', dropEffect: '' });
@@ -58,6 +61,88 @@ const fire = (window, target, type, init = {}) => {
 };
 const rect = (top, bottom) => ({ top, bottom, left: 0, right: 300, width: 300, height: bottom - top });
 const recentRow = (document, id) => document.querySelector(`.recent-session-list [data-session-id="${id}"]`);
+const favoriteRow = (document, id) => document.querySelector(`.favorite-session-list [data-session-id="${id}"]`);
+const projectRow = (document, id) => document.querySelector(`.project-group [data-session-id="${id}"]`);
+const recentSection = (document) => document.querySelector('#recent-session-list').closest('section');
+
+test('a favorite dragged onto Recent is unfavorited', async (t) => {
+  const { document, window, favorited, moves } = await mount(t);
+  const recent = recentSection(document);
+  await act(async () => void fire(window, favoriteRow(document, 'star'), 'dragstart'));
+  const over = fire(window, recent, 'dragover');
+  await act(async () => void 0);
+  assert.equal(over.defaultPrevented, true, 'Recent accepts the drop');
+  assert.equal(recent.dataset.sessionDrop, 'true');
+
+  await act(async () => void fire(window, recent, 'drop'));
+  assert.deepEqual(favorited, [['star', false]]);
+  assert.deepEqual(moves, []);
+  assert.equal(recent.dataset.sessionDrop, undefined);
+});
+
+test('a session dragged out of a project folder onto Recent leaves the project', async (t) => {
+  const { document, window, favorited, moves } = await mount(t, [row('inA', { cwd: 'C:\\Work\\Alpha' })]);
+  const recent = recentSection(document);
+  await act(async () => void fire(window, projectRow(document, 'inA'), 'dragstart'));
+  await act(async () => void fire(window, recent, 'dragover'));
+  assert.equal(recent.dataset.sessionDrop, 'true');
+  await act(async () => void fire(window, recent, 'drop'));
+  assert.deepEqual(moves, [['inA', '']]);
+  assert.deepEqual(favorited, []);
+  assert.equal(recent.dataset.sessionDrop, undefined);
+});
+
+test('a favorite in a project dragged from Favorites onto an empty Recent is unfavorited and stays in its project', async (t) => {
+  const { document, window, favorited, moves } = await mount(t, [
+    row('starA', { cwd: 'C:\\Work\\Alpha', favorite: true }),
+  ]);
+  const recent = recentSection(document);
+  assert.equal(recent.querySelectorAll('[data-session-id]').length, 0, 'Recent lists no session');
+  await act(async () => void fire(window, favoriteRow(document, 'starA'), 'dragstart'));
+  await act(async () => void fire(window, recent, 'dragover'));
+  assert.equal(recent.dataset.sessionDrop, 'true');
+  await act(async () => void fire(window, recent, 'drop'));
+  assert.deepEqual(favorited, [['starA', false]]);
+  assert.deepEqual(moves, []);
+});
+
+test('a session dragged from Recent is no Recent target and leaves the gap to its neighbours', async (t) => {
+  const { document, window, favorited, moves } = await mount(t, [
+    row('star', { favorite: true }),
+    row('free'),
+    row('inA', { cwd: 'C:\\Work\\Alpha' }),
+  ]);
+  const scroller = document.querySelector('.session-sidebar-sessions > .session-sidebar-scroll');
+  const favorites = document.querySelector('.sidebar-favorites');
+  const recent = recentSection(document);
+  favorites.getBoundingClientRect = () => rect(100, 200);
+  recent.getBoundingClientRect = () => rect(212, 400);
+
+  // A plain session, and a project session dragged from its Recent copy.
+  for (const id of ['free', 'inA']) {
+    await act(async () => void fire(window, recentRow(document, id), 'dragstart'));
+    const over = fire(window, recent, 'dragover');
+    await act(async () => void 0);
+    assert.equal(over.defaultPrevented, false, `${id}: Recent accepts no drop`);
+    assert.equal(recent.dataset.sessionDrop, undefined);
+    // The gap nearer Recent still reaches Favorites.
+    await act(async () => void fire(window, scroller, 'dragover', { clientY: 208 }));
+    assert.equal(favorites.dataset.sessionDrop, 'true');
+    assert.equal(recent.dataset.sessionDrop, undefined);
+    await act(async () => void fire(window, recent, 'drop'));
+    await act(async () => void fire(window, recentRow(document, id), 'dragend'));
+  }
+  assert.deepEqual(moves, []);
+  assert.deepEqual(favorited, []);
+
+  // A favorite's drag: the same gap resolves to Recent.
+  await act(async () => void fire(window, favoriteRow(document, 'star'), 'dragstart'));
+  await act(async () => void fire(window, scroller, 'dragover', { clientY: 208 }));
+  assert.equal(recent.dataset.sessionDrop, 'true');
+  assert.equal(favorites.dataset.sessionDrop, undefined);
+  await act(async () => void fire(window, scroller, 'drop', { clientY: 208 }));
+  assert.deepEqual(favorited, [['star', false]]);
+});
 
 test('the scroller padding strips and the gap under Favorites still target Favorites', async (t) => {
   const { document, window, favorited } = await mount(t);

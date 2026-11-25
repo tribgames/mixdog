@@ -2002,13 +2002,12 @@ html[data-mixdog-mobile-tabs]
 .session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"]::before {
   bottom: -4px;
 }
-/* A session dragged over a valid project folder (or Favorites) outlines the
-   whole group (header + its sessions); invalid targets get nothing. The frame
-   reaches the row pills' leading edge (the list's -8px, which is also the
-   scroller's padding edge, so nothing wider survives its clip) and opens 4px
-   above the heading and below the last row. */
-.session-sidebar-sessions
-  :is(.project-group, .sidebar-favorites)[data-session-drop="true"]:not([data-drop-position])::after {
+/* A session dragged over a valid project folder (or Favorites, or Recent)
+   outlines the whole group (header + its sessions); invalid targets get
+   nothing. The frame reaches the row pills' leading edge (the list's -8px,
+   which is also the scroller's padding edge, so nothing wider survives its
+   clip) and opens 4px above the heading and below the last row. */
+.session-sidebar-sessions .sidebar-recent[data-session-drop="true"]:not([data-drop-position])::after {
   content: "";
   position: absolute;
   inset: -4px 0 -4px -8px;
