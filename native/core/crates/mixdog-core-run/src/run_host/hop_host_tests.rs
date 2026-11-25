@@ -199,9 +199,16 @@ async fn catalog() -> Arc<CatalogService> {
 
 /// The route provider an agent outside the loop serves.
 const AGENT: &str = "acp-agent";
+/// The route provider of an agent outside the loop that is signed out, and what it says of that.
+const SIGNED_OUT: &str = "acp-signed-out";
+const SIGNED_OUT_STATE: &str = "Test Agent is signed out. Sign in to it in Settings.";
 
-/// The facts the composition hands the hop: the PC's catalog and registry, with an agent outside the loop serving
-/// [`AGENT`] (as `mixdog_acp::routes::AgentRouteFacts` answers for one).
+fn agents_route(provider: &str) -> bool {
+    provider == AGENT || provider == SIGNED_OUT
+}
+
+/// The facts the composition hands the hop: the PC's catalog and registry, with agents outside the loop serving [`AGENT`]
+/// and [`SIGNED_OUT`] (as `mixdog_acp::routes::AgentRouteFacts` answers for one).
 struct Facts {
     inner: CatalogFacts,
     _config_dir: tempfile::TempDir,
@@ -210,10 +217,14 @@ struct Facts {
 #[async_trait]
 impl RouteFacts for Facts {
     fn is_known(&self, provider: &str, config: &Obj) -> bool {
-        provider == AGENT || self.inner.is_known(provider, config)
+        agents_route(provider) || self.inner.is_known(provider, config)
     }
     async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String> {
-        if provider == AGENT { Ok(()) } else { self.inner.ensure_ready(config, provider).await }
+        match provider {
+            AGENT => Ok(()),
+            SIGNED_OUT => Err(SIGNED_OUT_STATE.to_owned()),
+            _ => self.inner.ensure_ready(config, provider).await,
+        }
     }
     fn model_meta(&self, provider: &str, model: &str) -> Value {
         self.inner.model_meta(provider, model)
@@ -231,13 +242,13 @@ impl RouteFacts for Facts {
         self.inner.ultrafast_capable(provider, meta)
     }
     async fn sender(&self, providers: Option<&Obj>, provider: &str) -> Result<Option<RouteSender>, String> {
-        if provider == AGENT { Ok(Some(RouteSender::Agent(Arc::new(Unasked)))) } else { self.inner.sender(providers, provider).await }
+        if agents_route(provider) { Ok(Some(RouteSender::Agent(Arc::new(Unasked)))) } else { self.inner.sender(providers, provider).await }
     }
     fn registered(&self, provider: &str) -> Option<Arc<dyn ProviderAdapter>> {
-        (provider != AGENT).then(|| self.inner.registered(provider)).flatten()
+        (!agents_route(provider)).then(|| self.inner.registered(provider)).flatten()
     }
     fn init_error(&self, provider: &str) -> Option<String> {
-        (provider != AGENT).then(|| self.inner.init_error(provider)).flatten()
+        (!agents_route(provider)).then(|| self.inner.init_error(provider)).flatten()
     }
 }
 
@@ -309,23 +320,26 @@ async fn the_hop_writes_then_pins_then_rebuilds_a_lead_surface() {
 #[tokio::test]
 async fn the_next_provider_comes_from_the_registry_once_enabled() {
     let (host, _, _) = harness(Arc::new(Script::default()), json!({})).await;
-    assert!(host.provider("openrouter").await.unwrap().is_some());
+    assert!(matches!(host.runner("openrouter").await, Ok(Some(Runner::Loop(_)))));
     // `initProviders` throws for a provider that cannot be built; its message escapes.
-    assert_eq!(host.provider("broken").await.err().as_deref(), Some("[provider] Failed to init \"broken\": cannot build"));
+    assert_eq!(host.runner("broken").await.err().as_deref(), Some("[provider] Failed to init \"broken\": cannot build"));
 }
 
-/// A fallback route an agent outside the loop serves is no provider a run in the loop can land on: the hop passes over
-/// it as over one that is not there, readies nothing under its name and finds no failure recorded for it.
+/// A fallback route an agent outside the loop serves is the agent's to run: the hop readies nothing under its name and
+/// finds no failure recorded for it, and whether the agent can run is read as a pick of the route reads it, in the
+/// agent's own words.
 #[tokio::test]
-async fn a_route_an_agent_serves_is_passed_over_without_readying_it() {
+async fn a_route_an_agent_serves_is_the_agents_to_run_and_readies_no_provider() {
     let calls: Calls = Arc::default();
     let (host, _, registry) = harness(Arc::new(Script { calls: Some(calls.clone()), ..Script::default() }), json!({})).await;
-    assert!(host.provider(AGENT).await.unwrap().is_none());
+    assert!(matches!(host.runner(AGENT).await, Ok(Some(Runner::Agent))));
+    assert_eq!(host.agent_ready(AGENT).await, Ok(()));
+    assert_eq!(host.agent_ready(SIGNED_OUT).await, Err(SIGNED_OUT_STATE.to_owned()));
     assert_eq!(host.unavailable_cause(AGENT).await, (None, false));
     assert!(calls.lock().unwrap().is_empty(), "{:?}", calls.lock().unwrap());
     assert!(registry.registered(AGENT).is_none());
     assert!(registry.init_errors().is_empty());
-    assert!(host.provider("openrouter").await.unwrap().is_some(), "a provider's route is readied as before");
+    assert!(matches!(host.runner("openrouter").await, Ok(Some(Runner::Loop(_)))), "a provider's route is readied as before");
 }
 
 #[tokio::test]

@@ -479,7 +479,7 @@ async fn every_builder_input_comes_from_the_process_services() {
     }
 }
 /// A thread opened after a restart finds the process registry empty; its first request readies the header's provider as
-/// the route hop does (`RegistryHopHost::provider`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
+/// the route hop does (`RegistryHopHost::runner`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
 /// registry) — for every kind of provider the agent config can name, not only a custom one.
 #[tokio::test]
 async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {

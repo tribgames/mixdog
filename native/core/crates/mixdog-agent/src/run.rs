@@ -309,6 +309,9 @@ pub enum AgentError {
     /// The model hop itself failed (a provider that is not there, a session closed during the
     /// hop); the text is the error as Node throws it.
     RouteFailed(String),
+    /// A model hop moved the session onto a route an agent outside the loop serves: the run ends there, and whoever runs
+    /// the turn goes on with it on that agent.
+    Outside(Box<crate::env::RouteOutside>),
     /// The request's tools could not be taken (`prepareProviderRequest` throws from the session's tool refresh, the
     /// snapshot or the exposure migration); the text is the error as Node throws it.
     RequestTools(String),
@@ -359,6 +362,7 @@ impl std::fmt::Display for AgentError {
             Self::Provider(error) => f.write_str(&mixdog_ai::service::error_text::provider_error_text(error, "agent")),
             Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::PrefixMutation(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
+            Self::Outside(_) => f.write_str("the turn moved to an agent outside the loop"),
             Self::ContextOverflow(o) => write!(
                 f,
                 "agent context overflow ({}, stage={}): latest turn cannot fit target context budget={} reserve={} contextWindow={} messageTokensEst={}{}",

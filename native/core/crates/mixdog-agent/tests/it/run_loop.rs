@@ -3821,6 +3821,23 @@ async fn a_failed_hop_replaces_the_providers_error_with_its_own_text() {
     assert_eq!(failure.error.to_string(), "Provider \"gone\" not available");
 }
 
+/// A hop onto a route an agent outside the loop serves ends the run with that route, as the hop wrote it, once the switch
+/// is told: nothing more is sent on the route left.
+#[tokio::test]
+async fn a_hop_onto_an_outside_agents_route_ends_the_run_with_that_route() {
+    let header = json!({ "provider": "acp-agent", "model": "gem" }).as_object().unwrap().clone();
+    let notice = "m1 usage limit reached — switched to gem.".to_owned();
+    let route = PlayRoute::new(RouteDecision::Outside(Box::new(RouteOutside { header: header.clone(), notice: notice.clone() })), Vec::new());
+    let mut h = Harness::new(vec![refused()]);
+    h.route = Some(route.clone());
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the run leaves the loop");
+    let AgentError::Outside(outside) = &failure.error else { panic!("{:?}", failure.error) };
+    assert_eq!((&outside.header, &outside.notice), (&header, &notice));
+    assert_eq!(route.asked.lock().unwrap().len(), 1);
+    let told = h.observer.events().iter().filter(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if *message == notice)).count();
+    assert_eq!(told, 1, "the switch is told once");
+}
+
 // ---- the agent lane's slot ---------------------------------------------------------------------
 
 /// Records what the loop sends through the slot: whether each yielded request succeeded.

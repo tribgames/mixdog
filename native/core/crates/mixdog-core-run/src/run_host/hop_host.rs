@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 
 use super::model_display::display_model_name;
 use super::route_chain::BotRoutes;
-use super::route_fallback::{HopHost, HopWrite, RouteEligibility};
+use super::route_fallback::{HopHost, HopWrite, RouteEligibility, Runner};
 use super::session_context_meta::session_context_meta;
 use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_ports::ports::route_facts::{RouteFacts, RouteSender};
@@ -236,11 +236,20 @@ impl HopHost for RegistryHopHost {
         (self.deps.errors)(error)
     }
 
-    /// `await initProviders(...)` (`route-fallback.mjs:78,107`) has no catch: its error escapes. A route an agent
-    /// serves has no provider a run in the loop can take, so the hop passes over it as over one that is not there.
-    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+    /// `await initProviders(...)` (`route-fallback.mjs:78,107`) has no catch: its error escapes. A route an agent serves
+    /// is the agent's: its facts answer it before anything is initialized.
+    async fn runner(&self, provider: &str) -> Result<Option<Runner>, String> {
         let providers = ensure_provider_enabled(&self.config(), provider);
-        Ok(self.deps.facts.sender(Some(&providers), provider).await?.and_then(RouteSender::adapter))
+        Ok(self.deps.facts.sender(Some(&providers), provider).await?.map(|sender| match sender {
+            RouteSender::Provider(adapter) => Runner::Loop(adapter),
+            RouteSender::Agent(_) => Runner::Agent,
+        }))
+    }
+
+    /// The agent's readiness as a pick of its route reads it: once the check of its program that runs, or that this
+    /// starts, has ended, whether a turn on it can start, and in the agent's words why not.
+    async fn agent_ready(&self, provider: &str) -> Result<(), String> {
+        self.deps.facts.ensure_ready(&self.config(), provider).await
     }
 
     async fn unavailable_cause(&self, provider: &str) -> (Option<String>, bool) {

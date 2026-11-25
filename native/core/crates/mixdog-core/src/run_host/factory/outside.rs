@@ -139,6 +139,10 @@ pub struct History {
     port: RunPort,
     rows: Vec<(ItemId, Value)>,
     input: (ItemId, Value),
+    /// The model context as a run of the loop left it when a route hop handed the turn to the agent, the turn's input in
+    /// its place: what the loop did of the turn, which the agent is told with the rest. Empty for a turn the agent runs
+    /// from its start, or one the loop added nothing to.
+    taken_over: Vec<(ItemId, Value)>,
     /// How many rows the session's model context holds ahead of the turn's input: the rows before the turn, or the
     /// summary a compaction of this turn stored in their place.
     held: Arc<std::sync::atomic::AtomicUsize>,
@@ -158,9 +162,24 @@ fn due(policy: Option<&mixdog_agent::boundary::CompactPolicy>, context_tokens: O
 }
 
 impl History {
-    /// The session holds a conversation from before the turn.
+    /// The session holds a conversation from before the turn, or a run of the loop left part of the turn done.
     pub fn holds_conversation(&self) -> bool {
-        self.rows.iter().any(|(_, row)| mixdog_core_session::session::route_session::has_user_conversation(std::slice::from_ref(row)))
+        !self.taken_over.is_empty()
+            || self.rows.iter().any(|(_, row)| mixdog_core_session::session::route_session::has_user_conversation(std::slice::from_ref(row)))
+    }
+
+    /// The rows the agent is told: the conversation before the turn, or all a run of the loop left of it.
+    fn told_rows(&self) -> &[(ItemId, Value)] {
+        if self.taken_over.is_empty() { &self.rows } else { &self.taken_over }
+    }
+
+    /// The summary an earlier compaction left standing for the conversation, handed over as it stands; none once a run
+    /// of the loop did part of the turn, which a summary is made of.
+    fn standing(&self) -> Option<Result<String, String>> {
+        if !self.taken_over.is_empty() {
+            return None;
+        }
+        Self::standing_summary(&self.rows.iter().map(|(_, row)| row).collect::<Vec<_>>())
     }
 
     /// The summary an earlier compaction left in `rows`, where they hold nothing the user said since: the text an agent
@@ -192,10 +211,11 @@ impl History {
     }
 
     /// Summarizes the conversation with the session's own compactor, makes the result the session's stored context, and
-    /// returns it as text for the agent. A context that holds only the summary of an earlier compaction is handed over
-    /// as it stands; `None` for a session with neither. A summary that cannot be made, or stored, is the error.
+    /// returns it as text for the agent: what a run of the loop did of the turn before a route hop handed it over is in
+    /// it. A context that holds only the summary of an earlier compaction is handed over as it stands; `None` for a
+    /// session with neither. A summary that cannot be made, or stored, is the error.
     pub async fn hand_over(&self) -> Result<Option<String>, String> {
-        if let Some(summary) = Self::standing_summary(&self.rows.iter().map(|(_, row)| row).collect::<Vec<_>>()) {
+        if let Some(summary) = self.standing() {
             return summary.map(Some);
         }
         if !self.holds_conversation() {
@@ -206,7 +226,7 @@ impl History {
 
     /// Whether [`Self::hand_over`] has a summary to make: a conversation with no earlier summary standing for it.
     pub fn hand_over_summarizes(&self) -> bool {
-        Self::standing_summary(&self.rows.iter().map(|(_, row)| row).collect::<Vec<_>>()).is_none() && self.holds_conversation()
+        self.standing().is_none() && self.holds_conversation()
     }
 
     /// The agent's context reached the session's compaction trigger: the reading and the trigger.
@@ -221,7 +241,7 @@ impl History {
     /// header that still names the session it replaced. `None` for a session whose stored context is empty; an error
     /// may come after the session was left.
     pub async fn compact(&self) -> Result<Option<String>, String> {
-        if self.rows.iter().all(|(_, row)| row.get("role").and_then(Value::as_str) == Some("system")) {
+        if self.told_rows().iter().all(|(_, row)| row.get("role").and_then(Value::as_str) == Some("system")) {
             return Ok(None);
         }
         let unset = vec![mixdog_core_session::session::turn_ops::AGENT_SESSION.to_owned()];
@@ -233,16 +253,21 @@ impl History {
     /// Summarizes the stored conversation with the session's own compactor, stores the result as the session's
     /// context and returns it as text.
     async fn summarize(&self) -> Result<String, String> {
-        let rows: Vec<Value> = self.rows.iter().map(|(_, row)| row.clone()).collect();
+        let told = self.told_rows();
+        let rows: Vec<Value> = told.iter().map(|(_, row)| row.clone()).collect();
         let compacted = self.port.compact_for_heir(&rows, self.budget_tokens).await.map_err(|error| error.to_string())?;
+        let message_id = |row: &Value| message_of(row).ok().and_then(|message| message.message_id);
+        let input = message_id(&self.input.1);
+        // The turn's input follows the summary in the stored context: a copy of it the summary kept is not stored twice.
         let kept: Vec<Value> = compacted
             .ok_or_else(|| "this session has no compaction to summarize it with".to_owned())?
             .into_iter()
             .filter(|row| row.get("role").and_then(Value::as_str) != Some("system"))
+            .filter(|row| input.is_none() || message_id(row) != input)
             .collect();
         let text = Self::told(&kept)?;
         let mut replacement = Vec::with_capacity(kept.len() + 1);
-        let item_of: HashMap<String, ItemId> = self.rows.iter().filter_map(|(item, row)| Some((message_of(row).ok()?.message_id?, item.clone()))).collect();
+        let item_of: HashMap<String, ItemId> = told.iter().filter_map(|(item, row)| Some((message_id(row)?, item.clone()))).collect();
         for row in &kept {
             let id = message_of(row).ok().and_then(|message| message.message_id);
             replacement.push((id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()));
@@ -307,6 +332,9 @@ pub(super) struct Outside {
     pub(super) slot: Option<Arc<dyn mixdog_agent::env::Yielder>>,
     pub(super) notify: Option<mixdog_core_api::domain::tool::ToolNotify>,
     pub(super) on_tool_result: Option<Arc<ToolResultCallback>>,
+    /// The turn comes from a run of the loop that a route hop ended: its input is carried already, and this is the model
+    /// context the run left, the input in its place ([`History`]). `None` for a turn the agent runs from its start.
+    pub(super) taken_over: Option<Vec<(ItemId, Value)>>,
 }
 
 pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
@@ -344,6 +372,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         slot,
         notify,
         on_tool_result,
+        taken_over,
     } = outside;
     let surface_now = surface.borrow().clone();
     let assembled = parts
@@ -395,7 +424,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
     // the baseline is taken over the turn's workspace before either runs.
     tool_env.review = Some(review.api());
     review.start(&worktree);
-    let input_body = if agents.prompts(&input_body) {
+    let input_body = if taken_over.is_none() && agents.prompts(&input_body) {
         let carried = carry_turn(Carry {
             parts: &parts,
             thread: &thread,
@@ -473,6 +502,7 @@ pub(super) async fn drive_outside(outside: Outside) -> RunOutcome {
         port: port.clone(),
         rows: stored_ids.into_iter().zip(prior).collect(),
         input: (input_item, input_body.clone()),
+        taken_over: taken_over.unwrap_or_default(),
         held: held.clone(),
         budget_tokens: handoff_budget_tokens,
         clock,

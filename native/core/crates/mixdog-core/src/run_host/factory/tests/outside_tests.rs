@@ -47,10 +47,16 @@ struct Agent {
     stalls: Option<Arc<Moving>>,
     /// Its turn's token fires as it finishes: a stop that lands once the turn is done.
     stopped_as_it_ends: bool,
+    /// It asks for the conversation it starts without, as an agent with no session of its own does, and keeps the answer.
+    hands_over: bool,
+    handed_over: Mutex<Vec<Result<Option<String>, String>>>,
 }
 
 /// The header key the stand-in agent's own session is kept under.
 const AGENT_SESSION: &str = "agentSession";
+
+/// The route provider the world's route facts answer as an agent's, which the stand-in agent serves too.
+const AGENT_ROUTE: &str = "acp-agent";
 
 fn provider_of(header: &mixdog_store::schema::record::Header) -> &str {
     header.get("provider").and_then(Value::as_str).unwrap_or_default()
@@ -59,7 +65,7 @@ fn provider_of(header: &mixdog_store::schema::record::Header) -> &str {
 #[async_trait]
 impl OutsideAgents for Agent {
     fn serves(&self, header: &mixdog_store::schema::record::Header) -> bool {
-        provider_of(header) == "outside"
+        matches!(provider_of(header), "outside" | AGENT_ROUTE)
     }
 
     fn refusal(&self, _: &mixdog_store::schema::record::Header) -> Option<String> {
@@ -117,6 +123,10 @@ impl OutsideAgents for Agent {
         if prompt_text(&turn.input).starts_with("compact") {
             let made = turn.history.compact().await;
             lock(&self.compacted).push(made);
+        }
+        if self.hands_over {
+            let handed = turn.history.hand_over().await;
+            lock(&self.handed_over).push(handed);
         }
         if let Some(call) = &self.call {
             let handed = turn.calls.call(call.clone()).await;
@@ -575,4 +585,147 @@ async fn a_turn_on_a_signed_out_agent_fails_as_an_authentication_failure() {
     until(&world, &handle, "the failure", || world.rig.feeds.frames(id.as_str()).iter().any(|(_, _, params)| params.to_string().contains(r#""kind":"auth""#)))
         .await;
     assert!(lock(&agent.turns).is_empty(), "the agent ran nothing");
+}
+
+/// The loop's provider of the route `primary` whose accounts are all out from its `from`th request on (counted from 0):
+/// that request is refused before anything is sent, as an account rotation with no account left refuses it.
+struct OutFrom {
+    inner: Arc<ArmedRefusal>,
+    from: usize,
+    sent: std::sync::atomic::AtomicUsize,
+}
+
+impl OutFrom {
+    fn new(rounds: Vec<Vec<StreamEvent>>, from: usize) -> Arc<Self> {
+        let script = Arc::new(Scripted {
+            id: ProviderId::from("primary"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(rounds.into()),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        Arc::new(Self { inner: ArmedRefusal::new(script), from, sent: std::sync::atomic::AtomicUsize::new(0) })
+    }
+}
+
+#[async_trait]
+impl ProviderAdapter for OutFrom {
+    fn release_send(&self, group: &str) {
+        self.inner.release_send(group);
+    }
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+    fn codec(&self) -> &dyn WireCodec {
+        self.inner.codec()
+    }
+    fn retry_policy(&self) -> &RetryPolicy {
+        self.inner.retry_policy()
+    }
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        self.inner.keepalive()
+    }
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if self.sent.fetch_add(1, Ordering::SeqCst) >= self.from {
+            let mut out = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted, DeliveryState::NotSent);
+            out.message = "OpenAI OAuth quota/rate limit hit: All connected accounts have exhausted their quota.".into();
+            *lock(&self.inner.refusal) = Some(out);
+        }
+        self.inner.attempt(request).await
+    }
+}
+
+/// A world whose route `primary`, sent on by `primary`, falls back to the agent's route [`AGENT_ROUTE`], and a session
+/// on `primary` with `header`'s fields.
+async fn falling_back_to_the_agent(
+    agent: &Arc<Agent>,
+    primary: Arc<OutFrom>,
+    header: Value,
+) -> (World, ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>)]);
+    let config = json!({
+        "default": "lead-route",
+        "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": AGENT_ROUTE, "model": "gem" }] }],
+        "providers": { "primary": { "enabled": true } },
+    });
+    let world = turn_world_routed(
+        primary,
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(Config),
+        false,
+        None,
+        Some(routed(providers, config)),
+    )
+    .await;
+    let (id, handle) = started_thread(&world, header).await;
+    (world, id, handle)
+}
+
+/// A main session's first request, refused before anything was sent because every account of its route is out, moves
+/// to the route's fallback on an agent outside the loop as it would to a provider's: the session is written onto the
+/// agent's route with the failure recorded, the switch is told once, and the agent runs the turn on the input as the loop
+/// sent it, to the turn's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_every_account_refuses_hands_the_turn_to_the_routes_agent_fallback() {
+    let agent = Arc::new(Agent::default());
+    let (world, id, handle) =
+        falling_back_to_the_agent(&agent, OutFrom::new(Vec::new(), 0), json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
+
+    start_turn(&id, &handle, "review the change").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let (header, input) = lock(&agent.turns)[0].clone();
+    assert_eq!((provider_of(&header), header["model"].as_str()), (AGENT_ROUTE, Some("gem")));
+    let sent = prompt_text(&input);
+    assert!(sent.starts_with("review the change"), "{sent}");
+    assert_eq!(sent.matches("# Current Time").count(), 1, "the input carries the turn's reminders once: {sent}");
+    let header = handle.live_header().header();
+    assert_eq!(provider_of(&header), AGENT_ROUTE);
+    assert_eq!(header["routeFallbackFailures"][0]["kind"], "quota_exhausted", "{header:?}");
+    assert_eq!(header["lastHandoff"], "done", "the agent's answer is the turn's result");
+    let switched = world
+        .rig
+        .feeds
+        .frames(id.as_str())
+        .iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains("switched to"))
+        .count();
+    assert_eq!(switched, 1, "the switch is told once");
+}
+
+/// A sub-agent's route that runs out after the turn's first tool round hands the rest of the turn to its fallback on an
+/// agent outside the loop: the conversation reaches the agent as the session's own compaction summarizes it, made of the
+/// turn as the loop left it (its input, the call and the call's result), and the agent runs the turn there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sub_agents_route_running_out_mid_turn_hands_what_was_done_to_the_agent_fallback() {
+    let agent = Arc::new(Agent { hands_over: true, ..Agent::default() });
+    let round = vec![
+        StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
+        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+    ];
+    let header = json!({ "provider": "primary", "model": "m1", "agent": "reviewer", "owner": "agent", "routeFallbackSource": { "preset": "lead-route" } });
+    let (world, id, handle) = falling_back_to_the_agent(&agent, OutFrom::new(vec![round], 1), header).await;
+    *lock(&world.rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "a review was asked for; the files were listed" })]);
+
+    start_turn(&id, &handle, "review the change").await;
+    until(&world, &handle, "the agent's turn", || !lock(&agent.turns).is_empty()).await;
+
+    let seen = lock(&world.rig.compaction.heir_seen).clone();
+    let roles: Vec<&str> = seen.first().into_iter().flatten().map(|row| row["role"].as_str().unwrap_or_default()).collect();
+    assert_eq!(roles, ["user", "assistant", "tool"], "{seen:?}");
+    assert!(prompt_text(&seen[0][0]).starts_with("review the change"), "{seen:?}");
+    let handed = lock(&agent.handed_over).clone();
+    assert!(matches!(handed.as_slice(), [Ok(Some(summary))] if summary.contains("the files were listed")), "{handed:?}");
+    let (header, _) = lock(&agent.turns)[0].clone();
+    assert_eq!((provider_of(&header), header["owner"].as_str()), (AGENT_ROUTE, Some("agent")));
 }

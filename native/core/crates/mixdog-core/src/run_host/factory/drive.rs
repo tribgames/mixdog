@@ -223,6 +223,43 @@ pub(super) struct AgentReach {
     pub(super) reached: std::sync::atomic::AtomicBool,
 }
 
+/// What a run of the loop left of its turn, for the agent a route hop hands the turn to.
+struct LeftTurn {
+    /// The rows the model context holds ahead of the turn's input.
+    ahead: Vec<(ItemId, Value)>,
+    /// The turn's input as it was sent.
+    input: Value,
+    /// The whole model context, the input in its place, when the run added to it; empty when it added nothing.
+    taken_over: Vec<(ItemId, Value)>,
+}
+
+/// The model context as the run left it, read as [`close_cancelled`] reads it: the context its last rewrite left ([`Base`])
+/// and the turn's messages after it, each as the body it is stored as.
+fn left_turn(sink: &PortSink, rows: &StoredRows, input_item: &ItemId) -> LeftTurn {
+    use mixdog_agent::compact::execution_tail::MessageRows as _;
+    let stored = |message: &AgentMessage| match rows.row(message) {
+        Value::Null => row_of(message),
+        body => body,
+    };
+    let base = lock(&sink.base);
+    let turn = lock(&sink.turn);
+    let mut context: Vec<(ItemId, Value)> = base.rows.iter().map(|(iid, row)| (iid.clone(), Base::body(row))).collect();
+    // The input is the turn's first message: a rewrite during the run (a compaction) holds it among the rows it left.
+    let at = (base.held == 0).then_some(context.len());
+    for (index, message) in turn.iter().enumerate().skip(base.held) {
+        context.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, stored(&**message)));
+    }
+    let input = stored(&*turn[0]);
+    match at {
+        Some(at) if at + 1 == context.len() => {
+            context.truncate(at);
+            LeftTurn { ahead: context, input, taken_over: Vec::new() }
+        }
+        Some(at) => LeftTurn { ahead: context[..at].to_vec(), input, taken_over: context },
+        None => LeftTurn { ahead: context.clone(), input, taken_over: context },
+    }
+}
+
 async fn drive(
     parts: Arc<dyn RunParts>,
     liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
@@ -432,6 +469,7 @@ async fn drive(
                 slot,
                 notify,
                 on_tool_result,
+                taken_over: None,
             })
             .await;
         }
@@ -444,6 +482,8 @@ async fn drive(
     {
         return failed(LEAVE_FAILED, Value::Null);
     }
+    // A route hop may hand the turn to an outside agent once the loop has run: the agent takes what the loop's run takes.
+    let for_agent = (slot.clone(), notify.clone(), tool_progress.clone(), on_tool_result.clone(), review.clone());
     let surface_now = surface.borrow().clone();
     let assembled = match parts
         .assemble(AssembleInput {
@@ -591,6 +631,7 @@ async fn drive(
     sink.seed(&input);
     messages.push(input);
 
+    let progress_tx = progress.clone();
     let progress = Arc::new(ProgressPublisher::new(progress, clock.clone()));
     progress.ask_start();
     let asked_at = clock.now_ms();
@@ -716,7 +757,7 @@ async fn drive(
     // The run is over: what it leaves is saved whenever its token fires, before or after now (Node saves after the abort,
     // `finalizeCancelledTurn`, and settles a finished ask whatever a later stop does).
     let end_port = port.closing();
-    {
+    let saved = {
         let carry = match &result {
             Ok(output) => &output.carry,
             Err(failure) => &failure.carry,
@@ -736,13 +777,15 @@ async fn drive(
             }
             Err(_) => unset.extend(["lastHandoff".to_owned(), "lastHandoffTurn".to_owned()]),
         }
-        let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset, patch: Default::default() }).await;
+        let saved = mixdog_store::schema::record::HeaderChange { set, unset, patch: Default::default() };
+        let _ = end_port.save_header(saved.clone()).await;
         let kept = match &result {
             Ok(output) => output.carry.prefix_guard.clone(),
             Err(_) => None,
         };
         prefix_guard.keep(kept);
-    }
+        saved
+    };
     match result {
         Ok(output) => {
             // The loop ends on the terminal answer without committing it (Node's turn commit does):
@@ -820,6 +863,62 @@ async fn drive(
                 progress.cancelling();
                 close_cancelled(&end_port, &sink, &rows, (&input_item, &input_text), &observed, signal.close_reason()).await;
                 return RunOutcome::Interrupted;
+            }
+            // A route hop moved the session onto an outside agent's route: the turn goes on on that agent, from what the run
+            // left of it, as a provider's fallback goes on from it.
+            if let AgentError::Outside(moved) = &failure.error
+                && let Some(agents) = outside.clone().filter(|agents| agents.serves(&moved.header))
+            {
+                let mut header = moved.header.clone();
+                for key in &saved.unset {
+                    header.shift_remove(key);
+                }
+                header.extend(saved.set);
+                if header.get("owner").and_then(Value::as_str) == Some("agent") {
+                    let route =
+                        ["provider", "model", "effort", "fast"].into_iter().filter_map(|key| Some((key.to_owned(), header.get(key)?.clone()))).collect();
+                    liveness.publish_request_route(thread.as_str(), route);
+                }
+                let left = left_turn(&sink, &rows, &input_item);
+                let (stored_ids, prior) = left.ahead.into_iter().unzip();
+                let (slot, notify, tool_progress, on_tool_result, review) = for_agent;
+                return drive_outside(Outside {
+                    parts,
+                    agents,
+                    thread,
+                    turn,
+                    header,
+                    port: port.clone(),
+                    context,
+                    surface,
+                    hints: ToolHints::start(progress_tx.subscribe(), port),
+                    progress: progress_tx,
+                    tool_progress,
+                    cancel,
+                    signal,
+                    review,
+                    input_body: left.input,
+                    input_item,
+                    stored_ids,
+                    prior,
+                    injected,
+                    goal_reminder,
+                    notice: carried_notice,
+                    transcript: turn_transcript,
+                    turn_context,
+                    unattended,
+                    generation,
+                    request,
+                    asked,
+                    handover,
+                    rebound: false,
+                    rebind_owed: false,
+                    slot,
+                    notify,
+                    on_tool_result,
+                    taken_over: Some(left.taken_over),
+                })
+                .await;
             }
             // The turn's terminal error: a provider timeout or stall that ended it (a retry the turn recovered from never
             // reaches here) stops its shell work, while nothing else stopped the turn first

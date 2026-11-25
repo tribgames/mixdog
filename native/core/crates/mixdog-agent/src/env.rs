@@ -877,12 +877,24 @@ pub trait Yielder: Send + Sync {
 pub enum RouteDecision {
     /// The request goes to the next model.
     Switch(RouteSwitch),
+    /// The session was written onto a route an agent outside the loop serves, which no run of the loop sends on: the run
+    /// ends, and the turn goes on on that agent.
+    Outside(Box<RouteOutside>),
     /// The error surfaces. After a chain that ran out it carries every model tried
     /// (`annotateEndedChain`): its message has the "every model failed" text appended.
     Surface(Box<ChainSurface>),
     /// The hop itself failed and its error replaces the provider's, as a throw does in Node
     /// (a provider that is not there, a session closed during the hop).
     Fail(String),
+}
+
+/// A hop onto a route an agent outside the loop serves ([`RouteDecision::Outside`]).
+#[derive(Clone, PartialEq, Debug)]
+pub struct RouteOutside {
+    /// The session header as the hop wrote it.
+    pub header: serde_json::Map<String, JsonValue>,
+    /// The muted transcript line announcing the hop.
+    pub notice: String,
 }
 
 /// The error to surface and, after a hop, what the chain tried.

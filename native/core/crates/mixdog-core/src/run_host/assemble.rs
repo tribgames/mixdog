@@ -868,7 +868,11 @@ impl HostRunParts {
         Ok(match s.facts.sender(None, provider_id).await.ok().flatten() {
             Some(sender) => sender.adapter(),
             None => match host {
-                Some(host) => host.provider(provider_id).await.or_else(|message| unserved_provider(provider_id, message))?,
+                Some(host) => match host.runner(provider_id).await {
+                    Ok(Some(mixdog_core_run::run_host::route_fallback::Runner::Loop(adapter))) => Some(adapter),
+                    Ok(Some(mixdog_core_run::run_host::route_fallback::Runner::Agent) | None) => None,
+                    Err(message) => unserved_provider(provider_id, message)?,
+                },
                 None => None,
             },
         })
