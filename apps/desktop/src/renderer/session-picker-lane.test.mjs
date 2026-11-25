@@ -299,3 +299,29 @@ test("a pane's view of a positioned state carries the window's facts to the tran
   const view = paneConversationView({ sessionId: 's', items: [{ id: 'r9' }], ...facts });
   assert.deepEqual(Object.fromEntries(Object.keys(facts).map((key) => [key, view[key]])), facts);
 });
+
+test('the conversation pane sees the running turn that Send now names, and the next one when only the turn changes', async () => {
+  const lane = rig('pane-turn');
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  function TurnPane() {
+    const snapshot = useSessionLane('pane-turn', lane.store, desktopConversationShellSnapshotsEqual);
+    // The pane hands Conversation this view (app-snapshot-views.tsx), whose `turnId` enables Send now.
+    const view = snapshot ? paneConversationView(snapshot) : null;
+    return React.createElement('span', { className: 'turn' }, String(view?.turnId ?? ''));
+  }
+  const turn = () => host.querySelector('.turn')?.textContent ?? null;
+  try {
+    await lane.publish();
+    await act(async () => root.render(React.createElement(TurnPane)));
+    await lane.publish({ method: 'thread/runtime/updated', params: { value: { busy: true, turnId: 't1' } } });
+    assert.equal(turn(), 't1');
+    await lane.publish({ method: 'thread/runtime/updated', params: { value: { busy: true, turnId: 't2' } } });
+    assert.equal(turn(), 't2');
+  } finally {
+    await act(async () => root.unmount());
+    lane.dispose();
+    host.remove();
+  }
+});

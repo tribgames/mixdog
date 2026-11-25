@@ -151,6 +151,7 @@ const CONVERSATION_FIELDS = [
   'transcriptTurnKeys',
   'failedTurnKeys',
   'queued',
+  'turnId',
   'toolApproval',
   'toolApprovalResult',
   'toolApprovalsWaiting',
