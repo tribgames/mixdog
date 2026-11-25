@@ -1044,13 +1044,21 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-fast.json
         # --expose-gc: two session-lane suites measure retention with globalThis.gc and skip without it.
-        run: npm test --prefix apps/desktop -- --expose-gc --test-shard=${{ matrix.shard }}/3
+        run: npm test --prefix apps/desktop -- --expose-gc --test-shard=${{ matrix.shard }}/3 --exclude-path src/main/protocol/event-loop-lag.test.mjs
+      # The main-loop bound of event-loop-lag.test.mjs is wall time: beside the shard's other test processes, the time the OS gives
+      # them reads as a blocked loop (52.6 ms against 50 on run 44959677392), so that file runs by itself once the shard has ended.
+      - name: Run the main-loop bound by itself
+        shell: bash
+        env:
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-fast-event-loop.json
+          MIXDOG_SLOT: desktop-fast-event-loop
+        run: npm test --prefix apps/desktop -- src/main/protocol/event-loop-lag.test.mjs
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job (check-skips.mjs).
       - name: Check that no test of the desktop fast lane skipped outside the reviewed list
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-fast.json
-        run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+        run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT" "${{ runner.temp }}/receipts/desktop-fast-event-loop.json"
       - name: Save the Electron download
         if: github.event_name != 'pull_request' && steps.electron.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
