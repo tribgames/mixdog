@@ -262,23 +262,41 @@ export function boundaryGestureReached(
   return delta > max - metrics.scrollTop;
 }
 
-export function reportRelease(reason: string, metrics: ScrollMetrics, previousTop: number): void {
-  logTranscriptScroll('follow-release', { reason, top: metrics.top, delta: metrics.top - previousTop });
+/** What the scroll event that let go read: where the view went, how far from the end, and the reader's input behind it. */
+export interface ReleaseObservation {
+  top: number;
+  distance: number;
+  input: string;
+}
+
+export function reportRelease(
+  reason: string,
+  metrics: ScrollMetrics,
+  previousTop: number,
+  observed?: ReleaseObservation
+): void {
+  // The scroll event's own reading when there is one: the cached offset still holds the place before the move.
+  const top = observed?.top ?? metrics.top;
+  const distance = observed?.distance ?? distanceFromBottom(metrics);
+  const input = observed?.input ?? '';
+  logTranscriptScroll('follow-release', { reason, input, top, delta: top - previousTop });
   try {
     window.mixdogDesktop?.rendererDiagnostic?.({
       kind: 'follow-release',
       reason,
-      top: metrics.top,
-      delta: metrics.top - previousTop,
-      distance: distanceFromBottom(metrics),
+      input,
+      top,
+      delta: top - previousTop,
+      distance,
       windowFocused: document.hasFocus(),
       pageHidden: document.hidden,
     });
     window.mixdogDesktop?.perfLog?.(
       `transcript-follow-release reason=${reason}` +
-        ` top=${Math.round(metrics.top)}` +
-        ` delta=${Math.round(metrics.top - previousTop)}` +
-        ` distance=${Math.round(distanceFromBottom(metrics))}`
+        ` input=${input}` +
+        ` top=${Math.round(top)}` +
+        ` delta=${Math.round(top - previousTop)}` +
+        ` distance=${Math.round(distance)}`
     );
   } catch {
     /* diagnostics only */

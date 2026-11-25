@@ -153,6 +153,7 @@ export function normalizeRendererFollowReleaseDiagnostic(input: unknown): Record
   if (!reason) return null;
   return {
     reason,
+    input: followReason(record.input),
     top: pixels(record.top),
     delta: pixels(record.delta),
     distance: pixels(record.distance),

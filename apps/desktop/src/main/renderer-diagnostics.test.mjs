@@ -54,6 +54,7 @@ test('a follow release is recorded with its reason and where the view stood', ()
     normalizeRendererFollowReleaseDiagnostic({
       kind: 'follow-release',
       reason: 'scroll',
+      input: 'wheel',
       top: 1200.4,
       delta: -31.6,
       distance: 31.6,
@@ -61,7 +62,7 @@ test('a follow release is recorded with its reason and where the view stood', ()
       pageHidden: false,
       extra: 'dropped',
     }),
-    { reason: 'scroll', top: 1200, delta: -32, distance: 32, windowFocused: true, pageHidden: false }
+    { reason: 'scroll', input: 'wheel', top: 1200, delta: -32, distance: 32, windowFocused: true, pageHidden: false }
   );
   assert.equal(normalizeRendererFollowReleaseDiagnostic({ kind: 'follow-release', reason: '' }), null);
   assert.equal(normalizeRendererFollowReleaseDiagnostic({ kind: 'long-task' }), null);
