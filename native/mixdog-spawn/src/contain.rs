@@ -203,16 +203,54 @@ mod imp {
         }
 
         /// After a root that ended: the console hosts it leaves are given time to signal their own exit
-        /// ([`crate::console_hosts::settle`]) before anything left in the job is taken for a survivor.
+        /// ([`crate::console_hosts::settle`]) and then to leave the job, whose count drops only after a process's handle
+        /// has signalled, before anything left in the job is taken for a survivor.
         pub(crate) fn settle_exit(&self) {
+            let started = std::time::Instant::now();
             let job = self.handle();
             if job.is_null() {
                 return;
             }
-            crate::console_hosts::settle(*job, crate::console_hosts::SETTLE_DEADLINE, || {
+            let waited = crate::console_hosts::settle(*job, crate::console_hosts::SETTLE_DEADLINE, || {
                 #[cfg(feature = "core-test")]
                 crate::testing::settle_window();
             });
+            drop(job);
+            if waited {
+                self.await_empty(crate::console_hosts::SETTLE_DEADLINE.saturating_sub(started.elapsed()));
+            }
+        }
+
+        /// Blocks until the job reads empty or `within` has passed, woken by the port's message as
+        /// [`Self::until_gone`] is, for a caller off the runtime.
+        fn await_empty(&self, within: std::time::Duration) {
+            struct Unpark(std::thread::Thread);
+            impl std::task::Wake for Unpark {
+                fn wake(self: Arc<Self>) {
+                    self.0.unpark();
+                }
+            }
+            let Some(notify) = self.signal() else {
+                return;
+            };
+            let deadline = std::time::Instant::now() + within;
+            let waker = std::task::Waker::from(Arc::new(Unpark(std::thread::current())));
+            let mut context = std::task::Context::from_waker(&waker);
+            loop {
+                let mut notified = std::pin::pin!(notify.notified());
+                // Registered before the count is read, so the last exit in between is not missed.
+                notified.as_mut().enable();
+                if !matches!(self.observe(), super::Seen::Running { .. }) {
+                    return;
+                }
+                while std::future::Future::poll(notified.as_mut(), &mut context).is_pending() {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        return;
+                    }
+                    std::thread::park_timeout(left);
+                }
+            }
         }
 
         /// Closes the job once nothing is left in it, as its drop would, while the process's record stays: an exited
