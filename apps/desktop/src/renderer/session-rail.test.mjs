@@ -2282,8 +2282,8 @@ test('a clean branch with commits not pushed keeps Git and its actions', async (
   assert.equal(head.querySelector('.session-rail-sm').textContent, '↑2');
   assert.doesNotMatch(head.textContent, /main/);
   const run = () => section.querySelector('.session-rail-hd > .composer-island-git-run');
-  // Folded: the Run of the picked action stands at the head's end, after the count.
-  assert.equal(run().getAttribute('aria-label'), `${t('Run')}: ${t('Commit')}`, 'closed: the Run is shown');
+  // Folded: the button of the picked action, named by it, stands at the head's end, after the count.
+  assert.equal(run().textContent, t('Commit'), 'closed: the picked action is shown');
   // Open: the actions as one choice (Commit until another is picked), and the one Run at the head's end.
   await act(async () => head.click());
   const picks = () =>
@@ -2298,8 +2298,8 @@ test('a clean branch with commits not pushed keeps Git and its actions', async (
     ['commit-push', 'radio', 'false', false],
     ['commit', 'radio', 'true', true],
   ]);
-  assert.equal(run().getAttribute('aria-label'), `${t('Run')}: ${t('Commit')}`);
-  assert.equal(head.querySelector('.session-rail-sm').textContent, '', 'open: Run stands where the count stood');
+  assert.equal(run().textContent, t('Commit'));
+  assert.equal(head.querySelector('.session-rail-sm').textContent, '', 'open: the action stands where the count stood');
   await act(async () => section.querySelector('.composer-island-git-row[data-action="pr"]').click());
   assert.deepEqual(
     picks().map(([action, , checked]) => [action, checked]),
@@ -2309,7 +2309,7 @@ test('a clean branch with commits not pushed keeps Git and its actions', async (
       ['commit', 'false'],
     ]
   );
-  assert.equal(run().getAttribute('aria-label'), `${t('Run')}: ${t('Create PR')}`);
+  assert.equal(run().textContent, t('Create PR'));
 });
 
 // ── A New Task's panel: panes whose conversations are the real composer dock ──
