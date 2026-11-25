@@ -68,12 +68,12 @@ export function sessionOutputs(state: VisualizeSessionState): SessionOutput[] {
     .sort((a, b) => b.at - a.at);
 }
 
-/** "Just now", "4m", "3h", then the day. */
+/** "Just now", "4m ago", "3h ago", then the day: a point in time, never read as a duration. */
 export function sessionOutputAge(at: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - at) / 60_000);
   if (minutes < 1) return t('Just now');
-  if (minutes < 60) return t('{{minutes}}m', { minutes });
-  if (minutes < 24 * 60) return t('{{hours}}h', { hours: Math.floor(minutes / 60) });
+  if (minutes < 60) return t('{{time}} ago', { time: t('{{minutes}}m', { minutes }) });
+  if (minutes < 24 * 60) return t('{{time}} ago', { time: t('{{hours}}h', { hours: Math.floor(minutes / 60) }) });
   return new Date(at).toLocaleDateString(uiFormatLocale(), { month: 'short', day: 'numeric' });
 }
 
