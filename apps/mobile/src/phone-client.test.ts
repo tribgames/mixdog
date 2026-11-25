@@ -116,6 +116,7 @@ function relayPair(identity: Identity, transport: boolean) {
   const receiver = new RemoteTransportReceiver();
   const assembler = new RemoteTransportMessageAssembler(new RemoteTransportAssemblyPool());
   let fragment = 0;
+  let inbound: Promise<void> = Promise.resolve();
   const closes: Array<[number, string]> = [];
   const firstClose = signal();
   const hellos: any[] = [];
@@ -165,7 +166,10 @@ function relayPair(identity: Identity, transport: boolean) {
     onmessage: null,
     onclose: null,
     onerror: null,
-    send: (data) => void fromPhone(data),
+    // One record at a time, as the carrier reads them: receiver.next() hands out the head box until it is committed.
+    send: (data) => {
+      inbound = inbound.then(() => fromPhone(data));
+    },
     close: (code = 1000, reason = '') => {
       closes.push([code, reason]);
       firstClose.hear();
