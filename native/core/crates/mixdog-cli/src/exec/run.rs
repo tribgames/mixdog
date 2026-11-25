@@ -262,6 +262,7 @@ async fn execute(
         provider_config: opts.provider_config.as_deref(),
         route_profile: opts.route_profile.as_deref(),
         agents_dir: &host.agents_dir,
+        agent_presets: host.launcher.agent_presets(),
         host_env: &host.host_env,
         host_data_dir: &host.host_data_dir,
         temp_dir: &host.temp_dir,

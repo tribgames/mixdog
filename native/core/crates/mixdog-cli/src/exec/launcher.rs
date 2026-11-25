@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_acp::preset::AgentPreset;
+use mixdog_acp::preset::Upkeep;
 use mixdog_app_server_client::api::CallOptions;
 use mixdog_app_server_client::api::ClientError;
 use mixdog_app_server_client::api::ClientEvent;
@@ -93,11 +95,18 @@ pub struct InProcessLauncher {
     executors: Arc<Executors>,
     tokens: LaneTokens,
     install: std::sync::Mutex<Option<(JsRuntime, OrtRuntime)>>,
+    agent_presets: Vec<AgentPreset>,
 }
 
 impl InProcessLauncher {
-    pub fn new(executors: Arc<Executors>, tokens: LaneTokens, js_runtime: JsRuntime, ort_library: OrtRuntime) -> Self {
-        Self { executors, tokens, install: std::sync::Mutex::new(Some((js_runtime, ort_library))) }
+    /// `agent_presets` without their upkeep: a one-shot run neither installs nor updates an agent's CLI, which stays the app's
+    /// to keep current. Its check still finds the CLI where the installer puts it.
+    pub fn new(executors: Arc<Executors>, tokens: LaneTokens, js_runtime: JsRuntime, ort_library: OrtRuntime, agent_presets: Vec<AgentPreset>) -> Self {
+        let agent_presets = agent_presets
+            .into_iter()
+            .map(|preset| AgentPreset { upkeep: Upkeep { installer: None, update_args: None, ..preset.upkeep }, ..preset })
+            .collect();
+        Self { executors, tokens, install: std::sync::Mutex::new(Some((js_runtime, ort_library))), agent_presets }
     }
 }
 
@@ -128,6 +137,10 @@ pub(super) fn bind_exec_core(boundary: &Boundary) {
 
 #[async_trait]
 impl CoreLauncher for InProcessLauncher {
+    fn agent_presets(&self) -> &[AgentPreset] {
+        &self.agent_presets
+    }
+
     async fn launch(&self, boundary: &Boundary, feed: Arc<dyn ThreadReducer>) -> Result<Arc<dyn CoreSession>, String> {
         apply_env(&boundary.env);
         bind_exec_core(boundary);
@@ -174,7 +187,7 @@ impl CoreLauncher for InProcessLauncher {
             ownership: Arc::new(PrivateRoot(format!("exec-{}", uuid::Uuid::new_v4().simple()))),
             stop,
             catalog_http: mixdog_app_server_daemon::catalog::production_http().map_err(|error| error.to_string())?,
-            agent_presets: mixdog_app_server_daemon::acp_tools::builtin_presets(),
+            agent_presets: self.agent_presets.clone(),
         };
         // Composed inside the executors, as the daemon composes its core: every ambient handle lands on them.
         let tokens = self.tokens.clone();

@@ -41,11 +41,9 @@ dev-controls = ["crash-gates", "replay-bytes", "replay-controls", "replay-settle
 [dependencies]
 # Reached through mixdog-app-server-daemon; named here only so the features above reach them.
 fancy-regex = { workspace = true, optional = true }
-mixdog-acp = { workspace = true, optional = true }
 mixdog-agent = { workspace = true, optional = true }
 mixdog-browser-engine = { workspace = true, optional = true }
 mixdog-core-base = { workspace = true, optional = true }
-mixdog-core-config = { workspace = true, optional = true }
 mixdog-core-domains = { workspace = true, optional = true }
 mixdog-core-review = { workspace = true, optional = true }
 mixdog-core-rooms = { workspace = true, optional = true }
@@ -67,6 +65,9 @@ mixdog-core = { workspace = true }
 mixdog-core-api = { workspace = true }
 # `mixdog exec` grants the core it composes its headless delegation (src/exec/launcher.rs).
 mixdog-core-session = { workspace = true }
+# `mixdog exec` runs a Lead route on an ACP agent behind the host's switch of the feature (src/exec/boundary.rs).
+mixdog-acp = { workspace = true }
+mixdog-core-config = { workspace = true }
 mixdog-services = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-exthost-worker = { workspace = true }

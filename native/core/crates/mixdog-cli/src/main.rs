@@ -60,46 +60,9 @@ enum Command {
     },
     /// Headless one-shot: ask once on a pristine root, print the answer.
     Exec(exec::ExecArgs),
-    #[command(name = "embedding-host", hide = true)]
-    EmbeddingHost {
-        #[arg(long)]
-        cache_dir: PathBuf,
-        #[arg(long)]
-        model_id: String,
-        #[arg(long)]
-        ort_library: PathBuf,
-        #[arg(long)]
-        dtype: Option<String>,
-    },
-    /// The process the effort judge's model runs in; started by the core, never by a user.
-    #[command(name = "effort-judge-host", hide = true)]
-    EffortJudgeHost {
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long)]
-        ort_library: PathBuf,
-        #[arg(long)]
-        explicit: bool,
-    },
-    /// The extension-host worker: the process the core's extension host pool starts; it prints READY on its frame pipe and
-    /// serves document calls until the pool says bye. Started by the core, never by a user.
-    #[command(name = "ext-worker", hide = true)]
-    /// The process Microsoft Office automation runs in; started by the core, never by a user.
-    #[command(name = "office-com-host", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
-    OfficeComHost {
-        #[arg(allow_hyphen_values = true, value_name = "ARGS")]
-        args: Vec<std::ffi::OsString>,
-    },
-    ExtWorker,
-    /// The stdio end of a session's tool server for an ACP agent; started by that agent, never by a user.
-    #[command(name = "acp-mcp-bridge", hide = true)]
-    AcpMcpBridge,
-    /// The program the `mixdog-skill-node` launchers start: runs a skill script.
-    #[command(name = "skill-run", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
-    SkillRun {
-        #[arg(allow_hyphen_values = true, value_name = "SCRIPT_AND_ARGS")]
-        args: Vec<std::ffi::OsString>,
-    },
+    /// The helper processes a core starts as this program (`mixdog_cli::helpers`).
+    #[command(flatten)]
+    Helper(mixdog_cli::helpers::Helper),
 }
 
 #[derive(Args)]
@@ -198,41 +161,7 @@ fn main() -> ExitCode {
             ExitCode::from(mixdog_app_server_daemon::server_ensure::main(&argument) as u8)
         }
         Command::Exec(args) => exec_command(args),
-        Command::EffortJudgeHost { dir, ort_library, explicit } => {
-            ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
-        }
-        Command::EmbeddingHost { cache_dir, model_id, ort_library, dtype } => {
-            ExitCode::from(mixdog_app_server_daemon::embedding_host::run(cache_dir, model_id, ort_library, dtype) as u8)
-        }
-        Command::OfficeComHost { args } => ExitCode::from(mixdog_office_com::host::run(&args) as u8),
-        Command::AcpMcpBridge => ExitCode::from(mixdog_app_server_daemon::acp_tools::run_bridge() as u8),
-        Command::ExtWorker => {
-            // A pptxgenjs authoring script runs on the script interpreter of the install; without one that route says so.
-            if let Ok(js) = mixdog_app_server_daemon::js_runtime::resolve_current() {
-                mixdog_office::author::script_runtime::install(mixdog_office::author::script_runtime::ScriptRuntime {
-                    program: js.program,
-                    package_root: js.package_root,
-                    electron: js.electron,
-                });
-            }
-            mixdog_exthost_worker::ext_worker_main()
-        }
-        Command::SkillRun { args } => {
-            // A script that is not shipped runs on the install's script interpreter.
-            let runtime = match mixdog_app_server_daemon::js_runtime::resolve_current() {
-                Ok(js) => mixdog_skill_scripts::UserScriptRuntime::Interpreter {
-                    entry: js.package_root.join("src").join("skill-script-entry.mjs"),
-                    program: js.program,
-                    electron: js.electron,
-                },
-                Err(error) => mixdog_skill_scripts::UserScriptRuntime::Unavailable { reason: error.to_string() },
-            };
-            // The shipped office scripts (source-extract, qc-pages) read Office files through this process's engine.
-            if let Ok(engine) = mixdog_exthost_worker::methods::SkillOfficeEngine::new() {
-                let _ = mixdog_skill_scripts::source_extract::install_office_engine(Box::new(engine));
-            }
-            mixdog_skill_scripts::skill_run(args, runtime)
-        }
+        Command::Helper(helper) => mixdog_cli::helpers::run(helper),
     }
 }
 

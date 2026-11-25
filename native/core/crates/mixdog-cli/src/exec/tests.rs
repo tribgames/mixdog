@@ -33,6 +33,7 @@ use super::run::run_exec;
 use super::seams::CoreLauncher;
 use super::seams::CoreSession;
 
+mod acp_tests;
 mod profile_tests;
 
 const T: i64 = 1_700_000_000_000;
@@ -264,6 +265,10 @@ impl FakeLauncher {
 
 #[async_trait]
 impl CoreLauncher for FakeLauncher {
+    fn agent_presets(&self) -> &[mixdog_acp::preset::AgentPreset] {
+        &[]
+    }
+
     async fn launch(&self, boundary: &Boundary, feed: Arc<dyn ThreadReducer>) -> Result<Arc<dyn CoreSession>, String> {
         assert!(boundary.data_dir.is_dir() && boundary.runtime_root.is_dir());
         *self.captured.lock().unwrap() = Some(Captured {
@@ -483,6 +488,9 @@ async fn a_core_that_cannot_start_fails_the_run_and_leaves_no_root() {
     struct Refusing;
     #[async_trait]
     impl CoreLauncher for Refusing {
+        fn agent_presets(&self) -> &[mixdog_acp::preset::AgentPreset] {
+            &[]
+        }
         async fn launch(&self, _: &Boundary, _: Arc<dyn ThreadReducer>) -> Result<Arc<dyn CoreSession>, String> {
             Err("the core binary is missing".into())
         }
@@ -583,6 +591,7 @@ fn a_custom_provider_needs_the_explicit_provider_config() {
             provider_config,
             route_profile: None,
             agents_dir: dir.path(),
+            agent_presets: &[],
             host_env: &host_env,
             host_data_dir: dir.path(),
             temp_dir: dir.path(),
@@ -893,6 +902,44 @@ async fn a_json_tool_call_starts_in_progress_and_completes_with_its_timing() {
     assert_eq!(done["timing"], json!({ "queue_ms": 0, "dispatch_ms": 2, "execution_ms": 3, "batch_wait_ms": 1, "postprocess_ms": 2, "total_ms": 8 }));
 }
 
+/// A call shown first as its card (the call committed with no result yet, as a turn in an ACP agent shows every call) starts
+/// there with its arguments, and completes at its result with the time between.
+#[tokio::test]
+async fn a_tool_call_shown_first_as_its_card_starts_there_with_its_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = json!({ "path": "src/main.rs" });
+    let card = item("item/completed", json!({ "type": "toolCall", "id": "item_1", "name": "read", "input": input, "run": { "callId": "call_1" } }));
+    let turn = vec![card, tool_done("call_1", "read", input.clone(), "fn main() {}", json!({})), assistant("read it"), completed()];
+    let launcher = FakeLauncher::new("sess_card", vec![Turn::Events(turn)]);
+    // Each reading of the clock is a second after the one before.
+    let clock = Arc::new(std::sync::atomic::AtomicI64::new(T));
+    let sink = Arc::new(Out::default());
+    let host = Host {
+        launcher: &launcher,
+        credentials: &Creds,
+        host_env: host_env(),
+        host_data_dir: dir.path().join("host-data"),
+        agents_dir: dir.path().join("agents"),
+        temp_dir: dir.path().join("tmp"),
+        sink: sink.clone(),
+        now: Arc::new(move || clock.fetch_add(1000, std::sync::atomic::Ordering::SeqCst)),
+    };
+    std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+    let mut opts = options(dir.path());
+    opts.json = true;
+    assert_eq!(run_exec(opts, host, never()).await, 0, "{:?}", sink.stderr());
+
+    let lines = json_lines(&sink);
+    let tool = |kind: &str| lines.iter().find(|line| line["type"] == kind && line["item"]["type"] == "tool_call").unwrap_or_else(|| panic!("no {kind}: {lines:?}"));
+    let (started, done) = (&tool("item.started")["item"], &tool("item.completed")["item"]);
+    assert_eq!((&started["id"], &started["arguments"], &done["arguments"]), (&json!("call_1"), &input, &input));
+    assert_eq!(done["started_at"], started["started_at"], "the call started at its card");
+    let at = |value: &Value| chrono::DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap().timestamp_millis();
+    let duration = at(&done["completed_at"]) - at(&started["started_at"]);
+    assert!(duration > 0, "{done}");
+    assert_eq!(done["duration_ms"], json!(duration));
+}
+
 #[tokio::test]
 async fn the_json_turn_and_result_lines_carry_the_summed_usage() {
     let dir = tempfile::tempdir().unwrap();
@@ -939,6 +986,7 @@ fn pristine_boundary(dir: &Path) -> Boundary {
         provider_config: None,
         route_profile: None,
         agents_dir: dir,
+        agent_presets: &[],
         host_env: &host_env,
         host_data_dir: dir,
         temp_dir: dir,

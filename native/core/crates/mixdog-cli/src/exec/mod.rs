@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Args;
+use mixdog_acp::preset::AgentPreset;
 use mixdog_core::run_host::tool_pool::session_create::worktree_name_error;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
@@ -294,6 +295,20 @@ impl ExecArgs {
         }))
     }
 }
+/// The providers whose host credentials the run looks up: the Lead's and every one the route profile names, once each. An ACP
+/// agent's is none: its CLI signs in on its own.
+fn credential_providers(options: &ExecOptions, agent_presets: &[AgentPreset]) -> Vec<String> {
+    let mut providers: Vec<String> = Vec::new();
+    let named = std::iter::once(route::clean(options.provider.as_deref()).to_owned())
+        .chain(options.route_profile.as_deref().map(profile::providers_named).unwrap_or_default());
+    for provider in named {
+        if !providers.contains(&provider) && !agent_presets.iter().any(|preset| preset.provider == provider) {
+            providers.push(provider);
+        }
+    }
+    providers
+}
+
 /// Refuses an unusable explicit route as Node does before anything starts (`validateExplicitPristineRoute`, printed as
 /// `mixdog: <text>`, exit 1), then runs the exec on its own core on this thread (`runHeadlessExec`) and returns its exit code.
 pub fn run_command(options: ExecOptions) -> i32 {
@@ -320,12 +335,8 @@ pub fn run_command(options: ExecOptions) -> i32 {
             return 1;
         }
     };
-    let mut providers = vec![route::clean(options.provider.as_deref()).to_owned()];
-    for provider in options.route_profile.as_deref().map(profile::providers_named).unwrap_or_default() {
-        if !providers.contains(&provider) {
-            providers.push(provider);
-        }
-    }
+    let agent_presets = mixdog_app_server_daemon::acp_tools::builtin_presets();
+    let providers = credential_providers(&options, &agent_presets);
     let credentials = executors.handle(TaskClass::Work).block_on(launcher::ResolvedCredentials::read(&tokens, &providers, &host_data_dir));
     let agents_dir = js.package_root.join("src").join("agents");
     // The exec's own thread: one, so the boundary's environment is applied while no other thread reads it.
@@ -344,7 +355,7 @@ pub fn run_command(options: ExecOptions) -> i32 {
             return 1;
         }
     };
-    let launcher = launcher::InProcessLauncher::new(executors, tokens, js, ort_library);
+    let launcher = launcher::InProcessLauncher::new(executors, tokens, js, ort_library, agent_presets);
     let host = run::Host {
         launcher: &launcher,
         credentials: &credentials,

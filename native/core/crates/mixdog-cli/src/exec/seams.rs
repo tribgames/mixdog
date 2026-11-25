@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_acp::preset::AgentPreset;
 use mixdog_app_server_client::api::ThreadReducer;
 use serde_json::Value;
 
@@ -30,6 +31,9 @@ pub trait CoreSession: Send + Sync {
 
 #[async_trait]
 pub trait CoreLauncher: Send + Sync {
+    /// The ACP agents the core it starts runs: a route on one's provider is that agent's.
+    fn agent_presets(&self) -> &[AgentPreset];
+
     /// Starts the core on `boundary` and connects to it; `feed` is the thread reducer of the
     /// connection, which sees every notification of the run's thread.
     async fn launch(&self, boundary: &Boundary, feed: Arc<dyn ThreadReducer>) -> Result<Arc<dyn CoreSession>, String>;
