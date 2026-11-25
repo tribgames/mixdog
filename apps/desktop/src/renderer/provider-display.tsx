@@ -3,7 +3,6 @@ import type { SVGProps } from 'react';
 import type { DesktopModelOption } from '../shared/contract';
 
 import { useAutoEffortShown } from './auto-effort-store';
-import { effortTierLabel } from './effort-tier-label';
 import { t } from './i18n';
 import { agentModelName, agentNameInDisplay } from './model-catalog-cache';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
@@ -322,12 +321,9 @@ export function modelRouteDisplayParts(
   const rawEffortLabel = String(effortLabel || effortValue).trim();
   let compactEffort = '';
   if (effortValue.toLowerCase() === 'xhigh' || /^(?:extra[\s-]*high|xhigh)$/i.test(rawEffortLabel)) {
-    compactEffort = effortTierLabel('xhigh', 'XHigh');
+    compactEffort = 'XHigh';
   } else if (rawEffortLabel) {
-    compactEffort = effortTierLabel(
-      effortValue,
-      `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`
-    );
+    compactEffort = `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`;
   }
   return {
     model: String(model || '').trim(),

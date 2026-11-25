@@ -1589,7 +1589,7 @@ test('the spinner byline is translated on the desktop', async () => {
   try {
     const live = await bylineFor({ thinking: true, effort: 'high', turnEffort: 'medium' });
     assert.match(live, /토큰 340개/);
-    assert.match(live, /생각 중\(중간\)/);
+    assert.match(live, /생각 중\(Medium\)/);
     assert.doesNotMatch(live, /tokens|thinking/);
     assert.match(await bylineFor({ thinking: true }), /생각 중$/);
     assert.match(

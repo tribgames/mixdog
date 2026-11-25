@@ -2,10 +2,9 @@ import { type ReactNode, useId } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopModelOption } from '../shared/contract';
 import { displayEffortLabel } from './auto-effort-store';
-import { effortTierLabel } from './effort-tier-label';
 import { t } from './i18n';
 import { ModelCatalog } from './model-catalog';
-import { type RouteSpeed, routeSpeed } from './model-route-utils';
+import { ROUTE_SPEED_NAMES, type RouteSpeed, routeSpeed } from './model-route-utils';
 import { DAYBREAK_PARAMETER_ID, routeDaybreakBlue } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import { useRouteFontWarmup } from './route-editor-effects';
@@ -119,15 +118,14 @@ function routeSheetContent({
   const selectedEffort = effortOptions.find((option) => option.value === effort);
   // `autoEffort` is only passed for a capable model.
   const autoEffortOn = displayEffortLabel(effort, { autoOn: autoEffort?.enabled === true, capable: true }) !== null;
-  // "Auto" is the effort's name (like "Fast"), shown untranslated on the model
-  // chip and the Reasoning effort row.
-  const effortLabel = autoEffortOn ? 'Auto' : selectedEffort ? effortTierLabel(selectedEffort.value, selectedEffort.label) : '';
+  // Effort names ("Auto", "High") are untranslated product terms, like "Fast",
+  // on the model chip and the Reasoning effort row.
+  const effortLabel = autoEffortOn ? 'Auto' : (selectedEffort?.label ?? '');
   const ultrafastAvailable = modelParameterOptions.some(
     (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
   );
   const speed = routeSpeed(fast, modelParameters);
-  const speedLabels = { standard: t('Standard'), fast: t('Fast'), ultrafast: t('Ultrafast') };
-  const speedLabel = speedLabels[speed];
+  const speedLabel = ROUTE_SPEED_NAMES[speed];
   // The slider row IS the context control (TUI parity): a provider's own
   // context-window parameter (Cursor 272K/1M) must never duplicate it.
   // `serviceTier` is hidden only while the Speed row writes it (Fast/Ultrafast);
