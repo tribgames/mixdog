@@ -30,10 +30,24 @@ export function usePanePresentation(): PanePresentation {
 }
 
 /** The presentation of a conversation outside the panes that is hidden and shown again in place (the side dock's
- *  agent session view): each time it is shown again is a visit of its own, from the commit that shows it. */
+ *  agent session view): each time it is shown again is a visit of its own, from the commit that shows it. A visit is
+ *  prepared, as a pane's switch is, until the conversation calls it `ready`: what it shows meanwhile is its cover. */
 export function useShownPresentation(shown: boolean): PanePresentation {
-  const [visits, setVisits] = useState({ shown, visit: 0 });
-  if (visits.shown !== shown) setVisits({ shown, visit: shown ? visits.visit + 1 : visits.visit });
-  const { visit } = visits;
-  return useMemo(() => ({ preparing: false, visit, ready: SHOWN.ready, keep: SHOWN.keep }), [visit]);
+  const [visits, setVisits] = useState({ shown, visit: 0, preparing: true });
+  if (visits.shown !== shown) {
+    setVisits({ shown, visit: shown ? visits.visit + 1 : visits.visit, preparing: shown || visits.preparing });
+  }
+  const { visit, preparing } = visits;
+  return useMemo(
+    () => ({
+      preparing,
+      visit,
+      ready: () =>
+        setVisits((current) =>
+          current.visit === visit && current.preparing ? { ...current, preparing: false } : current
+        ),
+      keep: SHOWN.keep,
+    }),
+    [preparing, visit]
+  );
 }

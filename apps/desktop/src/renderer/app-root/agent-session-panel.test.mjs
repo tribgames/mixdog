@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { installPhonePaneDom } from '../test-support/phone-pane-dom.mjs';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { useAppTabActions } from './use-app-tab-actions.ts';
 
@@ -309,6 +310,80 @@ test('a sub-agent the dock covers and shows again is presented anew: its transcr
   frame();
   frame();
   assert.equal(painted.at(-1), true, 'shown once they hold them');
+});
+
+test("a sub-agent the side panel shows over the state kept from before it was let go paints none of that state's rows: its first rows are its live state", async (t) => {
+  // The real PaneConversation in the panel, over the real lane store; frames and lane delivery are driven here.
+  const pane = await installPhonePaneDom(t, { mobile: false });
+  await (await import('../markdown-body-loader.ts')).preloadMarkdownBody();
+  const { AgentSessionPanel } = await import('../AgentSessionPanel.tsx');
+  const store = pane.defaultSessionLaneStore;
+  const doc = pane.dom.window.document;
+  pane.dom.window.mixdogDesktop = {
+    invokeCapability: async () => ({
+      value: { supported: true, authoritative: true, snapshotKind: 'worktree', patch: '', files: [], agents: [] },
+    }),
+  };
+  t.after(() => {
+    delete pane.dom.window.mixdogDesktop;
+    store.setShownSessionIds([]);
+  });
+  const state = (answer) => ({
+    sessionId: 'sub',
+    snapshot: {
+      sessionId: 'sub',
+      items: [
+        { kind: 'user', id: 'u1', text: 'the brief' },
+        { kind: 'assistant', id: `r-${answer}`, text: `answer ${answer}` },
+      ],
+    },
+  });
+  // What the renderer kept of the sub-agent from before its session was let go (the panel folded, its lane hidden).
+  store.apply(state('then'));
+  // Shown again: the window registers the panel's session, which waits for its first frame since.
+  store.setShownSessionIds(['sub']);
+  // What each commit and each frame paints of the panel's transcript: nothing while covered or held hidden.
+  const painted = [];
+  const paint = () => {
+    const log = doc.querySelector('.agent-session-panel .transcript');
+    const covered = Boolean(doc.querySelector('.agent-session-panel .pane-surface-cover'));
+    if (log && !covered && log.style.visibility !== 'hidden') painted.push(log.textContent);
+  };
+  const panel = React.createElement(AgentSessionPanel, {
+    target: { sessionId: 'sub', title: 'Worker' },
+    active: true,
+    renderConversation: () =>
+      React.createElement(
+        React.Profiler,
+        { id: 'panel', onRender: paint },
+        React.createElement(pane.PaneConversation, { ...pane.props('sub'), focused: false })
+      ),
+    onOpenAsTab() {},
+    onClose() {},
+  });
+  const frames = async (count) => {
+    for (let step = 0; step < count; step += 1) {
+      await act(async () => {
+        const due = [...pane.frames.values()];
+        pane.frames.clear();
+        for (const callback of due) callback(performance.now());
+      });
+      await act(async () => new Promise((resolve) => pane.dom.window.setTimeout(resolve, 5)));
+      paint();
+    }
+  };
+  await act(async () => pane.root.render(panel));
+  await frames(12);
+  // The live frame lands.
+  await act(async () => store.apply(state('now')));
+  await frames(12);
+  assert.ok(painted.length > 0, 'the panel paints its rows');
+  assert.ok(painted.at(-1).includes('answer now'), `it rests on its live state: ${painted.at(-1)}`);
+  assert.deepEqual(
+    painted.filter((text) => text.includes('answer then')),
+    [],
+    'no frame paints the state kept from before'
+  );
 });
 
 test('an ended sub-agent stays read-only from the panel’s own copy, and a fresh frame makes it live again', async (t) => {
