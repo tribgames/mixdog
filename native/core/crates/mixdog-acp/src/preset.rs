@@ -87,8 +87,9 @@ pub struct Quirks {
     /// The models of the agent's list a session on this preset runs: the agent lists others, which run on another
     /// preset of the same agent.
     pub model_scope: ModelScope,
-    /// A route may name the agent's own default model ([`crate::agents::DEFAULT_MODEL`]): the picker offers it.
-    pub offer_default: bool,
+    /// A route or a call may name the agent's own default model ([`crate::agents::DEFAULT_MODEL`]) and it runs. The
+    /// picker lists only named models.
+    pub runs_default: bool,
     /// Mixdog's word on how to call the tools it hands over ([`crate::mcp::preference`]) follows its prompt.
     pub append_tool_guidance: bool,
     /// The most bytes of one MCP call's result the agent hands its model whole, asked of it when it opens a session it
@@ -372,7 +373,7 @@ fn antigravity_quirks() -> Quirks {
         own_orchestration: vec!["gemini-pro-orchestrator".into()],
         plan_name: Some(["antigravity", "tier", "name"].map(str::to_owned).to_vec()),
         model_scope: ModelScope::ExceptPrefixes(gemini()),
-        offer_default: false,
+        runs_default: false,
         append_tool_guidance: true,
         mcp_max_output_bytes: None,
     }
@@ -432,7 +433,7 @@ pub fn builtin() -> Vec<AgentPreset> {
             // It answers a prompt of a session it does not hold with -32002, which is a lost session whatever it says.
             lost_session_failures: vec!["Session not found".into(), "session is unknown".into()],
             model_scope: ModelScope::OnlyPrefixes(gemini()),
-            offer_default: true,
+            runs_default: true,
             // Mixdog's own prompt already says how to group calls and give a tool its items as an array, and the server
             // shows a call's result whole.
             append_tool_guidance: false,
@@ -527,7 +528,7 @@ mod tests {
             let runs = [&official, &cli].map(|preset| preset.quirks.model_scope.admits(model));
             assert_eq!(runs, [model.starts_with("gemini-"), !model.starts_with("gemini-")], "{model}");
         }
-        assert_eq!((official.quirks.offer_default, cli.quirks.offer_default), (true, false));
+        assert_eq!((official.quirks.runs_default, cli.quirks.runs_default), (true, false));
         assert_eq!([&official, &cli].map(|preset| preset.same_quota_as.as_deref()), [Some("antigravity-oauth"); 2]);
         assert!(matches!(official.distribution, Distribution::Registry { .. }) && official.version_args.is_empty());
         assert!(matches!(cli.distribution, Distribution::Cli { .. }));

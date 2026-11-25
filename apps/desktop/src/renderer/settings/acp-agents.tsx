@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type AcpAgentGroup, type AcpAgentStatus, acpAgentGroups, acpAgentsOf } from '../acp-agent-status';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
-import { ProviderIcon } from '../provider-display';
+import { ProviderIcon, providerDisplayName } from '../provider-display';
 import { type ProviderAccountPool, type ProviderAccountSource, ProviderAccountsList } from '../ProviderAccountsList';
 import { record } from '../record-utils';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
@@ -386,7 +386,7 @@ function AcpAgentRow({
         <div data-acp-agent={agent.id} data-acp-state={signingIn ? 'signingIn' : agent.state}>
           <ProviderAccountsList
             provider={agent.provider}
-            title={agent.label}
+            title={providerDisplayName(agent.provider)}
             source={accounts}
             renderActions={() =>
               agent.canSignOut && (

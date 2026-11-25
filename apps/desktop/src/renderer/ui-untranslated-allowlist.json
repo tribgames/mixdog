@@ -3,6 +3,7 @@
     "--argument": "CLI flag",
     "LibreOffice": "product name (the built-in features row)",
     "Antigravity ACP": "product name (its Developer option and its Providers section)",
+    "Antigravity OAuth": "product name (its usage entry beside Antigravity ACP)",
     "· Auto": "the effort tier name most Latin-script locales keep as is, as \"Auto\" (agent rows)",
     "Corgi": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
     "Husky": "dog breed name, spelled the same in Latin-script locales (avatar picker)",

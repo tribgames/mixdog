@@ -575,8 +575,8 @@ impl World {
     /// the CLI's preset, on whose default model the suite's turns run.
     fn build(settings: &[(&str, &str)], customize: impl FnOnce(&mut AgentPreset, &std::path::Path)) -> Self {
         Self::of(&["antigravity-cli"], settings, |preset, dir| {
-            // Each preset's own offer of a default model is pinned by `each_preset_offers_and_runs_only_its_own_models`.
-            preset.quirks.offer_default = true;
+            // Which preset runs its agent's default model is pinned by `each_preset_offers_and_runs_only_its_own_models`.
+            preset.quirks.runs_default = true;
             customize(preset, dir);
         })
     }
@@ -1151,7 +1151,7 @@ async fn a_signed_out_cli_and_a_ready_one_are_told_apart() {
     ready.all_exited().await;
     let rows = ready.agents.picker_rows();
     let listed: Vec<(&str, &str)> = rows.iter().map(|row| (row["id"].as_str().unwrap(), row["display"].as_str().unwrap())).collect();
-    assert_eq!(listed, [("default", "Antigravity"), ("m1", "Antigravity · Model One"), ("m2", "Antigravity · Model Two")]);
+    assert_eq!(listed, [("m1", "Antigravity · Model One"), ("m2", "Antigravity · Model Two")]);
     assert!(rows.iter().all(|row| row["provider"] == "acp-antigravity-cli" && row["runner"] == "acp"));
 }
 
@@ -1945,7 +1945,7 @@ async fn a_model_the_agent_lists_at_several_tiers_is_one_row_and_the_routes_effo
     assert_eq!(agent["models"], json!([{ "id": "gem", "name": "Gem" }, { "id": "solo", "name": "Solo" }]));
     let rows = world.agents.picker_rows();
     let row = |id: &str| rows.iter().find(|row| row["id"] == id).cloned().expect("the model's row");
-    assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), ["default", "gem", "solo"]);
+    assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), ["gem", "solo"]);
     let gem = row("gem");
     assert_eq!((&gem["display"], &gem["modelName"], &gem["defaultEffort"]), (&json!("Antigravity · Gem"), &json!("Gem"), &json!("low")));
     assert_eq!(gem["effortOptions"].as_array().expect("efforts").iter().map(|item| item["value"].as_str().unwrap()).collect::<Vec<_>>(), ["low", "high"]);
@@ -1999,7 +1999,7 @@ async fn an_agents_model_rows_carry_the_marks_saved_for_them_as_a_providers_rows
     use mixdog_core_api::DomainService as _;
     let world = World::new(&[]);
     world.checked().await;
-    let ids: Vec<String> = world.agents.picker_rows().iter().filter_map(|row| row["id"].as_str().map(str::to_owned)).filter(|id| id != "default").collect();
+    let ids: Vec<String> = world.agents.picker_rows().iter().filter_map(|row| row["id"].as_str().map(str::to_owned)).collect();
     let (starred, hidden) = (ids[0].clone(), ids[1].clone());
     let saved = json!({ format!("acp-antigravity-cli/{starred}"): { "favorite": true }, format!("acp-antigravity-cli/{hidden}"): { "hidden": true } });
     let list = mixdog_acp::routes::AgentModelList {
@@ -3549,13 +3549,9 @@ async fn a_selected_window_below_the_agents_is_kept_when_the_agent_reports_its_o
     let after = world.agents.status();
     assert_ne!(after["agents"], before["agents"]);
     assert_eq!(after["agents"][0]["contextWindows"], json!({ "default": 1000 }));
-    // The window is the reported model's: its row carries it, and no other model's row of the agent does.
+    // The window is the reported model's: the default model's route row carries it, and no listed model's row does.
     let rows = world.agents.picker_rows();
-    assert!(rows.iter().any(|row| row["id"] == "default"), "{rows:?}");
-    for row in &rows {
-        let carries = row.get("maxContextWindow") == Some(&json!(1000));
-        assert_eq!(carries, row["id"] == "default", "{row}");
-    }
+    assert!(!rows.is_empty() && rows.iter().all(|row| row["id"] != "default" && row.get("maxContextWindow").is_none()), "{rows:?}");
 }
 
 /// What an agent last reported of its window is kept with the agents' other state: an app that starts over it sizes the
@@ -3609,7 +3605,7 @@ async fn the_window_an_agent_reported_is_its_models_and_no_other_model_of_the_ag
     let sized = |world: &World| -> Vec<(String, bool)> {
         world.agents.picker_rows().iter().map(|row| (row["id"].as_str().unwrap().to_owned(), row.get("maxContextWindow") == Some(&json!(1000)))).collect()
     };
-    let want = vec![("default".to_owned(), false), ("gem".to_owned(), true), ("solo".to_owned(), false)];
+    let want = vec![("gem".to_owned(), true), ("solo".to_owned(), false)];
     assert_eq!(sized(&world), want);
     assert!(world.agents.window_meta(&world.preset, "solo").is_none() && world.agents.model_row(&world.preset, "solo").get("maxContextWindow").is_none());
     assert_eq!(world.agents.reported_window(&world.preset, "gem"), Some(1000));
@@ -4086,8 +4082,9 @@ async fn a_prompt_the_official_server_answers_with_the_lost_session_code_leaves_
     assert!(world.agents.running(&thread()).is_none());
 }
 
-/// Antigravity's two presets split its models: each lists and runs only its own, the official server alone offers its
-/// default model, and a route on a model of the other preset is refused naming that preset, before any agent is asked.
+/// Antigravity's two presets split its models: each lists and runs only its own, the official server alone runs its
+/// default model (which neither lists), and a route on a model of the other preset is refused naming that preset,
+/// before any agent is asked.
 #[tokio::test]
 async fn each_preset_offers_and_runs_only_its_own_models() {
     let models = json!([
@@ -4103,7 +4100,7 @@ async fn each_preset_offers_and_runs_only_its_own_models() {
     within("the CLI's check", world.agents.look(&cli)).await;
     let rows = world.agents.picker_rows();
     let listed: Vec<(&str, &str)> = rows.iter().map(|row| (row["provider"].as_str().unwrap(), row["id"].as_str().unwrap())).collect();
-    assert_eq!(listed, [("acp-antigravity", "default"), ("acp-antigravity", "gemini-4-neon"), ("acp-antigravity-cli", "claude-opus-5-5")]);
+    assert_eq!(listed, [("acp-antigravity", "gemini-4-neon"), ("acp-antigravity-cli", "claude-opus-5-5")]);
     let status = world.agents.status();
     assert_eq!(status["agents"][0]["models"], json!([{ "id": "gemini-4-neon", "name": "Gemini 4 Neon" }]));
     assert_eq!(status["agents"][1]["models"], json!([{ "id": "claude-opus-5-5", "name": "Claude Opus 5.5" }]));
@@ -4447,7 +4444,7 @@ async fn a_route_moved_to_the_other_preset_takes_the_threads_session_off_the_sha
 /// (the route moved meanwhile) shows nothing of it and starts no turn in the agent.
 #[tokio::test]
 async fn a_wake_on_another_presets_route_shows_nothing_of_the_reply() {
-    let world = World::of(&["antigravity-cli", "antigravity"], &[], |preset, _| preset.quirks.offer_default = true);
+    let world = World::of(&["antigravity-cli", "antigravity"], &[], |preset, _| preset.quirks.runs_default = true);
     let official = world.presets[1].clone();
     within("the turn", world.prompt(&thread(), &Surface::default(), "background", None, CancellationToken::new())).await;
     world.wakes(1).await;

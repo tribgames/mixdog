@@ -80,13 +80,13 @@ test('the Antigravity agent is an entry of its own beside the OAuth one, each wi
     windows: [{ label: '7D', usedPct: 60 }],
   };
   const shown = (rows) => usagePinEntries({ rows }).map((entry) => [entry.key, entry.label, entry.percent]);
-  assert.deepEqual(shown([cli]), [['antigravity-acp', 'Antigravity', 60]]);
-  assert.deepEqual(shown([{ ...cli, id: 'acp-antigravity' }]), [['antigravity-acp', 'Antigravity', 60]]);
+  assert.deepEqual(shown([cli]), [['antigravity-acp', 'Antigravity ACP', 60]]);
+  assert.deepEqual(shown([{ ...cli, id: 'acp-antigravity' }]), [['antigravity-acp', 'Antigravity ACP', 60]]);
   assert.deepEqual(shown([cli, oauth]), [
-    ['antigravity', 'Antigravity', 20],
-    ['antigravity-acp', 'Antigravity', 60],
+    ['antigravity', 'Antigravity OAuth', 20],
+    ['antigravity-acp', 'Antigravity ACP', 60],
   ]);
-  assert.deepEqual(shown([oauth]), [['antigravity', 'Antigravity', 20]]);
+  assert.deepEqual(shown([oauth]), [['antigravity', 'Antigravity OAuth', 20]]);
 });
 
 test('an agent row whose quota a provider row shows is listed once, under that provider', async (t) => {

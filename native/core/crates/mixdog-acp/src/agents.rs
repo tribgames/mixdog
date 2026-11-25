@@ -34,7 +34,7 @@ use crate::upkeep::Slot;
 /// The agent's answer to a request it refuses until the user has signed in.
 pub(crate) const AUTH_REQUIRED: i64 = -32000;
 
-/// The model id of a preset's own picker entry: the agent's default model.
+/// The model id of the agent's own default model, which a route or a call that names no model runs on.
 pub const DEFAULT_MODEL: &str = "default";
 
 /// What happened to the account an agent's CLI is signed in with, as the core is told of it.
@@ -563,8 +563,8 @@ impl Agents {
         json!({ "enabled": enabled, "agents": agents })
     }
 
-    /// The picker's rows of the agents that can run a session now: the preset's own entry (the agent's default
-    /// model) where it offers one, and one per model of its scope the agent reports. Empty while the feature is off.
+    /// The picker's rows of the agents that can run a session now: one per named model of its scope the agent reports.
+    /// The agent's default model is no row of it, though a route or a call may name it. Empty while the feature is off.
     pub fn picker_rows(self: &Arc<Self>) -> Vec<Value> {
         if !self.enabled() {
             return Vec::new();
@@ -572,9 +572,6 @@ impl Agents {
         let mut rows = Vec::new();
         for preset in &self.parts.presets {
             let Some(Readiness::Ready { models, .. }) = self.known(preset) else { continue };
-            if preset.quirks.offer_default {
-                rows.push(self.with_window(preset, DEFAULT_MODEL, Self::plain_row(preset, DEFAULT_MODEL, &preset.label)));
-            }
             rows.extend(
                 crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| self.with_window(preset, &listed.id, Self::listed_row(preset, listed))),
             );
@@ -650,12 +647,12 @@ impl Agents {
     }
 
     /// Why `preset`'s agent is not asked to run `model`, a route's name of one: a model outside the preset's scope runs on
-    /// another preset of the agent, and the agent's default model only on a preset that offers it. The preset that runs
+    /// another preset of the agent, and the agent's default model only on a preset that runs it. The preset that runs
     /// it is named, by its provider: the presets of one agent share its name. `None` for a model the preset runs. It
     /// comes before every other refusal: a turn on such a route fails with it whatever state the preset's agent is in,
     /// and never hops to a fallback provider.
     pub fn refuses_model(&self, preset: &AgentPreset, model: &str) -> Option<String> {
-        let runs = |preset: &AgentPreset| if model == DEFAULT_MODEL { preset.quirks.offer_default } else { preset.quirks.model_scope.admits(model) };
+        let runs = |preset: &AgentPreset| if model == DEFAULT_MODEL { preset.quirks.runs_default } else { preset.quirks.model_scope.admits(model) };
         if runs(preset) {
             return None;
         }

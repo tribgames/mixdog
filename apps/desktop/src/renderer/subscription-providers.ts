@@ -9,11 +9,11 @@ export const SUBSCRIPTIONS = [
   { key: 'mimo', label: 'MiMo', provider: 'mimo-oauth' },
   { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
   { key: 'devin', label: 'Devin', provider: 'devin-oauth' },
-  { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },
+  { key: 'antigravity', label: 'Antigravity OAuth', provider: 'antigravity-oauth' },
   // The Antigravity agent's own sign-in, read through whichever of its presets
   // reports it (the CLI's); not listed when its row says the OAuth entry
   // shows the same quota (`sameQuotaAs`).
-  { key: 'antigravity-acp', label: 'Antigravity', provider: 'acp-antigravity-cli' },
+  { key: 'antigravity-acp', label: 'Antigravity ACP', provider: 'acp-antigravity-cli' },
   { key: 'opencode-go-oauth', label: 'OpenCode Go OAuth', provider: 'opencode-go-oauth' },
 ] as const;
 

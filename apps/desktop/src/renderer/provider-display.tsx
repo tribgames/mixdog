@@ -23,8 +23,8 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   'mimo-oauth': 'MiMo',
   'antigravity-oauth': 'Antigravity OAuth',
   // Google's ACP server and the agy CLI: one agent to the user.
-  'acp-antigravity': 'Antigravity',
-  'acp-antigravity-cli': 'Antigravity',
+  'acp-antigravity': 'Antigravity ACP',
+  'acp-antigravity-cli': 'Antigravity ACP',
   'cursor-oauth': 'Cursor OAuth',
   'devin-oauth': 'Devin',
   'mixdog-local': 'Local Provider',

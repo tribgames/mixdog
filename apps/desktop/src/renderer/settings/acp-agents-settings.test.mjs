@@ -131,7 +131,7 @@ const card = (row) => ({
   actions: [...row.querySelectorAll('.settings-resource-actions button')].map((node) => node.textContent),
 });
 const signedIn = {
-  title: 'Antigravity',
+  title: 'Antigravity ACP',
   account: 'Account 1',
   renamed: false,
   marks: ['In use'],
@@ -680,7 +680,7 @@ test('a signed-in agent is the provider account card: one account in use under i
   );
   // The agent names no one: the plan it reports stands where a provider's row says who the account is.
   assert.deepEqual(card(agentRow()), {
-    title: 'Antigravity',
+    title: 'Antigravity ACP',
     account: 'Google AI Ultra',
     renamed: false,
     marks: ['In use'],
