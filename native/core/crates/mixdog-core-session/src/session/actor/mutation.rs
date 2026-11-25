@@ -567,13 +567,7 @@ impl SessionActor {
         };
         if user_prompt.is_some() {
             // `cancelQuotaResumeOnUserInput`: new user input supersedes the stopped turn.
-            self.quota_cancel_now();
-            let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
-            self.quota.call(async move {
-                if let Err(error) = settlement.cancel_on_user_input(&id).await {
-                    tracing::warn!("a quota resume was cancelled in memory but its entry was not removed: {error:?}");
-                }
-            });
+            self.supersede_quota_resume();
             self.archive_goal_on_user_input();
         }
         // A turn starting or still settling, or the scheduled compaction's gate, holds the
@@ -887,13 +881,7 @@ impl SessionActor {
         let reset = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
         records.push((reset, Class::Normal, Display::None, Vec::new()));
         // `supersedeQuotaResume`: a cleared session's wait goes.
-        self.quota_cancel_now();
-        let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
-        self.quota.call(async move {
-            if let Err(error) = settlement.supersede(&id).await {
-                tracing::warn!("a quota resume was superseded in memory but its entry was not removed: {error:?}");
-            }
-        });
+        self.supersede_quota_resume();
         // A cleared session starts with no toasts (`emptySessionPatch`), and none of the old ones expires (`beginTuiReset`, `session-reset.mjs:50`).
         self.cancel_toast_timers();
         Ok(Plan {

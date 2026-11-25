@@ -1479,6 +1479,87 @@ async fn the_waiting_quota_resume_is_in_the_threads_state() {
     assert!(rig.quota.cancel(&id, None).await.expect("the store writes"), "the entry is removed");
     eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.is_none().then_some(())).await;
 }
+#[tokio::test(start_paused = true)]
+async fn a_new_internal_turn_cancels_the_pending_quota_resume_and_hides_it() {
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(tokio::sync::Notify::new());
+    let turns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (open, entered, count) = (gate.clone(), started.clone(), turns.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, entered, count) = (open.clone(), entered.clone(), count.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return RunOutcome::Failed(super::testing::quota_error(5000));
+            }
+            entered.notify_one();
+            open.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_routed_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "first attempt", "op-1").await;
+    let _entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.clone()).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+
+    let params = json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "continue on new model" } });
+    let internal = CoreRequest { method: Method("turn/start"), params, op: Some(OpId::from("op-2")), ctx: CallContext::internal("agent-turn") };
+    handle.request(internal).await.expect("internal turn started");
+    eventually_on!(&[&started, &handle.cell.stepped], || (turns.load(std::sync::atomic::Ordering::SeqCst) == 2).then_some(())).await;
+
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).is_none().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.is_none().then_some(())).await;
+
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert!(rig.quota.entry(&id).is_none());
+    assert!(handle.cell.view.load_full().state.quota_resume.is_none());
+}
+#[tokio::test(start_paused = true)]
+async fn a_manually_resumed_goal_step_supersedes_the_pending_quota_resume_and_goal_note() {
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(tokio::sync::Notify::new());
+    let turns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (open, entered, count) = (gate.clone(), started.clone(), turns.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, entered, count) = (open.clone(), entered.clone(), count.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return RunOutcome::Failed(super::testing::quota_error(5000));
+            }
+            entered.notify_one();
+            open.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_routed_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    rig.goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
+    let goal_id = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal")["id"].as_str().expect("goal id").to_owned();
+    let key = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.suspended_goal(&id, &key) == goal_id).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.clone()).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+
+    rig.goals.goal_control(&handle.id, json!({ "action": "resume" })).await.expect("manual resume");
+    eventually_on!(&[&started, &handle.cell.stepped], || (turns.load(std::sync::atomic::Ordering::SeqCst) == 2).then_some(())).await;
+
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty())
+        .then_some(()))
+    .await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.view.load_full().state.quota_resume.is_none().then_some(())).await;
+
+    rig.goals.goal_control(&handle.id, json!({ "action": "stop" })).await.expect("stop");
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+}
 /// `restoreTranscriptRange` runs `restoredFailedTurnItems` for every message: an automatic Goal turn a usage limit stops
 /// before any output records its failed end on its prompt, which history pages list though it shows no row of its own, so
 /// a reload restores that end under the key the queued resume waits on.

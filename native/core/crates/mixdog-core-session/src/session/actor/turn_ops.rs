@@ -565,6 +565,16 @@ impl SessionActor {
         }
     }
 
+    pub(super) fn supersede_quota_resume(&mut self) {
+        self.quota_cancel_now();
+        let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
+        self.quota.call(async move {
+            if let Err(error) = settlement.supersede(&id).await {
+                tracing::warn!("a quota resume was superseded in memory but its entry was not removed: {error:?}");
+            }
+        });
+    }
+
     /// The queued entry `fireQuotaResume` reads (`quotaResumeEntry(id)`): one this session already
     /// answered reads as gone, as Node's synchronous cancel leaves it.
     fn quota_entry(&self) -> Option<mixdog_core_base::quota_resume::Entry> {

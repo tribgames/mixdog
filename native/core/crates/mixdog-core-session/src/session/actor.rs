@@ -5803,6 +5803,12 @@ impl SessionActor {
         #[cfg(any(test, feature = "test-support"))]
         self.cell.start_fence("gate");
         let InputStart { work, admitted_pick, input, mut body, facts, op_ref, reply, prompt, wake, agent, routine } = start;
+        // Any new non-retry turn (user, agent/internal, wake, or a manually resumed Goal step)
+        // supersedes a quota-stopped turn; retries finish their own resume entry via `finish_resume`.
+        let is_retry = input.options.as_ref().is_some_and(|options| options.retry_failed_turn == Some(true) || options.retry_turn_id.is_some());
+        if !is_retry {
+            self.supersede_quota_resume();
+        }
         let goal_reminder = self.record_goal_reminder(shown);
         // `bumpUsageMetricsTurnId` (`whileTurnDispatched`): the turn's usage counts under a new id.
         self.usage_incremental = false;
