@@ -207,7 +207,10 @@ impl Agent {
     }
 
     fn connect(&self) {
-        mcp(&self.held().servers[0], &json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {} } }));
+        mcp(
+            &self.held().servers[0],
+            &json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {} } }),
+        );
     }
 
     fn update(&self, update: Value) {
@@ -461,7 +464,12 @@ impl Agent {
             }
             // A question about a call that names the session `<id>`.
             "askas" => {
-                self.request("session/request_permission", json!({ "sessionId": rest, "toolCall": { "toolCallId": "p1" }, "options": once_or_no }), Asked::Permission, false);
+                self.request(
+                    "session/request_permission",
+                    json!({ "sessionId": rest, "toolCall": { "toolCallId": "p1" }, "options": once_or_no }),
+                    Asked::Permission,
+                    false,
+                );
                 self.session().asked = Some(id);
             }
             // A read that names the session `<id>`, or none for `-`.
@@ -571,7 +579,11 @@ impl Agent {
             // The official server's sign-in: it names the page on its stderr and answers once the user signed in there
             // (`FAKE_AGENT_AUTH_HANGS`: never; `FAKE_AGENT_AUTH_FAILS`: with that error), its sign-in kept in its home.
             "authenticate" if official() => {
-                log(&format!("authenticate {} GEMINI_HOME={}", params["methodId"].as_str().unwrap_or_default(), std::env::var("GEMINI_HOME").unwrap_or_default()));
+                log(&format!(
+                    "authenticate {} GEMINI_HOME={}",
+                    params["methodId"].as_str().unwrap_or_default(),
+                    std::env::var("GEMINI_HOME").unwrap_or_default()
+                ));
                 eprintln!("{SIGN_IN_LINE}");
                 if setting("FAKE_AGENT_AUTH_HANGS").is_some() {
                     return;

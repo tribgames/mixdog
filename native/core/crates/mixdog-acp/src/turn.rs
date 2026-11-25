@@ -612,9 +612,9 @@ impl Reply<'_> {
     async fn is_mixdog_call(&mut self, call: &Value) -> bool {
         let Some(handed) = self.session.handed.clone() else { return false };
         let server_and_tool = |server: &str, tool: &str| {
-            call.pointer(server).and_then(Value::as_str).map(|server| {
-                (server == crate::mcp::SERVER_NAME).then(|| call.pointer(tool).and_then(Value::as_str).unwrap_or_default().to_owned())
-            })
+            call.pointer(server)
+                .and_then(Value::as_str)
+                .map(|server| (server == crate::mcp::SERVER_NAME).then(|| call.pointer(tool).and_then(Value::as_str).unwrap_or_default().to_owned()))
         };
         let named = server_and_tool("/_meta/mcp/server", "/_meta/mcp/tool").or_else(|| server_and_tool("/rawInput/ServerName", "/rawInput/ToolName"));
         let name = call.get("name").and_then(Value::as_str);

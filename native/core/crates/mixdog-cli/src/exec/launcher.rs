@@ -111,8 +111,7 @@ impl InProcessLauncher {
         agent_presets: Vec<AgentPreset>,
         host_data_dir: &Path,
     ) -> Self {
-        let agent_presets =
-            agent_presets.into_iter().map(|preset| AgentPreset { distribution: preset.distribution.without_mutations(), ..preset }).collect();
+        let agent_presets = agent_presets.into_iter().map(|preset| AgentPreset { distribution: preset.distribution.without_mutations(), ..preset }).collect();
         Self {
             executors,
             tokens,

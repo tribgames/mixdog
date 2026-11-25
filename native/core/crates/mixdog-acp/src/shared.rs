@@ -52,7 +52,10 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 /// What the agents hold of a preset's shared server.
 pub(crate) enum SharedSlot {
     /// Being started: every open that needs the server meanwhile waits for this one start.
-    Starting { id: u64, started: watch::Receiver<Option<Result<Arc<SharedServer>, Fault>>> },
+    Starting {
+        id: u64,
+        started: watch::Receiver<Option<Result<Arc<SharedServer>, Fault>>>,
+    },
     Running(Arc<SharedServer>),
 }
 
@@ -466,7 +469,9 @@ impl Agents {
         self.track_stop(mixdog_rt::spawn("acp.shared.stop", TaskClass::Work, async move {
             let server = match slot {
                 SharedSlot::Running(server) => Some(server),
-                SharedSlot::Starting { mut started, .. } => started.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone()).and_then(Result::ok),
+                SharedSlot::Starting { mut started, .. } => {
+                    started.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone()).and_then(Result::ok)
+                }
             };
             if let Some(server) = server {
                 server.stop().await;

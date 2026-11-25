@@ -1023,17 +1023,23 @@ mod tests {
         let before = mixdog_workspace::ident::stat_version(&path).unwrap();
         let mtime = fs::metadata(&path).unwrap().modified().unwrap();
         let edited = String::from_utf8(fs::read(&path).unwrap()).unwrap().replace("\"prompt\":\"p\"", "\"prompt\":\"q\"");
-        // File times tick: the edit is repeated until it lands in a later tick than the cached
-        // read, as an outside editor's would; a change time that never moves fails the test.
-        const REWRITES: usize = 100;
-        let moved = (0..REWRITES).any(|_| {
+        // File times tick (every 15.6 ms on an idle Windows clock, which a fast disk rewrites the file
+        // a hundred times within): the edit is repeated until it lands in a later tick than the cached
+        // read, as an outside editor's would; a change time still unmoved after a second never moves.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let moved = loop {
             fs::write(&path, &edited).unwrap();
             fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(mtime).unwrap();
             let after = mixdog_workspace::ident::stat_version(&path).unwrap();
             assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns), "same size, mtime restored");
-            after.ctime_ns != before.ctime_ns
-        });
-        assert!(moved, "the change time of index.json did not move in {REWRITES} rewrites");
+            if after.ctime_ns != before.ctime_ns {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+        };
+        assert!(moved, "the change time of index.json did not move in a second of rewrites");
         let listed = s.list_assets(None, None, None, "").unwrap();
         assert_eq!((listed["assets"][0]["id"].clone(), listed["assets"][0]["prompt"].clone()), (a["id"].clone(), json!("q")));
     }

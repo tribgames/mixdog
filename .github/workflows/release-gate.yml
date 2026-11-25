@@ -3088,6 +3088,8 @@ jobs:
         with:
           name: mixdogd-${{ matrix.target }}
           path: native/core/target/release
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
       - name: Name the shipped mixdogd executable
         if: matrix.unix && env.SHIPPED_BUILD == 'true'
         run: chmod +x native/core/target/release/mixdogd
@@ -3154,6 +3156,8 @@ jobs:
         with:
           name: mixdogd-dev-${{ env.GATE_KEY }}
           path: native/core/target/release
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
       - name: Name the development mixdogd executable
         if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPING != 'true'
         run: chmod +x native/core/target/release/mixdogd
