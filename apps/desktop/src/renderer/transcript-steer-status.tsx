@@ -8,7 +8,7 @@ import { touchPrimaryPointer } from './surface-input-focus';
 
 export function SteerStatus({ item }: { item: TranscriptItem }) {
   const steer = useContext(SteerContext);
-  if (!item.steer && item.steered !== true) return null;
+  if (!item.steer && item.steered !== true && item.fromQueue !== true) return null;
   // Touch has no hover: there ✕ always shows, beside Send now.
   const touch = touchPrimaryPointer() || isPhoneSurfaceMarked();
   // One line of one fixed height for every state (waiting, sending, read), its

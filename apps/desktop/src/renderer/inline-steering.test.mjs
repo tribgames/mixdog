@@ -610,6 +610,8 @@ test('the steer line keeps one box through every state: waiting, held, failed, s
     { ...base, steer: 'failed' },
     { ...base, steer: 'sending' },
     { ...base, steered: true },
+    // A prompt that waited in the queue keeps the line, read, once its turn starts.
+    { ...base, fromQueue: true },
   ];
   for (const [height, isCoarse] of [
     ['20px', false],

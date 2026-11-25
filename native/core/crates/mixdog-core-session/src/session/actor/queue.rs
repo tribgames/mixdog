@@ -147,6 +147,9 @@ impl SessionActor {
                 }
             }
         }
+        // A prompt that waited in the queue is read by the turn it starts: its row keeps the read mark a steered one shows, so
+        // the line it showed while waiting stays.
+        body["meta"]["transcript"]["fromQueue"] = json!(true);
         // The queue a client sees loses the prompt in the revision that shows its row and its turn (`presentBatch` and `runTurn`
         // in one chain, `drain.mjs`); the projected queue, which the session decides on, lost it now.
         self.outbox.pair(dequeued);

@@ -3300,6 +3300,22 @@ impl SessionActor {
                     break;
                 }
             }
+            // A drained prompt's dequeue goes out when nothing waits in the line: the unit of the row its start stored then
+            // follows the frame that takes the prompt off the queue before any other frame, so no client holds the prompt in
+            // neither the queue nor the rows. What is released so far goes out first, then the line; a read in flight holds
+            // the dequeue for the pump that follows it.
+            if self.outbox.paired_next() && self.line_busy() {
+                if !notes.is_empty() {
+                    fold_room_view(&mut notes);
+                    self.publish(std::mem::take(&mut notes));
+                }
+                self.releasing = false;
+                self.next_unit_job();
+                self.releasing = true;
+                if self.line_busy() {
+                    break;
+                }
+            }
             let Some(ready) = self.outbox.pop_ready() else { break };
             match ready {
                 Ready::Release(entry, ordinal) => header_moved |= self.release(entry, ordinal, &mut notes),
@@ -3752,40 +3768,56 @@ impl SessionActor {
 
     fn publish(&mut self, notes: Vec<Note>) {
         let now = tokio::time::Instant::now();
-        let mut flushed = None;
+        let mut out = Vec::with_capacity(notes.len() + 1);
         // `settleTurn` flushes after the turn's close was set (`publishTurnClose`, turn.mjs:605-664: the idle runtime among
         // it), so the runtime note the close put right behind the completion goes in the completion's frame, not in one of its own.
+        // That frame goes out there, before anything the chain changes next (`flushEmit`): what the same release holds after it (the
+        // next turn's start, whose rows a positioned subscription gets as their unit behind the release) waits for a frame of its own.
         let mut settling = false;
-        for note in &notes {
-            let Some(mut mark) = super::phone_frame::mark_of(note) else { continue };
+        for note in notes {
+            let Some(mut mark) = super::phone_frame::mark_of(&note) else {
+                out.push(note);
+                continue;
+            };
             if settling && note.method != "thread/runtime/updated" {
-                flushed = flushed.or(self.frames.flush());
+                settling = false;
+                let flushed = self.frames.flush();
+                self.push_frame(flushed, &mut out);
             }
             let closes = settling;
             settling = std::mem::take(&mut mark.now);
-            flushed = flushed.or(self.frames.mark(mark, now));
+            self.frames.mark(mark, now);
+            out.push(note);
             if closes {
-                flushed = flushed.or(self.frames.flush());
+                let flushed = self.frames.flush();
+                self.push_frame(flushed, &mut out);
             }
         }
         if settling {
-            flushed = flushed.or(self.frames.flush());
+            let flushed = self.frames.flush();
+            self.push_frame(flushed, &mut out);
         }
-        self.publish_notes(notes);
-        self.publish_frame(flushed);
+        self.publish_notes(out);
+    }
+
+    fn publish_frame(&mut self, flushed: Option<bool>) {
+        let mut notes = Vec::new();
+        self.push_frame(flushed, &mut notes);
+        if !notes.is_empty() {
+            self.publish_notes(notes);
+        }
     }
 
     /// `thread/frame`: one of Node's publications of the session's state (`phone_frame.rs`). None once a delete closed the thread:
     /// Node's host dropped a deleted session's subscription and projection (`forgetDeletedSession`, `session-host-lifecycle.ts` at
     /// b6f10295a), so the turn the delete stopped published no further state to a phone.
-    fn publish_frame(&mut self, flushed: Option<bool>) {
+    fn push_frame(&self, flushed: Option<bool>, notes: &mut Vec<Note>) {
         let Some(structure_changed) = flushed else { return };
         if self.deleting {
             return;
         }
         let params = mixdog_app_protocol::v2::thread::ThreadFrameParams { thread_id: self.id.clone(), structure_changed };
-        let note = Note::new("thread/frame", &params);
-        self.publish_notes(vec![note]);
+        notes.push(Note::new("thread/frame", &params));
     }
 
     fn publish_notes(&mut self, mut notes: Vec<Note>) {

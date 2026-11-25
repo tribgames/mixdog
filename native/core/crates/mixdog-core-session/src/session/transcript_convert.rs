@@ -653,6 +653,20 @@ mod tests {
         assert_eq!(ext_of(json!("2")), None);
     }
 
+    /// A prompt stored with the read mark of one that waited in the queue carries it on its item, live and restored alike.
+    #[test]
+    fn a_prompt_from_the_queue_carries_its_read_mark_on_its_item() {
+        let ext_of = |transcript: Value| {
+            let mut state = SessionState::new(16);
+            commit(&mut state, "u1", json!({ "role": "user", "content": "next", "meta": { "transcript": transcript } }));
+            let [row] = state.window.make_contiguous() else { panic!("one row") };
+            let ThreadItem::UserMessage { meta, .. } = &*row.item else { panic!("a user message") };
+            meta.ext.get("fromQueue").cloned()
+        };
+        assert_eq!(ext_of(json!({ "messageId": "m1", "fromQueue": true })), Some(json!(true)));
+        assert_eq!(ext_of(json!({ "messageId": "m1" })), None);
+    }
+
     /// A skipped wait call has no pending entry, so its result attaches
     /// to nothing; here the stateless projection still names the call, and the view ignores it.
     #[test]
