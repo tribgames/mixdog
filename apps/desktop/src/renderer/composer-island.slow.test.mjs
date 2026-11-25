@@ -4159,6 +4159,66 @@ test('an opened panel is as wide as the pill at rest, between its floor and the 
   assert.equal(mobile.opened, 560, 'the mobile layout keeps its panel width');
 });
 
+function shellPanelPage(t) {
+  return realPage(
+    t,
+    `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland } from './ComposerIsland.tsx';
+        import { defaultSessionLaneStore } from './session-lane-store.ts';
+        window.mixdogDesktop = new Proxy({
+          sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: [] }] }), subscribe: () => () => {} },
+        }, { get: (target, name) => (name in target ? target[name] : String(name).startsWith('subscribe') ? () => () => {} : async () => []) });
+        defaultSessionLaneStore.apply({ sessionId: 'sh', snapshot: { sessionId: 'sh', shellJobs: { count: 1, jobs: [
+          { taskId: 'job-1', command: 'gh run watch 45497374141 --repo mixdog/mixdog --exit-status', startedAt: Date.now() - 436000 },
+        ] } } });
+        const root = createRoot(document.getElementById('root'));
+        window.__render = () => flushSync(() => root.render(React.createElement(ComposerIsland, { sessionId: 'sh' })));
+      `,
+    readFileSync(new URL('./styles.css', import.meta.url), 'utf8') +
+      resolvedImports(new URL('./desktop.css', import.meta.url))
+  );
+}
+
+for (const [surface, width, phone] of [
+  ['desktop', 900, false],
+  ['phone', 412, true],
+])
+  test(`a running shell's Stop stands under the panel head's close mark, inside the panel's inset (${surface})`, async (t) => {
+    const page = await shellPanelPage(t);
+    await page.setViewport({ width, height: 800 });
+    if (phone) await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
+    const read = await page.evaluate(async () => {
+      window.__render();
+      for (let i = 0; i < 4; i += 1) await window.__frame();
+      document.querySelector('.composer-island-seg-shell').click();
+      for (let i = 0; i < 4; i += 1) await window.__frame();
+      const panel = document.querySelector('.composer-island-panel');
+      const box = (node) => node.getBoundingClientRect();
+      const center = (rect) => (rect.left + rect.right) / 2;
+      const close = box(panel.querySelector('.composer-island-close svg'));
+      const button = panel.querySelector('.composer-island-row-dismiss[data-icon="stop"]');
+      const stop = box(button.querySelector('svg'));
+      return {
+        off: center(stop) - center(close),
+        stopRight: stop.right,
+        contentEdge: box(panel).right - parseFloat(getComputedStyle(panel).getPropertyValue('--island-panel-inset')),
+        tap: [box(button).width, box(button).height],
+      };
+    });
+    assert.ok(
+      Math.abs(read.off) <= 0.5,
+      `the Stop mark stands ${read.off.toFixed(1)}px off the close mark: ${JSON.stringify(read)}`
+    );
+    assert.ok(
+      read.stopRight <= read.contentEdge + 0.5,
+      `the Stop mark reaches past the panel's inset: ${JSON.stringify(read)}`
+    );
+    if (phone) assert.ok(read.tap[0] >= 28 && read.tap[1] >= 40, `the Stop tap box shrank: ${read.tap}`);
+  });
+
 test('smaller text with the same content brings back the labels the room now holds', async () => {
   const page = await fullPillPage();
   const shown = await page.evaluate(async (labels) => {

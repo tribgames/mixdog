@@ -2001,6 +2001,13 @@ html[data-mixdog-mobile-tabs] .composer-island-button {
   height: 40px;
   padding-inline: 12px;
 }
+/* A row's mark (Stop, Dismiss) keeps no label padding, which pushed it off
+   its box's center, and takes the 32px box that places the head's close
+   mark, so it stands in that mark's column. */
+html[data-mixdog-mobile-tabs] .composer-island-row-dismiss[data-icon] {
+  width: 32px;
+  padding: 0;
+}
 html[data-mixdog-mobile-tabs] :is(.composer-island-panel-foot, .composer-island .turn-review-files-foot) {
   min-height: 56px;
   column-gap: 8px;
