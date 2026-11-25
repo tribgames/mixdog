@@ -584,7 +584,11 @@ impl Agent {
                     params["methodId"].as_str().unwrap_or_default(),
                     std::env::var("GEMINI_HOME").unwrap_or_default()
                 ));
-                eprintln!("{SIGN_IN_LINE}");
+                // `FAKE_AGENT_AUTH_PAGE`: the page it names in place of its own.
+                match setting("FAKE_AGENT_AUTH_PAGE") {
+                    Some(page) => eprintln!("Open the following link to authenticate the ACP server: {page}"),
+                    None => eprintln!("{SIGN_IN_LINE}"),
+                }
                 if setting("FAKE_AGENT_AUTH_HANGS").is_some() {
                     return;
                 }
@@ -701,9 +705,14 @@ fn version() -> String {
     updated.or_else(|| setting("FAKE_AGENT_VERSION")).unwrap_or_else(|| shipped.to_owned()).trim().to_owned()
 }
 
-/// `update`: moves to `FAKE_AGENT_UPDATE_TO`, or fails as `FAKE_AGENT_UPDATE_FAILS` says.
+/// `update`: moves to `FAKE_AGENT_UPDATE_TO`, fails as `FAKE_AGENT_UPDATE_FAILS` says, or never ends.
 fn update() {
     log("update");
+    if setting("FAKE_AGENT_UPDATE_HANGS").is_some() {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
     if let Some(why) = setting("FAKE_AGENT_UPDATE_FAILS") {
         eprintln!("{why}");
         std::process::exit(3);
@@ -772,10 +781,17 @@ pub fn run(args: Vec<String>) {
             variable("GEMINI_HOME"),
             variable("AGY_ACP_FORCE_FILE_STORAGE")
         ));
+        // What its `webbrowser` would run in place of the system's browser.
+        log(&format!("official browser={}", variable("BROWSER")));
     }
     if args.iter().any(|arg| arg == "--version") {
         log("version");
         println!("{}", version());
+        // `FAKE_AGENT_VERSION_FAILS`: a version run that prints its version and still fails, saying why on stderr.
+        if let Some(why) = setting("FAKE_AGENT_VERSION_FAILS") {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
         return;
     }
     // The `/usage` command in print mode: the account's quota (`FAKE_AGENT_USAGE`: the report's `command.data`), or

@@ -31,6 +31,7 @@ use crate::preset::AgentPreset;
 use crate::preset::Distribution;
 use crate::preset::Login;
 use crate::preset::ProcessScope;
+use crate::preset::UsageReport;
 use crate::preset::Version;
 use crate::session::AgentModel;
 use crate::session::Models;
@@ -205,7 +206,8 @@ pub(crate) enum Plan {
 
 pub(crate) struct Running {
     id: u64,
-    step: Step,
+    /// What it is doing, which a turn waiting on it follows.
+    step: watch::Sender<Step>,
     cancel: CancellationToken,
     done: watch::Receiver<bool>,
 }
@@ -268,7 +270,7 @@ pub(crate) struct Account {
 impl Slot {
     /// What the running check is doing, as the Settings row words it.
     pub(crate) fn step(&self) -> Option<&'static str> {
-        self.running.as_ref().map(|running| running.step.state())
+        self.running.as_ref().map(|running| running.step.borrow().state())
     }
 
     pub(crate) fn fault(&self) -> Value {
@@ -303,6 +305,16 @@ pub(crate) async fn ended(mut done: watch::Receiver<bool>) {
     let _ = done.wait_for(|done| *done).await;
 }
 
+/// What the CLI's quota report `ran` printed: its `command.data`, else why it failed, in its own words.
+fn command_report(ran: Result<Ran, Fault>) -> Result<Value, String> {
+    let ran = ran.map_err(|fault| fault.to_string())?;
+    let printed: Option<Value> = ran.stdout.lines().rev().find_map(|line| serde_json::from_str(line.trim()).ok());
+    match printed.as_ref().and_then(|printed| printed.pointer("/command/data")) {
+        Some(data) if ran.code == Some(0) => Ok(data.clone()),
+        _ => Err(printed.as_ref().and_then(|printed| printed.get("error")).and_then(Value::as_str).map_or_else(|| ran.said(), str::to_owned)),
+    }
+}
+
 fn succeeded(ran: Result<Ran, Fault>) -> Result<(), String> {
     match ran {
         Ok(ran) if ran.code == Some(0) => Ok(()),
@@ -316,11 +328,14 @@ impl Agents {
         Launch { program: program.to_owned(), args: args.to_vec(), env: Vec::new(), env_remove: Vec::new(), cwd: cwd.clone() }
     }
 
-    /// The CLI and what its version run printed: the preset's command on `PATH`, else its file where the installer puts it.
+    /// The CLI and what its version run printed: the preset's command on `PATH`, else the first of its other places it is in.
     async fn locate(&self, preset: &AgentPreset, installed_at: &[crate::preset::Location], cwd: &AbsPath) -> Result<(String, Ran), Fault> {
-        let installed = installed_at.iter().filter_map(|location| {
-            let folder = (self.parts.env)(&location.env).filter(|folder| !folder.is_empty())?;
-            Some(Path::new(&folder).join(&location.path).to_string_lossy().into_owned())
+        let installed = installed_at.iter().filter_map(|location| match &location.env {
+            Some(env) => {
+                let folder = (self.parts.env)(env).filter(|folder| !folder.is_empty())?;
+                Some(Path::new(&folder).join(&location.path).to_string_lossy().into_owned())
+            }
+            None => Some(location.path.clone()),
         });
         for program in std::iter::once(preset.command.clone()).chain(installed) {
             match run_to_exit(&self.parts.processes, Self::plain(&program, &preset.version_args, cwd)).await {
@@ -334,7 +349,7 @@ impl Agents {
 
     pub(crate) fn set_step(&self, preset: &AgentPreset, check: u64, step: Step) {
         if let Some(running) = lock(&self.slots).get_mut(&preset.id).and_then(|slot| slot.running.as_mut()).filter(|running| running.id == check) {
-            running.step = step;
+            running.step.send_replace(step);
         }
         (self.parts.changed)();
     }
@@ -345,8 +360,8 @@ impl Agents {
         }
     }
 
-    /// Whether the program may be replaced now: no session's agent runs on it, none is being started, no server of it
-    /// runs, starts or is still ending, and no sign-in runs on it.
+    /// Whether the program may be replaced now: no session's agent runs on it, none is being started or waits for the
+    /// check to start, no server of it runs, starts or is still ending, and no sign-in runs on it.
     pub(crate) fn begin_update(&self, preset: &AgentPreset, check: u64) -> bool {
         let in_use = lock(&self.sessions).values().any(|session| session.preset.id == preset.id && !session.connection.exited().is_cancelled())
             || lock(&self.shared).contains_key(&preset.id)
@@ -358,7 +373,7 @@ impl Agents {
         }
         match slot.running.as_mut().filter(|running| running.id == check) {
             Some(running) => {
-                running.step = Step::Updating;
+                running.step.send_replace(Step::Updating);
                 true
             }
             None => false,
@@ -421,7 +436,12 @@ impl Agents {
         };
         let program = Program::at(path);
         self.found_program(preset, program.clone());
-        let Some(found) = Version::find(&ran.stdout) else { return Readiness::VersionUnknown };
+        // A version run that failed says why in its own words, whatever version they hold; one that succeeded may print
+        // its version on either stream.
+        if ran.code != Some(0) {
+            return Readiness::Failed { version: None, message: ran.said() };
+        }
+        let Some(found) = Version::find(&ran.stdout).or_else(|| Version::find(&ran.stderr)) else { return Readiness::VersionUnknown };
         let version = found.to_string();
         if found < preset.minimum_version {
             return Readiness::VersionTooOld { version };
@@ -755,7 +775,7 @@ impl Agents {
         let id = self.next_check.fetch_add(1, Ordering::Relaxed);
         let (finished, done) = watch::channel(false);
         let cancel = CancellationToken::new();
-        slot.running = Some(Running { id, step: Step::Checking, cancel: cancel.clone(), done: done.clone() });
+        slot.running = Some(Running { id, step: watch::channel(Step::Checking).0, cancel: cancel.clone(), done: done.clone() });
         let (agents, preset) = (self.clone(), preset.clone());
         drop(mixdog_rt::spawn("acp.check", TaskClass::Work, async move {
             // A cancelled check is dropped here, which ends the processes it started.
@@ -815,11 +835,12 @@ impl Agents {
     }
 
     /// The feature's install step: every preset's CLI is installed where it is missing and brought up to date
-    /// where it is there. `Err` tells what failed.
+    /// where it is there, one that fails leaving the others to theirs. `Err` tells what failed, a line per preset.
     pub async fn install(self: &Arc<Self>) -> Result<(), String> {
         if !self.enabled() {
             return Err("ACP agents are turned off in Settings.".to_owned());
         }
+        let mut failed = Vec::new();
         for preset in &self.parts.presets {
             // A check that already runs is not the install: it is waited out first.
             loop {
@@ -845,41 +866,55 @@ impl Agents {
                 }
             }
             if let Some((action, message)) = lock(&self.slots).get(&preset.id).and_then(|slot| slot.fault.clone()) {
-                return Err(format!("{} could not be {}: {message}", preset.label, if action == Action::Install { "installed" } else { "updated" }));
+                failed.push(format!("{} could not be {}: {message}", preset.label, if action == Action::Install { "installed" } else { "updated" }));
             }
         }
-        Ok(())
+        if failed.is_empty() { Ok(()) } else { Err(failed.join("\n")) }
     }
 
     /// The CLI a session of `preset` starts on, once its check says it is ready. A state that is not ready is
-    /// looked at once more first: the user may have installed or signed in outside the app.
+    /// looked at once more first: the user may have installed or signed in outside the app. A stalled installer or update
+    /// holds no turn: the turn holds the CLI against an update from its start, so none begins while it waits and one
+    /// under way is ended (the CLI left as a failed update leaves it); a CLI being installed is not there to start; and a
+    /// check of a CLI found ready before leaves it to the turn at once.
     pub(crate) async fn ready_program(self: &Arc<Self>, preset: &AgentPreset) -> Result<(Program, Starting), crate::agents::Refusal> {
         use crate::agents::Refusal;
+        let held = self.hold_program(preset);
         let mut looked = false;
         loop {
             if !self.enabled() {
                 return Err(Refusal::Off);
             }
-            let done = {
+            let (done, mut stepped) = {
                 let mut slots = lock(&self.slots);
                 let slot = slots.entry(preset.id.clone()).or_default();
-                match (slot.running.as_ref().map(|running| running.done.clone()), slot.readiness.clone()) {
-                    (Some(done), _) => done,
-                    (None, Some(Readiness::Ready { .. })) => {
-                        slot.starting += 1;
+                if slot.running.as_ref().is_some_and(|running| *running.step.borrow() == Step::Updating)
+                    && let Some(running) = slot.running.take()
+                {
+                    running.cancel.cancel();
+                }
+                let running = slot.running.as_ref().map(|running| (*running.step.borrow(), running.done.clone(), running.step.subscribe()));
+                match (running, slot.readiness.clone()) {
+                    (_, Some(Readiness::Ready { .. })) => {
                         let program = slot.program.clone().unwrap_or_else(|| Program::at(preset.command.clone()));
-                        return Ok((program, Starting { agents: self.clone(), preset: preset.id.clone() }));
+                        return Ok((program, held));
                     }
+                    (Some((Step::Installing, ..)), found) => return Err(Refusal::NotReady(found.unwrap_or(Readiness::NotInstalled))),
+                    (Some((_, done, stepped)), _) => (done, stepped),
                     (None, Some(other)) if looked => return Err(Refusal::NotReady(other)),
                     // The check this turn asked for was ended by the feature's switch: the turn does not start another.
                     (None, None) if looked => return Err(Refusal::Off),
                     (None, _) => {
                         looked = true;
-                        self.share_check(&mut slots, preset, Plan::Look)
+                        drop(self.share_check(&mut slots, preset, Plan::Look));
+                        continue;
                     }
                 }
             };
-            ended(done).await;
+            tokio::select! {
+                () = ended(done) => {}
+                _ = stepped.changed() => {}
+            }
         }
     }
 
@@ -998,10 +1033,10 @@ impl Agents {
             && matches!(lock(&self.slots).get(&preset.id).and_then(|slot| slot.readiness.as_ref()), Some(Readiness::Ready { .. }))
     }
 
-    /// The quota of the account `preset`'s CLI is signed in with, as the CLI's own report gives it (its
-    /// `command.data`). `None` where it cannot be asked now: [`Self::reports_usage`] says no, or the CLI is being
-    /// checked or updated, and once the feature is turned off or the agent signed out while the CLI runs (which ends
-    /// it). `Some(Err)` is a report that failed, in the CLI's words.
+    /// The quota of the account `preset`'s agent is signed in with, as its report gives it: the CLI's `command.data`, or
+    /// the quota summary its credential reads. `None` where it cannot be asked now: [`Self::reports_usage`] says no,
+    /// or the CLI is being checked or updated, and once the feature is turned off or the agent signed out while it is
+    /// asked (which ends the CLI's run). `Some(Err)` is a report that failed, in its own words.
     pub async fn usage(self: &Arc<Self>, preset: &AgentPreset) -> Option<Result<Value, String>> {
         self.usage_until(preset, &CancellationToken::new()).await
     }
@@ -1014,40 +1049,76 @@ impl Agents {
         }
         let cwd = AbsPath::new(self.parts.probe_cwd.clone())?;
         let (read, cancel) = (self.next_check.fetch_add(1, Ordering::Relaxed), CancellationToken::new());
-        // The run is held against an update of the CLI, as a session's start is.
+        // A run of the CLI is held against an update of it, as a session's start is.
         let (program, _starting) = {
             let mut slots = lock(&self.slots);
             let slot = slots.get_mut(&preset.id)?;
             if slot.running.is_some() || !matches!(slot.readiness, Some(Readiness::Ready { .. })) {
                 return None;
             }
-            slot.starting += 1;
             slot.usage_reads.push((read, cancel.clone()));
-            (slot.program.clone().map_or_else(|| preset.command.clone(), |program| program.path), Starting { agents: self.clone(), preset: preset.id.clone() })
+            let starting = matches!(report, UsageReport::Command { .. }).then(|| {
+                slot.starting += 1;
+                Starting { agents: self.clone(), preset: preset.id.clone() }
+            });
+            (slot.program.clone().map_or_else(|| preset.command.clone(), |program| program.path), starting)
         };
-        let launch = Launch { program, args: report.args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd };
+        let asked = async {
+            match report {
+                UsageReport::Command { args } => {
+                    let launch = Launch { program, args: args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd };
+                    command_report(run_to_exit(&self.parts.processes, launch).await)
+                }
+                UsageReport::Summary { token_file } => self.quota_summary(preset, token_file).await,
+            }
+        };
         // An ended read drops the run, which ends the CLI's process.
-        let ran = tokio::select! {
+        let answered = tokio::select! {
             biased;
             () = cancel.cancelled() => None,
             () = stop.cancelled() => None,
             () = mixdog_rt::time::sleep(std::time::Duration::from_millis(mixdog_ai::service::usage_antigravity::REQUEST_TIMEOUT_MS)) => {
                 Some(Err(format!("{}'s quota report took longer than {} s.", preset.label, mixdog_ai::service::usage_antigravity::REQUEST_TIMEOUT_MS / 1_000)))
             }
-            ran = run_to_exit(&self.parts.processes, launch) => Some(ran.map_err(|fault| fault.to_string())),
+            answered = asked => Some(answered),
         };
         if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
             slot.usage_reads.retain(|(id, _)| *id != read);
         }
-        let ran = match ran? {
-            Ok(ran) => ran,
-            Err(why) => return Some(Err(why)),
+        answered
+    }
+
+    /// The quota summary of the account whose Google credential `preset`'s agent keeps at `token_file` of its home: its
+    /// refresh token is exchanged for an access token, with which Cloud Code Assist is asked as the hub client asks it.
+    async fn quota_summary(&self, preset: &AgentPreset, token_file: &str) -> Result<Value, String> {
+        use mixdog_ai::providers::google::auth::antigravity;
+        use mixdog_ai::service::usage_antigravity;
+        let label = &preset.label;
+        let fetcher = self.parts.registry.clone().ok_or_else(|| format!("{label}'s quota cannot be asked from this process."))?;
+        let file = AbsPath::new(self.home(preset).join(token_file)).ok_or_else(|| format!("{token_file} of {label}'s home has no absolute place"))?;
+        let text = self.parts.files.read(file).await.map_err(|error| format!("{label}'s sign-in was not read: {error}"))?;
+        let token: Value = serde_json::from_str(&text).map_err(|error| format!("{label}'s sign-in is not JSON: {error}"))?;
+        let field = |key: &str| token.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
+        let (Some(client), Some(secret), Some(refresh)) = (field("client_id"), field("client_secret"), field("refresh_token")) else {
+            return Err(format!("{label}'s sign-in holds no refresh token."));
         };
-        let printed: Option<Value> = ran.stdout.lines().rev().find_map(|line| serde_json::from_str(line.trim()).ok());
-        Some(match printed.as_ref().and_then(|printed| printed.pointer("/command/data")) {
-            Some(data) if ran.code == Some(0) => Ok(data.clone()),
-            _ => Err(printed.as_ref().and_then(|printed| printed.get("error")).and_then(Value::as_str).map_or_else(|| ran.said(), str::to_owned)),
-        })
+        let form = mixdog_ai::providers::google::auth::form_body(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh),
+            ("client_id", client),
+            ("client_secret", secret),
+        ]);
+        let form_type = [("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
+        let granted = fetcher.post(antigravity::TOKEN_URL, &form_type, form).await?;
+        let access = granted.get("access_token").and_then(Value::as_str).filter(|access| !access.is_empty());
+        let access = access.ok_or_else(|| format!("{label}'s sign-in was refreshed with no access token."))?;
+        let headers = [
+            ("Authorization".to_owned(), format!("Bearer {access}")),
+            ("Content-Type".to_owned(), "application/json".to_owned()),
+            ("User-Agent".to_owned(), usage_antigravity::user_agent(antigravity::VERSION_FALLBACK)),
+        ];
+        let body = field("project_id").map_or_else(|| json!({}), |project| json!({ "project": project }));
+        fetcher.post(usage_antigravity::QUOTA_URL, &headers, body.to_string().into_bytes()).await
     }
 
     /// Ends every check and quota read and forgets what they found: the feature was turned off.

@@ -64,17 +64,30 @@ pub struct Build {
     pub args: Vec<String>,
     /// The archive's SHA-256, in lowercase hex.
     pub sha256: String,
+    /// The hosts its archive may come from, every redirect of its download included.
+    pub hosts: Vec<String>,
+    /// The programs beside `cmd` the build starts, as the preset names them.
+    pub helpers: Vec<String>,
 }
 
-/// Downloads what the registry offers.
+/// Held for as long as anything of an unpack may still write into its folder, past the drop of the future that started
+/// it: the next unpack clears away what an ended one left only once it is let go.
+pub struct Unpacking(pub tokio::sync::OwnedSemaphorePermit);
+
+/// Downloads what the registry offers, and asks the HTTPS services an agent's own credential is for.
 #[async_trait]
 pub trait RegistryFetcher: Send + Sync {
     /// The registry's index at `url`, within a short time: an `Err` where it cannot be reached.
     async fn index(&self, url: &str) -> Result<Value, String>;
-    /// Downloads `build`'s archive to the file `archive`, checks it against `build.sha256` before anything of it is
-    /// unpacked, and unpacks it into the folder `into`, which is not there yet: an entry that would land outside it is
-    /// refused, and `build.cmd` is left executable. Dropping the future ends the download.
-    async fn unpack(&self, build: &Build, archive: &Path, into: &Path) -> Result<(), String>;
+    /// Downloads `build`'s archive to the file `archive`, following a redirect only to one of `build.hosts`, checks it
+    /// against `build.sha256` before anything of it is unpacked, and unpacks it into the folder `into`, which is not there
+    /// yet: an entry that would land outside it is refused, an archive without `build.cmd` or one of `build.helpers` is
+    /// no build, and they are left executable. Dropping the future ends the download; `held` is kept until nothing of
+    /// the unpack writes any more.
+    async fn unpack(&self, build: &Build, archive: &Path, into: &Path, held: Unpacking) -> Result<(), String>;
+    /// Posts `body` to the HTTPS address `url` with `headers` and answers the JSON it returns, within a short time, never
+    /// following a redirect: an `Err` tells why it did not answer, a status that is no success with its answer's text.
+    async fn post(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<Value, String>;
 }
 
 /// `url`'s host, where it is an HTTPS address that names no user.
@@ -85,6 +98,11 @@ fn https_host(url: &str) -> Option<&str> {
         return None;
     }
     authority.split(':').next().filter(|host| !host.is_empty())
+}
+
+/// Whether `url` is an HTTPS address on one of `hosts` that names no user.
+pub fn allowed_archive(url: &str, hosts: &[String]) -> bool {
+    https_host(url).is_some_and(|host| hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(host)))
 }
 
 /// The build of `agent_id` that `index`, the registry's index, offers for `target`, its archive on one of `hosts`.
@@ -98,8 +116,8 @@ pub fn build_of(index: &Value, agent_id: &str, target: &str, hosts: &[String]) -
     let (Some(archive), Some(cmd), Some(sha256)) = (text("archive"), text("cmd"), text("sha256")) else {
         return Err(format!("the registry's build of {agent_id} for {target} names no archive, program or digest"));
     };
-    let host = https_host(archive).ok_or_else(|| format!("{archive} is not an HTTPS address"))?;
-    if !hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(host)) {
+    https_host(archive).ok_or_else(|| format!("{archive} is not an HTTPS address"))?;
+    if !allowed_archive(archive, hosts) {
         return Err(format!("{archive} is not on a host the build may come from"));
     }
     if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -110,7 +128,15 @@ pub fn build_of(index: &Value, agent_id: &str, target: &str, hosts: &[String]) -
         return Err(format!("the registry's program of {agent_id} is not inside its archive: {cmd}"));
     }
     let args = entry.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-    Ok(Build { version, archive: archive.to_owned(), cmd: cmd.to_owned(), args, sha256: sha256.to_ascii_lowercase() })
+    Ok(Build {
+        version,
+        archive: archive.to_owned(),
+        cmd: cmd.to_owned(),
+        args,
+        sha256: sha256.to_ascii_lowercase(),
+        hosts: hosts.to_vec(),
+        helpers: Vec::new(),
+    })
 }
 
 /// The build of a preset this machine holds, as its `installed.json` names it.
@@ -138,7 +164,8 @@ impl Agents {
 
     /// The build of `preset`'s registry agent this machine holds: its program (`cmd`, under the build's own folder
     /// `<version>/` unless it is absolute) with the build's arguments, in the home Mixdog keeps for the agent. `Ok(None)`
-    /// where no build is installed.
+    /// where no build is installed, a record whose program is gone (removed, or quarantined) included: the install step
+    /// installs it again.
     pub(crate) async fn installed(&self, preset: &AgentPreset) -> Result<Option<Installed>, String> {
         let Distribution::Registry { home_env, .. } = &preset.distribution else { return Ok(None) };
         let folder = self.builds(preset);
@@ -148,11 +175,15 @@ impl Agents {
         let installed: Value = serde_json::from_str(&text).map_err(|error| unreadable(&error.to_string()))?;
         let field = |key: &str| installed.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
         let (Some(version), Some(cmd)) = (field("version"), field("cmd")) else { return Err(unreadable("it names no version or no program")) };
+        let path = folder.join(version).join(cmd);
+        if self.parts.files.resolved(absolute(path.clone())?).await.is_err() {
+            return Ok(None);
+        }
         let args = installed.get("args").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
         Ok(Some(Installed {
             version: version.to_owned(),
             program: Program {
-                path: folder.join(version).join(cmd).to_string_lossy().into_owned(),
+                path: path.to_string_lossy().into_owned(),
                 args,
                 env: vec![(home_env.clone(), self.home(preset).to_string_lossy().into_owned())],
             },
@@ -164,7 +195,7 @@ impl Agents {
     /// that is there is replaced only while no session of it runs and none starts. A registry that cannot be reached
     /// leaves the installed build as it is.
     pub(crate) async fn keep_current(&self, preset: &AgentPreset, plan: Plan, check: u64, installed: Option<Installed>) -> Option<Installed> {
-        let (Some(fetcher), Distribution::Registry { index_url, agent_id, allowed_archive_hosts, kept_current: true, .. }) =
+        let (Some(fetcher), Distribution::Registry { index_url, agent_id, allowed_archive_hosts, helpers, kept_current: true, .. }) =
             (self.parts.registry.clone(), &preset.distribution)
         else {
             return installed;
@@ -180,7 +211,7 @@ impl Agents {
             if build.version < preset.minimum_version {
                 return Err(format!("the registry offers {} {}, and {} or later is needed", preset.label, build.version, preset.minimum_version));
             }
-            Ok(build)
+            Ok(Build { helpers: helpers.clone(), ..build })
         }
         .await;
         let build = match offered {
@@ -259,7 +290,8 @@ impl Agents {
     async fn place(&self, preset: &AgentPreset, fetcher: &dyn RegistryFetcher, build: &Build) -> Result<(), String> {
         let files = &self.parts.files;
         let folder = self.builds(preset);
-        // What an install that was ended before it was done left.
+        let held = Unpacking(self.unpacking.clone().acquire_owned().await.expect("the unpack gate is never closed"));
+        // What an install that was ended before it was done left, once nothing of it writes any more.
         for name in files.folders(absolute(folder.clone())?).await.unwrap_or_default() {
             if name.starts_with(STAGING) {
                 let _ = files.remove_folder(absolute(folder.join(name))?).await;
@@ -269,7 +301,7 @@ impl Agents {
         files.make_folder(staging.clone()).await?;
         let placed = async {
             let unpacked = staging.as_path().join("build");
-            fetcher.unpack(build, &staging.as_path().join("archive"), &unpacked).await?;
+            fetcher.unpack(build, &staging.as_path().join("archive"), &unpacked, held).await?;
             let version = absolute(folder.join(build.version.to_string()))?;
             files.remove_folder(version.clone()).await?;
             files.rename(absolute(unpacked)?, version).await?;
@@ -310,6 +342,8 @@ mod tests {
                 cmd: "agy_acp_server.par".into(),
                 args: vec!["--uid=".into()],
                 sha256: DIGEST.to_ascii_lowercase(),
+                hosts: hosts.clone(),
+                helpers: Vec::new(),
             }
         );
         let windows = build_of(&index(good, DIGEST, "./agy_acp_server.exe"), "antigravity-acp", "windows-x86_64", &hosts).expect("the build");

@@ -146,8 +146,8 @@ impl Refusal {
     }
 }
 
-/// The windows of a CLI's quota report (its `command.data`), each with the models it gates: the report names a
-/// bucket's fields in its own spelling, which the gateway's own summary spells differently.
+/// The windows of an agent's quota report (the CLI's `command.data`, or the gateway's own summary), each with the
+/// models it gates: the CLI names a bucket's fields in its own spelling, which the summary spells differently.
 pub fn report_windows(report: &Value) -> Vec<Value> {
     let groups = report.get("groups").and_then(Value::as_array).into_iter().flatten();
     let groups: Vec<Value> = groups
@@ -162,8 +162,9 @@ pub fn report_windows(report: &Value) -> Vec<Value> {
                         ("remainingFraction", "remaining_fraction"),
                         ("resetTime", "reset_time"),
                         ("displayName", "name"),
+                        ("disabled", "disabled"),
                     ] {
-                        if let Some(value) = bucket.get(theirs) {
+                        if let Some(value) = bucket.get(theirs).or_else(|| bucket.get(ours)) {
                             read.insert(ours.to_owned(), value.clone());
                         }
                     }
@@ -281,6 +282,8 @@ pub struct Agents {
     pub(crate) shared: Mutex<HashMap<String, crate::shared::SharedSlot>>,
     /// Held while `probe-cache.json` is read or replaced.
     pub(crate) probe_writes: tokio::sync::Semaphore,
+    /// Held from a build's unpack until nothing of it writes any more ([`crate::registry::Unpacking`]).
+    pub(crate) unpacking: Arc<tokio::sync::Semaphore>,
     /// How often each preset's account changed hands (a sign-in became the agent's, or it signed out), by preset id: what a
     /// server or a check started before the last change learns is of an account left. Never reset.
     pub(crate) accounts: Mutex<HashMap<String, u64>>,
@@ -343,6 +346,7 @@ impl Agents {
             sessions: Mutex::default(),
             shared: Mutex::default(),
             probe_writes: tokio::sync::Semaphore::new(1),
+            unpacking: Arc::new(tokio::sync::Semaphore::new(1)),
             accounts: Mutex::default(),
             signing_out: Mutex::default(),
             stopping: std::sync::atomic::AtomicBool::new(false),
@@ -519,7 +523,10 @@ impl Agents {
                 let slots = lock(&self.slots);
                 let slot = slots.get(&preset.id).filter(|_| enabled);
                 // What the last check found stays on show while a new one runs.
-                let readiness = slot.and_then(|slot| slot.readiness.clone()).map(|found| self.as_refused(preset, found));
+                let found = slot.and_then(|slot| slot.readiness.clone());
+                // An account the agent refused is still signed in: it can be left for another.
+                let signed_in = matches!(found, Some(Readiness::Ready { .. }));
+                let readiness = found.map(|found| self.as_refused(preset, found));
                 let readiness = readiness.as_ref();
                 // A running check's step is the state; else what was found, a standing refusal included.
                 let state = slot.map_or("off", |slot| slot.step().or(readiness.map(Readiness::state)).unwrap_or("checking"));
@@ -545,15 +552,17 @@ impl Agents {
                     "contextWindows": lock(&self.windows).get(&preset.id).cloned().unwrap_or_default(),
                     // What the agent tells of the signed-in account: its plan, and whether it can be signed out here.
                     "plan": slot.filter(|_| matches!(readiness, Some(Readiness::Ready { .. }))).and_then(|slot| slot.account.plan.clone()),
-                    "canSignOut": slot.is_some_and(|slot| slot.account.sign_out) && matches!(readiness, Some(Readiness::Ready { .. })),
+                    "canSignOut": slot.is_some_and(|slot| slot.account.sign_out) && signed_in,
                     "lastError": slot.map_or(Value::Null, Slot::fault),
                     "canInstall": match &preset.distribution {
                         crate::preset::Distribution::Cli { installer, .. } => installer.is_some(),
                         crate::preset::Distribution::Registry { supported, kept_current, .. } => *supported && *kept_current && self.parts.registry.is_some(),
                     },
                     "canSignIn": preset.login.is_some(),
-                    // The agent opens its sign-in page in the system's browser itself: the page is shown, not opened.
-                    "loginOpensBrowser": matches!(preset.login, Some(crate::preset::Login::AcpAuthenticate { opens_browser: true, .. })),
+                    // The agent may open its sign-in page in the system's browser itself: the page is shown, not opened.
+                    "loginOpensBrowser": preset.login.as_ref().is_some_and(crate::preset::Login::opens_browser),
+                    // What a browser on another machine pastes is the address the page ended on, not a code it showed.
+                    "loginTakesRedirect": matches!(preset.login, Some(crate::preset::Login::AcpAuthenticate { .. })),
                     // The CLI keeps its sign-in where the vendor's CLI outside Mixdog finds it: signing out here signs that out too.
                     // A registry agent keeps its own in the home Mixdog keeps for it.
                     "sharesExternalSignIn": matches!(preset.distribution, crate::preset::Distribution::Cli { .. }),
@@ -880,5 +889,23 @@ mod tests {
         assert_eq!(exhausted_until(&report(0.0, 1.0), "gemini-3-pro", now), Some(Some(1_893_474_000_000)));
         assert_eq!(exhausted_until(&report(0.0, 1.0), "claude-sonnet-4", now), None, "another window's exhaustion is not the route's");
         assert_eq!(exhausted_until(&report(0.5, 0.0), "gemini-3-pro", now), None, "a window with room stays what it is");
+    }
+
+    /// A bucket the report marks disabled meters nothing: it is no window, and its exhaustion stops no turn. The
+    /// gateway's own summary, in its own spelling, reads as the CLI's report does.
+    #[test]
+    fn a_disabled_bucket_is_no_window_and_the_gateways_summary_reads_as_the_clis_report() {
+        let now = 1_700_000_000_000;
+        let disabled = json!({ "groups": [{ "buckets": [
+            { "id": "gemini-5h", "window": "5h", "remaining_fraction": 0.0, "reset_time": "2030-01-01T05:00:00Z", "disabled": true },
+            { "id": "3p-5h", "window": "5h", "remaining_fraction": 0.5, "reset_time": "2030-01-01T06:00:00Z" },
+        ] }] });
+        let labels: Vec<Value> = report_windows(&disabled).iter().map(|window| window["label"].clone()).collect();
+        assert_eq!(labels, [json!("5H Claude/GPT")]);
+        assert_eq!(exhausted_until(&disabled, "gemini-3-pro", now), None);
+        let summary = json!({ "groups": [{ "buckets": [
+            { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.0, "resetTime": "2030-01-01T05:00:00Z" },
+        ] }] });
+        assert_eq!(exhausted_until(&summary, "gemini-3-pro", now), Some(Some(1_893_474_000_000)));
     }
 }

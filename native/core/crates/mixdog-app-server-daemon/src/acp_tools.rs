@@ -522,18 +522,25 @@ const INDEX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 /// How much of an archive is held before it is written out.
 const WRITE_BLOCK: usize = 8 * 1024 * 1024;
+/// The most redirects a build's download follows, as many as a client follows by default.
+const MAX_REDIRECTS: usize = 10;
+/// How much of an answer that is no success is told.
+const FAILURE_TEXT_CHARS: usize = 300;
 
 /// The ACP registry over the network: its index, and a build's archive downloaded over HTTPS alone, checked against its
 /// SHA-256 and unpacked with the archive extraction of the managed engine installs.
 pub struct RegistryDownloads {
     client: reqwest::Client,
+    /// Follows no redirect: a download follows each itself, to an allowed host alone.
+    direct: reqwest::Client,
     lane: mixdog_rt::DurabilityIo,
 }
 
 impl RegistryDownloads {
     pub fn new(lane: mixdog_rt::DurabilityIo) -> Result<Self, String> {
         let client = Self::client(STALL_TIMEOUT).https_only(true).build().map_err(|error| error.to_string())?;
-        Ok(Self { client, lane })
+        let direct = Self::client(STALL_TIMEOUT).https_only(true).redirect(reqwest::redirect::Policy::none()).build().map_err(|error| error.to_string())?;
+        Ok(Self { client, direct, lane })
     }
 
     /// A client that gives up a request going `stall` without a byte, before its answer's headers as in its body.
@@ -544,6 +551,24 @@ impl RegistryDownloads {
     /// Runs `job` on the durability lane.
     async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce() -> std::io::Result<R> + Send + 'static) -> Result<R, String> {
         on_lane_wait(self.lane, &CancellationToken::new(), move |_| job()).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
+    }
+
+    /// The answer to `build`'s archive, each redirect followed only to one of the build's hosts.
+    async fn archive(&self, build: &mixdog_acp::registry::Build) -> Result<reqwest::Response, String> {
+        let mut url = reqwest::Url::parse(&build.archive).map_err(|error| format!("{} is no address: {error}", build.archive))?;
+        for _ in 0..=MAX_REDIRECTS {
+            let response = self.direct.get(url.clone()).send().await.map_err(|error| error.to_string())?;
+            if !response.status().is_redirection() {
+                return response.error_for_status().map_err(|error| error.to_string());
+            }
+            let location = response.headers().get(reqwest::header::LOCATION).and_then(|value| value.to_str().ok());
+            let location = location.ok_or_else(|| format!("{url} redirects to no address"))?;
+            url = url.join(location).map_err(|error| format!("{url} redirects to no address: {error}"))?;
+            if !mixdog_acp::registry::allowed_archive(url.as_str(), &build.hosts) {
+                return Err(format!("{url} is not on a host the build may come from"));
+            }
+        }
+        Err(format!("{} redirects more than {MAX_REDIRECTS} times", build.archive))
     }
 
     /// Writes `block` at the end of `file`, a new file where `first`.
@@ -567,9 +592,15 @@ impl mixdog_acp::registry::RegistryFetcher for RegistryDownloads {
         serde_json::from_slice(&bytes).map_err(|error| format!("the registry's index is not JSON: {error}"))
     }
 
-    async fn unpack(&self, build: &mixdog_acp::registry::Build, archive: &std::path::Path, into: &std::path::Path) -> Result<(), String> {
+    async fn unpack(
+        &self,
+        build: &mixdog_acp::registry::Build,
+        archive: &std::path::Path,
+        into: &std::path::Path,
+        unpacking: mixdog_acp::registry::Unpacking,
+    ) -> Result<(), String> {
         use sha2::Digest;
-        let mut response = self.client.get(&build.archive).send().await.and_then(reqwest::Response::error_for_status).map_err(|error| error.to_string())?;
+        let mut response = self.archive(build).await?;
         let too_large = || format!("the archive of {} is larger than {} MiB", build.archive, MAX_ARCHIVE_BYTES / 1024 / 1024);
         if response.content_length().is_some_and(|length| length > MAX_ARCHIVE_BYTES) {
             return Err(too_large());
@@ -594,20 +625,40 @@ impl mixdog_acp::registry::RegistryFetcher for RegistryDownloads {
         if digest != build.sha256 {
             return Err(format!("the archive's SHA-256 is {digest}, not the registry's {}", build.sha256));
         }
-        let (archive, into, cmd) = (archive.to_path_buf(), into.to_path_buf(), build.cmd.clone());
+        let (archive, into) = (archive.to_path_buf(), into.to_path_buf());
+        let programs: Vec<String> = std::iter::once(&build.cmd).chain(&build.helpers).cloned().collect();
+        let from = build.archive.clone();
+        // The job holds the unpack's gate to its end, which a dropped future does not cut short.
         #[allow(clippy::disallowed_methods, reason = "a durability-lane job")]
         let job = move || {
+            let _unpacking = unpacking;
             std::fs::create_dir_all(&into)?;
             mixdog_services::tidy::extract::extract_zip(&archive, &into, |_| false).map_err(std::io::Error::other)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(into.join(&cmd), std::fs::Permissions::from_mode(0o755))?;
+            for program in &programs {
+                let path = into.join(program);
+                if !path.is_file() {
+                    return Err(std::io::Error::other(format!("the archive of {from} holds no {program}")));
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+                }
             }
-            let _ = cmd;
             std::fs::remove_file(&archive)
         };
         self.on_lane(job).await
+    }
+
+    async fn post(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<Value, String> {
+        let request = headers.iter().fold(self.direct.post(url).timeout(INDEX_TIMEOUT).body(body), |request, (name, value)| request.header(name, value));
+        let response = request.send().await.map_err(|error| error.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|error| error.to_string())?;
+        if !status.is_success() {
+            return Err(format!("{status}: {}", text.chars().take(FAILURE_TEXT_CHARS).collect::<String>()));
+        }
+        serde_json::from_str(&text).map_err(|error| format!("the answer of {url} is not JSON: {error}"))
     }
 }
 
@@ -618,6 +669,7 @@ mod tests {
 
     use mixdog_acp::agents::AgentsParts;
     use mixdog_acp::agents::Refusals;
+    use mixdog_acp::registry::RegistryFetcher;
     use mixdog_core::run_host::dispatch_sessions::AgentRoutes;
     use mixdog_core_api::domain::common::AbsPath;
     use mixdog_core_api::domain::common::EventSource;
@@ -727,24 +779,146 @@ mod tests {
             drop(connection);
         });
         let dir = tempfile::tempdir().expect("a folder");
-        let downloads = RegistryDownloads {
-            client: RegistryDownloads::client(std::time::Duration::from_millis(300)).build().expect("the client"),
-            lane: mixdog_rt::testing::tokens().durability_io,
-        };
-        let build = mixdog_acp::registry::Build {
-            version: mixdog_acp::preset::Version::new(1, 5, 2),
-            archive: format!("http://127.0.0.1:{port}/agy-acp-server.zip"),
-            cmd: "agy_acp_server.exe".into(),
-            args: Vec::new(),
-            sha256: "ab".repeat(32),
-        };
-        use mixdog_acp::registry::RegistryFetcher;
-        let given_up =
-            mixdog_rt::time::timeout(std::time::Duration::from_secs(20), downloads.unpack(&build, &dir.path().join("archive"), &dir.path().join("build")))
-                .await
-                .expect("the download is given up at the stall time");
+        let downloads = local_downloads(std::time::Duration::from_millis(300));
+        let build = build_at(format!("http://127.0.0.1:{port}/agy-acp-server.zip"), "ab".repeat(32), &[]);
+        let (archive, into) = (dir.path().join("archive"), dir.path().join("build"));
+        let unpacked = downloads.unpack(&build, &archive, &into, unpacking());
+        let given_up = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), unpacked).await.expect("the download is given up at the stall time");
         assert!(given_up.is_err(), "{given_up:?}");
         held.abort();
+    }
+
+    /// The registry's downloads as a test's own server on plain HTTP serves them, a request going `stall` without a byte
+    /// given up.
+    fn local_downloads(stall: std::time::Duration) -> RegistryDownloads {
+        RegistryDownloads {
+            client: RegistryDownloads::client(stall).build().expect("the client"),
+            direct: RegistryDownloads::client(stall).redirect(reqwest::redirect::Policy::none()).build().expect("the client"),
+            lane: mixdog_rt::testing::tokens().durability_io,
+        }
+    }
+
+    /// The official server's build at `archive` with `sha256`, from the preset's host, starting `helpers` beside it.
+    fn build_at(archive: String, sha256: String, helpers: &[&str]) -> mixdog_acp::registry::Build {
+        mixdog_acp::registry::Build {
+            version: mixdog_acp::preset::Version::new(1, 5, 2),
+            archive,
+            cmd: "agy_acp_server.exe".into(),
+            args: Vec::new(),
+            sha256,
+            hosts: vec!["dl.google.com".into()],
+            helpers: helpers.iter().map(|helper| (*helper).to_owned()).collect(),
+        }
+    }
+
+    fn unpacking() -> mixdog_acp::registry::Unpacking {
+        mixdog_acp::registry::Unpacking(Arc::new(tokio::sync::Semaphore::new(1)).try_acquire_owned().expect("a free gate"))
+    }
+
+    /// A server of the test's own on a port of its own, which answers its first request with `answer`, and whether it
+    /// was asked.
+    async fn answering(answer: Vec<u8>) -> (u16, tokio::task::JoinHandle<()>, Arc<AtomicBool>) {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("a local listener");
+        let port = listener.local_addr().expect("its address").port();
+        let asked = Arc::new(AtomicBool::new(false));
+        let told = asked.clone();
+        let served = tokio::spawn(async move {
+            let Ok((mut connection, _)) = listener.accept().await else { return };
+            told.store(true, Ordering::SeqCst);
+            let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                match connection.read(&mut chunk).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => request.extend_from_slice(&chunk[..read]),
+                }
+            }
+            let _ = connection.write_all(&answer).await;
+            let _ = connection.shutdown().await;
+        });
+        (port, served, asked)
+    }
+
+    /// A zip of `files` stored as they are, made on MS-DOS: it says nothing of a file's Unix mode.
+    fn stored_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+        fn crc32(data: &[u8]) -> u32 {
+            let mut crc = !0_u32;
+            for byte in data {
+                crc ^= u32::from(*byte);
+                for _ in 0..8 {
+                    crc = if crc & 1 == 1 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+                }
+            }
+            !crc
+        }
+        let (mut zip, mut central) = (Vec::new(), Vec::new());
+        for (name, data) in files {
+            let offset = u32::try_from(zip.len()).expect("a small zip");
+            let (crc, size, length) = (crc32(data), u32::try_from(data.len()).expect("a small file"), u16::try_from(name.len()).expect("a short name"));
+            // Version needed, no flags, stored, no time or date, the CRC and both sizes, the name's length, no extra field.
+            let shared: Vec<u8> =
+                [&20_u16.to_le_bytes()[..], &[0; 8], &crc.to_le_bytes(), &size.to_le_bytes(), &size.to_le_bytes(), &length.to_le_bytes(), &[0; 2]].concat();
+            zip.extend([&0x0403_4b50_u32.to_le_bytes()[..], &shared, name.as_bytes(), data].concat());
+            central.extend([&0x0201_4b50_u32.to_le_bytes()[..], &20_u16.to_le_bytes(), &shared, &[0; 10], &offset.to_le_bytes(), name.as_bytes()].concat());
+        }
+        let count = u16::try_from(files.len()).expect("a few files");
+        let (size, offset) = (u32::try_from(central.len()).expect("a small zip"), u32::try_from(zip.len()).expect("a small zip"));
+        zip.extend(central);
+        zip.extend([&0x0605_4b50_u32.to_le_bytes()[..], &[0; 4], &count.to_le_bytes(), &count.to_le_bytes(), &size.to_le_bytes(), &offset.to_le_bytes(), &[0; 2]].concat());
+        zip
+    }
+
+    /// A download is never sent to a host its build may not come from: a redirect to another is refused before it is
+    /// followed, and that host is never asked.
+    #[tokio::test]
+    async fn a_build_download_redirected_to_another_host_is_refused_before_it_is_followed() {
+        let (other, other_served, other_asked) = answering(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()).await;
+        let to = format!("http://localhost:{other}/agy-acp-server.zip");
+        let (port, served, _) = answering(format!("HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()).await;
+        let dir = tempfile::tempdir().expect("a folder");
+        let build = build_at(format!("http://127.0.0.1:{port}/agy-acp-server.zip"), "ab".repeat(32), &[]);
+        let refused = local_downloads(STALL_TIMEOUT).unpack(&build, &dir.path().join("archive"), &dir.path().join("build"), unpacking()).await;
+        assert_eq!(refused, Err(format!("{to} is not on a host the build may come from")));
+        served.await.expect("the server");
+        assert!(!other_asked.load(Ordering::SeqCst), "the other host was asked");
+        other_served.abort();
+    }
+
+    /// An archive without the build's program, or without a program the build starts beside it, is no build; one with
+    /// both leaves each executable, whatever the archive said of them.
+    #[tokio::test]
+    async fn a_build_archive_without_its_program_or_a_helper_is_no_build() {
+        use sha2::Digest;
+        let serve = |zip: Vec<u8>| async move {
+            let sha256: String = sha2::Sha256::digest(&zip).iter().map(|byte| format!("{byte:02x}")).collect();
+            let mut answer = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", zip.len()).into_bytes();
+            answer.extend(zip);
+            let (port, served, _) = answering(answer).await;
+            (format!("http://127.0.0.1:{port}/agy-acp-server.zip"), sha256, served)
+        };
+        let (cmd, helper) = ("agy_acp_server.exe", "localharness_external.exe");
+        let dir = tempfile::tempdir().expect("a folder");
+        let (archive, sha256, served) = serve(stored_zip(&[(cmd, b"server")])).await;
+        let missing = local_downloads(STALL_TIMEOUT).unpack(&build_at(archive.clone(), sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("a"), unpacking()).await;
+        assert_eq!(missing, Err(format!("the archive of {archive} holds no {helper}")));
+        served.await.expect("the server");
+        let (archive, sha256, served) = serve(stored_zip(&[(helper, b"harness")])).await;
+        let missing = local_downloads(STALL_TIMEOUT).unpack(&build_at(archive.clone(), sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("b"), unpacking()).await;
+        assert_eq!(missing, Err(format!("the archive of {archive} holds no {cmd}")));
+        served.await.expect("the server");
+
+        let (archive, sha256, served) = serve(stored_zip(&[(cmd, b"server"), (helper, b"harness")])).await;
+        let whole = local_downloads(STALL_TIMEOUT).unpack(&build_at(archive, sha256, &[helper]), &dir.path().join("archive"), &dir.path().join("c"), unpacking()).await;
+        assert_eq!(whole, Ok(()));
+        served.await.expect("the server");
+        #[cfg(unix)]
+        for program in [cmd, helper] {
+            use std::os::unix::fs::PermissionsExt;
+            #[allow(clippy::disallowed_methods, reason = "a test looks at what was unpacked")]
+            let mode = std::fs::metadata(dir.path().join("c").join(program)).expect("unpacked").permissions().mode();
+            assert_eq!(mode & 0o111, 0o111, "{program}");
+        }
     }
 
     /// A route on a model another preset of the agent runs (a saved route, or `mixdog exec --provider acp-antigravity
