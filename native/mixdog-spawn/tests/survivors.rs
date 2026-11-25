@@ -248,6 +248,64 @@ async fn a_console_host_still_exiting_after_its_root_is_no_survivor() {
     assert_eq!(watch.survivors(&h), None, "a console host that exited after its root is no survivor");
 }
 
+/// A command that left nothing behind has no survivor, even when every process of its job had signalled its exit before
+/// the settle looked: the job counts a process a moment after its handle signals. The root ends its console host and waits
+/// for its exit, so at its own end the root is the job's one process. This test process runs on
+/// one processor above its children's priority (they inherit the processor, not the priority class), so the thread the
+/// root's exit wakes runs before the root has left its job, as a loaded machine has it by chance.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_root_that_left_nothing_is_no_survivor_while_its_job_still_counts_it() {
+    use mixdog_core_api::domain::process::ProcessEvent;
+    use mixdog_core_api::domain::process::ProcessManager;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    use windows_sys::Win32::System::Threading::GetProcessAffinityMask;
+    use windows_sys::Win32::System::Threading::HIGH_PRIORITY_CLASS;
+    use windows_sys::Win32::System::Threading::SetPriorityClass;
+    use windows_sys::Win32::System::Threading::SetProcessAffinityMask;
+    unsafe {
+        let me = GetCurrentProcess();
+        let (mut mask, mut system) = (0usize, 0usize);
+        assert_ne!(GetProcessAffinityMask(me, &mut mask, &mut system), 0);
+        assert_ne!(SetProcessAffinityMask(me, mask & mask.wrapping_neg()), 0);
+        assert_ne!(SetPriorityClass(me, HIGH_PRIORITY_CLASS), 0);
+    }
+    let m = manager();
+    let watch = ProcessSurvivors::new(m.clone());
+    let h = handle("survivor-none-left");
+    let command = CommandSpec::Argv {
+        program: "powershell".to_owned(),
+        args: [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$o = [Console]::Out; $i = [Console]::In; \
+             $h = Get-Process -Id (Get-CimInstance Win32_Process -Filter \"ParentProcessId=$PID AND Name='conhost.exe'\").ProcessId; \
+             Stop-Process -Id $h.Id -Force; $h.WaitForExit(); $o.WriteLine('ALONE'); $o.Flush(); [void]$i.ReadLine()",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    };
+    m.spawn(mixdog_core_api::domain::process::SpawnRequest { stdin_piped: true, ..request(&h, command) }).await.unwrap();
+    let mut events = m.subscribe(&h, Some(0)).unwrap();
+    let mut out = Vec::new();
+    while !text(&out).contains("ALONE") {
+        match mixdog_rt::time::timeout(WAIT, events.next()).await.expect("the root reports its console host gone").expect("the feed is open") {
+            ProcessEvent::Output { bytes, .. } => out.extend(bytes),
+            ProcessEvent::Exited { .. } => panic!("the root ended before its console host: {}", text(&out)),
+        }
+    }
+    m.close_stdin(&h).unwrap();
+    loop {
+        match mixdog_rt::time::timeout(WAIT, events.next()).await.expect("the root's exit is published").expect("the feed is open") {
+            ProcessEvent::Exited { .. } => break,
+            ProcessEvent::Output { .. } => {}
+        }
+    }
+    assert_eq!(watch.survivors(&h), None, "a command that left nothing behind has no survivor");
+}
+
 /// The cancel's own schedule (`killShellDescendants`): SIGTERM to the group first, and a survivor that ignores it is ended by
 /// the forced stop that follows, so the kill still reports every one gone.
 #[cfg(unix)]

@@ -158,8 +158,9 @@ mod imp {
         /// handle names the job this process itself runs in.
         job: RwLock<HANDLE>,
         breakaway_ok: bool,
-        /// Set when the job first reports to the port: its key and the signal for "no members".
-        watch: OnceLock<(usize, Arc<Notify>)>,
+        /// Set by the first [`Self::signal`]: the job's key at the port and the signal for "no members", or `None` when
+        /// the job could not report there.
+        watch: OnceLock<Option<(usize, Arc<Notify>)>>,
     }
 
     unsafe impl Send for Containment {}
@@ -203,20 +204,20 @@ mod imp {
         }
 
         /// After a root that ended: the console hosts it leaves are given time to signal their own exit
-        /// ([`crate::console_hosts::settle`]) and then to leave the job, whose count drops only after a process's handle
-        /// has signalled, before anything left in the job is taken for a survivor.
+        /// ([`crate::console_hosts::settle`]), and a job holding nothing but exiting processes time to stop counting them,
+        /// which it does only after their handles signalled, before anything left in the job is taken for a survivor.
         pub(crate) fn settle_exit(&self) {
             let started = std::time::Instant::now();
             let job = self.handle();
             if job.is_null() {
                 return;
             }
-            let waited = crate::console_hosts::settle(*job, crate::console_hosts::SETTLE_DEADLINE, || {
+            let leaving = crate::console_hosts::settle(*job, crate::console_hosts::SETTLE_DEADLINE, || {
                 #[cfg(feature = "core-test")]
                 crate::testing::settle_window();
             });
             drop(job);
-            if waited {
+            if leaving {
                 self.await_empty(crate::console_hosts::SETTLE_DEADLINE.saturating_sub(started.elapsed()));
             }
         }
@@ -229,6 +230,10 @@ mod imp {
                 fn wake(self: Arc<Self>) {
                     self.0.unpark();
                 }
+            }
+            // A job read empty gains no process, so only one still counting a process is watched.
+            if !matches!(self.observe(), super::Seen::Running { .. }) {
+                return;
             }
             let Some(notify) = self.signal() else {
                 return;
@@ -269,7 +274,7 @@ mod imp {
             *job = std::ptr::null_mut();
             drop(job);
             // A wait the port's last message has not reached yet looks again, and finds the job gone.
-            if let Some((_, notify)) = self.watch.get() {
+            if let Some(Some((_, notify))) = self.watch.get() {
                 notify.notify_waiters();
             }
             true
@@ -277,7 +282,7 @@ mod imp {
 
         /// Stops the job's reports to the port and closes its handle.
         fn close(&self, job: HANDLE) {
-            if let (Some((key, _)), Some(port)) = (self.watch.get(), port()) {
+            if let (Some(Some((key, _))), Some(port)) = (self.watch.get(), port()) {
                 port.watchers.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
             }
             unsafe { CloseHandle(job) };
@@ -300,35 +305,35 @@ mod imp {
         /// A job is not named by a pid, so the root's exit changes nothing about it.
         pub(crate) fn root_reaped(&self) {}
 
-        /// Starts reporting this job to the completion port (once) and returns the signal that
-        /// is raised whenever its last process ends. `None` if the port is unavailable.
+        /// Starts reporting this job to the completion port and returns the signal that is raised whenever its last
+        /// process ends; `None` if the job cannot report there. Windows takes one association per job, so the first call
+        /// makes it and every other caller, concurrent or later, waits for that one and gets its answer.
         fn signal(&self) -> Option<Arc<Notify>> {
-            if let Some((_, notify)) = self.watch.get() {
-                return Some(Arc::clone(notify));
-            }
-            let job = self.handle();
-            if job.is_null() {
-                return None;
-            }
-            let port = port()?;
-            let key = port.next_key.fetch_add(1, Ordering::Relaxed);
-            let notify = Arc::new(Notify::new());
-            port.watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, Arc::downgrade(&notify));
-            let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT { CompletionKey: key as *mut std::ffi::c_void, CompletionPort: port.handle };
-            let set = unsafe {
-                SetInformationJobObject(
-                    *job,
-                    JobObjectAssociateCompletionPortInformation,
-                    std::ptr::addr_of!(association).cast(),
-                    std::mem::size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
-                )
-            };
-            if set == 0 {
-                port.watchers.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
-                return None;
-            }
-            let _ = self.watch.set((key, Arc::clone(&notify)));
-            Some(notify)
+            let watch = self.watch.get_or_init(|| {
+                let job = self.handle();
+                if job.is_null() {
+                    return None;
+                }
+                let port = port()?;
+                let key = port.next_key.fetch_add(1, Ordering::Relaxed);
+                let notify = Arc::new(Notify::new());
+                port.watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, Arc::downgrade(&notify));
+                let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT { CompletionKey: key as *mut std::ffi::c_void, CompletionPort: port.handle };
+                let set = unsafe {
+                    SetInformationJobObject(
+                        *job,
+                        JobObjectAssociateCompletionPortInformation,
+                        std::ptr::addr_of!(association).cast(),
+                        std::mem::size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
+                    )
+                };
+                if set == 0 {
+                    port.watchers.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+                    return None;
+                }
+                Some((key, notify))
+            });
+            watch.as_ref().map(|(_, notify)| Arc::clone(notify))
         }
 
         /// Whether this job can be watched for its last process ending.
