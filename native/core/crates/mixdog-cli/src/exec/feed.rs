@@ -132,12 +132,15 @@ fn item_completed(params: &Value) -> Result<Option<Obs>, String> {
             let parts = if content.is_empty() { summary } else { content };
             Some(Obs::Reasoning(parts.concat()))
         }
-        ThreadItem::ToolCall { id, name, output, run, meta, .. } => {
+        ThreadItem::ToolCall { id, name, input, output, run, meta, .. } => {
             let content = match (&run.result, &output) {
                 (Some(result), _) => Value::String(inline(result)?.into()),
                 (None, Some(output)) => inline(output)?.into(),
-                // The card of a call whose result has not come in (the assistant message that carries it committed).
-                (None, None) => return Ok(None),
+                // The card of a call whose result has not come in (the assistant message that carries it committed): the call
+                // has begun. A turn in an ACP agent shows its calls no other way.
+                (None, None) => {
+                    return Ok(Some(Obs::ToolObserved(ToolCall { id: run.call_id.clone().unwrap_or_else(|| id.to_string()), name, arguments: input })));
+                }
             };
             let failed = run.is_error == Some(true) || matches!(meta.status, Some(mixdog_protocol::ItemStatus::Failed));
             let skipped = matches!(meta.status, Some(mixdog_protocol::ItemStatus::Declined));

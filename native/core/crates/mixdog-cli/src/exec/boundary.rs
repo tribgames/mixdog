@@ -16,11 +16,14 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
+use mixdog_acp::agents::Refusal;
+use mixdog_acp::preset::AgentPreset;
 use mixdog_ai::catalog::is_known_provider;
 use mixdog_ai::providers::custom::config::normalize as normalize_custom;
 use mixdog_ai::service::admin_models::model_proxy_client_mode;
 use mixdog_ai::service::admin_models::provider_available;
 use mixdog_ai::service::admin_route::workflow_preset_id;
+use mixdog_core_config::tool_modules::builtin_feature_active;
 
 use super::profile;
 use super::profile::LeadRoute;
@@ -52,6 +55,8 @@ pub struct BoundaryRequest<'a> {
     pub route_profile: Option<&'a str>,
     /// The shipped agent definitions (`<package>/src/agents`): the roles a route profile may name.
     pub agents_dir: &'a Path,
+    /// The ACP agents the run's core holds (`CoreLauncher::agent_presets`): the Lead's route may be one's.
+    pub agent_presets: &'a [AgentPreset],
     pub host_env: &'a BTreeMap<String, String>,
     pub host_data_dir: &'a Path,
     pub temp_dir: &'a Path,
@@ -112,7 +117,19 @@ fn provider_entry(provider: &str, base: Option<&Value>) -> Value {
     Value::Object(entry)
 }
 
-fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, fast: bool, custom: Option<&Value>, profile: &RouteProfile) -> Value {
+/// `on_agent`: the Lead's route is an ACP agent's, which is no provider of the registry: the run's config switches the
+/// agents on instead.
+#[allow(clippy::too_many_arguments, reason = "the route's parts, each one field of the config")]
+fn minimal_config(
+    contract: &Value,
+    provider: &str,
+    model: &str,
+    effort: &str,
+    fast: bool,
+    custom: Option<&Value>,
+    profile: &RouteProfile,
+    on_agent: bool,
+) -> Value {
     let mut route = Map::new();
     route.insert("provider".into(), json!(provider));
     route.insert("model".into(), json!(model));
@@ -123,7 +140,9 @@ fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, f
         route.insert("fast".into(), json!(true));
     }
     let mut providers = Map::new();
-    providers.insert(provider.into(), provider_entry(provider, custom));
+    if !on_agent {
+        providers.insert(provider.into(), provider_entry(provider, custom));
+    }
     for other in profile.providers() {
         if !providers.contains_key(&other) {
             providers.insert(other.clone(), provider_entry(&other, None));
@@ -153,6 +172,9 @@ fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, f
         preset.insert("fallbacks".into(), json!([fallback]));
     }
     let mut agent = contract["agentDefaults"].as_object().expect("agentDefaults").clone();
+    if on_agent {
+        agent.insert("builtins".into(), json!({ mixdog_acp::FEATURE: { "installed": true } }));
+    }
     agent.insert("providers".into(), Value::Object(providers));
     agent.insert("presets".into(), json!([Value::Object(preset)]));
     agent.insert("default".into(), json!(lead_preset));
@@ -292,6 +314,16 @@ fn scrubbed_env(
     env
 }
 
+/// The host's switch of the built-in feature `id`, as the app reads it: the environment's override, else the stored config's
+/// `builtins.<id>` and `modules.<id>`.
+fn host_feature_active(request: &BoundaryRequest<'_>, contract: &Value, id: &str) -> bool {
+    let stored = std::fs::read_to_string(request.host_data_dir.join(contract["configFileName"].as_str().expect("configFileName")))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let agent = stored.as_ref().and_then(|stored| stored["agent"].as_object()).cloned().unwrap_or_default();
+    builtin_feature_active(&agent, id, &|name| request.host_env.get(name).cloned(), false)
+}
+
 /// Binds the host's OAuth credential for `provider` and copies its model catalog into `data_dir`; answers the binding and how many
 /// catalogs were copied.
 fn bind_oauth(request: &BoundaryRequest<'_>, oauth: &Value, provider: &str, data_dir: &Path) -> Result<(CredentialBinding, u32), String> {
@@ -358,7 +390,15 @@ impl Boundary {
         let env = scrubbed_env(contract, request.host_env, root_dir, &data_dir, &runtime_root, custom.as_ref().and(api_key_env));
         let lead = LeadRoute { provider, model, effort, fast: request.fast };
         let profile = request.route_profile.map(|raw| profile::parse(raw, &lead, request.agents_dir)).transpose()?.unwrap_or_default();
-        let config = minimal_config(contract, provider, model, effort, request.fast, custom.as_ref(), &profile);
+        let agent_of = |on: &str| request.agent_presets.iter().find(|preset| preset.provider == on);
+        // An ACP agent signs in with its own CLI and runs behind the feature's switch, which is the host's, as in the app.
+        let agent = agent_of(provider);
+        if let Some(agent) = agent
+            && !host_feature_active(request, contract, mixdog_acp::FEATURE)
+        {
+            return Err(format!("route \"lead\" provider \"{provider}\" is the ACP agent {}: {}", agent.label, Refusal::Off.message(agent)));
+        }
+        let config = minimal_config(contract, provider, model, effort, request.fast, custom.as_ref(), &profile, agent.is_some());
 
         // Every route, the Lead's first, runs on a provider the core knows on the run's own config (`CatalogFacts::is_known`:
         // its config load drops a route on any other, the retired local `ollama` and `lmstudio` among them, and a provider
@@ -370,11 +410,17 @@ impl Boundary {
         let known = |on: &str| {
             (on == provider && custom.is_some()) || is_known_provider(on, &config["agent"], &|name| provider_available(name, client_mode, &developer))
         };
-        if !known(provider) {
+        if agent.is_none() && !known(provider) {
             return Err(format!("route \"lead\" provider \"{provider}\" is not one mixdog exec can run"));
         }
         for (name, route) in profile.routes() {
             let on = clean(route["provider"].as_str());
+            if let Some(other) = agent_of(on) {
+                return Err(format!(
+                    "--route-profile route \"{name}\" provider \"{on}\" is the ACP agent {}; mixdog exec runs an ACP agent only on the Lead's route",
+                    other.label
+                ));
+            }
             if on.starts_with("custom-") && on != provider {
                 return Err(format!("--route-profile provider \"{on}\" is a custom provider; mixdog exec defines only the --provider one"));
             }
@@ -386,6 +432,7 @@ impl Boundary {
         }
 
         let (auth_mode, mut catalogs, credential) = match oauth {
+            _ if agent.is_some() => ("agent-cli-sign-in", 0, None),
             Some(oauth) => {
                 let (credential, catalogs) = bind_oauth(request, oauth, provider, &data_dir)?;
                 ("in-process-host-oauth-binding", catalogs, Some(credential))
@@ -415,18 +462,23 @@ impl Boundary {
         let config_bytes = format!("{}\n", serde_json::to_string_pretty(&config).expect("a config serializes"));
         write_private(&data_dir.join(contract["configFileName"].as_str().expect("configFileName")), config_bytes.as_bytes()).map_err(|err| err.to_string())?;
         let mut runtime_config = config["agent"].clone();
-        let mut selected = runtime_config["providers"][provider].as_object().cloned().unwrap_or_default();
-        selected.insert("enabled".into(), json!(true));
-        // The key is bound in memory: the variable that held it is gone from the run's environment.
-        selected.remove("apiKeyEnv");
-        if let Some(key) = &api_key {
-            selected.insert("apiKey".into(), json!(key));
+        if agent.is_none() {
+            let mut selected = runtime_config["providers"][provider].as_object().cloned().unwrap_or_default();
+            selected.insert("enabled".into(), json!(true));
+            // The key is bound in memory: the variable that held it is gone from the run's environment.
+            selected.remove("apiKeyEnv");
+            if let Some(key) = &api_key {
+                selected.insert("apiKey".into(), json!(key));
+            }
+            runtime_config["providers"][provider] = Value::Object(selected);
         }
-        runtime_config["providers"][provider] = Value::Object(selected);
         for (other, key) in role_keys {
             runtime_config["providers"][&other]["apiKey"] = key;
         }
-        let audit = audit_document(contract, request, effort, config_bytes.as_bytes(), auth_mode, catalogs, &profile);
+        let mut audit = audit_document(contract, request, effort, config_bytes.as_bytes(), auth_mode, catalogs, &profile);
+        if agent.is_some() {
+            audit["personalState"]["hostConfigRead"] = json!(true);
+        }
         Ok(Self {
             root_dir: root_dir.to_path_buf(),
             data_dir,

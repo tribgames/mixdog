@@ -13,7 +13,8 @@ name = "mixdog"
 path = "src/main.rs"
 
 [dependencies]
-# `mixdog exec`: the usage text, the route check and the headless run (`exec::run_command`) are the library's own.
+# `mixdog exec`: the usage text, the route check and the headless run (`exec::run_command`) are the library's own, as are the
+# helper processes its core starts as this program (`helpers`).
 mixdog-cli = { workspace = true }
 # `worktree_name_error`, which names what a `--worktree` value may not be.
 mixdog-core = { workspace = true }
