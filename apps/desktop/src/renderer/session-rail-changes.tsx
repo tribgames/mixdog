@@ -200,11 +200,10 @@ export function GitSection({
         <button
           type="button"
           className="composer-island-button composer-island-git-run"
-          aria-label={`${t('Run')}: ${pickedLabel}`}
           onClick={() => git.request(picked)}
         >
           <Play size={12} aria-hidden="true" />
-          <span>{t('Run')}</span>
+          <span>{pickedLabel}</span>
         </button>
       }
       open={open}
