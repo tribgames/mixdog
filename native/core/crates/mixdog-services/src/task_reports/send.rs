@@ -548,6 +548,9 @@ impl SendTurn {
                 if this.notify {
                     this.report(&status, &text, &answer_id).await;
                 }
+                // The follow's callbacks hold this send: taken here, the two do not keep each other, and the session's runtime, alive.
+                let _follow = this.follow.lock().expect("send follow").take();
+                this.runtime.lock().expect("send runtime").take();
                 Ok(())
             })
         });

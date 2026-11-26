@@ -39,6 +39,7 @@ struct Mock {
     ended: Mutex<Vec<String>>,
     watches: Mutex<Vec<Value>>,
     owned: Mutex<Vec<Value>>,
+    runtime: Mutex<Option<Arc<dyn RuntimeView>>>,
 }
 
 #[async_trait]
@@ -77,7 +78,7 @@ impl RearmHost for Mock {
         Ok(())
     }
     async fn materialize_session(&self, _session_id: &str) -> Result<Option<Arc<dyn RuntimeView>>, String> {
-        Ok(None)
+        Ok(self.runtime.lock().unwrap().clone())
     }
     async fn queued_submission_ids(&self, _session_id: &str) -> Vec<String> {
         Vec::new()
@@ -195,6 +196,21 @@ async fn recovery_reports_a_gone_session_once_and_skips_this_process_s_own_watch
     );
     assert_eq!(*host.disowned.lock().unwrap(), vec!["q1".to_owned()]);
     assert_eq!(*host.ended.lock().unwrap(), vec!["w1".to_owned(), "q1".to_owned()]);
+}
+
+/// Every reported watch kept its session's runtime, and through it the loaded session, for the life of the process.
+#[tokio::test(start_paused = true)]
+async fn a_recovered_watch_lets_go_of_the_session_once_it_has_reported() {
+    mixdog_rt::testing::tokens();
+    let runtime: Arc<dyn RuntimeView> = Arc::new(Busy(Mutex::new(false)));
+    let host = Arc::new(Mock { messages: Mutex::new(Some(conversation("simple"))), runtime: Mutex::new(Some(Arc::clone(&runtime))), ..Mock::default() });
+    *host.watches.lock().unwrap() = vec![watch("r1", "task-1", "old-process")];
+    recover_task_watches(host.clone(), "this-process").await;
+    settle(Duration::from_millis(2600)).await;
+    settle(Duration::from_millis(100)).await;
+    assert_eq!(host.delivered.lock().unwrap().len(), 1, "the final answer is reported");
+    host.runtime.lock().unwrap().take();
+    assert_eq!(Arc::strong_count(&runtime), 1, "nothing of the watch still holds the session's runtime");
 }
 
 /// A stored task session: a request and its one final answer, "all done" (`simple`), or an answer that hands work off, the handed-off

@@ -199,7 +199,12 @@ impl Rearm {
         let finish: super::follow::FinishFn = Arc::new(move |status, text, answer_id| {
             let this = Arc::clone(&this);
             Box::pin(async move {
-                this.lock().done = true;
+                // The follow's callbacks hold this watch: taken here, the two do not keep each other, and the session's runtime, alive.
+                let _follow = {
+                    let mut state = this.lock();
+                    state.done = true;
+                    state.follow.take()
+                };
                 this.unsubscribe();
                 this.finish(&status, &text, &answer_id).await
             })
