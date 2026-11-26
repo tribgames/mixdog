@@ -1620,6 +1620,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         presets: b.agent_presets.clone(),
         processes: b.process_manager.clone(),
         files: Arc::new(mixdog_acp::files::ServiceFiles { files: b.files.clone(), lane: b.tokens.interactive_io }),
+        cpu: b.tokens.cpu_interactive,
         enabled: {
             let (config, env) = (config.clone(), b.env.clone());
             Arc::new(move || mixdog_core_config::tool_modules::builtin_feature_active(&config.agent(), mixdog_acp::FEATURE, &|name| env(name), false))
@@ -1965,6 +1966,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             random_hex: Arc::new(|| rand::random::<[u8; 16]>().iter().map(|byte| format!("{byte:02x}")).collect()),
         },
     ));
+    let acp_image: Arc<dyn mixdog_services::media::AcpImageBackend> =
+        Arc::new(crate::acp_tools::AcpImageAdapter(mixdog_acp::image::AgentImageGen::new(acp_agents.clone())));
     let file_probe = Arc::new(mixdog_services::media::FileAccountProbe::new(mixdog_services::media::ProbeParts {
         data_dir: b.data_dir.clone(),
         lane: b.tokens.durability_io,
@@ -1990,6 +1993,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         provider_auth: provider_layer.clone(),
         http: Arc::new(mixdog_services::media::RoutedCatalogHttp::new(routed_clients.clone())),
         revision: mixdog_services::media::provider_layer::catalog_revision(registry.clone()),
+        acp_image: Some(acp_image.clone()),
     }));
     let probe = Arc::new(mixdog_services::media::AccountedProbe(file_probe.clone()));
     // The layer's late cell: it asks this probe whether a login exists. Bound once, right here; `verify_bound` checks it.
@@ -2035,6 +2039,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             provider_auth: provider_layer.clone(),
             codex: codex_sessions,
             antigravity: antigravity_sessions,
+            acp_image: Some(acp_image),
         }));
     let media_ledger: Arc<dyn mixdog_services::media::MediaUsageLedger> = Arc::new(mixdog_services::media::QueuedLedger {
         sink: usage_sink.clone(),
@@ -3808,7 +3813,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
                     read_state: read_state.clone(),
                     agents: Some(Arc::new(RetiredAgentPurge(agents.clone()))),
-                    agent_processes: Some(acp_processes), // a closed, deleted or unloaded session's ACP agent ends with it
+                    agent_processes: Some(acp_processes), // a non-worker's ACP agent ends on unload/close/delete; a worker's ends on close, cleanup, park, or delete
                     releases: {
                         let (providers, worker_turns, agents, unloaded_routes, unloaded_goals, unloaded_rooms) = (
                             registry.clone(),
@@ -4209,11 +4214,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         clock_agent.clone(),
         stall_log,
     ));
-    // ONE admission, also `AgentParts.admission`.
+    // ONE admission, shared by agents (`Pool::Agent`) and foreground shells (`Pool::Shell`).
     let agent_admission = Arc::new(mixdog_core::run_host::admission::ResourceAdmission::new(
         mixdog_core::run_host::admission::Limits::from_env(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get), &*b.env),
         clock_agent.clone(),
     ));
+    b.exec.set_admission(agent_admission.clone());
     let dispatch_sessions = Arc::new(
         mixdog_core::run_host::dispatch_sessions::SessionDispatch::new(
             Arc::new(mixdog_core_session::session::dispatch_sessions::DispatchThreads::new(
@@ -5064,14 +5070,18 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         send_world: agent_send_world.clone(),
         terminal_trace: agent_registry.clone(),
         env: Arc::new(mixdog_core::run_host::agent_inputs::FileEnvironment::new(b.files.clone(), b.tokens.interactive_io, default_cwd.clone())),
-        catalog: Some(Arc::new(mixdog_core::run_host::agent_board::ModelListCatalog {
-            models: model_list.clone(),
-            registry: registry.clone(),
-            bots: route_bots.clone(),
-            agent_state: Arc::new({
-                let agents = acp_agents.clone();
-                move |provider: &str| agents.preset_of_route(provider).map(|preset| agents.selectable(preset).err().map(|refusal| refusal.message(preset)))
+        catalog: Some(Arc::new(mixdog_acp::routes::AgentModelCatalog {
+            inner: Arc::new(mixdog_core::run_host::agent_board::ModelListCatalog {
+                models: model_list.clone(),
+                registry: registry.clone(),
+                bots: route_bots.clone(),
+                agent_state: Arc::new(|_| None),
             }),
+            agents: acp_agents.clone(),
+            settings: {
+                let config = config.clone();
+                Arc::new(move || config.agent().get("modelSettings").and_then(serde_json::Value::as_object).cloned().unwrap_or_default())
+            },
         })),
         scopes: directory.clone(),
         errors: Arc::new(mixdog_agent::agent_tool::error_text::PlainErrorText),

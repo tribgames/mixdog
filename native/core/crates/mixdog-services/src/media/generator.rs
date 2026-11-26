@@ -12,6 +12,7 @@ use mixdog_js::to_number_of;
 use serde_json::Value;
 
 use super::accounts::{ACCOUNT_PROVIDERS, AccountProbe, AccountScope, ScopedLaneSources, SelectedAccounts, media_lane_account_provider};
+use super::acp_image::{ACP_ANTIGRAVITY_LANE, AcpImageBackend, AcpImageReference, AcpImageRequest};
 use super::adapter_http::JsonPost;
 use super::antigravity_image::{self, AntigravitySession};
 use super::catalog_fetch::{Auth, FetchError};
@@ -60,6 +61,7 @@ pub struct GeneratorParts {
     pub provider_auth: Arc<dyn ProviderAuth>,
     pub codex: CodexSessions,
     pub antigravity: AntigravitySessions,
+    pub acp_image: Option<Arc<dyn AcpImageBackend>>,
 }
 
 pub struct StudioGenerator {
@@ -187,6 +189,28 @@ impl MediaGenerator for StudioGenerator {
                 let session = (parts.antigravity)(file.as_deref());
                 let out = antigravity_image::generate_image(http, session.as_ref(), model, &prompt, &options, &refs, &cancel).await.map_err(adapter_failure)?;
                 Ok(image_result(out))
+            }
+            ACP_ANTIGRAVITY_LANE => {
+                let Some(backend) = parts.acp_image.as_ref() else {
+                    return Err(MediaFailure::new("Antigravity is not available in this session.", "MEDIA_LANE_UNAUTHENTICATED"));
+                };
+                let prepared = refs
+                    .prepare(&super::references::Target { endpoint: "acp://antigravity/generate_image", account: lane, model, operation: "image-generation" })
+                    .await
+                    .map_err(adapter_failure)?;
+                let acp_refs: Vec<AcpImageReference> = prepared
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, img)| AcpImageReference { bytes: img.bytes().to_vec(), mime: img.mime().to_owned(), name: format!("reference-{}", idx + 1) })
+                    .collect();
+                let aspect_ratio = options
+                    .get("aspectRatio")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|ar| !ar.is_empty() && !ar.eq_ignore_ascii_case("auto"))
+                    .map(str::to_owned);
+                let out = backend.generate(AcpImageRequest { provider: lane.to_owned(), prompt, aspect_ratio, references: acp_refs }, &cancel).await?;
+                Ok(GeneratedMedia { bytes: out.bytes, mime: out.mime, revised_prompt: out.revised_prompt, duration_seconds: None, usage: out.usage })
             }
             "gemini" => {
                 let key = parts.probe.api_key_auth("gemini").await.map_err(fetch_failure)?.token;

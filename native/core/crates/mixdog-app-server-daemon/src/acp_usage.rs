@@ -14,6 +14,7 @@ use mixdog_acp::agents::AccountTold;
 use mixdog_acp::agents::Agents;
 use mixdog_acp::agents::report_windows;
 use mixdog_acp::preset::AgentPreset;
+use mixdog_acp::preset::UsageReport;
 use mixdog_ai::service::oauth_usage::QuotaHistory;
 use mixdog_ai::service::oauth_usage::QuotaSample;
 use mixdog_core::run_host::usage_stats_feed::Clock;
@@ -117,6 +118,17 @@ pub enum Ask {
     Again,
 }
 
+fn usage_target_id(preset: &AgentPreset) -> Option<&str> {
+    match preset.usage.as_ref()? {
+        UsageReport::Command { .. } => Some(&preset.id),
+        UsageReport::FromPreset { preset_id } => Some(preset_id.as_str()),
+    }
+}
+
+fn reports_own_usage(preset: &AgentPreset) -> bool {
+    matches!(preset.usage, Some(UsageReport::Command { .. }))
+}
+
 /// The dashboard windows of a CLI's quota report, read as the provider that meters the same quota reads the
 /// gateway's own summary: the report names each bucket's fields in its own spelling.
 fn windows_of(report: &Value) -> Vec<Value> {
@@ -217,7 +229,7 @@ impl AgentUsage {
 
     /// Starts a read of `preset` if it has a quota to report and none is running.
     fn retake(&self, preset: &AgentPreset) {
-        if preset.usage.is_none() || !self.quotas.reports(preset) {
+        if !reports_own_usage(preset) || !self.quotas.reports(preset) {
             return;
         }
         let epoch = {
@@ -301,7 +313,9 @@ impl AgentUsage {
     /// with no quota to show (nothing read yet, or withdrawn when the account was left). An account a provider's entry already shows is
     /// marked with that provider's id as `sameQuotaAs`.
     fn entry(&self, preset: &AgentPreset, ask: Ask, rows: &[Value]) -> Option<Value> {
-        preset.usage.as_ref()?;
+        if !reports_own_usage(preset) {
+            return None;
+        }
         let reports = self.quotas.reports(preset);
         let (start, epoch, read, failure) = {
             let mut known = self.known();
@@ -445,10 +459,15 @@ impl DomainService for AgentUsage {
         let Reply::Value(dashboard) = self.inner.call(req).await? else {
             return Err(CoreError::Internal { incident_id: "the usage dashboard answered no value".into() });
         };
+        let presets = self.quotas.presets();
         let ask = |preset: &AgentPreset| {
             if preview {
                 Ask::Nobody
-            } else if refresh && (scope.is_empty() || scope.contains(&preset.provider.to_lowercase())) {
+            } else if refresh
+                && (scope.is_empty()
+                    || scope.contains(&preset.provider.to_lowercase())
+                    || presets.iter().any(|other| usage_target_id(other) == Some(preset.id.as_str()) && scope.contains(&other.provider.to_lowercase())))
+            {
                 Ask::Again
             } else {
                 Ask::Once
@@ -869,5 +888,27 @@ mod tests {
         assert_eq!(rig.section.count(), 1, "nothing was withdrawn");
         rig.cli.answers.send_replace(true);
         assert_eq!(agent_row(&rig.section.nth(2).await).and_then(five_hour_used), Some(90.0));
+    }
+
+    /// Refreshing `acp-antigravity` refreshes the `antigravity-cli` preset that reports their shared quota, running the
+    /// CLI once and emitting one row (`acp-antigravity-cli`); when the CLI is not signed in, no error row is surfaced.
+    #[tokio::test]
+    async fn refreshing_official_preset_reads_once_from_antigravity_cli_and_surfaces_nothing_when_cli_signed_out() {
+        let rig = rig(Vec::new());
+        dashboard(&rig.usage, json!({})).await;
+        let rows = rig.section.nth(1).await;
+        assert_eq!(rows.len(), 1, "only one Antigravity ACP usage row is emitted: {rows:?}");
+        assert_eq!(rows[0]["id"], "acp-antigravity-cli");
+        assert_eq!(rig.asked(), 1);
+
+        *rig.cli.report.lock().unwrap() = Ok(other_accounts_report());
+        dashboard(&rig.usage, json!({ "refresh": true, "refreshProviders": ["acp-antigravity"] })).await;
+        let rows = rig.section.nth(2).await;
+        assert_eq!(agent_row(&rows).and_then(five_hour_used), Some(90.0));
+        assert_eq!(rig.asked(), 2);
+
+        rig.cli.signed_in.store(false, Ordering::SeqCst);
+        rig.account_changed(AccountEvent::Left);
+        assert!(rig.section.nth(3).await.is_empty(), "signed-out CLI surfaces no error row in usage");
     }
 }

@@ -4,7 +4,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::service::routes::web_search_capable_for;
+use mixdog_agent::agent_tool::model_select::{ListOptions, ModelCatalog, ModelRow};
+use mixdog_ai::service::routes::{
+    DefaultSearchFallback, DefaultSearchRoute, is_web_search_capable_provider, pick_quick_web_search_model, web_search_capable_for,
+};
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::error::CoreError;
@@ -32,13 +35,103 @@ fn is_own_orchestration(preset: &AgentPreset, model: &str) -> bool {
     preset.quirks.own_orchestration.iter().any(|prefix| model.starts_with(prefix.as_str()))
 }
 
-fn web_search_capable(agents: &Arc<Agents>, preset: &AgentPreset, model: &str) -> bool {
+fn preset_search_capable(preset: &AgentPreset) -> bool {
+    !matches!(preset.own_tools_off, Some(crate::preset::OwnToolsOff::AgentFile(_))) && is_web_search_capable_provider(&preset.provider)
+}
+
+fn model_web_search_capable(agents: &Agents, preset: &AgentPreset, model: &str) -> bool {
     let model = model.trim();
-    !matches!(preset.own_tools_off, Some(crate::preset::OwnToolsOff::AgentFile(_)))
-        && agents.selectable(preset).is_ok()
+    preset_search_capable(preset)
         && web_search_capable_for(&preset.provider, model, None, None)
         && agents.refuses_model(preset, model).is_none()
         && !is_own_orchestration(preset, model)
+}
+
+fn web_search_capable(agents: &Arc<Agents>, preset: &AgentPreset, model: &str) -> bool {
+    model_web_search_capable(agents, preset, model) && agents.selectable(preset).is_ok()
+}
+
+fn pick_acp_search_model(agents: &Agents, preset: &AgentPreset, models: &crate::session::Models, skip_model: Option<&str>) -> Option<String> {
+    if !preset_search_capable(preset) {
+        return None;
+    }
+    let capable: Vec<String> = crate::tiers::offered(models, &preset.quirks)
+        .into_iter()
+        .map(|listed| listed.id)
+        .filter(|id| skip_model != Some(id.as_str()) && model_web_search_capable(agents, preset, id))
+        .collect();
+    if let Some(picked) = pick_quick_web_search_model(&preset.provider, &capable) {
+        return Some(picked);
+    }
+    if models.available.is_empty()
+        && preset.quirks.runs_default
+        && skip_model != Some(crate::agents::DEFAULT_MODEL)
+        && model_web_search_capable(agents, preset, crate::agents::DEFAULT_MODEL)
+    {
+        return Some(crate::agents::DEFAULT_MODEL.to_owned());
+    }
+    None
+}
+
+fn sibling_failure_reason(preset: &AgentPreset, enabled: bool, state: &crate::agents::ObservedState) -> String {
+    use crate::agents::Readiness;
+    use crate::upkeep::Step;
+    let name = format!("{} ({})", preset.label, preset.provider);
+    if !enabled {
+        return format!(
+            "ACP agents are turned off in Settings; enable ACP agents and sign in to {name} in Settings, or open /websearch to choose another provider/model"
+        );
+    }
+    match (state.readiness.as_ref(), state.running) {
+        (_, Some(Step::Installing)) => {
+            return format!("{name} is installing; wait for installation to finish, or open /websearch to choose another provider/model");
+        }
+        (Some(Readiness::VersionTooOld { version }), Some(Step::Updating)) => {
+            return format!("{name} {version} is updating; wait for the update to finish, or open /websearch to choose another provider/model");
+        }
+        (_, Some(Step::Updating)) => {
+            return format!("{name} is updating; wait for the update to finish, or open /websearch to choose another provider/model");
+        }
+        _ => {}
+    }
+    if let Some(message) = state.refused.as_deref() {
+        return format!(
+            "{name} refused the signed-in account: {message}; sign in to another account in Settings, or open /websearch to choose another provider/model"
+        );
+    }
+    match (state.readiness.as_ref(), state.running) {
+        (Some(Readiness::Ready { .. }), _) => {
+            format!("{name} is ready, but offers no web-search-capable model; open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::SignedOut { .. }), _) => {
+            format!("{name} is signed out; sign in to {name} in Settings, or open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::NotInstalled), _) => {
+            format!("{name} is not installed; install and sign in to {name} in Settings, or open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::VersionTooOld { version }), _) => {
+            format!(
+                "{name} {version} is too old ({} or later is needed); update it in Settings, or open /websearch to choose another provider/model",
+                preset.minimum_version
+            )
+        }
+        (Some(Readiness::VersionUnknown), _) => {
+            format!("{name}'s version could not be read; check it in Settings, or open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::Unsupported), _) => {
+            format!("{name} does not run on this computer; open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::Failed { message, .. }), _) => {
+            format!("{name} did not start: {message}; open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::Checking) | None, Some(Step::Checking)) => {
+            format!("{name} is still being checked; try again shortly, or open /websearch to choose another provider/model")
+        }
+        (Some(Readiness::Checking) | None, None) => {
+            format!("{name} has not finished checking yet; check it in Settings, or open /websearch to choose another provider/model")
+        }
+        (_, Some(Step::Installing | Step::Updating)) => unreachable!(),
+    }
 }
 
 fn apply_model_settings(rows: &mut [Value], settings: &Map<String, Value>) {
@@ -59,6 +152,15 @@ fn apply_model_settings(rows: &mut [Value], settings: &Map<String, Value>) {
 
 fn is_acp_route(provider: &str) -> bool {
     provider.starts_with("acp-")
+}
+
+fn norm_provider(value: &str) -> String {
+    value.to_lowercase().chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect()
+}
+
+fn matches_acp_preset(preset: &AgentPreset, provider: &str) -> bool {
+    let wanted = norm_provider(provider);
+    !wanted.is_empty() && (norm_provider(&preset.provider) == wanted || norm_provider(&preset.id) == wanted)
 }
 
 fn unknown_acp_route_error(provider: &str) -> String {
@@ -168,6 +270,45 @@ impl RouteFacts for AgentRouteFacts {
         } else {
             self.inner.init_error(provider)
         }
+    }
+
+    fn default_search_fallback(&self, config: &Map<String, Value>, main_provider: &str, main_model: &str) -> DefaultSearchFallback {
+        let Some(main_preset) = self.agents.preset_of_route(main_provider) else {
+            return self.inner.default_search_fallback(config, main_provider, main_model);
+        };
+        let siblings: Vec<&AgentPreset> =
+            self.agents.presets().iter().filter(|p| p.tool_prefix == main_preset.tool_prefix && preset_search_capable(p)).collect();
+        let enabled = self.agents.enabled();
+        if !enabled {
+            let empty = crate::agents::ObservedState { readiness: None, running: None, refused: None };
+            let reason = if let Some(sibling) = siblings.first() {
+                Some(sibling_failure_reason(sibling, false, &empty))
+            } else if is_web_search_capable_provider(&main_preset.provider) {
+                Some("ACP agents are turned off in Settings; open /websearch to choose another provider/model".to_owned())
+            } else {
+                None
+            };
+            return DefaultSearchFallback { route: None, reason };
+        }
+        let mut reason = None;
+        for preset in siblings {
+            let state = self.agents.observed_state(preset);
+            if state.refused.is_none()
+                && let Some(crate::agents::Readiness::Ready { models, .. }) = &state.readiness
+            {
+                let skip = (preset.provider == main_provider).then_some(main_model.trim());
+                if let Some(model) = pick_acp_search_model(&self.agents, preset, models, skip) {
+                    return DefaultSearchFallback { route: Some(DefaultSearchRoute { provider: preset.provider.clone(), model }), reason: None };
+                }
+            }
+            if reason.is_none() {
+                reason = Some(sibling_failure_reason(preset, true, &state));
+            }
+        }
+        if reason.is_none() && is_web_search_capable_provider(&main_preset.provider) {
+            reason = Some(format!("no search-capable {} preset is available; open /websearch to choose another provider/model", main_preset.label));
+        }
+        DefaultSearchFallback { route: None, reason }
     }
 }
 
@@ -304,6 +445,59 @@ impl DomainService for AgentModelList {
 
     fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
         self.inner.notify(method, params, from)
+    }
+}
+
+/// [`ModelCatalog`] with the ACP agents' rows alongside the provider catalog's.
+pub struct AgentModelCatalog {
+    pub inner: Arc<dyn ModelCatalog>,
+    pub agents: Arc<Agents>,
+    /// The saved `modelSettings` (`"<provider>/<model>"` → the model's favourite, hidden and effort marks).
+    pub settings: Arc<dyn Fn() -> Map<String, Value> + Send + Sync>,
+}
+
+impl AgentModelCatalog {
+    fn matching_presets(&self, provider: &str) -> Vec<&AgentPreset> {
+        self.agents.presets().iter().filter(|preset| matches_acp_preset(preset, provider)).collect()
+    }
+
+    fn rows(&self, catalog_complete: bool) -> Vec<ModelRow> {
+        let settings = (self.settings)();
+        let mut rows = self.agents.ready_picker_rows();
+        apply_model_settings(&mut rows, &settings);
+        let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        rows.into_iter()
+            .map(|row| ModelRow { provider: text(&row, "provider"), id: text(&row, "id"), display: text(&row, "display"), catalog_complete, row })
+            .collect()
+    }
+}
+
+#[async_trait]
+impl ModelCatalog for AgentModelCatalog {
+    async fn list(&self, options: ListOptions) -> Result<Vec<ModelRow>, String> {
+        if !options.quick
+            && self.agents.enabled()
+            && let Some(provider) = options.provider.as_deref().map(str::trim).filter(|p| !p.is_empty())
+        {
+            for preset in self.matching_presets(provider) {
+                let _ = self.agents.ensure_checked(preset).await;
+            }
+        }
+        let mut rows = self.inner.list(options.clone()).await?;
+        let catalog_complete = options.quick && !options.force && rows.iter().all(|row| row.catalog_complete);
+        rows.extend(self.rows(catalog_complete));
+        Ok(rows)
+    }
+
+    async fn agent_provider(&self, agent: &str) -> Option<String> {
+        self.inner.agent_provider(agent).await
+    }
+
+    async fn provider_state(&self, provider: &str) -> Option<String> {
+        if let Some(preset) = self.agents.presets().iter().find(|preset| matches_acp_preset(preset, provider)) {
+            return self.agents.selectable(preset).err().map(|refusal| refusal.message(preset));
+        }
+        self.inner.provider_state(provider).await
     }
 }
 
@@ -454,6 +648,7 @@ mod tests {
             presets,
             processes,
             files: Arc::new(NoFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             enabled: {
                 let enabled = enabled.clone();
                 Arc::new(move || enabled.load(Ordering::SeqCst))
@@ -752,5 +947,610 @@ mod tests {
         let _ = done_tx2.send(true);
         assert_eq!(check.await.unwrap(), Ok(()));
         assert!(!cancel2.is_cancelled(), "Step::Updating must remain uncancelled after ensure_ready completes");
+    }
+
+    struct EmptyCatalog;
+
+    #[async_trait]
+    impl ModelCatalog for EmptyCatalog {
+        async fn list(&self, _: ListOptions) -> Result<Vec<ModelRow>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct StaticCatalog {
+        rows: Vec<ModelRow>,
+        own: Option<&'static str>,
+    }
+
+    #[async_trait]
+    impl ModelCatalog for StaticCatalog {
+        async fn list(&self, _: ListOptions) -> Result<Vec<ModelRow>, String> {
+            Ok(self.rows.clone())
+        }
+        async fn agent_provider(&self, _: &str) -> Option<String> {
+            self.own.map(str::to_owned)
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_model_catalog_resolves_signed_in_acp_models_by_id_display_and_words() {
+        use mixdog_agent::agent_tool::model_select::resolve_requested_model;
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(
+            &agents,
+            "antigravity",
+            Readiness::Ready {
+                version: "1.5.2".into(),
+                models: models(&[
+                    ("gemini-4-neon-low", "Gemini 4 Neon (Low)"),
+                    ("gemini-4-neon-medium", "Gemini 4 Neon (Medium)"),
+                    ("gemini-4-neon-high", "Gemini 4 Neon (High)"),
+                    ("gemini-4-neon-xhigh", "Gemini 4 Neon (XHigh)"),
+                    ("gemini-3-flash", "Gemini 3 Flash"),
+                    ("gemini-pro-orchestrator", "Orchestrator"),
+                ]),
+            },
+        );
+        seed_slot(
+            &agents,
+            "antigravity-cli",
+            Readiness::Ready {
+                version: "1.5.16".into(),
+                models: models(&[
+                    ("claude-opus-5-5-low", "Claude Opus 5.5 (Low)"),
+                    ("claude-opus-5-5-high", "Claude Opus 5.5 (High)"),
+                    ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"),
+                ]),
+            },
+        );
+        let saved = json!({
+            "acp-antigravity/gemini-4-neon": { "effort": "xhigh" }
+        });
+        let catalog = AgentModelCatalog { inner: Arc::new(EmptyCatalog), agents, settings: Arc::new(move || saved.as_object().cloned().unwrap_or_default()) };
+
+        for query in ["gemini-4-neon", "Antigravity · Gemini 4 Neon", "Gemini 4 Neon", "4 neon"] {
+            let (routed, note) = resolve_requested_model(&json!({ "provider": "acp-antigravity", "model": query }), Some(&catalog)).await.expect(query);
+            assert_eq!(routed["provider"], "acp-antigravity", "{query}");
+            assert_eq!(routed["model"], "gemini-4-neon", "{query}");
+            assert_eq!(routed["modelDefaults"]["effort"], "xhigh", "{query}");
+            assert_eq!(routed["modelDefaults"]["fast"], false, "{query}");
+            assert_eq!(routed["modelDefaults"]["efforts"], json!(["low", "medium", "high", "xhigh"]), "{query}");
+            assert_eq!(note, "runs on acp-antigravity/gemini-4-neon", "{query}");
+        }
+
+        // Exact preset id also resolves to its preset without matching siblings.
+        let (by_preset, note) = resolve_requested_model(&json!({ "provider": "antigravity", "model": "gemini-4-neon" }), Some(&catalog)).await.unwrap();
+        assert_eq!((by_preset["provider"].as_str(), by_preset["model"].as_str()), (Some("acp-antigravity"), Some("gemini-4-neon")));
+        assert_eq!(note, "runs on acp-antigravity/gemini-4-neon");
+
+        for query in ["claude-opus-5-5", "Antigravity · Claude Opus 5.5", "opus 5.5"] {
+            let (routed, note) = resolve_requested_model(&json!({ "provider": "acp-antigravity-cli", "model": query }), Some(&catalog)).await.expect(query);
+            assert_eq!(routed["provider"], "acp-antigravity-cli", "{query}");
+            assert_eq!(routed["model"], "claude-opus-5-5", "{query}");
+            assert_eq!(note, "runs on acp-antigravity-cli/claude-opus-5-5", "{query}");
+        }
+
+        let fast_err =
+            resolve_requested_model(&json!({ "provider": "acp-antigravity", "model": "gemini-4-neon", "fast": true }), Some(&catalog)).await.unwrap_err();
+        assert!(fast_err.contains("does not support fast"), "{fast_err}");
+    }
+
+    #[tokio::test]
+    async fn agent_model_catalog_refuses_acp_providers_offering_no_models() {
+        use mixdog_agent::agent_tool::model_select::resolve_requested_model;
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled.clone());
+        seed_slot(&agents, "antigravity", Readiness::SignedOut { version: "1.5.2".into(), message: "sign in".into() });
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-5-5", "Claude Opus 5.5")]) });
+        let catalog = AgentModelCatalog { inner: Arc::new(EmptyCatalog), agents: agents.clone(), settings: Arc::new(Map::new) };
+
+        let signed_out = resolve_requested_model(&json!({ "provider": "acp-antigravity", "model": "gemini-4-neon" }), Some(&catalog)).await.unwrap_err();
+        assert!(signed_out.contains("acp-antigravity") && signed_out.contains("has no available models") && signed_out.contains("signed out"), "{signed_out}");
+
+        // Must not spill into `acp-antigravity-cli` under provider id, normalized spelling, preset id, or substring.
+        for provider in ["acp-antigravity", "acp_antigravity", "antigravity"] {
+            let no_spill = resolve_requested_model(&json!({ "provider": provider, "model": "claude-opus-5-5" }), Some(&catalog)).await.unwrap_err();
+            assert!(no_spill.contains(provider) && no_spill.contains("signed out"), "{provider}: {no_spill}");
+        }
+        let sub = resolve_requested_model(&json!({ "provider": "anti", "model": "claude-opus-5-5" }), Some(&catalog)).await.unwrap_err();
+        assert_eq!(sub, "agent spawn: provider \"anti\" has no available models");
+
+        // A signed-in ACP provider that reports no offered models still gets a clear refusal.
+        seed_slot(&agents, "antigravity", Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-pro-orchestrator", "Orchestrator")]) });
+        let empty = resolve_requested_model(&json!({ "provider": "acp-antigravity", "model": "gemini-4-neon" }), Some(&catalog)).await.unwrap_err();
+        assert_eq!(empty, "agent spawn: provider \"acp-antigravity\" has no available models");
+
+        // An unknown ACP provider gets a clear refusal.
+        let unknown = resolve_requested_model(&json!({ "provider": "acp-unknown", "model": "gemini-4-neon" }), Some(&catalog)).await.unwrap_err();
+        assert_eq!(unknown, "agent spawn: provider \"acp-unknown\" has no available models");
+
+        // When external agents are turned off, refusal states why.
+        enabled.store(false, Ordering::SeqCst);
+        let off = resolve_requested_model(&json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-5-5" }), Some(&catalog)).await.unwrap_err();
+        assert!(off.contains("acp-antigravity-cli") && off.contains("turned off"), "{off}");
+    }
+
+    #[tokio::test]
+    async fn agent_model_catalog_keeps_model_only_spawns_on_non_acp_unless_agent_owns_acp_route() {
+        use mixdog_agent::agent_tool::model_select::resolve_requested_model;
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(&agents, "antigravity", Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-4-neon", "Gemini 4 Neon")]) });
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-5-5", "Claude Opus 5.5")]) });
+        let non_acp = vec![ModelRow {
+            provider: "anthropic-oauth".into(),
+            id: "claude-opus-5-5".into(),
+            display: "Claude Opus 5.5".into(),
+            catalog_complete: true,
+            row: json!({}),
+        }];
+
+        let no_agent =
+            AgentModelCatalog { inner: Arc::new(StaticCatalog { rows: non_acp.clone(), own: None }), agents: agents.clone(), settings: Arc::new(Map::new) };
+        let (routed, note) = resolve_requested_model(&json!({ "model": "claude-opus-5-5" }), Some(&no_agent)).await.unwrap();
+        assert_eq!((routed["provider"].as_str(), routed["model"].as_str()), (Some("anthropic-oauth"), Some("claude-opus-5-5")));
+        assert_eq!(note, "runs on anthropic-oauth/claude-opus-5-5");
+
+        let acp_owned =
+            AgentModelCatalog { inner: Arc::new(StaticCatalog { rows: non_acp, own: Some("acp-antigravity") }), agents, settings: Arc::new(Map::new) };
+        let (routed, note) = resolve_requested_model(&json!({ "agent": "writer", "model": "gemini-4-neon" }), Some(&acp_owned)).await.unwrap();
+        assert_eq!((routed["provider"].as_str(), routed["model"].as_str()), (Some("acp-antigravity"), Some("gemini-4-neon")));
+        assert_eq!(note, "runs on acp-antigravity/gemini-4-neon");
+        let (other, _) = resolve_requested_model(&json!({ "agent": "writer", "model": "claude-opus-5-5" }), Some(&acp_owned)).await.unwrap();
+        assert_eq!(other["provider"], "anthropic-oauth");
+    }
+
+    #[tokio::test]
+    async fn agent_model_catalog_does_not_wait_on_unchecked_acp_presets_when_no_provider_is_given() {
+        use mixdog_agent::agent_tool::model_select::resolve_requested_model;
+        use tokio::sync::watch;
+        use tokio_util::sync::CancellationToken;
+
+        use crate::upkeep::{Running, Step};
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        // Leave `antigravity` in an in-flight check that never finishes and `antigravity-cli` never checked.
+        let (step_tx, _step_rx) = watch::channel(Step::Checking);
+        let (_done_tx, done_rx) = watch::channel(false);
+        {
+            let mut slots = lock(&agents.slots);
+            let mut slot = Slot::default();
+            slot.readiness = None;
+            slot.running = Some(Running::for_test(step_tx, CancellationToken::new(), done_rx));
+            slots.insert("antigravity".to_owned(), slot);
+        }
+
+        let catalog = AgentModelCatalog {
+            inner: Arc::new(StaticCatalog {
+                rows: vec![ModelRow { provider: "openai".into(), id: "gpt-5".into(), display: "GPT-5".into(), catalog_complete: true, row: json!({}) }],
+                own: None,
+            }),
+            agents: agents.clone(),
+            settings: Arc::new(Map::new),
+        };
+
+        let err = tokio::time::timeout(std::time::Duration::from_secs(2), resolve_requested_model(&json!({ "model": "nonexistent-model" }), Some(&catalog)))
+            .await
+            .expect("must not wait in ensure_checked for ACP presets when no provider is given")
+            .unwrap_err();
+        assert!(err.contains("not found") && err.contains("openai/gpt-5"), "{err}");
+        // Must not have started a check on the never-checked `antigravity-cli` preset either.
+        assert!(lock(&agents.slots).get("antigravity-cli").is_none());
+    }
+
+    #[tokio::test]
+    async fn agent_model_catalog_awaits_in_flight_acp_readiness_check_before_refusing() {
+        use mixdog_agent::agent_tool::model_select::resolve_requested_model;
+        use tokio::sync::watch;
+        use tokio_util::sync::CancellationToken;
+
+        use crate::upkeep::{Running, Step};
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        let (step_tx, _step_rx) = watch::channel(Step::Checking);
+        let (done_tx, done_rx) = watch::channel(false);
+        {
+            let mut slots = lock(&agents.slots);
+            let mut slot = Slot::default();
+            slot.readiness = None;
+            slot.running = Some(Running::for_test(step_tx, CancellationToken::new(), done_rx));
+            slots.insert("antigravity".to_owned(), slot);
+        }
+        seed_slot(&agents, "antigravity-cli", Readiness::NotInstalled);
+
+        let catalog = Arc::new(AgentModelCatalog { inner: Arc::new(EmptyCatalog), agents: agents.clone(), settings: Arc::new(Map::new) });
+        let resolve = {
+            let catalog = catalog.clone();
+            tokio::spawn(async move { resolve_requested_model(&json!({ "provider": "acp-antigravity", "model": "gemini-4-neon" }), Some(&*catalog)).await })
+        };
+        tokio::task::yield_now().await;
+        assert!(!resolve.is_finished(), "should wait for the in-flight check instead of refusing immediately");
+        {
+            let mut slots = lock(&agents.slots);
+            let slot = slots.get_mut("antigravity").unwrap();
+            slot.readiness = Some(Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-4-neon", "Gemini 4 Neon")]) });
+            slot.running = None;
+        }
+        let _ = done_tx.send(true);
+        let (routed, note) = resolve.await.unwrap().unwrap();
+        assert_eq!((routed["provider"].as_str(), routed["model"].as_str()), (Some("acp-antigravity"), Some("gemini-4-neon")));
+        assert_eq!(note, "runs on acp-antigravity/gemini-4-neon");
+    }
+
+    struct ConfiguredFallbackFacts {
+        fallback: DefaultSearchFallback,
+    }
+
+    #[async_trait]
+    impl RouteFacts for ConfiguredFallbackFacts {
+        fn is_known(&self, _: &str, _: &Map<String, Value>) -> bool {
+            false
+        }
+        async fn ensure_ready(&self, _: &Map<String, Value>, provider: &str) -> Result<(), String> {
+            Err(format!("unknown provider {provider}"))
+        }
+        fn model_meta(&self, _: &str, _: &str) -> Value {
+            Value::Null
+        }
+        fn window_meta(&self, _: &str, _: &str, _: &Value) -> Option<Value> {
+            None
+        }
+        fn catalog_knows(&self, _: &str, _: &str) -> bool {
+            false
+        }
+        fn fast_capable(&self, _: &str, _: &Value, _: Option<&str>, _: &Value) -> bool {
+            false
+        }
+        fn ultrafast_capable(&self, _: &str, _: &Value) -> bool {
+            false
+        }
+        fn default_search_fallback(&self, _: &Map<String, Value>, _: &str, _: &str) -> DefaultSearchFallback {
+            self.fallback.clone()
+        }
+    }
+
+    struct FactsSearchHost {
+        main: Value,
+        stored: Value,
+        facts: Arc<dyn RouteFacts>,
+        ready_calls: std::sync::Mutex<Vec<String>>,
+        fallback_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl FactsSearchHost {
+        fn new(main: Value, stored: Value, facts: Arc<dyn RouteFacts>) -> Arc<Self> {
+            Arc::new(Self { main, stored, facts, ready_calls: std::sync::Mutex::new(Vec::new()), fallback_calls: std::sync::atomic::AtomicUsize::new(0) })
+        }
+
+        fn ready_calls(&self) -> Vec<String> {
+            self.ready_calls.lock().unwrap().clone()
+        }
+
+        fn fallback_calls(&self) -> usize {
+            self.fallback_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl mixdog_tools::web::SearchHost for FactsSearchHost {
+        fn main_route(&self, _: &ThreadId) -> Value {
+            self.main.clone()
+        }
+        fn stored_web_search_route(&self) -> Value {
+            self.stored.clone()
+        }
+        async fn main_model_row(&self, provider: &str, model: &str) -> Result<Option<Value>, String> {
+            if !is_web_search_capable_provider(provider) {
+                return Ok(None);
+            }
+            self.ready_calls.lock().unwrap().push(provider.to_owned());
+            self.facts.ensure_ready(&Map::new(), provider).await?;
+            Ok(self.facts.catalog_knows(model, provider).then(|| self.facts.model_meta(provider, model)))
+        }
+        fn catalog_row(&self, _: &str, _: &str) -> Option<Value> {
+            None
+        }
+        async fn provider(&self, _: &str) -> Result<Option<mixdog_tools::web::SearchProvider>, String> {
+            Ok(Some(mixdog_tools::web::SearchProvider::Acp))
+        }
+        fn session_id(&self, thread: &ThreadId) -> Option<String> {
+            Some(thread.as_str().to_owned())
+        }
+        fn default_search_fallback(&self, main_provider: &str, main_model: &str) -> DefaultSearchFallback {
+            self.fallback_calls.fetch_add(1, Ordering::SeqCst);
+            self.facts.default_search_fallback(&Map::new(), main_provider, main_model)
+        }
+    }
+
+    #[tokio::test]
+    async fn default_web_search_on_cli_preset_picks_quick_model_on_official_preset_and_never_other_providers() {
+        use mixdog_tools::web::{ConfiguredSearchRoutes, SearchFamily, SearchRoutes};
+
+        for catalog in [
+            &[
+                ("gemini-pro-orchestrator", "Orchestrator"),
+                ("gemini-3-pro", "Gemini 3 Pro"),
+                ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+                ("gemini-3-flash", "Gemini 3 Flash"),
+            ][..],
+            &[
+                ("gemini-3-flash", "Gemini 3 Flash"),
+                ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+                ("gemini-3-pro", "Gemini 3 Pro"),
+                ("gemini-pro-orchestrator", "Orchestrator"),
+            ][..],
+        ] {
+            let enabled = Arc::new(AtomicBool::new(true));
+            let (_dir, agents) = build_agents(builtin(), enabled);
+            seed_slot(&agents, "antigravity", Readiness::Ready { version: "1.5.2".into(), models: models(catalog) });
+            seed_slot(
+                &agents,
+                "antigravity-cli",
+                Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6"), ("gpt-oss-120b", "GPT OSS 120B")]) },
+            );
+
+            let inner = Arc::new(ConfiguredFallbackFacts {
+                fallback: DefaultSearchFallback { route: Some(DefaultSearchRoute { provider: "openai".into(), model: "gpt-5.2".into() }), reason: None },
+            });
+            let facts: Arc<dyn RouteFacts> = Arc::new(AgentRouteFacts { inner, agents });
+
+            for model in ["claude-opus-4-6", "gpt-oss-120b"] {
+                let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity-cli", "model": model, "effort": "high" }), Value::Null, facts.clone());
+                let routes = ConfiguredSearchRoutes::new(host.clone());
+                let candidates = routes.candidates(&ThreadId::from("t-ready")).await.unwrap();
+                let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+                assert_eq!(
+                    pairs,
+                    [("acp-antigravity", "gemini-3-flash", SearchFamily::Acp)],
+                    "{model}: must pick quick same-product Gemini model only and never another provider"
+                );
+                assert_eq!(candidates[0].effort, None, "Main model effort must not leak onto fallback route");
+                assert_eq!(host.ready_calls(), vec!["acp-antigravity-cli".to_owned()]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn user_written_fallbacks_come_before_automatic_acp_sibling_pick() {
+        use mixdog_tools::web::{ConfiguredSearchRoutes, SearchFamily, SearchRoutes};
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(
+            &agents,
+            "antigravity",
+            Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-3-pro", "Gemini 3 Pro"), ("gemini-3-flash", "Gemini 3 Flash")]) },
+        );
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) });
+
+        let facts: Arc<dyn RouteFacts> = Arc::new(AgentRouteFacts { inner: Arc::new(EmptyFacts), agents });
+        let host = FactsSearchHost::new(
+            json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }),
+            json!({
+                "provider": "default",
+                "model": "default",
+                "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }]
+            }),
+            facts,
+        );
+        let routes = ConfiguredSearchRoutes::new(host);
+        let candidates = routes.candidates(&ThreadId::from("t-user-first")).await.unwrap();
+        let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+        assert_eq!(pairs, [("openai", "gpt-5.2", SearchFamily::Openai), ("acp-antigravity", "gemini-3-flash", SearchFamily::Acp)]);
+    }
+
+    #[tokio::test]
+    async fn default_web_search_on_cli_preset_with_official_preset_signed_out_does_not_pick_other_provider() {
+        use mixdog_tools::web::{ConfiguredSearchRoutes, SearchFamily, SearchRoutes};
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(&agents, "antigravity", Readiness::SignedOut { version: "1.5.2".into(), message: "sign in".into() });
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) });
+
+        let facts: Arc<dyn RouteFacts> = Arc::new(AgentRouteFacts {
+            inner: Arc::new(ConfiguredFallbackFacts {
+                fallback: DefaultSearchFallback { route: Some(DefaultSearchRoute { provider: "openai".into(), model: "gpt-5.2".into() }), reason: None },
+            }),
+            agents,
+        });
+
+        // No user fallbacks: never picks another provider automatically; resolve() builds the
+        // unavailable message from one default_search_fallback call without retaining state.
+        let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }), Value::Null, facts.clone());
+        let routes = ConfiguredSearchRoutes::new(host.clone());
+        let thread = ThreadId::from("t-signed-out-none");
+        let message = match routes.resolve(&thread).await.unwrap() {
+            mixdog_tools::web::SearchRouteResolution::Unavailable(message) => message,
+            mixdog_tools::web::SearchRouteResolution::Candidates(c) => panic!("expected unavailable, got {c:?}"),
+        };
+        assert!(message.contains("acp-antigravity-cli/claude-opus-4-6"), "{message}");
+        assert!(message.contains("Antigravity (acp-antigravity) is signed out"), "{message}");
+        assert!(message.contains("sign in to Antigravity (acp-antigravity)"), "{message}");
+        assert_eq!(host.fallback_calls(), 1, "one search resolve must call default_search_fallback once");
+
+        // User-written fallback still runs even when official preset is signed out.
+        let host = FactsSearchHost::new(
+            json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }),
+            json!({
+                "provider": "default",
+                "model": "default",
+                "fallbacks": [{ "provider": "openai", "model": "gpt-5.2" }]
+            }),
+            facts,
+        );
+        let routes = ConfiguredSearchRoutes::new(host);
+        let candidates = routes.candidates(&ThreadId::from("t-signed-out-user-fallback")).await.unwrap();
+        let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+        assert_eq!(pairs, [("openai", "gpt-5.2", SearchFamily::Openai)]);
+    }
+
+    #[tokio::test]
+    async fn default_web_search_on_cli_preset_with_official_preset_absent_does_not_pick_other_provider() {
+        use mixdog_tools::web::{ConfiguredSearchRoutes, SearchFamily, SearchRoutes};
+
+        let cli_only: Vec<AgentPreset> = builtin().into_iter().filter(|preset| preset.id == "antigravity-cli").collect();
+        assert_eq!(cli_only.len(), 1);
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(cli_only, enabled);
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) });
+
+        let facts: Arc<dyn RouteFacts> = Arc::new(AgentRouteFacts {
+            inner: Arc::new(ConfiguredFallbackFacts {
+                fallback: DefaultSearchFallback {
+                    route: Some(DefaultSearchRoute { provider: "gemini".into(), model: "gemini-2.5-flash".into() }),
+                    reason: None,
+                },
+            }),
+            agents,
+        });
+
+        let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }), Value::Null, facts.clone());
+        let routes = ConfiguredSearchRoutes::new(host);
+        let thread = ThreadId::from("t-absent-none");
+        assert!(routes.candidates(&thread).await.unwrap().is_empty());
+        let message = routes.no_candidate_message(&thread).await;
+        assert!(message.contains("acp-antigravity-cli/claude-opus-4-6"), "{message}");
+        assert!(message.contains("no search-capable"), "{message}");
+        assert!(!message.contains("sign in"), "{message}");
+        assert!(!message.contains("acp-antigravity)"), "{message}");
+
+        // User-written fallback still works when official preset is absent.
+        let host = FactsSearchHost::new(
+            json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }),
+            json!({
+                "provider": "default",
+                "model": "default",
+                "fallbacks": [{ "provider": "gemini", "model": "gemini-2.5-flash" }]
+            }),
+            facts,
+        );
+        let routes = ConfiguredSearchRoutes::new(host);
+        let candidates = routes.candidates(&ThreadId::from("t-absent-user-fallback")).await.unwrap();
+        let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+        assert_eq!(pairs, [("gemini", "gemini-2.5-flash", SearchFamily::Gemini)]);
+    }
+
+    #[tokio::test]
+    async fn default_web_search_failure_messages_state_real_cause_without_probing_sibling() {
+        use mixdog_tools::web::{ConfiguredSearchRoutes, SearchRoutes};
+        use tokio::sync::watch;
+        use tokio_util::sync::CancellationToken;
+
+        use crate::upkeep::{Running, Step};
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled.clone());
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) });
+        let facts: Arc<dyn RouteFacts> = Arc::new(AgentRouteFacts { inner: Arc::new(EmptyFacts), agents: agents.clone() });
+        let run_msg = |tag: &str| {
+            let facts = facts.clone();
+            let thread = ThreadId::from(tag);
+            async move {
+                let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }), Value::Null, facts);
+                let routes = ConfiguredSearchRoutes::new(host);
+                assert!(routes.candidates(&thread).await.unwrap().is_empty());
+                routes.no_candidate_message(&thread).await
+            }
+        };
+
+        // Unchecked while ACP enabled: must not say "enable ACP agents" and must not start a probe.
+        let unchecked = run_msg("t-unchecked").await;
+        assert!(unchecked.contains("has not finished checking yet"), "{unchecked}");
+        assert!(!unchecked.contains("enable ACP agents"), "{unchecked}");
+        assert!(lock(&agents.slots).get("antigravity").is_none(), "fallback check must not spawn a sibling readiness probe");
+
+        // Updating: must say updating, not sign in.
+        let (step_tx, _step_rx) = watch::channel(Step::Updating);
+        let (_done_tx, done_rx) = watch::channel(false);
+        {
+            let mut slots = lock(&agents.slots);
+            let mut slot = Slot::default();
+            slot.readiness = Some(Readiness::VersionTooOld { version: "1.0.0".into() });
+            slot.running = Some(Running::for_test(step_tx, CancellationToken::new(), done_rx));
+            slots.insert("antigravity".to_owned(), slot);
+        }
+        let updating = run_msg("t-updating").await;
+        assert!(updating.contains("is updating"), "{updating}");
+        assert!(!updating.contains("sign in"), "{updating}");
+
+        // Failed: must state failure cause, not sign in.
+        seed_slot(&agents, "antigravity", Readiness::Failed { version: None, message: "launch crashed".into() });
+        let failed = run_msg("t-failed").await;
+        assert!(failed.contains("did not start: launch crashed"), "{failed}");
+        assert!(!failed.contains("sign in"), "{failed}");
+
+        // Ready but account refused: program started, so must say account was refused, not "did not start".
+        seed_slot(&agents, "antigravity", Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-3-flash", "Gemini 3 Flash")]) });
+        let official = agents.preset_of_route("acp-antigravity").unwrap().clone();
+        agents.refused(&official, "account suspended").await;
+        let refused = run_msg("t-refused").await;
+        assert!(refused.contains("refused the signed-in account: account suspended"), "{refused}");
+        assert!(!refused.contains("did not start"), "{refused}");
+        agents.answered(&official).await;
+
+        // Ready with no search-capable model: must say no web-search-capable model, not sign in.
+        seed_slot(&agents, "antigravity", Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-pro-orchestrator", "Orchestrator")]) });
+        let no_model = run_msg("t-no-model").await;
+        assert!(no_model.contains("offers no web-search-capable model"), "{no_model}");
+        assert!(!no_model.contains("sign in"), "{no_model}");
+
+        // ACP disabled: the Main route's own readiness refuses the lookup saying ACP agents are turned off, and the
+        // message without it says so too.
+        enabled.store(false, Ordering::SeqCst);
+        let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }), Value::Null, facts.clone());
+        let routes = ConfiguredSearchRoutes::new(host);
+        let thread = ThreadId::from("t-off");
+        let refused = routes.candidates(&thread).await.unwrap_err();
+        assert!(refused.contains("ACP agents are turned off"), "{refused}");
+        let off = routes.no_candidate_message(&thread).await;
+        assert!(off.contains("ACP agents are turned off"), "{off}");
+    }
+
+    #[tokio::test]
+    async fn explicit_web_search_route_and_usable_main_add_no_readiness_work() {
+        use mixdog_tools::web::{ConfiguredSearchRoutes, SearchFamily, SearchRoutes};
+
+        let enabled = Arc::new(AtomicBool::new(true));
+        let (_dir, agents) = build_agents(builtin(), enabled);
+        seed_slot(&agents, "antigravity", Readiness::Ready { version: "1.5.2".into(), models: models(&[("gemini-3-flash", "Gemini 3 Flash")]) });
+        // Leave `antigravity-cli` completely unchecked to verify it is never probed.
+        let facts: Arc<dyn RouteFacts> = Arc::new(AgentRouteFacts {
+            inner: Arc::new(ConfiguredFallbackFacts {
+                fallback: DefaultSearchFallback { route: Some(DefaultSearchRoute { provider: "openai".into(), model: "gpt-5.2".into() }), reason: None },
+            }),
+            agents: agents.clone(),
+        });
+
+        // Usable Main route: zero fallback lookups, zero sibling probes.
+        let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity", "model": "gemini-3-flash" }), Value::Null, facts.clone());
+        let routes = ConfiguredSearchRoutes::new(host.clone());
+        let candidates = routes.candidates(&ThreadId::from("t-usable-main")).await.unwrap();
+        let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+        assert_eq!(pairs, [("acp-antigravity", "gemini-3-flash", SearchFamily::Acp)]);
+        assert_eq!(host.fallback_calls(), 0);
+        assert!(lock(&agents.slots).get("antigravity-cli").is_none());
+
+        // Explicit webSearchRoute on CLI Main: used strictly as set with zero readiness or fallback calls.
+        seed_slot(&agents, "antigravity-cli", Readiness::Ready { version: "1.5.16".into(), models: models(&[("claude-opus-4-6", "Claude Opus 4.6")]) });
+        for (stored, want) in [
+            (json!({ "provider": "anthropic", "model": "claude-sonnet-4-5" }), ("anthropic", "claude-sonnet-4-5", SearchFamily::Anthropic)),
+            (json!({ "provider": "acp-antigravity", "model": "gemini-3-pro" }), ("acp-antigravity", "gemini-3-pro", SearchFamily::Acp)),
+        ] {
+            let host = FactsSearchHost::new(json!({ "provider": "acp-antigravity-cli", "model": "claude-opus-4-6" }), stored, facts.clone());
+            let routes = ConfiguredSearchRoutes::new(host.clone());
+            let candidates = routes.candidates(&ThreadId::from("t-explicit")).await.unwrap();
+            let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+            assert_eq!(pairs, [want]);
+            assert!(host.ready_calls().is_empty(), "explicit route must not call ensure_ready");
+            assert_eq!(host.fallback_calls(), 0, "explicit route must not call default_search_fallback");
+        }
     }
 }

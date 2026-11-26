@@ -6,8 +6,8 @@
 //!   keep its format, and when the result still costs more than the token budget re-encode it as JPEG q50, then as a
 //!   400x400 JPEG q20. Results are cached (64 MiB, least recently used).
 //! * [`probe`] is `decodedImageMeta`, [`validate`] is "does the decoder take it", and
-//!   [`tool_jpeg::encode_tool_image_jpeg`] / [`tool_jpeg::compact_tool_result_image`] are the tool-result
-//!   compaction.
+//!   [`tool_jpeg::encode_tool_image_jpeg`] / [`tool_jpeg::fit_tool_image_jpeg`] / [`tool_jpeg::run_tool_jpeg_ladder`]
+//!   drive tool-result JPEG compaction.
 //!
 //! Every failure is an [`ImagingError`]: the decoder rejected the bytes (with libvips's sentence), or the machine
 //! could not do the work (there is no encoder for the format, or memory ran out).
@@ -48,10 +48,12 @@ pub use policy::image_metadata_text;
 pub use policy::image_profile_for_provider;
 pub use policy::openai_image_patch_count;
 pub use policy::superseding_image_metadata_text;
-pub use tool_jpeg::CompactedImage;
 pub use tool_jpeg::EncodedJpeg;
-pub use tool_jpeg::compact_tool_result_image;
+pub use tool_jpeg::FittedToolJpeg;
 pub use tool_jpeg::encode_tool_image_jpeg;
+pub use tool_jpeg::fit_tool_image_jpeg;
+pub use tool_jpeg::run_tool_jpeg_ladder;
+pub use tool_jpeg::run_tool_jpeg_ladder_async;
 
 use crate::cache::recall;
 use crate::cache::remember;

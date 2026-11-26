@@ -158,6 +158,9 @@ fn kind_for(lane: &str, row: &Value, id: &str) -> Option<&'static str> {
         // This version requires a start image: Studio also permits prompt-only generation.
         return (VIDEO.is_match(id) && !VIDEO_15.is_match(id)).then_some("video");
     }
+    if lane == "acp-antigravity" {
+        return row.get("imageGeneration").and_then(Value::as_bool).unwrap_or(true).then_some("image");
+    }
     if lane == "antigravity-oauth"
         && let Some(flag) = row.get("imageGeneration").and_then(Value::as_bool)
     {
@@ -296,7 +299,12 @@ pub fn project_media_models(lane: &str, rows: &[Value]) -> Projected {
         } else {
             None
         };
-        let model = Model { label: model_label(lane, row, &id), id, controls, description: None, request_model: None };
+        let description = if lane == "acp-antigravity" {
+            row.get("description").and_then(Value::as_str).map(js_trim).filter(|d| !d.is_empty()).map(str::to_owned)
+        } else {
+            None
+        };
+        let model = Model { label: model_label(lane, row, &id), id, controls, description, request_model: None };
         found[usize::from(kind == "video")].push(Candidate { model, created: created_of(row), advertised_order });
     }
     let [image, video] = found;
@@ -353,6 +361,9 @@ pub fn catalog_message(code: &str) -> Option<&'static str> {
 pub struct CatalogFailure {
     pub code: Option<String>,
     pub timed_out: bool,
+    /// Optional plain-language diagnostic authored by Mixdog (e.g. an ACP readiness failure);
+    /// HTTP provider fetches leave this `None` so raw upstream error strings are never surfaced.
+    pub message: Option<String>,
 }
 
 /// `catalogDiagnostic(error)`: the safe `(code, message)`.

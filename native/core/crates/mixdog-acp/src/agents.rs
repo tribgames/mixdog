@@ -117,6 +117,14 @@ impl Readiness {
     }
 }
 
+/// Already-observed state of a preset, without starting a readiness check.
+pub(crate) struct ObservedState {
+    pub(crate) readiness: Option<Readiness>,
+    pub(crate) running: Option<crate::upkeep::Step>,
+    /// Set when the CLI is ready but the agent refused the signed-in account.
+    pub(crate) refused: Option<String>,
+}
+
 /// Why a session has no agent.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Refusal {
@@ -124,7 +132,7 @@ pub enum Refusal {
     Off,
     NotReady(Readiness),
     Fault(Fault),
-    /// The session was closed, deleted or unloaded while its agent started.
+    /// The session was closed, parked or deleted while its agent started, or the app is stopping.
     Closed,
 }
 
@@ -252,6 +260,8 @@ pub struct AgentsParts {
     pub presets: Vec<AgentPreset>,
     pub processes: Arc<dyn ProcessManager>,
     pub files: Arc<dyn TextFiles>,
+    /// The lane the images of a tool's result are fitted on for an agent.
+    pub cpu: mixdog_rt::CpuInteractive,
     /// The feature's switch, read at every use.
     pub enabled: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Told when a readiness changed (the settings value's change tick).
@@ -304,9 +314,18 @@ pub struct Agents {
     /// The stops of shared servers under way, each resolving once its server has exited: the app's stop waits for them.
     pub(crate) stops: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// The threads whose agent is being started, each with its start's number.
-    opening: Mutex<HashMap<ThreadId, u64>>,
+    pub(crate) opening: Mutex<HashMap<ThreadId, u64>>,
+    /// The threads whose session a retired server held, each being reopened on a new server: a turn of the thread
+    /// meanwhile waits for that reopen.
+    resuming: Mutex<HashMap<ThreadId, Resuming>>,
+    /// What each thread's session carried when its process was let go of while the thread keeps its agent, with that
+    /// session's id: the reopen of that session takes it over.
+    carried: Mutex<HashMap<ThreadId, (String, crate::session::Carried)>>,
+    /// The threads whose Mixdog session unloaded while their agent's session stayed: a retired server does not reopen
+    /// theirs before their next turn.
+    unloaded: Mutex<std::collections::HashSet<ThreadId>>,
     /// What the user approved for the rest of each thread's session.
-    grants: Mutex<HashMap<ThreadId, Arc<Mutex<std::collections::HashSet<mixdog_tools::policy::GrantKey>>>>>,
+    pub(crate) grants: Mutex<HashMap<ThreadId, Arc<Mutex<std::collections::HashSet<mixdog_tools::policy::GrantKey>>>>>,
     /// What each agent said when it refused the signed-in account, by preset id; `None` until it is read from where it is kept.
     refused: Mutex<Option<HashMap<String, String>>>,
     /// The running sign-in of each preset.
@@ -328,7 +347,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// Outcome of inspecting a thread's currently running session before opening a replacement.
 pub(crate) enum ExistingSession {
-    Reuse(Arc<AgentSession>),
+    Reuse(Arc<AgentSession>, Option<crate::shared::SessionUse>),
     Open { stored: Option<crate::runs::Stored>, abandoned: bool },
 }
 
@@ -354,6 +373,13 @@ impl Drop for Opening<'_> {
     }
 }
 
+/// A reopen of a thread's session a retired server held: the number of its start among the thread's, and what fires
+/// once it ended, opened or not.
+struct Resuming {
+    opening: u64,
+    done: CancellationToken,
+}
+
 impl Agents {
     pub fn new(parts: AgentsParts) -> Arc<Self> {
         Arc::new(Self {
@@ -371,6 +397,9 @@ impl Agents {
             stop_token: CancellationToken::new(),
             stops: Mutex::default(),
             opening: Mutex::default(),
+            resuming: Mutex::default(),
+            carried: Mutex::default(),
+            unloaded: Mutex::default(),
             grants: Mutex::default(),
             refused: Mutex::default(),
             logins: Mutex::default(),
@@ -426,6 +455,23 @@ impl Agents {
     /// The preset a route's provider id names, whatever the switch says: a session stays an agent's when the feature is turned off.
     pub fn preset_of_route(&self, provider: &str) -> Option<&AgentPreset> {
         self.parts.presets.iter().find(|preset| preset.provider == provider)
+    }
+
+    /// Already-observed readiness, in-flight upkeep step, and any account refusal for `preset`, without starting a check.
+    pub(crate) fn observed_state(&self, preset: &AgentPreset) -> ObservedState {
+        let (readiness, running) = {
+            let slots = lock(&self.slots);
+            match slots.get(&preset.id) {
+                Some(slot) => (slot.readiness.clone(), slot.running_step()),
+                None => (None, None),
+            }
+        };
+        let refused = if matches!(readiness, Some(Readiness::Ready { .. })) {
+            lock(&self.refused).as_ref().and_then(|refused| refused.get(&preset.id).cloned())
+        } else {
+            None
+        };
+        ObservedState { readiness, running, refused }
     }
 
     /// What the last finished check of `preset` found. A preset nobody looked at yet is looked at in the
@@ -621,6 +667,22 @@ impl Agents {
         json!({ "enabled": enabled, "agents": agents })
     }
 
+    /// The picker's rows of agents already known to be ready, without starting checks on unchecked presets.
+    pub(crate) fn ready_picker_rows(&self) -> Vec<Value> {
+        if !self.enabled() {
+            return Vec::new();
+        }
+        let mut rows = Vec::new();
+        for preset in &self.parts.presets {
+            let found = lock(&self.slots).get(&preset.id).and_then(|slot| slot.readiness.clone());
+            let Some(Readiness::Ready { models, .. }) = found.map(|found| self.as_refused(preset, found)) else { continue };
+            rows.extend(
+                crate::tiers::offered(&models, &preset.quirks).iter().map(|listed| self.with_window(preset, &listed.id, Self::listed_row(preset, listed))),
+            );
+        }
+        rows
+    }
+
     /// The picker's rows of the agents that can run a session now: one per named model of its scope the agent reports.
     /// The agent's default model is no row of it, though a route or a call may name it. Empty while the feature is off.
     pub fn picker_rows(self: &Arc<Self>) -> Vec<Value> {
@@ -735,8 +797,10 @@ impl Agents {
         // A session reopened on its preset's shared server keeps the server running until the new one is on it.
         let _held = self.hold_shared(thread, preset);
         match self.resolve_running(thread, preset, &cwd, stored, rules.as_deref()).await? {
-            ExistingSession::Reuse(running) => Ok(running),
-            ExistingSession::Open { stored, abandoned } => self.open_session(thread, preset, cwd, stored, rules, abandoned).await,
+            ExistingSession::Reuse(running, _use) => Ok(running),
+            ExistingSession::Open { stored, abandoned } => {
+                self.open_session(thread, preset, cwd, stored, rules, abandoned).await.map(|(session, _use)| session)
+            }
         }
     }
 
@@ -760,7 +824,18 @@ impl Agents {
             stored = None;
             abandoned = true;
         }
-        let running = lock(&self.sessions).get(thread).cloned();
+        lock(&self.unloaded).remove(thread);
+        // The thread's session a retired server held, reopening on a new one, is the one the thread goes on in.
+        let running = loop {
+            let (running, resuming) = {
+                let sessions = lock(&self.sessions);
+                (sessions.get(thread).cloned(), lock(&self.resuming).get(thread).map(|resuming| resuming.done.clone()))
+            };
+            match (running, resuming) {
+                (None, Some(done)) => done.cancelled().await,
+                (running, _) => break running,
+            }
+        };
         let mut _held = None;
         if let Some(running) = running {
             if running.preset.id == preset.id && running.cwd == *cwd && !running.gone().is_cancelled() {
@@ -779,8 +854,11 @@ impl Agents {
                     } else {
                         true
                     };
-                    if closed && !running.gone().is_cancelled() {
-                        return Ok(ExistingSession::Reuse(running));
+                    if closed
+                        && !running.gone().is_cancelled()
+                        && let Ok(use_guard) = running.try_enter_use()
+                    {
+                        return Ok(ExistingSession::Reuse(running, use_guard));
                     }
                     if !closed && preset.scope == ProcessScope::Shared {
                         // Reopening the same session id on the shared server would reattach to the stuck prompt.
@@ -825,18 +903,36 @@ impl Agents {
         stored: Option<crate::runs::Stored>,
         rules: Option<String>,
         abandoned: bool,
-    ) -> Result<Arc<AgentSession>, Refusal> {
+    ) -> Result<(Arc<AgentSession>, Option<crate::shared::SessionUse>), Refusal> {
         if !self.enabled() {
             return Err(Refusal::Off);
         }
+        if self.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(Refusal::Closed);
+        }
         // A close of the thread while its agent starts ends the start: the agent it would hold is never kept.
         let opening = self.begin_opening(thread.clone());
+        self.open_as(opening, thread, preset, cwd, stored, rules, abandoned).await
+    }
+
+    /// [`Self::open_session`] as the thread's start `opening`.
+    #[allow(clippy::too_many_arguments, reason = "the open's own arguments and the start it is")]
+    async fn open_as(
+        self: &Arc<Self>,
+        opening: Opening<'_>,
+        thread: &ThreadId,
+        preset: &AgentPreset,
+        cwd: AbsPath,
+        stored: Option<crate::runs::Stored>,
+        rules: Option<String>,
+        abandoned: bool,
+    ) -> Result<(Arc<AgentSession>, Option<crate::shared::SessionUse>), Refusal> {
         // The CLI is checked before its ACP mode is started: one too old for it is never run in it. The start is
         // held against an update of the CLI until the session is among those the update looks at.
         let (program, _starting) = self.ready_program(preset).await?;
         let grants = {
             let _sessions = lock(&self.sessions);
-            if !opening.current() {
+            if !opening.current() || self.stopping.load(std::sync::atomic::Ordering::SeqCst) {
                 return Err(Refusal::Closed);
             }
             lock(&self.grants).entry(thread.clone()).or_default().clone()
@@ -878,7 +974,7 @@ impl Agents {
                     handed: make_handed(),
                     temp: None,
                 };
-                AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, make_on_exit()).await
+                AgentSession::open(self.parts.processes.clone(), self.parts.files.clone(), open, wake, make_on_exit()).await.map(|session| (session, None))
             }
             // The preset's one server, started by the first session that needs it, serves this one beside the others.
             ProcessScope::Shared => {
@@ -892,6 +988,10 @@ impl Agents {
                             break;
                         }
                     };
+                    // A start the thread's close (or a reopen's end) ended while the server started opens nothing on it.
+                    if !opening.current() {
+                        return Err(Refusal::Closed);
+                    }
                     let server = lease.server().clone();
                     let open = Open {
                         preset,
@@ -909,9 +1009,9 @@ impl Agents {
                         Some(deadline) => Some(deadline.saturating_duration_since(tokio::time::Instant::now())),
                         None => existing.then(|| self.shared_open_timeout()),
                     };
-                    match AgentSession::open_on_shared(lease, open, wake.clone(), make_on_exit(), timeout).await {
-                        Ok(session) => {
-                            result = Ok(session);
+                    match AgentSession::open_on_shared_owned(lease, open, wake.clone(), make_on_exit(), timeout).await {
+                        Ok(owned) => {
+                            result = Ok(owned.into_parts());
                             break;
                         }
                         Err(crate::session::OpenSharedError::TimedOut) => {
@@ -941,8 +1041,8 @@ impl Agents {
                 result
             }
         };
-        let session = match opened {
-            Ok(session) => session,
+        let (session, use_guard) = match opened {
+            Ok(opened) => opened,
             Err(fault) => {
                 self.open_failed(preset, &fault).await;
                 return Err(Refusal::Fault(fault));
@@ -956,24 +1056,37 @@ impl Agents {
         // The feature may have been turned off, or the thread closed, while the agent started: the newest holder wins,
         // and a switch that is off holds none.
         if !self.enabled() {
+            drop(use_guard);
             session.end();
             return Err(Refusal::Off);
         }
-        // The thread's close and this start meet under the sessions' lock: a start the close ended keeps nothing.
-        let mut sessions = lock(&self.sessions);
-        if !opening.current() {
-            session.end();
-            return Err(Refusal::Closed);
-        }
-        // A session gone already (its process exited, or its server was retired, while it opened) may have had its end
-        // told before the slot above was set, which then forgot nothing: it is not kept.
-        if session.gone().is_cancelled() {
-            return Err(Refusal::Fault(session.closed()));
-        }
-        if let Some(replaced) = sessions.insert(thread.clone(), session.clone()) {
+        // The thread's close and this start meet under the sessions' lock: a start the close or shutdown ended keeps nothing.
+        let replaced = {
+            let mut sessions = lock(&self.sessions);
+            if !opening.current() || self.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+                drop(sessions);
+                drop(use_guard);
+                session.end();
+                return Err(Refusal::Closed);
+            }
+            // A session gone already (its process exited, or its server was retired, while it opened) may have had its end
+            // told before the slot above was set, which then forgot nothing: it is not kept.
+            if session.gone().is_cancelled() {
+                drop(sessions);
+                drop(use_guard);
+                return Err(Refusal::Fault(session.closed()));
+            }
+            if let Some((carried_by, carried)) = lock(&self.carried).remove(thread)
+                && carried_by == session.session_id
+            {
+                session.adopt(carried);
+            }
+            sessions.insert(thread.clone(), session.clone())
+        };
+        if let Some(replaced) = replaced {
             replaced.end();
         }
-        Ok(session)
+        Ok((session, use_guard))
     }
 
     /// A session of `preset`'s agent could not be opened for `fault`: one that says the user signed out since the last
@@ -1044,20 +1157,119 @@ impl Agents {
     /// Ends the process of `thread`'s agent, or takes its session alone off the shared server it runs on; the thread
     /// stays the agent's, and its next turn starts or reopens one again.
     pub fn end_process(&self, thread: &ThreadId) {
-        let session = lock(&self.sessions).remove(thread);
+        let session = {
+            let mut sessions = lock(&self.sessions);
+            self.stop_resuming(thread);
+            sessions.remove(thread)
+        };
         if let Some(session) = session {
             session.end();
         }
     }
 
+    /// Lets go of `thread`'s agent process while the thread keeps its agent: an idle session is ended (taken off its
+    /// shared server alone), keeping what the user approved and what it carries, and the thread's next turn reopens it;
+    /// one that is not idle (a turn, a cancel, or a call left running in the agent's background) stays. Neither is
+    /// reopened on a new server before the thread's next turn.
+    pub fn release_idle(&self, thread: &ThreadId) {
+        let session = {
+            let mut sessions = lock(&self.sessions);
+            self.stop_resuming(thread);
+            match sessions.get(thread) {
+                Some(running) if running.is_idle() => {
+                    lock(&self.carried).insert(thread.clone(), (running.session_id.clone(), running.carried()));
+                    sessions.remove(thread)
+                }
+                Some(_) => {
+                    lock(&self.unloaded).insert(thread.clone());
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some(session) = session {
+            session.end();
+        }
+    }
+
+    /// `thread`'s Mixdog session unloaded while its agent's session stays: a retired server does not reopen it before
+    /// the thread's next turn.
+    pub fn unloaded(&self, thread: &ThreadId) {
+        let _sessions = lock(&self.sessions);
+        self.stop_resuming(thread);
+        lock(&self.unloaded).insert(thread.clone());
+    }
+
+    /// Ends the reopen of `thread`'s session a retired server held, where one is under way: what it opens is not kept.
+    /// Called under the sessions' lock.
+    fn stop_resuming(&self, thread: &ThreadId) {
+        if let Some(resuming) = lock(&self.resuming).remove(thread) {
+            let mut opening = lock(&self.opening);
+            if opening.get(thread) == Some(&resuming.opening) {
+                opening.remove(thread);
+            }
+        }
+    }
+
+    /// The sessions `server`, retired, still held leave their threads' agents, each keeping what the user approved and
+    /// what it carries. Those of threads whose Mixdog session is loaded are reopened on a new server at once, in the
+    /// background, so their next turn finds them open; a turn of one of them meanwhile waits for that reopen.
+    pub(crate) fn reopen_held(self: &Arc<Self>, server: &Arc<crate::shared::SharedServer>) {
+        let (held, reopens) = {
+            let mut sessions = lock(&self.sessions);
+            let threads: Vec<ThreadId> = sessions.iter().filter(|(_, session)| session.on_server(server)).map(|(thread, _)| thread.clone()).collect();
+            let held: Vec<(ThreadId, Arc<AgentSession>)> =
+                threads.into_iter().filter_map(|thread| sessions.remove(&thread).map(|session| (thread, session))).collect();
+            let reopening = self.enabled() && !self.stopping.load(std::sync::atomic::Ordering::SeqCst);
+            let unloaded = lock(&self.unloaded);
+            let mut resuming = lock(&self.resuming);
+            let mut opening = lock(&self.opening);
+            let mut carried = lock(&self.carried);
+            let mut reopens = Vec::new();
+            for (thread, session) in &held {
+                carried.insert(thread.clone(), (session.session_id.clone(), session.carried()));
+                if !reopening || unloaded.contains(thread) || opening.contains_key(thread) {
+                    continue;
+                }
+                let id = self.next_check.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                opening.insert(thread.clone(), id);
+                let done = CancellationToken::new();
+                resuming.insert(thread.clone(), Resuming { opening: id, done: done.clone() });
+                let stored = crate::runs::Stored { session_id: session.session_id.clone(), prompt: session.prompt.clone() };
+                reopens.push((thread.clone(), session.preset.clone(), session.cwd.clone(), stored, session.rules.clone(), id, done));
+            }
+            (held, reopens)
+        };
+        for (_, session) in held {
+            session.end();
+        }
+        for (thread, preset, cwd, stored, rules, id, done) in reopens {
+            let agents = self.clone();
+            drop(mixdog_rt::spawn("acp.shared.reopen", mixdog_rt::TaskClass::Work, async move {
+                let opening = Opening { agents: &agents, thread: thread.clone(), id };
+                drop(agents.open_as(opening, &thread, &preset, cwd, Some(stored), rules, false).await);
+                {
+                    let mut resuming = lock(&agents.resuming);
+                    if resuming.get(&thread).is_some_and(|resuming| resuming.opening == id) {
+                        resuming.remove(&thread);
+                    }
+                }
+                done.cancel();
+            }));
+        }
+    }
+
     /// Ends the agent of `thread` with its whole process tree, or takes its session alone off the shared server, one
-    /// that is still starting included: the thread closed, was deleted or left memory. What the user approved for the
-    /// session goes with it.
+    /// that is still starting included: the thread closed, was cleaned up, parked, or deleted. What the user approved
+    /// for the session goes with it.
     pub fn release(&self, thread: &ThreadId) {
         let session = {
             let mut sessions = lock(&self.sessions);
+            lock(&self.unloaded).remove(thread);
+            lock(&self.resuming).remove(thread);
             lock(&self.opening).remove(thread);
             lock(&self.grants).remove(thread);
+            lock(&self.carried).remove(thread);
             sessions.remove(thread)
         };
         if let Some(session) = session {
@@ -1069,8 +1281,11 @@ impl Agents {
     pub fn release_all(&self) {
         let sessions: Vec<_> = {
             let mut sessions = lock(&self.sessions);
+            lock(&self.unloaded).clear();
+            lock(&self.resuming).clear();
             lock(&self.opening).clear();
             lock(&self.grants).clear();
+            lock(&self.carried).clear();
             sessions.drain().collect()
         };
         for (_, session) in sessions {
@@ -1094,6 +1309,14 @@ impl Agents {
 impl mixdog_core_session::session::purge::SessionAgentProcesses for Agents {
     fn release(&self, session_id: &str) {
         Agents::release(self, &ThreadId::from(session_id));
+    }
+
+    fn release_idle(&self, session_id: &str) {
+        Agents::release_idle(self, &ThreadId::from(session_id));
+    }
+
+    fn unloaded(&self, session_id: &str) {
+        Agents::unloaded(self, &ThreadId::from(session_id));
     }
 }
 

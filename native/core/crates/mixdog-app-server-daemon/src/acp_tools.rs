@@ -342,8 +342,16 @@ impl Conversation for Held {
         self.0.compaction_due().map(|(used, trigger)| mixdog_acp::runs::Due { used, trigger })
     }
 
+    fn auto_compaction_trigger(&self, effective_window: u64) -> Option<u64> {
+        self.0.auto_compaction_trigger(effective_window)
+    }
+
     async fn compact(&self) -> Result<Option<String>, String> {
         self.0.compact().await
+    }
+
+    async fn compact_mid_turn(&self, effective_window: Option<u64>) -> Result<Option<String>, String> {
+        self.0.compact_mid_turn(effective_window).await
     }
 }
 
@@ -590,8 +598,6 @@ const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const WRITE_BLOCK: usize = 8 * 1024 * 1024;
 /// The most redirects a build's download follows, as many as a client follows by default.
 const MAX_REDIRECTS: usize = 10;
-/// How much of an answer that is no success is told.
-const FAILURE_TEXT_CHARS: usize = 300;
 
 /// The ACP registry over the network: its index, and a build's archive downloaded over HTTPS alone, checked against its
 /// SHA-256 and unpacked with the archive extraction of the managed engine installs.
@@ -716,16 +722,50 @@ impl mixdog_acp::registry::RegistryFetcher for RegistryDownloads {
         };
         self.on_lane(job).await
     }
+}
 
-    async fn post(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<Value, String> {
-        let request = headers.iter().fold(self.direct.post(url).timeout(INDEX_TIMEOUT).body(body), |request, (name, value)| request.header(name, value));
-        let response = request.send().await.map_err(|error| error.to_string())?;
-        let status = response.status();
-        let text = response.text().await.map_err(|error| error.to_string())?;
-        if !status.is_success() {
-            return Err(format!("{status}: {}", text.chars().take(FAILURE_TEXT_CHARS).collect::<String>()));
-        }
-        serde_json::from_str(&text).map_err(|error| format!("the answer of {url} is not JSON: {error}"))
+/// Bridges [`mixdog_acp::image::AgentImageGen`] onto [`mixdog_services::media::AcpImageBackend`].
+pub struct AcpImageAdapter(pub Arc<mixdog_acp::image::AgentImageGen>);
+
+#[async_trait]
+impl mixdog_services::media::AcpImageBackend for AcpImageAdapter {
+    async fn authenticated(&self, provider: &str) -> bool {
+        self.0.authenticated(provider).await
+    }
+
+    async fn unavailable_reason(&self, provider: &str) -> Option<String> {
+        self.0.unavailable_reason(provider).await
+    }
+
+    async fn catalog_models(&self, provider: &str) -> Result<Vec<Value>, mixdog_services::media::catalog::CatalogFailure> {
+        self.0.catalog_models(provider).await.map_err(|error| {
+            let code = match error.kind {
+                mixdog_acp::image::AcpImageErrorKind::NotInstalled | mixdog_acp::image::AcpImageErrorKind::SignIn => "MEDIA_AUTH_REJECTED",
+                mixdog_acp::image::AcpImageErrorKind::Refusal => "MEDIA_ACCESS_DENIED",
+                mixdog_acp::image::AcpImageErrorKind::Capacity => "MEDIA_RATE_LIMITED",
+                mixdog_acp::image::AcpImageErrorKind::Cancelled | mixdog_acp::image::AcpImageErrorKind::Failed => "MEDIA_CATALOG_UNAVAILABLE",
+            };
+            let message = (!error.message.trim().is_empty()).then_some(error.message);
+            mixdog_services::media::catalog::CatalogFailure { code: Some(code.to_owned()), timed_out: false, message }
+        })
+    }
+
+    async fn generate(
+        &self,
+        request: mixdog_services::media::AcpImageRequest,
+        cancel: &CancellationToken,
+    ) -> Result<mixdog_services::media::AcpImageReply, mixdog_services::media::MediaFailure> {
+        let mapped = mixdog_acp::image::AcpImageRequest {
+            provider: request.provider,
+            prompt: request.prompt,
+            aspect_ratio: request.aspect_ratio,
+            references: request.references.into_iter().map(|r| mixdog_acp::image::AcpImageReference { bytes: r.bytes, mime: r.mime, name: r.name }).collect(),
+        };
+        let reply = self.0.generate(mapped, cancel).await.map_err(|error| {
+            let code = error.code().to_owned();
+            mixdog_services::media::MediaFailure { message: error.message, code: Some(code), usage: error.usage.map(Box::new), refusal: None }
+        })?;
+        Ok(mixdog_services::media::AcpImageReply { bytes: reply.bytes, mime: reply.mime, revised_prompt: reply.revised_prompt, usage: reply.usage })
     }
 }
 
@@ -813,6 +853,7 @@ mod tests {
             presets: vec![preset.clone()],
             processes: Arc::new(NeverStarts),
             files: Arc::new(NoFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             enabled: {
                 let enabled = enabled.clone();
                 Arc::new(move || enabled.load(Ordering::SeqCst))
@@ -1008,6 +1049,7 @@ mod tests {
             presets: builtin_presets(),
             processes: Arc::new(NeverStarts),
             files: Arc::new(NoFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             enabled: Arc::new(|| false),
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),
@@ -1440,5 +1482,42 @@ mod tests {
         assert_eq!(row.cache_read, 800.0);
         assert_eq!(row.cache_write, 300.0);
         assert!((row.cost_usd.expect("reported cost preserved") - 0.042).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn acp_image_adapter_preserves_catalog_error_message_and_unavailable_reason() {
+        use mixdog_services::media::AcpImageBackend as _;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let enabled = Arc::new(AtomicBool::new(false));
+        let enabled_flag = enabled.clone();
+        let agents = Agents::new(AgentsParts {
+            refusals: Arc::new(KeptRefusals::in_data_dir(dir.path(), mixdog_rt::testing::tokens().durability_io)),
+            presets: vec![shipped("antigravity")],
+            processes: Arc::new(NeverStarts),
+            files: Arc::new(NoFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            enabled: Arc::new(move || enabled_flag.load(Ordering::SeqCst)),
+            changed: Arc::new(|| {}),
+            probe_cwd: dir.path().to_path_buf(),
+            definitions: dir.path().join("defs"),
+            data_dir: dir.path().join("acp"),
+            env: Arc::new(|_| None),
+            mcp_bridge: None,
+            registry: None,
+        });
+        let adapter = AcpImageAdapter(mixdog_acp::image::AgentImageGen::new(agents));
+
+        assert!(!adapter.authenticated("acp-antigravity").await);
+        assert_eq!(adapter.unavailable_reason("acp-antigravity").await.as_deref(), Some("ACP agents are turned off in Settings."));
+        let off_err = adapter.catalog_models("acp-antigravity").await.expect_err("off returns catalog error");
+        assert_eq!(off_err.code.as_deref(), Some("MEDIA_AUTH_REJECTED"));
+        assert_eq!(off_err.message.as_deref(), Some("ACP agents are turned off in Settings."));
+
+        // Turned on, not installed: preserves plain-language not-installed cause instead of generic message.
+        enabled.store(true, Ordering::SeqCst);
+        assert!(!adapter.authenticated("acp-antigravity").await);
+        let not_installed = adapter.unavailable_reason("acp-antigravity").await.expect("not-installed reason");
+        assert!(not_installed.contains("not installed"), "unexpected reason: {not_installed}");
     }
 }

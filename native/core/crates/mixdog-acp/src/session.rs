@@ -269,6 +269,8 @@ pub struct AgentSession {
     pub handed: Option<Handover>,
     /// [`digest`] of Mixdog's prompt as the agent's session holds it now; `None` when it holds none.
     pub prompt: Option<String>,
+    /// Mixdog's prompt the session was opened with: a reopen of it on a new server is opened with it again.
+    pub(crate) rules: Option<String>,
     /// The agent takes images in a prompt.
     pub images: bool,
     /// The agent takes a file's text in a prompt as an embedded resource.
@@ -575,6 +577,24 @@ impl RefuseBudget {
         }
     }
 
+    pub(crate) async fn notify(&mut self, session: &AgentSession, method: &str, params: Value) {
+        if self.stalled || session.connection.exited().is_cancelled() {
+            return;
+        }
+        if self.remaining.is_zero() {
+            self.stalled = true;
+            session.break_connection("cancel write budget exhausted on stalled stdin");
+            return;
+        }
+        let started = tokio::time::Instant::now();
+        let timed = mixdog_rt::time::timeout(self.remaining, session.connection.notify(method, params)).await;
+        self.remaining = self.remaining.saturating_sub(started.elapsed());
+        if timed.is_err() {
+            self.stalled = true;
+            session.break_connection("cancel write timed out on stalled stdin");
+        }
+    }
+
     pub(crate) async fn wait_write(&mut self, session: &AgentSession, done: tokio::sync::oneshot::Receiver<()>, why: &str) {
         if self.stalled || session.connection.exited().is_cancelled() {
             return;
@@ -594,28 +614,43 @@ impl RefuseBudget {
     }
 }
 
+/// What a session's reopen in another process takes over from it: the calls of Mixdog tools that went on past the
+/// agent's deadline, and the attached files its prompts linked from outside its folder.
+pub(crate) struct Carried {
+    kept: Vec<(String, Value, String)>,
+    attached: HashSet<AbsPath>,
+}
+
 /// RAII ownership handle for a registered [`AgentSession`]. Dropping an undisarmed handle calls
 /// [`AgentSession::end`] so transferring or awaiting a session across channels/selects never leaks
 /// a live session or its router task.
-pub(crate) struct OwnedSession(Option<Arc<AgentSession>>);
+pub(crate) struct OwnedSession {
+    session: Option<Arc<AgentSession>>,
+    use_guard: Option<crate::shared::SessionUse>,
+}
 
 impl OwnedSession {
     pub(crate) fn new(session: Arc<AgentSession>) -> Self {
-        Self(Some(session))
+        Self { session: Some(session), use_guard: None }
+    }
+
+    pub(crate) fn with_use(session: Arc<AgentSession>, use_guard: Option<crate::shared::SessionUse>) -> Self {
+        Self { session: Some(session), use_guard }
     }
 
     pub(crate) fn session(&self) -> &Arc<AgentSession> {
-        self.0.as_ref().expect("OwnedSession held until consumed")
+        self.session.as_ref().expect("OwnedSession held until consumed")
     }
 
-    pub(crate) fn into_inner(mut self) -> Arc<AgentSession> {
-        self.0.take().expect("OwnedSession held until consumed")
+    pub(crate) fn into_parts(mut self) -> (Arc<AgentSession>, Option<crate::shared::SessionUse>) {
+        (self.session.take().expect("OwnedSession held until consumed"), self.use_guard.take())
     }
 }
 
 impl Drop for OwnedSession {
     fn drop(&mut self) {
-        if let Some(session) = self.0.take() {
+        self.use_guard.take();
+        if let Some(session) = self.session.take() {
             session.end();
         }
     }
@@ -724,18 +759,8 @@ impl AgentSession {
 
     /// Opens the session on the preset's shared server the lease holds, beside the sessions it already serves: the stored
     /// one where there is one, else a new one. The session's tool server is its own, and so are its folder and settings.
-    pub(crate) async fn open_on_shared(
-        lease: Lease,
-        open: Open<'_>,
-        wake: Wake,
-        on_exit: Box<dyn FnOnce() + Send>,
-        open_timeout: Option<std::time::Duration>,
-    ) -> Result<Arc<Self>, OpenSharedError> {
-        Self::open_on_shared_owned(lease, open, wake, on_exit, open_timeout).await.map(OwnedSession::into_inner)
-    }
-
-    /// As [`Self::open_on_shared`], returning an RAII [`OwnedSession`] so dropping the returned value before
-    /// registration/adoption ends the session and shuts down its router automatically.
+    /// Returns an RAII [`OwnedSession`] so dropping the returned value before registration/adoption ends the session
+    /// and shuts down its router automatically.
     pub(crate) async fn open_on_shared_owned(
         lease: Lease,
         open: Open<'_>,
@@ -757,7 +782,8 @@ impl AgentSession {
         };
         let (session, answer, mut remote_guard) = Self::open_session(open, on, wake, open_timeout).await?;
         let first = shared.register(&session);
-        let owned = OwnedSession::new(session.clone());
+        let use_guard = shared.enter_use();
+        let owned = OwnedSession::with_use(session.clone(), use_guard);
         if let Some(guard) = remote_guard.as_mut() {
             guard.disarm();
         }
@@ -906,6 +932,7 @@ impl AgentSession {
             grants: open.grants,
             handed,
             prompt,
+            rules: open.rules,
             images: capabilities.pointer("/agentCapabilities/promptCapabilities/image") == Some(&Value::Bool(true)),
             embedded: capabilities.pointer("/agentCapabilities/promptCapabilities/embeddedContext") == Some(&Value::Bool(true)),
             closes,
@@ -965,8 +992,11 @@ impl AgentSession {
 
     /// Holds the shared server the session runs on open, as an open of a session on it does, while the lease is kept: a
     /// session ended to be opened again on it does not leave it serving none in between. `None` on a process of its own,
-    /// or a server that takes no more sessions.
+    /// a server that cannot close sessions individually (`!closes`), or a server that takes no more sessions.
     pub(crate) fn hold_server(&self) -> Option<crate::shared::Lease> {
+        if !self.closes {
+            return None;
+        }
         match &self.host {
             Host::Own => None,
             Host::Shared(shared) => shared.lease(),
@@ -975,6 +1005,42 @@ impl AgentSession {
 
     pub(crate) fn on_server(&self, server: &Arc<SharedServer>) -> bool {
         matches!(&self.host, Host::Shared(held) if Arc::ptr_eq(held, server))
+    }
+
+    pub(crate) fn own_connection(&self) -> Option<Arc<Connection>> {
+        match &self.host {
+            Host::Own => Some(self.connection.clone()),
+            Host::Shared(_) => None,
+        }
+    }
+
+    /// Whether this session has no turn running, no pending cancel, no unanswered cancelled prompt, nothing that wakes
+    /// a turn, and no background tool call still running. What waits without waking a turn (a report, the last update
+    /// of a background call that ended) is shown by the next turn, and keeps no process alive until then.
+    pub(crate) fn is_idle(&self) -> bool {
+        if self.has_pending_cancel() {
+            return false;
+        }
+        let routing = lock(&self.routing);
+        routing.turn.is_none()
+            && !routing.detaching
+            && !routing.woken
+            && routing.unanswered.is_none()
+            && !routing.background.values().any(|call| !call.tool.ended())
+    }
+
+    /// Marks this session's shared server as actively in use by a turn or RPC; `Err(())` once the server is retiring or exited.
+    pub(crate) fn try_enter_use(&self) -> Result<Option<crate::shared::SessionUse>, ()> {
+        match &self.host {
+            Host::Own => Ok(None),
+            Host::Shared(shared) => shared.enter_use().map(Some).ok_or(()),
+        }
+    }
+
+    pub(crate) fn settle_shared(&self) {
+        if let Host::Shared(shared) = &self.host {
+            shared.settle();
+        }
     }
 
     /// What a turn of the session fails with once it is gone: the end of its process, or its leaving the shared server.
@@ -1025,6 +1091,17 @@ impl AgentSession {
         lock(&self.attached).iter().cloned().collect()
     }
 
+    /// What a reopen of this session takes over from it; taken before its end, which clears the attached files.
+    pub(crate) fn carried(&self) -> Carried {
+        Carried { kept: lock(&self.kept).clone(), attached: lock(&self.attached).clone() }
+    }
+
+    /// Takes over what the session this one reopens carried.
+    pub(crate) fn adopt(&self, carried: Carried) {
+        lock(&self.kept).extend(carried.kept);
+        lock(&self.attached).extend(carried.attached);
+    }
+
     pub fn models(&self) -> Models {
         lock(&self.models).clone()
     }
@@ -1068,6 +1145,7 @@ impl AgentSession {
                 _ => {}
             }
         }
+        self.settle_shared();
     }
 
     /// Puts the agent on `model`; a model it is already on asks nothing.
@@ -1076,6 +1154,7 @@ impl AgentSession {
         if models.current.as_deref() == Some(model) {
             return Ok(());
         }
+        let _use = self.try_enter_use().map_err(|()| self.closed())?;
         match &models.config_option {
             Some(option) => {
                 self.connection.request("session/set_config_option", json!({ "sessionId": self.session_id, "configId": option, "value": model })).await?
@@ -1159,6 +1238,8 @@ impl AgentSession {
                     };
                     if end {
                         self.0.end();
+                    } else {
+                        self.0.settle_shared();
                     }
                 }
             }
@@ -1192,6 +1273,8 @@ impl AgentSession {
         };
         if end {
             self.end();
+        } else {
+            self.settle_shared();
         }
         end
     }
@@ -1237,7 +1320,17 @@ impl AgentSession {
             if !budget.stalled() {
                 let _ = session.connection.notify("session/cancel", json!({ "sessionId": session.session_id })).await;
             }
-            session.cancels.send_modify(|pending| *pending -= 1);
+            let remaining = {
+                let mut left = 0;
+                session.cancels.send_modify(|pending| {
+                    *pending -= 1;
+                    left = *pending;
+                });
+                left
+            };
+            if remaining == 0 {
+                session.settle_shared();
+            }
         }));
     }
 
@@ -1276,6 +1369,11 @@ impl AgentSession {
     /// Takes the background call `agent_id` out: its result is being shown.
     pub fn background_shown(&self, agent_id: &str) -> Option<Background> {
         lock(&self.routing).background.remove(agent_id)
+    }
+
+    /// Whether a call the agent kept running past an earlier turn has not ended yet.
+    pub(crate) fn has_open_background_calls(&self) -> bool {
+        lock(&self.routing).background.values().any(|call| !call.tool.ended())
     }
 
     /// The background task of the call of the Mixdog tool `name` with `arguments` that went on past the agent's deadline
@@ -1380,6 +1478,7 @@ impl AgentSession {
             grants: Arc::default(),
             handed: None,
             prompt: None,
+            rules: None,
             images: false,
             embedded: false,
             closes: false,
@@ -1795,6 +1894,7 @@ mod tests {
             grants: Arc::default(),
             handed: None,
             prompt: None,
+            rules: None,
             images: false,
             embedded: false,
             closes: false,

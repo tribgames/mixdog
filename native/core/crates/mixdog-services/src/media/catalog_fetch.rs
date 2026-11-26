@@ -73,7 +73,7 @@ impl FetchError {
 
     /// What the loader needs of it.
     pub fn failure(&self) -> CatalogFailure {
-        CatalogFailure { code: self.code.clone(), timed_out: self.timed_out }
+        CatalogFailure { code: self.code.clone(), timed_out: self.timed_out, message: None }
     }
 }
 

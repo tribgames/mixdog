@@ -74,6 +74,12 @@ pub trait Conversation: Send + Sync {
         None
     }
 
+    /// The session's automatic compaction trigger (in tokens) when running under `effective_window`, or `None` when
+    /// automatic compaction is off.
+    fn auto_compaction_trigger(&self, _effective_window: u64) -> Option<u64> {
+        None
+    }
+
     /// The session's own compaction of the conversation it holds, as a manual Compact makes it: the header stops
     /// naming the agent's session, the summary becomes the stored context, and the summary is returned as text for the
     /// session the agent starts next. `None` for a session with nothing to compact; an error may come after the header
@@ -81,6 +87,41 @@ pub trait Conversation: Send + Sync {
     async fn compact(&self) -> Result<Option<String>, String> {
         self.hand_over().await
     }
+
+    /// Compacts the live in-progress conversation mid-turn (including work committed during this turn), leaves the
+    /// agent's session behind, stores Mixdog's summary as the session's context, and returns it as text for the fresh
+    /// agent session.
+    async fn compact_mid_turn(&self, _effective_window: Option<u64>) -> Result<Option<String>, String> {
+        self.compact().await
+    }
+}
+
+/// The token occupancy at which Mixdog compacts an ACP session before the agent compacts itself: the lower of the
+/// session's automatic compaction trigger and the preset's compaction cliff. `None` when automatic compaction is off
+/// or no effective window is known.
+pub(crate) fn effective_compaction_trigger(preset: &AgentPreset, conversation: &dyn Conversation, effective_window: u64) -> Option<u64> {
+    if effective_window == 0 {
+        return None;
+    }
+    let policy_trigger = conversation.auto_compaction_trigger(effective_window)?;
+    let cliff = preset.quirks.mid_turn_compaction_cliff(effective_window);
+    Some(cliff.map_or(policy_trigger, |cliff| policy_trigger.min(cliff)).max(1))
+}
+
+fn header_positive_u64(header: &Header, key: &str) -> Option<u64> {
+    let n = header.get(key).and_then(Value::as_f64)?.floor();
+    (n.is_finite() && n >= 1.0).then_some(n as u64)
+}
+
+fn header_context_tokens(header: &Header) -> Option<u64> {
+    if header.get("lastContextTokensStaleAfterCompact") == Some(&Value::Bool(true)) {
+        return None;
+    }
+    header_positive_u64(header, "lastContextTokens")
+}
+
+fn header_context_window(header: &Header) -> Option<u64> {
+    header_positive_u64(header, "rawContextWindow").or_else(|| header_positive_u64(header, "contextWindow"))
 }
 
 /// A context that reached the session's compaction trigger.
@@ -201,6 +242,10 @@ pub struct TurnRequest {
     pub input: Value,
     pub conversation: Arc<dyn Conversation>,
     pub attachments: Arc<dyn Attachments>,
+    /// The session's last measured context occupancy from the header, when fresh.
+    pub last_context_tokens: Option<u64>,
+    /// The context window persisted on the session header (raw or effective), if any.
+    pub context_window: Option<u64>,
 }
 
 /// What of a message did not reach the agent: how many images, and the name of each file.
@@ -255,7 +300,7 @@ fn file_uri(path: &str) -> String {
 /// under the file's name. Any other file (a PDF, a document), and a text too long for the prompt, is a link to where
 /// the attachment is stored, which the agent reads with a tool of its own: every agent takes a link, and none is sent
 /// bytes it may drop. `None` for a file that can be neither read nor linked.
-async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments) -> (Option<Value>, Option<String>) {
+async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments, max_embedded_bytes: usize) -> (Option<Value>, Option<String>) {
     let field = |key: &str| part.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
     let reference = field("attachmentRef");
     let name = file_name(part);
@@ -267,7 +312,7 @@ async fn file_block(part: &Value, embedded: bool, attachments: &dyn Attachments)
     };
     let text = bytes.and_then(|bytes| String::from_utf8(bytes).ok()).filter(|text| !text.contains('\0'));
     let mime = field("mimeType").or_else(|| field("mediaType"));
-    let in_prompt = text.filter(|text| text.len() <= EMBEDDED_TEXT_MAX_BYTES || stored.is_none());
+    let in_prompt = text.filter(|text| text.len() <= max_embedded_bytes || stored.is_none());
     match (in_prompt, stored) {
         (Some(text), stored) => {
             let block = if embedded {
@@ -309,16 +354,30 @@ fn has_candidate_parts(input: &Value, images: bool) -> bool {
 }
 
 /// The input row as the blocks of a prompt: its text parts as text, its images as image blocks where the agent takes
-/// them (`images`), its files as [`file_block`] makes them. Also what was left out and any stored attachment paths to
-/// allow for this session.
-pub(crate) async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool), attachments: &dyn Attachments) -> (Vec<Value>, LeftOut, Vec<String>) {
+/// them (`images`), its files as [`file_block`] makes them. Also returns the non-text/file attachment blocks separately
+/// so a mid-turn rollover can resend the turn's attachments to the fresh session, along with what was left out and any
+/// stored attachment paths to allow for this session.
+async fn prompt_blocks_with_attachments(
+    input: &Value,
+    (images, embedded): (bool, bool),
+    attachments: &dyn Attachments,
+) -> (Vec<Value>, Vec<Value>, LeftOut, Vec<String>) {
+    prompt_blocks_with_attachments_and_limit(input, (images, embedded), attachments, EMBEDDED_TEXT_MAX_BYTES).await
+}
+
+async fn prompt_blocks_with_attachments_and_limit(
+    input: &Value,
+    (images, embedded): (bool, bool),
+    attachments: &dyn Attachments,
+    max_embedded_bytes: usize,
+) -> (Vec<Value>, Vec<Value>, LeftOut, Vec<String>) {
     let text = |text: &str| json!({ "type": "text", "text": text });
     let parts = match input.get("content") {
         Some(Value::Array(parts)) => parts,
-        Some(Value::String(content)) => return (vec![text(content)], LeftOut::default(), Vec::new()),
-        _ => return (vec![text("")], LeftOut::default(), Vec::new()),
+        Some(Value::String(content)) => return (vec![text(content)], Vec::new(), LeftOut::default(), Vec::new()),
+        _ => return (vec![text("")], Vec::new(), LeftOut::default(), Vec::new()),
     };
-    let (mut blocks, mut left_out, mut attached) = (Vec::new(), LeftOut::default(), Vec::new());
+    let (mut blocks, mut attachment_blocks, mut left_out, mut attached) = (Vec::new(), Vec::new(), LeftOut::default(), Vec::new());
     for part in parts {
         let kind = part.get("type").and_then(Value::as_str);
         let mime = ["mimeType", "mediaType"].iter().find_map(|key| part.get(*key).and_then(Value::as_str).filter(|mime| !mime.is_empty()));
@@ -333,13 +392,18 @@ pub(crate) async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool
                     (None, None) => None,
                 };
                 match data {
-                    Some(data) => blocks.push(json!({ "type": "image", "mimeType": mime.unwrap_or("image/png"), "data": data })),
+                    Some(data) => {
+                        let block = json!({ "type": "image", "mimeType": mime.unwrap_or("image/png"), "data": data });
+                        attachment_blocks.push(block.clone());
+                        blocks.push(block);
+                    }
                     None => left_out.images += 1,
                 }
             }
             // A stored text attachment is a text part that names its attachment in place of its text.
-            Some("text" | "file") => match file_block(part, embedded, attachments).await {
+            Some("text" | "file") => match file_block(part, embedded, attachments, max_embedded_bytes).await {
                 (Some(block), stored) => {
+                    attachment_blocks.push(block.clone());
                     blocks.push(block);
                     if let Some(stored) = stored {
                         attached.push(stored);
@@ -350,6 +414,27 @@ pub(crate) async fn prompt_blocks(input: &Value, (images, embedded): (bool, bool
             _ => {}
         }
     }
+    (blocks, attachment_blocks, left_out, attached)
+}
+
+/// The input row as the blocks of a prompt: its text parts as text, its images as image blocks where the agent takes
+/// them (`images`), its files as [`file_block`] makes them. Also what was left out and any stored attachment paths to
+/// allow for this session.
+pub(crate) async fn prompt_blocks(input: &Value, capabilities: (bool, bool), attachments: &dyn Attachments) -> (Vec<Value>, LeftOut, Vec<String>) {
+    prompt_blocks_with_text_limit(input, capabilities, attachments, EMBEDDED_TEXT_MAX_BYTES).await
+}
+
+/// The input row as the blocks of a prompt: its text parts as text, its images as image blocks where the agent takes
+/// them (`images`), its files as [`file_block`] makes them, capping inline expansion of stored text files/pastes at
+/// `max_embedded_bytes` (clamped to [`EMBEDDED_TEXT_MAX_BYTES`]).
+pub(crate) async fn prompt_blocks_with_text_limit(
+    input: &Value,
+    capabilities: (bool, bool),
+    attachments: &dyn Attachments,
+    max_embedded_bytes: usize,
+) -> (Vec<Value>, LeftOut, Vec<String>) {
+    let limit = max_embedded_bytes.min(EMBEDDED_TEXT_MAX_BYTES);
+    let (blocks, _, left_out, attached) = prompt_blocks_with_attachments_and_limit(input, capabilities, attachments, limit).await;
     (blocks, left_out, attached)
 }
 
@@ -447,6 +532,72 @@ impl TurnSurface for TrackedSurface {
     }
 }
 
+fn clone_turn_context(base: &TurnContext, record: Option<HeaderChange>, mid_turn_compaction: Option<crate::turn::MidTurnCompaction>) -> TurnContext {
+    TurnContext {
+        turn: base.turn.clone(),
+        model: base.model.clone(),
+        effort: base.effort.clone(),
+        now_ms: base.now_ms.clone(),
+        cancel: base.cancel.clone(),
+        progress: base.progress.clone(),
+        calls: base.calls.clone(),
+        on_tool_result: base.on_tool_result.clone(),
+        record,
+        selected_window: base.selected_window,
+        attachments: base.attachments.clone(),
+        pictures: base.pictures.clone(),
+        transcript: base.transcript.clone(),
+        output_produced: base.output_produced.clone(),
+        mid_turn_compaction,
+        cpu: base.cpu,
+    }
+}
+
+fn mid_turn_compaction_for(
+    preset: &AgentPreset,
+    conversation: &Arc<dyn Conversation>,
+    after_rollover: bool,
+    left_behind: &Arc<std::sync::atomic::AtomicBool>,
+) -> crate::turn::MidTurnCompaction {
+    let preset = preset.clone();
+    let conversation = conversation.clone();
+    crate::turn::MidTurnCompaction {
+        trigger: Arc::new(move |effective_window| effective_compaction_trigger(&preset, conversation.as_ref(), effective_window)),
+        after_rollover,
+        left_behind: left_behind.clone(),
+    }
+}
+
+fn pre_turn_compaction_due(
+    agents: &Agents,
+    preset: &AgentPreset,
+    thread: &ThreadId,
+    context: &TurnContext,
+    last_context_tokens: Option<u64>,
+    header_window: Option<u64>,
+    conversation: &dyn Conversation,
+) -> Option<Due> {
+    let policy_due = conversation.compaction_due();
+    let cliff_due = last_context_tokens.and_then(|used| {
+        let running = agents.running(thread).filter(|session| session.preset.id == preset.id);
+        let active_model = running.as_ref().and_then(|session| session.models().current);
+        let raw_window = header_window
+            .or_else(|| agents.reported_window(preset, &context.model))
+            .or_else(|| active_model.as_deref().and_then(|model| preset.quirks.context_window_cap(model)))
+            .or_else(|| preset.quirks.context_window_cap(&context.model))
+            .or(preset.quirks.default_context_window_cap)?;
+        let capped = preset.quirks.effective_context_window_for(&context.model, active_model.as_deref(), raw_window);
+        let effective = context.selected_window.map_or(capped, |selected| selected.min(capped));
+        let trigger = effective_compaction_trigger(preset, conversation, effective)?;
+        (used >= trigger).then_some(Due { used, trigger })
+    });
+    match (policy_due, cliff_due) {
+        (Some(a), Some(b)) => Some(if b.trigger < a.trigger { b } else { a }),
+        (Some(due), None) | (None, Some(due)) => Some(due),
+        (None, None) => None,
+    }
+}
+
 async fn serve_with_refusal(
     agents: &Arc<Agents>,
     preset: &AgentPreset,
@@ -459,6 +610,9 @@ async fn serve_with_refusal(
         None => surface,
     };
     let thread = request.thread.clone();
+    let cwd = request.cwd.clone();
+    let rules = request.rules.clone();
+    let conversation = request.conversation.clone();
     let mut context = context;
     if context.attachments.is_none() {
         context.attachments = Some(request.attachments.clone());
@@ -467,35 +621,171 @@ async fn serve_with_refusal(
         // The reply is in the session that asked for this turn. One opened since has none of it, a prompt's turn that ran
         // first has shown it, and one of another preset (the route moved meanwhile) is not this route's to show: the wake
         // then has nothing to show, and is never a prompt.
-        let session = agents.running(&thread).filter(|running| running.preset.id == preset.id && running.woken() && !running.gone().is_cancelled());
-        let Some(session) = session else {
-            return (TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 }, false);
+        let session = agents
+            .running(&thread)
+            .filter(|running| running.preset.id == preset.id && running.woken() && !running.gone().is_cancelled())
+            .and_then(|running| running.try_enter_use().ok().map(|use_guard| (running, use_guard)));
+        let Some((session, _use)) = session else {
+            let end = TurnEnd::Completed { text: String::new(), stop_reason: None, tool_calls: 0 };
+            context.settle_progress(&end);
+            return (end, false);
         };
         return (crate::turn::run(&session, surface, Ask::Reply, context).await, false);
     }
-    let (session, prompt) = match begin(agents, preset, request, &surface, &context).await {
-        Ok((session, prompt, record)) => {
-            context.record = record;
-            (session, prompt)
+    let Begun { mut session, mut session_use, mut prompt, mut record, attached, attachment_blocks } =
+        match begin(agents, preset, request, &surface, &context).await {
+            Ok(begun) => begun,
+            // The turn ended before the agent was asked anything: what the agent queued for it is answered here, whatever
+            // step of the start it ended at.
+            Err((end, pre_prompt_refusal)) => {
+                account_learned(agents, preset, &end).await;
+                let why = match &end {
+                    TurnEnd::Failed { message, .. } => message.as_str(),
+                    _ => "the turn was stopped before it started",
+                };
+                agents.unrun(&thread, why).await;
+                context.settle_progress(&end);
+                return (end, pre_prompt_refusal);
+            }
+        };
+    let model = context.model.clone();
+    let mut accumulated_tool_calls: u64 = 0;
+    let mut after_rollover = false;
+    let mut needs_settle: bool;
+    let left_behind = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let end = loop {
+        let reports = session.reported_context_reports();
+        let compaction = Some(mid_turn_compaction_for(preset, &conversation, after_rollover, &left_behind));
+        let segment_context = clone_turn_context(&context, record.take(), compaction);
+        let segment_end = crate::turn::run(&session, surface.clone(), Ask::Prompt(prompt), segment_context).await;
+        // Only a window the agent reported in this turn is the turn's model's.
+        if let Some(reported) = session.context_use().filter(|_| session.reported_context_reports() > reports) {
+            let capped = preset.quirks.effective_context_window_for(&model, session.models().current.as_deref(), reported.size);
+            agents.window_reported(preset, &model, capped).await;
         }
-        // The turn ended before the agent was asked anything: what the agent queued for it is answered here, whatever
-        // step of the start it ended at.
-        Err((end, pre_prompt_refusal)) => {
-            account_learned(agents, preset, &end).await;
-            let why = match &end {
-                TurnEnd::Failed { message, .. } => message.as_str(),
-                _ => "the turn was stopped before it started",
-            };
-            agents.unrun(&thread, why).await;
-            return (end, pre_prompt_refusal);
+        match segment_end {
+            TurnEnd::CompactNeeded { due, effective_window, tool_calls } => {
+                accumulated_tool_calls += tool_calls;
+                after_rollover = true;
+                needs_settle = true;
+                let held = session.hold_server();
+                drop(session_use.take());
+                if preset.scope == ProcessScope::Shared {
+                    agents.abandon_shared(preset, &session.session_id);
+                }
+                agents.end_process(&thread);
+                let _ = surface.stage("compacting").await;
+                let began = (context.now_ms)();
+                let made = tokio::select! {
+                    biased;
+                    () = context.cancel.cancelled() => {
+                        drop(held);
+                        break TurnEnd::Interrupted;
+                    }
+                    made = conversation.compact_mid_turn(Some(effective_window)) => made,
+                };
+                let _ = surface.stage("requesting").await;
+                let summary = match made {
+                    Ok(Some(summary)) => {
+                        let _ = surface.compact_event(pass(due, (context.now_ms)() - began, CompactStatus::Compacted)).await;
+                        summary
+                    }
+                    Ok(None) => {
+                        drop(held);
+                        break TurnEnd::Failed {
+                            message: format!("The conversation could not be summarized mid-turn for {}: nothing to compact.", preset.label),
+                            code: None,
+                            reported: false,
+                        };
+                    }
+                    Err(why) => {
+                        tracing::warn!(
+                            "[acp] {}'s context reached the mid-turn compaction trigger ({} of {} tokens) and was not summarized: {why}",
+                            preset.id,
+                            due.used,
+                            due.trigger
+                        );
+                        let _ = surface.compact_event(pass(due, (context.now_ms)() - began, CompactStatus::Failed)).await;
+                        drop(held);
+                        break TurnEnd::Failed {
+                            message: format!("The conversation could not be summarized mid-turn for {}: {why}", preset.label),
+                            code: None,
+                            reported: false,
+                        };
+                    }
+                };
+                let (new_session, new_use) = tokio::select! {
+                    biased;
+                    () = context.cancel.cancelled() => {
+                        drop(held);
+                        break TurnEnd::Interrupted;
+                    }
+                    opened = agents.open_session(&thread, preset, cwd.clone(), None, rules.clone(), preset.scope == ProcessScope::Shared) => match opened {
+                        Ok(opened) => opened,
+                        Err(refusal) => {
+                            drop(held);
+                            break TurnEnd::Failed {
+                                message: refusal.message(preset),
+                                code: refusal.signed_out().then_some(AUTH_REQUIRED),
+                                reported: false,
+                            };
+                        }
+                    },
+                };
+                drop(held);
+                if context.model != DEFAULT_MODEL {
+                    let agent_model = crate::tiers::agent_model(&new_session.models(), &preset.quirks.effort_tiers, &context.model, context.effort.as_deref());
+                    let selected = tokio::select! {
+                        biased;
+                        () = context.cancel.cancelled() => {
+                            drop(new_use);
+                            cancel_started_session(agents, preset, &thread, &new_session.session_id, None, &surface).await;
+                            break TurnEnd::Interrupted;
+                        }
+                        selected = new_session.select_model(&agent_model) => selected,
+                    };
+                    if let Err(fault) = selected {
+                        drop(new_use);
+                        if preset.scope == ProcessScope::Shared {
+                            agents.abandon_shared(preset, &new_session.session_id);
+                        }
+                        agents.end_process(&thread);
+                        break TurnEnd::Failed { message: Refusal::Fault(fault).message(preset), code: None, reported: false };
+                    }
+                }
+                for path in &attached {
+                    new_session.allow_attached(path);
+                }
+                let lead = format!(
+                    "# The conversation before this session\nThis session continues a conversation held in Mixdog. Mixdog summarized it; take what follows as what was said and done before the continuation below.\n\n{summary}"
+                );
+                let continuation = "[mixdog-runtime] Mixdog compacted the session context mid-turn and started this fresh session. Continue the in-progress turn from the summary above without repeating already-completed work.";
+                let mut next_prompt: Vec<Value> =
+                    new_session.take_unsent_prompt().into_iter().chain([lead]).map(|text| json!({ "type": "text", "text": text })).collect();
+                next_prompt.extend(attachment_blocks.iter().cloned());
+                next_prompt.push(json!({ "type": "text", "text": continuation }));
+                let next_record = {
+                    let value = json!({ "agent": preset.id, "sessionId": new_session.session_id, "prompt": new_session.prompt });
+                    HeaderChange { set: std::iter::once((SESSION_KEY.to_owned(), value)).collect(), unset: Vec::new(), patch: Default::default() }
+                };
+                session = new_session;
+                session_use = new_use;
+                prompt = next_prompt;
+                record = Some(next_record);
+            }
+            TurnEnd::Completed { text, stop_reason, tool_calls } => {
+                needs_settle = false;
+                break TurnEnd::Completed { text, stop_reason, tool_calls: accumulated_tool_calls + tool_calls };
+            }
+            other => {
+                needs_settle = false;
+                break other;
+            }
         }
     };
-    let (model, reports) = (context.model.clone(), session.reported_context_reports());
-    let end = crate::turn::run(&session, surface.clone(), Ask::Prompt(prompt), context).await;
-    // Only a window the agent reported in this turn is the turn's model's.
-    if let Some(reported) = session.context_use().filter(|_| session.reported_context_reports() > reports) {
-        let capped = preset.quirks.effective_context_window_for(&model, session.models().current.as_deref(), reported.size);
-        agents.window_reported(preset, &model, capped).await;
+    drop(session_use);
+    if needs_settle {
+        context.settle_progress(&end);
     }
     // The agent connects to the session's tool server while it opens the session, or after it when that attempt took
     // too long: one that has not by the end of a turn it answered works with its own tools only.
@@ -513,6 +803,13 @@ async fn serve_with_refusal(
     if matches!(end, TurnEnd::Failed { code: Some(crate::turn::SESSION_NOT_FOUND), .. }) {
         agents.end_process(&thread);
         let _ = surface.save_header(unset_session_change()).await;
+    }
+    // The agent's session was cancelled for a rollover that never came: it holds answers given only to move on to a
+    // fresh session, so the conversation stops naming it and the next turn hands the conversation over to a new one.
+    if left_behind.load(std::sync::atomic::Ordering::SeqCst) {
+        agents.abandon_shared(preset, &session.session_id);
+        agents.end_process(&thread);
+        unset_session(&surface).await;
     }
     (end, false)
 }
@@ -555,6 +852,15 @@ async fn cancel_started_session(
     agents.end_process(thread);
 }
 
+struct Begun {
+    session: Arc<crate::session::AgentSession>,
+    session_use: Option<crate::shared::SessionUse>,
+    prompt: Vec<Value>,
+    record: Option<HeaderChange>,
+    attached: Vec<String>,
+    attachment_blocks: Vec<Value>,
+}
+
 /// The start of a prompt's turn: the agent's process found or started, its session opened, its model chosen, and the
 /// prompt's blocks made, with the header change that records the session with the conversation once the prompt is
 /// sent (`None` when the record stands). `Err` is the end of a turn that never reached the agent.
@@ -564,8 +870,8 @@ async fn begin(
     request: TurnRequest,
     surface: &Arc<dyn TurnSurface>,
     context: &TurnContext,
-) -> Result<(Arc<crate::session::AgentSession>, Vec<Value>, Option<HeaderChange>), (TurnEnd, bool)> {
-    let TurnRequest { thread, cwd, stored, rules, input, conversation, attachments } = request;
+) -> Result<Begun, (TurnEnd, bool)> {
+    let TurnRequest { thread, cwd, stored, rules, input, conversation, attachments, last_context_tokens, context_window } = request;
     let refused = |refusal: Refusal| {
         let eligible = !matches!(refusal, Refusal::Closed);
         (TurnEnd::Failed { message: refusal.message(preset), code: refusal.signed_out().then_some(AUTH_REQUIRED), reported: false }, eligible)
@@ -582,15 +888,18 @@ async fn begin(
         return Err((TurnEnd::Failed { message: format!("Nothing of this message could be sent to {}.", preset.label), code: None, reported: false }, false));
     }
     // The session compacts where a provider's does: before the request is sent, once the context the last turn left
-    // has reached the session's trigger. The agent owns the context, so the compaction is the one a manual Compact
-    // makes of an agent's session: Mixdog's summary becomes the stored context, the agent's session is left behind,
-    // and this turn opens a new one on the summary. A summary that cannot be made leaves the agent's session as it is.
+    // has reached the session's trigger (or the preset's capped compaction cliff). The agent owns the context, so the
+    // compaction is the one a manual Compact makes of an agent's session: Mixdog's summary becomes the stored context,
+    // the agent's session is left behind, and this turn opens a new one on the summary. A summary that cannot be made
+    // leaves the agent's session as it is.
     let mut stored = stored;
     let mut compacted = None;
     // A compaction that failed may have left the agent's session behind first: the session the turn goes on in is
     // recorded again.
     let mut record_again = false;
-    if let (Some(_), Some(due)) = (&stored, conversation.compaction_due()) {
+    if let (Some(_), Some(due)) =
+        (&stored, pre_turn_compaction_due(agents, preset, &thread, context, last_context_tokens, context_window, conversation.as_ref()))
+    {
         // The pass shows as a provider's does: the spinner's `compacting` while the summary is made, the divider of the
         // compaction it stores, and the loop's marker of the pass, which the session shows where the loop's would be.
         let _ = surface.stage("compacting").await;
@@ -655,32 +964,34 @@ async fn begin(
             Err(refusal) => return Err(refused(refusal)),
         },
     };
-    let (session, header_cleared) = match resolved {
-        crate::agents::ExistingSession::Reuse(session) => (session, false),
+    let (session, session_use, header_cleared) = match resolved {
+        crate::agents::ExistingSession::Reuse(session, session_use) => (session, session_use, false),
         crate::agents::ExistingSession::Open { stored: open_stored, abandoned } => {
             // Unset an abandoned SESSION_KEY promptly before blocking on opening a replacement session.
             let header_cleared = abandoned && stored.is_some();
             if header_cleared {
                 unset_session(surface).await;
             }
-            let session = tokio::select! {
+            let (session, session_use) = tokio::select! {
                 biased;
                 () = context.cancel.cancelled() => return Err((TurnEnd::Interrupted, false)),
                 opened = agents.open_session(&thread, preset, cwd, open_stored, rules, abandoned) => match opened {
-                    Ok(session) => session,
+                    Ok(opened) => opened,
                     Err(refusal) => return Err(refused(refusal)),
                 },
             };
-            (session, header_cleared)
+            (session, session_use, header_cleared)
         }
     };
     drop(held);
-    let newly_opened = stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
+    let newly_opened = session.handoff_pending() || stored.as_ref().map(|stored| stored.session_id.as_str()) != Some(session.session_id.as_str());
     // Build the prompt blocks before running handover or selecting a model so an all-dropped prompt never triggers
     // handover or leaves a newly opened session orphaned.
-    let (mut blocks, left_out, attached) = prompt_blocks(&input, (session.images, session.embedded), attachments.as_ref()).await;
+    let (mut blocks, attachment_blocks, left_out, attached) =
+        prompt_blocks_with_attachments(&input, (session.images, session.embedded), attachments.as_ref()).await;
     left_out.notify(surface.as_ref(), &preset.label, session.images).await;
     if blocks.is_empty() {
+        drop(session_use);
         if newly_opened {
             session.close().await;
             agents.end_process(&thread);
@@ -710,6 +1021,7 @@ async fn begin(
                 let handed = tokio::select! {
                     biased;
                     () = context.cancel.cancelled() => {
+                        drop(session_use);
                         cancel_started_session(agents, preset, &thread, &session.session_id, stored.as_ref(), surface).await;
                         return Err((TurnEnd::Interrupted, false));
                     }
@@ -735,6 +1047,7 @@ async fn begin(
             }
             Ok(None) => {}
             Err(why) => {
+                drop(session_use);
                 agents.end_process(&thread);
                 return Err((
                     TurnEnd::Failed { message: format!("The conversation could not be summarized for {}: {why}", preset.label), code: None, reported: false },
@@ -756,6 +1069,7 @@ async fn begin(
             biased;
             // A request the agent never answers leaves its process in a state nobody knows: it is not kept.
             () = context.cancel.cancelled() => {
+                drop(session_use);
                 cancel_started_session(agents, preset, &thread, &session.session_id, stored.as_ref(), surface).await;
                 return Err((TurnEnd::Interrupted, false));
             }
@@ -772,7 +1086,7 @@ async fn begin(
     // prompt its session gets, and again when the prompt changed.
     let mut prompt: Vec<Value> = session.take_unsent_prompt().into_iter().chain(lead).map(|text| json!({ "type": "text", "text": text })).collect();
     prompt.append(&mut blocks);
-    Ok((session, prompt, record))
+    Ok(Begun { session, session_use, prompt, record, attached, attachment_blocks })
 }
 
 /// One turn of a session on `preset`'s agent, begun.
@@ -837,7 +1151,17 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
     };
     let thread_id = thread.clone();
     let pictures = Pictures { keep: attachments.clone(), files: agents.parts.files.clone(), homes: agent_homes(agents, preset) };
-    let request = TurnRequest { thread, cwd, stored: stored_session(&header, preset), rules, input, conversation, attachments: attachments.clone() };
+    let request = TurnRequest {
+        thread,
+        cwd,
+        stored: stored_session(&header, preset),
+        rules,
+        input,
+        conversation,
+        attachments: attachments.clone(),
+        last_context_tokens: header_context_tokens(&header),
+        context_window: header_context_window(&header),
+    };
     let model = header.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_MODEL).to_owned();
     let effort = header.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
     let clock = now_ms.clone();
@@ -857,6 +1181,8 @@ pub async fn drive(agents: &Arc<Agents>, preset: &AgentPreset, now_ms: Arc<dyn F
         pictures: Some(pictures),
         transcript: transcript.clone(),
         output_produced,
+        mid_turn_compaction: None,
+        cpu: agents.parts.cpu,
     };
     let stop = context.cancel.clone();
     match serve_with_refusal(agents, preset, request, surface, context).await {
@@ -1056,6 +1382,8 @@ pub async fn ask_once<'a>(
             pictures: None,
             transcript: None,
             output_produced: None,
+            mid_turn_compaction: None,
+            cpu: agents.parts.cpu,
         };
         let end = crate::turn::run(&session, Arc::new(surface.clone()), Ask::Prompt(blocks), context).await;
         account_learned(agents, preset, &end).await;
@@ -1068,7 +1396,7 @@ pub async fn ask_once<'a>(
                     Ok(Answered { text, stop_reason, usage })
                 }
             }
-            TurnEnd::Interrupted => Err(format!("{} stopped before it answered.", preset.label)),
+            TurnEnd::Interrupted | TurnEnd::CompactNeeded { .. } => Err(format!("{} stopped before it answered.", preset.label)),
             TurnEnd::Failed { message, .. } | TurnEnd::Refused { message } => Err(message),
         }
     }
@@ -1102,7 +1430,7 @@ fn outcome(provider: &str, end: TurnEnd, transcript: Option<&TurnTranscript>) ->
                 stop_reason,
             }))
         }
-        TurnEnd::Interrupted => RunOutcome::Interrupted,
+        TurnEnd::Interrupted | TurnEnd::CompactNeeded { .. } => RunOutcome::Interrupted,
         TurnEnd::Failed { message, code, .. } => {
             RunOutcome::Failed(TurnError { message, data: json!({ "reason": "acpAgent", "code": code }), provider_error: None })
         }

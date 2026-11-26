@@ -232,6 +232,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     ("mixdog-ai/src/catalog/sources.rs", "let env = |name: &str| std::env::var(name).ok()", "the model floor's variables: model names"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_DISABLE_LIVE_CLI_VERSIONS", "a feature flag"),
+    ("mixdog-ai/src/service/admin_route.rs", "MIXDOG_FEATURE_AUTO_EFFORT", "the Auto effort feature switch: the default of a route's Auto effort"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_ANTIGRAVITY_VERSION", "a client version"),
     ("mixdog-ai/src/client_versions.rs", "let text = |name: &str| env.var(name)", "client version overrides"),
     (

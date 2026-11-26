@@ -108,6 +108,10 @@ impl ImageReference {
         self.mime
     }
 
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     pub fn base64(&self) -> String {
         base64::engine::general_purpose::STANDARD.encode(&self.bytes)
     }

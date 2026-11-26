@@ -134,8 +134,13 @@ struct State {
     unclosed: HashSet<String>,
     /// Opens of a session under way on it.
     opening: usize,
+    /// Active turn/RPC uses of sessions on this server (e.g. handover, `select_model`, prompt turn).
+    active_uses: usize,
     /// The sessions it opened or reopened.
     opened: usize,
+    /// At least one session left this server without `session/close`: retire the server as soon as it is quiescent so
+    /// the server's per-session helper process exits instead of accumulating indefinitely.
+    leaked: bool,
     /// Session ids left behind after a stuck cancel or interrupted setup, never to be reopened on this server.
     abandoned: AbandonedSessions,
     /// It takes no more sessions: it is being closed, or it has exited.
@@ -181,6 +186,26 @@ impl Drop for Lease {
         }
         self.0.settle();
     }
+}
+
+/// Holds a shared server from retiring while a turn or session RPC is actively using a session on it.
+pub(crate) struct SessionUse(Arc<SharedServer>);
+
+impl Drop for SessionUse {
+    fn drop(&mut self) {
+        {
+            let mut state = lock(&self.0.state);
+            state.active_uses -= 1;
+        }
+        self.0.settle();
+    }
+}
+
+fn is_quiescent(state: &State) -> bool {
+    if state.opening > 0 || state.active_uses > 0 || !state.prompts.is_empty() {
+        return false;
+    }
+    state.sessions.values().all(|weak| weak.upgrade().is_none_or(|session| session.gone.is_cancelled() || session.is_idle()))
 }
 
 /// The open session `id` names among `state`'s.
@@ -264,6 +289,16 @@ impl SharedServer {
         Some(Lease(self.clone()))
     }
 
+    /// Marks a session on this server as actively in use by a turn or RPC; `None` once the server is retiring or exited.
+    pub(crate) fn enter_use(self: &Arc<Self>) -> Option<SessionUse> {
+        let mut state = lock(&self.state);
+        if state.retired || self.connection.exited().is_cancelled() {
+            return None;
+        }
+        state.active_uses += 1;
+        Some(SessionUse(self.clone()))
+    }
+
     /// `session` was opened on the server: what the agent sends of it reaches it from here. A server that has exited
     /// meanwhile has nothing more of it to send, and an earlier session under the same id is told apart from it no more.
     /// `true` for the first session the server opened. What the server sent of the session before its open was answered
@@ -311,8 +346,9 @@ impl SharedServer {
         lock(&self.state).prompts.insert(id, session.to_owned());
     }
 
-    pub(crate) fn disown_prompt(&self, id: u64) {
+    pub(crate) fn disown_prompt(self: &Arc<Self>, id: u64) {
         lock(&self.state).prompts.remove(&id);
+        self.settle();
     }
 
     pub(crate) fn abandon(&self, session_id: &str) {
@@ -338,6 +374,33 @@ impl SharedServer {
         lock(&self.state).unclosed.contains(session_id)
     }
 
+    fn take_retirement(state: &mut State) -> Option<Vec<Arc<AgentSession>>> {
+        state.sessions.retain(|_, weak| weak.strong_count() > 0);
+        let retire = !state.retired && state.opening == 0 && (state.sessions.is_empty() || (state.leaked && is_quiescent(state)));
+        if !retire {
+            return None;
+        }
+        state.retired = true;
+        state.parked.clear();
+        Some(state.sessions.drain().filter_map(|(_, session)| session.upgrade()).collect())
+    }
+
+    fn begin_retirement(self: &Arc<Self>, remaining: Vec<Arc<AgentSession>>) {
+        self.retiring.cancel();
+        let server = self.clone();
+        let closed = async move {
+            server.stop().await;
+        };
+        // What a held session carries is taken before its end clears it.
+        match self.agents.upgrade() {
+            Some(agents) => agents.retire_server(self, closed),
+            None => drop(mixdog_rt::spawn("acp.shared.retire", TaskClass::Work, closed)),
+        }
+        for session in remaining {
+            session.gone.cancel();
+        }
+    }
+
     /// Takes `session` off the server alone: nothing more of it reaches it, and on a server that stays running the agent
     /// is asked to cancel an open prompt and close the session where it closes sessions. A retiring or stopping server
     /// skips `session/close` since its stdin is closing.
@@ -349,6 +412,9 @@ impl SharedServer {
             let mut removed = Vec::new();
             if held {
                 state.sessions.remove(&session.session_id);
+                if !session.closes {
+                    state.leaked = true;
+                }
                 state.prompts.retain(|id, owner| {
                     if *owner == session.session_id {
                         removed.push(*id);
@@ -361,8 +427,7 @@ impl SharedServer {
             if !removed.is_empty() || session.holds_cancelled_prompt() || session.has_pending_cancel() {
                 state.unclosed.insert(session.session_id.clone());
             }
-            let retire = !state.retired && state.opening == 0 && state.sessions.is_empty();
-            state.retired |= retire;
+            let retire = Self::take_retirement(&mut state);
             (held, removed, retire, already_retired)
         };
         let prompted = !removed_prompts.is_empty();
@@ -370,16 +435,8 @@ impl SharedServer {
             self.connection.forget_sent(id);
         }
         session.gone.cancel();
-        if retire {
-            self.retiring.cancel();
-            let server = self.clone();
-            let closed = async move {
-                server.stop().await;
-            };
-            match self.agents.upgrade() {
-                Some(agents) => agents.retire_server(self, closed),
-                None => drop(mixdog_rt::spawn("acp.shared.retire", TaskClass::Work, closed)),
-            }
+        if let Some(remaining) = retire {
+            self.begin_retirement(remaining);
             return;
         }
         let stopping = already_retired || self.agents.upgrade().is_some_and(|agents| agents.stopping.load(Ordering::SeqCst));
@@ -406,6 +463,13 @@ impl SharedServer {
     /// caller timed out or cancelled before consuming it.
     pub(crate) fn close_unregistered(self: &Arc<Self>, session_id: String, closes: bool) {
         if !closes {
+            {
+                let mut state = lock(&self.state);
+                if !state.retired && open_in(&state, &session_id).is_none() {
+                    state.leaked = true;
+                }
+            }
+            self.settle();
             return;
         }
         let skip = {
@@ -436,26 +500,16 @@ impl SharedServer {
         }));
     }
 
-    /// A server that serves no session and is opening none is retired: it is closed, and the next session starts a new
-    /// one. It holds a process of the agent's for each session it opened, until it exits.
-    fn settle(self: &Arc<Self>) {
+    /// Retires a shared server once nothing is opening on it and either no session remains or an unclosed (`!closes`)
+    /// session left it and every remaining session is idle with no prompt in flight. The remaining sessions of loaded
+    /// threads are reopened on a new server at once ([`Agents::reopen_held`]).
+    pub(crate) fn settle(self: &Arc<Self>) {
         let retire = {
             let mut state = lock(&self.state);
-            let retire = !state.retired && state.opening == 0 && state.sessions.is_empty();
-            state.retired |= retire;
-            retire
+            Self::take_retirement(&mut state)
         };
-        if !retire {
-            return;
-        }
-        self.retiring.cancel();
-        let server = self.clone();
-        let closed = async move {
-            server.stop().await;
-        };
-        match self.agents.upgrade() {
-            Some(agents) => agents.retire_server(self, closed),
-            None => drop(mixdog_rt::spawn("acp.shared.retire", TaskClass::Work, closed)),
+        if let Some(remaining) = retire {
+            self.begin_retirement(remaining);
         }
     }
 
@@ -531,6 +585,7 @@ impl SharedServer {
     /// Hands `message` to the session it is of. What names a session that is not open is kept while an open is under
     /// way, for the session being opened may be that one; else it is [`Self::unclaimed`].
     async fn deliver(self: &Arc<Self>, message: Incoming) {
+        let is_response = matches!(message, Incoming::Response { .. });
         let named = match &message {
             Incoming::Request { id, method, .. } if method != "fs/read_text_file" && method != "session/request_permission" => {
                 self.answer(id.clone(), Err(not_offered(method)), "shared unsupported method refusal timed out on stalled stdin");
@@ -545,22 +600,25 @@ impl SharedServer {
             let mut state = lock(&self.state);
             match named.as_deref().and_then(|id| open_in(&state, id)) {
                 Some(session) => session,
-                None if named.as_deref().is_some_and(|id| !state.unclosed.contains(id))
-                    && state.opening > 0
-                    && !matches!(message, Incoming::Response { .. }) =>
-                {
+                None if named.as_deref().is_some_and(|id| !state.unclosed.contains(id)) && state.opening > 0 && !is_response => {
                     state.parked.push(message);
                     return;
                 }
                 None => {
                     drop(state);
                     self.unclaimed(message);
+                    if is_response {
+                        self.settle();
+                    }
                     return;
                 }
             }
         };
         if let Some(routed) = self.hand(&session, message) {
             self.act(&session, routed).await;
+        }
+        if is_response {
+            self.settle();
         }
     }
 
@@ -769,11 +827,15 @@ impl Agents {
     }
 
     /// `server` is retired: it leaves the servers in use and is `closed` in a task the app's stop waits for, in one step
-    /// under the servers' lock, so a stop of the app never finds it in neither.
-    fn retire_server(&self, server: &Arc<SharedServer>, closed: impl Future<Output = ()> + Send + 'static) {
-        let mut shared = lock(&self.shared);
-        Self::forget_in(&mut shared, server);
-        self.track_stop(mixdog_rt::spawn("acp.shared.retire", TaskClass::Work, closed));
+    /// under the servers' lock, so a stop of the app never finds it in neither. The sessions still on `server` leave
+    /// `self.sessions` at once, and those of loaded threads reopen on a new server ([`Self::reopen_held`]).
+    fn retire_server(self: &Arc<Self>, server: &Arc<SharedServer>, closed: impl Future<Output = ()> + Send + 'static) {
+        {
+            let mut shared = lock(&self.shared);
+            Self::forget_in(&mut shared, server);
+            self.track_stop(mixdog_rt::spawn("acp.shared.retire", TaskClass::Work, closed));
+        }
+        self.reopen_held(server);
     }
 
     /// `preset_id`'s shared server while it runs and takes sessions, held open as an open of a session on it holds it.
@@ -881,9 +943,8 @@ impl Agents {
         }
     }
 
-    /// The app stops: every shared server is closed as the end of its input closes it, all at once, so none leaves what it
-    /// unpacked behind, and none starts from here on. Resolves once every server whose stop began, whoever began it, has
-    /// exited.
+    /// The app stops: every running agent session (per-session or shared, including idle-unloaded threads) and shared
+    /// server is closed and none starts from here on. Resolves once every agent process whose stop began has exited.
     pub async fn shutdown(&self) {
         // Set under the servers' lock, which every start and lease checks it under, and every stop that began is tracked
         // under: from here none starts, and each one stopping is in `stops`.
@@ -892,7 +953,27 @@ impl Agents {
             self.stopping.store(true, Ordering::SeqCst);
             self.stop_token.cancel();
         }
+        let sessions: Vec<_> = {
+            let mut sessions = lock(&self.sessions);
+            lock(&self.opening).clear();
+            lock(&self.grants).clear();
+            sessions.drain().collect()
+        };
+        for (_, session) in sessions {
+            let own = session.own_connection();
+            session.end();
+            if let Some(connection) = own {
+                self.track_stop(mixdog_rt::spawn("acp.session.kill", TaskClass::Work, async move {
+                    connection.exited().cancelled().await;
+                }));
+            }
+        }
         self.close_shared();
+        self.forget_checks();
+        let logins: Vec<_> = lock(&self.logins).drain().collect();
+        for (_, login) in logins {
+            login.cancel();
+        }
         loop {
             let stops: Vec<JoinHandle<()>> = lock(&self.stops).drain(..).collect();
             if stops.is_empty() {
@@ -919,6 +1000,7 @@ impl Agents {
     pub async fn sweep_leftovers(&self) {
         self.sweep_temps().await;
         self.sweep_search_sandboxes().await;
+        self.sweep_image_sandboxes().await;
         self.sweep_builds().await;
     }
 
@@ -1116,6 +1198,7 @@ mod tests {
             presets: crate::preset::builtin(),
             processes,
             files: Arc::new(DummyFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             probe_cwd: cwd.clone(),
             data_dir: cwd.clone(),
             definitions: cwd,
@@ -1170,6 +1253,7 @@ mod tests {
         let target = AgentSession::test_shared_session_for(server.clone(), "sess-target");
         server.register(&sibling);
         server.register(&target);
+        let _sibling_use = server.enter_use().expect("active sibling keeps shared server alive");
 
         let started_wait = prompt_started.notified();
         tokio::pin!(started_wait);

@@ -35,6 +35,11 @@ pub trait TextFiles: Send + Sync {
     /// Puts `text` in a new file at `path`, its folders made: the file appears with all of its text at once, and one
     /// already there is kept. The agent definitions Mixdog starts a CLI with, each at a place its text names.
     async fn create(&self, path: AbsPath, text: String) -> Result<(), String>;
+    /// Puts `bytes` in a new file at `path`, its folders made: the file appears with all of its bytes at once, and one
+    /// already there is kept.
+    async fn create_bytes(&self, _path: AbsPath, _bytes: Vec<u8>) -> Result<(), String> {
+        Err("no binary file is written here".to_owned())
+    }
     /// Makes the folder `path` with its parents; one already there is kept. The temporary folder of an agent's server.
     async fn make_folder(&self, _path: AbsPath) -> Result<(), String> {
         Err("no folder is made here".to_owned())
@@ -101,13 +106,17 @@ impl TextFiles for ServiceFiles {
     }
 
     async fn create(&self, path: AbsPath, text: String) -> Result<(), String> {
+        self.create_bytes(path, text.into_bytes()).await
+    }
+
+    async fn create_bytes(&self, path: AbsPath, bytes: Vec<u8>) -> Result<(), String> {
         #[allow(clippy::disallowed_methods, reason = "a lane job")]
         let job = self.lane.submit(&tokio_util::sync::CancellationToken::new(), move |_| {
             let folder = path.as_path().parent().ok_or_else(|| std::io::Error::other("the file has no folder"))?;
             std::fs::create_dir_all(folder)?;
             // Written whole beside its place, then linked into it: a CLI starting meanwhile reads all of it or nothing.
             let staged = folder.join(format!(".{}.staged", uuid::Uuid::new_v4().simple()));
-            std::fs::write(&staged, text)?;
+            std::fs::write(&staged, bytes)?;
             let linked = std::fs::hard_link(&staged, path.as_path());
             std::fs::remove_file(&staged)?;
             match linked {
@@ -220,7 +229,7 @@ enum Place {
 
 /// `path` with every link on it followed: the deepest part of it that is there resolved, with the names below it that
 /// are not. `None` for a path that steps out of a part that is not there.
-async fn resolved(files: &dyn TextFiles, path: AbsPath) -> Option<(std::path::PathBuf, bool)> {
+pub(crate) async fn resolved(files: &dyn TextFiles, path: AbsPath) -> Option<(std::path::PathBuf, bool)> {
     let mut at = path.as_path().to_path_buf();
     let mut missing = Vec::new();
     loop {

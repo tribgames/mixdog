@@ -77,7 +77,7 @@ pub struct Build {
 #[derive(Clone)]
 pub struct Unpacking(pub Arc<tokio::sync::OwnedSemaphorePermit>);
 
-/// Downloads what the registry offers, and asks the HTTPS services an agent's own credential is for.
+/// Downloads what the registry offers.
 #[async_trait]
 pub trait RegistryFetcher: Send + Sync {
     /// The registry's index at `url`, within a short time: an `Err` where it cannot be reached.
@@ -88,9 +88,6 @@ pub trait RegistryFetcher: Send + Sync {
     /// no build, and they are left executable. Dropping the future ends the download; `held` is kept until nothing of
     /// the unpack writes any more.
     async fn unpack(&self, build: &Build, archive: &Path, into: &Path, held: Unpacking) -> Result<(), String>;
-    /// Posts `body` to the HTTPS address `url` with `headers` and answers the JSON it returns, within a short time, never
-    /// following a redirect: an `Err` tells why it did not answer, a status that is no success with its answer's text.
-    async fn post(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<Value, String>;
 }
 
 /// `url`'s host, where it is an HTTPS address that names no user.
@@ -505,9 +502,6 @@ mod tests {
             async fn unpack(&self, _: &Build, _: &Path, _: &Path, _held: Unpacking) -> Result<(), String> {
                 Ok(())
             }
-            async fn post(&self, _: &str, _: &[(String, String)], _: Vec<u8>) -> Result<Value, String> {
-                Err("unused".into())
-            }
         }
 
         let dir = tempfile::tempdir().expect("temp dir");
@@ -520,6 +514,7 @@ mod tests {
             presets: vec![preset.clone()],
             processes: Arc::new(NoProcesses),
             files: Arc::new(BlockingRename { entered: entered.clone(), release: release.clone(), done: done.clone() }),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             enabled: Arc::new(|| true),
             changed: Arc::new(|| {}),
             probe_cwd: dir.path().to_path_buf(),

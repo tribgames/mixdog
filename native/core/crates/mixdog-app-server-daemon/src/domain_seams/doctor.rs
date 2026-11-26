@@ -185,9 +185,15 @@ fn migration_counts(data_dir: &Path) -> Option<Value> {
         "retained": data.retained + profile.retained,
         "dangling": data.dangling + profile.dangling,
     });
+    let summary = crate::boot::quarantine_summary(data_dir);
+    let total_aside = (unexpected + data.quarantined_expected + profile.quarantined_expected).max(summary.total_reasons);
     // Named whenever anything was set aside, expected or not; the warning level is the row's, tied to the unexpected count.
-    if unexpected + data.quarantined_expected + profile.quarantined_expected > 0 {
+    if total_aside > 0 {
         counts["quarantineDir"] = Value::String(data_dir.join(mixdog_store::schema::migration::QUARANTINE_DIR).display().to_string());
+    }
+    if !summary.in_place_files.is_empty() {
+        counts["movedAside"] = json!(total_aside.saturating_sub(summary.in_place_items));
+        counts["keptInPlace"] = json!(summary.in_place_files);
     }
     Some(counts)
 }

@@ -120,10 +120,10 @@ fn a_catalog_failure_is_told_by_a_safe_code_and_a_fixed_sentence() {
     }
     assert_eq!(catalog_message("MEDIA_BILLING_BLOCKED"), Some("API credits exhausted or spending limit reached. Check provider billing."));
     assert_eq!(catalog_message("OTHER"), None);
-    assert_eq!(catalog_diagnostic(&CatalogFailure { code: Some("MEDIA_RATE_LIMITED".into()), timed_out: false }).0, "MEDIA_RATE_LIMITED");
-    assert_eq!(catalog_diagnostic(&CatalogFailure { code: None, timed_out: true }).0, "MEDIA_CATALOG_TIMEOUT");
+    assert_eq!(catalog_diagnostic(&CatalogFailure { code: Some("MEDIA_RATE_LIMITED".into()), timed_out: false, message: None }).0, "MEDIA_RATE_LIMITED");
+    assert_eq!(catalog_diagnostic(&CatalogFailure { code: None, timed_out: true, message: None }).0, "MEDIA_CATALOG_TIMEOUT");
     assert_eq!(
-        catalog_diagnostic(&CatalogFailure { code: Some("SECRET_DETAIL".into()), timed_out: false }).0,
+        catalog_diagnostic(&CatalogFailure { code: Some("SECRET_DETAIL".into()), timed_out: false, message: None }).0,
         "MEDIA_CATALOG_UNAVAILABLE",
         "an unknown code is never passed on"
     );
@@ -134,6 +134,7 @@ fn a_catalog_failure_is_told_by_a_safe_code_and_a_fixed_sentence() {
 #[derive(Default)]
 struct Sources {
     signed_in: Mutex<HashSet<String>>,
+    unavailable: Mutex<HashMap<String, String>>,
     models: Mutex<HashMap<String, Result<CatalogRows, CatalogFailure>>>,
     asked: AtomicUsize,
 }
@@ -143,12 +144,19 @@ impl Sources {
         self.signed_in.lock().unwrap().insert(lane.to_owned());
         self.models.lock().unwrap().insert(lane.to_owned(), models);
     }
+
+    fn set_unavailable(&self, lane: &str, reason: &str) {
+        self.unavailable.lock().unwrap().insert(lane.to_owned(), reason.to_owned());
+    }
 }
 
 #[async_trait]
 impl LaneSources for Sources {
     async fn authenticated(&self, lane: &str) -> bool {
         self.signed_in.lock().unwrap().contains(lane)
+    }
+    async fn unavailable_reason(&self, lane: &str) -> Option<String> {
+        self.unavailable.lock().unwrap().get(lane).cloned()
     }
     async fn models(&self, lane: &str) -> Result<CatalogRows, CatalogFailure> {
         self.asked.fetch_add(1, Ordering::SeqCst);
@@ -168,10 +176,12 @@ fn view_of<'a>(views: &'a [Value], id: &str) -> &'a Value {
 async fn a_lane_that_is_signed_out_lists_its_kinds_and_loads_nothing() {
     let sources = Arc::new(Sources::default());
     let views = MediaLanes::new(sources.clone()).list(None).await;
-    assert_eq!(views.len(), 7);
+    assert_eq!(views.len(), 8);
     let grok = view_of(&views, "xai");
     assert_eq!((grok["authenticated"].clone(), grok["supportedKinds"].clone(), grok["kinds"].clone()), (json!(false), json!(["image", "video"]), json!([])));
     assert_eq!(view_of(&views, "openrouter")["supportedKinds"], json!(["image"]));
+    let acp = view_of(&views, "acp-antigravity");
+    assert_eq!((acp["authType"].clone(), acp["supportedKinds"].clone(), acp["authenticated"].clone()), (json!("acp"), json!(["image"]), json!(false)));
     assert_eq!(sources.asked.load(Ordering::SeqCst), 0, "no catalog is asked for a signed-out lane");
 }
 
@@ -198,9 +208,9 @@ async fn a_signed_in_lane_publishes_each_models_controls_over_the_lanes_own() {
 #[tokio::test]
 async fn a_catalog_that_failed_is_reported_without_the_providers_words_and_a_blocked_bill_hides_the_lane() {
     let sources = Arc::new(Sources::default());
-    sources.sign_in("xai", Err(CatalogFailure { code: Some("MEDIA_AUTH_REJECTED".into()), timed_out: false }));
-    sources.sign_in("openai-oauth", Err(CatalogFailure { code: None, timed_out: true }));
-    sources.sign_in("gemini", Err(CatalogFailure { code: Some("MEDIA_BILLING_BLOCKED".into()), timed_out: false }));
+    sources.sign_in("xai", Err(CatalogFailure { code: Some("MEDIA_AUTH_REJECTED".into()), timed_out: false, message: None }));
+    sources.sign_in("openai-oauth", Err(CatalogFailure { code: None, timed_out: true, message: None }));
+    sources.sign_in("gemini", Err(CatalogFailure { code: Some("MEDIA_BILLING_BLOCKED".into()), timed_out: false, message: None }));
     let views = MediaLanes::new(sources).list(None).await;
     let grok = view_of(&views, "xai");
     assert_eq!(grok["catalogErrorCode"], "MEDIA_AUTH_REJECTED");
@@ -210,7 +220,7 @@ async fn a_catalog_that_failed_is_reported_without_the_providers_words_and_a_blo
         "OpenAI Images (Account): Model catalog request timed out. Retry after checking the connection."
     );
     assert!(views.iter().all(|v| v["id"] != "gemini"), "an unpaid lane is absent");
-    assert_eq!(views.len(), 6);
+    assert_eq!(views.len(), 7);
 }
 
 #[tokio::test]
@@ -220,7 +230,7 @@ async fn a_request_resolves_to_the_default_or_a_named_model_or_says_why_not() {
         "xai",
         rows(json!([{"id": "grok-imagine-image", "created": 1}, {"id": "grok-imagine-image-pro", "created": 9}, {"id": "grok-imagine-video"}])),
     );
-    sources.sign_in("openrouter", Err(CatalogFailure { code: Some("MEDIA_RATE_LIMITED".into()), timed_out: false }));
+    sources.sign_in("openrouter", Err(CatalogFailure { code: Some("MEDIA_RATE_LIMITED".into()), timed_out: false, message: None }));
     let lanes = MediaLanes::new(sources);
     let resolved = lanes.resolve(" xai ", "image", "").await.unwrap();
     assert_eq!((resolved.model.as_str(), resolved.kind.as_str()), ("grok-imagine-image-pro", "image"), "the first listed is the default");
@@ -457,6 +467,7 @@ fn rig(keys: &[(&str, &str)], env: &[(&str, &str)], providers: Value, developer:
         provider_auth: Arc::new(Oauth),
         http: net.clone(),
         revision: Arc::new(|| "r1".to_owned()),
+        acp_image: None,
     };
     Rig { probe: AccountedProbe(Arc::new(FileAccountProbe::new(parts))), net, data }
 }
@@ -695,4 +706,125 @@ async fn the_catalog_file_is_valid_for_a_day_and_a_stale_read_ignores_the_age_bu
     }
     std::fs::write(dir.path().join("studio-models-k.json"), "{broken").unwrap();
     assert_eq!(cache.load("k", true).await, None);
+}
+
+struct StubAcpImage {
+    authed: bool,
+    unavailable: Option<String>,
+    rows: Result<Vec<Value>, CatalogFailure>,
+}
+
+#[async_trait]
+impl mixdog_services::media::AcpImageBackend for StubAcpImage {
+    async fn authenticated(&self, provider: &str) -> bool {
+        self.authed && provider == "acp-antigravity"
+    }
+
+    async fn unavailable_reason(&self, provider: &str) -> Option<String> {
+        (provider == "acp-antigravity").then(|| self.unavailable.clone()).flatten()
+    }
+
+    async fn catalog_models(&self, _provider: &str) -> Result<Vec<Value>, CatalogFailure> {
+        self.rows.clone()
+    }
+
+    async fn generate(
+        &self,
+        _request: mixdog_services::media::AcpImageRequest,
+        _cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<mixdog_services::media::AcpImageReply, mixdog_services::media::MediaFailure> {
+        Err(mixdog_services::media::MediaFailure::new("stub", "MEDIA_UPSTREAM_FAILED"))
+    }
+}
+
+#[tokio::test]
+async fn acp_antigravity_lane_lists_image_only_and_uses_agent_label_on_catalog_error() {
+    let sources = Arc::new(Sources::default());
+    sources.sign_in(
+        "acp-antigravity",
+        rows(json!([{ "id": "antigravity-image", "displayName": "Antigravity Image", "description": "Built-in ACP image tool", "imageGeneration": true }])),
+    );
+    let lanes = MediaLanes::new(sources.clone());
+    let views = lanes.list(None).await;
+    // Placed last so existing OpenRouter/NanoGPT fallbacks are unchanged for unnamed calls.
+    assert_eq!(views.last().and_then(|v| v["id"].as_str()), Some("acp-antigravity"), "acp-antigravity must stay last in lane order");
+    let acp = view_of(&views, "acp-antigravity");
+    assert_eq!(acp["authenticated"], json!(true));
+    assert_eq!(acp["authType"], json!("acp"));
+    assert_eq!(acp["kinds"], json!(["image"]));
+    assert_eq!(acp["image"]["defaultModel"], json!("antigravity-image"));
+    assert_eq!(acp["image"]["controls"]["maxReferences"], json!(3));
+    assert_eq!(acp["video"], Value::Null);
+    let resolved = lanes.resolve("acp-antigravity", "image", "").await.expect("resolve default model");
+    assert_eq!((resolved.model.as_str(), resolved.kind.as_str()), ("antigravity-image", "image"));
+    assert_eq!(lanes.resolve("acp-antigravity", "video", "").await.unwrap_err().code, "MEDIA_KIND_UNSUPPORTED");
+
+    let err_sources = Arc::new(Sources::default());
+    err_sources.sign_in(
+        "acp-antigravity",
+        Err(CatalogFailure {
+            code: Some("MEDIA_CATALOG_UNAVAILABLE".into()),
+            timed_out: false,
+            message: Some("Antigravity did not start: bridge process crashed".into()),
+        }),
+    );
+    let err_lanes = MediaLanes::new(err_sources);
+    let err_views = err_lanes.list(None).await;
+    assert_eq!(view_of(&err_views, "acp-antigravity")["catalogError"], "Antigravity (Agent): Antigravity did not start: bridge process crashed");
+    assert_eq!(
+        err_lanes.resolve("acp-antigravity", "image", "").await.unwrap_err().message,
+        "Antigravity (Agent): Antigravity did not start: bridge process crashed"
+    );
+
+    // Non-sign-in unavailability (ACP off, not installed, too old) names the actual cause instead of "not authenticated".
+    let off_sources = Arc::new(Sources::default());
+    off_sources.set_unavailable("acp-antigravity", "ACP agents are turned off in Settings.");
+    let off_lanes = MediaLanes::new(off_sources);
+    let off_views = off_lanes.list(None).await;
+    assert_eq!(view_of(&off_views, "acp-antigravity")["unavailableReason"], "ACP agents are turned off in Settings.");
+    assert_eq!(off_lanes.resolve("acp-antigravity", "image", "").await.unwrap_err().message, "ACP agents are turned off in Settings.");
+
+    // AccountedProbe delegates authentication, unavailable_reason, and model catalog directly to AcpImageBackend.
+    let data = tempfile::tempdir().unwrap();
+    let probe_with_acp = AccountedProbe(Arc::new(FileAccountProbe::new(ProbeParts {
+        data_dir: data.path().to_owned(),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        now: Arc::new(|| 1_800_000_000_000),
+        env: Arc::new(|_| None),
+        keys: Arc::new(Keys(HashMap::new())),
+        settings: Arc::new(Settings { providers: json!({}), developer: false }),
+        provider_auth: Arc::new(Oauth),
+        http: Net::with(vec![]),
+        revision: Arc::new(|| "r1".to_owned()),
+        acp_image: Some(Arc::new(StubAcpImage {
+            authed: true,
+            unavailable: None,
+            rows: Ok(vec![json!({ "id": "antigravity-image", "displayName": "Antigravity Image", "imageGeneration": true })]),
+        })),
+    })));
+    assert!(probe_with_acp.authenticated("acp-antigravity", None).await);
+    assert_eq!(probe_with_acp.unavailable_reason("acp-antigravity", None).await, None);
+    assert_eq!(probe_with_acp.models("acp-antigravity", None).await.expect("acp models").rows.len(), 1);
+
+    let probe_unavailable = AccountedProbe(Arc::new(FileAccountProbe::new(ProbeParts {
+        data_dir: data.path().to_owned(),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        now: Arc::new(|| 1_800_000_000_000),
+        env: Arc::new(|_| None),
+        keys: Arc::new(Keys(HashMap::new())),
+        settings: Arc::new(Settings { providers: json!({}), developer: false }),
+        provider_auth: Arc::new(Oauth),
+        http: Net::with(vec![]),
+        revision: Arc::new(|| "r1".to_owned()),
+        acp_image: Some(Arc::new(StubAcpImage {
+            authed: false,
+            unavailable: Some("Antigravity 1.0.0 is too old; 1.5.2 or later is needed. Update it in Settings.".into()),
+            rows: Ok(Vec::new()),
+        })),
+    })));
+    assert!(!probe_unavailable.authenticated("acp-antigravity", None).await);
+    assert_eq!(
+        probe_unavailable.unavailable_reason("acp-antigravity", None).await.as_deref(),
+        Some("Antigravity 1.0.0 is too old; 1.5.2 or later is needed. Update it in Settings.")
+    );
 }

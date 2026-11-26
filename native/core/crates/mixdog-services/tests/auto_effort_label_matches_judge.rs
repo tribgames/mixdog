@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use mixdog_ai::effort::{RejectionEntry, anthropic_ladder_row, effort_items_for, effort_options_for, rejection_key, route_auto_effort_on};
+use mixdog_ai::effort::{EffortAuto, RejectionEntry, anthropic_ladder_row, effort_items_for, effort_options_for, rejection_key};
 use mixdog_ai::service::admin_models::{HydrationFacts, hydrate_provider_model_row};
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::effort_configuration::{UnsupportedEfforts, effort_configuration_mode};
@@ -61,17 +61,17 @@ fn judges(facts: &Real, provider: &str, row: &Value, route_auto: Option<&Value>)
         effort_options_for(provider, row, facts.rejected(provider, row))
     };
     let base = clamp_base("medium", &options).unwrap_or("medium");
-    route_auto_effort_on(route_auto) && resolve_auto_effort(base, &options, &[0.0, 1.0, 0.0, 0.0]).is_some()
+    let enabled = route_auto.and_then(Value::as_bool).map(EffortAuto::from_bool).unwrap_or(EffortAuto::Auto);
+    enabled.is_auto() && resolve_auto_effort(base, &options, &[0.0, 1.0, 0.0, 0.0]).is_some()
 }
 
 /// What the UI labels: "Auto" when the core says the model takes it and the route has it on, else the saved level.
 fn labels_auto(facts: &Real, provider: &str, row: &Value, route_auto: Option<&Value>) -> bool {
     let mut cfg = Obj::new();
-    if let Some(flag) = route_auto {
-        cfg.insert("modelSettings".into(), json!({ format!("{provider}/{}", row["id"].as_str().unwrap()): { "autoEffort": flag } }));
-    }
+    let flag = route_auto.and_then(Value::as_bool).unwrap_or(true);
+    cfg.insert("modelSettings".into(), json!({ format!("{provider}/{}", row["id"].as_str().unwrap()): { "effortAuto": flag } }));
     let hydrated = hydrate_provider_model_row(&cfg, row, facts);
-    hydrated["autoEffortCapable"] == json!(true) && hydrated.get("savedAutoEffort") != Some(&json!(false))
+    hydrated["autoEffortCapable"] == json!(true) && hydrated.get("savedEffortAuto") == Some(&json!(true))
 }
 
 #[test]

@@ -351,6 +351,15 @@ fn pick_lane<'a>(lanes: &'a [Value], kind: &str, requested: &str, remembered: Op
         if let Some(broken) = lanes.iter().find(|entry| entry.get("id").and_then(Value::as_str) == Some(requested) && truthy(entry.get("catalogError"))) {
             return Err(ToolFailure::new(text(broken, "catalogError")).with("lanes", catalog()));
         }
+        if lane.is_none()
+            && let Some(unavailable) = lanes.iter().find(|entry| {
+                entry.get("id").and_then(Value::as_str) == Some(requested)
+                    && truthy(entry.get("unavailableReason"))
+                    && entry.get("supportedKinds").and_then(Value::as_array).is_some_and(|kinds| kinds.iter().any(|k| k.as_str() == Some(kind)))
+            })
+        {
+            return Err(ToolFailure::new(text(unavailable, "unavailableReason")).with("lanes", catalog()));
+        }
         return match lane {
             Some(lane) => Ok((lane, "requested")),
             None => Err(ToolFailure::new(format!("lane \"{requested}\" is not signed in or does not generate {kind}")).with("lanes", catalog())),

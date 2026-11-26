@@ -95,6 +95,9 @@ pub struct Quirks {
     /// The most bytes of one MCP call's result the agent hands its model whole, asked of it when it opens a session it
     /// is handed Mixdog's tools in; `None` for an agent that takes no such setting.
     pub mcp_max_output_bytes: Option<u64>,
+    /// Safe UTF-8 byte ceiling for inline MCP text output before Mixdog offloads the full text to an artifact file
+    /// with its path so the agent never silently truncates text below `mcp_max_output_bytes`.
+    pub max_inline_text_bytes: Option<usize>,
     /// Whether `initialize` advertises `clientCapabilities.fs.readTextFile`. Off for Neon / Google's official ACP
     /// server so it uses Mixdog's `read` tool instead of exposing its own `client_view_file`.
     pub fs_read_text_file: bool,
@@ -291,15 +294,14 @@ impl Login {
     }
 }
 
-/// Where the signed-in account's quota is read. Neither asks a model or starts a conversation.
+/// Where the signed-in account's quota is read. None asks a model or starts a conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UsageReport {
     /// The CLI's own report: run to its exit with `args`, it prints one JSON object whose `command.data.groups` hold the
     /// quota's buckets (each with an `id`, a `window`, a `remaining_fraction` and a `reset_time`).
     Command { args: Vec<String> },
-    /// The quota summary of Cloud Code Assist (`retrieveUserQuotaSummary`), asked with the Google credential the agent
-    /// keeps at `token_file` of its home (its `client_id`, `client_secret`, `refresh_token` and `project_id`).
-    Summary { token_file: String },
+    /// Another preset's report: reads the shared account's quota through the preset whose id is `preset_id`.
+    FromPreset { preset_id: String },
 }
 
 /// How an agent runs with none of its own tools, for a session that is handed Mixdog's.
@@ -460,6 +462,7 @@ fn antigravity_quirks() -> Quirks {
         runs_default: false,
         append_tool_guidance: true,
         mcp_max_output_bytes: None,
+        max_inline_text_bytes: None,
         fs_read_text_file: true,
         context_window_caps: vec![("gpt-oss".into(), 128_000), ("gemini-4-".into(), 256_000), ("gemini-".into(), 256_000), ("claude-".into(), 256_000)],
         default_context_window_cap: None,
@@ -527,8 +530,17 @@ pub fn builtin() -> Vec<AgentPreset> {
             // Mixdog's own prompt already says how to group calls and give a tool its items as an array, and the server
             // shows a call's result whole.
             append_tool_guidance: false,
-            // Above 4096 bytes it withholds a result from its model and saves it to a file instead.
-            mcp_max_output_bytes: Some(100_000),
+            // Measured on agy_acp_server 1.5.2:
+            // - Above 4096 bytes the server offloads an MCP result (and each image block over this raw-byte threshold)
+            //   to a file instead of passing it inline. Setting mcpMaxOutputBytes to IMAGE_TARGET_RAW_SIZE
+            //   (3,932,160 B = 3.75 MiB raw / 5 MiB base64) acts as the hard ceiling while Mixdog sends tool images
+            //   at the native 1568 px / 256 KiB base64 JPEG target.
+            // - At mcpMaxOutputBytes = 3,932,160 the server passes text inline and hard-truncates at 49,152 B (48 KiB)
+            //   without saving a file. Setting max_inline_text_bytes to 44 KiB (45,056 B = the measured 49,152 B cut
+            //   minus 4 KiB headroom for the offload/truncation notice and block joining) offloads larger text to a
+            //   Mixdog artifact file before the server cuts it silently (including for read/shell/task/skill).
+            mcp_max_output_bytes: Some(mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE),
+            max_inline_text_bytes: Some(44 * 1024),
             // Disable fs.readTextFile on the official/Neon server so it routes file reads through Mixdog's `read` tool.
             fs_read_text_file: false,
             default_context_window_cap: Some(256_000),
@@ -552,7 +564,7 @@ pub fn builtin() -> Vec<AgentPreset> {
             opens_browser: false,
             link_line: "Open the following link to authenticate the ACP server:".into(),
         }),
-        usage: Some(UsageReport::Summary { token_file: "antigravity-acp/acp_token.json".into() }),
+        usage: Some(UsageReport::FromPreset { preset_id: "antigravity-cli".into() }),
         same_quota_as: Some("antigravity-oauth".into()),
     };
     let cli = AgentPreset {
@@ -630,6 +642,8 @@ mod tests {
         }
         assert_eq!((official.quirks.runs_default, cli.quirks.runs_default), (true, false));
         assert_eq!([&official, &cli].map(|preset| preset.same_quota_as.as_deref()), [Some("antigravity-oauth"); 2]);
+        assert_eq!(official.usage, Some(UsageReport::FromPreset { preset_id: "antigravity-cli".into() }));
+        assert_eq!(cli.usage, Some(UsageReport::Command { args: vec!["--print".into(), "/usage".into(), "--output-format".into(), "json".into()] }));
         assert!(matches!(official.distribution, Distribution::Registry { .. }) && official.version_args.is_empty());
         assert!(matches!(cli.distribution, Distribution::Cli { .. }));
     }
@@ -655,7 +669,10 @@ mod tests {
         let official = shipped("antigravity");
         let Some(OwnToolsOff::SessionMeta(meta)) = &official.own_tools_off else { panic!("the official server is told its settings") };
         let handed = meta.settings(true, official.quirks.mcp_max_output_bytes);
-        assert_eq!((&handed["mcpMaxOutputBytes"], &handed["eagerMcpServers"]), (&serde_json::json!(100_000), &serde_json::json!(["mixdog"])));
+        assert_eq!(
+            (&handed["mcpMaxOutputBytes"], &handed["eagerMcpServers"]),
+            (&serde_json::json!(mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE), &serde_json::json!(["mixdog"]))
+        );
         assert_eq!(handed["disabledTools"].as_array().map(Vec::len), Some(15));
         assert_eq!(meta.settings(false, official.quirks.mcp_max_output_bytes), serde_json::json!({ "disabledTools": handed["disabledTools"] }));
     }

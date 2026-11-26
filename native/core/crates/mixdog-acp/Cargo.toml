@@ -42,6 +42,7 @@ mixdog-core-ports = { workspace = true }
 mixdog-core-review = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-session = { workspace = true }
+mixdog-imaging = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-statefile = { workspace = true }

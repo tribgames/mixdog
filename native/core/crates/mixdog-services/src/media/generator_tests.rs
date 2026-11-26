@@ -195,6 +195,7 @@ fn rig() -> Rig {
         provider_auth: stores.clone(),
         http: Arc::new(NoCatalog),
         revision: Arc::new(String::new),
+        acp_image: None,
     }));
     let wire = Arc::new(Wire::default());
     let codex_files = Arc::new(Mutex::new(Vec::new()));
@@ -214,6 +215,7 @@ fn rig() -> Rig {
             Arc::new(Codex)
         }),
         antigravity: Arc::new(|_| Arc::new(Antigravity)),
+        acp_image: None,
     });
     Rig { generator, wire, stores, codex_files, data }
 }
@@ -288,4 +290,86 @@ async fn an_account_that_is_not_the_providers_is_refused_before_any_request() {
     let failure = rig.generator.generate(request("openai-oauth", "image", "gpt-image-2", "../escape")).await.unwrap_err();
     assert!(failure.code.is_none(), "{}", failure.message);
     assert!(rig.wire.0.lock().unwrap().is_empty());
+}
+
+#[derive(Default)]
+struct RecordingAcpImage {
+    seen: Mutex<Vec<super::acp_image::AcpImageRequest>>,
+}
+
+#[async_trait]
+impl super::acp_image::AcpImageBackend for RecordingAcpImage {
+    async fn authenticated(&self, provider: &str) -> bool {
+        provider == "acp-antigravity"
+    }
+
+    async fn catalog_models(&self, _provider: &str) -> Result<Vec<Value>, super::catalog::CatalogFailure> {
+        Ok(vec![json!({ "id": "antigravity-image", "displayName": "Antigravity Image", "imageGeneration": true })])
+    }
+
+    async fn generate(
+        &self,
+        request: super::acp_image::AcpImageRequest,
+        _cancel: &CancellationToken,
+    ) -> Result<super::acp_image::AcpImageReply, super::jobs::MediaFailure> {
+        self.seen.lock().unwrap().push(request);
+        Ok(super::acp_image::AcpImageReply {
+            bytes: b"\x89PNG\r\n\x1a\nacp-out".to_vec(),
+            mime: "image/png".into(),
+            revised_prompt: Some("refined cat".into()),
+            usage: Some(json!({ "inputTokens": 100, "outputTokens": 20, "images": 1 })),
+        })
+    }
+}
+
+#[tokio::test]
+async fn acp_antigravity_lane_routes_generate_and_edit_through_acp_backend() {
+    let data = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let stores = Arc::new(Stores::default());
+    let acp = Arc::new(RecordingAcpImage::default());
+    let probe = Arc::new(FileAccountProbe::new(ProbeParts {
+        data_dir: data.path().to_owned(),
+        lane: tokens.durability_io,
+        now: Arc::new(|| 0),
+        env: Arc::new(|_| None),
+        keys: Arc::new(Keys),
+        settings: Arc::new(Settings),
+        provider_auth: stores.clone(),
+        http: Arc::new(NoCatalog),
+        revision: Arc::new(String::new),
+        acp_image: Some(acp.clone()),
+    }));
+    let generator = StudioGenerator::new(GeneratorParts {
+        data_dir: data.path().to_owned(),
+        host: Vec::new(),
+        selected: Arc::new(NoneSelected),
+        accounts: Arc::new(AccountedProbe(probe.clone())),
+        http: Arc::new(Wire::default()),
+        public: Arc::new(NoPublic),
+        pacer: Arc::new(NoWait),
+        probe,
+        provider_auth: stores,
+        codex: Arc::new(|_| Arc::new(Codex)),
+        antigravity: Arc::new(|_| Arc::new(Antigravity)),
+        acp_image: Some(acp.clone()),
+    });
+
+    let resolved = generator.resolve("acp-antigravity", "image", "").await.expect("resolve acp-antigravity");
+    assert_eq!((resolved.lane.as_str(), resolved.model.as_str(), resolved.max_references), ("acp-antigravity", "antigravity-image", 3));
+
+    let mut req = request("acp-antigravity", "image", "antigravity-image", "");
+    req.options = json!({ "aspectRatio": "16:9" });
+    let generated = generator.generate(req).await.expect("acp-antigravity generate succeeds");
+    assert_eq!(generated.bytes, b"\x89PNG\r\n\x1a\nacp-out");
+    assert_eq!(generated.mime, "image/png");
+    assert_eq!(generated.revised_prompt.as_deref(), Some("refined cat"));
+    assert_eq!(generated.usage, Some(json!({ "inputTokens": 100, "outputTokens": 20, "images": 1 })));
+
+    let recorded = acp.seen.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].provider, "acp-antigravity");
+    assert_eq!(recorded[0].aspect_ratio.as_deref(), Some("16:9"));
+    assert_eq!(recorded[0].references.len(), 1);
+    assert!(!recorded[0].references[0].bytes.is_empty());
 }

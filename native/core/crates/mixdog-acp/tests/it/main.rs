@@ -161,14 +161,26 @@ struct Turns {
     /// The summary the session's compaction makes of the conversation before the turn: none for a session that holds
     /// none, the reason for one that cannot be made.
     summary: Option<Result<&'static str, &'static str>>,
+    /// Optional override summary returned by `compact_mid_turn`; falls back to `summary` when `None`.
+    mid_turn_summary: Option<Result<&'static str, &'static str>>,
     /// The session's tools, each call run by the loop's own execution of one.
     calls: Option<Arc<HandedCalls>>,
     /// The agent's context reached the session's compaction trigger.
     due: Option<mixdog_acp::runs::Due>,
+    /// Enables Mixdog automatic compaction policy (returning `effective_window` as the policy trigger unless `auto_trigger` overrides it).
+    auto_compact: bool,
+    /// Explicit policy auto-compaction trigger override.
+    auto_trigger: Option<u64>,
+    /// Persisted context tokens from the previous turn's header.
+    last_context_tokens: Option<u64>,
+    /// Persisted context window from the previous turn's header.
+    context_window: Option<u64>,
     /// The window the user selected for the session, below the agent's own.
     selected_window: Option<u64>,
     /// The turn is stopped with this token while the summary is being made, which then never comes.
     stops_summary: Option<CancellationToken>,
+    /// The turn is stopped with this token while `compact_mid_turn` is running, which then never comes.
+    stops_mid_turn_summary: Option<CancellationToken>,
     /// The turn is stopped with this token as the attachment `stop` is read for the prompt, before the prompt is sent.
     stops_sending: Option<CancellationToken>,
     /// Hook invoked while resolving an attachment reference (e.g. to simulate a concurrent `stop_submissions`).
@@ -177,6 +189,10 @@ struct Turns {
     hold_attachment: Option<Arc<Notify>>,
     /// Optional counter incremented each time `Conversation::hand_over` runs.
     hand_over_calls: Option<Arc<AtomicUsize>>,
+    /// Optional counter incremented each time `Conversation::compact_mid_turn` runs.
+    mid_turn_compacts: Option<Arc<AtomicUsize>>,
+    /// Optional progress watch sender passed into `TurnContext::progress`.
+    progress: Option<tokio::sync::watch::Sender<mixdog_core_run::run_host::progress::RunProgress>>,
     /// Extra attachment reference -> filesystem path mappings for attachment read tests.
     extra_paths: HashMap<String, String>,
     /// Images persisted via `Attachments::keep_image`, in order.
@@ -202,6 +218,24 @@ impl Conversation for Turns {
 
     fn compaction_due(&self) -> Option<mixdog_acp::runs::Due> {
         self.due
+    }
+
+    fn auto_compaction_trigger(&self, effective_window: u64) -> Option<u64> {
+        if let Some(trigger) = self.auto_trigger {
+            return Some(trigger);
+        }
+        self.auto_compact.then_some(effective_window)
+    }
+
+    async fn compact_mid_turn(&self, _effective_window: Option<u64>) -> Result<Option<String>, String> {
+        if let Some(calls) = &self.mid_turn_compacts {
+            calls.fetch_add(1, Ordering::SeqCst);
+        }
+        if let Some(stop) = &self.stops_mid_turn_summary {
+            stop.cancel();
+            std::future::pending::<()>().await;
+        }
+        self.mid_turn_summary.or(self.summary).map(|summary| summary.map(str::to_owned).map_err(str::to_owned)).transpose()
     }
 }
 
@@ -512,6 +546,10 @@ impl TextFiles for Files {
         service_files().create(path, text).await
     }
 
+    async fn create_bytes(&self, path: AbsPath, bytes: Vec<u8>) -> Result<(), String> {
+        service_files().create_bytes(path, bytes).await
+    }
+
     async fn make_folder(&self, path: AbsPath) -> Result<(), String> {
         service_files().make_folder(path).await
     }
@@ -559,10 +597,6 @@ struct Registry {
     finish: Arc<Notify>,
     /// Notified once the lingering writer has written its late file and released `Unpacking`.
     late_done: Arc<Notify>,
-    /// The answer to a post to each address.
-    answers: Mutex<HashMap<String, Value>>,
-    /// What was posted, in order: the address, the headers and the body.
-    posted: Mutex<Vec<(String, Vec<(String, String)>, Vec<u8>)>>,
 }
 
 impl Registry {
@@ -579,15 +613,6 @@ impl Registry {
 
     fn downloads(&self) -> Vec<String> {
         self.downloads.lock().unwrap().clone()
-    }
-
-    /// Answers a post to `url` with `answer`.
-    fn answer(&self, url: &str, answer: Value) {
-        self.answers.lock().unwrap().insert(url.to_owned(), answer);
-    }
-
-    fn posted(&self) -> Vec<(String, Vec<(String, String)>, Vec<u8>)> {
-        self.posted.lock().unwrap().clone()
     }
 }
 
@@ -627,11 +652,6 @@ impl mixdog_acp::registry::RegistryFetcher for Registry {
             std::fs::write(into.join(helper), "").map_err(|error| error.to_string())?;
         }
         Ok(())
-    }
-
-    async fn post(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<Value, String> {
-        self.posted.lock().unwrap().push((url.to_owned(), headers.to_vec(), body));
-        self.answers.lock().unwrap().get(url).cloned().ok_or_else(|| format!("{url} was not answered"))
     }
 }
 
@@ -717,6 +737,7 @@ fn agents_of(
         presets: presets.to_vec(),
         processes: processes.clone(),
         files: Arc::new(Files(opened.clone())),
+        cpu: mixdog_rt::testing::tokens().cpu_interactive,
         enabled: {
             let enabled = enabled.clone();
             Arc::new(move || enabled.load(Ordering::SeqCst))
@@ -894,6 +915,8 @@ impl World {
             pictures: None,
             transcript: None,
             output_produced: None,
+            mid_turn_compaction: None,
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
         }
     }
 
@@ -925,9 +948,12 @@ impl World {
             input,
             conversation: turns.clone(),
             attachments: turns.clone(),
+            last_context_tokens: turns.last_context_tokens,
+            context_window: turns.context_window,
         };
         let context = TurnContext {
             model: model.to_owned(),
+            progress: turns.progress.clone(),
             calls: turns.calls.clone(),
             selected_window: turns.selected_window,
             pictures: Some(pictures),
@@ -947,6 +973,8 @@ impl World {
             input: json!({ "role": "user", "content": "whoami" }),
             conversation: turns.clone(),
             attachments: turns,
+            last_context_tokens: None,
+            context_window: None,
         };
         let context = TurnContext { model: model.to_owned(), ..self.context(CancellationToken::new()) };
         mixdog_acp::runs::serve(&self.agents, preset, request, Arc::new(Surface::default()), context).await
@@ -2193,6 +2221,8 @@ async fn a_model_the_agent_lists_at_several_tiers_is_one_row_and_the_routes_effo
             input,
             conversation: turns.clone(),
             attachments: turns,
+            last_context_tokens: None,
+            context_window: None,
         };
         let context = TurnContext { model: "gem".to_owned(), effort: effort.map(str::to_owned), ..world.context(CancellationToken::new()) };
         mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), context)
@@ -2737,7 +2767,7 @@ impl Tool for Echo {
             "picture" => {
                 let image = ToolPart::Image {
                     mime: "image/png".to_owned(),
-                    data: mixdog_core_api::domain::tool::ImageData::Bytes(b"png".to_vec()),
+                    data: mixdog_core_api::domain::tool::ImageData::Bytes(sample_tool_png()),
                     width: None,
                     height: None,
                 };
@@ -2746,6 +2776,11 @@ impl Tool for Echo {
             _ => ToolOutput { parts: text(format!("{name} ran with {arguments}")), ..ToolOutput::default() },
         })
     }
+}
+
+fn sample_tool_png() -> Vec<u8> {
+    let raster = mixdog_imaging::Raster { width: 200, height: 200, has_alpha: false, data: vec![0x40; 200 * 200 * 3] };
+    mixdog_imaging::encode::encode_in_format(&raster, mixdog_imaging::Format::Png).expect("encode sample png")
 }
 
 /// The test session's tool that runs until the test lets it end.
@@ -2776,7 +2811,7 @@ impl Tool for Slow {
         if arguments["picture"] == true {
             parts.push(ToolPart::Image {
                 mime: "image/png".to_owned(),
-                data: mixdog_core_api::domain::tool::ImageData::Bytes(b"png".to_vec()),
+                data: mixdog_core_api::domain::tool::ImageData::Bytes(sample_tool_png()),
                 width: None,
                 height: None,
             });
@@ -3168,6 +3203,97 @@ async fn a_handed_calls_card_shows_its_diff_and_its_images_reach_the_agent_as_im
 
     let end = tools.prompt(&world, &Surface::default(), "tool picture {}").await;
     assert_eq!(completed_text(&end), "result:a picture images=1");
+}
+
+#[tokio::test]
+async fn a_file_backed_tool_image_reaches_an_image_capable_agent_and_omits_for_a_text_only_agent() {
+    use mixdog_agent::offload::{ImageCompactor, ImageOutcome};
+
+    struct StoredImages(Mutex<std::collections::HashMap<String, Vec<u8>>>);
+
+    #[async_trait]
+    impl ImageCompactor for StoredImages {
+        async fn import_blob(&self, reference: &str) -> Option<(String, String)> {
+            self.0.lock().unwrap().contains_key(reference).then(|| (reference.to_owned(), "image/png".to_owned()))
+        }
+
+        async fn compact(&self, data: &str, mime: &str) -> ImageOutcome {
+            let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data).expect("valid base64");
+            let reference = "d".repeat(64);
+            self.0.lock().unwrap().insert(reference.clone(), bytes);
+            ImageOutcome::Stored { reference, mime: mime.to_owned(), note: None }
+        }
+    }
+
+    #[async_trait]
+    impl Attachments for StoredImages {
+        async fn bytes(&self, reference: &str) -> Option<Vec<u8>> {
+            self.0.lock().unwrap().get(reference).cloned()
+        }
+    }
+
+    let store = Arc::new(StoredImages(Mutex::default()));
+    let run_picture = |world: World, store: Arc<StoredImages>| async move {
+        let tools = Tools::new(world.processes.clone());
+        world.agents.bind_tools(tools.clone());
+        let surface = Surface::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let calls = Arc::new(HandedCalls::new(HandedParts {
+            tools: ToolSet::new(tools.set.clone()),
+            tool_env: ToolEnv {
+                thread_id: thread(),
+                turn_id: TurnId::from("turn-1"),
+                cwd: AbsPath::new(std::env::temp_dir()).expect("an absolute temp dir"),
+                surface: SurfaceKind::Lead,
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                approvals: Arc::new(Cards(surface.clone())),
+                files: Arc::new(MockFileService::default()),
+                processes: tools.processes.clone(),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: None,
+                notify: None,
+                review: None,
+            },
+            gate: Arc::new(Witness(tools.seen.clone())),
+            hooks: Some(Arc::new(Witness(tools.seen.clone()))),
+            guards: Arc::new(mixdog_agent::env::NoGuards),
+            reuse: None,
+            clock: Arc::new(Zero),
+            observer: Arc::new(mixdog_agent::env::NullObserver),
+            mcp: None,
+            live_cwd: None,
+            artifacts: None,
+            images: Some(store.clone()),
+            failures: None,
+            repeat: Default::default(),
+            cancel: CancellationToken::new(),
+            slot: None,
+            asks: None,
+            limits: None,
+            hidden_agent: false,
+            vision: None,
+            reactions: None,
+        }));
+        let session = world.agents.session(&thread(), &world.preset, world.cwd(), None, Some("RULES".into())).await.expect("the agent starts");
+        let context = TurnContext { calls: Some(calls), attachments: Some(store), ..world.context(CancellationToken::new()) };
+        let end = within(
+            "the turn",
+            mixdog_acp::turn::run(&session, Arc::new(surface), Ask::Prompt(vec![json!({ "type": "text", "text": "tool picture {}" })]), context),
+        )
+        .await;
+        completed_text(&end).to_owned()
+    };
+
+    // Image-capable agent receives the stored file-backed image as real MCP image content.
+    let limit = mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE;
+    let image_world = World::build(&[], |preset, _| preset.quirks.mcp_max_output_bytes = Some(limit));
+    let seen = run_picture(image_world, store.clone()).await;
+    assert_eq!(seen, "result:a picture images=1");
+
+    // Agent advertising promptCapabilities.image = false receives no image block and a clear omission line.
+    let no_image_world = World::build(&[("FAKE_AGENT_NO_IMAGES", "1")], |preset, _| preset.quirks.mcp_max_output_bytes = Some(limit));
+    let omitted = run_picture(no_image_world, store).await;
+    assert_eq!(omitted, format!("result:a picture\n{}", mixdog_acp::mcp::IMAGE_OMITTED_UNSUPPORTED));
 }
 
 #[tokio::test]
@@ -4338,7 +4464,7 @@ async fn the_official_servers_sessions_carry_its_settings_and_the_clis_its_promp
     let (world, _tools) = handing_in(World::official(&[]));
     let handed = json!({ "antigravity": {
         "systemPrompt": { "append": "RULES" },
-        "mcpMaxOutputBytes": 100_000,
+        "mcpMaxOutputBytes": mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE,
         "eagerMcpServers": ["mixdog"],
         "disabledTools": OFFICIAL_TOOLS,
     } });
@@ -4478,7 +4604,7 @@ async fn one_official_server_serves_every_session_each_with_its_own_folder_tool_
     assert!(url_a != url_b && token_a != token_b, "each session is handed a tool server of its own: {url_a} {url_b}");
     let handed = json!({ "antigravity": {
         "systemPrompt": { "append": "RULES" },
-        "mcpMaxOutputBytes": 100_000,
+        "mcpMaxOutputBytes": mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE,
         "eagerMcpServers": ["mixdog"],
         "disabledTools": OFFICIAL_TOOLS,
     } });
@@ -4561,6 +4687,8 @@ async fn a_model_switch_and_a_close_act_on_one_session_of_the_shared_server() {
         input: json!({ "role": "user", "content": "whoami" }),
         conversation: turns.clone(),
         attachments: turns,
+        last_context_tokens: None,
+        context_window: None,
     };
     let context = TurnContext { model: "gemini-b".into(), ..world.context(CancellationToken::new()) };
     let end = within("A's turn", mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), context)).await;
@@ -4579,9 +4707,12 @@ async fn a_model_switch_and_a_close_act_on_one_session_of_the_shared_server() {
     })
     .await;
     assert!(world.agents.running(&a).is_none());
-    assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-2"));
-    assert!(!server.exited().is_cancelled(), "the server serves B on");
-    assert_eq!(world.agents.running(&b).expect("b's agent").connection.handle(), server.handle());
+    within("the official shared server to retire once quiescent", server.exited().cancelled()).await;
+    world.logs("session/resume sess-2").await;
+    let resumed_b = within("B on the new server", world.prompt_in(&b, &in_b, &Surface::default(), "whoami", Some("sess-2"), CancellationToken::new())).await;
+    assert!(completed_text(&resumed_b).starts_with("session=sess-2 resumed=true"), "{resumed_b:?}");
+    assert_ne!(world.agents.running(&b).expect("b's agent").connection.handle(), server.handle());
+    assert_eq!(world.logged("session/resume sess-2"), 1, "{:?}", world.log());
 }
 
 /// A server that exits fails the turns running on it cleanly, and the next turn of each of its sessions starts one new
@@ -4609,7 +4740,7 @@ async fn an_exited_shared_server_fails_its_turns_and_the_next_ones_resume_their_
 
     let handed = json!({ "antigravity": {
         "systemPrompt": { "append": "RULES" },
-        "mcpMaxOutputBytes": 100_000,
+        "mcpMaxOutputBytes": mixdog_imaging::policy::IMAGE_TARGET_RAW_SIZE,
         "eagerMcpServers": ["mixdog"],
         "disabledTools": OFFICIAL_TOOLS,
     } });
@@ -4649,9 +4780,9 @@ async fn a_session_the_new_server_cannot_resume_is_opened_anew_with_the_conversa
     assert_eq!((world.logged("session/resume sess-1"), world.server_temps().len()), (1, 2), "{:?}", world.log());
 }
 
-/// The shared server runs while a session uses it: another session's leaving and a session reopened on it in another
-/// folder keep it, the last session's leaving closes it as the end of its input closes it with its temporary folder,
-/// and the next session starts a new one.
+/// A `!closes` shared server retires as soon as a session leaves it and remaining sessions are idle, cleaning up its
+/// temporary folder on EOF so per-session helper processes never accumulate; the session it still held is reopened on a
+/// new server at once, and once no session is held no server runs until the next turn starts one.
 #[tokio::test]
 async fn a_shared_server_runs_while_a_session_uses_it_and_closes_once_none_does() {
     let world = World::official(&[]);
@@ -4659,22 +4790,31 @@ async fn a_shared_server_runs_while_a_session_uses_it_and_closes_once_none_does(
     world.answer_in(&a, &world.cwd(), "whoami").await;
     world.answer_in(&b, &world.cwd(), "whoami").await;
     let server = world.agents.running(&a).expect("a's agent").connection.clone();
-    world.agents.release(&b);
-    assert!(!server.exited().is_cancelled(), "A's session holds it");
-    // A's session is ended and opened again in another folder: the server serves the new one with no close between.
-    let in_a = world.folder("a");
-    assert!(world.answer_in(&a, &in_a, "whoami").await.starts_with("session=sess-3"));
-    assert_eq!(world.agents.running(&a).expect("a's agent").connection.handle(), server.handle());
     let temp = world.server_temps().pop().expect("the server's temporary folder");
     assert!(exists(&temp.join("_MEIfake")));
 
-    world.agents.release(&a);
-    within("the server's exit", server.exited().cancelled()).await;
+    world.agents.release(&b);
+    within("the server's quiescent exit", server.exited().cancelled()).await;
     assert_eq!(world.exit_of(server.handle()), Some(CLOSED), "closed by the end of its input");
     assert_eq!(world.logged("eof"), 1);
     assert!(!exists(&temp), "{temp:?}");
+
+    // A's session was reopened on a new server, where its next turn goes on.
+    world.logs("session/resume sess-1").await;
+    assert!(world.answer_in(&a, &world.cwd(), "whoami").await.starts_with("session=sess-1 resumed=true"));
+    let server2 = world.agents.running(&a).expect("a's agent").connection.clone();
+    assert_ne!(server2.handle(), server.handle());
+    let temp2 = world.server_temps().pop().expect("the second server's temporary folder");
+    assert!(exists(&temp2.join("_MEIfake")));
+
+    world.agents.release(&a);
+    within("the second server's exit", server2.exited().cancelled()).await;
+    assert_eq!(world.exit_of(server2.handle()), Some(CLOSED), "closed by the end of its input");
+    assert_eq!(world.logged("eof"), 2);
+    assert!(!exists(&temp2), "{temp2:?}");
+    assert_eq!(world.logged("start acp"), 2, "no server starts while no session is held: {:?}", world.log());
     assert!(world.answer_in(&b, &world.cwd(), "whoami").await.starts_with("session=sess-1 resumed=false"));
-    assert_eq!((world.server_temps().len(), world.logged("start acp")), (2, 2), "{:?}", world.log());
+    assert_eq!((world.server_temps().len(), world.logged("start acp")), (3, 3), "{:?}", world.log());
 }
 
 /// Each start of the server has a temporary folder of its own, removed once it exits however it ended; the daemon's start
@@ -4750,9 +4890,12 @@ async fn a_route_moved_to_the_other_preset_takes_the_threads_session_off_the_sha
     assert!(world.agents.running(&a).is_some(), "a route change on the same preset keeps the session");
     writer.set_route_state(&a, route("acp-antigravity-cli"));
     assert!(world.agents.running(&a).is_none());
-    assert!(world.answer_in(&b, &world.folder("b"), "whoami").await.starts_with("session=sess-2"));
-    assert!(!server.exited().is_cancelled(), "the server serves B on");
-    assert_eq!(world.logged("eof"), 0);
+    within("the official shared server to retire once quiescent", server.exited().cancelled()).await;
+    assert_eq!(world.logged("eof"), 1);
+    let resumed_b =
+        within("B resumes on a fresh server", world.prompt_in(&b, &world.folder("b"), &Surface::default(), "whoami", Some("sess-2"), CancellationToken::new()))
+            .await;
+    assert!(completed_text(&resumed_b).starts_with("session=sess-2 resumed=true"), "{resumed_b:?}");
 }
 
 /// A reply an agent's session began on its own is the route's of that session's preset: a wake served on the other preset
@@ -4774,6 +4917,8 @@ async fn a_wake_on_another_presets_route_shows_nothing_of_the_reply() {
         input: wake,
         conversation: turns.clone(),
         attachments: turns,
+        last_context_tokens: None,
+        context_window: None,
     };
     let surface = Surface::default();
     let end =
@@ -4982,30 +5127,28 @@ async fn the_next_install_waits_for_an_ended_unpack_before_it_clears_what_that_l
     assert!(!left.iter().any(|name| name.starts_with(".staging-")), "{left:?}");
 }
 
-/// The official server's quota is the summary its own Google credential reads, asked as the hub client asks it: with
-/// the access token its refresh token is exchanged for, for the project its sign-in names.
+/// The official server's quota comes from the Antigravity CLI preset's `/usage` report when the CLI is ready, and
+/// returns `None` when the CLI is missing or signed out (never reading `acp_token.json`).
 #[tokio::test]
-async fn the_official_servers_quota_is_the_summary_its_own_credential_reads() {
-    use mixdog_ai::providers::google::auth::antigravity::TOKEN_URL;
-    use mixdog_ai::service::usage_antigravity::QUOTA_URL;
-    let world = World::official(&[]);
-    let token = json!({ "client_id": "client-1", "client_secret": "secret-1", "refresh_token": "refresh-1", "project_id": "project-1" });
-    #[allow(clippy::disallowed_methods, reason = "a test writes the credential the server's sign-in keeps")]
-    std::fs::write(home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("acp_token.json"), token.to_string()).expect("the credential");
-    let summary = json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.25 }] }] });
-    world.registry.answer(TOKEN_URL, json!({ "access_token": "access-1" }));
-    world.registry.answer(QUOTA_URL, summary.clone());
-    assert_eq!(world.checked().await["state"], "ready");
-    assert!(world.agents.reports_usage(&world.preset));
-    assert_eq!(within("the report", world.agents.usage(&world.preset)).await, Some(Ok(summary)));
+async fn the_official_servers_quota_comes_from_the_antigravity_cli_report() {
+    let world = World::of(&["antigravity", "antigravity-cli"], &[], |_, _| {});
+    let cli = world.agents.presets().iter().find(|p| p.id == "antigravity-cli").expect("cli preset").clone();
+    assert!(matches!(within("official look", world.agents.look(&world.preset)).await, Some(Readiness::Ready { .. })));
+    assert!(!world.agents.reports_usage(&world.preset), "CLI has not been checked yet");
+    assert_eq!(within("report before cli ready", world.agents.usage(&world.preset)).await, None);
 
-    let posted = world.registry.posted();
-    assert_eq!(posted.iter().map(|(url, ..)| url.as_str()).collect::<Vec<_>>(), [TOKEN_URL, QUOTA_URL]);
-    let form: HashMap<String, String> = url::form_urlencoded::parse(&posted[0].2).into_owned().collect();
-    let field = |key: &str| form.get(key).map(String::as_str);
-    assert_eq!([field("grant_type"), field("refresh_token"), field("client_id")], [Some("refresh_token"), Some("refresh-1"), Some("client-1")]);
-    assert!(posted[1].1.contains(&("Authorization".to_owned(), "Bearer access-1".to_owned())), "{:?}", posted[1].1);
-    assert_eq!(serde_json::from_slice::<Value>(&posted[1].2).expect("JSON"), json!({ "project": "project-1" }));
+    assert!(matches!(within("cli look", world.agents.look(&cli)).await, Some(Readiness::Ready { .. })));
+    assert!(world.agents.reports_usage(&world.preset));
+    let report = within("the report", world.agents.usage(&world.preset)).await.expect("a ready CLI is asked").expect("the report");
+    assert!(report["groups"].as_array().is_some_and(|groups| !groups.is_empty()), "{report}");
+
+    // When the CLI is signed out, the official server reports no usage.
+    let signed_out = World::of(&["antigravity", "antigravity-cli"], &[("FAKE_AGENT_SIGNED_OUT", "1")], |_, _| {});
+    let cli_out = signed_out.agents.presets().iter().find(|p| p.id == "antigravity-cli").expect("cli preset").clone();
+    assert!(matches!(within("official look", signed_out.agents.look(&signed_out.preset)).await, Some(Readiness::Ready { .. })));
+    assert!(matches!(within("cli signed out", signed_out.agents.look(&cli_out)).await, Some(Readiness::SignedOut { .. })));
+    assert!(!signed_out.agents.reports_usage(&signed_out.preset));
+    assert_eq!(within("no report when cli signed out", signed_out.agents.usage(&signed_out.preset)).await, None);
 }
 
 /// A sign-in page that sends the browser back to the official server's loopback listener can be finished from a browser
@@ -5408,9 +5551,11 @@ async fn the_apps_stop_waits_for_a_retiring_server_and_no_server_starts_after_it
     assert_eq!(world.exit_of(server.handle()), Some(CLOSED));
     assert!(!exists(&temp), "{temp:?}");
 
+    let started = world.server_temps().len();
     let late = within("a start after the stop", world.agents.session(&ThreadId::from("sess_late"), &world.preset, world.cwd(), None, None)).await;
-    assert!(matches!(late, Err(Refusal::Fault(_))));
-    assert_eq!(world.server_temps().len(), 1, "{:?}", world.log());
+    assert!(matches!(late, Err(Refusal::Closed)));
+    assert_eq!(world.server_temps().len(), started, "{:?}", world.log());
+    assert!(world.server_temps().iter().all(|temp| !exists(temp)), "{:?}", world.log());
 }
 
 /// A route that leaves the official preset while a turn runs (the switch takes effect at the next turn) does not cut the
@@ -5436,21 +5581,23 @@ async fn a_route_switch_during_a_turn_ends_the_session_after_it_and_a_detached_p
     assert_eq!(end, TurnEnd::Interrupted);
     within("the session's end", session.gone().cancelled()).await;
 
-    // The server it left serves none and was closed; on the next one a session that stays keeps it running while B's
-    // session is taken off it mid-prompt.
+    // On a shared server that supports `session/close`, a session that stays keeps it running while B's session is
+    // taken off it mid-prompt.
+    let shared = World::build(&[], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
     let (keeper, other) = (ThreadId::from("sess_keeper"), ThreadId::from("sess_b"));
-    assert!(world.answer_in(&keeper, &world.cwd(), "whoami").await.starts_with("session=sess-1"));
+    assert!(shared.answer_in(&keeper, &shared.cwd(), "whoami").await.starts_with("session=sess-1"));
     let surface = Surface::default();
-    let cwd = world.cwd();
-    let hanging = world.prompt_in(&other, &cwd, &surface, "hang", None, CancellationToken::new());
+    let cwd = shared.cwd();
+    let hanging = shared.prompt_in(&other, &cwd, &surface, "hang", None, CancellationToken::new());
     let release = async {
         surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
-        world.agents.release(&other);
+        shared.agents.release(&other);
     };
     let (end, ()) = within("the released turn", async { tokio::join!(hanging, release) }).await;
     assert!(matches!(end, TurnEnd::Failed { .. }), "{end:?}");
-    world.logs("session/cancel sess-2").await;
-    assert!(world.answer_in(&keeper, &world.cwd(), "whoami").await.starts_with("session=sess-1"), "the server serves the keeper on");
+    // Only the official server logs a method again with its session's id; B's is the one prompt open here.
+    shared.logs("session/cancel").await;
+    assert!(shared.answer_in(&keeper, &shared.cwd(), "whoami").await.starts_with("session=sess-1"), "the server serves the keeper on");
 }
 
 /// A turn whose call of a Mixdog tool waits on its approval card ends at once when its session leaves the shared server:
@@ -5474,11 +5621,11 @@ async fn a_turn_whose_mixdog_call_waits_on_its_card_ends_when_its_session_leaves
     assert!(rows.iter().any(|row| row["content"] == "The agent's session ended before this call did."), "{rows:?}");
 }
 
-/// A session taken off the shared server while the server's question about one of its calls is open has that question
-/// answered (cancelled): the server goes on serving the others.
+/// A session taken off a surviving shared server while the server's question about one of its calls is open has that
+/// question answered (cancelled): the server goes on serving the others.
 #[tokio::test]
 async fn a_question_of_a_session_taken_off_the_shared_server_is_answered_cancelled() {
-    let world = World::official(&[]);
+    let world = World::build(&[], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
     let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
     let in_b = world.folder("b");
     assert!(world.answer_in(&b, &in_b, "whoami").await.starts_with("session=sess-1"));
@@ -5647,7 +5794,7 @@ async fn unanswered_session_cancel_ends_turn_promptly_and_recovers_next_turn() {
     // Three processes ran in ACP mode: the CLI readiness check, the stuck session, and its replacement.
     assert_eq!(per_session.logged("start acp"), 3, "stuck child process replaced after cancel grace: {:?}", per_session.log());
 
-    let shared = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    let shared = World::build(&[("FAKE_AGENT_SILENT_CANCEL", "1")], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
     shared.agents.set_cancel_close_grace(Duration::from_millis(150));
     let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
     let cwd = shared.cwd();
@@ -5668,7 +5815,7 @@ async fn unanswered_session_cancel_ends_turn_promptly_and_recovers_next_turn() {
     let text_a = completed_text(&recovered_a);
     assert!(text_a.starts_with("session=sess-3 resumed=false"), "{text_a:?}");
     assert!(shared.answer_in(&b, &cwd, "whoami").await.starts_with("session=sess-1"));
-    assert_eq!(shared.logged("start acp"), 1, "shared server stayed alive for thread B: {:?}", shared.log());
+    assert_eq!(shared.logged("start acp"), 2, "probe plus one shared server kept alive for thread B: {:?}", shared.log());
 }
 
 /// A queued mid-turn user message reaches the running ACP agent at its next Mixdog tool-call boundary exactly once,
@@ -5923,7 +6070,7 @@ async fn stopped_submission_during_steer_attachment_resolution_is_never_delivere
 /// `hand_over()` invalidates `SESSION_KEY` in the header and prevents the next turn from reattaching to the stuck session.
 #[tokio::test]
 async fn shared_server_invalidates_stored_session_key_on_cancel_grace_and_post_open_stop() {
-    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    let world = World::build(&[("FAKE_AGENT_SILENT_CANCEL", "1")], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
     world.agents.set_cancel_close_grace(Duration::from_millis(150));
     let other = ThreadId::from("sess_b");
     let cwd = world.cwd();
@@ -6330,7 +6477,7 @@ async fn deliver_answer_respects_mcp_call_deadline_and_hands_off_immediately_wit
 /// `Connection::sent` immediately on detach instead of leaking one entry per recovery forever.
 #[tokio::test]
 async fn repeated_silent_cancels_on_shared_server_do_not_leak_connection_sent_ids() {
-    let world = World::official(&[("FAKE_AGENT_SILENT_CANCEL", "1")]);
+    let world = World::build(&[("FAKE_AGENT_SILENT_CANCEL", "1")], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
     world.agents.set_cancel_close_grace(Duration::from_millis(60));
     let other = ThreadId::from("sess_sibling");
     let cwd = world.cwd();
@@ -6683,6 +6830,8 @@ async fn replacement_shared_server_stalled_initialize_honors_open_timeout_and_un
             input: json!({ "role": "user", "content": "whoami" }),
             conversation: turns.clone(),
             attachments: turns,
+            last_context_tokens: None,
+            context_window: None,
         };
         mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), world.context(CancellationToken::new())).await
     };
@@ -6727,6 +6876,8 @@ fn serve_on_gem<'a>(world: &'a World, text: &str, stored: Option<Stored>) -> imp
         input: json!({ "role": "user", "content": text }),
         conversation: turns.clone(),
         attachments: turns,
+        last_context_tokens: None,
+        context_window: None,
     };
     let context = TurnContext { model: "gem".to_owned(), effort: Some("high".to_owned()), ..world.context(CancellationToken::new()) };
     mixdog_acp::runs::serve(&world.agents, &world.preset, request, Arc::new(Surface::default()), context)
@@ -6902,8 +7053,8 @@ async fn a_wedged_prompt_on_a_shared_server_is_never_resumed_while_its_cancel_or
     assert_ne!(fresh.connection.handle(), server1.handle());
     assert_eq!(solo.logged("start acp"), 2, "{:?}", solo.log());
 
-    // Alongside another active session: the server keeps serving the keeper, while the wedged id is never resumed on it.
-    let shared = World::official(&[("FAKE_AGENT_DEAF", "1")]);
+    // Alongside another active session on a close-capable shared server: the server keeps serving the keeper, while the wedged id is never resumed on it.
+    let shared = World::build(&[("FAKE_AGENT_DEAF", "1")], |preset, _| preset.scope = mixdog_acp::preset::ProcessScope::Shared);
     let keeper = ThreadId::from("sess_keeper");
     assert!(shared.answer_in(&keeper, &shared.folder("keeper"), "whoami").await.starts_with("session=sess-1"));
     let server = shared.agents.running(&keeper).expect("keeper's agent").connection.clone();
@@ -7737,4 +7888,1490 @@ async fn neon_official_disables_fs_read_text_file_and_release_all_clears_grants(
     assert!(matches!(end2, TurnEnd::Completed { .. }), "{end2:?}");
     let reopened = world.agents.running(&thread()).expect("reopened session");
     assert!(!reopened.grants.lock().unwrap().contains(&key), "reopened session must not inherit grants cleared by release_all");
+}
+
+/// An idle-unloaded worker keeps its open ACP session so its next turn continues on it without `session/resume`,
+/// `session/load`, or a new session; releasing it (close, cleanup, park, or delete) exits the process cleanly.
+#[tokio::test]
+async fn idle_unloaded_worker_reuses_open_acp_session_without_reopen_and_closes_on_release() {
+    for shared in [false, true] {
+        let world = if shared { World::official(&[]) } else { World::new(&[]) };
+        if !shared {
+            world.checked().await;
+        }
+        let surface1 = Surface::default();
+        let end1 = world.serve(&surface1, json!({ "role": "user", "content": "whoami" }), None, "default", CancellationToken::new()).await;
+        assert!(completed_text(&end1).starts_with("session=sess-1"), "shared={shared}: {end1:?}");
+        let opens_after_first = world.logged("session/new");
+        let resumes_after_first = world.logged("session/resume");
+        let loads_after_first = world.logged("session/load");
+        assert!(world.agents.running(&thread()).is_some(), "shared={shared}: ACP session stays open while Mixdog state is unloaded");
+
+        // Next turn after Mixdog idle-unloaded and reloaded the worker's header (carrying `stored = sess-1`).
+        let surface2 = Surface::default();
+        let end2 = world.serve(&surface2, json!({ "role": "user", "content": "whoami" }), Some("sess-1"), "default", CancellationToken::new()).await;
+        assert!(completed_text(&end2).starts_with("session=sess-1"), "shared={shared}: {end2:?}");
+        assert_eq!(world.logged("session/new"), opens_after_first, "shared={shared}: no new ACP session on follow-up turn");
+        assert_eq!(world.logged("session/resume"), resumes_after_first, "shared={shared}: no session/resume on follow-up turn");
+        assert_eq!(world.logged("session/load"), loads_after_first, "shared={shared}: no session/load on follow-up turn");
+
+        // Releasing the worker (close, cleanup, park, or thread delete) closes its ACP session and leaves no orphan process.
+        world.agents.release(&thread());
+        assert!(world.agents.running(&thread()).is_none(), "shared={shared}: release drops the ACP session");
+        world.all_exited().await;
+    }
+}
+
+/// Core shutdown (`Agents::shutdown`) ends every still-open per-session and shared ACP process (including sessions
+/// whose Mixdog runtime was already idle-unloaded), waits for them to exit, and refuses subsequent opens.
+#[tokio::test]
+async fn shutdown_ends_idle_per_session_and_shared_acp_processes_without_orphans() {
+    for shared in [false, true] {
+        let world = if shared { World::official(&[]) } else { World::new(&[]) };
+        if !shared {
+            world.checked().await;
+        }
+        let surface = Surface::default();
+        let end = world.serve(&surface, json!({ "role": "user", "content": "whoami" }), None, "default", CancellationToken::new()).await;
+        assert!(completed_text(&end).starts_with("session=sess-1"), "shared={shared}: {end:?}");
+        assert!(world.agents.running(&thread()).is_some(), "shared={shared}: session running before shutdown");
+
+        within("shutdown", world.agents.shutdown()).await;
+        assert!(world.agents.running(&thread()).is_none(), "shared={shared}: shutdown drains running sessions");
+        assert!(
+            world.processes.list().iter().all(|process| process.exit.is_some()),
+            "shared={shared}: shutdown waits for every ACP process to exit without orphans: {:?}",
+            world.processes.list()
+        );
+        let late = world.agents.session(&thread(), &world.preset, world.cwd(), None, None).await;
+        assert!(matches!(late, Err(Refusal::Closed)), "shared={shared}: open after shutdown is refused: {:?}", late.err());
+    }
+}
+
+/// When an ACP session crosses the capped compaction cliff (76% of 256k = 194,560) mid-turn, Mixdog cancels the old
+/// session before the next tool round runs, summarizes via Mixdog compaction, opens a fresh session with Mixdog's
+/// rules and summary, records the fresh session id, and completes the turn with zero agent self-compaction.
+#[tokio::test]
+async fn mid_turn_compaction_rolls_over_to_fresh_session_before_next_tool_round() {
+    let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_CONTINUE_TOOL", "read")]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("MIXDOG_MID_TURN_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    let (text, tool_calls) = match &end {
+        TurnEnd::Completed { text, tool_calls, .. } => (text.as_str(), *tool_calls),
+        other => panic!("expected TurnEnd::Completed after mid-turn rollover, got {other:?}"),
+    };
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "Mixdog mid-turn compaction must fire once");
+    assert_eq!(tool_calls, 2, "accumulated tool_calls across old (read) + fresh (read) sessions");
+    assert!(text.contains("session=sess-1"), "fresh session on retired-and-restarted server must answer continuation: {text}");
+    assert!(text.contains("resumed=false"), "rollover must open a fresh session, not resume: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover on !closes server must retire old server instead of leaking its harness: {:?}", world.log());
+    assert!(text.contains("append=RULES"), "fresh session must receive session-start rules: {text}");
+    assert!(text.contains("MIXDOG_MID_TURN_SUMMARY"), "fresh session lead must carry Mixdog's summary: {text}");
+
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned(), "read".to_owned()], "round-2 shell tool on old session must never run");
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "round2-refused"), "old session round-2 tool call must be refused: {log:?}");
+    assert!(!log.iter().any(|line| line == "self-compact"), "agent self-compaction must never occur: {log:?}");
+
+    let events = surface.events();
+    assert!(events.iter().any(|e| matches!(e, Event::Stage(s) if s == "compacting")), "compacting stage emitted: {events:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Compact(CompactStatus::Compacted))), "Compacted event emitted: {events:?}");
+    assert!(
+        !surface.notices().iter().any(|n| n.contains("compaction cliff")),
+        "auto mid-turn compaction replaces advisory-only cliff notice: {:?}",
+        surface.notices()
+    );
+    let recorded_sessions: Vec<String> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Header(change) => change.set.get(SESSION_KEY)?.get("sessionId")?.as_str().map(str::to_owned),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(recorded_sessions.len(), 2, "SESSION_KEY updated for fresh rollover session: {recorded_sessions:?}");
+}
+
+/// If `usage_update` crosses the trigger while a Mixdog tool call is already in flight, Mixdog lets the in-flight tool
+/// finish and commit its result row to the transcript, then refuses its MCP answer after `session/cancel` so the old
+/// session cannot start another LLM round, compacts, and continues on a fresh session.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_in_flight_tool_to_commit_before_rolling_over() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("INFLIGHT_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let release = tools.release.clone();
+    let releaser = tokio::spawn(async move {
+        // Give the fake agent time to emit usage_update while `slow` is actively blocked inside Mixdog.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        release.add_permits(1);
+    });
+    let end = world.ask(&surface, "inflightcompact 200687 1048576 slow", turns).await;
+    releaser.await.expect("releaser task");
+
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after in-flight tool commits");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("INFLIGHT_SUMMARY"), "fresh session received Mixdog summary: {text}");
+
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec![SLOW.to_owned()], "in-flight slow tool ran to completion");
+    let committed_tool = surface.events().into_iter().any(|e| match e {
+        Event::Commit(item) => item.body.get("role").and_then(Value::as_str) == Some("tool"),
+        _ => false,
+    });
+    assert!(committed_tool, "in-flight tool result row must be committed before rollover");
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "inflight-refused"), "old session must receive refused MCP answer after cancel: {log:?}");
+    assert!(!log.iter().any(|line| line == "self-compact"), "old session must not self-compact: {log:?}");
+}
+
+/// A high `usage_update` followed immediately by `end_turn` does not trigger a spurious mid-turn rollover, and the
+/// very next turn compacts via Mixdog pre-turn (using the capped window cliff even with a persisted 1M header window)
+/// instead of resuming the bloated session.
+#[tokio::test]
+async fn high_usage_at_turn_end_does_not_roll_over_mid_turn_and_compacts_before_next_turn() {
+    let world = World::official(&[]);
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let surface1 = Surface::default();
+    let turns1 = Turns { summary: Some(Ok("SHOULD_NOT_RUN_MID_TURN")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+    let end1 = world.ask(&surface1, "cliff 200687 1048576", turns1).await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "{end1:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "turn ending right after usage_update must not roll over mid-turn");
+
+    // Next turn arrives with persisted lastContextTokens=200_687 and stale 1M contextWindow: pre-turn compaction fires.
+    let surface2 = Surface::default();
+    let turns2 = Turns {
+        summary: Some(Ok("PRE_TURN_MIXDOG_SUMMARY")),
+        auto_compact: true,
+        last_context_tokens: Some(200_687),
+        context_window: Some(1_048_576),
+        ..Turns::default()
+    };
+    let end2 = within(
+        "pre-turn compaction turn",
+        world.serve_with(
+            &surface2,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-1")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            turns2,
+        ),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert_eq!(world.logged("start acp"), 2, "pre-turn compaction retires old !closes server: {:?}", world.log());
+    assert!(text2.contains("resumed=false"), "pre-turn compaction must not resume bloated sess-1: {text2}");
+    assert!(text2.contains("PRE_TURN_MIXDOG_SUMMARY"), "fresh session must receive Mixdog pre-turn summary: {text2}");
+    assert!(
+        surface2.events().iter().any(|e| matches!(e, Event::Compact(CompactStatus::Compacted))),
+        "pre-turn Compacted event emitted: {:?}",
+        surface2.events()
+    );
+}
+
+/// Mid-turn compaction failure emits `CompactStatus::Failed`, fails cleanly, and settles progress to `"error"`;
+/// user cancellation during mid-turn compaction returns `TurnEnd::Interrupted`, ends the old session, and settles
+/// progress to `"done"`.
+#[tokio::test]
+async fn mid_turn_compaction_failure_and_cancellation_stop_cleanly() {
+    // 1. Compactor error during mid-turn rollover.
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let (progress1, watched1) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let turns = Turns {
+        mid_turn_summary: Some(Err("compactor unavailable")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        progress: Some(progress1),
+        ..Turns::default()
+    };
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    match &end {
+        TurnEnd::Failed { message, .. } => assert!(message.contains("compactor unavailable"), "{message}"),
+        other => panic!("expected TurnEnd::Failed on mid-turn compaction error, got {other:?}"),
+    }
+    assert!(
+        surface.events().iter().any(|e| matches!(e, Event::Compact(CompactStatus::Failed))),
+        "CompactStatus::Failed emitted on error: {:?}",
+        surface.events()
+    );
+    assert_eq!(watched1.borrow().stage().as_deref(), Some("error"), "progress must settle to error on mid-turn compaction failure");
+
+    // 2. Cancellation while `compact_mid_turn` is running.
+    let (world2, tools2) = handing_in(World::official(&[]));
+    let surface2 = Surface::default();
+    let cancel = CancellationToken::new();
+    let (progress2, watched2) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let turns2 = Turns {
+        stops_mid_turn_summary: Some(cancel.clone()),
+        calls: Some(tools2.calls(&surface2)),
+        auto_compact: true,
+        progress: Some(progress2),
+        ..Turns::default()
+    };
+    let end2 = within(
+        "cancelled mid-turn compaction",
+        world2.serve_with(
+            &surface2,
+            json!({ "role": "user", "content": "midcompact 200687 1048576 read shell" }),
+            None,
+            Some("RULES"),
+            "default",
+            cancel,
+            turns2,
+        ),
+    )
+    .await;
+    assert!(matches!(end2, TurnEnd::Interrupted), "expected TurnEnd::Interrupted, got {end2:?}");
+    assert!(world2.agents.running(&thread()).is_none(), "old agent session must be ended when cancelled mid-compaction");
+    assert_eq!(watched2.borrow().stage().as_deref(), Some("done"), "progress must settle to done on cancel during compaction");
+}
+
+/// Deterministic rollover guard: a fresh session whose first live `usage_update` is already at or over the trigger
+/// does not roll over again in that turn; whereas a fresh session that starts below the trigger and later crosses it
+/// still rolls over normally.
+#[tokio::test]
+async fn mid_turn_compaction_no_progress_guard_prevents_infinite_rollover() {
+    // 1. Fresh session's first usage_update is already >= trigger -> disabled for remainder of turn (1 rollover).
+    {
+        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "200687 1048576")]));
+        let surface = Surface::default();
+        // The fresh session's `shell` call runs, and the session's gate asks the user about every `shell`.
+        surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+        let mid_compacts = Arc::new(AtomicUsize::new(0));
+        let turns = Turns {
+            summary: Some(Ok("GUARDED_SUMMARY")),
+            calls: Some(tools.calls(&surface)),
+            auto_compact: true,
+            mid_turn_compacts: Some(mid_compacts.clone()),
+            ..Turns::default()
+        };
+
+        let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+        let text = completed_text(&end);
+        assert!(text.contains("continued-after-guard"), "fresh session must finish without second rollover: {text}");
+        assert_eq!(world.logged("start acp"), 2, "first rollover retired old !closes server: {:?}", world.log());
+        assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "fresh session already over trigger must not roll over again");
+        let log = world.log();
+        assert!(log.iter().any(|line| line == "recompact-continued"), "fresh session's tool must run once rollover is disabled: {log:?}");
+    }
+
+    // 2. Fresh session starts below trigger (50_000), then crosses trigger (200_687) -> rolls over a second time.
+    {
+        let (world, tools) = handing_in(World::official(&[("FAKE_AGENT_RECOMPACT", "50000 200687 1048576")]));
+        let surface = Surface::default();
+        let mid_compacts = Arc::new(AtomicUsize::new(0));
+        let turns = Turns {
+            summary: Some(Ok("SECOND_ROLLOVER_SUMMARY")),
+            calls: Some(tools.calls(&surface)),
+            auto_compact: true,
+            mid_turn_compacts: Some(mid_compacts.clone()),
+            ..Turns::default()
+        };
+
+        let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+        let text = completed_text(&end);
+        assert!(text.contains("SECOND_ROLLOVER_SUMMARY"), "fresh session starting below trigger must roll over again on later crossing: {text}");
+        assert_eq!(world.logged("start acp"), 3, "each rollover retires the old !closes server: {:?}", world.log());
+        assert_eq!(mid_compacts.load(Ordering::SeqCst), 2, "must roll over twice when fresh session started below trigger");
+    }
+}
+
+/// Review 1: an open agent-owned tool call prevents rollover until it completes; while waiting for that quiet point,
+/// a Mixdog tool request is answered normally (never deferred/refused), and once the agent call closes with its real
+/// result Mixdog sends `session/cancel`, observes the prompt response, and rolls over cleanly.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_open_agent_tool_call_before_rolling_over() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("OPEN_AGENT_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "openagentcompact 200687 1048576 read", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction must fire once after open agent call finishes");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("OPEN_AGENT_SUMMARY"), "fresh session received Mixdog summary: {text}");
+
+    let tool_results: Vec<String> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_results.iter().any(|row| row.contains("BUILD_OK_REAL_RESULT")),
+        "open agent call must commit its real result before rollover: {tool_results:?}"
+    );
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned()], "Mixdog tool requested while agent call is open must run normally");
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "open-agent-mixdog-ok"), "Mixdog tool must be answered while agent call is open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "open-agent-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait until a1 completes ({done_idx}): {log:?}");
+}
+
+/// An already-running (`in_progress`) agent-owned `tool_call` arriving after `usage_update` armed mid-turn compaction
+/// is recorded (not dropped), allowed to finish and commit its real result, and then rolled over cleanly.
+#[tokio::test]
+async fn mid_turn_compaction_records_in_progress_agent_tool_call_started_after_usage_update() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("LATE_AGENT_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "lateagentcall 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after late in-progress call finishes");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("LATE_AGENT_SUMMARY"), "fresh session received Mixdog summary: {text}");
+
+    let commits: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    let has_call = commits.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("assistant") && row.to_string().contains("echo late"));
+    let has_real_result = commits.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("tool") && row.to_string().contains("LATE_CALL_OUTPUT"));
+    let has_placeholder = commits.iter().any(|row| row.to_string().contains("Context compacted; continuing in a fresh session."));
+    assert!(has_call, "in-progress agent tool_call must be recorded, not dropped: {commits:?}");
+    assert!(has_real_result, "in-progress agent tool_call must commit its real output before rollover: {commits:?}");
+    assert!(!has_placeholder, "late in-progress agent call must not be closed with a placeholder: {commits:?}");
+}
+
+/// A permission request with no earlier `tool_call`, arriving after the context crossed the trigger at a quiet point,
+/// opens its call's card as in any turn: the user answers it, the call commits its real result, and only then is
+/// `session/cancel` sent and the turn rolled over.
+#[tokio::test]
+async fn mid_turn_compaction_opens_card_for_permission_without_prior_tool_call() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("CANCEL_ORDER_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "cancelorder 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once");
+    assert!(text.contains("resumed=false"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "permission answered sess-1 selected"), "the user's approval must answer the permission: {log:?}");
+    let done_idx = log.iter().position(|line| line == "pending-perm-p1-completed").unwrap_or_else(|| panic!("p1 must complete: {log:?}"));
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").unwrap_or_else(|| panic!("missing session/cancel in log: {log:?}"));
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must follow p1's completion ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("P1_APPROVED_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "p1 keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// A rollover whose `session/cancel` the agent answers with an error leaves the agent's session behind: the header
+/// stops naming it, its process ends, and the next turn opens a fresh session instead of resuming the one that holds
+/// the refusal "Context compacted".
+#[tokio::test]
+async fn mid_turn_compaction_cancel_ending_in_agent_error_leaves_old_session_behind() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("SHOULD_NOT_COMPACT")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "cancelerror 200687 1048576", turns).await;
+    assert!(matches!(end, TurnEnd::Failed { .. }), "the agent's error fails the turn: {end:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "no rollover without the cancel's answer");
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "cancel-error-refused"), "the Mixdog tool is refused as compacted after session/cancel: {log:?}");
+    assert!(world.agents.running(&thread()).is_none(), "the left-behind session's process ended");
+
+    let stored = surface.events().into_iter().fold(None, |stored, event| match event {
+        Event::Header(change) if change.unset.iter().any(|key| key == SESSION_KEY) => None,
+        Event::Header(change) => change.set.get(SESSION_KEY).and_then(|value| value["sessionId"].as_str()).map(held).or(stored),
+        _ => stored,
+    });
+    assert_eq!(stored, None, "the header no longer names the left-behind session: {:?}", surface.events());
+
+    let next = Surface::default();
+    let end2 = within(
+        "the next turn",
+        world.serve_with(&next, json!({ "role": "user", "content": "whoami" }), stored, Some("RULES"), "default", CancellationToken::new(), Turns::default()),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false") && text2.contains("loaded=false"), "the next turn opens a fresh session: {text2}");
+    assert_eq!(world.logged("session/new"), 2, "the next turn opens a new session instead of reusing the left-behind one: {:?}", world.log());
+}
+
+/// A call the agent kept running from an earlier turn counts as open: crossing the trigger while it runs answers a
+/// Mixdog tool as in any turn, and `session/cancel` waits until that call ends.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_call_kept_running_from_earlier_turn() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let first = Surface::default();
+    let end1 = within(
+        "the first turn",
+        world.serve_with(&first, json!({ "role": "user", "content": "keep" }), None, Some("RULES"), "default", CancellationToken::new(), Turns::default()),
+    )
+    .await;
+    assert!(completed_text(&end1).contains("kept"), "{end1:?}");
+
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("KEPT_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+    let end = within(
+        "the rollover turn",
+        world.serve_with(
+            &surface,
+            json!({ "role": "user", "content": "keptcompact 200687 1048576" }),
+            Some(held("sess-1")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            turns,
+        ),
+    )
+    .await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once the kept call ends");
+    assert!(text.contains("resumed=false") && text.contains("KEPT_SUMMARY"), "fresh session continued turn: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "kept-mixdog-ok"), "the Mixdog tool runs while the kept call is open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "kept-call-completed").unwrap_or_else(|| panic!("kept call must complete: {log:?}"));
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").unwrap_or_else(|| panic!("missing session/cancel in log: {log:?}"));
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for the kept call ({done_idx}): {log:?}");
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned()], "the Mixdog tool ran");
+}
+
+/// The segment a rollover cancels reports its usage, as every other end of a segment does.
+#[tokio::test]
+async fn mid_turn_compaction_reports_cancelled_segment_usage() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let turns = Turns { summary: Some(Ok("USAGE_SUMMARY")), calls: Some(tools.calls(&surface)), auto_compact: true, ..Turns::default() };
+
+    let end = world.ask(&surface, "midcompact 200687 1048576 read shell", turns).await;
+    completed_text(&end);
+    let usages: Vec<TurnUsage> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Usage(u) => Some(u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usages.len(), 2, "one usage report per segment: {usages:?}");
+    assert_eq!(usages[0].context.map(|context| context.used), Some(200_687), "the cancelled segment reports its context: {usages:?}");
+    assert_eq!(usages[0].tool_calls, 1, "the cancelled segment reports its tool call: {usages:?}");
+}
+
+/// On mid-turn rollover, the fresh session still receives the turn's image and file attachments (both when the agent
+/// supports embedded resources and when text files are sent as inline text blocks).
+#[tokio::test]
+async fn mid_turn_compaction_resends_turn_image_and_file_attachments_to_fresh_session() {
+    let input = || {
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "image", "mimeType": "image/png", "attachmentRef": "stored" },
+                { "type": "text", "attachmentRef": "note", "filename": "note.md" },
+                { "type": "file", "mimeType": "application/pdf", "attachmentRef": "paper", "filename": "paper.pdf" },
+                { "type": "text", "text": "midcompact 200687 1048576 read shell" },
+            ]
+        })
+    };
+
+    // 1. Agent with embeddedContext enabled: image block + embedded `resource` (note) + `resource_link` (paper).
+    let (embedded_world, embedded_tools) = handing_in(World::official(&[("FAKE_AGENT_EMBEDDED", "1")]));
+    let embedded_surface = Surface::default();
+    let embedded_turns =
+        Turns { summary: Some(Ok("ATTACH_EMBEDDED_SUMMARY")), calls: Some(embedded_tools.calls(&embedded_surface)), auto_compact: true, ..Turns::default() };
+    let embedded_end = within(
+        "embedded mid-turn rollover with attachments",
+        embedded_world.serve_with(&embedded_surface, input(), None, Some("RULES"), "default", CancellationToken::new(), embedded_turns),
+    )
+    .await;
+    let embedded_text = completed_text(&embedded_end);
+    assert!(embedded_text.contains("resumed=false"), "fresh session answered: {embedded_text}");
+    assert_eq!(embedded_world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", embedded_world.log());
+    assert!(embedded_text.contains("images=1"), "fresh session must receive turn image block: {embedded_text}");
+    let (_, embedded_files_raw) = embedded_text.rsplit_once(" files=").expect("files suffix");
+    let embedded_files: Value = serde_json::from_str(embedded_files_raw).expect("files json");
+    let expected_note = json!({
+        "type": "resource",
+        "resource": { "uri": "file:///C:/data%20dir/blobs/note", "mimeType": "text/plain", "text": "# Notes\nplover" }
+    });
+    let expected_paper = json!({
+        "type": "resource_link",
+        "uri": "file:///C:/data%20dir/blobs/paper",
+        "name": "paper.pdf",
+        "mimeType": "application/pdf"
+    });
+    assert_eq!(embedded_files, json!([expected_note, expected_paper]), "fresh session must receive embedded + linked file blocks");
+
+    // 2. Agent without embeddedContext: image block + `[Attached file: note.md]` text block + `resource_link` (paper).
+    let (plain_world, plain_tools) = handing_in(World::official(&[]));
+    let plain_surface = Surface::default();
+    let plain_turns =
+        Turns { summary: Some(Ok("ATTACH_PLAIN_SUMMARY")), calls: Some(plain_tools.calls(&plain_surface)), auto_compact: true, ..Turns::default() };
+    let plain_end = within(
+        "plain mid-turn rollover with attachments",
+        plain_world.serve_with(&plain_surface, input(), None, Some("RULES"), "default", CancellationToken::new(), plain_turns),
+    )
+    .await;
+    let plain_text = completed_text(&plain_end);
+    assert!(plain_text.contains("resumed=false"), "fresh session answered: {plain_text}");
+    assert_eq!(plain_world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", plain_world.log());
+    assert!(plain_text.contains("images=1"), "fresh session must receive turn image block: {plain_text}");
+    assert!(plain_text.contains("[Attached file: note.md]\n# Notes\nplover"), "fresh session must receive inline text attachment: {plain_text}");
+    let (_, plain_files_raw) = plain_text.rsplit_once(" files=").expect("files suffix");
+    let plain_files: Value = serde_json::from_str(plain_files_raw).expect("files json");
+    assert_eq!(plain_files, json!([expected_paper]), "fresh session must receive resource_link file block");
+}
+
+/// Review 2 P1: a `tool_call` with status `pending`, omitted status (ACP default `pending`), or `in_progress` counts
+/// as open; when `session/request_permission` arrives after crossing the compaction trigger, Mixdog answers it
+/// normally (never deferring or freezing), lets the call finish with its real result, and rolls over at the quiet
+/// point after it completes.
+#[tokio::test]
+async fn mid_turn_compaction_does_not_freeze_on_pending_or_permission_held_agent_call() {
+    for mode in ["pending", "nostatus", "inprogress", "after_nostatus"] {
+        let world = World::official(&[]);
+        let surface = Surface::default();
+        surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+        let mid_compacts = Arc::new(AtomicUsize::new(0));
+        let turns = Turns { summary: Some(Ok("P1_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+        let end = world.ask(&surface, &format!("pendingpermcompact {mode} 200687 1048576"), turns).await;
+        let text = completed_text(&end);
+        assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mode={mode}: mid-turn compaction fires once after p1 completes");
+        assert!(text.contains("resumed=false"), "mode={mode}: fresh session continued: {text}");
+        assert_eq!(world.logged("start acp"), 2, "mode={mode}: rollover retires old !closes server: {:?}", world.log());
+        assert!(text.contains("P1_SUMMARY"), "mode={mode}: fresh session received summary: {text}");
+
+        let log = world.log();
+        let done_idx =
+            log.iter().position(|line| line == "pending-perm-p1-completed").unwrap_or_else(|| panic!("mode={mode}: p1 must complete before cancel: {log:?}"));
+        let cancel_idx = log.iter().position(|line| line == "session/cancel").unwrap_or_else(|| panic!("mode={mode}: missing session/cancel: {log:?}"));
+        assert!(done_idx < cancel_idx, "mode={mode}: session/cancel ({cancel_idx}) must follow p1 completion ({done_idx}): {log:?}");
+
+        let tool_rows: Vec<Value> = surface
+            .events()
+            .into_iter()
+            .filter_map(|e| match e {
+                Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_rows.len(), 1, "mode={mode}: p1 committed once: {tool_rows:?}");
+        assert_eq!(tool_rows[0].get("toolKind").and_then(Value::as_str), Some("normal"), "mode={mode}: p1 keeps its real normal result: {:?}", tool_rows[0]);
+        assert!(tool_rows[0].to_string().contains("P1_APPROVED_RESULT"), "mode={mode}: p1 keeps its real output: {:?}", tool_rows[0]);
+    }
+}
+
+/// If a permission request was approved before `usage_update` crossed the trigger, the agent may execute the tool
+/// without emitting an intermediate `in_progress` update: Mixdog waits for its completion so its real result commits
+/// before rolling over.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_approved_permission_call_without_in_progress_update() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("APPROVED_PERM_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "approvedpermcompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after approved call completes");
+    assert!(text.contains("resumed=false"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("APPROVED_PERM_SUMMARY"), "fresh session received summary: {text}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("APPROVED_CMD_OUTPUT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "approved call must keep its real completed result: {tool_rows:?}"
+    );
+}
+
+/// A `pending` agent call opened before `usage_update` that transitions to `in_progress` without requesting permission
+/// is waited on until completion so its real result commits before rollover.
+#[tokio::test]
+async fn mid_turn_compaction_waits_when_pending_call_starts_in_progress_after_usage_update() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("PENDING_STARTED_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "pendingstartscompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after call finishes");
+    assert!(text.contains("resumed=false"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+    assert!(text.contains("PENDING_STARTED_SUMMARY"), "fresh session received summary: {text}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("AUTO_STARTED_OUTPUT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "auto-started call must keep its real result: {tool_rows:?}"
+    );
+}
+
+/// Review 3 P1 #1: an auto-allowed call `a1` that stays `pending` (no `in_progress` update) alongside sibling `b1`
+/// must not be killed or recorded as unstarted when `b1` completes after `usage_update` crosses the trigger; rollover
+/// waits until `a1` completes too and keeps both real results.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_pending_call_without_in_progress_when_sibling_completes() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("PENDING_PARALLEL_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "pendingparallelcompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after both a1 and b1 complete");
+    assert!(text.contains("resumed=false") && text.contains("PENDING_PARALLEL_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    let done_idx = log.iter().position(|line| line == "pending-parallel-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for pending a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("B1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "b1 keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("A1_PENDING_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "pending a1 keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// Review 3 P1 #2: when an in-flight parent call `a1` issues a child `session/request_permission` and a Mixdog MCP
+/// `tools/call` after `usage_update` crosses the trigger, neither is deferred or refused so `a1` cannot freeze; all
+/// calls keep their real results and rollover happens once `a1` completes.
+#[tokio::test]
+async fn mid_turn_compaction_does_not_freeze_when_in_flight_call_issues_child_permission_and_mixdog_tool() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    surface.0.answers.lock().unwrap().push_back(decided(json!({ "approved": true })));
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("SUBAGENT_CHILD_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let end = world.ask(&surface, "subagentchildcompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after parent a1 completes");
+    assert!(text.contains("resumed=false") && text.contains("SUBAGENT_CHILD_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "subagent-read-ok"), "Mixdog child tool must be answered normally while a1 is open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "parent-a1-completed").expect("parent a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for parent a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("CHILD1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "child permission call keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("PARENT_A1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "parent a1 keeps its real result: {tool_rows:?}"
+    );
+    let ran_tools: Vec<String> = tools.ran.lock().unwrap().iter().map(|(_, name, _)| name.clone()).collect();
+    assert_eq!(ran_tools, vec!["read".to_owned()], "Mixdog child tool ran normally while a1 was open");
+}
+
+/// Review 3 P1 #3: forwarded text, thought, plan, child call completion, and multiple `usage_update`s never demote an
+/// open call `a1`; rollover waits until `a1` completes and preserves every call's real result.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_open_call_across_text_thought_plan_child_calls_and_multiple_usage_updates() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns { summary: Some(Ok("SUBAGENT_ACTIVITY_SUMMARY")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end = world.ask(&surface, "subagentactivitycompact 200687 1048576", turns).await;
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after a1 completes");
+    assert!(text.contains("resumed=false") && text.contains("SUBAGENT_ACTIVITY_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    let done_idx = log.iter().position(|line| line == "subagent-activity-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("C1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "child call c1 keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("A1_AFTER_ACTIVITY_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "open call a1 keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// Review 2 P2 / no quiet point before turn end: when an open call `bg1` remains open until `end_turn`, no mid-turn
+/// rollover occurs, nothing is killed or falsely recorded as error/interrupted, `bg1` is handed off as a normal
+/// background call, and the next turn compacts pre-turn.
+#[tokio::test]
+async fn mid_turn_compaction_skips_rollover_when_open_call_never_reaches_quiet_point_before_turn_end() {
+    let world = World::official(&[]);
+    let surface1 = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns1 =
+        Turns { summary: Some(Ok("SHOULD_NOT_ROLL_OVER_MID_TURN")), auto_compact: true, mid_turn_compacts: Some(mid_compacts.clone()), ..Turns::default() };
+
+    let end1 = world.ask(&surface1, "bgneverquietcompact 200687 1048576", turns1).await;
+    assert!(matches!(end1, TurnEnd::Completed { .. }), "turn must complete normally without mid-turn rollover: {end1:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "no mid-turn rollover without a quiet point");
+
+    let tool_rows: Vec<Value> = surface1
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("C1_REAL_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "completed call c1 keeps its real result: {tool_rows:?}"
+    );
+    assert!(
+        tool_rows
+            .iter()
+            .any(|row| row.to_string().contains("Still running in the agent's background.") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "open call bg1 handed off normally as background, never error: {tool_rows:?}"
+    );
+
+    // Next turn compacts pre-turn onto a fresh session.
+    let surface2 = Surface::default();
+    let turns2 = Turns {
+        summary: Some(Ok("NEXT_TURN_PRE_COMPACT_SUMMARY")),
+        auto_compact: true,
+        last_context_tokens: Some(200_687),
+        context_window: Some(1_048_576),
+        ..Turns::default()
+    };
+    let end2 = within(
+        "pre-turn compaction after non-quiet turn",
+        world.serve_with(
+            &surface2,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-1")),
+            Some("RULES"),
+            "default",
+            CancellationToken::new(),
+            turns2,
+        ),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false") && text2.contains("NEXT_TURN_PRE_COMPACT_SUMMARY"), "next turn compacted pre-turn: {text2}");
+    assert_eq!(world.logged("start acp"), 2, "pre-turn compaction retires old !closes server: {:?}", world.log());
+}
+
+/// When a Mixdog tool and an agent-owned tool are both in flight as `usage_update` crosses the trigger, `slow`
+/// finishing first while `a1` is still open delivers its real answer normally (nothing deferred/refused), and rollover
+/// occurs at the quiet point once `a1` completes too with both real results committed.
+#[tokio::test]
+async fn mid_turn_compaction_waits_for_parallel_mixdog_and_agent_calls_to_both_commit() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let surface = Surface::default();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let turns = Turns {
+        summary: Some(Ok("PARALLEL_SUMMARY")),
+        calls: Some(tools.calls(&surface)),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        ..Turns::default()
+    };
+
+    let release = tools.release.clone();
+    let releaser = tokio::spawn(async move {
+        // Release `slow` before the agent finishes `a1` so Mixdog finishes first and delivers normally while waiting for `a1`.
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        release.add_permits(1);
+    });
+    let end = world.ask(&surface, "parallelcompact 200687 1048576 slow", turns).await;
+    releaser.await.expect("releaser task");
+
+    let text = completed_text(&end);
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 1, "mid-turn compaction fires once after both parallel calls finish");
+    assert!(text.contains("resumed=false") && text.contains("PARALLEL_SUMMARY"), "fresh session continued: {text}");
+    assert_eq!(world.logged("start acp"), 2, "rollover retires old !closes server: {:?}", world.log());
+
+    let log = world.log();
+    assert!(log.iter().any(|line| line == "parallel-slow-answered"), "slow answer must be delivered while a1 is still open: {log:?}");
+    let done_idx = log.iter().position(|line| line == "parallel-a1-completed").expect("a1 completed logged");
+    let cancel_idx = log.iter().position(|line| line == "session/cancel").expect("session/cancel logged");
+    assert!(done_idx < cancel_idx, "session/cancel ({cancel_idx}) must wait for a1 ({done_idx}): {log:?}");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tool_rows.len(), 2, "both slow and a1 committed their tool result rows: {tool_rows:?}");
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("PARALLEL_A1_RESULT") && row.get("toolKind").and_then(Value::as_str) == Some("normal")),
+        "parallel agent call keeps its real result: {tool_rows:?}"
+    );
+}
+
+/// Cancelling a turn while waiting for a quiet point closes the open call as cancelled error, settles progress, and
+/// returns `TurnEnd::Interrupted` without rolling over.
+#[tokio::test]
+async fn cancel_during_mid_turn_compaction_drain_stops_cleanly() {
+    let world = World::official(&[]);
+    let surface = Surface::default();
+    let cancel = CancellationToken::new();
+    let mid_compacts = Arc::new(AtomicUsize::new(0));
+    let (progress, watched) = tokio::sync::watch::channel(mixdog_core_run::run_host::progress::RunProgress::default());
+    let turns = Turns {
+        summary: Some(Ok("SHOULD_NOT_COMPACT")),
+        auto_compact: true,
+        mid_turn_compacts: Some(mid_compacts.clone()),
+        progress: Some(progress),
+        ..Turns::default()
+    };
+
+    let cancel_trigger = cancel.clone();
+    let log_path = world.dir.path().join("agent.log");
+    let stopper = tokio::spawn(async move {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            #[allow(clippy::disallowed_methods, reason = "a test reads the fake agent's own log")]
+            let ready = std::fs::read_to_string(&log_path).is_ok_and(|body| body.lines().any(|line| line == "canceldrain-sent"));
+            if ready {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        cancel_trigger.cancel();
+    });
+    let end = within(
+        "cancel while waiting for quiet point",
+        world.serve_with(&surface, json!({ "role": "user", "content": "canceldraincompact 200687 1048576" }), None, Some("RULES"), "default", cancel, turns),
+    )
+    .await;
+    stopper.await.expect("stopper task");
+
+    assert!(matches!(end, TurnEnd::Interrupted), "expected TurnEnd::Interrupted, got {end:?}");
+    assert_eq!(mid_compacts.load(Ordering::SeqCst), 0, "user cancel must not trigger mid-turn rollover");
+    assert_eq!(watched.borrow().stage().as_deref(), Some("done"), "progress must settle to done on cancel");
+
+    let tool_rows: Vec<Value> = surface
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Commit(item) if item.body.get("role").and_then(Value::as_str) == Some("tool") => Some(item.body),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_rows.iter().any(|row| row.to_string().contains("Cancelled") && row.get("toolKind").and_then(Value::as_str) == Some("error")),
+        "open call closed as cancelled error: {tool_rows:?}"
+    );
+}
+
+#[tokio::test]
+async fn acp_image_generate_and_edit_isolate_tools_stage_references_and_retire_shared_server() {
+    let world = World::official(&[]);
+    let image_gen = mixdog_acp::image::AgentImageGen::new(world.agents.clone());
+
+    assert!(image_gen.authenticated("acp-antigravity").await, "installed & signed-in official server reports authenticated");
+    assert_eq!(image_gen.unavailable_reason("acp-antigravity").await, None);
+    // authenticated() and unavailable_reason() must read local state only, never starting a readiness check or spawning a process.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(world.log().is_empty(), "authenticated/unavailable_reason must not start a readiness check: {:?}", world.log());
+    let rows = image_gen.catalog_models("acp-antigravity").await.expect("catalog models");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"], mixdog_acp::image::IMAGE_MODEL_ID);
+
+    // 1. Plain image generation.
+    let generated = within(
+        "acp image generate",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "a sunset over mountains".into(),
+                aspect_ratio: Some("16:9".into()),
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("generate succeeds");
+    assert_eq!(generated.mime, "image/jpeg");
+    assert!(!generated.bytes.is_empty());
+    assert_eq!(generated.revised_prompt.as_deref(), Some("refined sunset over mountains"));
+    assert_eq!(generated.usage, Some(json!({ "inputTokens": 120, "cachedTokens": 40, "outputTokens": 35, "images": 1 })));
+    // Generated image file and session brain folder in agent home must be removed after bytes are extracted.
+    let agent_folder = home_of(world.dir.path(), "antigravity").join("antigravity-acp");
+    #[allow(clippy::disallowed_methods, reason = "test checks brain cleanup")]
+    let remaining_brain: usize = std::fs::read_dir(agent_folder.join("brain")).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(remaining_brain, 0, "generated image brain folder must be removed on success");
+    assert!(exists(&agent_folder.join("settings.json")) && exists(&agent_folder.join("acp_token.json")), "sign-in files must stay intact");
+
+    // Wait briefly for SharedServer retirement on stdin EOF after the non-closing image session ends.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline && !world.log().iter().any(|l| l == "eof") {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let log = world.log();
+    let session_line = log.iter().find(|l| l.starts_with("image-session ")).expect("image-session logged");
+    assert!(!session_line.contains("generate_image"), "generate_image must be enabled in image-only session: {session_line}");
+    assert!(session_line.contains("search_web") && session_line.contains("run_command"), "other tools stay disabled: {session_line}");
+    assert!(session_line.contains("mcp=0") && session_line.contains("fs_read=false"), "no MCP or fs.readTextFile: {session_line}");
+    assert!(log.iter().any(|l| l == "eof"), "image-only session must retire shared server to avoid helper pileup: {log:?}");
+
+    // 2. Edit with a staged reference image.
+    let edited = within(
+        "acp image edit",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "add dramatic storm clouds".into(),
+                aspect_ratio: Some("16:9".into()),
+                references: vec![mixdog_acp::image::AcpImageReference {
+                    bytes: b"\x89PNG\r\n\x1a\n12345678".to_vec(),
+                    mime: "image/png".into(),
+                    name: "source.png".into(),
+                }],
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("edit succeeds");
+    assert_eq!(edited.mime, "image/jpeg");
+    assert!(!edited.bytes.is_empty());
+
+    let log_after_edit = world.log();
+    assert!(log_after_edit.iter().any(|l| l == "image-ref-bytes=16"), "fake agent read exact staged reference bytes: {log_after_edit:?}");
+    // Sandbox folder must be cleaned up after completion.
+    let sandbox_root = world.dir.path().join("acp-agents").join("image-sandbox");
+    #[allow(clippy::disallowed_methods, reason = "test checks sandbox cleanup")]
+    let remaining: usize = std::fs::read_dir(&sandbox_root).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(remaining, 0, "image sandbox directories must be cleaned up");
+
+    // 3. Ordinary Antigravity chat session still keeps generate_image disabled.
+    let surface = Surface::default();
+    let end = world.ask(&surface, "meta", Turns::default()).await;
+    let text = completed_text(&end);
+    assert!(text.contains("generate_image"), "ordinary Antigravity session must keep generate_image disabled: {text}");
+}
+
+#[tokio::test]
+async fn acp_image_refuses_disallowed_tools_and_out_of_sandbox_image_paths() {
+    let world = World::official(&[]);
+    let image_gen = mixdog_acp::image::AgentImageGen::new(world.agents.clone());
+
+    let bad_path = within(
+        "acp image bad path",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_BAD_PATH".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect_err("out-of-sandbox ImagePaths must be refused");
+    assert_eq!(bad_path.kind, mixdog_acp::image::AcpImageErrorKind::Refusal);
+
+    let other_tool = within(
+        "acp image other tool",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_OTHER_TOOL".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect_err("non-generate_image tool must be refused");
+    assert_eq!(other_tool.kind, mixdog_acp::image::AcpImageErrorKind::Refusal);
+
+    let denied_count = world.log().iter().filter(|l| l.as_str() == "image-perm=denied").count();
+    assert_eq!(denied_count, 2, "both disallowed calls must be denied at permission gate");
+}
+
+#[tokio::test]
+async fn acp_image_surfaces_tool_failure_policy_refusal_and_auth_error_in_plain_words() {
+    let world = World::official(&[]);
+    let image_gen = mixdog_acp::image::AgentImageGen::new(world.agents.clone());
+
+    let tool_fail = within(
+        "acp image tool fail",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_TOOL_FAIL".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect_err("tool failure must return error");
+    assert_eq!(tool_fail.kind, mixdog_acp::image::AcpImageErrorKind::Failed);
+    assert!(tool_fail.message.contains("Could not read input image."), "unexpected tool failure message: {}", tool_fail.message);
+    let brain_root = home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("brain");
+    #[allow(clippy::disallowed_methods, reason = "test checks brain cleanup on failure")]
+    let remaining_after_fail: usize = std::fs::read_dir(&brain_root).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(remaining_after_fail, 0, "brain folder must be cleaned up on tool failure");
+
+    let refused = within(
+        "acp image policy refusal",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_POLICY_REFUSE".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect_err("policy refusal must return error");
+    assert_eq!(refused.kind, mixdog_acp::image::AcpImageErrorKind::Refusal);
+    assert!(refused.message.contains("violates content policy"), "unexpected refusal message: {}", refused.message);
+
+    let auth_err = within(
+        "acp image auth fail",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_AUTH_FAIL".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect_err("auth error must return sign-in error");
+    assert_eq!(auth_err.kind, mixdog_acp::image::AcpImageErrorKind::SignIn);
+    assert!(auth_err.message.contains("signed out"), "unexpected auth error message: {}", auth_err.message);
+    assert!(!image_gen.authenticated("acp-antigravity").await, "auth error marks agent signed out");
+}
+
+#[tokio::test]
+async fn acp_image_reads_file_only_output_from_agent_home() {
+    let world = World::official(&[]);
+    let image_gen = mixdog_acp::image::AgentImageGen::new(world.agents.clone());
+
+    let reply = within(
+        "acp image file-only output",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_FILE_ONLY".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("file-only output from agent home succeeds");
+    assert_eq!(reply.mime, "image/png");
+    assert_eq!(reply.bytes, b"\x89PNG\r\n\x1a\nfile-only-bytes");
+    let file_only_path = home_of(world.dir.path(), "antigravity").join("brain").join("fake-file-only").join("saved.png");
+    assert!(!file_only_path.exists(), "file-only generated image must be deleted after its bytes are read");
+
+    // Cancel after server wrote an in-flight image file in the session brain dir: must clean up the brain dir too.
+    let cancel = CancellationToken::new();
+    let cancel_trigger = cancel.clone();
+    let log_dir = world.dir.path().to_path_buf();
+    let cancel_task = tokio::spawn(async move {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            #[allow(clippy::disallowed_methods, reason = "test polls fake agent log")]
+            let text = std::fs::read_to_string(log_dir.join("agent.log")).unwrap_or_default();
+            if text.lines().any(|line| line == "image-cancel-wrote") {
+                cancel_trigger.cancel();
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+    });
+    let cancelled = within(
+        "acp image cancel after write",
+        image_gen.generate(
+            mixdog_acp::image::AcpImageRequest {
+                provider: "acp-antigravity".into(),
+                prompt: "FAKE_IMG_CANCEL_AFTER_WRITE".into(),
+                aspect_ratio: None,
+                references: Vec::new(),
+            },
+            &cancel,
+        ),
+    )
+    .await
+    .expect_err("cancelled request returns Cancelled");
+    let _ = cancel_task.await;
+    assert_eq!(cancelled.kind, mixdog_acp::image::AcpImageErrorKind::Cancelled);
+    let brain_root = home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("brain");
+    #[allow(clippy::disallowed_methods, reason = "test checks brain cleanup on cancel")]
+    let remaining_after_cancel: usize = std::fs::read_dir(&brain_root).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(remaining_after_cancel, 0, "brain folder must be cleaned up on cancellation");
+}
+
+#[tokio::test]
+async fn acp_image_reports_unavailable_causes_without_starting_readiness_check() {
+    let world = World::official(&[]);
+    let image_gen = mixdog_acp::image::AgentImageGen::new(world.agents.clone());
+
+    // 1. ACP agents turned off.
+    world.enabled.store(false, Ordering::SeqCst);
+    assert!(!image_gen.authenticated("acp-antigravity").await);
+    assert_eq!(image_gen.unavailable_reason("acp-antigravity").await.as_deref(), Some("ACP agents are turned off in Settings."));
+    world.enabled.store(true, Ordering::SeqCst);
+
+    // 2. Installed build too old: its build folder holds the helpers, as an install of it leaves them.
+    let builds = world.dir.path().join("acp-agents").join("bin").join("antigravity");
+    let installed_json = builds.join("installed.json");
+    #[allow(clippy::disallowed_methods, reason = "test rewrites installed.json")]
+    let orig_installed = std::fs::read_to_string(&installed_json).expect("installed.json");
+    let mut parsed: Value = serde_json::from_str(&orig_installed).expect("valid json");
+    parsed["version"] = json!("1.0.0");
+    let Distribution::Registry { helpers, .. } = &world.preset.distribution else { panic!("the official server is a registry agent") };
+    #[allow(clippy::disallowed_methods, reason = "test installs an old build")]
+    {
+        std::fs::create_dir_all(builds.join("1.0.0")).expect("the old build");
+        for helper in helpers {
+            std::fs::write(builds.join("1.0.0").join(helper), "").expect("the old build's helper");
+        }
+        std::fs::write(&installed_json, parsed.to_string()).expect("write old version");
+    }
+    assert!(!image_gen.authenticated("acp-antigravity").await);
+    let too_old = image_gen.unavailable_reason("acp-antigravity").await.expect("too-old reason");
+    assert!(too_old.contains("too old"), "expected too-old reason, got: {too_old}");
+
+    // 3. Not installed.
+    #[allow(clippy::disallowed_methods, reason = "test removes installed.json")]
+    std::fs::remove_file(&installed_json).expect("remove installed.json");
+    assert!(!image_gen.authenticated("acp-antigravity").await);
+    let missing = image_gen.unavailable_reason("acp-antigravity").await.expect("not-installed reason");
+    assert!(missing.contains("not installed"), "expected not-installed reason, got: {missing}");
+
+    // 4. Installed and current, but signed out: unavailable_reason is None so sign-in prompt applies.
+    #[allow(clippy::disallowed_methods, reason = "test restores installed.json")]
+    std::fs::write(&installed_json, orig_installed).expect("restore installed.json");
+    let token_file = home_of(world.dir.path(), "antigravity").join("antigravity-acp").join("acp_token.json");
+    #[allow(clippy::disallowed_methods, reason = "test removes token")]
+    std::fs::remove_file(&token_file).expect("remove token");
+    assert!(!image_gen.authenticated("acp-antigravity").await);
+    assert_eq!(image_gen.unavailable_reason("acp-antigravity").await, None);
+
+    // None of the above checks may spawn a server or start a readiness check.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(world.log().is_empty(), "authenticated/unavailable_reason must never spawn a check: {:?}", world.log());
+}
+
+/// On a `!closes` shared server (official Antigravity), releasing a finished worker while a sibling turn is actively in
+/// flight does not interrupt the active sibling; as soon as the sibling's turn finishes and the server becomes quiescent,
+/// the server retires via EOF so the worker's helper process exits, and the sibling is reopened on a new server at once.
+#[tokio::test]
+async fn quiescent_retirement_waits_for_active_sibling_turn_then_retires_and_reopens_the_sibling() {
+    let (world, tools) = handing_in(World::official(&[]));
+    let (lead, worker) = (ThreadId::from("sess_lead"), ThreadId::from("sess_worker"));
+    let cwd = world.cwd();
+
+    assert!(world.answer_in(&lead, &cwd, "whoami").await.starts_with("session=sess-1"));
+    assert!(world.answer_in(&worker, &cwd, "whoami").await.starts_with("session=sess-2"));
+    let server = world.agents.running(&lead).expect("lead session").connection.clone();
+
+    let surface = Surface::default();
+    let lead_turn = world.prompt_with(&lead, &surface, r#"tool slow {}"#, Some("sess-1"), CancellationToken::new(), Some(tools.calls(&surface)));
+    let release_during_turn = async {
+        surface.until(|events| events.iter().any(|event| matches!(event, Event::Commit(_)))).await;
+        world.agents.release(&worker);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!server.exited().is_cancelled(), "active lead turn must prevent premature retirement");
+        tools.release.add_permits(1);
+    };
+    let (end, ()) = within("lead turn finishes while worker released", async { tokio::join!(lead_turn, release_during_turn) }).await;
+    assert!(matches!(end, TurnEnd::Completed { .. }), "{end:?}");
+
+    within("shared server retires once quiescent after lead turn", server.exited().cancelled()).await;
+    assert_eq!(world.exit_of(server.handle()), Some(CLOSED));
+    world.logs("session/resume sess-1").await;
+
+    let resumed = within("lead on the new server", world.prompt_in(&lead, &cwd, &Surface::default(), "whoami", Some("sess-1"), CancellationToken::new())).await;
+    assert!(completed_text(&resumed).starts_with("session=sess-1 resumed=true"), "{resumed:?}");
+    assert_ne!(world.agents.running(&lead).expect("resumed lead").connection.handle(), server.handle());
+    assert_eq!((world.logged("start acp"), world.logged("session/resume sess-1")), (2, 1), "{:?}", world.log());
+}
+
+/// A search-only session on a `!closes` shared server triggers quiescent retirement when it finishes so its helper
+/// process does not outlive the search while an idle Lead session is held.
+#[tokio::test]
+async fn search_only_session_on_no_close_shared_server_retires_when_quiescent() {
+    use mixdog_tools::web::AcpSearchBackend;
+    use mixdog_tools::web::AcpSearchRequest;
+
+    let world = World::official(&[]);
+    let lead = ThreadId::from("sess_lead");
+    let cwd = world.cwd();
+
+    assert!(world.answer_in(&lead, &cwd, "whoami").await.starts_with("session=sess-1"));
+    let server = world.agents.running(&lead).expect("lead session").connection.clone();
+
+    let search = mixdog_acp::search::AgentWebSearch::new(world.agents.clone());
+    let request = AcpSearchRequest {
+        provider: "acp-antigravity".into(),
+        model: "default".into(),
+        effort: None,
+        query: "whoami".into(),
+        site: None,
+        locale: None,
+        max_results: 5,
+        context_size: "low".into(),
+    };
+    let reply = within("search-only session", search.search(request, &CancellationToken::new())).await.expect("search reply");
+    assert!(!reply.answer.is_empty(), "{reply:?}");
+
+    within("server retires after search-only session ends", server.exited().cancelled()).await;
+    world.logs("session/resume sess-1").await;
+
+    let resumed =
+        within("lead after search retirement", world.prompt_in(&lead, &cwd, &Surface::default(), "whoami", Some("sess-1"), CancellationToken::new())).await;
+    assert!(completed_text(&resumed).starts_with("session=sess-1 resumed=true"), "{resumed:?}");
+    assert_eq!((world.logged("start acp"), world.logged("session/resume sess-1")), (2, 1), "{:?}", world.log());
+    // The ended search session is not among the sessions the replacement server reopens.
+    assert_eq!(world.logged("session/resume"), 1, "{:?}", world.log());
+}
+
+/// Changing rules on a `!closes` shared server retires the old server instead of pinning the replaced session's helper
+/// process across the reopen.
+#[tokio::test]
+async fn rules_change_on_no_close_shared_server_retires_old_server_instead_of_pinning_replaced_session() {
+    let world = World::official(&[]);
+    let surface1 = Surface::default();
+    let end1 = within(
+        "first rules turn",
+        world.serve_with(
+            &surface1,
+            json!({ "role": "user", "content": "whoami" }),
+            None,
+            Some("RULES-V1"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    assert!(completed_text(&end1).contains("append=RULES-V1"), "{end1:?}");
+    let server1 = world.agents.running(&thread()).expect("server1 session").connection.clone();
+
+    let surface2 = Surface::default();
+    let end2 = within(
+        "changed rules turn",
+        world.serve_with(
+            &surface2,
+            json!({ "role": "user", "content": "whoami" }),
+            Some(held("sess-1")),
+            Some("RULES-V2"),
+            "default",
+            CancellationToken::new(),
+            Turns::default(),
+        ),
+    )
+    .await;
+    let text2 = completed_text(&end2);
+    assert!(text2.contains("resumed=false") && text2.contains("append=RULES-V2"), "{text2}");
+    within("old server retired on rules change", server1.exited().cancelled()).await;
+    assert_ne!(world.agents.running(&thread()).expect("server2 session").connection.handle(), server1.handle());
+    assert_eq!(world.logged("start acp"), 2, "{:?}", world.log());
+}
+
+/// The session a retired `!closes` server held for a loaded thread is reopened on a new server at once: a turn that comes
+/// while that reopen is under way waits for it instead of opening a second one, and the reopened session keeps what the
+/// user approved and the calls its predecessor kept running.
+#[tokio::test]
+async fn a_turn_during_the_background_reopen_of_its_session_joins_it() {
+    let world = World::official(&[("FAKE_AGENT_RESUME_UNTIL", "answer-the-resume")]);
+    let (lead, worker) = (ThreadId::from("sess_lead"), ThreadId::from("sess_worker"));
+    let cwd = world.cwd();
+    assert!(world.answer_in(&lead, &cwd, "whoami").await.starts_with("session=sess-1"));
+    assert!(world.answer_in(&worker, &cwd, "whoami").await.starts_with("session=sess-2"));
+    let held = world.agents.running(&lead).expect("lead session");
+    held.keep_call("read".into(), json!({ "path": "a.txt" }), "task-1".into());
+    let server = held.connection.clone();
+
+    world.agents.release(&worker);
+    within("the retired server's exit", server.exited().cancelled()).await;
+    world.logs("session/resume sess-1").await;
+    let surface = Surface::default();
+    let turn = world.prompt_in(&lead, &cwd, &surface, "whoami", Some("sess-1"), CancellationToken::new());
+    let answer = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        #[allow(clippy::disallowed_methods, reason = "the agent answers the reopen")]
+        std::fs::write(world.dir.path().join("answer-the-resume"), "").expect("the answer");
+    };
+    let (end, ()) = within("the turn that joined the reopen", async { tokio::join!(turn, answer) }).await;
+    assert!(completed_text(&end).starts_with("session=sess-1 resumed=true"), "{end:?}");
+    assert_eq!((world.logged("start acp"), world.logged("session/resume sess-1")), (2, 1), "one reopen: {:?}", world.log());
+    let reopened = world.agents.running(&lead).expect("the reopened lead");
+    assert_ne!(reopened.connection.handle(), server.handle());
+    assert!(Arc::ptr_eq(&reopened.grants, &held.grants), "what the user approved carries over");
+    assert_eq!(reopened.kept_call("read", &json!({ "path": "a.txt" }), |_| true).as_deref(), Some("task-1"));
+}
+
+/// A retired server's session of a thread whose Mixdog session unloaded is not reopened, and no server starts while no
+/// loaded thread's session is left: the thread's next turn reopens it, with what the user approved. An agent let go of
+/// while idle keeps its approvals; one that is not idle keeps running.
+#[tokio::test]
+async fn a_retired_servers_session_of_an_unloaded_thread_is_reopened_only_by_its_next_turn() {
+    let world = World::official(&[]);
+    let (lead, worker) = (ThreadId::from("sess_lead"), ThreadId::from("sess_worker"));
+    let cwd = world.cwd();
+    assert!(world.answer_in(&lead, &cwd, "whoami").await.starts_with("session=sess-1"));
+    assert!(world.answer_in(&worker, &cwd, "whoami").await.starts_with("session=sess-2"));
+    let held = world.agents.running(&lead).expect("lead session");
+    let server = held.connection.clone();
+
+    world.agents.unloaded(&lead);
+    world.agents.release_idle(&worker);
+    assert!(world.agents.running(&worker).is_none(), "an idle agent is let go of");
+    within("the retired server's exit", server.exited().cancelled()).await;
+    assert!(world.agents.running(&lead).is_none());
+    assert_eq!(world.logged("start acp"), 1, "no server starts for an unloaded thread: {:?}", world.log());
+
+    let resumed = within("the lead's next turn", world.prompt_in(&lead, &cwd, &Surface::default(), "whoami", Some("sess-1"), CancellationToken::new())).await;
+    assert!(completed_text(&resumed).starts_with("session=sess-1 resumed=true"), "{resumed:?}");
+    assert_eq!(world.logged("start acp"), 2, "{:?}", world.log());
+    assert!(Arc::ptr_eq(&world.agents.running(&lead).expect("the reopened lead").grants, &held.grants), "what the user approved carries over");
+
+    // The official server replies only to a prompt: the call it keeps running past the turn is never told ended.
+    within("the turn", world.prompt(&thread(), &Surface::default(), "background", None, CancellationToken::new())).await;
+    let busy = world.agents.running(&thread()).expect("the session with its call running in the agent's background");
+    world.agents.release_idle(&thread());
+    assert!(world.agents.running(&thread()).is_some_and(|running| Arc::ptr_eq(&running, &busy)), "an agent that is not idle stays");
+    assert!(!busy.gone().is_cancelled());
 }

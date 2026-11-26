@@ -16,6 +16,7 @@
 pub mod agents;
 pub mod connection;
 pub mod files;
+pub mod image;
 pub mod login;
 pub mod mcp;
 pub mod mcp_bridge;

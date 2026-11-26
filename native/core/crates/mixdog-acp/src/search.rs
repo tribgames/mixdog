@@ -100,6 +100,10 @@ impl TextFiles for SearchNoReadFiles {
         self.0.create(path, text).await
     }
 
+    async fn create_bytes(&self, path: AbsPath, bytes: Vec<u8>) -> Result<(), String> {
+        self.0.create_bytes(path, bytes).await
+    }
+
     async fn make_folder(&self, path: AbsPath) -> Result<(), String> {
         self.0.make_folder(path).await
     }
@@ -273,6 +277,7 @@ struct RegisteredSearchSession {
     agents: Arc<Agents>,
     thread_id: ThreadId,
     session: Arc<AgentSession>,
+    use_guard: Option<crate::shared::SessionUse>,
     sandbox: SearchSandbox,
     registered: bool,
 }
@@ -286,7 +291,7 @@ impl RegisteredSearchSession {
         owned: OwnedSession,
         sandbox: SearchSandbox,
     ) -> Result<Self, (AcpSearchError, SearchSandbox)> {
-        let session = {
+        let (session, use_guard) = {
             let mut sessions = lock(&agents.sessions);
             if agents.stopping.load(Ordering::SeqCst) || agents.stop_token.is_cancelled() {
                 drop(sessions);
@@ -298,11 +303,11 @@ impl RegisteredSearchSession {
                 drop(owned);
                 return Err((AcpSearchError::not_installed("ACP agents are turned off in Settings."), sandbox));
             }
-            let session = owned.into_inner();
+            let (session, use_guard) = owned.into_parts();
             sessions.insert(thread_id.clone(), session.clone());
-            session
+            (session, use_guard)
         };
-        Ok(Self { agents, thread_id, session, sandbox, registered: true })
+        Ok(Self { agents, thread_id, session, use_guard, sandbox, registered: true })
     }
 
     fn unregister(&mut self) {
@@ -315,6 +320,7 @@ impl RegisteredSearchSession {
 
 impl Drop for RegisteredSearchSession {
     fn drop(&mut self) {
+        self.use_guard.take();
         if self.registered {
             self.unregister();
             if !self.session.end_after_turn() {
@@ -479,19 +485,18 @@ impl AgentWebSearch {
 
     async fn cleanup_session(&self, preset: &AgentPreset, mut registered: RegisteredSearchSession, cancelled_prompt: Option<u64>) {
         let session = registered.session.clone();
+        // Before its use ends: a server that retires then reopens the sessions still registered.
+        registered.unregister();
         if let Some(prompt_id) = cancelled_prompt {
             session.cancel(Some(prompt_id));
             if preset.scope == ProcessScope::Shared {
                 self.agents.abandon_shared(preset, &session.session_id);
             }
-            session.end();
-        } else {
-            if session.closes && !session.gone().is_cancelled() && !self.agents.stop_token.is_cancelled() {
-                let _ = mixdog_rt::time::timeout(CLOSE_TIMEOUT, session.close()).await;
-            }
-            session.end();
+        } else if session.closes && !session.gone().is_cancelled() && !self.agents.stop_token.is_cancelled() {
+            let _ = mixdog_rt::time::timeout(CLOSE_TIMEOUT, session.close()).await;
         }
-        registered.unregister();
+        registered.use_guard.take();
+        session.end();
         registered.sandbox.cleanup().await;
     }
 }
@@ -562,6 +567,9 @@ impl AcpSearchBackend for AgentWebSearch {
                 mapped
             }
             TurnEnd::Interrupted => Err(AcpSearchError::cancelled("This operation was aborted").with_usage(usage, excludes_cache)),
+            TurnEnd::CompactNeeded { .. } => {
+                Err(AcpSearchError::failed("ACP web search unexpectedly requested mid-turn compaction").with_usage(usage, excludes_cache))
+            }
             TurnEnd::Refused { message } => {
                 self.agents.refused(preset, &message).await;
                 Err(AcpSearchError::refusal(message).with_usage(usage, excludes_cache))
@@ -1817,6 +1825,9 @@ pub(crate) fn map_turn_outcome(
             Ok(AcpSearchReply { answer: text, model, citations, calls, usage, input_excludes_cache })
         }
         TurnEnd::Interrupted => Err(AcpSearchError::cancelled("This operation was aborted").with_usage(usage, input_excludes_cache)),
+        TurnEnd::CompactNeeded { .. } => {
+            Err(AcpSearchError::failed("ACP web search unexpectedly requested mid-turn compaction").with_usage(usage, input_excludes_cache))
+        }
         TurnEnd::Refused { message } => Err(AcpSearchError::refusal(message).with_usage(usage, input_excludes_cache)),
         TurnEnd::Failed { message, code, .. } => {
             if code == Some(AUTH_REQUIRED) {
@@ -2583,6 +2594,7 @@ also (https://en.wikipedia.org/wiki/Actor_model_(computing)).";
         let session = AgentSession::test_shared_session_for(shared.clone(), "sess-search");
         shared.register(&sibling);
         shared.register(&session);
+        let _sibling_use = shared.enter_use().expect("active sibling keeps shared server alive");
 
         // Detach the shared search session while the sibling keeps the underlying shared connection alive.
         session.end();
@@ -2700,6 +2712,7 @@ also (https://en.wikipedia.org/wiki/Actor_model_(computing)).";
             presets: crate::preset::builtin(),
             processes,
             files,
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             probe_cwd: cwd.clone(),
             data_dir: cwd.clone(),
             definitions: cwd,

@@ -43,6 +43,11 @@ pub struct CatalogRows {
 pub trait LaneSources: Send + Sync + 'static {
     /// `laneAuthenticated(lane)`: a file-level credential check, never a network call.
     async fn authenticated(&self, lane: &str) -> bool;
+    /// Plain-language cause when `authenticated` is false for a reason other than sign-in
+    /// (for example, ACP agents turned off, not installed, unsupported, or too old).
+    async fn unavailable_reason(&self, _lane: &str) -> Option<String> {
+        None
+    }
     /// `loadMediaModels(lane)`: single-flight per credential, so a listing that gave up waiting
     /// can be joined by the next one.
     async fn models(&self, lane: &str) -> Result<CatalogRows, CatalogFailure>;
@@ -114,6 +119,15 @@ fn lanes() -> Vec<LaneDef> {
         // Gateway lanes on the normalized Image API: every model advertises its own parameters.
         LaneDef { id: "openrouter", label: "OpenRouter", auth_type: "api-key", auth_provider: "openrouter", image: Some(json!({})), video: None },
         LaneDef { id: "nano-gpt", label: "NanoGPT", auth_type: "api-key", auth_provider: "nano-gpt", image: Some(json!({})), video: None },
+        // Placed last so unnamed media calls keep existing provider fallbacks ahead of ACP.
+        LaneDef {
+            id: "acp-antigravity",
+            label: "Antigravity",
+            auth_type: "acp",
+            auth_provider: "acp-antigravity",
+            image: Some(gemini_image_controls()),
+            video: None,
+        },
     ]
 }
 
@@ -201,6 +215,9 @@ impl MediaLanes {
             "video": Value::Null,
         });
         if !signed_in {
+            if let Some(reason) = self.sources.unavailable_reason(lane.id).await.filter(|r| !r.trim().is_empty()) {
+                view["unavailableReason"] = json!(reason);
+            }
             return Some(view);
         }
         let sources = self.sources.clone();
@@ -237,12 +254,18 @@ impl MediaLanes {
                 view["kinds"] = json!(kinds);
             }
             Err(failure) => {
-                let (code, message) = catalog_diagnostic(&failure);
+                let (code, fallback_message) = catalog_diagnostic(&failure);
                 if code == "MEDIA_BILLING_BLOCKED" {
                     return None;
                 }
+                let message = failure.message.as_deref().map(str::trim).filter(|m| !m.is_empty()).unwrap_or(fallback_message);
                 view["catalogErrorCode"] = json!(code);
-                view["catalogError"] = json!(format!("{} ({}): {}", lane.label, if lane.auth_type == "oauth" { "Account" } else { "API key" }, message));
+                let auth_label = match lane.auth_type {
+                    "oauth" => "Account",
+                    "acp" => "Agent",
+                    _ => "API key",
+                };
+                view["catalogError"] = json!(format!("{} ({}): {}", lane.label, auth_label, message));
             }
         }
         Some(view)
@@ -273,11 +296,14 @@ impl MediaLanes {
             return Err(media_error("The selected media model is not available.", "MEDIA_MODEL_UNSUPPORTED", 400));
         };
         if view["authenticated"] != json!(true) {
-            return Err(media_error(
-                format!("{} is not authenticated — sign in from Settings → Providers first", definition.label),
-                "MEDIA_LANE_UNAUTHENTICATED",
-                400,
-            ));
+            let message = view
+                .get("unavailableReason")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("{} is not authenticated — sign in from Settings → Providers first", definition.label));
+            return Err(media_error(message, "MEDIA_LANE_UNAUTHENTICATED", 400));
         }
         if let Some(error) = view.get("catalogError").and_then(Value::as_str) {
             let code = match view.get("catalogErrorCode").and_then(Value::as_str) {

@@ -4,6 +4,7 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
 
 pub mod accounts;
+pub mod acp_image;
 pub mod adapter_http;
 pub mod antigravity_image;
 #[cfg(test)]
@@ -39,6 +40,9 @@ pub mod variants;
 pub mod xai;
 
 pub use accounts::{AccountProbe, AccountScope, ScopedLaneSources, SelectedAccounts, StudioAccounts, media_lane_account_provider};
+pub use acp_image::{
+    ACP_ANTIGRAVITY_LANE, ACP_ANTIGRAVITY_MODEL_ID, ACP_ANTIGRAVITY_MODEL_LABEL, AcpImageBackend, AcpImageReference, AcpImageReply, AcpImageRequest,
+};
 pub use catalog_fetch::{Auth, CatalogHttp, FetchError, FileCatalogCache, HttpFailure, HttpReply, fetch_media_model_rows, media_catalog_timeout};
 pub use catalog_http::RoutedCatalogHttp;
 pub use generator::{GeneratorParts, StudioGenerator, TokioPacer, ledger_account_of};

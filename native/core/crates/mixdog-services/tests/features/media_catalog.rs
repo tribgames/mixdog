@@ -23,7 +23,7 @@ struct World {
 }
 
 fn failing(code: &str) -> CatalogFailure {
-    CatalogFailure { code: Some(code.to_owned()), timed_out: false }
+    CatalogFailure { code: Some(code.to_owned()), timed_out: false, message: None }
 }
 
 #[async_trait]

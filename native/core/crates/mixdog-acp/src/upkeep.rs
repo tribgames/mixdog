@@ -281,7 +281,11 @@ pub(crate) struct Account {
 impl Slot {
     /// What the running check is doing, as the Settings row words it.
     pub(crate) fn step(&self) -> Option<&'static str> {
-        self.running.as_ref().map(|running| running.step.borrow().state())
+        self.running_step().map(Step::state)
+    }
+
+    pub(crate) fn running_step(&self) -> Option<Step> {
+        self.running.as_ref().map(|running| *running.step.borrow())
     }
 
     pub(crate) fn fault(&self) -> Value {
@@ -580,7 +584,7 @@ impl Agents {
     }
 
     /// Whether `preset`'s home holds every file of a sign-in.
-    async fn home_signed_in(&self, preset: &AgentPreset) -> bool {
+    pub(crate) async fn home_signed_in(&self, preset: &AgentPreset) -> bool {
         let Distribution::Registry { sign_in_files, .. } = &preset.distribution else { return false };
         let home = self.home(preset);
         for file in sign_in_files {
@@ -1072,25 +1076,45 @@ impl Agents {
         }
     }
 
-    /// Whether `preset`'s CLI has a quota to report now: the feature is on, the agent reports one, and its CLI was
-    /// last found ready (installed, current, signed in). Nothing is started to find that out.
-    pub fn reports_usage(&self, preset: &AgentPreset) -> bool {
-        preset.usage.is_some()
-            && self.enabled()
-            && matches!(lock(&self.slots).get(&preset.id).and_then(|slot| slot.readiness.as_ref()), Some(Readiness::Ready { .. }))
+    /// The preset whose CLI runs the quota report for `preset`, and the arguments it runs with.
+    fn usage_command<'a>(&'a self, preset: &'a AgentPreset) -> Option<(&'a AgentPreset, &'a [String])> {
+        match preset.usage.as_ref()? {
+            UsageReport::Command { args } => Some((preset, args.as_slice())),
+            UsageReport::FromPreset { preset_id } => {
+                let source = self.parts.presets.iter().find(|other| other.id == *preset_id)?;
+                match source.usage.as_ref()? {
+                    UsageReport::Command { args } => Some((source, args.as_slice())),
+                    UsageReport::FromPreset { .. } => None,
+                }
+            }
+        }
     }
 
-    /// The quota of the account `preset`'s agent is signed in with, as its report gives it: the CLI's `command.data`, or
-    /// the quota summary its credential reads. `None` where it cannot be asked now: [`Self::reports_usage`] says no,
-    /// or the CLI is being checked or updated, and once the feature is turned off or the agent signed out while it is
-    /// asked (which ends the CLI's run). `Some(Err)` is a report that failed, in its own words.
+    /// Whether `preset`'s quota can be read now: the feature is on, the preset (and the CLI preset it reads through,
+    /// when delegated) was last found ready (installed, current, signed in). Nothing is started to find that out.
+    pub fn reports_usage(&self, preset: &AgentPreset) -> bool {
+        let Some((source, _)) = self.usage_command(preset) else {
+            return false;
+        };
+        if !self.enabled() {
+            return false;
+        }
+        let slots = lock(&self.slots);
+        let ready = |id: &str| matches!(slots.get(id).and_then(|slot| slot.readiness.as_ref()), Some(Readiness::Ready { .. }));
+        ready(&preset.id) && (source.id == preset.id || ready(&source.id))
+    }
+
+    /// The quota of the account `preset`'s agent is signed in with, as its CLI's report gives it (`command.data`).
+    /// `None` where it cannot be asked now: [`Self::reports_usage`] says no, or the CLI is being checked or updated,
+    /// and once the feature is turned off or the agent signed out while it is asked (which ends the CLI's run).
+    /// `Some(Err)` is a report that failed, in its own words.
     pub async fn usage(self: &Arc<Self>, preset: &AgentPreset) -> Option<Result<Value, String>> {
         self.usage_until(preset, &CancellationToken::new()).await
     }
 
     /// [`Self::usage`], ended by `stop` (`None`) and by the time a provider's own usage request is given (`Some(Err)`).
     pub async fn usage_until(self: &Arc<Self>, preset: &AgentPreset, stop: &CancellationToken) -> Option<Result<Value, String>> {
-        let report = preset.usage.as_ref()?;
+        let (source, args) = self.usage_command(preset)?;
         if !self.enabled() {
             return None;
         }
@@ -1099,26 +1123,26 @@ impl Agents {
         // A run of the CLI is held against an update of it, as a session's start is.
         let (program, _starting) = {
             let mut slots = lock(&self.slots);
-            let slot = slots.get_mut(&preset.id)?;
+            if source.id != preset.id && !matches!(slots.get(&preset.id).and_then(|slot| slot.readiness.as_ref()), Some(Readiness::Ready { .. })) {
+                return None;
+            }
+            let slot = slots.get_mut(&source.id)?;
             if slot.running.is_some() || !matches!(slot.readiness, Some(Readiness::Ready { .. })) {
                 return None;
             }
             slot.usage_reads.push((read, cancel.clone()));
-            let starting = matches!(report, UsageReport::Command { .. }).then(|| {
-                slot.starting += 1;
-                Starting { agents: self.clone(), preset: preset.id.clone() }
-            });
-            (slot.program.clone().map_or_else(|| preset.command.clone(), |program| program.path), starting)
-        };
-        let asked = async {
-            match report {
-                UsageReport::Command { args } => {
-                    let launch = Launch { program, args: args.clone(), env: preset.env.clone(), env_remove: Vec::new(), cwd };
-                    command_report(run_to_exit(&self.parts.processes, launch).await)
-                }
-                UsageReport::Summary { token_file } => self.quota_summary(preset, token_file).await,
+            slot.starting += 1;
+            let starting = Starting { agents: self.clone(), preset: source.id.clone() };
+            let program = slot.program.clone().map_or_else(|| source.command.clone(), |program| program.path);
+            if source.id != preset.id
+                && let Some(target) = slots.get_mut(&preset.id)
+            {
+                target.usage_reads.push((read, cancel.clone()));
             }
+            (program, starting)
         };
+        let launch = Launch { program, args: args.to_vec(), env: source.env.clone(), env_remove: Vec::new(), cwd };
+        let asked = async { command_report(run_to_exit(&self.parts.processes, launch).await) };
         // An ended read drops the run, which ends the CLI's process.
         let answered = tokio::select! {
             biased;
@@ -1129,43 +1153,18 @@ impl Agents {
             }
             answered = asked => Some(answered),
         };
-        if let Some(slot) = lock(&self.slots).get_mut(&preset.id) {
-            slot.usage_reads.retain(|(id, _)| *id != read);
+        {
+            let mut slots = lock(&self.slots);
+            if let Some(slot) = slots.get_mut(&source.id) {
+                slot.usage_reads.retain(|(id, _)| *id != read);
+            }
+            if source.id != preset.id
+                && let Some(slot) = slots.get_mut(&preset.id)
+            {
+                slot.usage_reads.retain(|(id, _)| *id != read);
+            }
         }
         answered
-    }
-
-    /// The quota summary of the account whose Google credential `preset`'s agent keeps at `token_file` of its home: its
-    /// refresh token is exchanged for an access token, with which Cloud Code Assist is asked as the hub client asks it.
-    async fn quota_summary(&self, preset: &AgentPreset, token_file: &str) -> Result<Value, String> {
-        use mixdog_ai::providers::google::auth::antigravity;
-        use mixdog_ai::service::usage_antigravity;
-        let label = &preset.label;
-        let fetcher = self.parts.registry.clone().ok_or_else(|| format!("{label}'s quota cannot be asked from this process."))?;
-        let file = AbsPath::new(self.home(preset).join(token_file)).ok_or_else(|| format!("{token_file} of {label}'s home has no absolute place"))?;
-        let text = self.parts.files.read(file).await.map_err(|error| format!("{label}'s sign-in was not read: {error}"))?;
-        let token: Value = serde_json::from_str(&text).map_err(|error| format!("{label}'s sign-in is not JSON: {error}"))?;
-        let field = |key: &str| token.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
-        let (Some(client), Some(secret), Some(refresh)) = (field("client_id"), field("client_secret"), field("refresh_token")) else {
-            return Err(format!("{label}'s sign-in holds no refresh token."));
-        };
-        let form = mixdog_ai::providers::google::auth::form_body(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh),
-            ("client_id", client),
-            ("client_secret", secret),
-        ]);
-        let form_type = [("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
-        let granted = fetcher.post(antigravity::TOKEN_URL, &form_type, form).await?;
-        let access = granted.get("access_token").and_then(Value::as_str).filter(|access| !access.is_empty());
-        let access = access.ok_or_else(|| format!("{label}'s sign-in was refreshed with no access token."))?;
-        let headers = [
-            ("Authorization".to_owned(), format!("Bearer {access}")),
-            ("Content-Type".to_owned(), "application/json".to_owned()),
-            ("User-Agent".to_owned(), usage_antigravity::user_agent(antigravity::VERSION_FALLBACK)),
-        ];
-        let body = field("project_id").map_or_else(|| json!({}), |project| json!({ "project": project }));
-        fetcher.post(usage_antigravity::QUOTA_URL, &headers, body.to_string().into_bytes()).await
     }
 
     /// Ends every check and quota read and forgets what they found: the feature was turned off.
@@ -1340,6 +1339,7 @@ mod tests {
             presets: vec![preset.clone()],
             processes: processes.clone(),
             files: Arc::new(NoFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
             enabled: Arc::new(|| true),
             changed: Arc::new(|| {}),
             probe_cwd: cwd.clone(),
@@ -1364,5 +1364,51 @@ mod tests {
                 "spawn {argv:?} must set AGY_CLI_DISABLE_AUTO_UPDATE=true, got {env:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn official_preset_reads_usage_from_ready_cli_and_none_when_cli_missing_or_signed_out() {
+        let _ = mixdog_rt::testing::tokens();
+        let presets = crate::preset::builtin();
+        let official = presets.iter().find(|p| p.id == "antigravity").expect("antigravity preset").clone();
+        let cli = presets.iter().find(|p| p.id == "antigravity-cli").expect("antigravity-cli preset").clone();
+        let processes = Arc::new(AgyProbeProcesses::default());
+        let cwd = std::env::temp_dir();
+        let agents = Agents::new(AgentsParts {
+            refusals: Arc::new(NoRefusals),
+            presets,
+            processes: processes.clone(),
+            files: Arc::new(NoFiles),
+            cpu: mixdog_rt::testing::tokens().cpu_interactive,
+            enabled: Arc::new(|| true),
+            changed: Arc::new(|| {}),
+            probe_cwd: cwd.clone(),
+            definitions: cwd.clone(),
+            data_dir: cwd,
+            env: Arc::new(|_| None),
+            mcp_bridge: None,
+            registry: None,
+        });
+
+        let ready = || Readiness::Ready { version: "1.5.2".into(), models: Models::default() };
+        lock(&agents.slots).entry(official.id.clone()).or_default().readiness = Some(ready());
+
+        // CLI missing or signed out: official preset reports no usage and spawns nothing.
+        for cli_state in [Readiness::NotInstalled, Readiness::SignedOut { version: "1.5.16".into(), message: "sign in".into() }] {
+            lock(&agents.slots).entry(cli.id.clone()).or_default().readiness = Some(cli_state);
+            assert!(!agents.reports_usage(&official));
+            assert_eq!(agents.usage(&official).await, None);
+        }
+        assert!(processes.spawns.lock().unwrap().is_empty());
+
+        // CLI ready: official preset reads usage through `agy --print /usage --output-format json`.
+        lock(&agents.slots).entry(cli.id.clone()).or_default().readiness = Some(ready());
+        assert!(agents.reports_usage(&official));
+        assert_eq!(agents.usage(&official).await, Some(Ok(json!({ "groups": [] }))));
+
+        let spawns = processes.spawns.lock().unwrap().clone();
+        assert_eq!(spawns.len(), 1, "{spawns:?}");
+        assert_eq!(spawns[0].0, ["--print", "/usage", "--output-format", "json"]);
+        assert!(spawns[0].1.iter().any(|(k, v)| k == "AGY_CLI_DISABLE_AUTO_UPDATE" && v == "true"));
     }
 }

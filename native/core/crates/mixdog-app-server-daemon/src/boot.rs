@@ -256,9 +256,93 @@ pub async fn withdraw_pending(index: &mixdog_store::sqlite::SqliteStore, data: &
     Ok(left.len())
 }
 
+pub(crate) struct QuarantineSummary {
+    pub(crate) total_reasons: u64,
+    pub(crate) in_place_items: u64,
+    pub(crate) in_place_files: Vec<String>,
+}
+
+fn join_rel(base: &Path, rel: &str) -> String {
+    rel.split('/').fold(base.to_path_buf(), |path, seg| path.join(seg)).display().to_string()
+}
+
+fn resolve_quarantined_path(
+    data: &Path,
+    manifest: Option<&mixdog_store::schema::migration::Manifest>,
+    root: mixdog_store::schema::migration::Root,
+    rel: &str,
+) -> String {
+    use mixdog_store::schema::migration::Root;
+    match root {
+        Root::Data => join_rel(data, rel),
+        Root::Home => manifest.map_or_else(|| rel.to_owned(), |m| join_rel(Path::new(&m.roots.home), rel)),
+        Root::Profile => manifest.and_then(|m| m.roots.profile.as_deref()).map_or_else(|| rel.to_owned(), |p| join_rel(Path::new(p), rel)),
+    }
+}
+
+pub(crate) fn quarantine_summary(data: &Path) -> QuarantineSummary {
+    use mixdog_store::schema::migration::MANIFEST_PATH;
+    use mixdog_store::schema::migration::Manifest;
+    use mixdog_store::schema::migration::QUARANTINE_DIR;
+    use mixdog_store::schema::migration::QuarantineCode;
+    use mixdog_store::schema::migration::QuarantineReason;
+    use mixdog_store::schema::migration::REASON_FILE;
+
+    let manifest = mixdog_statefile::read_content(&data.join(MANIFEST_PATH)).ok().flatten().and_then(|bytes| serde_json::from_slice::<Manifest>(&bytes).ok());
+    let root = data.join(QUARANTINE_DIR);
+    let mut summary = QuarantineSummary { total_reasons: 0, in_place_items: 0, in_place_files: Vec::new() };
+    let Ok(code_dirs) = mixdog_migrate::durable::list_dir(&root) else {
+        return summary;
+    };
+    for (code_dir, is_dir) in code_dirs {
+        if !is_dir {
+            continue;
+        }
+        let Ok(item_dirs) = mixdog_migrate::durable::list_dir(&root.join(&code_dir)) else {
+            continue;
+        };
+        for (item_name, is_dir) in item_dirs {
+            if !is_dir {
+                continue;
+            }
+            let item_dir = root.join(&code_dir).join(&item_name);
+            let Ok(entries) = mixdog_migrate::durable::list_dir(&item_dir) else {
+                continue;
+            };
+            let Ok(Some(bytes)) = mixdog_statefile::read_content(&item_dir.join(REASON_FILE)) else {
+                continue;
+            };
+            let Ok(reason) = serde_json::from_slice::<QuarantineReason>(&bytes) else {
+                continue;
+            };
+            if reason.code == QuarantineCode::LedgerImportIncomplete {
+                continue;
+            }
+            summary.total_reasons += 1;
+            let has_copied_file = entries.iter().any(|(name, _)| name != REASON_FILE && !mixdog_store::fsio::is_tmp_name(name));
+            if !has_copied_file {
+                summary.in_place_items += 1;
+                let non_bak: Vec<_> = reason.sources.iter().filter(|s| !s.path.ends_with(".bak")).collect();
+                if non_bak.len() > 1
+                    && let Some((named, _)) = reason.detail.split_once(" is damaged and was left in place")
+                {
+                    summary.in_place_files.push(named.to_owned());
+                } else {
+                    for source in non_bak {
+                        summary.in_place_files.push(resolve_quarantined_path(data, manifest.as_ref(), source.root, &source.path));
+                    }
+                }
+            }
+        }
+    }
+    summary.in_place_files.sort();
+    summary.in_place_files.dedup();
+    summary
+}
+
 /// What the migration set aside (quarantined, expected or not) by `<data>/migration/complete.json`: how many items, where they are
-/// (`<data>/quarantine`), and the completed migration's identity (its manifest digest), which a client keys "told once" by. `None`
-/// while the migration has not completed, when it set nothing aside, or when the record cannot be read.
+/// (`<data>/quarantine`), any damaged files left in place (`inPlace`), and the completed migration's identity (its manifest digest),
+/// which a client keys "told once" by. `None` while the migration has not completed, when it set nothing aside, or when the record cannot be read.
 pub fn set_aside_of(data: &Path) -> Option<serde_json::Value> {
     use mixdog_store::schema::migration::COMPLETE_PATH;
     use mixdog_store::schema::migration::Complete;
@@ -266,14 +350,21 @@ pub fn set_aside_of(data: &Path) -> Option<serde_json::Value> {
     let bytes = mixdog_statefile::read_content(&data.join(COMPLETE_PATH)).ok().flatten()?;
     let complete: Complete = serde_json::from_slice(&bytes).ok()?;
     let (kept, profile) = (complete.kinds.data, complete.kinds.desktop_profile);
-    let count = kept.quarantined_expected + kept.quarantined_unexpected + profile.quarantined_expected + profile.quarantined_unexpected;
+    let summary = quarantine_summary(data);
+    let complete_count = kept.quarantined_expected + kept.quarantined_unexpected + profile.quarantined_expected + profile.quarantined_unexpected;
+    let count = complete_count.max(summary.total_reasons);
     (count > 0).then(|| {
-        json!({
+        let mut value = json!({
             "id": complete.manifest_sha256,
             "count": count,
             "unexpected": kept.quarantined_unexpected + profile.quarantined_unexpected,
             "dir": data.join(QUARANTINE_DIR).display().to_string(),
-        })
+        });
+        if !summary.in_place_files.is_empty() {
+            value["moved"] = json!(count.saturating_sub(summary.in_place_items));
+            value["inPlace"] = json!(summary.in_place_files);
+        }
+        value
     })
 }
 
@@ -660,6 +751,52 @@ mod set_aside_tests {
         assert_eq!(told["unexpected"], 5);
         assert_eq!(told["id"], "abc");
         assert_eq!(told["dir"], root.path().join("quarantine").display().to_string());
+        assert!(told.get("inPlace").is_none());
+    }
+
+    #[test]
+    fn set_aside_names_damaged_files_left_in_place_and_counts_resumed_restores() {
+        let root = tempfile::tempdir().unwrap();
+        complete(root.path(), (0, 1), (0, 0));
+        let reason_dir = root.path().join("quarantine/parse_error/store%2FprojectConnectors");
+        std::fs::create_dir_all(&reason_dir).unwrap();
+        let reason = json!({
+            "format": 1,
+            "key": "store/projectConnectors",
+            "code": "parse_error",
+            "expected": false,
+            "detail": "project-connectors.json is damaged and was left in place (parse error)",
+            "sources": [
+                { "root": "data", "path": "project-connectors.json", "sha256": "00" },
+                { "root": "data", "path": "project-connectors.json.bak", "sha256": "11" }
+            ]
+        });
+        std::fs::write(reason_dir.join("reason.json"), reason.to_string()).unwrap();
+
+        let only_in_place = set_aside_of(root.path()).expect("kept-in-place item is reported");
+        assert_eq!(only_in_place["count"], 1);
+        assert_eq!(only_in_place["moved"], 0);
+        assert_eq!(only_in_place["inPlace"], json!([root.path().join("project-connectors.json").display().to_string()]));
+
+        // Add a moved item and a resumed-manifest `.bak` restore (reason + aside copy) with zero counts in complete.json.
+        let aside_dir = root.path().join("quarantine/carried_set_aside/retain%2Fdata%2Fplugins%2Fregistry.json");
+        std::fs::create_dir_all(&aside_dir).unwrap();
+        std::fs::write(aside_dir.join("registry.json"), b"{broken").unwrap();
+        let aside_reason = json!({
+            "format": 1,
+            "key": "retain/data/plugins/registry.json",
+            "code": "carried_set_aside",
+            "expected": true,
+            "detail": "plugins/registry.json failed validation; restored plugins/registry.json.bak and set this file aside",
+            "sources": [{ "root": "data", "path": "plugins/registry.json", "sha256": "22" }]
+        });
+        std::fs::write(aside_dir.join("reason.json"), aside_reason.to_string()).unwrap();
+
+        complete(root.path(), (0, 1), (0, 0));
+        let mixed = set_aside_of(root.path()).expect("mixed items are reported");
+        assert_eq!(mixed["count"], 2);
+        assert_eq!(mixed["moved"], 1);
+        assert_eq!(mixed["inPlace"], json!([root.path().join("project-connectors.json").display().to_string()]));
     }
 
     struct Told(Mutex<Vec<serde_json::Value>>);

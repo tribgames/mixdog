@@ -17,6 +17,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::accounts::AccountProbe;
+use super::acp_image::{ACP_ANTIGRAVITY_LANE, AcpImageBackend};
 use super::catalog::{CatalogFailure, image_api_lane};
 use super::catalog_fetch::{Auth, CatalogHttp, FetchError, FileCatalogCache, fetch_media_model_rows};
 use super::lanes::{CatalogRows, lane_auth};
@@ -63,6 +64,8 @@ pub struct ProbeParts {
     pub http: Arc<dyn CatalogHttp>,
     /// `providerCatalogRevision()`.
     pub revision: Arc<dyn Fn() -> String + Send + Sync>,
+    /// Optional ACP image generation backend (`acp-antigravity`).
+    pub acp_image: Option<Arc<dyn AcpImageBackend>>,
 }
 
 fn truthy(value: Option<&Value>) -> bool {
@@ -307,13 +310,38 @@ impl AccountProbe for AccountedProbe {
         if auth_type == "api-key" {
             return probe.has_agent_key(provider).await;
         }
+        if auth_type == "acp" {
+            if probe.remote_client() {
+                return false;
+            }
+            return match probe.parts.acp_image.as_ref() {
+                Some(backend) => backend.authenticated(provider).await,
+                None => false,
+            };
+        }
         match provider {
             "grok-oauth" | "openai-oauth" | "antigravity-oauth" => probe.oauth_present(provider, account).await,
             _ => false,
         }
     }
 
+    async fn unavailable_reason(&self, lane_id: &str, _account: Option<&Path>) -> Option<String> {
+        let probe = &self.0;
+        let (auth_type, provider) = lane_auth(lane_id)?;
+        if auth_type == "acp" && !probe.remote_client() {
+            return probe.parts.acp_image.as_ref()?.unavailable_reason(provider).await;
+        }
+        None
+    }
+
     async fn models(&self, lane_id: &str, account: Option<&Path>) -> Result<CatalogRows, CatalogFailure> {
+        if lane_id == ACP_ANTIGRAVITY_LANE {
+            let Some(backend) = self.0.parts.acp_image.as_ref() else {
+                return Err(CatalogFailure { code: Some("MEDIA_AUTH_REJECTED".to_owned()), timed_out: false, message: None });
+            };
+            let rows = backend.catalog_models(lane_id).await?;
+            return Ok(CatalogRows { rows, warning: None });
+        }
         self.0.loader_for(account).load(lane_id).await
     }
 }

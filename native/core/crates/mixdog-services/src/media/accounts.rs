@@ -129,6 +129,10 @@ pub trait AccountProbe: Send + Sync {
     /// Whether the lane has usable credentials. `account` is the credential file of the account the
     /// lane is bound to; `None` is the provider's default location.
     async fn authenticated(&self, lane_id: &str, account: Option<&Path>) -> bool;
+    /// Plain-language cause when `authenticated` is false for a reason other than sign-in.
+    async fn unavailable_reason(&self, _lane_id: &str, _account: Option<&Path>) -> Option<String> {
+        None
+    }
     async fn models(&self, lane_id: &str, account: Option<&Path>) -> Result<CatalogRows, CatalogFailure>;
 }
 
@@ -155,6 +159,11 @@ impl LaneSources for ScopedLaneSources {
     async fn authenticated(&self, lane: &str) -> bool {
         let account = self.account_of(lane).await;
         self.probe.authenticated(lane, account.as_deref()).await
+    }
+
+    async fn unavailable_reason(&self, lane: &str) -> Option<String> {
+        let account = self.account_of(lane).await;
+        self.probe.unavailable_reason(lane, account.as_deref()).await
     }
 
     async fn models(&self, lane: &str) -> Result<CatalogRows, CatalogFailure> {

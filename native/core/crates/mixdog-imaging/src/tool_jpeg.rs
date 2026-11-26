@@ -3,13 +3,6 @@
 //! display box, white-flattened, stepping the quality down toward a base64 budget. The box is the one per-send
 //! preparation resizes to, so that pass finds nothing left to change and the cached prefix keeps its bytes.
 
-use base64::Engine;
-use base64::alphabet;
-use base64::engine::DecodePaddingMode;
-use base64::engine::GeneralPurpose;
-use base64::engine::GeneralPurposeConfig;
-use base64::engine::general_purpose::STANDARD;
-
 use crate::decode::DECODE_PIXEL_LIMIT;
 use crate::decode::DEFAULT_PIXEL_LIMIT;
 use crate::decode::Raster;
@@ -18,8 +11,6 @@ use crate::encode::encode_jpeg;
 use crate::error::ImagingError;
 use crate::policy::Dimensions;
 use crate::policy::Profile;
-use crate::policy::base64_len;
-use crate::policy::normalize_fmt;
 use crate::policy::target_dimensions;
 use crate::resize::fit_inside_view;
 
@@ -30,7 +21,7 @@ pub const TOOL_IMAGE_TARGET_BASE64_SIZE: usize = 256 * 1024;
 pub const TOOL_IMAGE_JPEG_QUALITIES: [u8; 3] = [85, 70, 50];
 
 /// `TOOL_IMAGE_SOURCE_FORMATS`: the stills a tool-result image is re-encoded from.
-const TOOL_IMAGE_SOURCE_FORMATS: [&str; 3] = ["png", "jpeg", "webp"];
+pub const TOOL_IMAGE_SOURCE_FORMATS: [&str; 3] = ["png", "jpeg", "webp"];
 
 /// One JPEG re-encode and the size it came out at.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -58,71 +49,76 @@ pub fn encode_tool_image_jpeg(bytes: &[u8], width: u32, height: u32, allow_enlar
     Ok(encode_raster(&decoded.raster, width, height, allow_enlargement, quality))
 }
 
-/// A tool-result image after compaction.
+/// One JPEG ladder result at the model profile's display box.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct CompactedImage {
-    /// Base64 of the JPEG.
-    pub data: String,
-    /// Always `image/jpeg`.
-    pub mime: String,
+pub struct FittedToolJpeg {
+    pub data: Vec<u8>,
+    pub quality: u8,
+    pub fits: bool,
     pub dimensions: Dimensions,
 }
 
-/// Node's `Buffer.from(data, 'base64')`, which the compaction decodes with: characters outside the alphabet are
-/// skipped, both alphabets are read and padding may be missing.
-fn node_base64(data: &str) -> Vec<u8> {
-    const LENIENT: GeneralPurpose = GeneralPurpose::new(
-        &alphabet::STANDARD,
-        GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::Indifferent),
-    );
-    let mut cleaned: String = data
-        .chars()
-        .take_while(|c| *c != '=')
-        .filter_map(|c| match c {
-            'A'..='Z' | 'a'..='z' | '0'..='9' | '+' | '/' => Some(c),
-            '-' => Some('+'),
-            '_' => Some('/'),
-            _ => None,
-        })
-        .collect();
-    if cleaned.len() % 4 == 1 {
-        cleaned.pop();
-    }
-    LENIENT.decode(&cleaned).unwrap_or_default()
-}
-
-/// `compactToolResultImage`: the compacted image, or `None` when the image is already within budget, not a
-/// re-encodable still, undecodable, or would not shrink (the original stays; per-send preparation still validates
-/// it).
-pub fn compact_tool_result_image(base64: &str, mime_type: &str) -> Option<CompactedImage> {
-    if base64.len() <= TOOL_IMAGE_TARGET_BASE64_SIZE {
-        return None;
-    }
-    let format = normalize_fmt(mime_type.split('/').nth(1));
-    if !TOOL_IMAGE_SOURCE_FORMATS.contains(&format.as_str()) {
-        return None;
-    }
-    let decoded = decode(&node_base64(base64), DECODE_PIXEL_LIMIT).ok()?;
-    let target = target_dimensions(decoded.width, decoded.height, Profile::Anthropic);
-    let fitted = fit_inside_view(&decoded.raster, target.width, target.height, !target.allow_enlargement);
-    let rgb = crate::encode::flattened_rgb(&fitted, 255);
-    let mut encoded = None;
+/// Steps through [`TOOL_IMAGE_JPEG_QUALITIES`] synchronously until `fits(&attempt)` holds, or returns the final
+/// lowest-quality attempt (`matched == false`).
+pub fn run_tool_jpeg_ladder<T, E, Enc, Fits>(mut encode: Enc, mut fits: Fits) -> Result<(T, u8, bool), E>
+where
+    Enc: FnMut(u8) -> Result<T, E>,
+    Fits: FnMut(&T) -> bool,
+{
+    let mut chosen = None;
+    let mut matched = false;
     for quality in TOOL_IMAGE_JPEG_QUALITIES {
-        let attempt = crate::jpeg_enc::encode_rgb(fitted.width, fitted.height, &rgb, quality);
-        let fits = base64_len(attempt.len()) <= TOOL_IMAGE_TARGET_BASE64_SIZE;
-        encoded = Some(attempt);
-        if fits {
+        let attempt = encode(quality)?;
+        matched = fits(&attempt);
+        chosen = Some((attempt, quality));
+        if matched {
             break;
         }
     }
-    let encoded = encoded?;
-    let data = STANDARD.encode(encoded);
-    if data.len() >= base64.len() {
-        return None;
+    let (value, quality) = chosen.expect("TOOL_IMAGE_JPEG_QUALITIES is non-empty");
+    Ok((value, quality, matched))
+}
+
+/// Async counterpart of [`run_tool_jpeg_ladder`] for callers backed by an async codec (e.g. `ToolImageCompactor`).
+pub async fn run_tool_jpeg_ladder_async<T, E, Enc, Fut, Fits>(mut encode: Enc, mut fits: Fits) -> Result<(T, u8, bool), E>
+where
+    Enc: FnMut(u8) -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    Fits: FnMut(&T) -> bool,
+{
+    let mut chosen = None;
+    let mut matched = false;
+    for quality in TOOL_IMAGE_JPEG_QUALITIES {
+        let attempt = encode(quality).await?;
+        matched = fits(&attempt);
+        chosen = Some((attempt, quality));
+        if matched {
+            break;
+        }
     }
-    Some(CompactedImage {
+    let (value, quality) = chosen.expect("TOOL_IMAGE_JPEG_QUALITIES is non-empty");
+    Ok((value, quality, matched))
+}
+
+/// Decodes `bytes`, fits them inside the Anthropic display box, white-flattens alpha, and steps through
+/// [`TOOL_IMAGE_JPEG_QUALITIES`] via [`run_tool_jpeg_ladder`] until `fits(jpeg.len())` holds (or returns the
+/// lowest-quality attempt with `fits == false`).
+pub fn fit_tool_image_jpeg<F>(bytes: &[u8], mut fits: F) -> Result<FittedToolJpeg, ImagingError>
+where
+    F: FnMut(usize) -> bool,
+{
+    let decoded = decode(bytes, DECODE_PIXEL_LIMIT)?;
+    let target = target_dimensions(decoded.width, decoded.height, Profile::Anthropic);
+    let fitted = fit_inside_view(&decoded.raster, target.width, target.height, !target.allow_enlargement);
+    let rgb = crate::encode::flattened_rgb(&fitted, 255);
+    let (data, quality, matched) = run_tool_jpeg_ladder(
+        |quality| Ok::<_, ImagingError>(crate::jpeg_enc::encode_rgb(fitted.width, fitted.height, &rgb, quality)),
+        |attempt| fits(attempt.len()),
+    )?;
+    Ok(FittedToolJpeg {
         data,
-        mime: "image/jpeg".to_owned(),
+        quality,
+        fits: matched,
         dimensions: Dimensions { original_width: decoded.width, original_height: decoded.height, display_width: fitted.width, display_height: fitted.height },
     })
 }
@@ -132,6 +128,7 @@ mod tests {
     use super::*;
     use crate::decode::Format;
     use crate::encode::encode_in_format;
+    use crate::policy::base64_len;
 
     fn noisy(width: u32, height: u32) -> Raster {
         let mut data = Vec::new();
@@ -171,43 +168,40 @@ mod tests {
     }
 
     #[test]
-    fn an_image_within_budget_or_of_another_format_is_left_alone() {
-        let small = STANDARD.encode(encode_in_format(&noisy(8, 8), Format::Png).unwrap());
-        assert_eq!(compact_tool_result_image(&small, "image/png"), None);
-        let big = "A".repeat(TOOL_IMAGE_TARGET_BASE64_SIZE + 1);
-        assert_eq!(compact_tool_result_image(&big, "image/gif"), None);
-        assert_eq!(compact_tool_result_image(&big, "image/png"), None, "undecodable bytes stay");
-        assert_eq!(compact_tool_result_image(&big, ""), None);
-    }
-
-    #[test]
-    fn a_large_noisy_png_is_re_encoded_as_a_smaller_jpeg_inside_the_display_box() {
+    fn fit_tool_image_jpeg_re_encodes_inside_display_box_within_budget() {
         let png = encode_in_format(&noisy(500, 400), Format::Png).unwrap();
-        let base64 = STANDARD.encode(&png);
-        assert!(base64.len() > TOOL_IMAGE_TARGET_BASE64_SIZE, "the fixture must be over budget ({})", base64.len());
-        let compacted = compact_tool_result_image(&base64, "image/png").expect("compacted");
-        assert_eq!(compacted.mime, "image/jpeg");
-        assert!(compacted.data.len() < base64.len());
-        assert_eq!(compacted.dimensions, Dimensions { original_width: 500, original_height: 400, display_width: 500, display_height: 400 });
-        let jpeg = STANDARD.decode(&compacted.data).unwrap();
-        assert_eq!(&jpeg[..2], &[0xFF, 0xD8]);
-        // Base64 as Buffer.from reads it: line breaks skipped, the URL-safe alphabet taken, padding optional.
-        let wrapped: String = base64
-            .trim_end_matches('=')
-            .replace('+', "-")
-            .replace('/', "_")
-            .as_bytes()
-            .chunks(76)
-            .map(|line| format!("{}\r\n", String::from_utf8_lossy(line)))
-            .collect();
-        assert_eq!(compact_tool_result_image(&wrapped, "image/png").map(|image| image.dimensions), Some(compacted.dimensions));
+        assert!(base64_len(png.len()) > TOOL_IMAGE_TARGET_BASE64_SIZE, "fixture must exceed budget");
+        let fitted = fit_tool_image_jpeg(&png, |len| base64_len(len) <= TOOL_IMAGE_TARGET_BASE64_SIZE).expect("fitted");
+        assert!(fitted.fits);
+        assert!(fitted.data.len() < png.len());
+        assert_eq!(&fitted.data[..2], &[0xFF, 0xD8]);
+        assert_eq!(fitted.dimensions, Dimensions { original_width: 500, original_height: 400, display_width: 500, display_height: 400 });
     }
 
     #[test]
-    fn base64_is_read_as_buffer_from_reads_it() {
-        assert_eq!(node_base64("aGVsbG8="), b"hello");
-        assert_eq!(node_base64("aGVs\nbG8"), b"hello");
-        assert_eq!(node_base64("-_8"), [0xFB, 0xFF]);
-        assert_eq!(node_base64(""), b"");
+    fn run_tool_jpeg_ladder_steps_through_qualities_and_stops_once_fit() {
+        let mut tried = Vec::new();
+        let (value, quality, matched) = run_tool_jpeg_ladder(
+            |q| {
+                tried.push(q);
+                Ok::<_, ()>(usize::from(q) * 10)
+            },
+            |size| *size <= 700,
+        )
+        .unwrap();
+        assert_eq!(tried, vec![85, 70]);
+        assert_eq!((value, quality, matched), (700, 70, true));
+
+        let mut all = Vec::new();
+        let (value, quality, matched) = run_tool_jpeg_ladder(
+            |q| {
+                all.push(q);
+                Ok::<_, ()>(usize::from(q) * 10)
+            },
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(all, vec![85, 70, 50]);
+        assert_eq!((value, quality, matched), (500, 50, false));
     }
 }

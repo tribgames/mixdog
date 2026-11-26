@@ -63,8 +63,8 @@ pub fn production_http() -> Result<Arc<dyn HttpSend>, CatalogError> {
 
 /// `sources` are the model listings built from the full provider config (empty until the config
 /// domain supplies it). The cold start reads no network; the first warm-up runs at Node's boot
-/// delay (`modelCatalogWarmupDelayMs`) and fetches both price tables, through `http`, whatever the disk
-/// holds, then every six hours.
+/// delay (`modelCatalogWarmupDelayMs`) and refreshes both price tables, through `http`, when their
+/// disk copies are missing or older than six hours, then every six hours.
 pub async fn build_catalog(tokens: &LaneTokens, data_dir: &Path, sources: Vec<ModelSource>, http: Arc<dyn HttpSend>) -> Result<CatalogHost, CatalogError> {
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let initial = read_snapshot(tokens, data_dir.join("catalogs").join("snapshot.json")).await;

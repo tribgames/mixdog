@@ -158,7 +158,7 @@ pub struct RtConfig {
     pub durability_io: PoolParams,
     pub maintenance_io: PoolParams,
     pub spawn_io: PoolParams,
-    /// Concurrent PTY or piped-child reader jobs (`limits.maxProcesses`, DS §6.4).
+    /// Concurrent PTY or piped-child reader jobs (scaled by cores; the process manager is uncapped by default, DS §6.4).
     pub pty_max_live: usize,
 }
 
@@ -173,7 +173,7 @@ impl RtConfig {
             // Their queues wait like the others' (Node's interactive and normal bounds).
             cpu_interactive: PoolParams::fixed(interactive_cpu, 8, NODE_INTERACTIVE_QUEUE),
             cpu_bulk: PoolParams::fixed(cores.saturating_sub(2 + interactive_cpu).max(1), 64, NODE_NORMAL_QUEUE),
-            // Request reads: 64, one per live process the manager admits (`limits.maxProcesses`).
+            // Request reads: 64 max threads, matching the default foreground shell concurrency pool (64).
             interactive_io: PoolParams { threads: 4, max_threads: 64, room: 16, queue: NODE_INTERACTIVE_QUEUE },
             // Writes and fsyncs: 16, half a disk's command queue (SATA NCQ and an NVMe queue's
             // usual depth are 32), leaving the rest to other processes; more concurrent fsyncs
