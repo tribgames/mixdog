@@ -314,7 +314,7 @@ impl HeaderMoves {
             held,
             todo: moved(&["todo"]),
             cwd,
-            route: moved(&["provider", "model", "effort", "autoEffort", "fast", "modelParameters", "selectedContextWindow"]) || cwd || held,
+            route: moved(&["provider", "model", "effort", "autoEffort", "effortAuto", "fast", "modelParameters", "selectedContextWindow"]) || cwd || held,
             choice: moved(&["contextPercent", "contextTokens"]),
             project_move: moved(&[super::thread_settings::PENDING_PROJECT_MOVE, super::thread_settings::PROJECT_MOVE_FAILED]),
         }
@@ -1338,11 +1338,11 @@ pub(crate) enum JobDone {
     /// The context status the load's status pass read (`read_context_display`), `null` for none.
     /// `pass` numbers the status pass that read it ([`SessionActor::next_status_pass`]).
     ContextStatus(u64, Value),
-    /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `None` when the read
-    /// failed or missed its deadline.
+    /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `Ok(None)` when the
+    /// read failed or missed its deadline, `Err` when it panicked.
     RouteStatus {
         seq: u64,
-        status: Option<Value>,
+        status: Result<Option<Value>, CoreError>,
     },
     /// The session's live workspace (`read_live_workspace`).
     LiveWorkspace(u64, Option<Value>),

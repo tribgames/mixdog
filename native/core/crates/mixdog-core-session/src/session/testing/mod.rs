@@ -2444,6 +2444,15 @@ impl super::delete::DeleteSeams for Deletes {
     fn release_mcp_scope(&self, session_id: &str) {
         lock(&self.2).push(session_id.to_owned());
     }
+    fn release_agent_process(&self, session_id: &str) {
+        self.note(format!("releaseAgentProcess:{session_id}"));
+    }
+    fn release_idle_agent_process(&self, session_id: &str) {
+        self.note(format!("releaseIdleAgentProcess:{session_id}"));
+    }
+    fn agent_process_unloaded(&self, session_id: &str) {
+        self.note(format!("agentProcessUnloaded:{session_id}"));
+    }
     fn release_unloaded_runtime(&self, session_id: &str) {
         self.note(format!("unloadMcpScope:{session_id}"));
     }

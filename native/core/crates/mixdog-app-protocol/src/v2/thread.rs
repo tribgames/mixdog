@@ -1394,6 +1394,8 @@ pub struct ThreadRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_effort: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_auto: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(type = "number"))]

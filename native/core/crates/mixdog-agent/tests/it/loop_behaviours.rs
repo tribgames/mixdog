@@ -1370,8 +1370,8 @@ fn a_spawn_that_names_another_model_runs_on_it_alone_with_the_pickers_defaults_u
     let (_, plain) = pinned(json!({ "provider": "anthropic", "model": "opus" })).unwrap();
     assert!(plain.get("effort").is_none());
     assert_eq!(plain["fast"], false);
-    let (_, no_auto) = pinned(json!({ "provider": "anthropic", "model": "opus", "autoEffort": false })).unwrap();
-    assert_eq!(no_auto["autoEffort"], false);
+    let (_, no_auto) = pinned(json!({ "provider": "anthropic", "model": "opus", "effortAuto": false })).unwrap();
+    assert_eq!(no_auto["effortAuto"], false);
 }
 
 #[test]

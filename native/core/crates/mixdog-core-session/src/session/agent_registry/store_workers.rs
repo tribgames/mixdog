@@ -1224,6 +1224,11 @@ impl WorkerStore for StoreWorkers {
         Ok(rows.iter().filter_map(|summary| serde_json::from_str::<Row>(summary).ok()).collect())
     }
 
+    async fn open_agent_sessions(&self) -> Result<Vec<Row>, String> {
+        let rows = self.index.open_agent_only_sessions().await.map_err(|e| format!("{e:?}"))?;
+        Ok(rows.iter().filter_map(|summary| serde_json::from_str::<Row>(summary).ok()).collect())
+    }
+
     /// The session's list row, when the index lists it as an agent-only session (the row's `visibility`, which the index's
     /// own is projected from).
     async fn agent_session(&self, session: &str) -> Result<Option<Row>, String> {

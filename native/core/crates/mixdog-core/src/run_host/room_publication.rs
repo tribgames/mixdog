@@ -696,6 +696,9 @@ mod tests {
         fn release_mcp_scope(&self, session_id: &str) {
             self.inner.release_mcp_scope(session_id);
         }
+        fn release_agent_process(&self, session_id: &str) {
+            self.inner.release_agent_process(session_id);
+        }
         fn release_unloaded_runtime(&self, session_id: &str) {
             self.inner.release_unloaded_runtime(session_id);
         }

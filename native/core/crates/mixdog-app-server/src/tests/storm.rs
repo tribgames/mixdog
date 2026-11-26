@@ -110,10 +110,11 @@ fn seed_threads(rig: &Rig) -> (Vec<Arc<MockThread>>, Vec<Arc<AtomicUsize>>) {
         let feed: Arc<dyn FeedSource> = thread.feed().clone();
         // The thread answers a resume with its feed and the position the client stated.
         thread.set_handler(Arc::new(move |req: &CoreRequest| {
-            let resume_from = req
-                .params
-                .get("resumeFrom")
-                .map(|position| ResumeFrom { position: serde_json::from_value(position.clone()).expect("a feed position"), window: Window::LastItems(10) });
+            let resume_from = req.params.get("resumeFrom").map(|position| ResumeFrom {
+                position: serde_json::from_value(position.clone()).expect("a feed position"),
+                window: Window::LastItems(10),
+                positioned: None,
+            });
             Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: feed.clone(), window: Window::LastItems(10), resume_from }))
         }));
         let counter = Arc::new(AtomicUsize::new(0));

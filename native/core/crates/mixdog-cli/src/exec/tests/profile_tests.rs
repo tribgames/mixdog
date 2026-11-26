@@ -398,8 +398,12 @@ async fn every_role_a_route_profile_names_is_spawnable_on_the_config_the_core_lo
     let dir = tempfile::tempdir().unwrap();
     let boundary = profile_boundary(dir.path(), &profile.to_string()).unwrap();
     let loaded = core_config(&boundary).await.loaded_agent().await.unwrap();
+    let switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&loaded);
     for role in ["worker", "heavy-worker", "reviewer", "advisor", "explore"] {
-        assert_eq!(loaded["agents"][role], boundary.runtime_config["agents"][role], "{role}: the core keeps the route as the exec wrote it");
+        let mut kept = loaded["agents"][role].clone();
+        let effort_auto = kept.as_object_mut().unwrap().shift_remove("effortAuto");
+        assert_eq!(kept, boundary.runtime_config["agents"][role], "{role}: the core keeps the route as the exec wrote it");
+        assert_eq!(effort_auto, Some(json!(switch_on)), "{role}: the load settles the unsaid Auto choice with the switch");
         assert!(!mixdog_core_config::config::agent_disabled(&loaded, role), "{role} is switched on");
         let candidates = mixdog_core_run::run_host::route_chain::route_candidates(&loaded, role, &NoBots).await.unwrap_or_else(|_| panic!("{role}"));
         let spawn = mixdog_agent::agent_tool::flow::preset::resolve_agent_spawn_preset(&loaded, &json!({ "agent": role }), &candidates).unwrap();

@@ -22,6 +22,7 @@ mod snapshot;
 mod tests;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -57,10 +58,15 @@ use mixdog_rt::LaneToken;
 
 pub use self::scoped::CoreScopedFeeds;
 
+use self::ring::DeliveredEntry;
+use self::ring::PositionedEntry;
 use self::ring::Ring;
 use self::snapshot::Flight;
 use self::snapshot::Lead;
 use self::snapshot::SnapshotCache;
+
+/// Most recently detached positioned grants retained per feed for short-drop replay.
+const MAX_DETACHED_GRANTS: usize = 16;
 
 /// The per-feed limits of SPEC §3.1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,10 +104,48 @@ struct State {
     /// already describes have no reader (an attach is served the view and the frames after it), and the ring keeps none of
     /// them: a session nobody watches, a delegated agent's, would otherwise hold a full ring for as long as it is loaded.
     watched: bool,
+    /// Monotonic id assigned to each recorded unit delivery (starts at 1).
+    next_deliver_id: u64,
     subs: HashMap<SubscriptionId, Subscriber>,
+    /// Recently detached positioned subscriptions, kept so a reconnecting phone can replay from its prior grant.
+    detached: VecDeque<(SubscriptionId, PositionedGrant)>,
     snapshots: SnapshotCache,
     /// Set by [`CoreFeed::close`]: the answer to every later attach.
     closed: Option<CoreError>,
+}
+
+#[derive(Clone)]
+struct PositionedGrant {
+    grant: Grant,
+    /// Deliveries with `id < floor_deliver_id` were already accounted for when `grant.version` was installed or rested.
+    floor_deliver_id: u64,
+    /// Grant state immediately before the first `extend_tail` at each `seq` under `grant.version`.
+    history: VecDeque<(u64, Grant)>,
+}
+
+impl PositionedGrant {
+    fn fresh(grant: Grant, floor_deliver_id: u64) -> Self {
+        Self { grant, floor_deliver_id, history: VecDeque::new() }
+    }
+
+    fn reset(&mut self, grant: Grant, floor_deliver_id: u64) {
+        self.grant = grant;
+        self.floor_deliver_id = floor_deliver_id;
+        self.history.clear();
+    }
+
+    fn record_before_extend(&mut self, seq: u64, min_retained_seq: u64) {
+        while self.history.front().is_some_and(|(s, _)| *s < min_retained_seq) {
+            self.history.pop_front();
+        }
+        if self.history.back().is_none_or(|(s, _)| *s < seq) {
+            self.history.push_back((seq, self.grant.clone()));
+        }
+    }
+
+    fn grant_before(&self, seq: u64) -> Grant {
+        self.history.iter().find(|(s, _)| *s >= seq).map_or_else(|| self.grant.clone(), |(_, g)| g.clone())
+    }
 }
 
 struct Subscriber {
@@ -111,7 +155,7 @@ struct Subscriber {
     /// every frame after this seq.
     since: u64,
     /// What a positioned subscription holds: each transcript frame is delivered in the form this decides.
-    grant: Option<Grant>,
+    positioned: Option<PositionedGrant>,
 }
 
 /// A snapshot slot to hand to its flight once the feed lock is released.
@@ -195,7 +239,9 @@ impl CoreFeed {
                     view_seq: 0,
                     ring: Ring::new(limits.ring_bytes),
                     watched: false,
+                    next_deliver_id: 1,
                     subs: HashMap::new(),
+                    detached: VecDeque::new(),
                     snapshots: SnapshotCache::new(limits.max_snapshot_bytes),
                     closed: None,
                 }),
@@ -213,6 +259,7 @@ impl CoreFeed {
         let subs = {
             let mut state = self.shared.lock();
             state.closed = Some(reason);
+            state.detached.clear();
             state.snapshots.clear();
             std::mem::take(&mut state.subs)
         };
@@ -240,7 +287,6 @@ impl Shared {
     /// Replays `(resume.seq, S]` into `lane` when P §6.3 conditions 1–3 hold and the frames'
     /// bytes fit the connection's free event budget (condition 4).
     fn replay(&self, state: &State, lane: &dyn Lane, resume: &ResumeFrom, window: &Window) -> bool {
-        // A new lane holds no grant the frames could be chosen by: only the lane that holds one carries on.
         if resume.position.epoch != self.epoch || resume.window != *window || matches!(window, Window::Positioned(_)) {
             return false;
         }
@@ -255,6 +301,63 @@ impl Shared {
             lane.push(part, frame.bytes.clone());
         }
         true
+    }
+
+    /// Replays missed positioned frames `(resume.seq, S]` and unit deliveries `[resume.seq, S]`
+    /// into `lane`, continuing the prior subscription's grant when it and the ring still cover the gap.
+    fn replay_positioned(&self, state: &State, lane: &dyn Lane, resume: &ResumeFrom, window: &Window) -> Option<PositionedGrant> {
+        if resume.position.epoch != self.epoch || resume.window != *window || !matches!(window, Window::Positioned(_)) {
+            return None;
+        }
+        let positioned = resume.positioned.as_ref()?;
+        let retained = state
+            .subs
+            .get(&positioned.subscription_id)
+            .and_then(|sub| sub.positioned.as_ref())
+            .or_else(|| state.detached.iter().rev().find(|(id, _)| *id == positioned.subscription_id).map(|(_, g)| g))?;
+        if retained.grant.version != positioned.window_version {
+            return None;
+        }
+        let after = resume.position.seq;
+        let entries = state.ring.positioned_after(after, state.seq, retained.floor_deliver_id)?;
+        let mut grant = retained.grant_before(after);
+        let mut new_history = VecDeque::new();
+        let mut frames = Vec::new();
+        let mut total_bytes = 0usize;
+        for entry in entries {
+            match entry {
+                PositionedEntry::Frame(frame) => {
+                    let bytes = frame.for_grant(Some(&grant)).clone();
+                    total_bytes += bytes.len();
+                    frames.push(bytes);
+                }
+                PositionedEntry::Deliver(delivered) if delivered.id >= retained.floor_deliver_id => {
+                    let Some(held) = grant.held(delivered.lineage, delivered.ordinal) else { continue };
+                    let bytes = match held {
+                        Held::Tail => {
+                            let bytes = delivered.insert.as_ref()?.clone();
+                            if new_history.back().is_none_or(|(s, _)| *s < delivered.seq) {
+                                new_history.push_back((delivered.seq, grant.clone()));
+                            }
+                            grant.extend_tail(delivered.ordinal, &delivered.position, delivered.after.as_deref());
+                            bytes
+                        }
+                        Held::Range => delivered.replace.as_ref()?.clone(),
+                    };
+                    total_bytes += bytes.len();
+                    frames.push(bytes);
+                }
+                PositionedEntry::Deliver(_) => {}
+            }
+        }
+        let Ok(mut reservation) = lane.try_reserve(total_bytes) else {
+            return None;
+        };
+        for bytes in frames {
+            let part = reservation.split(bytes.len()).expect("the reservation holds the replay's byte sum");
+            lane.push(part, bytes);
+        }
+        Some(PositionedGrant { grant, floor_deliver_id: retained.floor_deliver_id, history: new_history })
     }
 
     /// Submits the leader's encode to cpu-interactive. The job owns the flight's [`Lead`]:
@@ -296,16 +399,23 @@ impl FeedSource for CoreFeed {
         let mut state = shared.lock();
         let seq = state.seq;
         let mut decision = AttachDecision { mode: AttachMode::Snapshot, epoch: shared.epoch.clone(), start_seq: seq + 1, live_seq: seq + 1 };
+        let mut replayed_positioned = None;
         let (lane, window, reservation) = match req.start {
             AttachStart::Open { lane, window, resume_from } => {
                 if let Some(reason) = &state.closed {
                     return Err(reason.clone());
                 }
-                if let Some(resume) = &resume_from
-                    && shared.replay(&state, lane.as_ref(), resume, &window)
-                {
-                    decision.mode = AttachMode::Replay;
-                    decision.start_seq = resume.position.seq + 1;
+                if let Some(resume) = &resume_from {
+                    if matches!(window, Window::Positioned(_)) {
+                        if let Some(positioned) = shared.replay_positioned(&state, lane.as_ref(), resume, &window) {
+                            decision.mode = AttachMode::Replay;
+                            decision.start_seq = resume.position.seq + 1;
+                            replayed_positioned = Some(positioned);
+                        }
+                    } else if shared.replay(&state, lane.as_ref(), resume, &window) {
+                        decision.mode = AttachMode::Replay;
+                        decision.start_seq = resume.position.seq + 1;
+                    }
                 }
                 (lane, window, None)
             }
@@ -317,19 +427,23 @@ impl FeedSource for CoreFeed {
             }
         };
         let mut pending = None;
-        // The snapshot is of the view's newest rows for every subscription of the window, so the grant it installs is
-        // the view's too: a recovered lane starts again from it, whatever it held.
-        let grant = matches!(window, Window::Positioned(_)).then(|| {
-            let ask = state.view.first_grant(&window).unwrap_or(GrantAsk { lineage: 0, ranges: Vec::new(), tail_from: None });
-            // A subscription's window version never repeats: a lane recovered at a seq its grant already took a
-            // version of takes the next one, and no demand made of an earlier grant names it.
-            let version = match state.subs.get(&req.sub).and_then(|held| held.grant.as_ref()) {
-                Some(held) => state.view_seq.max(held.version + 1),
-                None => state.view_seq,
-            };
-            ask.granted(version)
-        });
-        let version = grant.as_ref().map(|grant| grant.version);
+        // On snapshot (first attach, fallback, or lag recovery), install the view's first grant at a never-repeated
+        // version. On positioned replay, keep the continued grant from `replay_positioned`.
+        let positioned = if let Some(replayed) = replayed_positioned {
+            Some(replayed)
+        } else {
+            matches!(window, Window::Positioned(_)).then(|| {
+                let ask = state.view.first_grant(&window).unwrap_or(GrantAsk { lineage: 0, ranges: Vec::new(), tail_from: None });
+                // A subscription's window version never repeats: a lane recovered at a seq its grant already took a
+                // version of takes the next one, and no demand made of an earlier grant names it.
+                let version = match state.subs.get(&req.sub).and_then(|held| held.positioned.as_ref()) {
+                    Some(held) => state.view_seq.max(held.grant.version + 1),
+                    None => state.view_seq,
+                };
+                PositionedGrant::fresh(ask.granted(version), state.next_deliver_id)
+            })
+        };
+        let version = positioned.as_ref().map(|p| p.grant.version);
         if decision.mode == AttachMode::Snapshot {
             // The view may lag the frames (`publish_deferred`): the snapshot is the view's, at its seq, and the frames after it
             // follow from the ring. A ring that no longer holds them cannot serve the attach now; the lane lags and recovers once
@@ -343,7 +457,8 @@ impl FeedSource for CoreFeed {
                 Some(reservation) => {
                     let slot = SnapshotSlot::new(Box::new(Delivered { slot: lane.push_slot(reservation), view: state.view.clone(), version }));
                     if let Some(frames) = catch_up {
-                        let frames: Vec<Bytes> = frames.map(|frame| frame.for_grant(grant.as_ref()).clone()).collect();
+                        let grant = positioned.as_ref().map(|p| &p.grant);
+                        let frames: Vec<Bytes> = frames.map(|frame| frame.for_grant(grant).clone()).collect();
                         match lane.try_reserve(frames.iter().map(Bytes::len).sum()) {
                             Ok(mut reserved) => {
                                 for frame in frames {
@@ -366,7 +481,7 @@ impl FeedSource for CoreFeed {
                 }
             }
         }
-        state.subs.insert(req.sub, Subscriber { lane, window, since: decision.start_seq - 1, grant });
+        state.subs.insert(req.sub, Subscriber { lane, window, since: decision.start_seq - 1, positioned });
         state.watched = true;
         drop(state);
 
@@ -392,6 +507,16 @@ impl FeedSource for CoreFeed {
         let (removed, last_detached) = {
             let mut state = self.shared.lock();
             let removed = state.subs.remove(&sub);
+            if state.closed.is_none()
+                && let Some(subscriber) = &removed
+                && let Some(positioned) = &subscriber.positioned
+            {
+                state.detached.retain(|(id, _)| *id != sub);
+                state.detached.push_back((sub, positioned.clone()));
+                while state.detached.len() > MAX_DETACHED_GRANTS {
+                    state.detached.pop_front();
+                }
+            }
             let last_detached = removed.is_some() && state.subs.is_empty() && state.closed.is_none();
             (removed, last_detached)
         };
@@ -408,22 +533,23 @@ impl FeedSource for CoreFeed {
     }
 
     fn grant(&self, sub: &SubscriptionId) -> Option<Grant> {
-        self.shared.lock().subs.get(sub)?.grant.clone()
+        self.shared.lock().subs.get(sub)?.positioned.as_ref().map(|p| p.grant.clone())
     }
 
     fn regrant(&self, sub: &SubscriptionId, base_version: u64, ask: GrantAsk) -> Result<GrantFence, CoreError> {
         let shared = &self.shared;
         let mut guard = shared.lock();
         let seq = guard.seq;
+        let floor_deliver_id = guard.next_deliver_id;
         let subscriber = guard.subs.get_mut(sub).ok_or(CoreError::ConnectionClosed)?;
-        let Some(held) = &subscriber.grant else {
+        let Some(positioned) = &mut subscriber.positioned else {
             return Err(CoreError::InvalidParams { path: "subscriptionId".into(), expected: "a positioned subscription".into() });
         };
         let other = |actual: String| CoreError::PreconditionFailed {
             precondition: mixdog_core_api::error::Precondition::Revision { expected: base_version.to_string().into(), actual: actual.into() },
         };
-        if held.version != base_version {
-            return Err(other(held.version.to_string()));
+        if positioned.grant.version != base_version {
+            return Err(other(positioned.grant.version.to_string()));
         }
         let lane = &subscriber.lane;
         // A lane being recovered is owed a snapshot, which installs its own grant: nothing is changed under it.
@@ -435,8 +561,8 @@ impl FeedSource for CoreFeed {
             return Err(other("recovering".into()));
         };
         let slot = lane.push_slot(reservation);
-        let version = (held.version + 1).max(seq);
-        subscriber.grant = Some(ask.granted(version));
+        let version = (positioned.grant.version + 1).max(seq);
+        positioned.reset(ask.granted(version), floor_deliver_id);
         Ok(GrantFence { at: FeedPosition { epoch: shared.epoch.clone(), seq }, version, slot })
     }
 
@@ -483,7 +609,16 @@ impl Feed for CoreFeed {
     fn rest(&self) {
         let mut guard = self.shared.lock();
         let state = &mut *guard;
-        state.ring.rest(state.view_seq);
+        let view_seq = state.view_seq;
+        state.detached.clear();
+        // Do not advance `floor_deliver_id`: a delivery at `view_seq` dropped by `ring.rest` may never have
+        // reached a dead connection, so reconnecting at `view_seq` must see `evicted_deliver` and fall back.
+        for subscriber in state.subs.values_mut() {
+            if let Some(positioned) = &mut subscriber.positioned {
+                positioned.history.retain(|(s, _)| *s > view_seq);
+            }
+        }
+        state.ring.rest(view_seq);
         // An attach after the rest encodes the view again: a resting thread holds no snapshot of it.
         state.snapshots.clear();
     }
@@ -492,11 +627,13 @@ impl Feed for CoreFeed {
         let shared = &self.shared;
         let mut guard = shared.lock();
         let at = FeedPosition { epoch: shared.epoch.clone(), seq: guard.seq };
+        let floor = guard.next_deliver_id;
+        guard.detached.clear();
         for (sub, subscriber) in &mut guard.subs {
-            let Some(held) = &subscriber.grant else { continue };
-            let version = (held.version + 1).max(at.seq);
-            let Some((ask, frame)) = rebase(sub, held, version, &at) else { continue };
-            subscriber.grant = Some(ask.granted(version));
+            let Some(positioned) = &mut subscriber.positioned else { continue };
+            let version = (positioned.grant.version + 1).max(at.seq);
+            let Some((ask, frame)) = rebase(sub, &positioned.grant, version, &at) else { continue };
+            positioned.reset(ask.granted(version), floor);
             let lane = &subscriber.lane;
             // A lagged lane is told by its recovery's snapshot.
             if lane.is_lagged() {
@@ -523,28 +660,54 @@ impl Feed for CoreFeed {
         let shared = &self.shared;
         let mut guard = shared.lock();
         let state = &mut *guard;
-        let at = FeedPosition { epoch: shared.epoch.clone(), seq: state.seq };
-        // One encoding of each form, whoever gets it.
+        let seq = state.seq;
+        let at = FeedPosition { epoch: shared.epoch.clone(), seq };
+        let min_seq = state.ring.min_retained_deliver_seq(seq);
+        // Encode only forms that a live or detached positioned grant holds.
         let mut forms: [Option<Bytes>; 2] = [None, None];
         for subscriber in state.subs.values_mut() {
-            let Some(grant) = &mut subscriber.grant else { continue };
-            let Some(held) = grant.held(lineage, ordinal) else { continue };
+            let Some(positioned) = &mut subscriber.positioned else { continue };
+            let Some(held) = positioned.grant.held(lineage, ordinal) else { continue };
             // What the subscription holds is what it was sent: the record joins the tail's range whether or not its
             // lane takes the frame, and a lane that does not is recovered by a snapshot, which holds it.
             if held == Held::Tail {
-                grant.extend_tail(ordinal, position, after);
+                positioned.record_before_extend(seq, min_seq);
+                positioned.grant.extend_tail(ordinal, position, after);
             }
+            let bytes = forms[usize::from(held == Held::Tail)].get_or_insert_with(|| frame(held, &at)).clone();
             let lane = &subscriber.lane;
             if lane.is_lagged() {
                 continue;
             }
-            let bytes = forms[usize::from(held == Held::Tail)].get_or_insert_with(|| frame(held, &at)).clone();
             match lane.try_reserve(bytes.len()) {
                 Ok(reservation) => lane.push(reservation, bytes),
                 Err(_) => {
                     lane.lag();
                 }
             }
+        }
+        for (_, positioned) in &mut state.detached {
+            let Some(held) = positioned.grant.held(lineage, ordinal) else { continue };
+            if held == Held::Tail {
+                positioned.record_before_extend(seq, min_seq);
+                positioned.grant.extend_tail(ordinal, position, after);
+            }
+            forms[usize::from(held == Held::Tail)].get_or_insert_with(|| frame(held, &at));
+        }
+        if forms[0].is_some() || forms[1].is_some() {
+            let id = state.next_deliver_id;
+            state.next_deliver_id += 1;
+            let [replace, insert] = forms;
+            state.ring.push_delivered(DeliveredEntry {
+                id,
+                seq,
+                lineage,
+                ordinal,
+                position: Arc::from(position),
+                after: after.map(Arc::from),
+                insert,
+                replace,
+            });
         }
         if let Some(view) = view {
             state.snapshots.clear();
@@ -561,7 +724,8 @@ impl Feed for CoreFeed {
         state
             .subs
             .values()
-            .filter_map(|subscriber| subscriber.grant.as_ref())
+            .filter_map(|subscriber| subscriber.positioned.as_ref().map(|p| &p.grant))
+            .chain(state.detached.iter().map(|(_, p)| &p.grant))
             .filter(|grant| grant.lineage == lineage)
             .flat_map(|grant| grant.ranges.clone())
             .collect()
@@ -585,7 +749,7 @@ impl Shared {
                 if lane.is_lagged() {
                     continue;
                 }
-                let bytes = frame.for_grant(subscriber.grant.as_ref());
+                let bytes = frame.for_grant(subscriber.positioned.as_ref().map(|p| &p.grant));
                 match lane.try_reserve(bytes.len()) {
                     Ok(reservation) => lane.push(reservation, bytes.clone()),
                     Err(_) => {

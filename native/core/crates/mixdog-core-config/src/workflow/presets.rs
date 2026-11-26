@@ -28,7 +28,7 @@ fn first_text(preset: &Value, keys: &[&str]) -> String {
 
 /// `normalizeMaintenanceRoutes(rawMaint)` (`config-storage.mjs`): a slot that is no object, or whose route lacks a provider or a
 /// model, is dropped; a kept route holds the provider (its alias resolved), the model, a non-empty `effort`, `fast: true` and
-/// `autoEffort: false`, nothing else.
+/// explicit boolean `autoEffort`, nothing else.
 pub(crate) fn normalize_maintenance_routes(raw: &Map<String, Value>) -> Map<String, Value> {
     let mut out = Map::new();
     for (slot, value) in raw {
@@ -49,9 +49,7 @@ pub(crate) fn normalize_maintenance_routes(raw: &Map<String, Value>) -> Map<Stri
         if route.get("fast") == Some(&Value::Bool(true)) {
             kept.insert("fast".into(), Value::Bool(true));
         }
-        if route.get("autoEffort") == Some(&Value::Bool(false)) {
-            kept.insert("autoEffort".into(), Value::Bool(false));
-        }
+        mixdog_ai::effort::EffortAuto::carry_field_map(route, &mut kept);
         out.insert(slot.clone(), Value::Object(kept));
     }
     out
@@ -81,9 +79,7 @@ pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     if map.get("fast") == Some(&Value::Bool(true)) && FAST_CAPABLE_PRESET_PROVIDERS.contains(&provider.as_str()) {
         out.insert("fast".into(), Value::Bool(true));
     }
-    if map.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), Value::Bool(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(map, &mut out);
     // The Lead preset alone holds its saved speed: an explicit Standard and the selected
     // parameters (Ultrafast's `serviceTier`). Dropping them made a reloaded or published Lead
     // read back at another speed; ordinary presets keep their shape.
@@ -227,8 +223,8 @@ mod tests {
     #[test]
     fn a_maintenance_slot_keeps_its_route_fields_and_nothing_else() {
         let raw: Doc = serde_json::from_value(json!({
-            "webhook": { "provider": " openai-api ", "model": " gpt-x ", "effort": " high ", "fast": true, "autoEffort": false, "note": "extra" },
-            "plain": { "provider": "anthropic", "model": "m", "effort": "  ", "fast": "yes", "autoEffort": true },
+            "webhook": { "provider": " openai-api ", "model": " gpt-x ", "effort": " high ", "fast": true, "effortAuto": false, "note": "extra" },
+            "plain": { "provider": "anthropic", "model": "m", "effort": "  ", "fast": "yes", "effortAuto": true },
             "nomodel": { "provider": "anthropic" },
             "text": "anthropic/m",
             "list": [1],
@@ -238,10 +234,36 @@ mod tests {
         assert_eq!(
             Value::Object(kept),
             json!({
-                "webhook": { "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "autoEffort": false },
-                "plain": { "provider": "anthropic", "model": "m" },
+                "webhook": { "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "effortAuto": false },
+                "plain": { "provider": "anthropic", "model": "m", "effortAuto": true },
             })
         );
+    }
+
+    #[test]
+    fn explicit_effort_auto_survives_preset_storage_and_default_presets_follow_switch() {
+        let route = json!({ "provider": "openai", "model": "gpt-5", "effortAuto": true });
+        let mut config = Obj::new();
+        mixdog_ai::service::admin_route::persist_lead_route(&mut config, &route).unwrap();
+        let mut agent: Doc = config.into_iter().collect();
+        agent.insert("modules".into(), json!({ "autoEffort": { "enabled": false } }));
+        agent.insert("maintenance".into(), json!({ "webhook": { "provider": "openai", "model": "gpt-5", "effortAuto": true } }));
+
+        let stored = crate::config::patch::stored_form(&agent);
+        assert_eq!(stored["presets"][0]["effortAuto"], json!(true), "Lead preset keeps explicit effortAuto: true");
+        assert_eq!(effective_presets(&agent)[0]["effortAuto"], json!(true), "effective Lead preset keeps explicit effortAuto: true");
+        let maint = normalize_maintenance_routes(agent["maintenance"].as_object().unwrap());
+        assert_eq!(maint["webhook"]["effortAuto"], json!(true), "maintenance slot keeps explicit effortAuto: true");
+
+        // Default presets follow the legacy switch on creation (matching shipped_default_presets).
+        let on_agent: Doc = serde_json::from_value(json!({ "modules": { "autoEffort": { "enabled": true } } })).unwrap();
+        let off_agent: Doc = serde_json::from_value(json!({ "modules": { "autoEffort": { "enabled": false } } })).unwrap();
+        for preset in effective_presets(&on_agent) {
+            assert_eq!(preset["effortAuto"], json!(true), "switch-on default preset {} uses Auto", preset["id"]);
+        }
+        for preset in effective_presets(&off_agent) {
+            assert_eq!(preset["effortAuto"], json!(false), "switch-off default preset {} uses Manual", preset["id"]);
+        }
     }
 
     /// A saved Lead reads back, reloads and publishes at the speed it was saved at: an explicit Standard and
@@ -324,23 +346,41 @@ fn anthropic_family_model(family: &str) -> String {
     .to_owned()
 }
 /// `DEFAULT_MAINTENANCE`: the shipped route of each maintenance slot.
-pub(crate) fn default_maintenance() -> Map<String, Value> {
+pub(crate) fn default_maintenance_for(legacy_switch_on: bool) -> Map<String, Value> {
     let mut slots = Map::new();
-    slots.insert("webhook".into(), json!({ "provider": "anthropic-oauth", "model": anthropic_family_model("haiku") }));
+    slots.insert(
+        "webhook".into(),
+        json!({
+            "provider": "anthropic-oauth",
+            "model": anthropic_family_model("haiku"),
+            "effortAuto": mixdog_ai::effort::EffortAuto::default_for_new(legacy_switch_on).as_bool(),
+        }),
+    );
     slots
 }
 /// `withDefaultPresets(stored)`: the stored presets, then the shipped ones whose id none of them has.
 pub fn with_default_presets(stored: Option<&Value>) -> Vec<Value> {
+    with_default_presets_for(stored, true)
+}
+pub fn with_default_presets_for(stored: Option<&Value>, legacy_switch_on: bool) -> Vec<Value> {
     let mut list: Vec<Value> = stored.and_then(Value::as_array).cloned().unwrap_or_default();
     let key = |preset: &Value| first_text(preset, &["id", "name"]);
     let present: Vec<String> = list.iter().map(key).collect();
-    list.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
+    list.extend(default_presets_for(legacy_switch_on).into_iter().filter(|shipped| !present.contains(&key(shipped))));
     list
 }
-/// `DEFAULT_PRESETS`.
-pub(crate) fn default_presets() -> Vec<Value> {
+/// `DEFAULT_PRESETS`: shipped agent presets take the creation default from the legacy switch.
+pub(crate) fn default_presets_for(legacy_switch_on: bool) -> Vec<Value> {
+    let effort_auto = mixdog_ai::effort::EffortAuto::default_for_new(legacy_switch_on).as_bool();
     let preset = |id: &str, name: &str, family: &str, effort: Option<&str>| {
-        let mut preset = json!({ "id": id, "name": name, "type": "agent", "provider": "anthropic-oauth", "model": anthropic_family_model(family) });
+        let mut preset = json!({
+            "id": id,
+            "name": name,
+            "type": "agent",
+            "provider": "anthropic-oauth",
+            "model": anthropic_family_model(family),
+            "effortAuto": effort_auto,
+        });
         if let Some(effort) = effort {
             preset["effort"] = json!(effort);
         }
@@ -366,11 +406,21 @@ pub(crate) fn effective(agent: &Doc) -> Effective {
 /// runtime adopts the config it just saved without a reload, so those still hold what the
 /// loader's `normalizePreset` drops (a context window, a non-string parameter).
 pub(crate) fn effective_keeping(agent: &Doc, written: &[String]) -> Effective {
+    let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(agent);
     let stored = crate::config::patch::stored_form(agent);
     let default = stored.get("default").cloned().unwrap_or(Value::Null);
     let normalized = |preset: &Value| {
         let id = first_text(preset, &["id", "name"]);
-        if written.contains(&id) { Some(preset.clone()) } else { normalize_preset(preset) }
+        if written.contains(&id) {
+            Some(preset.clone())
+        } else {
+            normalize_preset(preset).map(|mut p| {
+                if let Some(map) = p.as_object_mut() {
+                    mixdog_ai::effort::EffortAuto::convert_on_load(map, legacy_switch_on);
+                }
+                p
+            })
+        }
     };
     let mut presets: Vec<Value> = agent
         .get("presets")
@@ -379,7 +429,7 @@ pub(crate) fn effective_keeping(agent: &Doc, written: &[String]) -> Effective {
         .unwrap_or_default();
     let key = |preset: &Value| first_text(preset, &["id", "name"]);
     let present: Vec<String> = presets.iter().map(key).collect();
-    presets.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
+    presets.extend(default_presets_for(legacy_switch_on).into_iter().filter(|shipped| !present.contains(&key(shipped))));
     let default_id = if truthy(Some(&default)) { js_trim(&value_to_string(&default)).to_owned() } else { String::new() };
     presets.retain(|preset| !redundant_generated(preset, &default_id));
     let mut config = Obj::new();
@@ -408,4 +458,41 @@ pub(crate) fn summarize_workflow_routes(effective: &Effective) -> Result<Value, 
         }
     }
     Ok(Value::Object(out))
+}
+
+#[cfg(test)]
+mod auto_effort_tests {
+    use super::*;
+    use mixdog_ai::effort::EffortAuto;
+
+    #[test]
+    fn effort_auto_states_survive_preset_storage() {
+        for (label, state) in [("auto", EffortAuto::Auto), ("manual", EffortAuto::Manual)] {
+            let mut raw = json!({
+                "id": format!("p-{label}"),
+                "name": format!("P {label}"),
+                "provider": "openai",
+                "model": "gpt-5",
+                "effort": "high",
+                "fallbacks": [{ "provider": "anthropic", "model": "opus", "effort": "medium" }],
+            });
+            state.write_to(raw.as_object_mut().unwrap());
+            state.write_to(raw["fallbacks"][0].as_object_mut().unwrap());
+
+            let normalized = normalize_preset(&raw).expect("normalized preset");
+            assert_eq!(EffortAuto::read_explicit_value(&normalized), Some(state), "normalize_preset preserves {label}");
+            assert_eq!(EffortAuto::read_explicit_value(&normalized["fallbacks"][0]), Some(state), "preset fallback preserves {label}");
+
+            let mut doc = Obj::new();
+            doc.insert("presets".into(), json!([raw]));
+            let presets = effective_presets(&doc);
+            let stored = presets.iter().find(|p| p["id"] == json!(format!("p-{label}"))).expect("effective preset");
+            assert_eq!(EffortAuto::read_explicit_value(stored), Some(state), "effective_presets preserves {label}");
+
+            let mut maint = json!({ "webhook": { "provider": "openai", "model": "gpt-5", "effort": "low" } });
+            state.write_to(maint["webhook"].as_object_mut().unwrap());
+            let normalized_maint = normalize_maintenance_routes(maint.as_object().unwrap());
+            assert_eq!(EffortAuto::read_explicit_value(&normalized_maint["webhook"]), Some(state), "normalize_maintenance_routes preserves {label}");
+        }
+    }
 }

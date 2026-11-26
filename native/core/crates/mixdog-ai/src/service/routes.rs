@@ -443,12 +443,159 @@ fn resolve_candidate(route: &Value, main: Option<&MainRoute>, catalog_row_for: &
     })
 }
 
+/// One fallback `(provider, model)` candidate the host supplies when the
+/// default ("follow Main") web-search route's Main model cannot run native web
+/// search itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultSearchRoute {
+    pub provider: String,
+    pub model: String,
+}
+
+/// Same-product stand-in when a default ("follow Main") web-search route's
+/// Main model cannot run native web search itself.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DefaultSearchFallback {
+    /// First usable same-product search-capable route already known ready.
+    pub route: Option<DefaultSearchRoute>,
+    /// Accurate failure cause when no same-product stand-in could be used.
+    pub reason: Option<String>,
+}
+
+fn has_model_segment(lower: &str, segment: &str) -> bool {
+    lower.split(['-', '_', '.']).any(|part| part == segment)
+}
+
+fn prefixed_version(lower: &str, prefix: &str) -> Vec<u64> {
+    let Some(rest) = lower.strip_prefix(prefix) else { return Vec::new() };
+    let digits = |s: &str| s.chars().take_while(char::is_ascii_digit).count();
+    let d1 = digits(rest);
+    if d1 == 0 {
+        return Vec::new();
+    }
+    let mut out = vec![rest[..d1].parse().unwrap_or(0)];
+    let after = &rest[d1..];
+    if let Some(frac) = after.strip_prefix('.').or_else(|| after.strip_prefix('-')) {
+        let d2 = digits(frac);
+        if d2 > 0 {
+            out.push(frac[..d2].parse().unwrap_or(0));
+        }
+    }
+    out
+}
+
+fn quick_search_tier(family: &str, lower: &str) -> u8 {
+    match family {
+        "gemini" | "acp" => {
+            if lower.contains("flash-lite") {
+                2
+            } else if has_model_segment(lower, "flash") {
+                3
+            } else if has_model_segment(lower, "mini") || has_model_segment(lower, "haiku") || has_model_segment(lower, "fast") {
+                2
+            } else {
+                1
+            }
+        }
+        "openai" => {
+            if has_model_segment(lower, "mini") || has_model_segment(lower, "luna") {
+                3
+            } else if has_model_segment(lower, "nano") {
+                2
+            } else if lower.starts_with("gpt-") {
+                1
+            } else {
+                0
+            }
+        }
+        "anthropic" => {
+            if has_model_segment(lower, "haiku") {
+                3
+            } else if has_model_segment(lower, "sonnet") {
+                2
+            } else {
+                1
+            }
+        }
+        "xai" => {
+            if has_model_segment(lower, "fast") || has_model_segment(lower, "mini") {
+                3
+            } else {
+                1
+            }
+        }
+        _ => 0,
+    }
+}
+
+fn quick_search_version(family: &str, lower: &str) -> Vec<u64> {
+    match family {
+        "openai" => gpt_version(lower).map_or_else(Vec::new, |(major, minor)| vec![major, minor]),
+        "anthropic" => claude_version(lower),
+        "gemini" | "acp" => prefixed_version(lower, "gemini-"),
+        "xai" => prefixed_version(lower, "grok-"),
+        _ => Vec::new(),
+    }
+}
+
+fn compare_version_vec(a: &[u64], b: &[u64]) -> std::cmp::Ordering {
+    for i in 0..a.len().max(b.len()) {
+        let ord = a.get(i).copied().unwrap_or(0).cmp(&b.get(i).copied().unwrap_or(0));
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+/// Picks the best quick web-search model for `provider` from already-validated
+/// search-capable model ids, purely by rule (quick tier, newest version, stable
+/// over preview, shorter alias, lexicographical tie-break), never catalog order.
+pub fn pick_quick_web_search_model(provider: &str, ids: &[String]) -> Option<String> {
+    let family = web_search_provider_family(provider);
+    if family.is_empty() {
+        return None;
+    }
+    let non_preview = |lower: &str| !lower.contains("preview") && !lower.contains("exp");
+    let mut best: Option<&str> = None;
+    for candidate in ids {
+        let trimmed = mixdog_js::js_trim(candidate);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some(current) = best else {
+            best = Some(trimmed);
+            continue;
+        };
+        let (la, lb) = (trimmed.to_lowercase(), current.to_lowercase());
+        let ord = quick_search_tier(family, &la)
+            .cmp(&quick_search_tier(family, &lb))
+            .then_with(|| compare_version_vec(&quick_search_version(family, &la), &quick_search_version(family, &lb)))
+            .then_with(|| non_preview(&la).cmp(&non_preview(&lb)))
+            .then_with(|| lb.len().cmp(&la.len()))
+            .then_with(|| lb.cmp(&la));
+        if ord.is_gt() {
+            best = Some(trimmed);
+        }
+    }
+    best.map(str::to_owned)
+}
+
 /// The error text when no candidate can run (`noCandidateError`).
 pub fn no_candidate_message(web_search_route: &Value, main: Option<&MainRoute>) -> String {
+    no_candidate_message_with_reason(web_search_route, main, None)
+}
+
+/// The error text when no candidate can run, with an optional host-supplied
+/// reason explaining why no same-product stand-in could be used.
+pub fn no_candidate_message_with_reason(web_search_route: &Value, main: Option<&MainRoute>, reason: Option<&str>) -> String {
     if is_default_web_search_route(web_search_route) {
         let unknown = || "unknown".to_owned();
         let provider = main.map(|m| m.provider.clone()).filter(|p| !p.is_empty()).unwrap_or_else(unknown);
         let model = main.map(|m| m.model.clone()).filter(|p| !p.is_empty()).unwrap_or_else(unknown);
+        if let Some(reason) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+            return format!("default web search route cannot run on {provider}/{model}: {reason}");
+        }
         return format!("default web search route requires the current main model to support native web search ({provider}/{model})");
     }
     let field = |key: &str| truthy_str(web_search_route.get(key)).map(|v| clean(Some(v))).unwrap_or_else(|| "unknown".into());

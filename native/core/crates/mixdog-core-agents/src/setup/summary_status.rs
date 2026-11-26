@@ -53,7 +53,7 @@ impl StatusReader for ModelStatus {
     async fn read(&self, _domain: &str, _detail: bool, thread: &ThreadId) -> Result<Value, PortError> {
         let live = self.route.route(thread);
         let mut route = main_route(&live);
-        route.insert("autoEffort".into(), Value::Bool(live.get("autoEffort") != Some(&Value::Bool(false))));
+        mixdog_ai::effort::EffortAuto::carry_field(&live, &mut route);
         let fallbacks = self.route.lead_fallbacks();
         route.insert("fallbacks".into(), if truthy(Some(&fallbacks)) { fallbacks } else { Value::Array(Vec::new()) });
         let mut out = Map::new();

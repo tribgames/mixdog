@@ -1201,6 +1201,7 @@ mod tests {
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
             prepared: false,
+            bypass_reuse: false,
             native_pdf: false,
             sees_images: false,
             outside: false,
@@ -1498,6 +1499,8 @@ pub(crate) struct CallEnv {
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
     /// The call's preparation refresh already ran when the call was started (a streamed call with nothing to wait for).
     pub(crate) prepared: bool,
+    /// Skip result-reuse lookup and fill because an earlier reuse-invalidating call in this batch has not finished.
+    pub(crate) bypass_reuse: bool,
     /// The run's provider takes a PDF as a native document block (`providerNativePdf`), which a call carries to `read`.
     pub(crate) native_pdf: bool,
     /// The run's model sees images (`pdfReadModes`' `seesImages`), which a call carries to `read`.
@@ -1526,17 +1529,23 @@ async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed {
 /// Node passes it, never through them.
 pub(crate) async fn execute_call_occupying(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let cwd = env.cwd_now();
-    execute_call_at(call, env, cwd, edit_occurrence).await
+    execute_call_at(call, env, cwd, edit_occurrence, None).await
 }
 /// `prepareToolCall`'s one read of the session's folder, made by the caller and carried: the gate, the approval, the tool, the hooks
 /// and the call's report all use `cwd`, and nothing after this reads the session's folder again for the call.
-pub(crate) async fn execute_call_at(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
-    let dispatch_started_at = env.clock.now_ms();
+pub(crate) async fn execute_call_at(
+    call: ToolCall,
+    env: Arc<CallEnv>,
+    cwd: AbsPath,
+    edit_occurrence: Option<EditOccurrence>,
+    dispatch_started_at: Option<i64>,
+) -> Executed {
+    let dispatch_started_at = dispatch_started_at.unwrap_or_else(|| env.clock.now_ms());
     // A `call_tool` whose arguments did not parse is a projection failure (`tool-call-resolution.mjs:43`): refused before dispatch, so
     // it is no completed call and has no timing.
     let refused_before_dispatch = call.name == "call_tool" && is_invalid_args_marker(&call.arguments);
     let (call_id, is_agent) = (call.id.clone(), env.tools.canonical(&call.name) == "agent");
-    let mut executed = execute_call_inner(call, Arc::clone(&env), cwd, edit_occurrence).await;
+    let mut executed = execute_call_inner(call, Arc::clone(&env), cwd, edit_occurrence, dispatch_started_at).await;
     if refused_before_dispatch {
         return executed;
     }
@@ -1547,7 +1556,7 @@ pub(crate) async fn execute_call_at(call: ToolCall, env: Arc<CallEnv>, cwd: AbsP
     }
     stamp_timing(executed, dispatch_started_at, env.clock.as_ref())
 }
-async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
+async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edit_occurrence: Option<EditOccurrence>, dispatch_started_at: i64) -> Executed {
     // `executeBatchCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
     // could not parse is answered with the retry notice and never dispatched, whatever its name (a `call_tool` included).
     if is_invalid_args_marker(&call.arguments) {
@@ -1561,7 +1570,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edi
         );
     }
     let started = env.clock.now_ms();
-    let mut executed = execute_gated(&call, &env, &cwd, edit_occurrence).await;
+    let mut executed = execute_gated(&call, &env, &cwd, edit_occurrence, dispatch_started_at).await;
     if executed.cache_hit.is_none() {
         executed.tool_ms = (env.clock.now_ms() - started).max(0);
     }
@@ -1827,8 +1836,7 @@ fn tool_context(
     }
 }
 
-async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
-    let dispatch_started_at = env.clock.now_ms();
+async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_occurrence: Option<EditOccurrence>, dispatch_started_at: i64) -> Executed {
     // `cwd` is the folder `prepareToolCall` read before anything of the call awaited (the catalog refresh below included): the
     // approval, the tool and the hooks all use it, whatever a Project switch does meanwhile.
     let cwd = cwd.clone();
@@ -1890,8 +1898,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
     let target_args_for_hook = args.clone();
     let (tool_cancel, deadline) = (ctx.cancel.clone(), ctx.deadline);
     let read_only_io = READ_ONLY_IO_TOOL_NAMES.contains(&spec.name.as_str());
-    // A rewritten invocation must not fill the original call's key.
-    let mut reuse_write = if let Some(reuse) = &env.reuse
+    // A rewritten invocation must not fill the original call's key, and a call running behind an unfinished
+    // reuse invalidator in the same batch must not be served from (or populate) the reuse cache.
+    let mut reuse_write = if !env.bypass_reuse
+        && let Some(reuse) = &env.reuse
         && unchanged
     {
         let invocation = ToolCall { arguments: args.clone(), ..call.clone() };

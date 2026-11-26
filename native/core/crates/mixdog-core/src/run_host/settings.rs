@@ -10,14 +10,12 @@ use std::sync::Arc;
 use mixdog_agent::attachments::AttachmentText;
 use mixdog_agent::compact::tool_schema::{RequestTools, estimate_request_reserve_tokens};
 use mixdog_agent::limits::TurnLimits;
-use mixdog_agent::step_effort::StepAutoEffort;
 use mixdog_core_api::domain::provider::{ProviderAdapter, ToolDefinition};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
 use super::assemble::RunSettings;
-use mixdog_core_config::tool_modules::value::auto_effort_base;
 use mixdog_core_run::run_host::hop_host::HopWiring;
 
 /// `HEARTBEAT_TURN_LIMITS` (`shared/routine-trigger.mjs:82`).
@@ -95,27 +93,25 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 }
 
 /// `base` with the fields only the turn knows filled in.
-pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &TurnFacts<'_>, effort: Option<&str>) -> RunSettings {
+/// `effort` is `(level, judged)` when Auto effort supplied a turn effort (`judged` is true only
+/// when the judge model answered, never on fallback).
+pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &TurnFacts<'_>, effort: Option<(&str, bool)>) -> RunSettings {
     let (provider, model) = (text(turn.header, "provider"), text(turn.header, "model"));
     // Effort and the text-only check: the route's wiring over the session row (header and stored messages).
     let mut updated = turn.header.clone();
-    if let Some(effort) = effort {
+    if let Some((effort, judged)) = effort {
         updated.insert("effort".into(), Value::String(effort.to_owned()));
+        if judged {
+            updated.insert("__effortJudged".into(), Value::Bool(true));
+        }
     }
     updated.insert("messages".into(), Value::Array(turn.prior.to_vec()));
     let (effort, text_only) = sources.wiring.wiring(&Value::Object(updated), turn.provider);
     base.effort = effort;
     base.text_only = text_only;
 
-    // Step judging: auto effort is on for the turn, the route has an effort configuration, steps are enabled.
-    // (The installed judge supporting steps is checked where the judge is built.)
-    let auto = sources.auto_effort.mode_on()
-        && !turn.injected
-        && turn.header.get("autoEffort") != Some(&Value::Bool(false))
-        && !turn.request.is_empty()
-        && !turn.request.starts_with('<');
-    base.step_auto_effort = (auto && base.effort.is_some() && sources.auto_effort.steps_enabled())
-        .then(|| StepAutoEffort { request: turn.request.to_owned(), base: auto_effort_base(sources.auto_effort.base_setting().as_ref()).to_owned() });
+    // Turn effort is judged once per user turn and held through its tool loop.
+    base.step_auto_effort = None;
 
     let ceilings = sources.ceilings.ceilings(provider, model, turn.header);
     base.escalated_max_output_tokens = ceilings.escalated;
@@ -302,6 +298,43 @@ mod tests {
         assert_eq!(limits, Some(TurnLimits { max_tool_calls: Some(8), wrap_up_at_ms: Some(65_000), max_tool_rounds: None }));
         marks.unmark("t1");
         assert!(merge_settings(base(), &sources, &turn, None).limits.is_none());
+    }
+
+    #[test]
+    fn step_auto_effort_is_never_enabled_even_when_auto_and_effort_wiring_are_active() {
+        struct WiredEffort;
+        impl HopWiring for WiredEffort {
+            fn wiring(
+                &self,
+                _: &Value,
+                provider: &Arc<dyn ProviderAdapter>,
+            ) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
+                (
+                    Some(mixdog_agent::effort::EffortWiring {
+                        route: mixdog_agent::effort::EffortRoute {
+                            provider: "anthropic".into(),
+                            model: "opus".into(),
+                            mode: Some(mixdog_agent::effort::EffortMode::Anthropic),
+                            allowed: vec!["low".into(), "medium".into(), "high".into()],
+                            seed: None,
+                            wire: Arc::new(|effort| Some(effort.to_owned())),
+                        },
+                        adapter: Arc::new(mixdog_agent::effort::ProjectingAdapter::new(provider.clone())),
+                    }),
+                    None,
+                )
+            }
+        }
+
+        let header: Header = json!({ "provider": "anthropic", "model": "opus", "effortAuto": true }).as_object().unwrap().clone();
+        let thread = ThreadId::from("t1");
+        let provider: Arc<dyn ProviderAdapter> = Arc::new(NullProvider::new());
+        let turn =
+            TurnFacts { thread: &thread, header: &header, provider: &provider, prior: &[], request: "fix it", injected: false, tools: &[], now_ms: 1_000 };
+        let sources = SettingsSources { wiring: Arc::new(WiredEffort), ..sources("") };
+        let merged = merge_settings(base(), &sources, &turn, Some(("high", true)));
+        assert!(merged.effort.is_some());
+        assert!(merged.step_auto_effort.is_none(), "judged effort holds for the whole turn without per-step re-judging");
     }
 
     impl HopWiring for Wiring {

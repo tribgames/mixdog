@@ -168,7 +168,7 @@ async fn a_child_route_is_empty_until_send_and_switches_as_one_tuple_on_fallback
                 "busy".into(),
                 object(json!({
                     "provider": "openai-oauth", "model": "gpt-6.2-sol", "effort": "high",
-                    "fast": true, "modelParameters": { "serviceTier": "ultrafast" },
+                    "fast": true, "effortAuto": true, "modelParameters": { "serviceTier": "ultrafast" },
                 })),
             ),
         ]),
@@ -183,7 +183,7 @@ async fn a_child_route_is_empty_until_send_and_switches_as_one_tuple_on_fallback
         assert_eq!(queued["model"], Value::Null);
         assert_eq!(queued["fast"], Value::Null);
         let busy = rows.iter().find(|row| row["tag"] == "busy").unwrap();
-        json!([busy["provider"], busy["model"], busy["effort"], busy["fast"], busy["modelParameters"], busy["routeObserved"], busy["autoEffort"]])
+        json!([busy["provider"], busy["model"], busy["effort"], busy["fast"], busy["modelParameters"], busy["routeObserved"], busy["effortAuto"]])
     };
     assert_eq!(route_of(pool.list().await.unwrap()), json!([null, null, null, null, null, null, null]));
     let publish = |route| {

@@ -17,6 +17,7 @@ workspace = true
 mixdog-core-api = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-tools = { workspace = true }
+mixdog-imaging = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }

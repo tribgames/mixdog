@@ -383,3 +383,174 @@ async fn another_providers_replay_is_left_as_recorded() {
     assert_eq!(out.messages.len(), 3, "no ack was added");
     assert_eq!(out.messages[1].message.provider_replay().len(), 1, "the recorded function-call parts stay");
 }
+
+#[tokio::test]
+async fn rebind_ack_on_widened_budget_is_counted_before_fitting() {
+    let mut rows = vec![serde_json::json!({ "role": "system", "content": "rules" })];
+    let mut round = signed_round();
+    let wide = "x".repeat(40_000);
+    round[1]["toolCalls"][0]["arguments"]["path"] = serde_json::json!(wide);
+    round[1]["providerReplay"]["items"][1]["input"]["path"] = serde_json::json!(wide);
+    rows.extend(round);
+    let messages: Vec<_> = rows.iter().map(|row| mixdog_agent::message_row::message_of(row).unwrap()).collect();
+    let owner = mixdog_protocol::ProviderId::from("anthropic");
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let archive = PreviewArchive { session: "rebind-budget".into() };
+    let ctx = FreshContext {
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
+        attachments: &NoAttachments,
+    };
+    let handoff = "summary ".repeat(2_000);
+    let options = FreshOptions {
+        max_budget_tokens: 100_000,
+        context_window: 40_000,
+        handoff_text: handoff.clone(),
+        active_turn: true,
+        force: true,
+        ..Default::default()
+    };
+    let compacted = fresh_context_compact_messages(&ctx, &messages, 2_000, &options).await.expect("widened budget must include the rebind ack");
+    let total = meter.messages(&compacted.messages);
+    let body = wire_of(&compacted.messages);
+    assert!(!body.to_string().contains("signature"), "{body}");
+    let sent = body["messages"].as_array().unwrap();
+    assert_eq!(sent[sent.len() - 2]["content"], ".", "the open round is ended: {body}");
+    assert_pairs(&body);
+
+    // At the exact pre-rebind token count (5 tokens short of the ack), the hard cap must fail the
+    // handoff budget check rather than passing the fit and failing the post-rebind check.
+    let pre_rebind_cap = total - 5;
+    let capped = FreshOptions { max_budget_tokens: pre_rebind_cap, ..options };
+    let err = fresh_context_compact_messages(&ctx, &messages, pre_rebind_cap, &capped).await.expect_err("5 tokens short of the ack must fail");
+    assert!(err.message().contains("complete handoff exceeds the compact budget"), "{}", err.message());
+}
+
+#[tokio::test]
+async fn reconciled_dedup_stub_growth_is_counted_before_fitting() {
+    let wide = "x".repeat(40_000);
+    let rows = vec![
+        serde_json::json!({ "role": "system", "content": "rules" }),
+        serde_json::json!({ "role": "user", "content": "go" }),
+        serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "a", "name": "read", "arguments": { "path": wide } }] }),
+        serde_json::json!({ "role": "tool", "toolCallId": "a", "content": "first" }),
+        serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "b", "name": "read", "arguments": { "path": "b" } }] }),
+        serde_json::json!({ "role": "tool", "toolCallId": "b", "content": "[duplicate-of tool_use_id=a]" }),
+    ];
+    let messages: Vec<_> = rows.iter().map(|row| mixdog_agent::message_row::message_of(row).unwrap()).collect();
+    let owner = replay_owner();
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let archive = PreviewArchive { session: "dedup-budget".into() };
+    let ctx = FreshContext {
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
+        attachments: &NoAttachments,
+    };
+    let options = FreshOptions {
+        max_budget_tokens: 100_000,
+        context_window: 40_000,
+        handoff_text: "summary ".repeat(2_000),
+        active_turn: true,
+        force: true,
+        ..Default::default()
+    };
+    let compacted = fresh_context_compact_messages(&ctx, &messages, 2_000, &options).await.expect("widened budget must include reconciled dedup stubs");
+    assert!(compacted.messages.iter().any(|m| m.text() == mixdog_core_api::domain::provider::MISSING_TOOL_RESULT), "dropped target stub is reconciled");
+}
+
+#[tokio::test]
+async fn skill_window_rebind_ack_cannot_push_restored_skills_over_budget() {
+    let call = serde_json::json!({ "id": "a", "name": "read", "arguments": { "path": "a" } });
+    let rows = vec![
+        serde_json::json!({ "role": "system", "content": "rule ".repeat(400) }),
+        serde_json::json!({ "role": "user", "content": "go" }),
+        serde_json::json!({
+            "role": "assistant",
+            "content": "working on this step ".repeat(40),
+            "toolCalls": [call],
+            "providerReplay": {
+                "provider": "anthropic",
+                "items": [
+                    { "type": "thinking", "thinking": "t", "signature": "sig" },
+                    { "type": "tool_use", "id": "a", "name": "read", "input": { "path": "a" } }
+                ]
+            }
+        }),
+        serde_json::json!({ "role": "tool", "toolCallId": "a", "content": "ok" }),
+        serde_json::json!({
+            "role": "user",
+            "content": format!("<skill>\n<name>demo</name>\n{}\n</skill>", "instruction ".repeat(20)),
+            "meta": { "source": "skill", "synthetic": true }
+        }),
+    ];
+    let messages: Vec<_> = rows.iter().map(|row| mixdog_agent::message_row::message_of(row).unwrap()).collect();
+    let owner = mixdog_protocol::ProviderId::from("anthropic");
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let archive = PreviewArchive { session: "skill-rebind-budget".into() };
+    let ctx = FreshContext {
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
+        attachments: &NoAttachments,
+    };
+    let committed = meter.messages(&messages[..4]);
+    let marker = mixdog_agent::message::AgentMessage::user("[mixdog-runtime] Compact boundary.");
+    let budget = committed + meter.message(&marker) + meter.message(&messages[4]);
+    let options = FreshOptions { context_window: 500_000, force: true, ..Default::default() };
+    let compacted = fresh_context_compact_messages(&ctx, &messages, budget, &options).await.expect("skill restore must account for rebind ack");
+    assert!(meter.messages(&compacted.messages) <= budget, "result={} > budget={budget}", meter.messages(&compacted.messages));
+}
+
+#[tokio::test]
+async fn retained_answered_instruction_keeps_its_plain_assistant_reply() {
+    use mixdog_agent::compact::execution_tail::{TailOptions, build_execution_tail};
+    use mixdog_agent::message::Source;
+    use mixdog_core_api::domain::provider::Role;
+
+    let owner = replay_owner();
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let archive = PreviewArchive { session: "answered-reply".into() };
+    let ctx = TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true };
+    let wide = "x".repeat(20_000);
+    let messages: Vec<_> = [
+        serde_json::json!({ "role": "user", "content": "earlier question" }),
+        serde_json::json!({ "role": "assistant", "content": "earlier answer" }),
+        serde_json::json!({ "role": "user", "content": "what is 2+2?" }),
+        serde_json::json!({ "role": "assistant", "content": "4" }),
+        serde_json::json!({ "role": "user", "content": "<task-notification>worker finished</task-notification>", "meta": { "source": "task-notification" } }),
+        serde_json::json!({ "role": "assistant", "content": "reading large file", "toolCalls": [{ "id": "c1", "name": "read", "arguments": { "path": wide } }] }),
+        serde_json::json!({ "role": "tool", "toolCallId": "c1", "content": "large result" }),
+        serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c2", "name": "read", "arguments": { "path": "b.txt" } }] }),
+        serde_json::json!({ "role": "tool", "toolCallId": "c2", "content": "ok" }),
+    ]
+    .iter()
+    .map(node_message)
+    .collect();
+    let options = TailOptions { context_window: 40_000, preserve_conversation: false };
+
+    let out = build_execution_tail(&ctx, &messages, &options).await.expect("tail");
+    assert_eq!(out.retained_groups, 1);
+    assert_eq!(out.omitted_groups, 1);
+    assert_eq!(out.messages[0].source, Some(Source::CompactExecutionRecovery));
+    let kept: Vec<(Role, String)> = out.messages[1..].iter().map(|m| (m.role(), m.text())).collect();
+    assert_eq!(
+        kept,
+        vec![
+            (Role::User, "what is 2+2?".to_owned()),
+            (Role::Assistant, "4".to_owned()),
+            (Role::User, "<task-notification>worker finished</task-notification>".to_owned()),
+            (Role::Assistant, String::new()),
+            (Role::Tool, "ok".to_owned()),
+        ]
+    );
+    assert_eq!(out.messages[4].tool_calls().iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["c2"]);
+
+    let no_groups = build_execution_tail(&ctx, &messages[..5], &options).await.expect("no-groups tail");
+    assert_eq!(no_groups.retained_groups, 0);
+    assert_eq!(no_groups.omitted_groups, 0);
+    let kept_no_groups: Vec<(Role, String)> = no_groups.messages.iter().map(|m| (m.role(), m.text())).collect();
+    assert_eq!(
+        kept_no_groups,
+        vec![
+            (Role::User, "what is 2+2?".to_owned()),
+            (Role::Assistant, "4".to_owned()),
+            (Role::User, "<task-notification>worker finished</task-notification>".to_owned()),
+        ]
+    );
+}

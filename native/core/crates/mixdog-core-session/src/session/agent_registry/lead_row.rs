@@ -144,9 +144,7 @@ impl AgentRegistry {
         row.insert("preset".into(), text("presetName"));
         row.insert("effort".into(), text("effort"));
         row.insert("fast".into(), if session.get("fast") == Some(&Value::Bool(true)) { Value::Bool(true) } else { Value::Null });
-        if session.get("autoEffort") == Some(&Value::Bool(false)) {
-            row.insert("autoEffort".into(), Value::Bool(false));
-        }
+        mixdog_ai::effort::EffortAuto::carry_field_map(&session, &mut row);
         row.insert("status".into(), Value::String(status.into()));
         row.insert("stage".into(), Value::String(status.into()));
         row.insert("createdAt".into(), if clean(session.get("createdAt")).is_empty() { stamp.clone() } else { text("createdAt") });

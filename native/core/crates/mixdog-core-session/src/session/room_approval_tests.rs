@@ -70,13 +70,19 @@ fn a_row_offers_only_what_its_writer_can_store_whatever_it_lists() {
         let row = json!({ "kind": "approval", "remember": every, "grantAction": "tool:mcp__shop__buy", "actionKind": category });
         assert_eq!(offered(row), json!(["once"]), "hook ask {category}");
     }
-    let no_tool = json!({ "kind": "outbound", "remember": every, "outbound": outbound("email") });
-    assert_eq!(offered(no_tool), json!(["once"]), "an outbound row naming no tool stores nothing");
-    let email = json!({ "kind": "outbound", "remember": every, "grantAction": "tool:mcp__gmail__send_email", "outbound": outbound("email") });
+    let unknown_category = json!({ "kind": "outbound", "remember": every, "outbound": outbound("unknown") });
+    assert_eq!(offered(unknown_category), json!(["once"]), "an outbound row with no known category stores nothing");
+    let email_category_only = json!({ "kind": "outbound", "remember": every, "outbound": outbound("email") });
+    assert_eq!(offered(email_category_only), json!(["once", "session", "agent"]), "an outbound row covers its action category");
+    let email = json!({ "kind": "outbound", "remember": every, "grantAction": "email", "outbound": outbound("email") });
     assert_eq!(offered(email.clone()), json!(["once", "session", "agent"]), "an outbound card never offers every agent");
+    let outbound_hook = json!({ "kind": "outbound", "remember": every, "grantAction": "tool:mcp__gmail__send_email", "outbound": outbound("email") });
+    assert_eq!(offered(outbound_hook), json!(["once", "session", "agent"]), "an outbound hook ask keeps outbound scopes for its tool key");
     let mut unattended = email;
     unattended["unattended"] = json!(true);
     assert_eq!(offered(unattended), json!(["once", "agent"]), "no conversation scope where nobody attends");
+    let category_hook = json!({ "kind": "approval", "remember": every, "grantAction": "email", "actionKind": "email" });
+    assert_eq!(offered(category_hook), json!(["once"]), "a hook ask never offers standing scopes for a category");
     let hook = json!({ "kind": "approval", "remember": every, "grantAction": "tool:shell" });
     assert_eq!(offered(hook), json!(["once", "session", "always"]));
     let lists_less = json!({ "kind": "approval", "remember": ["once"], "grantAction": "tool:shell" });

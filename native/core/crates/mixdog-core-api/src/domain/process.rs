@@ -189,7 +189,7 @@ pub enum ProcessError {
         program: String,
     },
     PermissionDenied,
-    /// `limits.maxProcesses` reached.
+    /// An explicitly configured live-process cap (`ProcessConfig::max_processes > 0`) was reached.
     LimitReached {
         limit: u32,
     },
@@ -229,9 +229,11 @@ pub enum ProcessQueue {
 
 #[async_trait]
 pub trait ProcessManager: Send + Sync {
-    /// Admits the spawn to the io-spawn lane queue (full: `Overloaded{Spawn}`; at
-    /// `limits.maxProcesses` live processes: `LimitReached`), then creates the process on
-    /// io-spawn; dropping the future abandons the wait. There is no per-session spawn limit.
+    /// Admits the spawn to the io-spawn lane queue (full: `Overloaded{Spawn}`; if a non-zero
+    /// live-process cap is configured and reached: `LimitReached`), then creates the process on
+    /// io-spawn; dropping the future abandons the wait. The manager is uncapped by default
+    /// (`limits.maxProcesses == 0`); foreground shell concurrency is bounded by shell admission,
+    /// and there is no per-session spawn limit.
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError>;
     /// [`spawn`](Self::spawn) and a subscription from the process's first event, made in one
     /// step: the subscription exists before the child can write a byte, so however late the

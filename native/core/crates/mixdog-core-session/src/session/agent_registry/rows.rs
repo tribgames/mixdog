@@ -233,9 +233,7 @@ pub fn normalize_row(row: &Row) -> Option<Row> {
             _ => Value::Null,
         },
     );
-    if row.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), Value::Bool(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(row, &mut out);
     let status = clean(row.get("status"));
     let stage = clean(row.get("stage"));
     let stage = if !stage.is_empty() {
@@ -371,12 +369,10 @@ pub fn row_from_session(session: &Row, fallback_tag: &str, extra: &Row, runtime_
             _ => Value::Null,
         },
     );
-    let auto_effort = match extra.get("autoEffort") {
-        Some(v @ Value::Bool(_)) => Some(v),
-        _ => session.get("autoEffort"),
-    };
-    if auto_effort == Some(&Value::Bool(false)) {
-        row.insert("autoEffort".into(), Value::Bool(false));
+    if mixdog_ai::effort::EffortAuto::read_explicit(extra).is_some() || extra.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY).is_some_and(Value::is_boolean) {
+        mixdog_ai::effort::EffortAuto::carry_field_map(extra, &mut row);
+    } else {
+        mixdog_ai::effort::EffortAuto::carry_field_map(session, &mut row);
     }
     row.insert("status".into(), Value::String(status));
     row.insert("stage".into(), Value::String(stage));
@@ -415,9 +411,7 @@ pub fn row_to_session(row: &Row) -> Row {
         s.insert(to.into(), or_null(row.get(from)));
     }
     s.insert("fast".into(), Value::Bool(row.get("fast") == Some(&Value::Bool(true))));
-    if row.get("autoEffort") == Some(&Value::Bool(false)) {
-        s.insert("autoEffort".into(), Value::Bool(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(row, &mut s);
     let status = if truthy(row.get("status")) { row["status"].clone() } else { Value::String("idle".into()) };
     let stage = [row.get("stage"), row.get("status")].into_iter().flatten().find(|v| truthy(Some(v))).cloned();
     s.insert("status".into(), status);

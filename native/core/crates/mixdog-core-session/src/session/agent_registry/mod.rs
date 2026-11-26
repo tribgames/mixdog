@@ -164,6 +164,10 @@ pub trait WorkerStore: Send + Sync {
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String>;
     /// The agent-only sessions' list rows, closed ones included, most recent activity first.
     async fn agent_sessions(&self) -> Result<Vec<Row>, String>;
+    /// [`Self::agent_sessions`] of the sessions not closed.
+    async fn open_agent_sessions(&self) -> Result<Vec<Row>, String> {
+        Ok(self.agent_sessions().await?.into_iter().filter(|row| row.get("closed") != Some(&Value::Bool(true))).collect())
+    }
     /// The list row of agent-only session `session`; `Ok(None)` when the index lists no agent-only session of that id.
     async fn agent_session(&self, session: &str) -> Result<Option<Row>, String> {
         Ok(self.agent_sessions().await?.into_iter().find(|row| clean(row.get("id")) == session))
@@ -305,6 +309,12 @@ pub struct AgentRegistry {
     /// One spawn takes its tag at a time.
     #[allow(clippy::disallowed_types, reason = "one spawn's tag admission at a time, across the reads of the tag it awaits")]
     spawn_admission: tokio::sync::Mutex<()>,
+    /// One listing of the index is read at a time ([`Self::listing`]): every agent-only session's row is parsed for it,
+    /// so readers that arrive together would each hold a copy of the whole table.
+    #[allow(clippy::disallowed_types, reason = "one listing read at a time, across the store read it awaits")]
+    listing_read: tokio::sync::Mutex<Option<(u64, std::sync::Weak<Listing>)>>,
+    /// Orders a caller's arrival against the start of each listing read.
+    listing_clock: std::sync::atomic::AtomicU64,
     /// The listings of every agent session made ([`Self::list_sessions`]).
     #[cfg(test)]
     walks: std::sync::atomic::AtomicUsize,
@@ -449,17 +459,39 @@ struct Listing {
     rows: Vec<Arc<Row>>,
     /// The first of `rows` with each id.
     at: HashMap<String, usize>,
+    /// The closed sessions are listed too: a session it does not name is not an agent-only session of the index.
+    whole: bool,
 }
 
 impl Listing {
+    /// Every agent-only session.
     fn of(rows: Vec<Row>) -> Self {
+        Self::read(rows, true)
+    }
+
+    /// The agent-only sessions not closed.
+    fn open(rows: Vec<Row>) -> Self {
+        Self::read(rows, false)
+    }
+
+    fn read(rows: Vec<Row>, whole: bool) -> Self {
         let rows: Vec<Arc<Row>> = rows.into_iter().map(Arc::new).collect();
         let mut at = HashMap::new();
         for (i, row) in rows.iter().enumerate() {
             at.entry(clean(row.get("id"))).or_insert(i);
         }
-        Self { rows, at }
+        Self { rows, at, whole }
     }
+}
+
+/// What an operation lists of the agent-only sessions ([`AgentRegistry::read_index`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Listed {
+    No,
+    /// The sessions not closed: all a scan of the sessions reads.
+    Open,
+    /// Every one, closed ones included.
+    Whole,
 }
 
 /// What one operation read of the agent-only sessions from the index beyond the rows the registry holds: read before it
@@ -479,7 +511,10 @@ impl Reads {
             return Some(row.clone());
         }
         let listing = self.listing.as_ref()?;
-        Some(listing.at.get(id).map(|at| listing.rows[*at].clone()))
+        match listing.at.get(id) {
+            Some(at) => Some(Some(listing.rows[*at].clone())),
+            None => listing.whole.then_some(None),
+        }
     }
 }
 
@@ -768,6 +803,8 @@ impl AgentRegistry {
             rows_held: tokio::sync::watch::Sender::new(Settlement::Open),
             claimed: Arc::default(),
             spawn_admission: tokio::sync::Mutex::new(()),
+            listing_read: tokio::sync::Mutex::new(None),
+            listing_clock: std::sync::atomic::AtomicU64::new(0),
             #[cfg(test)]
             walks: std::sync::atomic::AtomicUsize::new(0),
         }
@@ -1123,13 +1160,17 @@ impl AgentRegistry {
         self.store.settled().await
     }
 
-    /// What an operation reads of the index before it takes the state: every agent-only session when `listing`, and the
+    /// What an operation reads of the index before it takes the state: the agent-only sessions `listed` names, and the
     /// row of each of `ids` that is not loaded and whose row the registry does not hold.
-    async fn read_index(&self, listing: bool, ids: &[&str]) -> Result<Reads, String> {
-        let mut reads = Reads::default();
-        if listing {
-            reads.listing = Some(Arc::new(Listing::of(self.store.agent_sessions().await?)));
-        }
+    async fn read_index(&self, listed: Listed, ids: &[&str]) -> Result<Reads, String> {
+        let mut reads = Reads {
+            listing: match listed {
+                Listed::No => None,
+                Listed::Open => Some(Arc::new(Listing::open(self.store.open_agent_sessions().await?))),
+                Listed::Whole => Some(self.listing().await?),
+            },
+            ..Reads::default()
+        };
         let unread: Vec<String> = {
             let st = self.lock();
             ids.iter()
@@ -1144,13 +1185,43 @@ impl AgentRegistry {
         Ok(reads)
     }
 
+    /// Every agent-only session as the index lists them now. A caller that waited for another's read shares it when that
+    /// read began after the caller arrived and an operation still holds it; no listing is kept once its operations end.
+    async fn listing(&self) -> Result<Arc<Listing>, String> {
+        use std::sync::atomic::Ordering;
+        let arrived = self.listing_clock.fetch_add(1, Ordering::SeqCst);
+        let mut last = self.listing_read.lock().await;
+        if let Some((began, listing)) = &*last
+            && *began > arrived
+            && let Some(listing) = listing.upgrade()
+        {
+            return Ok(listing);
+        }
+        let began = self.listing_clock.fetch_add(1, Ordering::SeqCst);
+        let listing = Arc::new(Listing::of(self.store.agent_sessions().await?));
+        *last = Some((began, Arc::downgrade(&listing)));
+        Ok(listing)
+    }
+
     /// [`Self::read_index`] for an answer that has no failure to give: a read that failed is logged, and the operation
     /// answers from the sessions loaded and the rows the registry holds.
-    async fn read_index_or_held(&self, listing: bool, ids: &[&str]) -> Reads {
-        self.read_index(listing, ids).await.unwrap_or_else(|error| {
+    async fn read_index_or_held(&self, listed: Listed, ids: &[&str]) -> Reads {
+        self.read_index(listed, ids).await.unwrap_or_else(|error| {
             tracing::warn!("[agent] the agent sessions could not be read from the index: {error}");
-            Reads { listing: listing.then(|| Arc::new(Listing::of(Vec::new()))), rows: HashMap::new() }
+            Reads { listing: (listed != Listed::No).then(|| Arc::new(Listing::of(Vec::new()))), rows: HashMap::new() }
         })
+    }
+
+    /// The listing a refresh reads: every session while legacy tombstones' owners are owed, else the open ones when it
+    /// scans the sessions.
+    fn listed_for(&self, scan_sessions: bool) -> Listed {
+        if self.owners_owed() {
+            Listed::Whole
+        } else if scan_sessions {
+            Listed::Open
+        } else {
+            Listed::No
+        }
     }
 
     /// The state for an operation that read `reads` ([`Operation`]).
@@ -1175,7 +1246,10 @@ impl AgentRegistry {
     /// `mgr.listSessions({includeClosed})`: the loaded sessions as they are now, then the
     /// stored ones as the operation read them.
     fn list_sessions(&self, st: &State, include_closed: bool) -> Vec<Arc<Row>> {
-        debug_assert!(st.reads.listing.is_some(), "an operation that lists the agent sessions reads them first");
+        debug_assert!(
+            st.reads.listing.as_ref().is_some_and(|listing| listing.whole || !include_closed),
+            "an operation that lists the agent sessions reads them first, the closed ones too when it lists those"
+        );
         #[cfg(test)]
         self.walks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut out: Vec<Arc<Row>> = Vec::new();
@@ -1235,7 +1309,7 @@ impl AgentRegistry {
     /// `mgr.getSession(id)` (`sessionOf`), read from the index when the session is neither loaded nor held.
     pub(super) async fn session_of(&self, id: &str) -> Option<Arc<Row>> {
         let id = clean_str(id);
-        let reads = self.read_index_or_held(false, &[&id]).await;
+        let reads = self.read_index_or_held(Listed::No, &[&id]).await;
         let st = self.op(reads);
         self.session(&st, &id)
     }
@@ -1423,7 +1497,7 @@ impl AgentRegistry {
 
     /// `mgr.listSessions()`: the agent sessions that are not closed.
     pub(crate) async fn open_sessions(&self) -> Vec<Arc<Row>> {
-        let reads = self.read_index_or_held(true, &[]).await;
+        let reads = self.read_index_or_held(Listed::Open, &[]).await;
         let st = self.op(reads);
         self.list_sessions(&st, false)
     }
@@ -1575,8 +1649,9 @@ impl AgentRegistry {
             st.views(now).owners_resolved = true;
             return;
         }
-        // Over the listing the operation read: one that read none leaves them to a later refresh.
-        if st.reads.listing.is_none() {
+        // Over the whole listing the operation read: one that read none, or only the open sessions, leaves them to a later
+        // refresh.
+        if !st.reads.listing.as_ref().is_some_and(|listing| listing.whole) {
             return;
         }
         let sessions = self.list_sessions(st, true);
@@ -1823,7 +1898,7 @@ impl AgentRegistry {
     /// `agentSessionEntries` for the views (list and status keep terminal traces), over the
     /// index as last refreshed.
     pub async fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Arc<Row>)> {
-        let reads = self.read_index_or_held(scan_sessions, &[]).await;
+        let reads = self.read_index_or_held(if scan_sessions { Listed::Open } else { Listed::No }, &[]).await;
         let mut st = self.op(reads);
         self.entries(&mut st, scan_sessions, scope, false)
     }
@@ -1988,7 +2063,7 @@ impl AgentRegistry {
     /// `agentDescendantSessionIds`: every agent session below `session`, depth first, each once, over one listing of the
     /// index; `Err` when it could not be read.
     pub(crate) async fn descendants(&self, session: &str) -> Result<Vec<String>, String> {
-        let reads = self.read_index(true, &[]).await?;
+        let reads = self.read_index(Listed::Whole, &[]).await?;
         let st = self.op(reads);
         Ok(Tree::of(self.list_sessions(&st, true).iter().map(|s| &**s)).below(&clean_str(session)))
     }
@@ -2005,7 +2080,7 @@ impl AgentRegistry {
             std::iter::once(root.clone()).chain(tree.below(&root)).collect()
         };
         let mut guard = self.begin_cancellation(&known.iter().cloned().collect::<Vec<_>>());
-        let tree = match self.read_index(true, &[]).await {
+        let tree = match self.read_index(Listed::Whole, &[]).await {
             Ok(reads) => {
                 let st = self.op(reads);
                 Tree::of(self.list_sessions(&st, true).iter().map(|s| &**s))
@@ -2280,7 +2355,7 @@ fn settled(done: &ReleaseDone) -> bool {
 impl Registry for AgentRegistry {
     async fn resolve_tombstone_owners(&self) {
         // A listing that could not be read resolves nothing: the next refresh reads it again.
-        let reads = match self.read_index(self.owners_owed(), &[]).await {
+        let reads = match self.read_index(self.listed_for(false), &[]).await {
             Ok(reads) => reads,
             Err(error) => {
                 tracing::warn!("[agent] the agent sessions could not be read from the index: {error}");
@@ -2293,7 +2368,7 @@ impl Registry for AgentRegistry {
 
     async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) -> Result<(), String> {
         self.reload().await?;
-        let reads = self.read_index(scan_sessions || self.owners_owed(), &[]).await?;
+        let reads = self.read_index(self.listed_for(scan_sessions), &[]).await?;
         let mut st = self.op(reads);
         self.refresh(&mut st, scan_sessions, scope);
         Ok(())
@@ -2306,7 +2381,7 @@ impl Registry for AgentRegistry {
         self.reload().await?;
         let explicit_id = clean_str(explicit);
         let ids: Vec<&str> = if explicit_id.starts_with("sess_") { vec![explicit_id.as_str()] } else { Vec::new() };
-        let reads = self.read_index(options.scan_sessions || self.owners_owed(), &ids).await?;
+        let reads = self.read_index(self.listed_for(options.scan_sessions), &ids).await?;
         {
             let mut st = self.op(reads.clone());
             self.refresh(&mut st, false, scope);
@@ -2332,7 +2407,7 @@ impl Registry for AgentRegistry {
     /// signals of every session it writes (a stale row's tombstone, a recovered row) are held in what it answers.
     async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> Result<(Topology, Recovered), String> {
         self.reload().await?;
-        let reads = self.read_index(true, &[]).await?;
+        let reads = self.read_index(Listed::Whole, &[]).await?;
         let mut st = self.op(reads);
         st.holding = Some(Holding::default());
         self.refresh(&mut st, false, scope);
@@ -2352,13 +2427,13 @@ impl Registry for AgentRegistry {
     async fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
         let value = clean_str(tag);
         let ids: Vec<&str> = if value.starts_with("sess_") { vec![value.as_str()] } else { Vec::new() };
-        let reads = self.read_index(options.scan_sessions || self.owners_owed(), &ids).await?;
+        let reads = self.read_index(self.listed_for(options.scan_sessions), &ids).await?;
         let mut st = self.op(reads);
         self.resolve(&mut st, tag, scope, options)
     }
 
     async fn live_session(&self, session_id: &str) -> Option<SessionFacts> {
-        let reads = self.read_index_or_held(false, &[session_id]).await;
+        let reads = self.read_index_or_held(Listed::No, &[session_id]).await;
         let st = self.op(reads);
         self.live_session_row(&st, session_id).map(|s| session_facts(&s))
     }
@@ -2372,7 +2447,7 @@ impl Registry for AgentRegistry {
     }
 
     async fn tag_for_session(&self, session_id: &str) -> Option<String> {
-        let reads = self.read_index_or_held(false, &[session_id]).await;
+        let reads = self.read_index_or_held(Listed::No, &[session_id]).await;
         let st = self.op(reads);
         self.tag_of(&st, session_id)
     }
@@ -2386,7 +2461,7 @@ impl Registry for AgentRegistry {
         if tag.is_empty() || session.id.is_empty() {
             return;
         }
-        let reads = self.read_index_or_held(false, &[&session.id]).await;
+        let reads = self.read_index_or_held(Listed::No, &[&session.id]).await;
         let mut st = self.op(reads);
         st.bind(tag, &session.id, &session.agent, &session.cwd);
         let mut row = self.session(&st, &session.id).map(|row| Row::clone(&row)).unwrap_or_default();
@@ -2558,7 +2633,7 @@ impl Registry for AgentRegistry {
         if value.is_empty() || value.starts_with("sess_") || caller.is_empty() {
             return None;
         }
-        let reads = self.read_index_or_held(true, &[]).await;
+        let reads = self.read_index_or_held(Listed::Whole, &[]).await;
         let st = self.op(reads);
         let mut newest: Option<Arc<Row>> = None;
         for session in self.list_sessions(&st, true) {
@@ -2601,7 +2676,7 @@ impl Registry for AgentRegistry {
             return Ok(None);
         }
         let session = {
-            let reads = self.read_index(false, &[&id]).await?;
+            let reads = self.read_index(Listed::No, &[&id]).await?;
             let st = self.op(reads);
             match self.live_session_row(&st, &id).map(|s| session_facts(&s)) {
                 Some(session) => session,
@@ -2626,7 +2701,7 @@ impl TerminalTrace for AgentRegistry {
         if value.is_empty() || value.starts_with("sess_") {
             return Ok(false);
         }
-        let reads = self.read_index(self.owners_owed(), &[]).await?;
+        let reads = self.read_index(self.listed_for(false), &[]).await?;
         let mut st = self.op(reads);
         let options = ResolveOptions { exclude_terminal_traces: true, skip_released: true, ..ResolveOptions::default() };
         if self.resolve(&mut st, &value, scope, options)?.is_some() {
@@ -2641,7 +2716,7 @@ impl TerminalTrace for AgentRegistry {
             return;
         }
         // A listing that could not be read leaves the legacy owners to a later refresh.
-        let reads = self.read_index(self.owners_owed(), &[]).await.unwrap_or_else(|error| {
+        let reads = self.read_index(self.listed_for(false), &[]).await.unwrap_or_else(|error| {
             tracing::warn!("[agent] the agent sessions could not be read from the index: {error}");
             Reads::default()
         });

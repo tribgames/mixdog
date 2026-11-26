@@ -74,6 +74,7 @@
 //! let resume_from = Some(ResumeFrom {
 //!     position: FeedPosition { epoch: epoch(7), seq: 1 },
 //!     window: Window::Fixed,
+//!     positioned: None,
 //! });
 //! let source: Arc<dyn FeedSource> = feed.clone();
 //! let attached = subscribe(&source, SubscriptionId::from("s1"), Window::Fixed, resume_from, &conn).unwrap();
@@ -141,8 +142,8 @@ pub enum Window {
     /// The positioned projection of a thread's transcript: the subscription holds a [`Grant`], first the newest
     /// stored records up to n rows ([`FeedView::first_grant`]). A frame that tells a record's rows reaches it with no
     /// row ([`FeedFrame::for_grant`]); the rows of a stored record reach it as that record's unit, when its grant
-    /// holds the record ([`Feed::deliver`]). Never replayed into a new lane: only the lane that holds the grant
-    /// carries on.
+    /// holds the record ([`Feed::deliver`]). Replays into a new lane when the previous subscription's grant and the
+    /// ring still cover the gap ([`PositionedResume`]); otherwise installs a fresh snapshot.
     Positioned(u16),
 }
 
@@ -271,11 +272,20 @@ pub struct GrantFence {
     pub slot: crate::sink::SnapshotSlot,
 }
 
+/// The positioned grant a reconnecting client held on its previous subscription, so the core can
+/// continue that grant on replay instead of encoding a fresh snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PositionedResume {
+    pub subscription_id: SubscriptionId,
+    pub window_version: u64,
+}
+
 /// The client's last position and the window its state was built for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResumeFrom {
     pub position: FeedPosition,
     pub window: Window,
+    pub positioned: Option<PositionedResume>,
 }
 
 /// The input of the one attach algorithm.

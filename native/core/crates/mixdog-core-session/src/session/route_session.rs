@@ -419,11 +419,11 @@ mod tests {
     /// `applyRouteFields`: only the fields the route names; a chain restart clears the hop.
     #[test]
     fn route_fields_follow_apply_route_fields() {
-        let header = obj(json!({ "provider": "openai", "model": "gpt-a", "autoEffort": false, "routeFallbackIndex": 1 }));
+        let header = obj(json!({ "provider": "openai", "model": "gpt-a", "effortAuto": false, "routeFallbackIndex": 1 }));
         let change = route_fields(
             &header,
             &obj(json!({
-                "provider": "anthropic", "model": "", "fast": "yes", "autoEffort": true, "effort": "",
+                "provider": "anthropic", "model": "", "fast": "yes", "effortAuto": true, "effort": "",
                 "routeFallbacks": [], "modelParameters": 3, "contextPercent": 34, "contextTokens": 0.4,
                 "selectedContextWindow": "x",
             })),
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(
             Value::Object(change.set),
             json!({
-                "provider": "anthropic", "fast": false, "effort": null, "modelParameters": {},
+                "provider": "anthropic", "fast": false, "effortAuto": true, "effort": null, "modelParameters": {},
                 "contextPercent": 30, "contextTokens": null, "selectedContextWindow": null,
             })
         );
@@ -605,7 +605,7 @@ mod tests {
         // The picker names the fallback model when retuning it. The session runs on its seated fields until
         // turn preparation applies that pending route, even when it is the same provider and model.
         let pick = obj(json!({ "provider": "anthropic", "model": "claude-x", "effort": "high", "effectiveEffort": "high",
-            "fast": true, "autoEffort": false, "modelParameters": { "verbosity": "low" } }));
+            "fast": true, "effortAuto": false, "modelParameters": { "verbosity": "low" } }));
         let records = Arc::new(SessionThreads::new(directory.clone()));
         let routes = mixdog_core_ports::ports::route::SessionRoutes::new(records.clone(), records, adapter, Arc::new(Live(pick)));
         let follow = mixdog_core_ports::ports::route::FollowOptions {
@@ -621,7 +621,7 @@ mod tests {
         routes.apply_pending(&thread).await.unwrap();
         let seated = session.header().unwrap();
         assert_eq!(
-            (&seated["model"], &seated["effort"], &seated["fast"], &seated["autoEffort"]),
+            (&seated["model"], &seated["effort"], &seated["fast"], &seated["effortAuto"]),
             (&json!("claude-x"), &json!("high"), &json!(true), &json!(false))
         );
         assert_eq!(seated["modelParameters"], json!({ "verbosity": "low" }));
@@ -928,11 +928,16 @@ fn route_fields(header: &Header, route: &Route) -> HeaderChange {
     if let Some(fast) = route.get("fast") {
         set(&mut change, "fast", json!(fast == &Value::Bool(true)));
     }
-    if let Some(auto) = route.get("autoEffort") {
-        if auto == &Value::Bool(false) {
-            set(&mut change, "autoEffort", json!(false));
-        } else {
-            unset(&mut change, "autoEffort");
+    if let Some(mode) = mixdog_ai::effort::EffortAuto::read_explicit(route) {
+        set(&mut change, mixdog_ai::effort::EffortAuto::KEY, Value::Bool(mode.as_bool()));
+        unset(&mut change, mixdog_ai::effort::EffortAuto::LEGACY_KEY);
+    } else if route.contains_key(mixdog_ai::effort::EffortAuto::KEY) {
+        unset(&mut change, mixdog_ai::effort::EffortAuto::KEY);
+        unset(&mut change, mixdog_ai::effort::EffortAuto::LEGACY_KEY);
+    } else if route.contains_key(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+        match route.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY).and_then(Value::as_bool) {
+            Some(enabled) => set(&mut change, mixdog_ai::effort::EffortAuto::LEGACY_KEY, Value::Bool(enabled)),
+            None => unset(&mut change, mixdog_ai::effort::EffortAuto::LEGACY_KEY),
         }
     }
     if let Some(effort) = route.get("effort") {
@@ -990,6 +995,7 @@ impl SessionRouteAdapter {
         "model",
         "fast",
         "autoEffort",
+        "effortAuto",
         "effort",
         "effectiveEffort",
         "wireRoute",
@@ -1220,6 +1226,34 @@ impl SessionRouteAdapter {
             extra(header, &mut next);
             seen.store(true, std::sync::atomic::Ordering::SeqCst);
             next
+        }
+    }
+}
+
+#[cfg(test)]
+mod auto_effort_tests {
+    use super::*;
+    use mixdog_ai::effort::EffortAuto;
+
+    #[test]
+    fn explicit_effort_auto_survives_session_header_save_and_load_and_strips_legacy() {
+        let mut header: Header = json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "autoEffort": true }).as_object().cloned().unwrap();
+        for (label, state) in [("auto", EffortAuto::Auto), ("manual", EffortAuto::Manual)] {
+            let mut update = Route::new();
+            update.insert("provider".into(), json!("openai"));
+            update.insert("model".into(), json!("gpt-5"));
+            update.insert("effort".into(), json!("high"));
+            state.write_to(&mut update);
+
+            let change = route_fields(&header, &update);
+            header = applied(&header, &change);
+            assert_eq!(EffortAuto::read_explicit(&header), Some(state), "saved header preserves {label}");
+            assert!(header.get("autoEffort").is_none(), "writing effortAuto clears legacy autoEffort");
+
+            let loaded_off = super::super::new_route::record_route(&header, false).expect("record_route");
+            let loaded_on = super::super::new_route::record_route(&header, true).expect("record_route");
+            assert_eq!(EffortAuto::read_explicit(&loaded_off), Some(state), "loaded record_route (switch off) preserves {label}");
+            assert_eq!(EffortAuto::read_explicit(&loaded_on), Some(state), "loaded record_route (switch on) preserves {label}");
         }
     }
 }

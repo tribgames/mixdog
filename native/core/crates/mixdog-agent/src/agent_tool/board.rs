@@ -78,8 +78,7 @@ pub struct JobMeta {
     pub fast: Option<bool>,
     pub respawned: bool,
     pub resumed: bool,
-    /// `autoEffort: false`.
-    pub auto_effort_off: bool,
+    pub effort_auto: Option<mixdog_ai::effort::EffortAuto>,
 }
 
 /// Who started a job.

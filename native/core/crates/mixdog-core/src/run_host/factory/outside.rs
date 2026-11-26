@@ -261,6 +261,8 @@ pub struct OutsideAssembled {
     /// The session's compaction policy, over the window its header holds (the agent's own, once it reported one);
     /// `None` with automatic compaction off or no window known.
     pub compact: Option<mixdog_agent::boundary::CompactPolicy>,
+    /// The session's raw compaction settings, used to resolve policy dynamically for live windows and continuation rounds.
+    pub compact_settings: Option<mixdog_agent::boundary::CompactSettings>,
     /// The session's reading of its context: what the agent last reported it holds. `None` with no reading, or one
     /// a compaction left behind.
     pub context_tokens: Option<u64>,
@@ -322,8 +324,12 @@ pub type ToldResult = dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultM
 /// The conversation a session holds from before a turn, for an agent that starts without it.
 pub struct History {
     port: RunPort,
+    /// Live reader of the session's model context (all rows since last compaction except `turn_input.0`).
+    context: mixdog_core_session::session::run::ModelContext,
     rows: Vec<(ItemId, Value)>,
     input: (ItemId, Value),
+    /// The turn's original input row whose id `ModelContext::read` excludes; kept separate from `input` on continuation rounds.
+    turn_input: (ItemId, Value),
     /// Hidden rows committed right after `input` before handoff (e.g. sourced preloaded skill bodies) that must be
     /// preserved in a fresh-session compaction replacement for replay and future skill-update detection.
     after_input: Vec<(ItemId, Value)>,
@@ -335,6 +341,8 @@ pub struct History {
     /// summary a compaction of this turn stored in their place.
     held: Arc<std::sync::atomic::AtomicUsize>,
     budget_tokens: u64,
+    compact_settings: Option<mixdog_agent::boundary::CompactSettings>,
+    is_continuation: bool,
     clock: Arc<dyn Clock>,
     /// The session's reading of the agent's context and the trigger it reached, when it reached it.
     due: Option<(u64, u64)>,
@@ -347,6 +355,46 @@ fn due(policy: Option<&mixdog_agent::boundary::CompactPolicy>, context_tokens: O
     let (policy, used) = policy.zip(context_tokens)?;
     let trigger = policy.trigger_tokens.max(1);
     (used >= trigger).then_some((used, trigger))
+}
+
+fn header_positive_u64(header: &Header, key: &str) -> Option<u64> {
+    let n = header.get(key).and_then(Value::as_f64)?.floor();
+    (n.is_finite() && n >= 1.0).then_some(n as u64)
+}
+
+fn header_context_tokens(header: &Header) -> Option<u64> {
+    if header.get("lastContextTokensStaleAfterCompact") == Some(&Value::Bool(true)) {
+        return None;
+    }
+    header_positive_u64(header, "lastContextTokens")
+}
+
+fn resolve_policy_for_window(
+    settings: Option<&mixdog_agent::boundary::CompactSettings>,
+    effective_window: Option<u64>,
+) -> Option<mixdog_agent::boundary::CompactPolicy> {
+    let mut settings = settings?.clone();
+    if let Some(window) = effective_window.filter(|window| *window > 0) {
+        settings.context_window = Some(window);
+        if let Some(boundary) = settings.explicit_boundary.as_mut() {
+            *boundary = (*boundary).min(window);
+        }
+    }
+    mixdog_agent::boundary::CompactPolicy::resolve(&settings).filter(|policy| policy.boundary_tokens > 0)
+}
+
+fn header_window_policy(settings: Option<&mixdog_agent::boundary::CompactSettings>, header: &Header) -> Option<mixdog_agent::boundary::CompactPolicy> {
+    let mut settings = settings?.clone();
+    if let Some(window) = header_positive_u64(header, "contextWindow") {
+        settings.context_window = Some(window);
+    }
+    if let Some(boundary) = header_positive_u64(header, "compactBoundaryTokens") {
+        settings.explicit_boundary = Some(boundary);
+    }
+    if let Some(limit) = header_positive_u64(header, "autoCompactTokenLimit") {
+        settings.auto_limit = Some(limit);
+    }
+    mixdog_agent::boundary::CompactPolicy::resolve(&settings).filter(|policy| policy.boundary_tokens > 0)
 }
 
 impl History {
@@ -411,6 +459,49 @@ impl History {
         })
     }
 
+    /// Text of `message` for an ACP handover/compaction summary: carries no old image bytes, replacing each image
+    /// part with a short text mark naming what it was. Only tool-produced images suggest capturing or reading again;
+    /// user-attached images cannot be re-captured by the agent.
+    fn told_text(message: &mixdog_agent::message::AgentMessage, tool_name: Option<&str>) -> String {
+        use mixdog_core_api::domain::provider::Content;
+        use mixdog_core_api::domain::provider::ContentPart;
+        use mixdog_core_api::domain::provider::ImageSource;
+        let mark = |what: String| {
+            if message.role() == Role::Tool {
+                format!("[image omitted from summary: {what}; capture or read again if needed]")
+            } else {
+                format!("[image omitted from summary: {what}]")
+            }
+        };
+        match &message.message.content {
+            Content::Text(text) => text.to_string(),
+            Content::Parts(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text(text, _) if !text.is_empty() => Some(text.clone()),
+                    ContentPart::Image(source) => {
+                        let what = match (tool_name, source) {
+                            (Some(tool), ImageSource::Base64 { mime_type, .. }) if !mime_type.is_empty() => format!("{tool} ({mime_type})"),
+                            (Some(tool), _) => tool.to_owned(),
+                            (None, ImageSource::Base64 { mime_type, .. }) if !mime_type.is_empty() => mime_type.clone(),
+                            (None, _) => "image".to_owned(),
+                        };
+                        Some(mark(what))
+                    }
+                    ContentPart::File { mime_type, filename, text: None, .. } if mime_type.trim().to_ascii_lowercase().starts_with("image/") => {
+                        let what = filename.as_deref().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).unwrap_or_else(|| match tool_name {
+                            Some(tool) => format!("{tool} ({mime_type})"),
+                            None => mime_type.clone(),
+                        });
+                        Some(mark(what))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+
     /// `rows` as the text an agent reads: each row that says something or calls a tool, under who said it.
     fn told<'a>(rows: impl IntoIterator<Item = &'a Value>) -> Result<String, String> {
         let mut decoded = Vec::new();
@@ -428,7 +519,8 @@ impl History {
         }
         let mut text = Vec::new();
         for message in &decoded {
-            let said = message.text();
+            let name = (message.role() == Role::Tool).then(|| message.tool_call_id().and_then(|id| call_names.get(id).copied())).flatten();
+            let said = Self::told_text(message, name);
             let trimmed = mixdog_js::js_trim(&said);
             match message.role() {
                 Role::Assistant => {
@@ -449,7 +541,6 @@ impl History {
                     }
                 }
                 Role::Tool => {
-                    let name = message.tool_call_id().and_then(|id| call_names.get(id).copied());
                     if !trimmed.is_empty() || name.is_some() {
                         let heading = match name {
                             Some(name) => format!("## Tool result ({name})"),
@@ -493,6 +584,12 @@ impl History {
         self.due
     }
 
+    /// The session's automatic compaction trigger (in tokens) when running under `effective_window`, or `None` when
+    /// automatic compaction is off.
+    pub fn auto_compaction_trigger(&self, effective_window: u64) -> Option<u64> {
+        resolve_policy_for_window(self.compact_settings.as_ref(), Some(effective_window)).map(|policy| policy.trigger_tokens.max(1))
+    }
+
     /// The session's automatic compaction, for a context the agent holds: the header stops naming the agent's session,
     /// which holds what the summary replaces, and the stored conversation is summarized as [`Self::hand_over`]
     /// summarizes it, whatever it holds since an earlier summary (the agent's own turns are in it). The session is left
@@ -500,41 +597,87 @@ impl History {
     /// header that still names the session it replaced. `None` for a session whose stored context is empty; an error
     /// may come after the session was left.
     pub async fn compact(&self) -> Result<Option<String>, String> {
+        if self.is_continuation {
+            let live = self.splice_turn_input(&self.rows);
+            return self.compact_live_rows(&live, self.budget_tokens).await;
+        }
         if self.told_rows().iter().all(|(_, row)| row.get("role").and_then(Value::as_str) == Some("system")) {
             return Ok(None);
         }
+        self.unset_agent_session().await?;
+        self.summarize().await.map(Some)
+    }
+
+    /// Compacts the live in-progress conversation mid-turn (including this turn's input and every assistant/tool row
+    /// committed during the turn), leaves the agent's session behind, stores Mixdog's summary as the session's context,
+    /// and returns it as text for the fresh agent session.
+    pub async fn compact_mid_turn(&self, effective_window: Option<u64>) -> Result<Option<String>, String> {
+        let live_rows = self.context.read().await.map_err(|error| format!("the live conversation could not be read for mid-turn compaction: {error:?}"))?;
+        let full = self.splice_turn_input(&live_rows);
+        let budget = resolve_policy_for_window(self.compact_settings.as_ref(), effective_window)
+            .map(|policy| policy.target_budget())
+            .unwrap_or(self.budget_tokens)
+            .max(super::super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS);
+        self.compact_live_rows(&full, budget).await
+    }
+
+    fn splice_turn_input(&self, live_rows: &[(ItemId, Value)]) -> Vec<(ItemId, Value)> {
+        let at = self.held.load(Ordering::SeqCst).min(live_rows.len());
+        let mut full = Vec::with_capacity(live_rows.len() + 1);
+        full.extend_from_slice(&live_rows[..at]);
+        full.push(self.turn_input.clone());
+        full.extend_from_slice(&live_rows[at..]);
+        full
+    }
+
+    async fn unset_agent_session(&self) -> Result<(), String> {
         let unset = vec![mixdog_core_session::session::turn_ops::AGENT_SESSION.to_owned()];
         let left = mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset, patch: Default::default() };
-        self.port.save_header(left).await.map_err(|error| format!("the agent's session could not be left behind: {error:?}"))?;
-        self.summarize().await.map(Some)
+        self.port.save_header(left).await.map_err(|error| format!("the agent's session could not be left behind: {error:?}"))
+    }
+
+    async fn compact_live_rows(&self, full: &[(ItemId, Value)], budget_tokens: u64) -> Result<Option<String>, String> {
+        if full.iter().all(|(_, row)| row.get("role").and_then(Value::as_str) == Some("system")) {
+            return Ok(None);
+        }
+        self.unset_agent_session().await?;
+        self.summarize_rows(full, &self.turn_input, budget_tokens, true).await.map(Some)
     }
 
     /// Summarizes the stored conversation with the session's own compactor, stores the result as the session's
     /// context and returns it as text.
     async fn summarize(&self) -> Result<String, String> {
-        let told = self.told_rows();
+        self.summarize_rows(self.told_rows(), &self.input, self.budget_tokens, false).await
+    }
+
+    async fn summarize_rows(
+        &self,
+        told: &[(ItemId, Value)],
+        anchor_input: &(ItemId, Value),
+        budget_tokens: u64,
+        include_input_in_text: bool,
+    ) -> Result<String, String> {
         let rows: Vec<Value> = told.iter().map(|(_, row)| row.clone()).collect();
-        let compacted = self.port.compact_for_heir(&rows, self.budget_tokens).await.map_err(|error| error.to_string())?;
+        let compacted = self.port.compact_for_heir(&rows, budget_tokens).await.map_err(|error| error.to_string())?;
         let message_id = |row: &Value| message_of(row).ok().and_then(|message| message.message_id);
         let non_system: Vec<Value> = compacted
             .ok_or_else(|| "this session has no compaction to summarize it with".to_owned())?
             .into_iter()
             .filter(|row| row.get("role").and_then(Value::as_str) != Some("system"))
             .collect();
-        let input_id = message_id(&self.input.1);
+        let input_id = message_id(&anchor_input.1);
         let input_pos = non_system.iter().position(|row| match &input_id {
             Some(id) => message_id(row).as_deref() == Some(id.as_str()),
-            None => !self.taken_over.is_empty() && row == &self.input.1,
+            None => (include_input_in_text || !self.taken_over.is_empty()) && row == &anchor_input.1,
         });
-        // Rows from before the turn stay ahead of `self.input`; retained loop tool rows from this turn stay after it.
+        // Rows from before the turn stay ahead of `anchor_input`; retained tool/reply rows from this turn stay after it.
         let (before, after): (Vec<Value>, Vec<Value>) = match input_pos {
             Some(pos) => (non_system[..pos].to_vec(), non_system[pos + 1..].to_vec()),
             None => {
-                let after_input = self
-                    .taken_over
+                let after_input = told
                     .iter()
-                    .position(|(item, row)| item == &self.input.0 || input_id.as_deref().is_some_and(|id| message_id(row).as_deref() == Some(id)))
-                    .map(|pos| &self.taken_over[pos + 1..])
+                    .position(|(item, row)| item == &anchor_input.0 || input_id.as_deref().is_some_and(|id| message_id(row).as_deref() == Some(id)))
+                    .map(|pos| &told[pos + 1..])
                     .unwrap_or(&[]);
                 let after_ids: std::collections::HashSet<String> = after_input.iter().filter_map(|(_, row)| message_id(row)).collect();
                 let after_calls: std::collections::HashSet<String> = after_input
@@ -550,27 +693,35 @@ impl History {
                 });
                 match split {
                     Some(pos) => (non_system[..pos].to_vec(), non_system[pos..].to_vec()),
-                    None => (non_system, Vec::new()),
+                    None => (non_system.clone(), Vec::new()),
                 }
             }
         };
-        let text = Self::told(before.iter().chain(after.iter()))?;
+        let text = if include_input_in_text { Self::told(non_system.iter())? } else { Self::told(before.iter().chain(after.iter()))? };
         let mut replacement = Vec::with_capacity(before.len() + 1 + after.len() + self.after_input.len());
         let item_of: HashMap<String, ItemId> = told.iter().filter_map(|(item, row)| Some((message_id(row)?, item.clone()))).collect();
-        let push_rows = |out: &mut Vec<(ItemId, Value)>, slice: &[Value]| {
+        let mut present_ids: std::collections::HashSet<ItemId> = std::collections::HashSet::new();
+        let push_rows = |out: &mut Vec<(ItemId, Value)>, present: &mut std::collections::HashSet<ItemId>, slice: &[Value]| {
             for row in slice {
                 let id = message_id(row);
-                out.push((id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()));
+                let item_id = id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id);
+                present.insert(item_id.clone());
+                out.push((item_id, row.clone()));
             }
         };
-        push_rows(&mut replacement, &before);
+        push_rows(&mut replacement, &mut present_ids, &before);
         // The calls the summary took out leave the session's context: the ids of the calls that enter it from here on
         // are told apart from theirs.
         self.port.calls_left(self.port.call_epoch() + 1);
-        replacement.push(self.input.clone());
-        push_rows(&mut replacement, &after);
-        replacement.extend(self.after_input.iter().cloned());
-        let kept_count = if self.taken_over.is_empty() { before.len() + after.len() } else { replacement.len() };
+        present_ids.insert(anchor_input.0.clone());
+        replacement.push(anchor_input.clone());
+        push_rows(&mut replacement, &mut present_ids, &after);
+        for (iid, body) in &self.after_input {
+            if present_ids.insert(iid.clone()) {
+                replacement.push((iid.clone(), body.clone()));
+            }
+        }
+        let kept_count = if include_input_in_text || !self.taken_over.is_empty() { replacement.len() } else { before.len() + after.len() };
         let compaction = Compaction { replacement, at: self.clock.now_ms(), dropped_count: rows.len().saturating_sub(kept_count) as u64, dropped: None };
         self.port.compacted(compaction).await.map_err(|error| format!("the summary could not be stored: {error:?}"))?;
         self.held.store(before.len(), Ordering::SeqCst);
@@ -792,6 +943,7 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
         repeat,
         handoff_budget_tokens,
         compact,
+        compact_settings,
         context_tokens,
         limits,
         skills,
@@ -998,14 +1150,19 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
     let end_port = port.closing();
     let report = Arc::new(OutsideReport::default());
     let preloaded_ids: std::collections::HashSet<ItemId> = committed_after_input.iter().map(|(iid, _)| iid.clone()).collect();
+    let turn_input = (input_item.clone(), input_body.clone());
     let mut initial_history = Some(History {
         port: port.clone(),
+        context: redactor.clone(),
         rows: stored_ids.into_iter().zip(prior).collect(),
         input: (input_item, input_body),
-        after_input: committed_after_input,
+        turn_input: turn_input.clone(),
+        after_input: committed_after_input.clone(),
         taken_over: taken_over.unwrap_or_default(),
         held: held.clone(),
         budget_tokens: handoff_budget_tokens,
+        compact_settings: compact_settings.clone(),
+        is_continuation: false,
         clock: clock.clone(),
         due: due(compact.as_ref(), context_tokens),
     });
@@ -1024,17 +1181,29 @@ pub(super) async fn drive_outside(outside: Outside) -> OutsideOutcome {
         }
         let history = match initial_history.take() {
             Some(history) => history,
-            None => History {
-                port: port.clone(),
-                rows: conversation_after(&redactor).await.unwrap_or_default(),
-                input: (new_item_id(), current_input.clone()),
-                after_input: Vec::new(),
-                taken_over: Vec::new(),
-                held: held.clone(),
-                budget_tokens: handoff_budget_tokens,
-                clock: clock.clone(),
-                due: None,
-            },
+            None => {
+                let round_policy = header_window_policy(compact_settings.as_ref(), &round_header);
+                let round_context_tokens = header_context_tokens(&round_header);
+                let round_budget = round_policy
+                    .as_ref()
+                    .map_or(handoff_budget_tokens, |policy| policy.target_budget())
+                    .max(super::super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS);
+                History {
+                    port: port.clone(),
+                    context: redactor.clone(),
+                    rows: conversation_after(&redactor).await.unwrap_or_default(),
+                    input: (new_item_id(), current_input.clone()),
+                    turn_input: turn_input.clone(),
+                    after_input: committed_after_input.clone(),
+                    taken_over: Vec::new(),
+                    held: held.clone(),
+                    budget_tokens: round_budget,
+                    compact_settings: compact_settings.clone(),
+                    is_continuation: true,
+                    clock: clock.clone(),
+                    due: due(round_policy.as_ref(), round_context_tokens),
+                }
+            }
         };
         let prompt_input = match tail_reminder.text(&model).filter(|_| prompts_turn) {
             Some(tail) => append_text_to_input(&current_input, &tail),
@@ -1630,5 +1799,46 @@ mod tests {
         assert!(awaiting());
         observer.event(RunEvent::Stage(Stage::ApprovalWait { waiting: false }));
         assert!(!awaiting());
+    }
+
+    #[test]
+    fn told_replaces_images_with_text_marks_instead_of_carrying_image_bytes() {
+        use mixdog_agent::message::AgentMessage;
+        use mixdog_agent::message::ToolKind;
+        use mixdog_agent::message_row::row_of;
+        use mixdog_core_api::domain::provider::BinarySource;
+        use mixdog_core_api::domain::provider::Content;
+        use mixdog_core_api::domain::provider::ContentPart;
+        use mixdog_core_api::domain::provider::ImageSource;
+        use mixdog_core_api::domain::provider::ToolCall;
+
+        let user_msg = row_of(&AgentMessage::user_content(Content::Parts(vec![
+            ContentPart::Text("Check this screenshot".into(), None),
+            ContentPart::File {
+                source: BinarySource::AttachmentRef("deadbeef".into()),
+                mime_type: "image/png".into(),
+                filename: Some("screen.png".into()),
+                text: None,
+            },
+        ])));
+        let tool_call =
+            row_of(&AgentMessage::assistant("", vec![ToolCall { id: "call-1".into(), name: "computer".into(), arguments: json!({}), native_type: None }]));
+        let tool_res = row_of(&AgentMessage::tool_result(
+            "call-1",
+            Content::Parts(vec![ContentPart::Image(ImageSource::Base64 {
+                data: "QUJDREVGRw==".into(),
+                mime_type: "image/jpeg".into(),
+                width: Some(1456),
+                height: Some(819),
+            })]),
+            ToolKind::Normal,
+        ));
+
+        let summary = History::told([&user_msg, &tool_call, &tool_res]).expect("summary text");
+        assert!(summary.contains("Check this screenshot"), "{summary}");
+        assert!(summary.contains("[image omitted from summary: screen.png]"), "{summary}");
+        assert!(!summary.contains("screen.png; capture or read again"), "user-attached image must not tell the agent to capture or read again: {summary}");
+        assert!(summary.contains("[image omitted from summary: computer (image/jpeg); capture or read again if needed]"), "{summary}");
+        assert!(!summary.contains("QUJDREVGRw=="), "raw image base64 must never appear in handover summary: {summary}");
     }
 }

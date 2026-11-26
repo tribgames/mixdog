@@ -185,18 +185,23 @@ pub(crate) struct SessionState {
 /// A route section update over the held one: a field the update states replaces it (the section is published whole, so
 /// a producer that knows one field leaves the others).
 fn merge_route(held: ThreadRoute, new: ThreadRoute) -> ThreadRoute {
+    let route_changed = (new.provider.is_some() && new.provider != held.provider)
+        || (new.model.is_some() && new.model != held.model)
+        || new.effort_auto == Some(false)
+        || new.auto_effort == Some(false);
     ThreadRoute {
         session_provider: new.session_provider.or(held.session_provider),
         session_model: new.session_model.or(held.session_model),
         fast: new.fast.or(held.fast),
         fast_capable: new.fast_capable.or(held.fast_capable),
         auto_effort: new.auto_effort.or(held.auto_effort),
+        effort_auto: new.effort_auto.or(held.effort_auto),
         model_parameters: new.model_parameters.or(held.model_parameters),
         selected_context_window: new.selected_context_window.or(held.selected_context_window),
         effort: new.effort.or(held.effort),
         provider: new.provider.or(held.provider),
         model: new.model.or(held.model),
-        turn_effort: new.turn_effort.or(held.turn_effort),
+        turn_effort: if route_changed { new.turn_effort } else { new.turn_effort.or(held.turn_effort) },
         effort_options: new.effort_options.or(held.effort_options),
         cwd: new.cwd.or(held.cwd),
         session_forked_from: new.session_forked_from.or(held.session_forked_from),
@@ -437,6 +442,15 @@ mod tests {
         state.apply(&Change::Section(Section::TurnEffort(None)), None);
         assert_eq!(state.route().turn_effort, None);
     }
+
+    #[test]
+    fn route_change_or_auto_opt_out_clears_stale_turn_effort_and_absent_auto_stays_none() {
+        let mut state = SessionState::new(10);
+        assert_eq!(state.route().effort_auto, None);
+        state.apply(&Change::Section(Section::TurnEffort(Some("high".into()))), None);
+        state.apply(&Change::Section(Section::Route(ThreadRoute { effort_auto: Some(false), effort: Some("low".into()), ..ThreadRoute::default() })), None);
+        assert_eq!((state.route().turn_effort, state.route().effort_auto), (None, Some(false)));
+    }
 }
 
 impl SessionState {
@@ -625,6 +639,15 @@ impl SessionState {
         {
             route.effort = None;
         }
+        if !pick_held
+            && ["model", "provider", "autoEffort", "effortAuto", "pendingRoute"]
+                .iter()
+                .any(|k| change.set.contains_key(*k) || change.unset.iter().any(|u| u == k))
+            && let Some(route) = self.sections.route.as_mut()
+        {
+            route.auto_effort = None;
+            route.effort_auto = None;
+        }
         if hop && let Some(route) = self.sections.route.as_mut() {
             route.session_provider = None;
             route.session_model = None;
@@ -633,6 +656,7 @@ impl SessionState {
             route.fast = None;
             route.fast_capable = None;
             route.auto_effort = None;
+            route.effort_auto = None;
             route.model_parameters = None;
             route.selected_context_window = None;
             if !pick_held {
@@ -916,7 +940,8 @@ impl SessionState {
             session_model: header_text("model"),
             fast: Some(selected.get("fast") == Some(&Value::Bool(true))),
             fast_capable: Some(false),
-            auto_effort: Some(selected.get("autoEffort") != Some(&Value::Bool(false))),
+            auto_effort: None,
+            effort_auto: mixdog_ai::effort::EffortAuto::read_explicit(selected).map(mixdog_ai::effort::EffortAuto::as_bool),
             model_parameters: Some(model_parameters),
             selected_context_window: selected_window,
             effort: mixdog_core_ports::ports::route::facade_effort(selected).and_then(Value::as_str).map(str::to_owned),

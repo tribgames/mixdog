@@ -597,8 +597,8 @@ fn meta_json(meta: &JobMeta) -> Vec<(String, Value)> {
     put("model", meta.model.as_ref());
     put("effort", meta.effort.as_ref());
     out.push(("fast".to_owned(), Value::Bool(meta.fast == Some(true))));
-    if meta.auto_effort_off {
-        out.push(("autoEffort".to_owned(), Value::Bool(false)));
+    if let Some(mode) = meta.effort_auto {
+        out.push((mixdog_ai::effort::EffortAuto::KEY.to_owned(), Value::Bool(mode.as_bool())));
     }
     out
 }

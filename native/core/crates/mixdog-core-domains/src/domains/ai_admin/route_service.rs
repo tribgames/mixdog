@@ -166,6 +166,9 @@ impl RouteService {
         validate_requested_model_selector(config, &requested)?;
         if !requested.contains_key("effort") && !truthy(requested.get("provider")) && !truthy(requested.get("model")) && live.contains_key("effort") {
             requested.insert("effort".into(), live["effort"].clone());
+            if !requested.contains_key("effortAuto") && !requested.contains_key("autoEffort") {
+                mixdog_ai::effort::EffortAuto::carry_field_map(live, &mut requested);
+            }
         }
         if !truthy(requested.get("provider")) && truthy(requested.get("model")) && find_preset(config, requested.get("model")).is_none() {
             requested.insert("provider".into(), live.get("provider").cloned().unwrap_or(Value::Null));
@@ -543,12 +546,12 @@ impl RouteService {
     /// `setEffort(value, { sessionOnly })`: the live route afterwards.
     pub async fn set_effort(&self, thread: &ThreadId, value: &Value, session_only: bool) -> Result<Value, String> {
         let normalized = normalize_effort_input(Some(value))?;
-        // An explicit level is the user's choice for this route: Auto effort would replace it on
-        // the next turn, so the pick turns the route's Auto off.
+        let implied = mixdog_ai::effort::EffortAuto::implied_by_effort(Some(value));
+        // An explicit level turns the route's Auto off; `"auto"` turns it on.
         let mut route = self.tuning_route(thread).await?;
         route.insert("effort".into(), normalized.clone().map_or(Value::Null, Value::from));
-        if normalized.is_some() {
-            route.insert("autoEffort".into(), Value::Bool(false));
+        if let Some(mode) = implied {
+            mode.write_to(&mut route);
         }
         self.writer.set_route_state(thread, route);
         let route = self.writer.route(thread);

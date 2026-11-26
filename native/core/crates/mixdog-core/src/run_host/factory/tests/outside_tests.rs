@@ -53,6 +53,14 @@ struct Agent {
     /// It asks for the conversation it starts without, as an agent with no session of its own does, and keeps the answer.
     hands_over: bool,
     hands_over_results: Mutex<Vec<Result<Option<String>, String>>>,
+    /// Records `turn.history.compaction_due()` observed on each round of a turn.
+    seen_due: Mutex<Vec<Option<(u64, u64)>>>,
+    /// When set, writes `(contextWindow, lastContextTokens)` to the header on round 1.
+    round1_header_usage: Option<(u64, u64)>,
+    /// When set, calls `turn.history.auto_compaction_trigger(window)` and `turn.history.compact_mid_turn(Some(window))`.
+    mid_turn_compact_window: Option<u64>,
+    seen_auto_triggers: Mutex<Vec<Option<u64>>>,
+    mid_turn_compacted: Mutex<Vec<Result<Option<String>, String>>>,
 }
 
 /// The header key the stand-in agent's own session is kept under.
@@ -131,6 +139,21 @@ impl OutsideAgents for Agent {
         if prompt_text(&turn.input).starts_with("compact") {
             let made = turn.history.compact().await;
             lock(&self.compacted).push(made);
+        }
+        lock(&self.seen_due).push(turn.history.compaction_due());
+        if let Some((window, used)) = self.round1_header_usage
+            && lock(&self.turns).len() == 1
+        {
+            let mut set = serde_json::Map::new();
+            set.insert("contextWindow".into(), json!(window));
+            set.insert("lastContextTokens".into(), json!(used));
+            set.insert("lastContextTokensStaleAfterCompact".into(), json!(false));
+            let _ = turn.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }).await;
+        }
+        if let Some(window) = self.mid_turn_compact_window {
+            lock(&self.seen_auto_triggers).push(turn.history.auto_compaction_trigger(window));
+            let made = turn.history.compact_mid_turn(Some(window)).await;
+            lock(&self.mid_turn_compacted).push(made);
         }
         if self.hands_over {
             let handed = turn.history.hand_over().await;
@@ -1352,4 +1375,138 @@ async fn outside_turn_continuation_header_refresh_failure_propagates_error_witho
     let cancelled = RefreshParts { result: Mutex::new(None), seen_probe: Mutex::new(None) };
     let interrupted = super::super::outside::refresh_continuation_header(&cancelled, &ThreadId::from("thr_refresh"), &stale, &cancel).await;
     assert!(matches!(interrupted, Err(RunOutcome::Interrupted)), "expected Interrupted, got {interrupted:?}");
+}
+
+/// `ConfigSeams` mirroring `run_seams::compact_settings_with` by populating `CompactSettings` from the session header.
+struct HeaderCompactConfig;
+
+impl crate::run_host::host_seams::ConfigSeams for HeaderCompactConfig {
+    fn hidden_agent(&self, agent: Option<&str>) -> bool {
+        crate::run_host::host_seams::ConfigSeams::hidden_agent(&Config, agent)
+    }
+    fn synced_compaction(&self, header: &mixdog_store::schema::record::Header, install: bool) -> Option<Value> {
+        crate::run_host::host_seams::ConfigSeams::synced_compaction(&Config, header, install)
+    }
+    fn route_config(&self, header: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+        crate::run_host::host_seams::ConfigSeams::route_config(&Config, header)
+    }
+    fn settings_changes(&self, _: &ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        None
+    }
+    fn run_settings(&self, thread: &ThreadId, header: &mixdog_store::schema::record::Header) -> crate::run_host::assemble::RunSettings {
+        let mut settings = crate::run_host::host_seams::ConfigSeams::run_settings(&Config, thread, header);
+        let u64_of = |key: &str| header.get(key).and_then(Value::as_u64);
+        settings.compact = Some(mixdog_agent::boundary::CompactSettings {
+            auto: true,
+            context_window: u64_of("contextWindow"),
+            explicit_boundary: u64_of("compactBoundaryTokens"),
+            auto_limit: u64_of("autoCompactTokenLimit"),
+            token_calibration: 1.0,
+            ..Default::default()
+        });
+        settings
+    }
+    fn stored_instruction_files(&self) -> Option<Value> {
+        None
+    }
+    fn response_language(&self) -> Option<(String, String)> {
+        None
+    }
+}
+
+/// Continuation rounds inside `drive_outside` must compute `History::compaction_due()` from the refreshed session
+/// header instead of passing `due: None`, so context pressure accumulated during round 1 triggers compaction before
+/// round 2 runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outside_turn_continuation_round_computes_compaction_due_from_refreshed_header() {
+    use mixdog_tools::state::todo::{TodoList, TodoPhase, TodoStatus, TodoTask};
+
+    let agent = Arc::new(Agent { round1_header_usage: Some((256_000, 256_000)), ..Agent::default() });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let world = turn_world_at(
+        scripted(&[]),
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(HeaderCompactConfig),
+        false,
+        None,
+    )
+    .await;
+    let (id, handle) = started_thread(&world, json!({ "provider": "outside", "model": "default" })).await;
+    *lock(&world.rig.todos.0) = TodoList {
+        phases: vec![TodoPhase {
+            name: "Work".to_owned(),
+            tasks: vec![TodoTask { content: "finish task".to_owned(), status: TodoStatus::Pending, note: None }],
+        }],
+        updated_at_ms: 1,
+    };
+
+    start_turn(&id, &handle, "do the work").await;
+    until(&world, &handle, "continuation round with compaction due", || lock(&agent.turns).len() >= 2).await;
+
+    let seen_due = lock(&agent.seen_due).clone();
+    assert!(seen_due.len() >= 2, "expected at least 2 rounds, got {seen_due:?}");
+    assert_eq!(seen_due[0], None, "round 1 starts with no prior usage");
+    assert_eq!(seen_due[1], Some((256_000, 256_000)), "round 2 must receive compaction_due from refreshed header");
+}
+
+/// `History::auto_compaction_trigger` clamps a stale 1M `compactBoundaryTokens` to the live capped `effective_window`,
+/// and `History::compact_mid_turn` summarizes live `ModelContext` rows, leaves `agentSession` behind first, stores the
+/// compaction replacement, and resets `lastContextTokens` to 0.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outside_turn_mid_turn_compaction_compacts_live_context_and_clamps_stale_boundary() {
+    const HELD: &str = mixdog_core_session::session::turn_ops::AGENT_SESSION;
+    let agent = Arc::new(Agent { mid_turn_compact_window: Some(256_000), ..Agent::default() });
+    let header = json!({
+        "provider": "outside",
+        "model": "default",
+        "contextWindow": 1_048_576,
+        "compactBoundaryTokens": 1_048_576,
+        "lastContextTokens": 210_000,
+        HELD: { "agent": "outside", "sessionId": "s-mid" },
+    });
+    OUTSIDE.with(|slot| *slot.borrow_mut() = Some(agent.clone()));
+    let world = turn_world_at(
+        scripted(&[]),
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        None,
+        Arc::new(MockFileService::default()),
+        false,
+        Arc::new(Fixed),
+        Arc::new(HeaderCompactConfig),
+        false,
+        None,
+    )
+    .await;
+    let (id, handle) = started_thread(&world, header).await;
+    *lock(&world.rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "mid-turn summary body" })]);
+
+    start_turn(&id, &handle, "long turn work").await;
+    until(&world, &handle, "mid-turn compaction", || !lock(&agent.mid_turn_compacted).is_empty()).await;
+
+    let triggers = lock(&agent.seen_auto_triggers).clone();
+    assert_eq!(triggers, vec![Some(256_000)], "stale 1M explicit boundary must be clamped to effective_window=256k");
+
+    let compacted = lock(&agent.mid_turn_compacted).clone();
+    assert!(matches!(compacted.as_slice(), [Ok(Some(summary))] if summary.contains("mid-turn summary body")), "expected mid-turn summary, got {compacted:?}");
+    let live_header = handle.live_header().header();
+    assert!(!live_header.contains_key(HELD), "agentSession must be unset on mid-turn compaction");
+    assert_eq!(live_header.get("lastContextTokens"), Some(&json!(0)), "lastContextTokens must be reset to 0");
+
+    let records = world.rig.store.records(&id);
+    let left = records.iter().position(
+        |(_, record)| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.unset.iter().any(|key| key == HELD))),
+    );
+    let stored = records.iter().position(|(_, record)| matches!(record, Record::Compacted(_)));
+    let (left, stored) = (left.expect("agentSession unset write"), stored.expect("Record::Compacted write"));
+    assert!(left < stored, "agentSession must be unset before Record::Compacted is committed");
 }

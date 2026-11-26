@@ -188,6 +188,7 @@ fn set_or_delete(target: &mut Doc, key: &str, value: Option<Value>) {
 /// `canonicalizeAgentStorage(value)`.
 pub(super) fn canonical_agent_storage(value: &Doc, catalog: &[Value], now_ms: i64) -> Doc {
     let mut next = value.clone();
+    super::canonical::convert_stored_routes(&mut next);
     super::agent_routes::canonicalize(&mut next);
     let retired_presets: Vec<String> = next
         .get("presets")

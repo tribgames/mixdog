@@ -654,7 +654,13 @@ impl Inner {
     fn resume_params(&self, thread_id: &ThreadId, window: &ResumeWindow) -> Json {
         let s = self.lock();
         let resume_from = match (s.store.threads.get(thread_id.as_str()), s.subs.iter().find(|(t, _)| t == thread_id.as_str())) {
-            (Some(prev), Some((_, pw))) => Some(ThreadResumePosition { epoch: prev.feed.epoch.clone(), seq: prev.feed.seq, window: pw.clone() }),
+            (Some(prev), Some((_, pw))) => Some(ThreadResumePosition {
+                epoch: prev.feed.epoch.clone(),
+                seq: prev.feed.seq,
+                window: pw.clone(),
+                subscription_id: None,
+                window_version: None,
+            }),
             _ => None,
         };
         to_json(&ThreadResumeParams { thread_id: thread_id.clone(), window: window.clone(), resume_from, positioned_window: None })

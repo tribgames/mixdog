@@ -11,7 +11,8 @@ use std::collections::HashSet;
 
 use super::dispatch::IdleOutcome;
 
-/// `IDLE_RELEASE_MS`.
+/// `IDLE_RELEASE_MS`: how long an idle agent waits before its runtime is parked.
+/// Also read by `apps/desktop/scripts/dev-isolated.mjs` as the idle backstop for isolated capture instances.
 pub const IDLE_RELEASE_MS: f64 = 420_000.0;
 
 #[derive(Default)]
@@ -59,17 +60,22 @@ impl IdleRelease {
 
     /// The end of `releaseDue`: a parked agent is remembered; one whose session was deleted is done with; any other
     /// (busy, undelivered, failed) is tried again one period later while its row is still idle and nothing armed it
-    /// meanwhile.
-    pub fn settled(&mut self, session: &str, outcome: &IdleOutcome, still_idle: bool, now: f64) {
+    /// meanwhile. `true` for a park that failed while the row is still idle: the agent's external process is let go of
+    /// where it is idle, so a park that keeps failing never holds it.
+    pub fn settled(&mut self, session: &str, outcome: &IdleOutcome, still_idle: bool, now: f64) -> bool {
         match outcome {
             IdleOutcome::Parked => {
                 self.parked.insert(session.to_owned());
+                false
             }
-            IdleOutcome::Gone => {}
-            _ if still_idle && !self.due.contains_key(session) => {
-                self.due.insert(session.to_owned(), now + IDLE_RELEASE_MS);
+            IdleOutcome::Gone => false,
+            _ if still_idle => {
+                if !self.due.contains_key(session) {
+                    self.due.insert(session.to_owned(), now + IDLE_RELEASE_MS);
+                }
+                true
             }
-            _ => {}
+            _ => false,
         }
     }
 
@@ -143,5 +149,25 @@ mod tests {
         release.check(&idle(&[("busy", 0.0), ("parked", 1_050_000.0)]), 1_100_000.0);
         assert_eq!(release.take_due(1_470_000.0).as_deref(), Some("busy"));
         assert_eq!(release.take_due(1_470_000.0).as_deref(), Some("parked"));
+    }
+
+    /// A park that fails while the row is still idle lets go of the agent's process every time it fails, and is tried
+    /// again a period later; parked, gone, or a row no longer idle keeps it.
+    #[test]
+    fn a_park_that_fails_while_idle_lets_go_of_the_agents_process_and_is_tried_again() {
+        let mut release = IdleRelease::default();
+        let rows = idle(&[("busy", 0.0), ("undelivered", 0.0), ("failed", 0.0)]);
+        release.check(&rows, 420_000.0);
+        while release.take_due(420_000.0).is_some() {}
+        for now in [420_000.0, 840_000.0, 1_260_000.0] {
+            assert!(release.settled("busy", &IdleOutcome::Busy, true, now));
+            assert!(release.settled("undelivered", &IdleOutcome::Undelivered, true, now));
+            assert!(release.settled("failed", &IdleOutcome::Failed { reason: Some("boom".into()) }, true, now));
+            assert_eq!(release.next_due(), Some(now + IDLE_RELEASE_MS));
+            while release.take_due(now + IDLE_RELEASE_MS).is_some() {}
+        }
+        assert!(!release.settled("left", &IdleOutcome::Failed { reason: None }, false, 1_680_000.0));
+        assert!(!release.settled("parked", &IdleOutcome::Parked, true, 1_680_000.0));
+        assert!(!release.settled("gone", &IdleOutcome::Gone, true, 1_680_000.0));
     }
 }

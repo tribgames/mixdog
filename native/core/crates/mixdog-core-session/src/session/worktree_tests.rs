@@ -743,7 +743,7 @@ async fn a_confirmed_large_checkout_is_made() {
     assert_eq!(refused.code(), Some(mixdog_scm::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM));
     assert!(ops.create_for_session(&project, scope, "feat", None, true, &cancel).await.is_ok(), "made once confirmed");
     let branch = TxScope { session: "s1", tx_id: "tx2" };
-    let resolved = ops.resolve_branch(&repo.to_string_lossy(), "side", true, branch, true, &cancel).await;
+    let resolved = ops.resolve_branch(&repo.to_string_lossy(), "side", true, None, branch, true, &cancel).await;
     assert!(resolved.is_ok_and(|resolved| resolved.entry.is_some()), "a new branch's worktree made once confirmed");
 }
 /// The agent tool's spawn admission is this runtime's gate: a spawn for a Lead whose workspace is
@@ -764,4 +764,346 @@ fn the_spawn_admission_is_the_workspace_gate() {
     assert_eq!(rig.ws.workspace_cwd_lock(&owners), None);
     rig.ws.gate().set_workspace_cwd_lock("lead", Some("/wt"));
     assert_eq!(rig.ws.workspace_cwd_lock(&owners).as_deref(), Some("/wt"));
+}
+
+#[cfg(test)]
+mod raw_git_worktree_guards {
+    use std::collections::HashSet;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::mock::MockApprovalGate;
+    use mixdog_core_api::domain::mock::MockFileService;
+    use mixdog_core_api::domain::mock::MockProgress;
+    use mixdog_core_api::domain::tool::SurfaceKind;
+    use mixdog_core_api::domain::tool::Tool;
+    use mixdog_core_api::domain::tool::ToolContext;
+    use mixdog_core_api::domain::tool::ToolIo;
+    use mixdog_core_api::domain::tool::ToolPart;
+    use mixdog_protocol::ThreadId;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_protocol::TurnId;
+    use mixdog_tools::git::GitTool;
+    use mixdog_tools::git::WorktreeServices;
+
+    use super::*;
+
+    struct MultiSessionState {
+        sessions: HashMap<String, HostState>,
+    }
+
+    struct MultiSessionHost {
+        state: Arc<Mutex<MultiSessionState>>,
+    }
+
+    #[async_trait]
+    impl WorkspaceHost for MultiSessionHost {
+        async fn is_lead(&self, session_id: &str) -> bool {
+            self.state.lock().unwrap().sessions.contains_key(session_id)
+        }
+
+        async fn attended(&self, session_id: &str) -> bool {
+            self.state.lock().unwrap().sessions.get(session_id).is_some_and(|s| !s.unattended)
+        }
+
+        fn session(&self, session_id: &str) -> Option<SessionView> {
+            let state = self.state.lock().unwrap();
+            state.sessions.get(session_id).map(|s| SessionView {
+                cwd: Some(s.cwd.clone()),
+                runtime_cwd: s.cwd.clone(),
+                workspace: s.workspace.clone(),
+                desktop_project: None,
+            })
+        }
+
+        async fn has_conversation(&self, _session_id: &str) -> Result<bool, ScmFailure> {
+            Ok(false)
+        }
+
+        async fn ensure_session(&self, _session_id: &str) -> Result<(), ScmFailure> {
+            Ok(())
+        }
+
+        fn set_workspace(&self, session_id: &str, workspace: Option<Value>) {
+            if let Some(s) = self.state.lock().unwrap().sessions.get_mut(session_id) {
+                s.workspace = workspace;
+            }
+        }
+
+        async fn activity(&self, session_id: &str) -> LeadActivity {
+            self.state
+                .lock()
+                .unwrap()
+                .sessions
+                .get(session_id)
+                .map(|s| LeadActivity { turn_running: s.turn_running, shell_jobs: s.shell_jobs, ..LeadActivity::default() })
+                .unwrap_or_default()
+        }
+
+        fn live_sessions(&self) -> Vec<LiveSession> {
+            self.state
+                .lock()
+                .unwrap()
+                .sessions
+                .iter()
+                .map(|(id, s)| LiveSession { id: id.clone(), cwd: Some(s.cwd.clone()), active: s.turn_running, ..LiveSession::default() })
+                .collect()
+        }
+
+        async fn stored_consumers(&self) -> Result<Vec<LiveSession>, ScmFailure> {
+            Ok(Vec::new())
+        }
+
+        async fn running_jobs(&self) -> Vec<JobCwd> {
+            Vec::new()
+        }
+
+        async fn shell_job_count(&self, _session_ids: &[String]) -> u64 {
+            0
+        }
+
+        async fn retarget_worker(&self, _worker_id: &str, _cwd: &str, _moved: Option<Move>) -> Result<Undo, ScmFailure> {
+            Ok(undo(async { Ok(()) }))
+        }
+
+        async fn apply(&self, session_id: &str, change: WorkspaceChange) -> Result<Undo, ScmFailure> {
+            let mut state = self.state.lock().unwrap();
+            let s = state.sessions.get_mut(session_id).ok_or_else(|| plain(format!("missing session {session_id}")))?;
+            let prior = (s.cwd.clone(), s.workspace.clone());
+            s.cwd = change.cwd;
+            s.workspace = Some(change.workspace);
+            let shared = self.state.clone();
+            let id = session_id.to_owned();
+            Ok(undo(async move {
+                if let Some(s) = shared.lock().unwrap().sessions.get_mut(&id) {
+                    (s.cwd, s.workspace) = prior;
+                }
+                Ok(())
+            }))
+        }
+
+        async fn copy_project_identity(&self, _project: &str, _worktree: &str) -> Result<bool, ScmFailure> {
+            Ok(false)
+        }
+
+        async fn run_pending_setup(&self, _session_id: &str, _cancel: &CancellationToken) -> Result<(), ScmFailure> {
+            Ok(())
+        }
+    }
+
+    struct MultiStores(Vec<String>);
+
+    #[async_trait]
+    impl SessionSource for MultiStores {
+        async fn stored_session_ids(&self) -> Result<HashSet<String>, ScmFailure> {
+            Ok(self.0.iter().cloned().collect())
+        }
+        async fn favorites(&self) -> Option<HashSet<String>> {
+            None
+        }
+        async fn archived(&self) -> Option<HashSet<String>> {
+            None
+        }
+        async fn activity(&self, _: &[String]) -> HashMap<String, SessionActivity> {
+            HashMap::new()
+        }
+        async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct MultiRig {
+        _dir: tempfile::TempDir,
+        repo: PathBuf,
+        state: Arc<Mutex<MultiSessionState>>,
+        worktrees: Arc<Worktrees>,
+        tool: GitTool,
+        processes: Arc<LocalProcessManager>,
+    }
+
+    fn multi_rig(names: &[&str]) -> MultiRig {
+        let dir = real_tempdir();
+        let repo = repo_with_one_commit(dir.path());
+        let data = dir.path().join("data");
+        let processes = local_processes();
+        let worktrees = Arc::new(store(processes.clone(), &data));
+        let mut sessions = HashMap::new();
+        for name in names {
+            sessions.insert((*name).to_owned(), HostState { cwd: repo.to_string_lossy().into_owned(), ..HostState::default() });
+        }
+        let state = Arc::new(Mutex::new(MultiSessionState { sessions }));
+        let stored: Arc<dyn SessionSource> = Arc::new(MultiStores(names.iter().map(|s| (*s).to_owned()).collect()));
+        let live_names: HashSet<String> = names.iter().map(|s| (*s).to_owned()).collect();
+        let live: LiveSessions = Arc::new(move || live_names.clone());
+        let ws = SessionWorkspaces::new(
+            worktrees.clone(),
+            stored.clone(),
+            live.clone(),
+            Arc::new(Defaults(Arc::new(AtomicBool::new(true)))),
+            Arc::new(MultiSessionHost { state: state.clone() }),
+            AdmissionGate::new(),
+        );
+        let services = Arc::new(WorktreeServices { worktrees: worktrees.clone(), stored, live, sessions: Arc::new(ws) });
+        MultiRig { _dir: dir, repo, state, worktrees, tool: GitTool::new().with_worktrees(services), processes }
+    }
+
+    async fn call_git(rig: &MultiRig, session: &str, cwd: &Path, call: &str, input: Value) -> String {
+        let tokens = mixdog_rt::testing::tokens();
+        let ctx = ToolContext {
+            call_id: ToolCallId::from(call),
+            thread_id: ThreadId::from(session),
+            turn_id: TurnId::from("turn-1"),
+            tool: "git".into(),
+            cwd: AbsPath::new(cwd).unwrap(),
+            surface: SurfaceKind::Lead,
+            cancel: CancellationToken::new(),
+            deadline: None,
+            progress: Arc::new(MockProgress::default()),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: rig.processes.clone(),
+            options: Default::default(),
+            review: None,
+        };
+        match rig.tool.call(&ctx, input).await.expect("git tool returns text").parts.first() {
+            Some(ToolPart::Text(text)) => text.clone(),
+            other => panic!("not text: {other:?}"),
+        }
+    }
+
+    fn parse(text: &str) -> Value {
+        serde_json::from_str(text).unwrap_or_else(|e| panic!("not JSON ({e}): {text}"))
+    }
+
+    #[tokio::test]
+    async fn raw_worktree_remove_returns_bound_session_to_project_first() {
+        let rig = multi_rig(&["lead"]);
+        let entered = parse(&call_git(&rig, "lead", &rig.repo, "c1", json!({"action": "worktree", "worktree_action": "enter", "name": "feat"})).await);
+        assert_eq!(entered["ok"], true, "{entered}");
+        let wt = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
+        assert!(wt.exists());
+
+        // Dirty without -f refuses and keeps the session inside its worktree.
+        std::fs::write(wt.join("dirty.txt"), "wip\n").unwrap();
+        let refused = parse(&call_git(&rig, "lead", &wt, "c2", json!({"command": format!("git worktree remove {}", wt.display())})).await);
+        assert_eq!((&refused["ok"], &refused["code"]), (&json!(false), &json!("WORKTREE_DIRTY")));
+        assert!(same_path(&rig.state.lock().unwrap().sessions["lead"].cwd, &wt.to_string_lossy()));
+        assert!(wt.exists());
+
+        // With -f, the session returns to its project folder first and the worktree is removed.
+        let removed = parse(&call_git(&rig, "lead", &wt, "c3", json!({"command": format!("git worktree remove -f {}", wt.display())})).await);
+        assert_eq!(removed["ok"], true, "{removed}");
+        assert_eq!(removed["removed"]["removed"], true, "{removed}");
+        assert!(same_path(removed["workspace"]["cwd"].as_str().unwrap(), &rig.repo.to_string_lossy()));
+        assert_eq!(removed["workspace"]["worktreeId"], Value::Null);
+        assert!(same_path(&rig.state.lock().unwrap().sessions["lead"].cwd, &rig.repo.to_string_lossy()));
+        assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn raw_worktree_remove_guards_other_sessions_busy_and_non_current_worktrees() {
+        let rig = multi_rig(&["lead", "other"]);
+        let entered = parse(&call_git(&rig, "other", &rig.repo, "c1", json!({"action": "worktree", "worktree_action": "enter", "name": "active"})).await);
+        assert_eq!(entered["ok"], true, "{entered}");
+        let wt_active = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
+
+        let extra = parse(&call_git(&rig, "other", &rig.repo, "c2", json!({"command": "git worktree add -b extra ../extra"})).await);
+        assert_eq!(extra["ok"], true, "{extra}");
+        let wt_extra = PathBuf::from(extra["path"].as_str().unwrap());
+
+        // While "other" is busy, "lead" cannot remove its current worktree.
+        rig.state.lock().unwrap().sessions.get_mut("other").unwrap().turn_running = true;
+        let busy = parse(&call_git(&rig, "lead", &rig.repo, "c3", json!({"command": format!("git worktree remove {}", wt_active.display())})).await);
+        assert_eq!((&busy["ok"], &busy["code"]), (&json!(false), &json!("WORKTREE_BUSY_JOBS")));
+        assert_eq!(busy["details"]["reason"], "turn");
+        assert!(wt_active.exists());
+
+        // Removing a retained worktree that is not "other"'s current one is refused ("enter it first").
+        let non_current = call_git(&rig, "lead", &rig.repo, "c4", json!({"command": format!("git worktree remove {}", wt_extra.display())})).await;
+        assert!(
+            non_current.contains("is not the current worktree of session other; enter it (worktree_action enter, branch extra) first, then remove it"),
+            "{non_current}"
+        );
+        assert!(wt_extra.exists());
+
+        // Once "other" is idle, removing its current worktree returns "other" to its project folder first.
+        rig.state.lock().unwrap().sessions.get_mut("other").unwrap().turn_running = false;
+        let removed = parse(&call_git(&rig, "lead", &rig.repo, "c5", json!({"command": format!("git worktree remove {}", wt_active.display())})).await);
+        assert_eq!(removed["ok"], true, "{removed}");
+        assert!(same_path(&rig.state.lock().unwrap().sessions["other"].cwd, &rig.repo.to_string_lossy()));
+        assert!(!wt_active.exists());
+    }
+
+    #[tokio::test]
+    async fn raw_worktree_add_and_lead_snapshot_resolve_session_project_and_branch_occupancy() {
+        let rig = multi_rig(&["lead", "other"]);
+        let other_dir = real_tempdir();
+        let other_repo = repo_with_one_commit(other_dir.path());
+
+        // Another repository is refused as a project mismatch for both branch add and Lead --detach snapshot.
+        let mismatch_add = parse(&call_git(&rig, "lead", &other_repo, "c1", json!({"command": "git worktree add -b foreign ../w"})).await);
+        assert_eq!((&mismatch_add["ok"], &mismatch_add["code"]), (&json!(false), &json!("WORKTREE_PROJECT_MISMATCH")));
+        let mismatch_snap = parse(&call_git(&rig, "lead", &other_repo, "c2", json!({"command": "git worktree add --detach ../s"})).await);
+        assert_eq!((&mismatch_snap["ok"], &mismatch_snap["code"]), (&json!(false), &json!("WORKTREE_PROJECT_MISMATCH")));
+
+        // Branch checked out in the project folder is refused as occupied.
+        let main_occupied = parse(&call_git(&rig, "lead", &rig.repo, "c3", json!({"command": "git worktree add ../w main"})).await);
+        assert_eq!((&main_occupied["ok"], &main_occupied["code"]), (&json!(false), &json!("WORKTREE_BRANCH_OCCUPIED")));
+        assert_eq!(main_occupied["details"]["kind"], "current");
+
+        // Branch checked out in another session's worktree is refused as occupied.
+        let other_added = parse(&call_git(&rig, "other", &rig.repo, "c4", json!({"command": "git worktree add -b theirs ../t"})).await);
+        assert_eq!(other_added["ok"], true, "{other_added}");
+        let theirs_occupied = parse(&call_git(&rig, "lead", &rig.repo, "c5", json!({"command": "git worktree add ../w theirs"})).await);
+        assert_eq!((&theirs_occupied["ok"], &theirs_occupied["code"]), (&json!(false), &json!("WORKTREE_BRANCH_OCCUPIED")));
+        assert_eq!(theirs_occupied["details"]["kind"], "session");
+        assert_eq!(theirs_occupied["details"]["sessionId"], "other");
+
+        // Running from a subdirectory resolves the session's Project and reuses the session's own existing worktree.
+        let sub = rig.repo.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let created = parse(&call_git(&rig, "lead", &sub, "c6", json!({"command": "git worktree add -b mine ../m1"})).await);
+        assert_eq!((&created["ok"], &created["created"]), (&json!(true), &json!(true)), "{created}");
+        let reused = parse(&call_git(&rig, "lead", &sub, "c7", json!({"command": "git worktree add ../m2 mine"})).await);
+        assert_eq!((&reused["ok"], &reused["created"]), (&json!(true), &json!(false)), "{reused}");
+        assert_eq!(reused["path"], created["path"]);
+        assert_eq!(reused["worktreeId"], created["worktreeId"]);
+        let record = rig.worktrees.record(&CancellationToken::new(), created["worktreeId"].as_str().unwrap()).await.unwrap().unwrap();
+        assert!(same_path(&record.project_path, &rig.repo.to_string_lossy()), "resolved session project, not subdir: {}", record.project_path);
+
+        // Lead's snapshot resolves the session's Project and is cleaned up when the turn settles.
+        let snap = parse(&call_git(&rig, "lead", &sub, "c8", json!({"command": "git worktree add --detach ../snap"})).await);
+        assert_eq!((&snap["ok"], &snap["snapshot"]), (&json!(true), &json!(true)), "{snap}");
+        let snap_record = rig.worktrees.record(&CancellationToken::new(), snap["worktreeId"].as_str().unwrap()).await.unwrap().unwrap();
+        assert!(same_path(&snap_record.project_path, &rig.repo.to_string_lossy()));
+        let released = rig.worktrees.release_turn_snapshots("lead", Some(1), &CancellationToken::new()).await.unwrap();
+        assert_eq!(released["removed"].as_array().unwrap().len(), 1, "{released}");
+        assert!(!Path::new(snap["path"].as_str().unwrap()).exists());
+    }
+
+    #[tokio::test]
+    async fn raw_worktree_remove_refuses_another_sessions_snapshot_without_live_lease() {
+        let rig = multi_rig(&["lead", "other"]);
+        // Worker creates a snapshot (no command lease is held).
+        let worker_snap = parse(&call_git(&rig, "worker", &rig.repo, "c1", json!({"command": "git worktree add --detach ../wsnap"})).await);
+        assert_eq!((&worker_snap["ok"], &worker_snap["snapshot"]), (&json!(true), &json!(true)), "{worker_snap}");
+        let worker_snap_path = PathBuf::from(worker_snap["path"].as_str().unwrap());
+
+        // Lead cannot remove the worker's snapshot even though no command lease is live.
+        let refused =
+            parse(&call_git(&rig, "lead", &rig.repo, "c2", json!({"command": format!("git worktree remove -f {}", worker_snap_path.display())})).await);
+        assert_eq!((&refused["ok"], &refused["code"]), (&json!(false), &json!("WORKTREE_BUSY_JOBS")), "{refused}");
+        assert_eq!(refused["details"]["reason"], "snapshot-held");
+        assert_eq!(refused["details"]["sessionId"], "worker");
+        assert_eq!(refused["error"], "This snapshot belongs to another session's turn; it is removed when that turn ends, or by a prune.");
+        assert!(worker_snap_path.exists());
+
+        // Lead CAN remove its own snapshot when no command lease is live.
+        let lead_snap = parse(&call_git(&rig, "lead", &rig.repo, "c3", json!({"command": "git worktree add --detach ../lsnap"})).await);
+        assert_eq!((&lead_snap["ok"], &lead_snap["snapshot"]), (&json!(true), &json!(true)), "{lead_snap}");
+        let lead_snap_path = PathBuf::from(lead_snap["path"].as_str().unwrap());
+        let removed = parse(&call_git(&rig, "lead", &rig.repo, "c4", json!({"command": format!("git worktree remove -f {}", lead_snap_path.display())})).await);
+        assert_eq!((&removed["ok"], &removed["removed"]), (&json!(true), &json!(true)), "{removed}");
+        assert!(!lead_snap_path.exists());
+    }
 }

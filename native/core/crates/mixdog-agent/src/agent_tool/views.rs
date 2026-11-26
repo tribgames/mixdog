@@ -72,7 +72,7 @@ pub struct WorkerFacts {
     pub preset: Option<String>,
     pub effort: Option<String>,
     pub fast: bool,
-    pub auto_effort_off: bool,
+    pub effort_auto: Option<mixdog_ai::effort::EffortAuto>,
     /// `session.status`.
     pub status: Option<String>,
     pub closed: bool,

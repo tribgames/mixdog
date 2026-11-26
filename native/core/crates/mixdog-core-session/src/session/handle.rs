@@ -523,9 +523,17 @@ impl SessionHandle {
             window => window,
         };
         let window = positioned(window_of(&params.window));
-        let resume_from = params
-            .resume_from
-            .map(|from| ResumeFrom { position: FeedPosition { epoch: from.epoch, seq: from.seq }, window: positioned(window_of(&from.window)) });
+        let resume_from = params.resume_from.map(|from| ResumeFrom {
+            position: FeedPosition { epoch: from.epoch, seq: from.seq },
+            window: positioned(window_of(&from.window)),
+            positioned: wants_positioned
+                .then(|| {
+                    from.subscription_id
+                        .zip(from.window_version)
+                        .map(|(subscription_id, window_version)| mixdog_core_api::feed::PositionedResume { subscription_id, window_version })
+                })
+                .flatten(),
+        });
         let view = self.cell.view.load_full();
         let feed: Arc<dyn FeedSource> = self.subscriptions.clone();
         // The resume's release drains what an earlier process left queued (`resume.mjs:72`) and restarts the idle clock, a full
@@ -1175,6 +1183,7 @@ fn heir_route(
         "effort",
         "fast",
         "autoEffort",
+        "effortAuto",
         "modelParameters",
         "contextPercent",
         "contextTokens",
@@ -2050,7 +2059,7 @@ mod recovery_history_tests {
                 json!({
                     "threadId": source.id, "opId": "fork",
                     "route": { "provider": "openai", "model": "destination", "effort": "high", "fast": true,
-                        "autoEffort": false, "modelParameters": { "context": "wide" }, "contextTokens": 12000 },
+                        "effortAuto": false, "modelParameters": { "context": "wide" }, "contextTokens": 12000 },
                 }),
                 "fork",
             ))
@@ -2064,7 +2073,7 @@ mod recovery_history_tests {
         assert_eq!(header["owner"], "cli");
         assert_eq!(header["effort"], "high");
         assert_eq!(header["fast"], true);
-        assert_eq!(header["autoEffort"], false);
+        assert_eq!(header["effortAuto"], false);
         assert_eq!(header["modelParameters"], json!({ "context": "wide" }));
         assert_eq!(header["contextTokens"], 12000);
         assert_eq!(*lock(&rig.inherit.asked), [("openai".into(), "destination".into(), None, Some(heir), 1)]);

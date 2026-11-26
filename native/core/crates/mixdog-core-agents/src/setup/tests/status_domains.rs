@@ -203,7 +203,7 @@ async fn features_status_keeps_the_switches_the_bridges_the_heartbeat_reactions_
 
 fn live() -> Arc<Live> {
     Arc::new(Live {
-        route: json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "autoEffort": false, "effortOptions": ["low", "high"] }),
+        route: json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "effortAuto": false, "effortOptions": ["low", "high"] }),
         positions: json!({ "sessions": [{ "id": "s1" }] }),
     })
 }
@@ -232,12 +232,16 @@ async fn model_status_shows_the_live_route_its_fallbacks_effort_choices_and_chai
     let shown = read(&table, "model", |service, _, _| service.with_status(Arc::new(ModelStatus::new(live())))).await;
     assert_eq!(shown["route"]["model"], "gpt-x");
     assert_eq!((shown["route"]["fast"].clone(), shown["route"]["fastCapable"].clone()), (json!(true), json!(false)));
-    assert_eq!(shown["route"]["autoEffort"], false, "only an explicit false turns the auto effort off");
+    assert_eq!(shown["route"]["effortAuto"], false, "explicit effortAuto: false is preserved");
     assert_eq!(shown["route"]["fallbacks"], json!([{ "provider": "anthropic", "model": "claude-x" }]));
     assert_eq!(shown["route"]["modelParameters"], json!({}));
     assert_eq!(shown["route"]["contextPercent"], Value::Null);
     assert_eq!(shown["effortOptions"], json!(["low", "high"]));
     assert_eq!(shown["sessions"], json!([{ "id": "s1" }]), "the chain positions join the answer");
+
+    let missing_auto = Arc::new(Live { route: json!({ "provider": "openai", "model": "gpt-x" }), positions: json!({}) });
+    let shown_missing = read(&table, "model", |service, _, _| service.with_status(Arc::new(ModelStatus::new(missing_auto)))).await;
+    assert!(shown_missing["route"].get("effortAuto").is_none(), "missing effortAuto is not fabricated");
 }
 
 #[tokio::test]

@@ -300,6 +300,28 @@ fn resolve_context_tokens(context_tokens: Option<&Value>, explicit_percent: bool
     normalize_context_tokens(nullish(saved.get("contextTokens"), preset.and_then(|p| p.get("contextTokens"))))
 }
 
+/// Default Auto effort state for routes without an explicit `autoEffort` pick: matches
+/// `builtin_feature_active(..., "autoEffort", ..., onnx)` so `MIXDOG_FEATURE_AUTO_EFFORT`
+/// and platform ONNX support are respected consistently with runtime judging and UI.
+pub fn config_default_auto_effort_with(config: &Obj, env_var: Option<&str>, onnx_supported: bool) -> bool {
+    if !onnx_supported {
+        return false;
+    }
+    if let Some(raw) = env_var {
+        let trimmed = js_trim(raw).to_lowercase();
+        if !trimmed.is_empty() {
+            return !matches!(trimmed.as_str(), "0" | "false" | "no" | "off");
+        }
+    }
+    config.get("modules").and_then(|m| m.get("autoEffort")).and_then(|e| e.get("enabled")) != Some(&Value::Bool(false))
+}
+
+pub fn config_default_auto_effort(config: &Obj) -> bool {
+    let onnx_supported = !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64"));
+    let env_val = std::env::var("MIXDOG_FEATURE_AUTO_EFFORT").ok();
+    config_default_auto_effort_with(config, env_val.as_deref(), onnx_supported)
+}
+
 /// `resolveRoute(config, request)`.
 pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) -> bool) -> Result<Obj, String> {
     let explicit_provider = clean(request.get("provider"));
@@ -310,8 +332,9 @@ pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) 
     let explicit_percent = request.contains_key("contextPercent");
     let keeps_saved_percent = !request.contains_key("contextTokens");
     let context_tokens = request.get("contextTokens");
-    let auto_effort = request.get("autoEffort");
     let has_params = request.contains_key("modelParameters");
+
+    let legacy_switch_on = config_default_auto_effort(config);
 
     let build = |provider: String, model: String, preset: Option<&Value>, saved: Obj| -> Obj {
         let tokens = resolve_context_tokens(context_tokens, explicit_percent, &saved, preset);
@@ -324,13 +347,18 @@ pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) 
         } else {
             preset.is_some_and(|p| p.get("fast") == Some(&Value::Bool(true))) || fast_preference_for(config, &provider, &model)
         };
-        let auto = if auto_effort.is_some() {
-            auto_effort != Some(&Value::Bool(false))
-        } else if saved.contains_key("autoEffort") {
-            saved.get("autoEffort") != Some(&Value::Bool(false))
-        } else {
-            preset.is_none_or(|p| p.get("autoEffort") != Some(&Value::Bool(false)))
-        };
+        let effort_auto = crate::effort::EffortAuto::from_request_soft(request, legacy_switch_on)
+            .or_else(|| {
+                crate::effort::EffortAuto::read_explicit(&saved)
+                    .or_else(|| saved.get(crate::effort::EffortAuto::LEGACY_KEY).map(|v| crate::effort::EffortAuto::from_legacy(Some(v), legacy_switch_on)))
+            })
+            .or_else(|| {
+                preset.and_then(|p| {
+                    crate::effort::EffortAuto::read_explicit_value(p)
+                        .or_else(|| p.get(crate::effort::EffortAuto::LEGACY_KEY).map(|v| crate::effort::EffortAuto::from_legacy(Some(v), legacy_switch_on)))
+                })
+            })
+            .unwrap_or_else(|| crate::effort::EffortAuto::default_for_new(legacy_switch_on));
         let params = if has_params {
             clean_model_parameters(request.get("modelParameters"))
         } else {
@@ -349,7 +377,7 @@ pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) 
         route.insert("preset".into(), preset.cloned().unwrap_or(Value::Null));
         route.insert("effort".into(), opt_str(effort));
         route.insert("fast".into(), Value::Bool(fast_value));
-        route.insert("autoEffort".into(), Value::Bool(auto));
+        effort_auto.write_to(&mut route);
         route.insert("modelParameters".into(), Value::Object(params));
         if let Some(p) = percent {
             route.insert("contextPercent".into(), jnum(p));
@@ -406,12 +434,13 @@ pub fn save_model_settings(config: &mut Obj, route: &Obj, fast_capable: bool) {
         _ => del(&mut next, "effort"),
     }
     next.insert("fast".into(), Value::Bool(fast_capable && route.get("fast") == Some(&Value::Bool(true))));
-    if route.contains_key("autoEffort") {
-        if route.get("autoEffort") == Some(&Value::Bool(false)) {
-            next.insert("autoEffort".into(), Value::Bool(false));
-        } else {
-            del(&mut next, "autoEffort");
-        }
+    let legacy_switch_on = config_default_auto_effort(config);
+    if let Some(explicit) = crate::effort::EffortAuto::read_explicit(route) {
+        explicit.write_to(&mut next);
+    } else if let Some(legacy) = route.get(crate::effort::EffortAuto::LEGACY_KEY) {
+        crate::effort::EffortAuto::from_legacy(Some(legacy), legacy_switch_on).write_to(&mut next);
+    } else if next.contains_key(crate::effort::EffortAuto::LEGACY_KEY) {
+        crate::effort::EffortAuto::convert_on_load(&mut next, legacy_switch_on);
     }
     match route.get("modelParameters") {
         Some(Value::Object(o)) => {
@@ -454,7 +483,7 @@ fn spread_object(v: &Value) -> Value {
     }
 }
 
-fn workflow_leaf(route: &Value, fallback: &Value) -> Result<Option<Value>, String> {
+fn workflow_leaf(route: &Value, fallback: &Value, infer_auto_from_effort: bool) -> Result<Option<Value>, String> {
     let get = |k: &str| route.get(k);
     let fb = |k: &str| fallback.get(k);
     let provider = match clean(get("provider")) {
@@ -470,7 +499,14 @@ fn workflow_leaf(route: &Value, fallback: &Value) -> Result<Option<Value>, Strin
     }
     let effort = normalize_effort_input(nullish(get("effort"), fb("effort")))?;
     let fast = nullish(get("fast"), fb("fast"));
-    let auto_effort = nullish(get("autoEffort"), fb("autoEffort"));
+    let explicit_effort_auto = if infer_auto_from_effort {
+        crate::effort::EffortAuto::read_explicit_value(route)
+            .or_else(|| crate::effort::EffortAuto::implied_by_effort(get("effort")))
+            .or_else(|| crate::effort::EffortAuto::read_explicit_value(fallback))
+    } else {
+        crate::effort::EffortAuto::read_explicit_value(route).or_else(|| crate::effort::EffortAuto::read_explicit_value(fallback))
+    };
+    let legacy_auto_effort = if explicit_effort_auto.is_none() { nullish(get("autoEffort"), fb("autoEffort")).and_then(Value::as_bool) } else { None };
     let params = nullish(get("modelParameters"), fb("modelParameters"));
     let requested = number(nullish(get("contextPercent"), fb("contextPercent")));
     let percent = (requested.is_finite() && (10.0..=100.0).contains(&requested)).then(|| js_round(requested / 10.0) * 10.0);
@@ -485,8 +521,10 @@ fn workflow_leaf(route: &Value, fallback: &Value) -> Result<Option<Value>, Strin
     if let Some(Value::Bool(b)) = fast {
         out.insert("fast".into(), Value::Bool(*b));
     }
-    if auto_effort == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), Value::Bool(false));
+    if let Some(mode) = explicit_effort_auto {
+        mode.write_to(&mut out);
+    } else if let Some(legacy) = legacy_auto_effort {
+        out.insert(crate::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(legacy));
     }
     if let Some(p) = params.filter(|p| p.is_object() || p.is_array()) {
         out.insert("modelParameters".into(), spread_object(p));
@@ -500,11 +538,10 @@ fn workflow_leaf(route: &Value, fallback: &Value) -> Result<Option<Value>, Strin
     Ok(Some(Value::Object(out)))
 }
 
-/// `normalizeWorkflowRoute(route, fallback, { strict })`: `Ok(None)` is JS `null`.
-pub fn normalize_workflow_route(route: &Value, fallback: &Value, strict: bool) -> Result<Option<Value>, String> {
+fn normalize_workflow_route_with(route: &Value, fallback: &Value, strict: bool, infer_auto_from_effort: bool) -> Result<Option<Value>, String> {
     // The chain normalizer's leaf cannot throw; the first leaf error is kept and wins.
     let failure = std::cell::RefCell::new(None::<String>);
-    let leaf = |r: &Value, f: &Value| match workflow_leaf(r, f) {
+    let leaf = |r: &Value, f: &Value| match workflow_leaf(r, f, infer_auto_from_effort) {
         Ok(v) => v,
         Err(e) => {
             failure.borrow_mut().get_or_insert(e);
@@ -516,6 +553,18 @@ pub fn normalize_workflow_route(route: &Value, fallback: &Value, strict: bool) -
         return Err(e);
     }
     result
+}
+
+/// `normalizeWorkflowRoute(route, fallback, { strict })`: normalizes stored/read routes without
+/// inferring `autoEffort: false` from a saved effort level.
+pub fn normalize_workflow_route(route: &Value, fallback: &Value, strict: bool) -> Result<Option<Value>, String> {
+    normalize_workflow_route_with(route, fallback, strict, false)
+}
+
+/// Normalizes a user-submitted workflow route request: an explicit effort level on the route
+/// implies `autoEffort: false` (or `true` for `"auto"`) before inheriting `fallback.autoEffort`.
+pub fn normalize_requested_workflow_route(route: &Value, fallback: &Value, strict: bool) -> Result<Option<Value>, String> {
+    normalize_workflow_route_with(route, fallback, strict, true)
 }
 
 // refreshRouteEffort
@@ -679,9 +728,7 @@ pub fn upsert_workflow_preset(presets: &Value, slot: &str, route: &Value) -> Res
         // The Lead keeps an explicit Standard: an absent `fast` reads back as the model's default speed.
         preset.insert("fast".into(), Value::Bool(false));
     }
-    if route.get("autoEffort") == Some(&Value::Bool(false)) {
-        preset.insert("autoEffort".into(), Value::Bool(false));
-    }
+    crate::effort::EffortAuto::carry_field(&route, &mut preset);
     if let Some(p) = route.get("modelParameters") {
         preset.insert("modelParameters".into(), p.clone());
     }
@@ -696,8 +743,8 @@ pub fn upsert_workflow_preset(presets: &Value, slot: &str, route: &Value) -> Res
 
 // selection validation and the Lead route
 
-const MODEL_SELECTION_KEYS: [&str; 10] =
-    ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
+const MODEL_SELECTION_KEYS: [&str; 11] =
+    ["provider", "model", "effort", "fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
 
 /// `requiredString(value, name, maximum)`.
 fn required_string(value: Option<&Value>, name: &str, maximum: usize) -> Result<String, String> {
@@ -736,6 +783,9 @@ pub fn required_model_selection(value: &Value) -> Result<Obj, String> {
     if defined("autoEffort").is_some_and(|v| !v.is_boolean()) {
         return Err("selection.autoEffort must be a boolean.".into());
     }
+    if defined("effortAuto").is_some_and(|v| !v.is_boolean()) {
+        return Err("selection.effortAuto must be a boolean.".into());
+    }
     if let Some(p) = defined("modelParameters") {
         let ok = p.as_object().is_some_and(|o| o.iter().all(|(k, v)| !k.is_empty() && v.is_string()));
         if !ok {
@@ -771,7 +821,7 @@ pub fn required_model_selection(value: &Value) -> Result<Obj, String> {
     if defined("effort").is_some() {
         out.insert("effort".into(), Value::String(required_string(selection.get("effort"), "selection.effort", 64)?));
     }
-    for key in ["fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"] {
+    for key in ["fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens"] {
         if let Some(v) = defined(key) {
             out.insert(key.into(), v.clone());
         }
@@ -842,11 +892,18 @@ pub fn start_chain_entry(config: &Obj, requested: &Obj, stored: &Obj, is_known: 
         Some(if same_model { stored_truthy("effort").unwrap_or(Value::Null) } else { Value::Null })
     };
     let fast = if defined("fast") { selected.get("fast") == Some(&Value::Bool(true)) } else { same_model && stored.get("fast") == Some(&Value::Bool(true)) };
-    let auto_effort = if defined("autoEffort") {
-        requested.get("autoEffort") != Some(&Value::Bool(false))
-    } else {
-        !same_model || stored.get("autoEffort") != Some(&Value::Bool(false))
-    };
+    let legacy_switch_on = config_default_auto_effort(config);
+    let effort_auto = crate::effort::EffortAuto::from_request_soft(requested, legacy_switch_on)
+        .or_else(|| {
+            same_model
+                .then(|| {
+                    crate::effort::EffortAuto::read_explicit(stored).or_else(|| {
+                        stored.get(crate::effort::EffortAuto::LEGACY_KEY).map(|v| crate::effort::EffortAuto::from_legacy(Some(v), legacy_switch_on))
+                    })
+                })
+                .flatten()
+        })
+        .unwrap_or_else(|| crate::effort::EffortAuto::resolve(&selected, legacy_switch_on));
     let model_parameters = if defined("modelParameters") {
         selected.get("modelParameters").cloned()
     } else {
@@ -868,7 +925,7 @@ pub fn start_chain_entry(config: &Obj, requested: &Obj, stored: &Obj, is_known: 
     };
     put(&mut selected, "effort", effort);
     put(&mut selected, "fast", Some(Value::Bool(fast)));
-    put(&mut selected, "autoEffort", Some(Value::Bool(auto_effort)));
+    effort_auto.write_to(&mut selected);
     put(&mut selected, "modelParameters", model_parameters);
     put(&mut selected, "contextPercent", percent);
     put(&mut selected, "contextTokens", tokens);

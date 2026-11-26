@@ -208,3 +208,103 @@ async fn a_cold_placeholder_schedules_the_load_that_replaces_it() {
     assert!(!service.warm_needed(), "the miss scheduled the warm-up, which loaded the catalog");
     assert_eq!(row["display"], "mock-model", "the load's row replaced the placeholder: {row}");
 }
+
+#[tokio::test]
+async fn model_list_serves_fresh_disk_catalogs_without_downloading_and_refreshes_stale_or_missing() {
+    use mixdog_ai::catalog::{LITELLM_CACHE_FILE, ListingLookup, MODELS_DEV_CACHE_FILE, REFRESH_AFTER};
+    use mixdog_ai::transport::http::BodyStream;
+    use mixdog_core_api::domain::provider::{ModelListing, ModelRecord, TransportFault};
+
+    const DISK_MODELS_DEV: &str =
+        r#"{"openai":{"models":{"gpt-m":{"name":"GPT Disk","limit":{"context":200000,"output":8000},"cost":{"input":1.5,"output":6.0}}}}}"#;
+    const FRESH_MODELS_DEV: &str =
+        r#"{"openai":{"models":{"gpt-m":{"name":"GPT Fresh","limit":{"context":200000,"output":8000},"cost":{"input":1.5,"output":6.0}}}}}"#;
+    const DISK_LITELLM: &str = r#"{"openai/gpt-x":{"max_input_tokens":128000,"max_output_tokens":4096,"mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.00001}}"#;
+    const FRESH_LITELLM: &str = r#"{"openai/gpt-x":{"max_input_tokens":256000,"max_output_tokens":4096,"mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.00001}}"#;
+
+    struct OnceBody(Option<bytes::Bytes>);
+    #[async_trait]
+    impl BodyStream for OnceBody {
+        async fn next(&mut self) -> Option<Result<bytes::Bytes, TransportFault>> {
+            self.0.take().map(Ok)
+        }
+    }
+
+    struct CatalogHttp(std::sync::Mutex<Vec<String>>);
+    #[async_trait]
+    impl HttpSend for CatalogHttp {
+        async fn send(&self, request: WireRequest, _: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            self.0.lock().unwrap().push(request.url.clone());
+            let body = if request.url.contains("models.dev") {
+                FRESH_MODELS_DEV
+            } else if request.url.contains("litellm") {
+                FRESH_LITELLM
+            } else {
+                panic!("unexpected catalog URL: {}", request.url);
+            };
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(OnceBody(Some(bytes::Bytes::from_static(body.as_bytes())))) })
+        }
+    }
+
+    struct EnrichingListing(ListingLookup);
+    #[async_trait]
+    impl ModelListing for EnrichingListing {
+        async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+            self.0.load_models_dev().await;
+            Ok(self.0.enrich_listed("openai", vec![ModelRecord::new("gpt-m"), ModelRecord::new("gpt-x")]))
+        }
+    }
+
+    async fn run_case(fetched_at: Option<u64>) -> (Vec<String>, Vec<Value>, Arc<CatalogService>) {
+        let dir = tempfile::tempdir().unwrap();
+        if let Some(at) = fetched_at {
+            std::fs::write(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":{at},\"data\":{DISK_MODELS_DEV}}}\n")).unwrap();
+            std::fs::write(dir.path().join(LITELLM_CACHE_FILE), format!("{{\"fetchedAt\":{at},\"data\":{DISK_LITELLM}}}\n")).unwrap();
+        }
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let http = Arc::new(CatalogHttp(std::sync::Mutex::new(Vec::new())));
+        let catalog = Arc::new(CatalogService::composed(CatalogSnapshot::default(), Vec::new(), http.clone(), dir.path().to_path_buf(), io).await);
+        let lookup = catalog.listing_lookup();
+        catalog.set_sources(vec![ModelSource::new("openai".into(), Arc::new(EnrichingListing(lookup)))]);
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let path = dir.path().join("mixdog-config.json");
+        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": {} })).unwrap()).unwrap();
+        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        let service = ModelListService {
+            catalog: catalog.clone(),
+            config,
+            primary_provider: Arc::new(|| "openai".to_owned()),
+            unsupported: Arc::new(UnsupportedEfforts::default()),
+            host: None,
+        };
+        let rows = service.rows(false, false).await.unwrap();
+        let mut asked = http.0.lock().unwrap().clone();
+        asked.sort();
+        (asked, rows, catalog)
+    }
+
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let find = |rows: &[Value], id: &str| rows.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id} in {rows:?}")).clone();
+
+    // Younger than 6 h: no catalog download, model/list serves from the disk copies.
+    let (asked, rows, _) = run_case(Some(now.saturating_sub(60_000))).await;
+    assert!(asked.is_empty(), "fresh disk catalogs should not download: {asked:?}");
+    assert_eq!(find(&rows, "gpt-m")["display"], "GPT Disk");
+    assert_eq!(find(&rows, "gpt-x")["contextWindow"], json!(128_000));
+
+    // Older than 6 h: downloads both catalogs and serves the refreshed metadata.
+    let stale_at = now.saturating_sub(REFRESH_AFTER.as_millis() as u64 + 1_000);
+    let (asked, rows, catalog) = run_case(Some(stale_at)).await;
+    assert_eq!(asked.len(), 2, "stale disk catalogs must refresh both tables: {asked:?}");
+    assert_eq!(find(&rows, "gpt-m")["display"], "GPT Fresh");
+    let refreshed_x = catalog.listing_lookup().enrich_listed("openai", vec![ModelRecord::new("gpt-x")]).remove(0);
+    assert_eq!(refreshed_x.context_window, Some(256_000));
+
+    // Missing disk copies: downloads both catalogs and serves the refreshed metadata.
+    let (asked, rows, catalog) = run_case(None).await;
+    assert_eq!(asked.len(), 2, "missing disk catalogs must refresh both tables: {asked:?}");
+    assert_eq!(find(&rows, "gpt-m")["display"], "GPT Fresh");
+    let refreshed_x = catalog.listing_lookup().enrich_listed("openai", vec![ModelRecord::new("gpt-x")]).remove(0);
+    assert_eq!(refreshed_x.context_window, Some(256_000));
+}

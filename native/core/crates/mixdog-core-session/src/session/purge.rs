@@ -363,8 +363,9 @@ pub struct SessionDeletion {
     pub read_state: Arc<ReadState>,
     /// The agent definitions (`purgeAgentDefinition`); `None` where the process has none.
     pub agents: Option<Arc<dyn RetiredAgents>>,
-    /// The external agents of the sessions an ACP agent runs: a session's agent process ends where its MCP scope is
-    /// released (close, delete, unload). `None` where the process has none.
+    /// The external agents of the sessions an ACP agent runs: a session's agent process ends when it is closed, cleaned up
+    /// or deleted, and is let go of while idle, keeping what the session approved and holds, when a worker parks (or its
+    /// park fails) and when a non-worker unloads; a worker's stays across its unload. `None` where the process has none.
     pub agent_processes: Option<Arc<dyn SessionAgentProcesses>>,
     /// What other owners keep per session, let go of where the session's runtime unloads or the session ends.
     pub releases: SessionReleases,
@@ -418,6 +419,12 @@ impl SessionReleases {
 pub trait SessionAgentProcesses: Send + Sync {
     /// Ends the session's agent with its whole process tree; a session with none has nothing to end.
     fn release(&self, session_id: &str);
+    /// Lets go of the session's agent process where its agent is idle, keeping what the session approved and holds so its
+    /// next turn reopens it; an agent that is not idle keeps running.
+    fn release_idle(&self, session_id: &str);
+    /// The session's runtime unloaded while its agent process stays: the agent is not reopened before the session's
+    /// next turn.
+    fn unloaded(&self, session_id: &str);
 }
 
 /// `purgeAgentDefinition(agentId)` over the process's agent definitions.
@@ -445,15 +452,28 @@ impl DeleteSeams for SessionDeletion {
 
     fn release_mcp_scope(&self, session_id: &str) {
         self.mcp_scopes.release(session_id);
+        self.release_agent_process(session_id);
+    }
+
+    fn release_agent_process(&self, session_id: &str) {
         if let Some(agents) = &self.agent_processes {
             agents.release(session_id);
         }
     }
 
-    fn release_unloaded_runtime(&self, session_id: &str) {
+    fn release_idle_agent_process(&self, session_id: &str) {
         if let Some(agents) = &self.agent_processes {
-            agents.release(session_id);
+            agents.release_idle(session_id);
         }
+    }
+
+    fn agent_process_unloaded(&self, session_id: &str) {
+        if let Some(agents) = &self.agent_processes {
+            agents.unloaded(session_id);
+        }
+    }
+
+    fn release_unloaded_runtime(&self, session_id: &str) {
         self.mcp_scopes.release_unloaded(session_id);
         self.read_state.release_session(session_id);
         self.releases.unloaded(session_id);

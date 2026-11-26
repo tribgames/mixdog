@@ -35,9 +35,7 @@ pub fn model_route_fields(route: &Map<String, Value>) -> Value {
     if route.get("fast") == Some(&Value::Bool(true)) {
         fields.insert("fast".into(), json!(true));
     }
-    if route.get("autoEffort") == Some(&Value::Bool(false)) {
-        fields.insert("autoEffort".into(), json!(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(route, &mut fields);
     if truthy(route.get("modelParameters")) {
         fields.insert("modelParameters".into(), route["modelParameters"].clone());
     }
@@ -70,7 +68,7 @@ pub fn hidden_session_header(route: &Value, profile: &Value, now_ms: i64) -> Hea
     let pid = profile.get("clientHostPid").filter(|pid| truthy(Some(pid))).cloned();
     header.insert("clientHostPid".into(), pid.unwrap_or_else(|| json!(std::process::id())));
     header.insert("fast".into(), json!(route.get("fast") == Some(&Value::Bool(true))));
-    header.insert("autoEffort".into(), json!(route.get("autoEffort") != Some(&Value::Bool(false))));
+    mixdog_ai::effort::EffortAuto::carry_field(route, &mut header);
     let params = route.get("modelParameters").filter(|p| truthy(Some(p))).cloned();
     header.insert("modelParameters".into(), params.unwrap_or_else(|| json!({})));
     header.insert("contextTokens".into(), Value::Null);

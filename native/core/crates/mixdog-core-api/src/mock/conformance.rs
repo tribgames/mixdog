@@ -91,7 +91,7 @@ fn sub(name: &str) -> SubscriptionId {
 
 /// Subscribes through [`subscribe`], so lag recovery re-enters the same `attach`.
 fn attach(feed: &Arc<dyn Feed>, conn: &MockConnection, name: &str, window: Window, resume: Option<(FeedEpoch, u64, Window)>) -> Attached {
-    let resume_from = resume.map(|(epoch, seq, window)| ResumeFrom { position: FeedPosition { epoch, seq }, window });
+    let resume_from = resume.map(|(epoch, seq, window)| ResumeFrom { position: FeedPosition { epoch, seq }, window, positioned: None });
     let source: Arc<dyn FeedSource> = feed.clone();
     subscribe(&source, sub(name), window, resume_from, conn).expect("attach to an open connection")
 }
@@ -315,7 +315,7 @@ pub fn held_subscription_carries_on(make: &FeedFactory) {
     respond(&conn, attached, "resp");
     publish(feed.as_ref(), 3..=4);
     let epoch = epoch_of(feed.as_ref());
-    let resume = |epoch: &FeedEpoch, seq: u64, window: Window| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window };
+    let resume = |epoch: &FeedEpoch, seq: u64, window: Window| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window, positioned: None };
     let fifty = Window::LastItems(50);
     let carried = feed.carries(&sub("a"), &fifty, &resume(&epoch, 2, fifty.clone())).expect("the held subscription carries on");
     assert_eq!((carried.mode, carried.start_seq, carried.live_seq), (AttachMode::Replay, 3, 5));
@@ -398,7 +398,7 @@ pub fn run_scoped(make: &ScopedFeedsFactory) {
 /// Subscribes to a scoped feed the way a subscribing method's `Reply::Subscribe` is served.
 fn scoped_attach(feed: &Arc<dyn ScopedFeed>, conn: &dyn ConnectionSink, name: &str, resume: Option<FeedPosition>) -> Result<Attached, CoreError> {
     let source: Arc<dyn FeedSource> = feed.clone();
-    let resume_from = resume.map(|position| ResumeFrom { position, window: Window::Fixed });
+    let resume_from = resume.map(|position| ResumeFrom { position, window: Window::Fixed, positioned: None });
     subscribe(&source, sub(name), Window::Fixed, resume_from, conn)
 }
 

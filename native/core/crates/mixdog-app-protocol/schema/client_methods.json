@@ -9756,6 +9756,12 @@
             "null"
           ]
         },
+        "effortAuto": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "fallbacks": {
           "description": "The Lead's ordered fallback models; `[]` clears, absent keeps.",
           "items": {
@@ -14854,6 +14860,11 @@
           "description": "`autoEffort` in model selections.",
           "type": "boolean"
         },
+        "routeEffortAuto": {
+          "default": false,
+          "description": "`effortAuto` in model selections; a host offering only `routeAutoEffort` rejects that key.",
+          "type": "boolean"
+        },
         "secretInput": {
           "description": "Legacy flag, always false: handoff secrets must be entered on the PC.",
           "type": "boolean"
@@ -15720,6 +15731,7 @@
             "projectRecovery": false,
             "remoteParity": false,
             "routeAutoEffort": false,
+            "routeEffortAuto": false,
             "secretInput": false,
             "termSizeOwner": false,
             "usageRequests": false,
@@ -20036,8 +20048,22 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "subscriptionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "window": {
           "$ref": "#/definitions/ResumeWindow"
+        },
+        "windowVersion": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -20268,6 +20294,12 @@
           "default": null,
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "effortAuto": {
+          "type": [
+            "boolean",
             "null"
           ]
         },

@@ -179,7 +179,7 @@ pub fn prepare_turn_effort_configuration(
     }
     let first = route.messages.iter().filter_map(|m| m.effort.as_ref()).find(|s| valid_snapshot(s, route.provider, route.model, mode));
     let initial_effort = first.map(|s| s.initial_effort.clone()).filter(|e| !e.is_empty()).unwrap_or_else(|| effort.clone());
-    Some(EffortSnapshot { provider: route.provider.to_owned(), model: model_key(route.model), mode, initial_effort, effort })
+    Some(EffortSnapshot { provider: route.provider.to_owned(), model: model_key(route.model), mode, initial_effort, effort, judged: false })
 }
 
 /// The managed local model's catalog entry (`localProviderModelEntry(model)`).
@@ -299,7 +299,12 @@ impl HopWiring for RouteWirer {
             TurnRoute { provider: name, model, effort: updated.get("effort").and_then(Value::as_str), model_parameters: &parameters, messages: &messages };
         let facts = self.source.facts(name, model, provider);
         let text_only = text_only_input(name, model, self.source.local_entry(model).as_ref(), self.source.runtime_tools(model), self.source.media(updated));
-        let wired = wire_route(&route, &facts, None, provider, &self.unsupported, &*self.codex_declared, text_only);
+        let mut wired = wire_route(&route, &facts, None, provider, &self.unsupported, &*self.codex_declared, text_only);
+        if updated.get("__effortJudged") == Some(&Value::Bool(true))
+            && let Some(seed) = wired.effort.as_mut().and_then(|w| w.route.seed.as_mut())
+        {
+            seed.judged = true;
+        }
         (wired.effort, wired.text_only)
     }
 }

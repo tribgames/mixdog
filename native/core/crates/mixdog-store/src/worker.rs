@@ -43,7 +43,7 @@ impl WorkerKeys {
 /// The header members a listing of sessions reads (the agent pool's worker fields and the archive mark). The catalog
 /// row holds them (`sessions.listed`), so a listing of every stored session reads the index and opens no log: a header
 /// also carries the session's prompts and tool catalog, and decoding each to pick these read hundreds of megabytes.
-pub const LISTED_FIELDS: [&str; 35] = [
+pub const LISTED_FIELDS: [&str; 36] = [
     "owner",
     "agent",
     "sourceType",
@@ -56,6 +56,7 @@ pub const LISTED_FIELDS: [&str; 35] = [
     "fast",
     "modelParameters",
     "autoEffort",
+    "effortAuto",
     "createdAt",
     "updatedAt",
     "cwd",

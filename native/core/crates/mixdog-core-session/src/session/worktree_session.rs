@@ -75,12 +75,95 @@ impl Inner {
         self.merge_workspace(target, input, own_turn, cancel).await
     }
 
+    /// `WORKTREE_PROJECT_MISMATCH` unless `repo_common_dir` (when given) is the session Project's
+    /// repository (`session-view.mjs:90-97`).
+    async fn session_project(&self, session: &str, repo_common_dir: Option<&str>, cancel: &CancellationToken) -> Result<(Workspace, RepoFacts), ScmFailure> {
+        let workspace = self.workspace(session)?;
+        let project = self.ops.inspect(&workspace.project_path, cancel).await?;
+        if let Some(repo_dir) = repo_common_dir
+            && !same_path(repo_dir, &text(&project.common_dir))
+        {
+            return Err(errors::repo_project_mismatch(workspace.project_path.clone(), repo_dir.to_owned()));
+        }
+        Ok((workspace, project))
+    }
+
+    /// `git worktree add` for a branch without moving the session (`side-checkouts.mjs:21-58`).
+    #[allow(clippy::too_many_arguments)]
+    async fn add_branch_worktree(
+        self: &Arc<Self>,
+        caller: &str,
+        branch: &str,
+        create: bool,
+        start_point: Option<&str>,
+        confirm_large: bool,
+        tx_id: &str,
+        repo_common_dir: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<JsonValue, ScmFailure> {
+        let (workspace, _) = self.session_project(caller, repo_common_dir, cancel).await?;
+        let menu = self.ops.wt.branch_occupancy(std::path::Path::new(&workspace.project_path), Some(caller), cancel).await?;
+        let held =
+            menu["occupancy"].as_array().into_iter().flatten().find(|row| row["branch"].as_str() == Some(branch) && row["kind"].as_str() != Some("free"));
+        if let Some(held) = held {
+            let own_session = held["kind"].as_str() == Some("session") && held["sessionId"].as_str() == Some(caller);
+            if !own_session {
+                let path = held["path"].as_str().map(str::to_owned);
+                let kind = held["kind"].as_str();
+                let holder_session = held["sessionId"].as_str().map(str::to_owned);
+                let mut failure = errors::branch_occupied(branch.to_owned(), path.clone(), kind, holder_session);
+                if let ScmFailure::Coded { message, .. } = &mut failure {
+                    *message = Some(format!("Branch {branch} is checked out in {}.", path.as_deref().unwrap_or("")).into_boxed_str());
+                }
+                return Err(failure);
+            }
+        }
+        let tx = match mixdog_js::js_trim(tx_id) {
+            "" => new_tx_id(),
+            given => given.to_owned(),
+        };
+        let resolved = self
+            .ops
+            .resolve_branch(&workspace.project_path, branch, create, start_point, TxScope { session: caller, tx_id: &tx }, confirm_large, cancel)
+            .await?;
+        Ok(json!({
+            "path": resolved.path,
+            "branch": branch,
+            "worktreeId": resolved.entry.as_ref().map(|e| e.id.as_str()),
+            "created": resolved.created,
+            "baseCommit": resolved.entry.as_ref().and_then(|e| e.base_commit.as_deref()),
+            "mergeTarget": resolved.entry.as_ref().and_then(|e| e.merge_target.as_deref()),
+        }))
+    }
+
+    /// Lead `git worktree add --detach`: a read-only snapshot resolved against the session's Project.
+    async fn create_snapshot(
+        self: &Arc<Self>,
+        caller: &str,
+        commit: &str,
+        confirm_large: bool,
+        tx_id: &str,
+        repo_common_dir: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<JsonValue, ScmFailure> {
+        let (workspace, _) = self.session_project(caller, repo_common_dir, cancel).await?;
+        let tx = match mixdog_js::js_trim(tx_id) {
+            "" => new_tx_id(),
+            given => given.to_owned(),
+        };
+        self.ops.wt.create_turn_snapshot(&self.ops.owner(caller), std::path::Path::new(&workspace.project_path), commit, &tx, confirm_large, cancel).await
+    }
+
     /// `git worktree remove <path>`-style removal of the worktree at `path`, whichever owner
     /// holds it: the session's own lane, with the same guards as the desktop's removal.
     pub(super) async fn remove_path(self: &Arc<Self>, path: &str, force: bool, caller: &str, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         let entry = self.ops.worktree_by_path(path, cancel).await?.ok_or_else(|| {
             plain(format!("git worktree remove: {path} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool"))
         })?;
+        if entry.extra.get("kind").and_then(JsonValue::as_str) == Some("snapshot") {
+            let removed = self.ops.wt.remove_snapshot_for(&entry.id, force, Some(caller), cancel).await?;
+            return Ok(with_fields(removed, vec![("entryId", json!(entry.id)), ("path", json!(entry.path))]));
+        }
         if entry.owner_session_id.as_deref() != Some(caller)
             && let Some(gone) = self.orphan(cancel, |row| row["id"] == entry.id.as_str()).await?
         {
@@ -96,7 +179,11 @@ impl Inner {
         if own && workspace.worktree_id.as_deref() != Some(entry.id.as_str()) {
             return self.remove_owned(&owner, &entry.id, force, cancel).await;
         }
-        let retained = self.ops.session_worktree(&owner, cancel).await?;
+        let current = if workspace.is_bound() { self.ops.worktree_containing(&workspace.cwd, cancel).await? } else { None };
+        let retained = match current {
+            Some(found) => Some(found),
+            None => self.ops.session_worktree(&owner, cancel).await?,
+        };
         if retained.as_ref().map(|r| r.id.as_str()) != Some(entry.id.as_str()) {
             return Err(plain(format!(
                 "git worktree remove: {} is not the current worktree of session {owner}; enter it (worktree_action enter, branch {}) first, then remove it",
@@ -166,15 +253,18 @@ impl SessionWorktrees for SessionWorkspaces {
         let inner = &self.inner;
         let caller = caller_session_id;
         let (what, target, tx_id) = match &op {
-            SessionOp::Enter { session_id, tx_id, .. } => ("enter", session_id, tx_id),
-            SessionOp::Return { session_id, tx_id } => ("return", session_id, tx_id),
-            SessionOp::Merge { session_id, tx_id } => ("merge", session_id, tx_id),
-            SessionOp::Remove { session_id, tx_id, .. } => ("remove", session_id, tx_id),
+            SessionOp::Enter { session_id, tx_id, .. } => ("enter", session_id.as_deref(), tx_id.as_str()),
+            SessionOp::Return { session_id, tx_id } => ("return", session_id.as_deref(), tx_id.as_str()),
+            SessionOp::Merge { session_id, tx_id } => ("merge", session_id.as_deref(), tx_id.as_str()),
+            SessionOp::Remove { session_id, tx_id, .. } => ("remove", session_id.as_deref(), tx_id.as_str()),
+            SessionOp::RemovePath { .. } => ("remove-path", None, ""),
+            SessionOp::Add { tx_id, .. } => ("add", None, tx_id.as_str()),
+            SessionOp::Snapshot { tx_id, .. } => ("snapshot", None, tx_id.as_str()),
         };
         inner.assert_mutation_allowed(caller, &format!("git worktree {what}")).await?;
-        let target = target.clone().unwrap_or_else(|| caller.to_owned());
+        let target = target.unwrap_or(caller).to_owned();
         let own_turn = target == caller;
-        let tx_id = tx_id.clone();
+        let tx_id = tx_id.to_owned();
         match op {
             SessionOp::Enter { name, branch, create, carry, confirm_large, .. } => {
                 inner.enter(&target, own_turn, (name, branch, create), (carry, confirm_large), tx_id, cancel).await
@@ -182,6 +272,13 @@ impl SessionWorktrees for SessionWorkspaces {
             SessionOp::Return { .. } => inner.back(&target, own_turn, tx_id, cancel).await,
             SessionOp::Merge { .. } => inner.merge(&target, own_turn, cancel).await,
             SessionOp::Remove { branch, force, .. } => inner.remove(&target, caller, branch, force, cancel).await,
+            SessionOp::RemovePath { path, force } => inner.remove_path(&path, force, caller, cancel).await,
+            SessionOp::Add { branch, create, start_point, confirm_large, repo_common_dir, .. } => {
+                inner.add_branch_worktree(caller, &branch, create, start_point.as_deref(), confirm_large, &tx_id, repo_common_dir.as_deref(), cancel).await
+            }
+            SessionOp::Snapshot { commit, confirm_large, repo_common_dir, .. } => {
+                inner.create_snapshot(caller, &commit, confirm_large, &tx_id, repo_common_dir.as_deref(), cancel).await
+            }
         }
     }
 }

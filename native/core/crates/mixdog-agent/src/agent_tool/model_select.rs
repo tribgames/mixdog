@@ -50,10 +50,9 @@ pub trait ModelCatalog: Send + Sync {
 
 /// The agent's own provider decides among several that offer the model: it wins when it can run;
 /// when it cannot, the others stand in and the note says why.
-async fn prefer_agent_provider(catalog: &dyn ModelCatalog, agent: &str, model: &str, hits: Vec<ModelRow>) -> Result<(Vec<ModelRow>, Option<String>), String> {
-    let Some(own) = catalog.agent_provider(agent).await.filter(|p| !p.is_empty()) else { return Ok((hits, None)) };
-    let wanted = norm(&own);
-    let (mine, others): (Vec<ModelRow>, Vec<ModelRow>) = hits.iter().cloned().partition(|r| norm(&r.provider) == wanted);
+async fn prefer_agent_provider(catalog: &dyn ModelCatalog, own: &str, model: &str, hits: Vec<ModelRow>) -> Result<(Vec<ModelRow>, Option<String>), String> {
+    let wanted = norm(own);
+    let (mine, others): (Vec<ModelRow>, Vec<ModelRow>) = hits.iter().cloned().partition(|r| provider_exact_match(r, &wanted));
     if mine.is_empty() {
         return Ok((hits, None));
     }
@@ -85,16 +84,40 @@ fn label(row: &ModelRow) -> String {
     format!("{}/{}", row.provider, row.id)
 }
 
+fn is_acp_row(row: &ModelRow) -> bool {
+    row.row.get("runner").and_then(Value::as_str) == Some("acp") || row.provider.to_ascii_lowercase().starts_with("acp-")
+}
+
+/// An ACP row matches only its exact provider id or its exact preset id (`row["agent"]`), never by substring.
+fn acp_row_matches(row: &ModelRow, wanted: &str) -> bool {
+    !wanted.is_empty() && (norm(&row.provider) == wanted || row.row.get("agent").and_then(Value::as_str).is_some_and(|id| norm(id) == wanted))
+}
+
+fn provider_exact_match(row: &ModelRow, wanted: &str) -> bool {
+    if is_acp_row(row) { acp_row_matches(row, wanted) } else { norm(&row.provider) == wanted }
+}
+
+/// ACP rows participate only when the request names that ACP preset/provider or the spawning
+/// agent's own route is that ACP provider; non-ACP selection is unchanged.
+fn eligible_rows(rows: Vec<ModelRow>, provider: &str, own_provider: Option<&str>) -> Vec<ModelRow> {
+    if provider.is_empty() {
+        let own = own_provider.map(norm).filter(|p| !p.is_empty());
+        return rows.into_iter().filter(|r| !is_acp_row(r) || own.as_deref().is_some_and(|wanted| acp_row_matches(r, wanted))).collect();
+    }
+    let wanted = norm(provider);
+    rows.into_iter().filter(|r| !is_acp_row(r) || acp_row_matches(r, &wanted)).collect()
+}
+
 fn provider_rows(rows: Vec<ModelRow>, provider: &str) -> Vec<ModelRow> {
     if provider.is_empty() {
         return rows;
     }
     let wanted = norm(provider);
-    let exact: Vec<ModelRow> = rows.iter().filter(|r| norm(&r.provider) == wanted).cloned().collect();
+    let exact: Vec<ModelRow> = rows.iter().filter(|r| provider_exact_match(r, &wanted)).cloned().collect();
     if !exact.is_empty() {
         return exact;
     }
-    rows.into_iter().filter(|r| norm(&r.provider).contains(&wanted)).collect()
+    rows.into_iter().filter(|r| !is_acp_row(r) && norm(&r.provider).contains(&wanted)).collect()
 }
 
 fn match_models(rows: &[ModelRow], query: &str) -> Vec<ModelRow> {
@@ -109,7 +132,7 @@ fn match_models(rows: &[ModelRow], query: &str) -> Vec<ModelRow> {
         // A literal id wins over its normalized look-alikes (`foo-bar` vs `foo_bar`).
         Box::new(|r| r.id == query),
         Box::new(|r| norm(&r.id) == wanted),
-        Box::new(|r| norm(&r.display) == wanted),
+        Box::new(|r| norm(&r.display) == wanted || r.row.get("modelName").and_then(Value::as_str).is_some_and(|n| norm(n) == wanted)),
         Box::new(|r| {
             let hay = format!("{} {}", norm(&r.id), norm(&r.display));
             words.iter().all(|w| hay.contains(w.as_str()))
@@ -137,7 +160,7 @@ fn quick_answer_holds(rows: &[ModelRow], hits: &[ModelRow], model: &str, provide
         return true;
     }
     let wanted = norm(provider);
-    !hits.is_empty() && !wanted.is_empty() && hits.iter().all(|r| r.id == model && norm(&r.provider) == wanted)
+    !hits.is_empty() && !wanted.is_empty() && hits.iter().all(|r| r.id == model && provider_exact_match(r, &wanted))
 }
 
 fn provider_scope(provider: &str) -> Option<String> {
@@ -232,22 +255,31 @@ async fn resolve_route(args: &Value, catalog: Option<&dyn ModelCatalog>) -> Resu
         }
         return Ok((args.clone(), None));
     };
-    let quick_rows = catalog.list(ListOptions { quick: true, ..ListOptions::default() }).await?;
+    let agent = clean(args.get("agent"));
+    let own_provider = if provider.is_empty() && !agent.is_empty() { catalog.agent_provider(&agent).await.filter(|p| !p.is_empty()) } else { None };
+    let quick_rows = eligible_rows(catalog.list(ListOptions { quick: true, ..ListOptions::default() }).await?, &provider, own_provider.as_deref());
     let mut pool = provider_rows(quick_rows.clone(), &provider);
     let mut hits = match_models(&pool, &model);
     if !quick_answer_holds(&quick_rows, &hits, &model, &provider) {
-        pool = provider_rows(catalog.list(ListOptions::default()).await?, &provider);
+        let loaded = eligible_rows(catalog.list(ListOptions::default()).await?, &provider, own_provider.as_deref());
+        pool = provider_rows(loaded, &provider);
         hits = match_models(&pool, &model);
     }
     if hits.is_empty() {
-        let refreshed = catalog.list(ListOptions { force: true, provider: provider_scope(&provider), quick: false }).await?;
+        let refreshed = eligible_rows(
+            catalog.list(ListOptions { force: true, provider: provider_scope(&provider), quick: false }).await?,
+            &provider,
+            own_provider.as_deref(),
+        );
         pool = provider_rows(refreshed, &provider);
         hits = match_models(&pool, &model);
     }
     let mut note = None;
-    let agent = clean(args.get("agent"));
-    if provider.is_empty() && !agent.is_empty() && !hits.is_empty() {
-        (hits, note) = prefer_agent_provider(catalog, &agent, &model, hits).await?;
+    if provider.is_empty()
+        && !hits.is_empty()
+        && let Some(own) = own_provider.as_deref()
+    {
+        (hits, note) = prefer_agent_provider(catalog, own, &model, hits).await?;
     }
     if hits.len() == 1 {
         return Ok((with_model_settings(args, &hits[0])?, note));
@@ -257,6 +289,11 @@ async fn resolve_route(args: &Value, catalog: Option<&dyn ModelCatalog>) -> Resu
         return Err(format!("agent spawn: model \"{model}\"{scope} is ambiguous: {}; pass the exact one", candidates(&hits)));
     }
     if pool.is_empty() {
+        if !provider.is_empty()
+            && let Some(state) = catalog.provider_state(&provider).await
+        {
+            return Err(format!("agent spawn: provider \"{provider}\" has no available models: {state}"));
+        }
         return Err(format!("agent spawn: provider \"{provider}\" has no available models"));
     }
     Err(format!("agent spawn: model \"{model}\"{scope} not found; available: {}", candidates(&pool)))
@@ -318,5 +355,129 @@ mod tests {
         let fake = Fake { own: "", down: vec![], providers: vec!["gemini"] };
         let (_, note) = resolve_requested_model(&args(), Some(&fake)).await.unwrap();
         assert_eq!(note, "runs on gemini/gemini-4-neon");
+    }
+
+    struct RowsCatalog {
+        rows: Vec<ModelRow>,
+        own: Option<&'static str>,
+        down: Vec<(&'static str, &'static str)>,
+    }
+
+    #[async_trait]
+    impl ModelCatalog for RowsCatalog {
+        async fn list(&self, _options: ListOptions) -> Result<Vec<ModelRow>, String> {
+            Ok(self.rows.clone())
+        }
+        async fn agent_provider(&self, _agent: &str) -> Option<String> {
+            self.own.map(str::to_owned)
+        }
+        async fn provider_state(&self, provider: &str) -> Option<String> {
+            self.down.iter().find(|(p, _)| *p == provider).map(|(_, s)| (*s).into())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_acp_provider_with_no_models_refuses_without_spilling_into_a_prefix_sibling() {
+        let catalog = RowsCatalog {
+            rows: vec![ModelRow {
+                provider: "acp-antigravity-cli".into(),
+                id: "claude-opus-5-5".into(),
+                display: "Antigravity · Claude Opus 5.5".into(),
+                catalog_complete: true,
+                row: json!({ "runner": "acp", "agent": "antigravity-cli", "modelName": "Claude Opus 5.5" }),
+            }],
+            own: None,
+            down: vec![
+                ("acp-antigravity", "Antigravity is signed out. Sign in to it in Settings."),
+                ("acp_antigravity", "Antigravity is signed out. Sign in to it in Settings."),
+                ("antigravity", "Antigravity is signed out. Sign in to it in Settings."),
+            ],
+        };
+        for provider in ["acp-antigravity", "acp_antigravity", "antigravity"] {
+            let err = resolve_requested_model(&json!({ "provider": provider, "model": "claude-opus-5-5" }), Some(&catalog)).await.unwrap_err();
+            assert!(err.contains(provider) && err.contains("has no available models") && err.contains("signed out"), "{provider}: {err}");
+        }
+
+        let sub_err = resolve_requested_model(&json!({ "provider": "anti", "model": "claude-opus-5-5" }), Some(&catalog)).await.unwrap_err();
+        assert_eq!(sub_err, "agent spawn: provider \"anti\" has no available models");
+
+        let empty_err = resolve_requested_model(&json!({ "provider": "acp-empty", "model": "gemini-4-neon" }), Some(&catalog)).await.unwrap_err();
+        assert_eq!(empty_err, "agent spawn: provider \"acp-empty\" has no available models");
+    }
+
+    #[tokio::test]
+    async fn model_only_spawns_exclude_acp_rows_unless_the_agents_own_route_is_that_acp_provider() {
+        let rows = vec![
+            ModelRow {
+                provider: "anthropic-oauth".into(),
+                id: "claude-opus-5-5".into(),
+                display: "Claude Opus 5.5".into(),
+                catalog_complete: true,
+                row: json!({}),
+            },
+            ModelRow {
+                provider: "acp-antigravity".into(),
+                id: "gemini-4-neon".into(),
+                display: "Antigravity · Gemini 4 Neon".into(),
+                catalog_complete: true,
+                row: json!({ "runner": "acp", "agent": "antigravity", "modelName": "Gemini 4 Neon" }),
+            },
+            ModelRow {
+                provider: "acp-antigravity-cli".into(),
+                id: "claude-opus-5-5".into(),
+                display: "Antigravity · Claude Opus 5.5".into(),
+                catalog_complete: true,
+                row: json!({ "runner": "acp", "agent": "antigravity-cli", "modelName": "Claude Opus 5.5" }),
+            },
+        ];
+
+        // No provider, no agent: ready ACP rows do not make non-ACP model-only spawns ambiguous or match ACP-only models.
+        let plain = RowsCatalog { rows: rows.clone(), own: None, down: vec![] };
+        let (routed, note) = resolve_requested_model(&json!({ "model": "claude-opus-5-5" }), Some(&plain)).await.unwrap();
+        assert_eq!((routed["provider"].as_str(), routed["model"].as_str()), (Some("anthropic-oauth"), Some("claude-opus-5-5")));
+        assert_eq!(note, "runs on anthropic-oauth/claude-opus-5-5");
+        let missing = resolve_requested_model(&json!({ "model": "gemini-4-neon" }), Some(&plain)).await.unwrap_err();
+        assert!(missing.contains("not found") && !missing.contains("acp-antigravity"), "{missing}");
+
+        // Agent on a non-ACP route: ACP rows stay excluded.
+        let non_acp_agent = RowsCatalog { rows: rows.clone(), own: Some("anthropic-oauth"), down: vec![] };
+        let (routed, _) = resolve_requested_model(&json!({ "agent": "writer", "model": "claude-opus-5-5" }), Some(&non_acp_agent)).await.unwrap();
+        assert_eq!(routed["provider"], "anthropic-oauth");
+
+        // Agent on `acp-antigravity`: only `acp-antigravity` participates, not `acp-antigravity-cli`.
+        let acp_agent = RowsCatalog { rows, own: Some("acp-antigravity"), down: vec![] };
+        let (routed, note) = resolve_requested_model(&json!({ "agent": "writer", "model": "gemini-4-neon" }), Some(&acp_agent)).await.unwrap();
+        assert_eq!((routed["provider"].as_str(), routed["model"].as_str()), (Some("acp-antigravity"), Some("gemini-4-neon")));
+        assert_eq!(note, "runs on acp-antigravity/gemini-4-neon");
+        let (non_acp, _) = resolve_requested_model(&json!({ "agent": "writer", "model": "claude-opus-5-5" }), Some(&acp_agent)).await.unwrap();
+        assert_eq!(non_acp["provider"], "anthropic-oauth");
+    }
+
+    #[tokio::test]
+    async fn an_acp_model_name_resolves_at_the_exact_display_tier() {
+        let catalog = RowsCatalog {
+            rows: vec![
+                ModelRow {
+                    provider: "acp-antigravity-cli".into(),
+                    id: "claude-4-5-sonnet".into(),
+                    display: "Antigravity · Claude Sonnet 4.5".into(),
+                    catalog_complete: true,
+                    row: json!({ "runner": "acp", "agent": "antigravity-cli", "modelName": "Claude Sonnet 4.5" }),
+                },
+                ModelRow {
+                    provider: "acp-antigravity-cli".into(),
+                    id: "claude-4-5-sonnet-thinking".into(),
+                    display: "Antigravity · Claude Sonnet 4.5 Thinking".into(),
+                    catalog_complete: true,
+                    row: json!({ "runner": "acp", "agent": "antigravity-cli", "modelName": "Claude Sonnet 4.5 Thinking" }),
+                },
+            ],
+            own: None,
+            down: vec![],
+        };
+        let (routed, note) =
+            resolve_requested_model(&json!({ "provider": "acp-antigravity-cli", "model": "Claude Sonnet 4.5" }), Some(&catalog)).await.unwrap();
+        assert_eq!((routed["provider"].as_str(), routed["model"].as_str()), (Some("acp-antigravity-cli"), Some("claude-4-5-sonnet")));
+        assert_eq!(note, "runs on acp-antigravity-cli/claude-4-5-sonnet");
     }
 }

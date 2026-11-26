@@ -78,11 +78,18 @@ pub enum ResumeWindow {
 /// Thread resume position: replay requires an equal window (P §6.3 rule 3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadResumePosition {
     pub epoch: FeedEpoch,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub seq: u64,
     pub window: ResumeWindow,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<SubscriptionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub window_version: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

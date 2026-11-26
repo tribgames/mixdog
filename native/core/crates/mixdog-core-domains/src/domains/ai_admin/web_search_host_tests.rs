@@ -121,6 +121,9 @@ impl RouteFacts for AgentFacts {
     fn init_error(&self, provider: &str) -> Option<String> {
         (!is_test_agent(provider)).then(|| self.0.init_error(provider)).flatten()
     }
+    fn default_search_fallback(&self, config: &Map<String, Value>, main_provider: &str, main_model: &str) -> mixdog_ai::service::routes::DefaultSearchFallback {
+        self.0.default_search_fallback(config, main_provider, main_model)
+    }
 }
 
 /// An agent no hosted search asks anything.
@@ -328,4 +331,223 @@ async fn cold_web_search_models_emits_no_bare_acp_row_when_agent_is_unready() {
 
     let rows = service.list(Some(&thread_of(1)), false).await.unwrap();
     assert!(rows.as_array().unwrap().is_empty(), "unready ACP agent must emit neither Follows Main nor bare ACP rows: {rows}");
+}
+
+async fn host_with_snapshot(agent: Value, cells: HashMap<ThreadId, Route>, snapshot: CatalogSnapshot) -> (tempfile::TempDir, Arc<RegistrySearchHost>) {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let path = dir.path().join("mixdog-config.json");
+    let bytes = serde_json::to_vec(&json!({ "agent": agent })).unwrap();
+    let file = path.clone();
+    tokens
+        .durability_io
+        .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &file, &bytes, &mixdog_statefile::Opts::default()))
+        .unwrap()
+        .await
+        .unwrap()
+        .unwrap();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+    let catalog = Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await);
+    let registry = Arc::new(ProviderRegistry::new(Arc::new(Builds)));
+    let readiness = ProviderReadiness::new(registry.clone(), catalog.clone());
+    let facts = Arc::new(AgentFacts(Arc::new(CatalogFacts { catalog: catalog.clone(), readiness, registry, config: config.clone() })));
+    (dir, Arc::new(RegistrySearchHost { cells: Arc::new(Cells(cells)), config, catalog, facts }))
+}
+
+#[tokio::test]
+async fn default_web_search_never_picks_another_provider_and_uses_same_provider_quick_model() {
+    use mixdog_ai::catalog::ModelRecord;
+    use mixdog_protocol::ProviderId;
+
+    // Non-search Main provider never sweeps other configured/registered providers.
+    let cells = HashMap::from([(thread_of(1), json!({ "provider": "openrouter", "model": "anthropic/claude-opus-4" }).as_object().unwrap().clone())]);
+    let (_dir, no_sweep_host) = host_with_snapshot(
+        json!({
+            "providers": {
+                "anthropic": { "enabled": true, "model": "claude-sonnet-4-5" },
+                "openai": { "enabled": true, "model": "gpt-5.2" }
+            }
+        }),
+        cells,
+        CatalogSnapshot::default(),
+    )
+    .await;
+    no_sweep_host.facts.ensure_ready(&no_sweep_host.config.agent(), "openai").await.unwrap();
+    no_sweep_host.facts.ensure_ready(&no_sweep_host.config.agent(), "anthropic").await.unwrap();
+    let routes = ConfiguredSearchRoutes::new(no_sweep_host);
+    assert!(routes.candidates(&thread_of(1)).await.unwrap().is_empty());
+    assert_eq!(
+        routes.no_candidate_message(&thread_of(1)).await,
+        "default web search route requires the current main model to support native web search (openrouter/anthropic/claude-opus-4)"
+    );
+
+    // Same-provider stand-in picks the quick model by rule regardless of catalog order, never another provider.
+    for order in [&["gpt-5.2-codex", "gpt-5.2", "gpt-5-mini", "gpt-5.2-mini"][..], &["gpt-5.2-mini", "gpt-5-mini", "gpt-5.2", "gpt-5.2-codex"][..]] {
+        let mut snapshot = CatalogSnapshot::default();
+        snapshot.models.insert(ProviderId::from("openai-oauth"), order.iter().map(|id| ModelRecord::new(ProviderId::from("openai-oauth"), *id)).collect());
+        let cells = HashMap::from([(thread_of(1), json!({ "provider": "openai-oauth", "model": "gpt-5.2-codex" }).as_object().unwrap().clone())]);
+        let (_dir, same_host) = host_with_snapshot(
+            json!({
+                "providers": {
+                    "anthropic": { "enabled": true, "model": "claude-sonnet-4-5" },
+                    "openai-oauth": { "enabled": true, "model": "gpt-5.2" }
+                }
+            }),
+            cells,
+            snapshot,
+        )
+        .await;
+        same_host.facts.ensure_ready(&same_host.config.agent(), "anthropic").await.unwrap();
+        let routes = ConfiguredSearchRoutes::new(same_host);
+        let candidates = routes.candidates(&thread_of(1)).await.unwrap();
+        let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+        assert_eq!(pairs, [("openai-oauth", "gpt-5.2-mini", SearchFamily::Openai)], "{order:?}");
+    }
+
+    // Explicit webSearchRoute is used strictly as set even when other providers are configured.
+    let cells = HashMap::from([(thread_of(2), json!({ "provider": "openrouter", "model": "anthropic/claude-opus-4" }).as_object().unwrap().clone())]);
+    let (_dir, explicit_host) = host(
+        json!({
+            "webSearchRoute": { "provider": "gemini", "model": "gemini-2.5-flash" },
+            "providers": {
+                "openai": { "enabled": true, "model": "gpt-5.2" }
+            }
+        }),
+        cells,
+    )
+    .await;
+    let explicit_routes = ConfiguredSearchRoutes::new(explicit_host);
+    let explicit_candidates = explicit_routes.candidates(&thread_of(2)).await.unwrap();
+    let explicit_pairs: Vec<(&str, &str, SearchFamily)> = explicit_candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+    assert_eq!(explicit_pairs, [("gemini", "gemini-2.5-flash", SearchFamily::Gemini)]);
+}
+
+#[tokio::test]
+async fn user_written_fallbacks_precede_automatic_same_provider_pick() {
+    use mixdog_ai::catalog::ModelRecord;
+    use mixdog_protocol::ProviderId;
+
+    let mut snapshot = CatalogSnapshot::default();
+    snapshot.models.insert(
+        ProviderId::from("openai-oauth"),
+        ["gpt-5.2-codex", "gpt-5.2", "gpt-5.2-mini"].iter().map(|id| ModelRecord::new(ProviderId::from("openai-oauth"), *id)).collect(),
+    );
+    let cells = HashMap::from([(thread_of(1), json!({ "provider": "openai-oauth", "model": "gpt-5.2-codex" }).as_object().unwrap().clone())]);
+    let (_dir, fallback_host) = host_with_snapshot(
+        json!({
+            "webSearchRoute": {
+                "provider": "default",
+                "model": "default",
+                "fallbacks": [{ "provider": "anthropic", "model": "claude-sonnet-4-5" }]
+            },
+            "providers": {
+                "openai-oauth": { "enabled": true, "model": "gpt-5.2" }
+            }
+        }),
+        cells,
+        snapshot,
+    )
+    .await;
+    let routes = ConfiguredSearchRoutes::new(fallback_host);
+    let candidates = routes.candidates(&thread_of(1)).await.unwrap();
+    let pairs: Vec<(&str, &str, SearchFamily)> = candidates.iter().map(|c| (c.provider.as_str(), c.model.as_str(), c.family)).collect();
+    assert_eq!(pairs, [("anthropic", "claude-sonnet-4-5", SearchFamily::Anthropic), ("openai-oauth", "gpt-5.2-mini", SearchFamily::Openai)]);
+}
+
+#[tokio::test]
+async fn default_web_search_adds_no_readiness_calls_for_other_providers() {
+    use std::sync::Mutex;
+
+    struct CountingFacts {
+        inner: Arc<dyn RouteFacts>,
+        ready_calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl RouteFacts for CountingFacts {
+        fn is_known(&self, provider: &str, config: &Map<String, Value>) -> bool {
+            self.inner.is_known(provider, config)
+        }
+        async fn ensure_ready(&self, config: &Map<String, Value>, provider: &str) -> Result<(), String> {
+            self.ready_calls.lock().unwrap().push(provider.to_owned());
+            self.inner.ensure_ready(config, provider).await
+        }
+        fn model_meta(&self, provider: &str, model: &str) -> Value {
+            self.inner.model_meta(provider, model)
+        }
+        fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+            self.inner.window_meta(provider, model, meta)
+        }
+        fn catalog_knows(&self, model: &str, provider: &str) -> bool {
+            self.inner.catalog_knows(model, provider)
+        }
+        fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
+            self.inner.fast_capable(provider, meta, effort, params)
+        }
+        fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
+            self.inner.ultrafast_capable(provider, meta)
+        }
+        async fn sender(&self, providers: Option<&Map<String, Value>>, provider: &str) -> Result<Option<RouteSender>, String> {
+            self.inner.sender(providers, provider).await
+        }
+        fn registered(&self, provider: &str) -> Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>> {
+            self.inner.registered(provider)
+        }
+        fn init_error(&self, provider: &str) -> Option<String> {
+            self.inner.init_error(provider)
+        }
+        fn default_search_fallback(
+            &self,
+            config: &Map<String, Value>,
+            main_provider: &str,
+            main_model: &str,
+        ) -> mixdog_ai::service::routes::DefaultSearchFallback {
+            self.inner.default_search_fallback(config, main_provider, main_model)
+        }
+    }
+
+    let wrap = |base: &Arc<RegistrySearchHost>| {
+        let ready_calls = Arc::new(Mutex::new(Vec::new()));
+        let counted = Arc::new(RegistrySearchHost {
+            cells: base.cells.clone(),
+            config: base.config.clone(),
+            catalog: base.catalog.clone(),
+            facts: Arc::new(CountingFacts { inner: base.facts.clone(), ready_calls: ready_calls.clone() }),
+        });
+        (ConfiguredSearchRoutes::new(counted), ready_calls)
+    };
+
+    // Usable Main route: only Main is checked, never other configured providers.
+    let cells = HashMap::from([(thread_of(1), json!({ "provider": "openai", "model": "gpt-5.2" }).as_object().unwrap().clone())]);
+    let (_dir, base) = host(json!({ "providers": { "anthropic": { "enabled": true }, "gemini": { "enabled": true } } }), cells).await;
+    let (routes, calls) = wrap(&base);
+    let got = routes.candidates(&thread_of(1)).await.unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(*calls.lock().unwrap(), vec!["openai".to_owned()]);
+
+    // Explicit webSearchRoute: zero ensure_ready calls during candidate resolution.
+    let cells = HashMap::from([(thread_of(2), json!({ "provider": "openrouter", "model": "m" }).as_object().unwrap().clone())]);
+    let (_dir, base) = host(
+        json!({
+            "webSearchRoute": { "provider": "gemini", "model": "gemini-2.5-flash" },
+            "providers": { "openai": { "enabled": true } }
+        }),
+        cells,
+    )
+    .await;
+    let (routes, calls) = wrap(&base);
+    let got = routes.candidates(&thread_of(2)).await.unwrap();
+    assert_eq!(got.len(), 1);
+    assert!(calls.lock().unwrap().is_empty(), "explicit route must not run readiness work: {:?}", *calls.lock().unwrap());
+
+    // Non-search Main provider: zero ensure_ready calls for candidates + no_candidate_message.
+    let cells = HashMap::from([(thread_of(3), json!({ "provider": "openrouter", "model": "m" }).as_object().unwrap().clone())]);
+    let (_dir, base) = host(json!({ "providers": { "openai": { "enabled": true } } }), cells).await;
+    let (routes, calls) = wrap(&base);
+    assert!(routes.candidates(&thread_of(3)).await.unwrap().is_empty());
+    let _ = routes.no_candidate_message(&thread_of(3)).await;
+    assert!(calls.lock().unwrap().is_empty(), "non-search Main must not probe other providers: {:?}", *calls.lock().unwrap());
 }

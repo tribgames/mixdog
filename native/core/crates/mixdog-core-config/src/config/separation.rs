@@ -29,8 +29,8 @@ use crate::tool_modules::Origin;
 use crate::tool_modules::adopt;
 use crate::workflow::ids::legacy_workflow_mode;
 use crate::workflow::ids::truthy;
-use crate::workflow::presets::default_maintenance;
-use crate::workflow::presets::default_presets;
+use crate::workflow::presets::default_maintenance_for;
+use crate::workflow::presets::default_presets_for;
 use crate::workflow::presets::normalize_preset;
 use crate::workflow::presets::redundant_generated;
 
@@ -317,8 +317,9 @@ pub(super) fn resolve_numeric_default(agent: &Doc) -> Doc {
         .and_then(Value::as_array)
         .map(|list| list.iter().filter_map(normalize_preset).filter(|preset| preset.get("id").and_then(Value::as_str) != Some("workflow-search")).collect())
         .unwrap_or_default();
+    let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(agent);
     let present: Vec<String> = presets.iter().map(preset_key).collect();
-    presets.extend(default_presets().into_iter().filter(|shipped| !present.contains(&preset_key(shipped))));
+    presets.extend(default_presets_for(legacy_switch_on).into_iter().filter(|shipped| !present.contains(&preset_key(shipped))));
     presets.retain(|preset| !redundant_generated(preset, ""));
     let mut next = agent.clone();
     if let Some(id) = presets.get(index as usize).and_then(|preset| preset.get("id")) {
@@ -331,8 +332,9 @@ pub(super) fn resolve_numeric_default(agent: &Doc) -> Doc {
 /// are not stored; the loader restores them.
 pub(super) fn strip_stored_route_defaults(agent: &Doc) -> Doc {
     let mut next = agent.clone();
+    let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&next);
     if next.contains_key("presets") {
-        let shipped = default_presets();
+        let shipped = default_presets_for(legacy_switch_on);
         let delta: Vec<Value> = next
             .get("presets")
             .and_then(Value::as_array)
@@ -356,7 +358,7 @@ pub(super) fn strip_stored_route_defaults(agent: &Doc) -> Doc {
         }
     }
     if next.contains_key("maintenance") {
-        let defaults = default_maintenance();
+        let defaults = default_maintenance_for(legacy_switch_on);
         let delta: Doc = config_object(next.get("maintenance"))
             .into_iter()
             .filter(|(slot, route)| !defaults.get(slot).is_some_and(|default| js_deep_equal(route, default)))

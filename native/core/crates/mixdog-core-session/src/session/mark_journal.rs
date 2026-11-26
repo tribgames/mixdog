@@ -19,6 +19,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -70,12 +71,22 @@ impl MarkRecord {
 type SyncDirHook = Box<dyn FnMut(&Path) -> Result<(), String> + Send>;
 #[cfg(test)]
 type ForgetHook = Box<dyn FnMut(&str) -> Option<Result<(), String>> + Send>;
+#[cfg(test)]
+type PendingIoHook = Box<dyn FnMut(&Path) -> Result<(), String> + Send>;
 
 #[cfg(test)]
 #[derive(Default)]
 struct TestHooks {
     sync_dir: Mutex<Option<SyncDirHook>>,
     forget: Mutex<Option<ForgetHook>>,
+    pending_io: Mutex<Option<PendingIoHook>>,
+    publishes: Mutex<Vec<PathBuf>>,
+    pending_dir_reads: std::sync::atomic::AtomicUsize,
+}
+
+pub(crate) struct ForgetBatchOutcome {
+    pub any_changed: bool,
+    pub failed: Vec<(String, String)>,
 }
 
 pub(crate) struct Loaded {
@@ -137,6 +148,21 @@ impl MarksOnDisk {
         *self.test_hooks.forget.lock().unwrap_or_else(PoisonError::into_inner) = hook;
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_pending_io_hook(&self, hook: Option<PendingIoHook>) {
+        *self.test_hooks.pending_io.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_published_paths(&self) -> Vec<PathBuf> {
+        std::mem::take(&mut *self.test_hooks.publishes.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_pending_dir_reads(&self) -> usize {
+        self.test_hooks.pending_dir_reads.swap(0, std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -156,6 +182,8 @@ impl MarksOnDisk {
         let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
         mixdog_store::fsio::publish_file_with(path, &bytes, mixdog_store::fsio::Access::OwnerOnly).map_err(|error| format!("{}: {error}", path.display()))?;
         #[cfg(test)]
+        self.test_hooks.publishes.lock().unwrap_or_else(PoisonError::into_inner).push(path.to_path_buf());
+        #[cfg(test)]
         if let Some(parent) = path.parent()
             && self.test_hooks.sync_dir.lock().unwrap_or_else(PoisonError::into_inner).is_some()
         {
@@ -174,6 +202,10 @@ impl MarksOnDisk {
 
     fn publish_pending(&self, state: &mut State, path: &Path, value: &Value) -> Result<(), String> {
         state.pending_dir_sync_needed = true;
+        #[cfg(test)]
+        if let Some(hook) = self.test_hooks.pending_io.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            hook(path)?;
+        }
         self.publish_checked(path, value)?;
         state.pending_dir_sync_needed = false;
         Ok(())
@@ -181,6 +213,10 @@ impl MarksOnDisk {
 
     fn remove_pending(&self, state: &mut State, path: &Path) -> Result<(), String> {
         state.pending_dir_sync_needed = true;
+        #[cfg(test)]
+        if let Some(hook) = self.test_hooks.pending_io.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            hook(path)?;
+        }
         self.remove_checked(path)?;
         state.pending_dir_sync_needed = false;
         Ok(())
@@ -426,65 +462,149 @@ impl MarksOnDisk {
     /// root is forgotten before its recipients were journaled (without creating synthetic debt for already-applied
     /// or settled recipients), clearing `origin` on surviving marks so `SensitiveStore::restore` never resurrects
     /// the deleted session on restart, and keeping any `search_owed` debt until confirmed discharged.
+    #[cfg(test)]
     pub(crate) fn forget_session(&self, session: &str) -> Result<(), String> {
-        #[cfg(test)]
         if let Some(result) = self.test_hooks.forget.lock().unwrap_or_else(PoisonError::into_inner).as_mut().and_then(|hook| hook(session)) {
             return result;
         }
 
         let mut state = self.lock();
-        let result = self.forget_session_inner(&mut state, session);
+        let ordered = [session];
+        let mut mutated = false;
+        let mut failed = Vec::new();
+        self.forget_sessions_inner(&mut state, &ordered, &mut mutated, &mut failed);
         prune_applied_values(&mut state);
-        result
+        match failed.into_iter().next() {
+            Some((_, error)) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    /// Drops in-memory and journal state for a batch of deleted `sessions` in one pass: collapses transitive carry
+    /// edges once, scans `pending/` once, updates or retires affected marks, and durably publishes `carries.json` at
+    /// most once.
+    ///
+    /// When a mark file fails to update or retire, only the sessions tied to that mark are reported in `failed` (and
+    /// retained in `carries.json` for retry); sessions whose marks succeeded are still pruned in the same pass.
+    ///
+    /// Because all forgotten sessions are collapsed together, a surviving mark's `sessions` list may omit a surviving
+    /// recipient that sequential per-session pruning would have copied in when a collapsed carry edge from a surviving
+    /// root already reaches that recipient; `carries.json`, retire decisions, and what `SensitiveStore::restore`
+    /// reaches remain identical.
+    pub(crate) fn forget_sessions(&self, sessions: &[String]) -> ForgetBatchOutcome {
+        if sessions.is_empty() {
+            return ForgetBatchOutcome { any_changed: false, failed: Vec::new() };
+        }
+
+        let mut failed = Vec::new();
+        let mut ordered: Vec<&str> = Vec::with_capacity(sessions.len());
+        let mut seen: HashSet<&str> = HashSet::with_capacity(sessions.len());
+        let mut any_changed = false;
+
+        for session in sessions {
+            let id = session.as_str();
+            if !seen.insert(id) {
+                continue;
+            }
+            #[cfg(test)]
+            if let Some(result) = self.test_hooks.forget.lock().unwrap_or_else(PoisonError::into_inner).as_mut().and_then(|hook| hook(id)) {
+                match result {
+                    Ok(()) => any_changed = true,
+                    Err(error) => failed.push((session.clone(), error)),
+                }
+                continue;
+            }
+            ordered.push(id);
+        }
+
+        if ordered.is_empty() {
+            return ForgetBatchOutcome { any_changed, failed };
+        }
+
+        let mut state = self.lock();
+        self.forget_sessions_inner(&mut state, &ordered, &mut any_changed, &mut failed);
+        prune_applied_values(&mut state);
+        ForgetBatchOutcome { any_changed, failed }
     }
 
     #[allow(clippy::disallowed_methods, reason = "runs inside a lane job")]
-    fn forget_session_inner(&self, state: &mut State, session: &str) -> Result<(), String> {
-        let incoming: Vec<String> = state.carries.iter().filter(|(_, to)| to == session).map(|(from, _)| from.clone()).collect();
-        let outgoing: Vec<String> = state.carries.iter().filter(|(from, _)| from == session).map(|(_, to)| to.clone()).collect();
-        let mut next_carries = state.carries.clone();
-        for from in &incoming {
-            for to in &outgoing {
-                if from != to && from != session && to != session {
-                    next_carries.insert((from.clone(), to.clone()));
-                }
-            }
-        }
-        next_carries.retain(|(from, to)| from != session && to != session);
-        let carries_changed = next_carries != state.carries;
+    fn forget_sessions_inner(&self, state: &mut State, ordered: &[&str], mutated: &mut bool, failed: &mut Vec<(String, String)>) {
+        let forgotten: HashSet<&str> = ordered.iter().copied().collect();
+        let planned_carries = collapse_carries(&state.carries, &forgotten);
+        let pending_dir_sync_needed_at_entry = state.pending_dir_sync_needed;
         let mut synced_pending_dir = false;
+        let mut blocked: HashMap<&str, String> = HashMap::new();
 
         // Update mark files before pruning `carries.json` so a crash in between cannot lose an
-        // outgoing carry recipient whose obligation was anchored only on `session`.
+        // outgoing carry recipient whose obligation was anchored only on a forgotten session.
         let mark_keys: Vec<u64> = state.marks.keys().copied().collect();
         for n in mark_keys {
-            let Some(record) = state.marks.get(&n) else { continue };
-            match forget_mark_record(record, session, &state.carries, &next_carries, &state.applied, &state.applied_values) {
+            let disposition = {
+                let Some(record) = state.marks.get(&n) else { continue };
+                let effective_carries = planned_carries.as_ref().unwrap_or(&state.carries);
+                forget_mark_record(record, &forgotten, &state.carries, effective_carries, &state.applied, &state.applied_values)
+            };
+            match disposition {
                 MarkDisposition::Unchanged => {}
                 MarkDisposition::Retire => {
                     let path = self.pending_path(n);
-                    self.remove_pending(state, &path)?;
-                    synced_pending_dir = true;
-                    state.marks.remove(&n);
+                    match self.remove_pending(state, &path) {
+                        Ok(()) => {
+                            synced_pending_dir = true;
+                            state.marks.remove(&n);
+                            *mutated = true;
+                        }
+                        Err(error) => {
+                            if let Some(record) = state.marks.get(&n) {
+                                record_mark_failure(&mut blocked, ordered, &forgotten, record, &state.carries, &state.applied_values, error);
+                            }
+                        }
+                    }
                 }
                 MarkDisposition::Update(next) => {
                     let path = self.pending_path(n);
-                    self.publish_pending(state, &path, &pending_mark_json(&next.disk))?;
-                    synced_pending_dir = true;
-                    state.marks.insert(n, next);
+                    match self.publish_pending(state, &path, &pending_mark_json(&next.disk)) {
+                        Ok(()) => {
+                            synced_pending_dir = true;
+                            state.marks.insert(n, next);
+                            *mutated = true;
+                        }
+                        Err(error) => {
+                            if let Some(record) = state.marks.get(&n) {
+                                record_mark_failure(&mut blocked, ordered, &forgotten, record, &state.carries, &state.applied_values, error);
+                            }
+                        }
+                    }
                 }
             }
         }
 
         // Also clean any durable `pending/<n>.json` left on disk outside `state.marks` (e.g. a prior best-effort remove failure).
         let pending_dir = self.dir.join("pending");
+        #[cfg(test)]
+        self.test_hooks.pending_dir_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let entries = match std::fs::read_dir(&pending_dir) {
             Ok(entries) => Some(entries),
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(format!("{}: {error}", pending_dir.display())),
+            Err(error) => {
+                let message = format!("{}: {error}", pending_dir.display());
+                for &id in ordered {
+                    blocked.entry(id).or_insert_with(|| message.clone());
+                }
+                None
+            }
         };
         for entry in entries.into_iter().flatten() {
-            let entry = entry.map_err(|error| format!("{}: {error}", pending_dir.display()))?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    let message = format!("{}: {error}", pending_dir.display());
+                    for &id in ordered {
+                        blocked.entry(id).or_insert_with(|| message.clone());
+                    }
+                    break;
+                }
+            };
             let name = entry.file_name();
             let Some(n) = name.to_str().and_then(|name| name.strip_suffix(".json")).and_then(|n| n.parse::<u64>().ok()) else { continue };
             if state.marks.contains_key(&n) {
@@ -494,49 +614,234 @@ impl MarksOnDisk {
             let bytes = match std::fs::read(&path) {
                 Ok(bytes) => bytes,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(format!("{}: {error}", path.display())),
+                Err(error) => {
+                    let message = format!("{}: {error}", path.display());
+                    for &id in ordered {
+                        blocked.entry(id).or_insert_with(|| message.clone());
+                    }
+                    continue;
+                }
             };
-            let disk: PendingMark = serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+            let disk: PendingMark = match serde_json::from_slice(&bytes) {
+                Ok(disk) => disk,
+                Err(error) => {
+                    let message = format!("{}: {error}", path.display());
+                    for &id in ordered {
+                        blocked.entry(id).or_insert_with(|| message.clone());
+                    }
+                    continue;
+                }
+            };
             let record = MarkRecord::from_recovered(disk);
-            match forget_mark_record(&record, session, &state.carries, &next_carries, &state.applied, &state.applied_values) {
+            let disposition = {
+                let effective_carries = planned_carries.as_ref().unwrap_or(&state.carries);
+                forget_mark_record(&record, &forgotten, &state.carries, effective_carries, &state.applied, &state.applied_values)
+            };
+            match disposition {
                 MarkDisposition::Unchanged => {}
-                MarkDisposition::Retire => {
-                    self.remove_pending(state, &path)?;
-                    synced_pending_dir = true;
+                MarkDisposition::Retire => match self.remove_pending(state, &path) {
+                    Ok(()) => synced_pending_dir = true,
+                    Err(error) => record_mark_failure(&mut blocked, ordered, &forgotten, &record, &state.carries, &state.applied_values, error),
+                },
+                MarkDisposition::Update(next) => match self.publish_pending(state, &path, &pending_mark_json(&next.disk)) {
+                    Ok(()) => synced_pending_dir = true,
+                    Err(error) => record_mark_failure(&mut blocked, ordered, &forgotten, &record, &state.carries, &state.applied_values, error),
+                },
+            }
+        }
+
+        let prunable: HashSet<&str> = ordered.iter().copied().filter(|id| !blocked.contains_key(id)).collect();
+        if !prunable.is_empty() {
+            let final_carries = if blocked.is_empty() { planned_carries } else { collapse_carries(&state.carries, &prunable) };
+            let carries_changed = final_carries.is_some();
+
+            // Complete any pending `pending/` directory sync left from an earlier call, and unconditionally sync
+            // `pending/` before pruning `carries.json` (unless already synced in this call) so an unsynced rename
+            // left by a prior process cannot revert after `carries.json` drops the carry edge.
+            let mut carries_ready = true;
+            if (pending_dir_sync_needed_at_entry && !synced_pending_dir) || (carries_changed && !synced_pending_dir) {
+                if pending_dir.try_exists().unwrap_or(true) {
+                    if let Err(error) = self.sync_dir(&pending_dir) {
+                        for &id in ordered {
+                            if prunable.contains(id) {
+                                blocked.entry(id).or_insert_with(|| error.clone());
+                            }
+                        }
+                        carries_ready = false;
+                    } else {
+                        state.pending_dir_sync_needed = false;
+                    }
+                } else {
+                    state.pending_dir_sync_needed = false;
                 }
-                MarkDisposition::Update(next) => {
-                    self.publish_pending(state, &path, &pending_mark_json(&next.disk))?;
-                    synced_pending_dir = true;
+            }
+
+            if carries_ready && let Some(next_carries) = final_carries {
+                let all: Vec<Value> = next_carries.iter().map(|(from, to)| json!([from, to])).collect();
+                match self.publish_checked(&self.dir.join("carries.json"), &Value::Array(all)) {
+                    Ok(()) => {
+                        state.carries = next_carries;
+                        *mutated = true;
+                    }
+                    Err(error) => {
+                        for &id in ordered {
+                            if prunable.contains(id) {
+                                blocked.entry(id).or_insert_with(|| error.clone());
+                            }
+                        }
+                        carries_ready = false;
+                    }
+                }
+            }
+
+            if carries_ready {
+                for session in &prunable {
+                    if state.applied.remove(*session).is_some() {
+                        *mutated = true;
+                    }
+                    if state.applied_values.remove(*session).is_some() {
+                        *mutated = true;
+                    }
                 }
             }
         }
 
-        // Complete any pending `pending/` directory sync from this process, and unconditionally sync `pending/`
-        // before pruning `carries.json` (unless already synced in this call) so an unsynced rename left by a prior
-        // process cannot revert after `carries.json` drops the carry edge.
-        if state.pending_dir_sync_needed || (carries_changed && !synced_pending_dir) {
-            if pending_dir.try_exists().unwrap_or(true) {
-                self.sync_dir(&pending_dir)?;
+        for &id in ordered {
+            if let Some(error) = blocked.remove(id) {
+                failed.push((id.to_owned(), error));
             }
-            state.pending_dir_sync_needed = false;
         }
-
-        if carries_changed {
-            let all: Vec<Value> = next_carries.iter().map(|(from, to)| json!([from, to])).collect();
-            self.publish_checked(&self.dir.join("carries.json"), &Value::Array(all))?;
-            state.carries = next_carries;
-        }
-
-        state.applied.remove(session);
-        state.applied_values.remove(session);
-        Ok(())
     }
+}
+
+fn record_mark_failure<'a>(
+    blocked: &mut HashMap<&'a str, String>,
+    ordered: &[&'a str],
+    forgotten: &HashSet<&'a str>,
+    record: &MarkRecord,
+    carries: &BTreeSet<(String, String)>,
+    applied_values: &HashMap<String, BTreeSet<ValueDigest>>,
+    error: String,
+) {
+    let affected = mark_blocked_sessions(record, forgotten, carries, applied_values);
+    if affected.is_empty() {
+        for &id in ordered {
+            blocked.entry(id).or_insert_with(|| error.clone());
+        }
+    } else {
+        for id in affected {
+            blocked.entry(id).or_insert_with(|| error.clone());
+        }
+    }
+}
+
+fn mark_blocked_sessions<'a>(
+    record: &MarkRecord,
+    forgotten: &HashSet<&'a str>,
+    old_carries: &BTreeSet<(String, String)>,
+    applied_values: &HashMap<String, BTreeSet<ValueDigest>>,
+) -> Vec<&'a str> {
+    let mut result = BTreeSet::new();
+    if let Some(&s) = forgotten.get(record.disk.origin.as_str()) {
+        result.insert(s);
+    }
+    for session in record.disk.sessions.keys().chain(record.disk.settled.iter()).chain(record.owed.keys()) {
+        if let Some(&s) = forgotten.get(session.as_str()) {
+            result.insert(s);
+        }
+    }
+    if !result.is_empty() {
+        return result.into_iter().collect();
+    }
+
+    // No forgotten session appears directly in the mark: it can only have been retired because forgotten carry targets
+    // drained the unsettled outgoing set of its surviving roots.
+    let mut visited = BTreeSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    for root in recovery_roots(&record.disk) {
+        if visited.insert(root.clone()) {
+            queue.push_back(root);
+        }
+    }
+    while let Some(node) = queue.pop_front() {
+        for (from, to) in old_carries.range((node.clone(), String::new())..) {
+            if from != &node {
+                break;
+            }
+            if to.is_empty() || !visited.insert(to.clone()) {
+                continue;
+            }
+            if let Some(&s) = forgotten.get(to.as_str()) {
+                result.insert(s);
+                queue.push_back(to.clone());
+            } else if is_confirmed_done(to, &record.disk.settled, applied_values, &record.digests) {
+                queue.push_back(to.clone());
+            }
+        }
+    }
+    result.into_iter().collect()
 }
 
 enum MarkDisposition {
     Unchanged,
     Retire,
     Update(MarkRecord),
+}
+
+fn collapse_carries(carries: &BTreeSet<(String, String)>, forgotten: &HashSet<&str>) -> Option<BTreeSet<(String, String)>> {
+    let mut touched = false;
+    let mut adj_from_forgotten: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut entry_edges: Vec<(&str, &str)> = Vec::new();
+    for (from, to) in carries {
+        let from_gone = forgotten.contains(from.as_str());
+        let to_gone = forgotten.contains(to.as_str());
+        if from_gone || to_gone {
+            touched = true;
+            if from_gone {
+                adj_from_forgotten.entry(from.as_str()).or_default().push(to.as_str());
+            } else {
+                entry_edges.push((from.as_str(), to.as_str()));
+            }
+        }
+    }
+    if !touched {
+        return None;
+    }
+
+    let mut next_carries: BTreeSet<(String, String)> =
+        carries.iter().filter(|(from, to)| !forgotten.contains(from.as_str()) && !forgotten.contains(to.as_str())).cloned().collect();
+
+    let mut targets_cache: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (from, entry) in entry_edges {
+        let targets = targets_cache.entry(entry).or_insert_with(|| {
+            let mut visited_forgotten: HashSet<&str> = HashSet::new();
+            let mut seen_targets: HashSet<&str> = HashSet::new();
+            let mut queue = std::collections::VecDeque::new();
+            let mut targets = Vec::new();
+            visited_forgotten.insert(entry);
+            queue.push_back(entry);
+            while let Some(node) = queue.pop_front() {
+                if let Some(outs) = adj_from_forgotten.get(node) {
+                    for &next in outs {
+                        if forgotten.contains(next) {
+                            if visited_forgotten.insert(next) {
+                                queue.push_back(next);
+                            }
+                        } else if seen_targets.insert(next) {
+                            targets.push(next);
+                        }
+                    }
+                }
+            }
+            targets
+        });
+        for &to in targets.iter() {
+            if from != to {
+                next_carries.insert((from.to_owned(), to.to_owned()));
+            }
+        }
+    }
+    Some(next_carries)
 }
 
 fn pending_mark_json(disk: &PendingMark) -> Value {
@@ -571,6 +876,18 @@ fn unsettled_outgoing_from<'a>(
     applied_values: &HashMap<String, BTreeSet<ValueDigest>>,
     digests: &[ValueDigest],
 ) -> Vec<String> {
+    let empty = HashSet::new();
+    unsettled_outgoing_through_forgotten(seeds, carries, &empty, settled, applied_values, digests)
+}
+
+fn unsettled_outgoing_through_forgotten<'a>(
+    seeds: impl IntoIterator<Item = &'a str>,
+    carries: &BTreeSet<(String, String)>,
+    forgotten: &HashSet<&str>,
+    settled: &BTreeSet<String>,
+    applied_values: &HashMap<String, BTreeSet<ValueDigest>>,
+    digests: &[ValueDigest],
+) -> Vec<String> {
     let mut visited = BTreeSet::new();
     let mut queue = std::collections::VecDeque::new();
     let mut result = Vec::new();
@@ -580,11 +897,14 @@ fn unsettled_outgoing_from<'a>(
         }
     }
     while let Some(node) = queue.pop_front() {
-        for (from, to) in carries {
-            if from != &node || to.is_empty() || !visited.insert(to.clone()) {
+        for (from, to) in carries.range((node.clone(), String::new())..) {
+            if from != &node {
+                break;
+            }
+            if to.is_empty() || !visited.insert(to.clone()) {
                 continue;
             }
-            if is_confirmed_done(to, settled, applied_values, digests) {
+            if forgotten.contains(to.as_str()) || is_confirmed_done(to, settled, applied_values, digests) {
                 queue.push_back(to.clone());
             } else {
                 result.push(to.clone());
@@ -604,26 +924,47 @@ fn is_live(record: &MarkRecord, carries: &BTreeSet<(String, String)>, applied_va
 
 fn forget_mark_record(
     record: &MarkRecord,
-    session: &str,
+    forgotten: &HashSet<&str>,
     old_carries: &BTreeSet<(String, String)>,
     next_carries: &BTreeSet<(String, String)>,
     applied: &HashMap<String, u64>,
     applied_values: &HashMap<String, BTreeSet<ValueDigest>>,
 ) -> MarkDisposition {
-    let is_root = record.disk.origin == session || record.disk.sessions.contains_key(session);
+    let mut forgotten_roots = BTreeSet::new();
+    if !record.disk.origin.is_empty() && forgotten.contains(record.disk.origin.as_str()) {
+        forgotten_roots.insert(record.disk.origin.as_str());
+    }
+    for session in record.disk.sessions.keys() {
+        if !session.is_empty() && forgotten.contains(session.as_str()) {
+            forgotten_roots.insert(session.as_str());
+        }
+    }
+
     let mut next = record.clone();
-    let mut changed = next.disk.sessions.remove(session).is_some();
-    changed |= next.disk.settled.remove(session);
-    changed |= next.owed.remove(session).is_some();
-    if next.disk.origin == session {
+    let prev_sessions_len = next.disk.sessions.len();
+    next.disk.sessions.retain(|s, _| !forgotten.contains(s.as_str()));
+    let mut changed = next.disk.sessions.len() != prev_sessions_len;
+
+    let prev_settled_len = next.disk.settled.len();
+    next.disk.settled.retain(|s| !forgotten.contains(s.as_str()));
+    changed |= next.disk.settled.len() != prev_settled_len;
+
+    let prev_owed_len = next.owed.len();
+    next.owed.retain(|s, _| !forgotten.contains(s.as_str()));
+    changed |= next.owed.len() != prev_owed_len;
+
+    if !next.disk.origin.is_empty() && forgotten.contains(next.disk.origin.as_str()) {
         next.disk.origin.clear();
         changed = true;
     }
-    if is_root {
+
+    if !forgotten_roots.is_empty() {
         let remaining_roots = recovery_roots(&next.disk);
         let mut covered = remaining_roots.clone();
         covered.extend(unsettled_outgoing_from(remaining_roots.iter().map(String::as_str), next_carries, &next.disk.settled, applied_values, &next.digests));
-        for to in unsettled_outgoing_from([session], old_carries, &record.disk.settled, applied_values, &record.digests) {
+        for to in
+            unsettled_outgoing_through_forgotten(forgotten_roots.iter().copied(), old_carries, forgotten, &record.disk.settled, applied_values, &record.digests)
+        {
             if !covered.contains(&to) {
                 let version = applied.get(&to).copied().unwrap_or(0).saturating_add(1);
                 next.disk.sessions.entry(to.clone()).or_insert(version);
@@ -1463,5 +1804,318 @@ mod tests {
         assert!(journal.lock().marks.is_empty());
         assert!(journal.lock().applied_values.is_empty());
         assert!(MarksOnDisk::new(dir.path()).load().unwrap().pending.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "test stages journal files directly on disk")]
+    fn forget_sessions_matches_sequential_state_and_publishes_carries_once() {
+        let stage = |root: &Path| {
+            let sensitive_dir = root.join("sensitive");
+            let pending_dir = sensitive_dir.join("pending");
+            std::fs::create_dir_all(&pending_dir).unwrap();
+            std::fs::write(
+                sensitive_dir.join("carries.json"),
+                serde_json::to_vec(&json!([
+                    ["s-a", "d-0"],
+                    ["d-0", "d-1"],
+                    ["d-1", "d-2"],
+                    ["d-2", "s-b"],
+                    ["d-1", "d-0"],
+                    ["d-2", "s-a"],
+                    ["s-c", "d-3"],
+                    ["d-3", "s-mid"],
+                    ["s-mid", "d-4"],
+                    ["d-4", "s-d"],
+                    ["d-origin", "d-hop"],
+                    ["d-hop", "s-heir"],
+                    ["d-root", "s-settled"],
+                    ["s-settled", "d-tail"],
+                    ["d-tail", "s-target"],
+                    ["s-live-origin", "s-live-heir"],
+                ]))
+                .unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                pending_dir.join("0.json"),
+                serde_json::to_vec(&json!({ "origin": "d-origin", "values": ["secret-chain"], "sessions": { "d-origin": 1 } })).unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                pending_dir.join("1.json"),
+                serde_json::to_vec(&json!({
+                    "origin": "d-root",
+                    "values": ["secret-settled-hop"],
+                    "sessions": { "d-root": 1 },
+                    "settled": ["s-settled"]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                pending_dir.join("2.json"),
+                serde_json::to_vec(&json!({ "origin": "s-live-origin", "values": ["secret-live-origin"], "sessions": { "d-listed": 1 } })).unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                pending_dir.join("3.json"),
+                serde_json::to_vec(&json!({ "origin": "d-solo", "values": ["secret-solo"], "sessions": { "d-solo": 1 } })).unwrap(),
+            )
+            .unwrap();
+
+            let journal = MarksOnDisk::new(root);
+            let _ = journal.load().unwrap();
+            journal.seed_applied(&[("d-0".into(), 2), ("s-a".into(), 5)]);
+            // Orphan file outside `state.marks` must still be cleaned during the single `pending/` pass.
+            std::fs::write(
+                pending_dir.join("99.json"),
+                serde_json::to_vec(&json!({ "origin": "d-orphan", "values": ["secret-orphan"], "sessions": { "d-orphan": 1 } })).unwrap(),
+            )
+            .unwrap();
+            journal
+        };
+
+        let forgotten: Vec<String> = ["d-0", "d-1", "d-2", "d-3", "d-4", "d-hop", "d-listed", "d-origin", "d-orphan", "d-root", "d-solo", "d-tail"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+
+        let seq_dir = tempfile::tempdir().unwrap();
+        let seq_journal = stage(seq_dir.path());
+        for id in &forgotten {
+            seq_journal.forget_session(id).unwrap();
+        }
+
+        let batch_dir = tempfile::tempdir().unwrap();
+        let batch_journal = stage(batch_dir.path());
+        batch_journal.take_published_paths();
+        batch_journal.take_pending_dir_reads();
+
+        let outcome = batch_journal.forget_sessions(&forgotten);
+        assert!(outcome.failed.is_empty(), "batch forget failed: {:?}", outcome.failed);
+        assert!(outcome.any_changed);
+
+        let carries_publishes =
+            batch_journal.take_published_paths().into_iter().filter(|path| path.file_name().and_then(|name| name.to_str()) == Some("carries.json")).count();
+        assert_eq!(carries_publishes, 1, "carries.json must be published once for the whole batch");
+        assert_eq!(batch_journal.take_pending_dir_reads(), 1, "pending/ must be scanned once for the whole batch");
+        assert!(!batch_journal.lock().applied.contains_key("d-0"));
+        assert_eq!(batch_journal.lock().applied.get("s-a"), Some(&5));
+
+        let seq_reloaded = MarksOnDisk::new(seq_dir.path()).load().unwrap();
+        let batch_reloaded = MarksOnDisk::new(batch_dir.path()).load().unwrap();
+        assert_eq!(batch_reloaded.carries, seq_reloaded.carries);
+        assert_eq!(batch_reloaded.pending.keys().copied().collect::<Vec<_>>(), seq_reloaded.pending.keys().copied().collect::<Vec<_>>());
+        for (n, expected) in &seq_reloaded.pending {
+            let actual = &batch_reloaded.pending[n];
+            assert_eq!(actual.origin, expected.origin, "mark {n} origin mismatch");
+            assert_eq!(actual.values, expected.values, "mark {n} values mismatch");
+            assert_eq!(actual.sessions, expected.sessions, "mark {n} sessions mismatch");
+            assert_eq!(actual.settled, expected.settled, "mark {n} settled mismatch");
+        }
+        assert!(!batch_dir.path().join("sensitive/pending/99.json").exists(), "orphan pending file must be removed");
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "test stages journal files directly on disk")]
+    fn forget_sessions_prunes_clean_sessions_when_one_mark_file_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let sensitive_dir = dir.path().join("sensitive");
+        let pending_dir = sensitive_dir.join("pending");
+        std::fs::create_dir_all(&pending_dir).unwrap();
+        std::fs::write(
+            sensitive_dir.join("carries.json"),
+            serde_json::to_vec(&json!([
+                ["d-bad-update", "s-heir-bad"],
+                ["s-src-bad", "d-bad-retire"],
+                ["d-good-update", "s-heir-good"],
+                ["s-a", "d-good-retire"],
+                ["s-c", "d-good-carry"],
+                ["d-good-carry", "s-d"],
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            pending_dir.join("0.json"),
+            serde_json::to_vec(&json!({ "origin": "d-bad-update", "values": ["secret-bad-u"], "sessions": { "d-bad-update": 1 } })).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            pending_dir.join("1.json"),
+            serde_json::to_vec(&json!({ "origin": "d-bad-retire", "values": ["secret-bad-r"], "sessions": { "d-bad-retire": 1 } })).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            pending_dir.join("2.json"),
+            serde_json::to_vec(&json!({ "origin": "d-good-update", "values": ["secret-good-u"], "sessions": { "d-good-update": 1 } })).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            pending_dir.join("3.json"),
+            serde_json::to_vec(&json!({ "origin": "d-good-retire", "values": ["secret-good-r"], "sessions": { "d-good-retire": 1 } })).unwrap(),
+        )
+        .unwrap();
+
+        let journal = MarksOnDisk::new(dir.path());
+        let _ = journal.load().unwrap();
+        journal.seed_applied(&[
+            ("d-bad-update".into(), 1),
+            ("d-bad-retire".into(), 1),
+            ("d-good-update".into(), 1),
+            ("d-good-retire".into(), 1),
+            ("d-good-carry".into(), 1),
+        ]);
+        journal.set_pending_io_hook(Some(Box::new(|path| {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(name, "0.json" | "1.json") {
+                return Err(format!("{}: simulated mark io failure", path.display()));
+            }
+            Ok(())
+        })));
+        journal.take_published_paths();
+        journal.take_pending_dir_reads();
+
+        let batch: Vec<String> = ["d-bad-update", "d-bad-retire", "d-good-update", "d-good-retire", "d-good-carry"].into_iter().map(str::to_owned).collect();
+        let outcome = journal.forget_sessions(&batch);
+        assert!(outcome.any_changed);
+        let failed_ids: BTreeSet<String> = outcome.failed.iter().map(|(id, _)| id.clone()).collect();
+        assert_eq!(
+            failed_ids,
+            BTreeSet::from(["d-bad-retire".to_owned(), "d-bad-update".to_owned()]),
+            "only sessions touching the failing mark files must fail"
+        );
+        let carries_publishes =
+            journal.take_published_paths().into_iter().filter(|path| path.file_name().and_then(|name| name.to_str()) == Some("carries.json")).count();
+        assert_eq!(carries_publishes, 1, "clean sessions must still be published to carries.json in one pass");
+        assert_eq!(journal.take_pending_dir_reads(), 1);
+        {
+            let state = journal.lock();
+            assert!(state.applied.contains_key("d-bad-update"));
+            assert!(state.applied.contains_key("d-bad-retire"));
+            assert!(!state.applied.contains_key("d-good-update"));
+            assert!(!state.applied.contains_key("d-good-retire"));
+            assert!(!state.applied.contains_key("d-good-carry"));
+        }
+
+        let mid = MarksOnDisk::new(dir.path()).load().unwrap();
+        assert_eq!(
+            mid.carries,
+            vec![
+                ("d-bad-update".to_owned(), "s-heir-bad".to_owned()),
+                ("s-c".to_owned(), "s-d".to_owned()),
+                ("s-src-bad".to_owned(), "d-bad-retire".to_owned()),
+            ],
+            "good sessions must collapse/prune while failing sessions stay intact in carries.json"
+        );
+        assert_eq!(mid.pending.keys().copied().collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(mid.pending[&0].origin, "d-bad-update");
+        assert_eq!(mid.pending[&1].origin, "d-bad-retire");
+        assert!(mid.pending[&2].origin.is_empty());
+        assert_eq!(mid.pending[&2].sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-heir-good".to_owned()]);
+
+        // Clearing the mark failure lets a single retry finish pruning the previously blocked sessions.
+        journal.set_pending_io_hook(None);
+        journal.take_published_paths();
+        let retry = journal.forget_sessions(&["d-bad-update".to_owned(), "d-bad-retire".to_owned()]);
+        assert!(retry.failed.is_empty(), "retry must succeed: {:?}", retry.failed);
+        assert!(retry.any_changed);
+        let retry_carries_publishes =
+            journal.take_published_paths().into_iter().filter(|path| path.file_name().and_then(|name| name.to_str()) == Some("carries.json")).count();
+        assert_eq!(retry_carries_publishes, 1);
+
+        let final_disk = MarksOnDisk::new(dir.path()).load().unwrap();
+        assert_eq!(final_disk.carries, vec![("s-c".to_owned(), "s-d".to_owned())]);
+        assert_eq!(final_disk.pending.keys().copied().collect::<Vec<_>>(), vec![0, 2]);
+        assert!(final_disk.pending[&0].origin.is_empty());
+        assert_eq!(final_disk.pending[&0].sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-heir-bad".to_owned()]);
+
+        // Also verify a carry-only clean session still publishes when the only touched mark file fails (no prior pending/ sync).
+        let dir2 = tempfile::tempdir().unwrap();
+        let sensitive_dir2 = dir2.path().join("sensitive");
+        let pending_dir2 = sensitive_dir2.join("pending");
+        std::fs::create_dir_all(&pending_dir2).unwrap();
+        std::fs::write(sensitive_dir2.join("carries.json"), serde_json::to_vec(&json!([["d-bad", "s-keep"], ["s-x", "d-clean"], ["d-clean", "s-y"]])).unwrap())
+            .unwrap();
+        std::fs::write(
+            pending_dir2.join("0.json"),
+            serde_json::to_vec(&json!({ "origin": "d-bad", "values": ["secret-only-bad"], "sessions": { "d-bad": 1 } })).unwrap(),
+        )
+        .unwrap();
+        let journal2 = MarksOnDisk::new(dir2.path());
+        let _ = journal2.load().unwrap();
+        journal2.set_pending_io_hook(Some(Box::new(|path| Err(format!("{}: simulated failure", path.display())))));
+        journal2.take_published_paths();
+
+        let out2 = journal2.forget_sessions(&["d-bad".to_owned(), "d-clean".to_owned()]);
+        assert!(out2.any_changed);
+        assert_eq!(out2.failed.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), vec!["d-bad"]);
+        let carries_publishes2 =
+            journal2.take_published_paths().into_iter().filter(|path| path.file_name().and_then(|name| name.to_str()) == Some("carries.json")).count();
+        assert_eq!(carries_publishes2, 1);
+        let reloaded2 = MarksOnDisk::new(dir2.path()).load().unwrap();
+        assert_eq!(reloaded2.carries, vec![("d-bad".to_owned(), "s-keep".to_owned()), ("s-x".to_owned(), "s-y".to_owned())]);
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "test stages journal files directly on disk")]
+    fn forget_sessions_relies_on_collapsed_carry_and_preserves_restore_and_liveness() {
+        let stage = |root: &Path| {
+            let sensitive_dir = root.join("sensitive");
+            let pending_dir = sensitive_dir.join("pending");
+            std::fs::create_dir_all(&pending_dir).unwrap();
+            std::fs::write(sensitive_dir.join("carries.json"), serde_json::to_vec(&json!([["s-live", "d-2"], ["d-2", "s-t"], ["d-1", "s-t"]])).unwrap())
+                .unwrap();
+            std::fs::write(
+                pending_dir.join("0.json"),
+                serde_json::to_vec(&json!({ "origin": "s-live", "values": ["secret-collapsed"], "sessions": { "d-1": 1 } })).unwrap(),
+            )
+            .unwrap();
+            let journal = MarksOnDisk::new(root);
+            let _ = journal.load().unwrap();
+            journal
+        };
+
+        let seq_dir = tempfile::tempdir().unwrap();
+        let seq_journal = stage(seq_dir.path());
+        seq_journal.forget_session("d-1").unwrap();
+        seq_journal.forget_session("d-2").unwrap();
+
+        let batch_dir = tempfile::tempdir().unwrap();
+        let batch_journal = stage(batch_dir.path());
+        let outcome = batch_journal.forget_sessions(&["d-1".to_owned(), "d-2".to_owned()]);
+        assert!(outcome.failed.is_empty(), "batch forget failed: {:?}", outcome.failed);
+        assert!(outcome.any_changed);
+
+        let seq_reloaded = MarksOnDisk::new(seq_dir.path()).load().unwrap();
+        let batch_reloaded = MarksOnDisk::new(batch_dir.path()).load().unwrap();
+        assert_eq!(batch_reloaded.carries, vec![("s-live".to_owned(), "s-t".to_owned())]);
+        assert_eq!(batch_reloaded.carries, seq_reloaded.carries);
+        assert_eq!(seq_reloaded.pending[&0].sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-t".to_owned()]);
+        assert!(batch_reloaded.pending[&0].sessions.is_empty(), "batch relies on collapsed s-live -> s-t edge");
+
+        // Restore must reach the exact same owed sessions under both sequential and batch states.
+        let restore_owed = |loaded: &Loaded| {
+            let store = mixdog_services::memory::sensitive::SensitiveStore::default();
+            store.restore_carries(loaded.carries.clone());
+            let mark = &loaded.pending[&0];
+            store.restore(mark.origin.clone(), mark.sessions.keys().cloned().collect(), mark.values.clone())
+        };
+        let seq_owed = restore_owed(&seq_reloaded);
+        let batch_owed = restore_owed(&batch_reloaded);
+        assert_eq!(batch_owed, BTreeSet::from(["s-live".to_owned(), "s-t".to_owned()]));
+        assert_eq!(batch_owed, seq_owed);
+
+        // The batch mark must stay live even after s-live settles and boot recovery retires until s-t is confirmed.
+        batch_journal.settled("s-live", &[0]).unwrap();
+        batch_journal.forget_recovered(vec![0]);
+        assert_eq!(batch_journal.lock().marks.len(), 1, "mark must stay live while s-t is unconfirmed");
+        assert_eq!(MarksOnDisk::new(batch_dir.path()).load().unwrap().pending.len(), 1);
+
+        batch_journal.marked("s-live", &["secret-collapsed".into()], &[("s-t".into(), 1)]);
+        batch_journal.applied("s-t", 1);
+        assert!(batch_journal.lock().marks.is_empty(), "mark must retire once s-t is confirmed");
+        assert!(batch_journal.lock().applied_values.is_empty());
+        assert!(MarksOnDisk::new(batch_dir.path()).load().unwrap().pending.is_empty());
     }
 }

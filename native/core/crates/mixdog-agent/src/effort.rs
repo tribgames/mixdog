@@ -62,6 +62,8 @@ pub struct EffortSnapshot {
     pub mode: EffortMode,
     pub initial_effort: String,
     pub effort: String,
+    /// True only when Auto effort's judge selected this turn's effort.
+    pub judged: bool,
 }
 
 impl EffortSnapshot {
@@ -82,7 +84,14 @@ impl EffortSnapshot {
             "custom" => EffortMode::Custom,
             _ => return None,
         };
-        Some(Self { provider: text("provider")?, model: text("model")?, mode, initial_effort: text("initialEffort")?, effort: text("effort")? })
+        Some(Self {
+            provider: text("provider")?,
+            model: text("model")?,
+            mode,
+            initial_effort: text("initialEffort")?,
+            effort: text("effort")?,
+            judged: value.get("judged") == Some(&JsonValue::Bool(true)),
+        })
     }
 
     /// The snapshot as a message's `meta.effortConfiguration` stores it.
@@ -92,7 +101,17 @@ impl EffortSnapshot {
             EffortMode::Anthropic => "anthropic",
             EffortMode::Custom => "custom",
         };
-        serde_json::json!({ "version": 1, "provider": self.provider, "model": self.model, "mode": mode, "initialEffort": self.initial_effort, "effort": self.effort })
+        let mut obj = serde_json::Map::new();
+        obj.insert("version".into(), serde_json::json!(1));
+        obj.insert("provider".into(), serde_json::json!(self.provider));
+        obj.insert("model".into(), serde_json::json!(self.model));
+        obj.insert("mode".into(), serde_json::json!(mode));
+        obj.insert("initialEffort".into(), serde_json::json!(self.initial_effort));
+        obj.insert("effort".into(), serde_json::json!(self.effort));
+        if self.judged {
+            obj.insert("judged".into(), serde_json::json!(true));
+        }
+        JsonValue::Object(obj)
     }
 }
 
@@ -242,6 +261,7 @@ mod tests {
             mode: EffortMode::Responses,
             initial_effort: initial.into(),
             effort: effort.into(),
+            judged: false,
         }
     }
 
@@ -298,6 +318,7 @@ mod tests {
             mode: EffortMode::Anthropic,
             initial_effort: initial.into(),
             effort: effort.into(),
+            judged: false,
         };
         let route = |seed: Option<EffortSnapshot>| EffortRoute {
             provider: "anthropic-oauth".into(),

@@ -826,8 +826,8 @@ fn public_meta(meta: &JobMeta, pid: Option<u64>) -> Value {
     if meta.resumed {
         out.insert("resumed".into(), json!(true));
     }
-    if meta.auto_effort_off {
-        out.insert("autoEffort".into(), json!(false));
+    if let Some(enabled) = meta.effort_auto {
+        out.insert("effortAuto".into(), json!(enabled.as_bool()));
     }
     if let Some(pid) = pid {
         out.insert("clientHostPid".into(), json!(pid));
@@ -1272,7 +1272,10 @@ async fn a_spawn_runs_the_worker_on_its_agents_route_and_tells_the_caller_when_i
     let job = rig.spawn.start_deferred_spawn_job(&scenario["args"], "/work", &context, &context, SpawnOptions { respawned: false }).await.expect("started");
     let task = rig.shared.board.get(job.task_id(), &Scope::default()).unwrap();
     let meta = public_meta(&task.meta, None);
-    assert_eq!(meta, json!({ "tag": "scout", "agent": "worker", "preset": "agent-worker", "provider": "openai", "model": "gpt-5", "effort": "medium" }));
+    assert_eq!(
+        meta,
+        json!({ "tag": "scout", "agent": "worker", "preset": "agent-worker", "provider": "openai", "model": "gpt-5", "effort": "medium", "effortAuto": true })
+    );
     settle().await;
     settle().await;
     let state = final_state(&rig, job.task_id(), true);

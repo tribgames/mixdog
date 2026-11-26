@@ -49,6 +49,7 @@ pub(super) struct TxScope<'a> {
 pub(super) struct Resolved {
     pub path: String,
     pub entry: Option<WorktreeRecord>,
+    pub created: bool,
     pub reference_added: bool,
     pub repo_common_dir: String,
 }
@@ -277,12 +278,14 @@ impl Ops {
 
     /// Resolve a branch to its checkout without switching any existing folder: a retried
     /// transaction's worktree, the checkout that already holds the branch, or a new managed
-    /// worktree. `create` makes the branch at the project folder's branch.
+    /// worktree. `create` makes the branch at `start_point` (or the project folder's branch).
+    #[allow(clippy::too_many_arguments)]
     pub async fn resolve_branch(
         &self,
         project_path: &str,
         branch: &str,
         create: bool,
+        start_point: Option<&str>,
         scope: TxScope<'_>,
         confirm_large: bool,
         cancel: &CancellationToken,
@@ -290,6 +293,9 @@ impl Ops {
         let TxScope { session, tx_id } = scope;
         if mixdog_js::js_trim(branch).is_empty() {
             return Err(plain("branch must be a non-empty string."));
+        }
+        if start_point.is_some() && !create {
+            return Err(plain("startPoint needs create."));
         }
         let repo = self.inspect(project_path, cancel).await?;
         let common = text(&repo.common_dir);
@@ -308,7 +314,7 @@ impl Ops {
                 return Err(errors::missing(None, None, None));
             }
             self.claim(&retry.id, session, cancel).await?;
-            return Ok(Resolved { path: retry.path.clone(), entry: Some(retry.clone()), reference_added: false, repo_common_dir: common });
+            return Ok(Resolved { path: retry.path.clone(), entry: Some(retry.clone()), created: false, reference_added: false, repo_common_dir: common });
         }
         let listed = self.wt.scm().git.read(cancel, &repo.project_path, &["for-each-ref", "--format=%(refname:short)", "refs/heads/"]).await?;
         let exists = listed.lines().any(|l| l.trim() == branch);
@@ -329,12 +335,19 @@ impl Ops {
                 None => None,
             };
             let reference_added = claim.is_some_and(|c| c["referenceAdded"] == true);
-            return Ok(Resolved { path: holder.path, entry, reference_added, repo_common_dir: common });
+            return Ok(Resolved { path: holder.path, entry, created: false, reference_added, repo_common_dir: common });
         }
         if !create && self.remote_defaults(&repo.project_path, cancel).await?.iter().any(|d| d == branch) {
             return Err(ScmFailure::coded("WORKTREE_DEFAULT_BRANCH", DomainErrorDetail::WorktreeDefaultBranch { branch: branch.to_owned() }));
         }
-        let base_commit = self.branch_tip(&repo.top_level, if create { repo.current_branch.as_deref().unwrap_or(branch) } else { branch }, cancel).await?;
+        let base_commit = match (create, start_point) {
+            (true, Some(start)) => start.to_owned(),
+            (true, None) => match repo.current_branch.as_deref() {
+                Some(current) => self.branch_tip(&repo.top_level, current, cancel).await?,
+                None => repo.head.clone(),
+            },
+            (false, _) => self.branch_tip(&repo.top_level, branch, cancel).await?,
+        };
         self.assert_base_fits(&repo, &base_commit, confirm_large, cancel).await?;
         let record = self
             .wt
@@ -347,7 +360,7 @@ impl Ops {
                     base_branch: if create { repo.current_branch.clone() } else { Some(branch.to_owned()) },
                     branch: Some(branch.to_owned()),
                     existing_branch: !create,
-                    start_commit: None,
+                    start_commit: if create { start_point.map(str::to_owned) } else { None },
                     confirm_large,
                     ..CreateRequest::default()
                 },
@@ -355,7 +368,7 @@ impl Ops {
             )
             .await?;
         self.claim(&record.id, session, cancel).await?;
-        Ok(Resolved { path: record.path.clone(), entry: Some(record), reference_added: false, repo_common_dir: common })
+        Ok(Resolved { path: record.path.clone(), entry: Some(record), created: true, reference_added: false, repo_common_dir: common })
     }
 
     /// The local branch names the repository's remotes declare as their default.

@@ -1126,7 +1126,7 @@ impl Run {
                 let _local = identity.local_work();
                 let streamed = &builder.so_far().tool_calls;
                 let step = self.step_calls(streamed);
-                self.try_eager(&call, &started_in, &step, streamed.len() - 1, crate::batch::Decided::default()).await;
+                self.try_eager(&call, &started_in, &step, streamed.len() - 1, crate::batch::Decided::default(), None).await;
             }
             if is_returned_calls {
                 let final_calls = builder.so_far().tool_calls.clone();

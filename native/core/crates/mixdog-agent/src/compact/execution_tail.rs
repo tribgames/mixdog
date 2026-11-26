@@ -324,13 +324,16 @@ fn group_stand_in(group: &Group, archive: &Artifact) -> AgentMessage {
 
 struct Assemble<'a> {
     anchor: usize,
-    first_kept: usize,
     preserve_conversation: bool,
     pending: &'a HashSet<usize>,
 }
 
+fn is_plain_assistant_reply(m: &AgentMessage) -> bool {
+    m.role() == Role::Assistant && m.tool_calls().is_empty() && !is_protected_context_ack(m) && m.source != Some(Source::CompactExecutionText)
+}
+
 /// Walk from the anchor: kept groups verbatim, user instructions, unanswered
-/// task notifications, and the conversation the mode allows.
+/// task notifications, plain assistant replies, and the conversation the mode allows.
 fn assemble_tail(messages: &[AgentMessage], kept: &BTreeMap<usize, Group>, a: &Assemble<'_>) -> Vec<AgentMessage> {
     let mut tail = Vec::new();
     let mut i = a.anchor;
@@ -358,10 +361,7 @@ fn assemble_tail(messages: &[AgentMessage], kept: &BTreeMap<usize, Group>, a: &A
             i += 1;
             continue;
         }
-        if is_actual_user_instruction(m)
-            || a.pending.contains(&i)
-            || (a.preserve_conversation && is_compact_conversation_row(m))
-            || (i >= a.first_kept && m.role() == Role::Assistant && m.tool_calls().is_empty())
+        if is_actual_user_instruction(m) || a.pending.contains(&i) || (a.preserve_conversation && is_compact_conversation_row(m)) || is_plain_assistant_reply(m)
         {
             tail.push(m.clone());
         }
@@ -450,11 +450,17 @@ pub async fn build_execution_tail(ctx: &TailContext<'_>, transcript: &[AgentMess
         let start = request_start(&messages, first_kept.min(latest_kept)).unwrap_or(0);
         pending_indexes.iter().copied().fold(start, usize::min)
     };
-    let tail = assemble_tail(&messages, &kept, &Assemble { anchor, first_kept, preserve_conversation: options.preserve_conversation, pending: &pending });
-    // With no execution to retain, keep the existing latest-request contract.
+    let tail = assemble_tail(&messages, &kept, &Assemble { anchor, preserve_conversation: options.preserve_conversation, pending: &pending });
+    // With no execution to retain, keep the latest request, any plain reply that answered it,
+    // and pending notifications.
     if !options.preserve_conversation && groups.is_empty() && previous_recovery.is_empty() {
         return Ok(TailOutput {
-            messages: messages.iter().enumerate().filter(|(index, _)| Some(*index) == latest || pending.contains(index)).map(|(_, m)| m.clone()).collect(),
+            messages: messages
+                .iter()
+                .enumerate()
+                .filter(|(index, m)| Some(*index) == latest || pending.contains(index) || (latest.is_some_and(|l| *index > l) && is_plain_assistant_reply(m)))
+                .map(|(_, m)| m.clone())
+                .collect(),
             tool_tokens: 0,
             tool_budget: budget,
             retained_groups: 0,

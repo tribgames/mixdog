@@ -102,7 +102,7 @@ async fn resume_in_the_ring_replays_behind_the_response() {
     let mut peer = connect(&hub, ConnectionOrigin::Loopback, true);
     let feed = new_feed("app", &limits);
     publish(&feed, 1..=4);
-    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 2 }, window: Window::LastItems(50) };
+    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 2 }, window: Window::LastItems(50), positioned: None };
 
     let attached = subscribe_to(&feed, &peer, "a", Window::LastItems(50), Some(resume));
     assert_eq!(attached.decision.mode, AttachMode::Replay);
@@ -547,7 +547,7 @@ async fn a_resume_inside_a_coalesced_range_replays_from_the_next_position() {
     feed.publish(&(1..=5).map(|seq| append(seq, &seq.to_string())).collect::<Vec<_>>(), view()).expect("contiguous frames");
     let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
     phone.connection.sink.coalesce_appends();
-    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 3 }, window: Window::LastItems(50) };
+    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 3 }, window: Window::LastItems(50), positioned: None };
     let attached = subscribe_to(&feed, &phone, "p", Window::LastItems(50), Some(resume));
     assert_eq!(attached.decision.mode, AttachMode::Replay);
     respond(&phone, attached, "resp");

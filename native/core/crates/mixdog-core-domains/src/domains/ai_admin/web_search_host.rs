@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
+use mixdog_ai::service::routes::{DefaultSearchFallback, is_web_search_capable_provider};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::Config;
 use mixdog_core_ports::ports::route::LiveRoute;
@@ -44,6 +45,9 @@ impl SearchHost for RegistrySearchHost {
     /// snapshot, so one lookup answers `getCachedModelInfo(model) || listModels().find(..)`,
     /// falling back to `RouteFacts::model_meta` for ACP routes that are not in the provider catalog.
     async fn main_model_row(&self, provider: &str, model: &str) -> Result<Option<Value>, String> {
+        if !is_web_search_capable_provider(provider) {
+            return Ok(None);
+        }
         self.ready(provider).await?;
         Ok(listed_row(&self.catalog, provider, model).or_else(|| self.facts.catalog_knows(model, provider).then(|| self.facts.model_meta(provider, model))))
     }
@@ -65,5 +69,9 @@ impl SearchHost for RegistrySearchHost {
     /// A conversation's session id is its thread id (`TurnScope.caller_session_id`).
     fn session_id(&self, thread: &ThreadId) -> Option<String> {
         Some(thread.as_str().to_owned())
+    }
+
+    fn default_search_fallback(&self, main_provider: &str, main_model: &str) -> DefaultSearchFallback {
+        self.facts.default_search_fallback(&self.config.agent(), main_provider, main_model)
     }
 }

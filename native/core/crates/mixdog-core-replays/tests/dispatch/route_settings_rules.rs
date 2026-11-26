@@ -53,16 +53,17 @@ fn a_route_without_effort_clears_the_saved_one_and_leaves_other_models_alone() {
 }
 
 #[test]
-fn auto_effort_is_saved_only_when_turned_off_and_a_route_that_does_not_say_leaves_it() {
-    let base = json!({ "modelSettings": { "openai/gpt-5": { "autoEffort": false } } });
+fn effort_auto_saves_explicit_true_and_false_while_absent_leaves_saved_state_alone() {
+    let base = json!({ "modelSettings": { "openai/gpt-5": { "effortAuto": false } } });
     let route = |extra: Value| {
         let mut route = json!({ "provider": "openai", "model": "gpt-5" });
         route.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         route
     };
-    assert_eq!(saved(&save(json!({}), route(json!({ "autoEffort": false })), true))["autoEffort"], false);
-    assert!(saved(&save(base.clone(), route(json!({ "autoEffort": true })), true)).get("autoEffort").is_none());
-    assert_eq!(saved(&save(base, route(json!({})), true))["autoEffort"], false);
+    assert_eq!(saved(&save(json!({}), route(json!({ "effortAuto": false })), true))["effortAuto"], false);
+    assert_eq!(saved(&save(base.clone(), route(json!({ "effortAuto": true })), true))["effortAuto"], true);
+    assert_eq!(saved(&save(base, route(json!({})), true))["effortAuto"], false);
+    assert!(saved(&save(json!({}), route(json!({})), true)).get("effortAuto").is_none());
 }
 
 #[test]

@@ -209,9 +209,10 @@ fn collapse_space(text: &str) -> String {
 
 /// `session action=status` of another session (`readSessionStatus`, `daemon-session-control.mjs:203`): its stored title quoted
 /// like a listed one, its route and cwd, whether a turn runs, whether agent work it handed off is pending, its quota resume.
-pub fn status(session_id: &str, header: &Map<String, Value>, busy: bool, agents_working: bool, quota_resume: Value) -> Value {
+pub fn status(session_id: &str, header: &Map<String, Value>, busy: bool, agents_working: bool, quota_resume: Value, legacy_switch_on: bool) -> Value {
     let text = |key: &str| header.get(key).filter(|v| truthy(Some(v))).map(|v| json!(value_to_string(v))).unwrap_or(Value::Null);
     let title = header.get("title").filter(|t| truthy(Some(t))).map(|t| json!(escape_harness_tags(&truncate_tool_text(&value_to_string(t), TITLE_LIMIT))));
+    let effort_auto = mixdog_ai::effort::EffortAuto::resolve(header, legacy_switch_on).as_bool();
     json!({
         "sessionId": session_id,
         "title": title.unwrap_or(Value::Null),
@@ -219,8 +220,8 @@ pub fn status(session_id: &str, header: &Map<String, Value>, busy: bool, agents_
         "provider": text("provider"),
         "model": text("model"),
         "effort": text("effort"),
-        // `snapshot.autoEffort ?? null`, `snapshot.fast ?? null`: what the record holds, else null.
-        "autoEffort": header.get("autoEffort").cloned().unwrap_or(Value::Null),
+        "effortAuto": effort_auto,
+        "autoEffort": effort_auto,
         "fast": header.get("fast").cloned().unwrap_or(Value::Null),
         "busy": busy,
         "agentsWorking": agents_working,

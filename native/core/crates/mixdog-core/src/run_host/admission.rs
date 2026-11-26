@@ -20,7 +20,11 @@ use mixdog_agent::agent_tool::flow::seams::{Admission, Lease};
 pub use mixdog_agent::cancel::{ABORTED, Cancel, JOB_CANCELLED};
 use mixdog_agent::env::Clock;
 use mixdog_agent::env::Yielder;
+use mixdog_tools::exec::ShellAdmission;
+use mixdog_tools::exec::ShellAdmissionError;
+use mixdog_tools::exec::ShellLease;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pool {
@@ -82,7 +86,7 @@ pub fn queue_full(max_queue: usize) -> String {
 }
 
 enum Entry {
-    New { tx: oneshot::Sender<Option<u64>>, parent: Option<u64> },
+    New { tx: oneshot::Sender<Held>, parent: Option<u64> },
     Restore { lease: u64, txs: Vec<oneshot::Sender<()>> },
 }
 
@@ -139,7 +143,7 @@ fn pool_name(pool: Pool, restore: bool) -> &'static str {
 
 /// What a drain admitted, sent once the lock is released.
 enum Delivery {
-    New(oneshot::Sender<Option<u64>>, u64),
+    New(oneshot::Sender<Held>, Held),
     Restore(Vec<oneshot::Sender<()>>),
 }
 
@@ -257,7 +261,7 @@ impl Controller {
         Some(found)
     }
 
-    fn drain(&self, state: &mut State) -> Vec<Delivery> {
+    fn drain(self: &Arc<Self>, state: &mut State) -> Vec<Delivery> {
         let mut out = Vec::new();
         while let Some(index) = self.next_fair(state) {
             let waiter = state.queue.remove(index);
@@ -274,7 +278,7 @@ impl Controller {
                 }
                 Entry::New { tx, parent } => {
                     let id = Self::new_lease(state, waiter.pool, &waiter.owner, waiter.priority, parent, None, waited);
-                    out.push(Delivery::New(tx, id));
+                    out.push(Delivery::New(tx, Held { controller: self.clone(), id }));
                 }
             }
         }
@@ -287,11 +291,9 @@ impl Controller {
                 Delivery::Restore(txs) => txs.into_iter().for_each(|tx| {
                     tx.send(()).ok();
                 }),
-                // A closed receiver returns the lease; it frees itself again outside any lock.
-                Delivery::New(tx, id) => {
-                    if tx.send(Some(id)).is_err() {
-                        drop(self.release_now(id));
-                    }
+                // Dropping an undelivered `Held` releases its slot and drains the next waiter outside any lock.
+                Delivery::New(tx, held) => {
+                    let _ = tx.send(held);
                 }
             }
         }
@@ -457,6 +459,32 @@ impl Drop for Held {
     }
 }
 
+impl ShellLease for Held {}
+
+struct QueuedWaiter {
+    controller: Arc<Controller>,
+    id: u64,
+    armed: bool,
+}
+
+impl Drop for QueuedWaiter {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let deliveries = {
+            let mut state = self.controller.lock();
+            if let Some(at) = state.queue.iter().position(|w| w.id == self.id)
+                && let Entry::New { parent: Some(p), .. } = state.queue.remove(at).entry
+            {
+                drop(self.controller.resume(&mut state, p, false));
+            }
+            self.controller.drain(&mut state)
+        };
+        self.controller.deliver(deliveries);
+    }
+}
+
 #[async_trait]
 impl Lease for Held {
     async fn release(self: Box<Self>) {
@@ -528,26 +556,22 @@ impl ResourceAdmission {
             (rx, id, deliveries)
         };
         c.deliver(deliveries);
+        let mut guard = QueuedWaiter { controller: c.clone(), id, armed: true };
         let granted = tokio::select! {
-            granted = rx => granted.ok().flatten(),
+            biased;
+            granted = rx => {
+                guard.armed = false;
+                granted.ok()
+            }
             () = cancel.cancelled() => None,
         };
-        if let Some(lease) = granted {
-            if let Some(l) = c.lock().leases.get_mut(&lease) {
+        if let Some(held) = granted {
+            if let Some(l) = c.lock().leases.get_mut(&held.id) {
                 l.cancel = Some(cancel.clone());
             }
-            return Ok(Held { controller: c.clone(), id: lease });
+            return Ok(held);
         }
-        let deliveries = {
-            let mut state = c.lock();
-            if let Some(at) = state.queue.iter().position(|w| w.id == id)
-                && let Entry::New { parent: Some(p), .. } = state.queue.remove(at).entry
-            {
-                drop(c.resume(&mut state, p, false));
-            }
-            c.drain(&mut state)
-        };
-        c.deliver(deliveries);
+        drop(guard);
         Err(cancel.reason())
     }
 
@@ -575,6 +599,19 @@ impl ResourceAdmission {
 impl Admission for ResourceAdmission {
     async fn acquire(&self, _label: &str, owner_key: Option<&str>, cancel: &Cancel) -> Result<Box<dyn Lease>, String> {
         self.acquire_in(Pool::Agent, owner_key, Priority::UserVisible, cancel).await.map(|held| Box::new(held) as Box<dyn Lease>)
+    }
+}
+
+#[async_trait]
+impl ShellAdmission for ResourceAdmission {
+    async fn acquire_shell(&self, owner: &str, cancel: &CancellationToken) -> Result<Box<dyn ShellLease>, ShellAdmissionError> {
+        let signal = Cancel::from_token(cancel);
+        let owner_key = (!owner.is_empty()).then_some(owner);
+        match self.acquire_in(Pool::Shell, owner_key, Priority::UserVisible, &signal).await {
+            Ok(held) => Ok(Box::new(held)),
+            Err(_) if cancel.is_cancelled() => Err(ShellAdmissionError::Cancelled),
+            Err(msg) => Err(ShellAdmissionError::QueueFull(msg)),
+        }
     }
 }
 
@@ -859,5 +896,49 @@ mod tests {
         drop(first);
         assert_eq!(a.active(Pool::Agent), 0);
         a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shell_admission_trait_uses_shell_pool_and_respects_max_shells_env() {
+        let limits = Limits::from_env(2, &|k| (k == "MIXDOG_MAX_CONCURRENT_SHELLS").then(|| "2".to_owned()));
+        assert_eq!(limits.max_shells, 2);
+        let a = Arc::new(ResourceAdmission::new(limits, Arc::new(Fixed(0))));
+        let token = CancellationToken::new();
+
+        let l1 = a.acquire_shell("s1", &token).await.unwrap();
+        let l2 = a.acquire_shell("s1", &token).await.unwrap();
+        assert_eq!((a.active(Pool::Shell), a.active(Pool::Agent), a.queued()), (2, 0, 0));
+
+        // A 3rd waiter queues and receives a slot once a holder drops.
+        let (got_tx, got_rx) = oneshot::channel();
+        let (a3, t3) = (a.clone(), token.clone());
+        let mut w3 = tokio::spawn(async move {
+            let lease = a3.acquire_shell("s2", &t3).await.unwrap();
+            let _ = got_tx.send(lease);
+        });
+        queued_is(&a, 1, &mut w3).await;
+
+        // Dropping a timed-out acquire future removes its waiter without leaking a slot.
+        let (a4, t4) = (a.clone(), token.clone());
+        let timed_out = tokio::select! {
+            biased;
+            _ = a4.acquire_shell("s3", &t4) => false,
+            () = tokio::time::sleep(std::time::Duration::from_millis(10)) => true,
+        };
+        assert!(timed_out);
+        assert_eq!(a.queued(), 1);
+
+        // Cancelling a waiter returns ShellAdmissionError::Cancelled.
+        let c5 = CancellationToken::new();
+        c5.cancel();
+        assert!(matches!(a.acquire_shell("s4", &c5).await, Err(ShellAdmissionError::Cancelled)));
+
+        drop(l1);
+        finished("queued shell waiter to acquire freed slot", w3).await;
+        let l3 = got_rx.await.unwrap();
+        assert_eq!((a.active(Pool::Shell), a.queued()), (2, 0));
+        drop(l2);
+        drop(l3);
+        assert_eq!((a.active(Pool::Shell), a.queued()), (0, 0));
     }
 }

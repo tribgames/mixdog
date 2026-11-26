@@ -328,9 +328,7 @@ fn normalize_candidate(candidate: &Value) -> Option<Value> {
         out.insert("effort".into(), effort.into());
     }
     out.insert("fast".into(), (route.get("fast") == Some(&Value::Bool(true))).into());
-    if route.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), false.into());
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(route, &mut out);
     if let Some(parameters) = route.get("modelParameters").filter(|parameters| parameters.is_object()) {
         out.insert("modelParameters".into(), parameters.clone());
     }
@@ -394,9 +392,7 @@ fn route_to_preset(route: &Value, agent: &str) -> Option<Value> {
     if route.get("fast") == Some(&Value::Bool(true)) {
         out.insert("fast".into(), true.into());
     }
-    if route.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), false.into());
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(route, &mut out);
     if let Some(parameters) = route.get("modelParameters").filter(|parameters| parameters.is_object()) {
         out.insert("modelParameters".into(), parameters.clone());
     }

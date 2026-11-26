@@ -182,9 +182,7 @@ pub fn worker_status_row(input: &WorkerStatus<'_>) -> Map<String, Value> {
     row.insert("preset".into(), or_null(session, "presetName"));
     row.insert("effort".into(), or_null(session, "effort"));
     row.insert("fast".into(), json!(session.get("fast") == Some(&Value::Bool(true))));
-    if session.get("autoEffort") == Some(&Value::Bool(false)) {
-        row.insert("autoEffort".into(), json!(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field_map(session, &mut row);
     if let Some(parameters) = session.get("modelParameters").and_then(Value::as_object).filter(|p| !p.is_empty()) {
         row.insert("modelParameters".into(), Value::Object(parameters.clone()));
     }

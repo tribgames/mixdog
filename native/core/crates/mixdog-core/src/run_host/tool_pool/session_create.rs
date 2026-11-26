@@ -192,7 +192,9 @@ fn with_effort(mut route: Map<String, Value>, value: &Value, rows: &[Value]) -> 
     route.shift_remove("effort");
     if let Some(level) = level {
         route.insert("effort".into(), json!(level));
-        route.insert("autoEffort".into(), json!(false));
+    }
+    if let Some(mode) = mixdog_ai::effort::EffortAuto::implied_by_effort(Some(value)) {
+        mode.write_to(&mut route);
     }
     Ok(route)
 }
@@ -255,12 +257,12 @@ pub fn parse_schedule_model_ref(raw: &str) -> Result<Map<String, Value>, String>
         return Err(raw.to_owned());
     };
     let mut rest = &route_ref[slash + 1..];
-    let auto_effort = match rest.strip_suffix("+noauto") {
+    let no_auto = match rest.strip_suffix("+noauto") {
         Some(stripped) => {
             rest = stripped;
-            false
+            true
         }
-        None => true,
+        None => false,
     };
     let fast = match rest.strip_suffix("+fast") {
         Some(stripped) => {
@@ -283,8 +285,8 @@ pub fn parse_schedule_model_ref(raw: &str) -> Result<Map<String, Value>, String>
     if fast {
         route.insert("fast".into(), json!(true));
     }
-    if !auto_effort {
-        route.insert("autoEffort".into(), json!(false));
+    if no_auto {
+        mixdog_ai::effort::EffortAuto::Manual.write_to(&mut route);
     }
     if !query.is_empty() {
         let mut parameters = Map::new();
@@ -727,7 +729,7 @@ mod tests {
         let route = |raw: &str| parse_schedule_model_ref(raw).map(Value::Object);
         assert_eq!(route("openai/gpt-5"), Ok(json!({ "provider": "openai", "model": "gpt-5" })));
         assert_eq!(route("openai/gpt-5@high+fast"), Ok(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": true })));
-        assert_eq!(route("x/m@low+fast+noauto"), Ok(json!({ "provider": "x", "model": "m", "effort": "low", "fast": true, "autoEffort": false })));
+        assert_eq!(route("x/m@low+fast+noauto"), Ok(json!({ "provider": "x", "model": "m", "effort": "low", "fast": true, "effortAuto": false })));
         assert_eq!(route("p/m?a=1&b=x+y%21&flag"), Ok(json!({ "provider": "p", "model": "m", "modelParameters": { "a": "1", "b": "x y!", "flag": "" } })));
         assert_eq!(route("a-preset"), Err("a-preset".to_owned()), "no provider: the text is a preset's id or name");
         assert_eq!(route("/m"), Err("/m".to_owned()), "an empty provider is none");

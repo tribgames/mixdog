@@ -205,6 +205,48 @@ fn the_session_log_row_shows_the_migration_counts_and_warns_on_quarantined_data(
     assert!(row.level == Level::Warn);
     assert!(row.detail.ends_with("3 quarantined unexpectedly (moved aside to C:/data/quarantine, each with its reason.json)"), "{}", row.detail);
 
+    let mut in_place_only = base.clone();
+    in_place_only["migration"] = json!({
+        "verified": 40,
+        "quarantinedExpected": 0,
+        "quarantinedUnexpected": 1,
+        "retired": 0,
+        "retained": 0,
+        "dangling": 0,
+        "quarantineDir": "C:/data/quarantine",
+        "movedAside": 0,
+        "keptInPlace": ["C:/data/project-connectors.json"],
+    });
+    let row = session_log_row(&in_place_only).expect("a row");
+    assert!(row.level == Level::Warn);
+    assert!(
+        row.detail.ends_with("1 quarantined unexpectedly (left damaged in place: C:/data/project-connectors.json; details in C:/data/quarantine)"),
+        "{}",
+        row.detail
+    );
+
+    let mut mixed = base.clone();
+    mixed["migration"] = json!({
+        "verified": 40,
+        "quarantinedExpected": 1,
+        "quarantinedUnexpected": 1,
+        "retired": 0,
+        "retained": 0,
+        "dangling": 0,
+        "quarantineDir": "C:/data/quarantine",
+        "movedAside": 1,
+        "keptInPlace": ["C:/data/hooks/hooks.json"],
+    });
+    let row = session_log_row(&mixed).expect("a row");
+    assert!(row.level == Level::Warn);
+    assert!(
+        row.detail.ends_with(
+            "1 quarantined unexpectedly (moved aside to C:/data/quarantine, each with its reason.json; left damaged in place: C:/data/hooks/hooks.json)"
+        ),
+        "{}",
+        row.detail
+    );
+
     let mut unreadable = base;
     unreadable["migration"] = json!({ "unreadable": true });
     let row = session_log_row(&unreadable).expect("a row");

@@ -12,8 +12,8 @@ use crate::error::ErrorData;
 
 type Checked = Result<(), ErrorData>;
 
-const MODEL_SELECTION_KEYS: [&str; 10] =
-    ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
+const MODEL_SELECTION_KEYS: [&str; 11] =
+    ["provider", "model", "effort", "fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
 /// The options of the write a `route/set` selection carries beside the route: `setRoute(opts)` of `createRouteWrite`
 /// (`tui/session/session-api/routes-write.mjs`), which the remote chat sends on every model pick and the main-model
 /// choice sends as `keepMainModel: false`. Node compares each with `=== true` or `!== false`, so a value of any type is
@@ -130,6 +130,7 @@ pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     }
     boolean(object.get("fast"), &at("fast"), "selection.fast must be a boolean.")?;
     boolean(object.get("autoEffort"), &at("autoEffort"), "selection.autoEffort must be a boolean.")?;
+    boolean(object.get("effortAuto"), &at("effortAuto"), "selection.effortAuto must be a boolean.")?;
     if let Some(parameters) = object.get("modelParameters") {
         let string_map = parameters.as_object().is_some_and(|map| map.iter().all(|(key, option)| !key.is_empty() && option.is_string()));
         if !string_map {

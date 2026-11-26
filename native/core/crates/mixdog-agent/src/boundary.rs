@@ -45,6 +45,8 @@ use crate::run::add_usage;
 const CONTEXT_SHARE_RATIO: f64 = 0.15;
 const COMPACT_TARGET_MIN_TOKENS: u64 = 4_000;
 const MAX_BUFFER_RATIO: f64 = 0.25;
+/// Minimum share of the compaction trigger before an expired cache compacts a session.
+const COLD_COMPACT_MIN_CONTEXT_PERCENT: f64 = 10.0;
 
 /// Everything the policy is resolved from; the host reads config and the
 /// route's catalog row into it.
@@ -470,6 +472,16 @@ impl Run {
         }
     }
 
+    async fn session_pressure_for(&self, compactor: &dyn Compactor, tools: &[ToolDefinition]) -> SessionPressure {
+        match self.baseline {
+            Some(_) => SessionPressure::default(),
+            None => match compactor.session_pressure(&self.messages, tools).await {
+                answer if answer.unanchored && self.reanchored => SessionPressure::default(),
+                answer => answer,
+            },
+        }
+    }
+
     /// The proactive/reactive compaction decision and execution before each
     /// provider request. Returns whether the transcript changed.
     async fn pre_send_compact_pass(&mut self, skip_proactive: bool) -> Result<bool, AgentError> {
@@ -482,13 +494,7 @@ impl Run {
         let reactive = self.reactive_overflow_retry_pending;
         compactor.prepare(&self.messages).await;
         let tools = self.request_tools();
-        let session = match self.baseline {
-            Some(_) => SessionPressure::default(),
-            None => match compactor.session_pressure(&self.messages, &tools).await {
-                answer if answer.unanchored && self.reanchored => SessionPressure::default(),
-                answer => answer,
-            },
-        };
+        let session = self.session_pressure_for(compactor.as_ref(), &tools).await;
         let pressure = self.pressure_tokens(&policy, compactor.as_ref(), reactive, session.tokens);
         let trigger = policy.trigger_tokens.max(1);
         // Tool-result media arms a pass whatever the pressure.
@@ -532,28 +538,40 @@ impl Run {
         Ok(self.run_compaction(compactor, &policy, trigger_kind, pressure, budget, reactive, require_reduction).await? == Ran::Changed)
     }
 
-    /// The loop's answer to the cache owner's cold decision for the attempt it refused: the transcript is compacted when
-    /// a smaller valid one exists (sized as a manual compaction is when automatic compaction is off), else it goes out
-    /// unchanged without emitting a user-visible transcript notice. `lease` is the claimed rewrite: resolved with the
-    /// outcome, or, on a cancelled or surfaced failure (or this future dropped), released undecided so a waiter takes it
-    /// over. A failed reduction returns the leave of the request it was decided for: only this run holds it.
+    /// The loop's answer to the cache owner's cold decision for the attempt it refused: a delegated agent session
+    /// with automatic compaction on and context at least 10% of its compaction trigger is compacted when a smaller
+    /// valid transcript exists, else it goes out unchanged without emitting a user-visible transcript notice. `lease`
+    /// is the claimed rewrite: resolved with the outcome, or, on a cancelled or surfaced failure (or this future
+    /// dropped), released undecided so a waiter takes it over. A failed reduction returns the leave of the request it
+    /// was decided for: only this run holds it.
     pub(crate) async fn cold_pass(&mut self, lease: RewriteLease) -> Result<Option<mixdog_core_api::domain::cache_tail::Unreduced>, AgentError> {
         let resolution = self.cold_compaction().await?;
         Ok(lease.resolve(resolution))
     }
 
     async fn cold_compaction(&mut self) -> Result<Resolution, AgentError> {
-        // A turn is offered a rewrite only for a lifetime that ran out: a history with no send on record is sent as it is.
+        // Only delegated agent sessions compact on an expired cache inside a turn (Lead sessions use idle auto-clear
+        // before submit or wake), and only when automatic compaction is on.
         let sized = self
             .env
             .compactor
             .clone()
             .zip(self.config.compact.clone())
-            .and_then(|(compactor, settings)| CompactPolicy::resolve(&CompactSettings { auto: true, ..settings }).map(|policy| (compactor, policy)));
+            .filter(|(_, settings)| settings.agent_owner)
+            .and_then(|(compactor, settings)| CompactPolicy::resolve(&settings).map(|policy| (compactor, policy)));
         let Some((compactor, policy)) = sized else {
             return Ok(Resolution::NoSizing);
         };
         compactor.prepare(&self.messages).await;
+        let tools = self.request_tools();
+        let session = self.session_pressure_for(compactor.as_ref(), &tools).await;
+        let estimated = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
+        let measured = self.context.tokens.filter(|_| !self.context.stale_after_compact).unwrap_or(0);
+        let pressure = self.pressure_tokens(&policy, compactor.as_ref(), false, session.tokens).max(estimated).max(measured);
+        let trigger = policy.trigger_tokens.max(1);
+        if (pressure as f64 / trigger as f64) * 100.0 < COLD_COMPACT_MIN_CONTEXT_PERCENT {
+            return Ok(Resolution::Irreducible);
+        }
         let budget = policy.target_budget();
         let request = CompactRequest {
             messages: &self.messages,
@@ -567,7 +585,6 @@ impl Run {
         if !compactor.reduces(&request).await {
             return Ok(Resolution::Irreducible);
         }
-        let pressure = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
         match self.run_compaction(compactor, &policy, CompactTrigger::CacheExpired, pressure, budget, false, true).await? {
             Ran::Changed => Ok(Resolution::Compacted),
             Ran::Unchanged => Ok(Resolution::Irreducible),

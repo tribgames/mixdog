@@ -18,6 +18,7 @@ test-support = []
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 mixdog-agent = { workspace = true }
+mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }

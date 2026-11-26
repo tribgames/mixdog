@@ -92,8 +92,11 @@ fn kind_of(input: &Obj) -> Option<&str> {
 /// `grantActionOf(input)`.
 fn grant_action_of(input: &Obj) -> String {
     match kind_of(input) {
-        // What a remembered choice covers is the tool (`tool:<identity>`), never the action category.
-        Some("outbound" | "approval") => text(input.get("grantAction"), TEXT_LIMIT),
+        Some("outbound") => {
+            let grant = text(input.get("grantAction"), TEXT_LIMIT);
+            if grant.is_empty() { text(input.get("outbound").and_then(|o| o.get("category")), TEXT_LIMIT) } else { grant }
+        }
+        Some("approval") => text(input.get("grantAction"), TEXT_LIMIT),
         _ => String::new(),
     }
 }
@@ -103,7 +106,7 @@ fn flag(input: &Obj, name: &str) -> bool {
 }
 
 /// The scopes the row offers: the policy's one rule ([`offered_scopes`]) on what the row itself
-/// says — the card it is, the tool its answer covers, the call's action category and who answers —
+/// says — the card it is, the action or tool its answer covers, the call's action category and who answers —
 /// whatever scopes it lists. A row that is no gate's card (a secret, a takeover, a connector widening,
 /// a permission request) is answered once.
 fn row_scopes(input: &Obj) -> Vec<ApprovalRemember> {

@@ -719,6 +719,38 @@ mod tests {
         assert!(live.has_session("s1"));
         assert_eq!(s1.lookup(&read, true).await.unwrap().content, "hello");
     }
+
+    #[tokio::test]
+    async fn a_read_cannot_hit_or_fill_while_a_mutation_guard_is_active_and_cannot_land_after_invalidation() {
+        let dir = tempdir();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "one").unwrap();
+        let live = watched();
+        let cache = CacheAt(live.run(io(), "reader", Arc::new(Fixed(0))), dir.path());
+        let read = call("read", json!({"path": "a.txt"}));
+        let glob = call("glob", json!({"pattern": "*.txt", "include_noise": true}));
+        cache.fill(&read, "one", "r1").await;
+        cache.fill(&glob, "a.txt", "g1").await;
+        let pending_read = cache.prepare(&read, "r-pending").await.unwrap();
+
+        let active = cache.0.mutation_guard();
+        assert!(!cache.0.has_candidate(&read, dir.path()).await);
+        assert!(!cache.0.has_candidate(&glob, dir.path()).await);
+        assert!(cache.lookup(&read, true).await.is_none());
+        assert!(cache.lookup(&glob, true).await.is_none());
+        assert!(cache.prepare(&read, "during").await.is_none());
+        assert!(cache.prepare(&glob, "during").await.is_none());
+
+        std::fs::write(&file, "two").unwrap();
+        cache.after_call(&call("edit", json!({"file_path": "a.txt"})), false).await;
+        drop(active);
+
+        pending_read.store("one", &complete_output()).await;
+        assert!(cache.lookup(&read, true).await.is_none());
+        assert!(cache.lookup(&glob, true).await.is_none());
+        cache.fill(&read, "two", "r2").await;
+        assert_eq!(cache.lookup(&read, true).await.unwrap().content, "two");
+    }
 }
 
 pub(crate) fn resolve(base: &str, path: &str) -> String {

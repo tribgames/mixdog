@@ -8,8 +8,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, ProviderReadiness, is_known_provider};
 use mixdog_ai::registry::providers::ProviderRegistry;
-use mixdog_ai::service::admin_models::{model_proxy_client_mode, provider_available};
-use mixdog_ai::service::admin_route::{Obj, ensure_provider_enabled, window_meta_of};
+use mixdog_ai::service::admin_models::{is_selectable_llm_model, model_proxy_client_mode, provider_available};
+use mixdog_ai::service::admin_route::{Obj, ensure_provider_enabled, provider_switched_off, window_meta_of};
+use mixdog_ai::service::model_listing::listing_value;
+use mixdog_ai::service::routes::{
+    DefaultSearchFallback, DefaultSearchRoute, canonical_route_provider, pick_quick_web_search_model, web_search_capable_for, web_search_provider_family,
+};
 use mixdog_core_api::domain::provider::{ProviderAdapter, Usage};
 use mixdog_core_config::config::Config;
 use serde_json::Value;
@@ -56,6 +60,12 @@ pub trait RouteFacts: Send + Sync {
     /// Why the provider of a route could not be made ready, as its initialization recorded it.
     fn init_error(&self, _provider: &str) -> Option<String> {
         None
+    }
+    /// Same-product stand-in route (or failure reason) using already-known
+    /// readiness when the default ("follow Main") route's Main model cannot
+    /// run native web search itself. Never probes or runs readiness work.
+    fn default_search_fallback(&self, _config: &Obj, _main_provider: &str, _main_model: &str) -> DefaultSearchFallback {
+        DefaultSearchFallback::default()
     }
 }
 
@@ -162,4 +172,88 @@ impl RouteFacts for CatalogFacts {
     fn init_error(&self, provider: &str) -> Option<String> {
         self.registry.init_errors().remove(provider)
     }
+
+    fn default_search_fallback(&self, config: &Obj, main_provider: &str, main_model: &str) -> DefaultSearchFallback {
+        let provider = canonical_route_provider(main_provider);
+        if !is_hosted_search_provider(&provider) || hosted_provider_switched_off(config, &provider) || self.registry.registered_for_route(&provider).is_none() {
+            return DefaultSearchFallback::default();
+        }
+        let model = pick_hosted_search_model(&self.catalog, config, &provider, Some(main_model.trim()));
+        DefaultSearchFallback { route: model.map(|model| DefaultSearchRoute { provider, model }), reason: None }
+    }
+}
+
+fn is_hosted_search_provider(provider: &str) -> bool {
+    let family = web_search_provider_family(provider);
+    !family.is_empty() && family != "acp"
+}
+
+fn api_alias(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some("openai-api"),
+        "anthropic" => Some("anthropic-api"),
+        "gemini" => Some("gemini-api"),
+        "xai" => Some("xai-api"),
+        _ => None,
+    }
+}
+
+fn hosted_provider_switched_off(config: &Obj, provider: &str) -> bool {
+    provider_switched_off(config, provider) || api_alias(provider).is_some_and(|alias| provider_switched_off(config, alias))
+}
+
+fn provider_entry<'a>(config: &'a Obj, provider: &str) -> Option<&'a Value> {
+    let providers = config.get("providers")?.as_object()?;
+    providers.get(provider).or_else(|| api_alias(provider).and_then(|alias| providers.get(alias)))
+}
+
+fn hosted_model_capable(catalog: &CatalogService, provider: &str, id: &str, row: Option<&Value>, skip_model: Option<&str>) -> bool {
+    let id = id.trim();
+    if id.is_empty() || skip_model == Some(id) {
+        return false;
+    }
+    if let Some(row) = row
+        && !is_selectable_llm_model(row)
+    {
+        return false;
+    }
+    let sync_meta = catalog.sync_meta(id, provider).map(Value::Object);
+    web_search_capable_for(provider, id, row, sync_meta.as_ref())
+}
+
+fn pick_hosted_search_model(catalog: &CatalogService, config: &Obj, provider: &str, skip_model: Option<&str>) -> Option<String> {
+    let mut capable: Vec<String> = Vec::new();
+    let push = |capable: &mut Vec<String>, id: &str, row: Option<&Value>| {
+        if hosted_model_capable(catalog, provider, id, row, skip_model) {
+            let trimmed = id.trim().to_owned();
+            if !capable.contains(&trimmed) {
+                capable.push(trimmed);
+            }
+        }
+    };
+    let snapshot = catalog.snapshot();
+    if let Some((_, records)) = snapshot.models.iter().find(|(p, _)| p.as_str() == provider) {
+        for record in records {
+            let row = listing_value(record);
+            push(&mut capable, &record.id, Some(&row));
+        }
+    }
+    for row in catalog.cached_models(provider) {
+        if let Some(id) = row.get("id").and_then(Value::as_str) {
+            push(&mut capable, id, Some(&row));
+        }
+    }
+    if capable.is_empty()
+        && let Some(models) = catalog.models_dev_models(provider)
+    {
+        for (id, row) in models {
+            let mut row_with_id = row.as_object().cloned().unwrap_or_default();
+            row_with_id.entry("id".to_owned()).or_insert_with(|| Value::String(id.clone()));
+            push(&mut capable, &id, Some(&Value::Object(row_with_id)));
+        }
+    }
+    if let Some(configured) = provider_entry(config, provider).and_then(|entry| entry.get("model")).and_then(Value::as_str) {
+        push(&mut capable, configured, None);
+    }
+    pick_quick_web_search_model(provider, &capable)
 }

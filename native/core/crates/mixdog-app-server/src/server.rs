@@ -865,9 +865,11 @@ impl Shared {
                 result: empty_result(),
                 feed: self.core.app_feed(),
                 window: Window::Fixed,
-                resume_from: app
-                    .resume_from
-                    .map(|position| ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed }),
+                resume_from: app.resume_from.map(|position| ResumeFrom {
+                    position: FeedPosition { epoch: position.epoch, seq: position.seq },
+                    window: Window::Fixed,
+                    positioned: None,
+                }),
             }))),
             ClientRequest::FeedSubscribe { params: sub, .. } => {
                 Dispatch::Ready(match self.core.scoped_feed(&sub.feed_id) {
@@ -877,9 +879,11 @@ impl Shared {
                         result: empty_result(),
                         feed,
                         window: Window::Fixed,
-                        resume_from: sub
-                            .resume_from
-                            .map(|position| ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed }),
+                        resume_from: sub.resume_from.map(|position| ResumeFrom {
+                            position: FeedPosition { epoch: position.epoch, seq: position.seq },
+                            window: Window::Fixed,
+                            positioned: None,
+                        }),
                     })),
                     None => Err(CoreError::InvalidParams { path: "feedId".into(), expected: "the id of a live scoped feed".into() }),
                 })

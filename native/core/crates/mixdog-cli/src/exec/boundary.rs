@@ -130,11 +130,18 @@ fn minimal_config(
     profile: &RouteProfile,
     on_agent: bool,
 ) -> Value {
+    let agent_defaults = contract["agentDefaults"].as_object().expect("agentDefaults");
     let mut route = Map::new();
     route.insert("provider".into(), json!(provider));
     route.insert("model".into(), json!(model));
-    if !effort.is_empty() {
+    // A run that names no effort leaves the choice unsaid: the core's load settles it with the run's own switch.
+    let effort_auto = mixdog_ai::effort::EffortAuto::implied_by_effort(Some(&json!(effort)));
+    let manual = effort_auto == Some(mixdog_ai::effort::EffortAuto::Manual);
+    if manual {
         route.insert("effort".into(), json!(effort));
+    }
+    if let Some(mode) = effort_auto {
+        mode.write_to(&mut route);
     }
     if fast {
         route.insert("fast".into(), json!(true));
@@ -151,8 +158,11 @@ fn minimal_config(
     let mut model_settings = Map::new();
     if !effort.is_empty() || fast {
         let mut settings = Map::new();
-        if !effort.is_empty() {
+        if manual {
             settings.insert("effort".into(), json!(effort));
+        }
+        if let Some(mode) = effort_auto {
+            mode.write_to(&mut settings);
         }
         if fast {
             settings.insert("fast".into(), json!(true));
@@ -171,7 +181,7 @@ fn minimal_config(
     if let Some(fallback) = &profile.lead_fallback {
         preset.insert("fallbacks".into(), json!([fallback]));
     }
-    let mut agent = contract["agentDefaults"].as_object().expect("agentDefaults").clone();
+    let mut agent = agent_defaults.clone();
     // The run's own switch of the ACP agents, which are on by default: on only for a Lead that is one.
     agent.insert("modules".into(), json!({ "acpAgents": { "enabled": on_agent } }));
     agent.insert("providers".into(), Value::Object(providers));
@@ -510,5 +520,35 @@ impl Boundary {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod auto_effort_tests {
+    use super::*;
+
+    #[test]
+    fn minimal_config_explicit_effort_disables_auto_and_auto_enables_it() {
+        let contract = contract();
+        let profile = RouteProfile::default();
+
+        let default_on = minimal_config(&contract, "openai", "gpt-5", "", false, None, &profile, false);
+        assert!(default_on["agent"]["presets"][0].get("effort").is_none());
+        assert!(default_on["agent"]["presets"][0].get("effortAuto").is_none());
+        assert!(default_on["agent"]["presets"][0].get("autoEffort").is_none());
+
+        let default_fast = minimal_config(&contract, "openai", "gpt-5", "", true, None, &profile, false);
+        assert!(default_fast["agent"]["presets"][0].get("effortAuto").is_none());
+        assert!(default_fast["agent"]["modelSettings"]["openai/gpt-5"].get("effortAuto").is_none());
+
+        let explicit = minimal_config(&contract, "openai", "gpt-5", "high", false, None, &profile, false);
+        assert_eq!(explicit["agent"]["presets"][0]["effort"], json!("high"));
+        assert_eq!(explicit["agent"]["presets"][0]["effortAuto"], json!(false));
+        assert_eq!(explicit["agent"]["modelSettings"]["openai/gpt-5"]["effortAuto"], json!(false));
+
+        let auto = minimal_config(&contract, "openai", "gpt-5", "auto", false, None, &profile, false);
+        assert!(auto["agent"]["presets"][0].get("effort").is_none());
+        assert_eq!(auto["agent"]["presets"][0]["effortAuto"], json!(true));
+        assert_eq!(auto["agent"]["modelSettings"]["openai/gpt-5"]["effortAuto"], json!(true));
     }
 }

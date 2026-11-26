@@ -796,9 +796,10 @@ impl mixdog_agent::compact::pressure::ImageIdentities for ManualMeters {
     }
 }
 
-/// The thread's own header and route over a window the recording had; no media.
+/// The thread's own header, transcript and route over a window the recording had; no media. A header that names no route
+/// yet (a thread just started, before its route is written) has no status.
 struct ManualWorld {
-    threads: Arc<dyn mixdog_core_ports::ports::threads::ThreadState>,
+    threads: Arc<super::super::compose_parts::LateThreads>,
     window: u64,
 }
 
@@ -808,9 +809,22 @@ impl mixdog_core_session::session::thread_context::ContextWorld for ManualWorld 
         &self,
         thread: Option<&ThreadId>,
     ) -> Result<Option<mixdog_core_session::session::thread_context::ContextSnapshot>, mixdog_core_api::CoreError> {
-        let header = self.threads.header(thread.expect("a thread")).await.expect("the thread's header");
-        let text = |key: &str| header.get(key).and_then(Value::as_str).expect("a route").to_owned();
-        let (provider, model) = (text("provider"), text("model"));
+        let thread = thread.expect("a thread");
+        let header = mixdog_core_ports::ports::threads::ThreadState::header(self.threads.as_ref(), thread).await.expect("the thread's header");
+        self.snapshot_for(thread, header).await
+    }
+
+    /// A route move reads the figures of the header it writes, not the one the thread holds before it.
+    async fn snapshot_for(
+        &self,
+        thread: &ThreadId,
+        header: serde_json::Map<String, Value>,
+    ) -> Result<Option<mixdog_core_session::session::thread_context::ContextSnapshot>, mixdog_core_api::CoreError> {
+        let text = |key: &str| header.get(key).and_then(Value::as_str).map(str::to_owned);
+        let (Some(provider), Some(model)) = (text("provider"), text("model")) else { return Ok(None) };
+        let rows = mixdog_core_ports::ports::memory_source::ThreadMessages::messages(self.threads.as_ref(), thread).await.unwrap_or_default();
+        let active = !rows.is_empty();
+        let messages = session_messages(&header, &rows).unwrap_or_default();
         Ok(Some(mixdog_core_session::session::thread_context::ContextSnapshot {
             header,
             replay_owner: ProviderId::from(provider.as_str()),
@@ -819,8 +833,8 @@ impl mixdog_core_session::session::thread_context::ContextWorld for ManualWorld 
             context_window: json!(self.window),
             cwd: Value::Null,
             mode: Value::Null,
-            messages: Vec::new(),
-            active: true,
+            messages,
+            active,
             request_native: Vec::new(),
             request_defined: Vec::new(),
             session_defined: Vec::new(),
@@ -1600,6 +1614,15 @@ impl Clock for Moving {
     }
 }
 
+/// Adapts a run-host [`Clock`] to the session actor's clock so idle auto-clear sees the same test clock.
+struct SessionClock(Arc<dyn Clock>);
+
+impl mixdog_core_session::session::Clock for SessionClock {
+    fn now_ms(&self) -> i64 {
+        self.0.now_ms()
+    }
+}
+
 /// [`Config`] whose sessions know a context window and compact automatically only when `auto`; the target is small
 /// enough that an earlier turn's tool output is discardable.
 struct Windowed {
@@ -1624,9 +1647,54 @@ impl super::super::host_seams::ConfigSeams for Windowed {
         let mut settings = super::super::host_seams::ConfigSeams::run_settings(&Config, thread, header);
         settings.compact = Some(mixdog_agent::boundary::CompactSettings {
             auto: self.auto,
+            agent_owner: super::super::compaction_world::is_agent_owner(header),
             context_window: Some(100_000),
             target_tokens: Some(2_500),
             token_calibration: 1.0,
+            last_context_tokens: header.get("lastContextTokens").and_then(Value::as_u64),
+            ..Default::default()
+        });
+        settings
+    }
+    fn stored_instruction_files(&self) -> Option<Value> {
+        None
+    }
+    fn response_language(&self) -> Option<(String, String)> {
+        None
+    }
+}
+
+/// [`Windowed`] with optional Lead `autoClear` route config for cache-expiry and idle-auto-clear tests.
+struct CacheConfig {
+    auto: bool,
+    auto_clear: Option<Value>,
+}
+
+#[async_trait]
+impl super::super::host_seams::ConfigSeams for CacheConfig {
+    fn hidden_agent(&self, agent: Option<&str>) -> bool {
+        super::super::host_seams::ConfigSeams::hidden_agent(&Config, agent)
+    }
+    fn synced_compaction(&self, header: &mixdog_store::schema::record::Header, install: bool) -> Option<Value> {
+        super::super::host_seams::ConfigSeams::synced_compaction(&Config, header, install)
+    }
+    fn route_config(&self, header: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+        let mut route = super::super::host_seams::ConfigSeams::route_config(&Config, header);
+        route.auto_clear = self.auto_clear.clone();
+        route
+    }
+    fn settings_changes(&self, _: &ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        None
+    }
+    fn run_settings(&self, thread: &ThreadId, header: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {
+        let mut settings = super::super::host_seams::ConfigSeams::run_settings(&Config, thread, header);
+        settings.compact = Some(mixdog_agent::boundary::CompactSettings {
+            auto: self.auto,
+            agent_owner: super::super::compaction_world::is_agent_owner(header),
+            context_window: Some(100_000),
+            target_tokens: Some(2_500),
+            token_calibration: 1.0,
+            last_context_tokens: header.get("lastContextTokens").and_then(Value::as_u64),
             ..Default::default()
         });
         settings
@@ -1642,13 +1710,22 @@ impl super::super::host_seams::ConfigSeams for Windowed {
 /// A local Anthropic endpoint behind the real adapter: it keeps every model request's JSON body and answers by what the
 /// last message carries, reporting tiered usage only the message marker can explain (a five-minute write after the
 /// cached read of the previous request's extent; a shrunken transcript reads nothing).
-#[derive(Default)]
 struct CacheEndpoint {
     bodies: Mutex<Vec<Value>>,
     extent: Mutex<(usize, u64)>,
+    base_input_tokens: u64,
+}
+
+impl Default for CacheEndpoint {
+    fn default() -> Self {
+        Self::with_input_tokens(10)
+    }
 }
 
 impl CacheEndpoint {
+    fn with_input_tokens(base_input_tokens: u64) -> Self {
+        Self { bodies: Mutex::new(Vec::new()), extent: Mutex::new((0, 0)), base_input_tokens }
+    }
     /// A model request of the session's turns: it carries the session's tools (a summary request carries none).
     fn main(body: &Value) -> bool {
         body["tools"].as_array().is_some_and(|tools| !tools.is_empty()) && body["max_tokens"] != 1
@@ -1688,7 +1765,7 @@ impl CacheEndpoint {
         } else {
             call("toolu_c1", "grep")
         };
-        let usage = json!({ "input_tokens": 10, "output_tokens": 1, "cache_read_input_tokens": read, "cache_creation_input_tokens": created, "cache_creation": { "ephemeral_5m_input_tokens": created, "ephemeral_1h_input_tokens": 0 } });
+        let usage = json!({ "input_tokens": self.base_input_tokens, "output_tokens": 1, "cache_read_input_tokens": read, "cache_creation_input_tokens": created, "cache_creation": { "ephemeral_5m_input_tokens": created, "ephemeral_1h_input_tokens": 0 } });
         let start = json!({ "type": "message_start", "message": { "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-test", "content": [], "stop_reason": null, "usage": usage } });
         let (block, delta, stop) = match tool {
             Some((id, name)) => {
@@ -1779,10 +1856,28 @@ impl Tool for Held {
 
 const OLD_PAYLOAD: &str = "OLD-PAYLOAD-7f3a ";
 
+/// Options controlling owner, compaction settings and context size for cache-expiry tests.
+struct CacheTurns {
+    owner: Option<&'static str>,
+    auto: bool,
+    auto_clear: Option<Value>,
+    base_input_tokens: u64,
+    payload_repeats: usize,
+}
+
+fn cache_thread_header(owner: Option<&str>) -> Value {
+    let tools = json!([{ "name": "grep" }, { "name": "list" }, { "name": "glob" }]);
+    let mut header = json!({ "provider": "anthropic", "model": "claude-test", "tools": tools, "contextWindow": 100_000 });
+    if let Some(owner) = owner {
+        header["owner"] = json!(owner);
+    }
+    header
+}
+
 /// Two turns of a session through the real turn path, real Anthropic adapter and the run host's compactor, with the
 /// clock moved by `wait_ms` while the second turn's tool runs. Returns the endpoint's model request bodies and the thread.
-async fn tool_wait_turns(wait_ms: i64) -> (Vec<Value>, Value) {
-    let endpoint = Arc::new(CacheEndpoint::default());
+async fn tool_wait_turns(wait_ms: i64, opts: CacheTurns) -> (Vec<Value>, Value) {
+    let endpoint = Arc::new(CacheEndpoint::with_input_tokens(opts.base_input_tokens));
     let mut config = mixdog_ai::providers::anthropic::AnthropicConfig::new(Arc::new(|_: &str| {
         Some(mixdog_ai::providers::anthropic::ModelCaps { max_output_tokens: Some(4096), ..Default::default() })
     }));
@@ -1795,7 +1890,7 @@ async fn tool_wait_turns(wait_ms: i64) -> (Vec<Value>, Value) {
     let spec = |name: &str| named_spec(name);
     let pool: Vec<Arc<dyn Tool>> = vec![
         // Builtin names, so the session's tool set offers them.
-        Arc::new(Says(spec("grep"), OLD_PAYLOAD.repeat(1_000))),
+        Arc::new(Says(spec("grep"), OLD_PAYLOAD.repeat(opts.payload_repeats))),
         Arc::new(Held(spec("list"), waiting.clone(), release.clone())),
         Arc::new(Says(spec("glob"), "MORE".into())),
         named("Skill"),
@@ -1810,13 +1905,12 @@ async fn tool_wait_turns(wait_ms: i64) -> (Vec<Value>, Value) {
         Arc::new(MockFileService::default()),
         true,
         clock.clone(),
-        Arc::new(Windowed { auto: false }),
+        Arc::new(CacheConfig { auto: opts.auto, auto_clear: opts.auto_clear }),
         true,
         None,
     )
     .await;
-    let tools = json!([{ "name": "grep" }, { "name": "list" }, { "name": "glob" }]);
-    let (id, handle) = started_thread(&world, json!({ "provider": "anthropic", "model": "claude-test", "tools": tools })).await;
+    let (id, handle) = started_thread(&world, cache_thread_header(opts.owner)).await;
     let completed = || world.rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == "turn/completed").count();
     handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1")).await.expect("turn/start");
     eventually_on_awaiting(|| "the first turn's end".to_owned(), &[handle.stepped()], || (completed() >= 1).then_some(())).await;
@@ -1846,11 +1940,11 @@ fn cache_adapter(endpoint: &Arc<CacheEndpoint>) -> Arc<dyn ProviderAdapter> {
 }
 
 /// The tools of [`tool_wait_turns`], the held one answering at once.
-fn answering_pool() -> Vec<Arc<dyn Tool>> {
+fn answering_pool(payload_repeats: usize) -> Vec<Arc<dyn Tool>> {
     let release = Arc::new(tokio::sync::Notify::new());
     release.notify_one();
     vec![
-        Arc::new(Says(named_spec("grep"), OLD_PAYLOAD.repeat(1_000))),
+        Arc::new(Says(named_spec("grep"), OLD_PAYLOAD.repeat(payload_repeats))),
         Arc::new(Held(named_spec("list"), Arc::new(tokio::sync::Notify::new()), release)),
         Arc::new(Says(named_spec("glob"), "MORE".into())),
         named("Skill"),
@@ -1865,35 +1959,34 @@ enum AfterRestart {
 
 /// The first turn on one host, the process ending (its books gone), then a fresh host over the same store and clock,
 /// `gap_ms` later, doing `after`. Returns the model request bodies the fresh host sent and its answer to a side question.
-async fn first_turn_then_restart(gap_ms: i64, after: AfterRestart) -> (Vec<Value>, Option<Value>) {
+async fn first_turn_then_restart(gap_ms: i64, after: AfterRestart, opts: CacheTurns) -> (Vec<Value>, Option<Value>) {
     let clock = Arc::new(Moving(AtomicI64::new(1_700_000_000_000)));
-    let first = Arc::new(CacheEndpoint::default());
+    let first = Arc::new(CacheEndpoint::with_input_tokens(opts.base_input_tokens));
     let world = turn_world_at(
         cache_adapter(&first),
         Arc::new(NoMcp),
         Vec::new(),
         false,
         None,
-        Some(answering_pool()),
+        Some(answering_pool(opts.payload_repeats)),
         Arc::new(MockFileService::default()),
         true,
         clock.clone(),
-        Arc::new(Windowed { auto: false }),
+        Arc::new(CacheConfig { auto: opts.auto, auto_clear: opts.auto_clear.clone() }),
         true,
         None,
     )
     .await;
-    let tools = json!([{ "name": "grep" }, { "name": "list" }, { "name": "glob" }]);
-    // The session records its model's window ([`Windowed`]'s), as a session created over a listed model does: the manual
+    // The session records its model's window ([`CacheConfig`]'s), as a session created over a listed model does: the manual
     // pass reads it there.
-    let (id, handle) = started_thread(&world, json!({ "provider": "anthropic", "model": "claude-test", "tools": tools, "contextWindow": 100_000 })).await;
+    let (id, handle) = started_thread(&world, cache_thread_header(opts.owner)).await;
     let completed = |world: &World| world.rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == "turn/completed").count();
     handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1")).await.expect("turn/start");
     eventually_on_awaiting(|| "the first turn's end".to_owned(), &[handle.stepped()], || (completed(&world) >= 1).then_some(())).await;
     assert!(handle.header_snapshot().get("cacheTailBook").is_some(), "the checkpoint holds the book");
     // The process ends here: the next host has the stored session and books of its own, none of them open.
     clock.0.fetch_add(gap_ms, std::sync::atomic::Ordering::SeqCst);
-    let second = Arc::new(CacheEndpoint::default());
+    let second = Arc::new(CacheEndpoint::with_input_tokens(opts.base_input_tokens));
     let store: Arc<dyn mixdog_core_session::session::ThreadStore> = world.rig.store.clone();
     let resumed = turn_world_at(
         cache_adapter(&second),
@@ -1901,11 +1994,11 @@ async fn first_turn_then_restart(gap_ms: i64, after: AfterRestart) -> (Vec<Value
         Vec::new(),
         false,
         Some(store),
-        Some(answering_pool()),
+        Some(answering_pool(opts.payload_repeats)),
         Arc::new(MockFileService::default()),
         true,
         clock.clone(),
-        Arc::new(Windowed { auto: false }),
+        Arc::new(CacheConfig { auto: opts.auto, auto_clear: opts.auto_clear }),
         true,
         None,
     )
@@ -1931,6 +2024,37 @@ async fn first_turn_then_restart(gap_ms: i64, after: AfterRestart) -> (Vec<Value
     };
     let bodies = lock(&second.bodies).iter().filter(|b| CacheEndpoint::main(b)).cloned().collect();
     (bodies, answer)
+}
+
+/// Two turns of a Lead session separated by `idle_ms` of idle time, through the real turn path, idle auto-clear gate
+/// and live context status meter. Returns the main model request bodies and final thread header.
+async fn idle_lead_turns(idle_ms: i64, base_input_tokens: u64, payload_repeats: usize, auto_clear: Value) -> (Vec<Value>, Value) {
+    let clock = Arc::new(Moving(AtomicI64::new(1_700_000_000_000)));
+    let endpoint = Arc::new(CacheEndpoint::with_input_tokens(base_input_tokens));
+    let world = turn_world_at(
+        cache_adapter(&endpoint),
+        Arc::new(NoMcp),
+        Vec::new(),
+        false,
+        None,
+        Some(answering_pool(payload_repeats)),
+        Arc::new(MockFileService::default()),
+        true,
+        clock.clone(),
+        Arc::new(CacheConfig { auto: true, auto_clear: Some(auto_clear) }),
+        true,
+        None,
+    )
+    .await;
+    let (id, handle) = started_thread(&world, cache_thread_header(None)).await;
+    let completed = || world.rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == "turn/completed").count();
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1")).await.expect("turn/start");
+    eventually_on_awaiting(|| "the first turn's end".to_owned(), &[handle.stepped()], || (completed() >= 1).then_some(())).await;
+    clock.0.fetch_add(idle_ms, std::sync::atomic::Ordering::SeqCst);
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "now wait" } }), "op-2")).await.expect("turn/start");
+    eventually_on_awaiting(|| "the second turn's end".to_owned(), &[handle.stepped()], || (completed() >= 2).then_some(())).await;
+    let bodies: Vec<Value> = lock(&endpoint.bodies).iter().filter(|b| CacheEndpoint::main(b)).cloned().collect();
+    (bodies, Value::Object((*handle.header_snapshot()).clone()))
 }
 
 async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
@@ -2068,10 +2192,15 @@ async fn turn_world_routed(
     // A world wired as the composition wires compaction (summaries on the turn's registry) also compacts a session on
     // `thread/compact/start` with the host's own manual pass, over the same compactor the turns use.
     let late = Arc::new(super::super::compose_parts::LateDirectory::default());
-    let manual: Option<Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction>> = summaries_on_turn_registry.then(|| {
-        let threads: Arc<dyn mixdog_core_ports::ports::threads::ThreadState> = Arc::new(super::super::compose_parts::LateThreads(late.clone()));
-        Arc::new(super::super::manual_compaction::HostManualCompaction::new(super::super::manual_compaction::ManualParts {
-            world: Arc::new(ManualWorld { threads: threads.clone(), window: 100_000 }),
+    let (manual, live_context_status): (
+        Option<Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction>>,
+        Option<Arc<dyn mixdog_core_session::session::thread_context::ContextStatusHost>>,
+    ) = if summaries_on_turn_registry {
+        let late_threads = Arc::new(super::super::compose_parts::LateThreads(late.clone()));
+        let manual_world = Arc::new(ManualWorld { threads: late_threads.clone(), window: 100_000 });
+        let threads: Arc<dyn mixdog_core_ports::ports::threads::ThreadState> = late_threads;
+        let manual = Arc::new(super::super::manual_compaction::HostManualCompaction::new(super::super::manual_compaction::ManualParts {
+            world: manual_world.clone(),
             threads,
             config: config.clone(),
             compactors: compactors.clone(),
@@ -2084,8 +2213,14 @@ async fn turn_world_routed(
             data_dir: data.clone(),
             blobs: Arc::new(NoBlobs),
             reuses: Arc::default(),
-        })) as Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction>
-    });
+        })) as Arc<dyn mixdog_core_session::session::turn_ops::ManualCompaction>;
+        let status = Arc::new(mixdog_core_session::session::thread_context::LiveContextStatus::new(manual_world))
+            as Arc<dyn mixdog_core_session::session::thread_context::ContextStatusHost>;
+        (Some(manual), Some(status))
+    } else {
+        (None, None)
+    };
+    let session_clock = summaries_on_turn_registry.then(|| Arc::new(SessionClock(clock.clone())) as Arc<dyn mixdog_core_session::session::Clock>);
     // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
     let production_surface = threads.is_some();
     let thread_store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
@@ -2165,6 +2300,12 @@ async fn turn_world_routed(
                 deps.runs = runs;
                 if let Some(manual) = manual {
                     deps.compaction = manual;
+                }
+                if let Some(context_status) = live_context_status {
+                    deps.context_status = context_status;
+                }
+                if let Some(session_clock) = session_clock {
+                    deps.clock = session_clock;
                 }
                 if production_surface {
                     deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));

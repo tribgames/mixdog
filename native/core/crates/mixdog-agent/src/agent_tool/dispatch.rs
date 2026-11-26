@@ -142,18 +142,23 @@ fn requested_route(args: &Value) -> Option<Value> {
     let mut route = serde_json::Map::new();
     let model = clean(args.get("model"));
     let effort = clean(args.get("effort"));
+    let effort_is_auto = effort.eq_ignore_ascii_case("auto");
     if !model.is_empty() {
         route.insert("provider".into(), Value::String(clean(args.get("provider"))));
         route.insert("model".into(), Value::String(model));
     }
-    if !effort.is_empty() {
-        route.insert("effort".into(), Value::String(effort));
+    if !effort.is_empty() && !effort_is_auto {
+        route.insert("effort".into(), Value::String(effort.clone()));
     }
     if let Some(fast) = args.get("fast") {
         route.insert("fast".into(), Value::Bool(fast == &Value::Bool(true)));
     }
-    if let Some(auto) = args.get("autoEffort") {
-        route.insert("autoEffort".into(), Value::Bool(auto != &Value::Bool(false)));
+    if let Some(mode) =
+        mixdog_ai::effort::EffortAuto::read_explicit_value(args).or_else(|| mixdog_ai::effort::EffortAuto::implied_by_effort(args.get("effort")))
+    {
+        mode.write_to(&mut route);
+    } else if let Some(Value::Bool(legacy)) = args.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+        route.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(*legacy));
     }
     (!route.is_empty()).then_some(Value::Object(route))
 }
@@ -1167,5 +1172,23 @@ impl AgentPort for AgentRuntime {
         self.run(&args, &caller, request.cancel)
             .await
             .map_err(|message| PortError::Failed { capability: "agent".to_owned(), message: self.deps.errors.present(&message) })
+    }
+}
+
+#[cfg(test)]
+mod auto_effort_tests {
+    use serde_json::json;
+
+    use super::requested_route;
+
+    #[test]
+    fn requested_route_explicit_effort_disables_auto_and_auto_enables_it() {
+        let explicit = requested_route(&json!({ "model": "openai/gpt-5", "effort": "high" })).expect("route");
+        assert_eq!(explicit["effort"], "high");
+        assert_eq!(explicit["effortAuto"], false);
+
+        let auto = requested_route(&json!({ "model": "openai/gpt-5", "effort": "auto" })).expect("route");
+        assert!(auto.get("effort").is_none(), "auto is not written as a literal concrete effort");
+        assert_eq!(auto["effortAuto"], true);
     }
 }

@@ -183,13 +183,13 @@ fn profile() -> Value {
 async fn the_lead_route_is_mains_route_fields_and_none_without_a_model() {
     let rig = Rig::new();
     let main = json!({
-        "provider": "anthropic", "model": "opus", "effort": "", "fast": true, "autoEffort": false,
+        "provider": "anthropic", "model": "opus", "effort": "", "fast": true, "effortAuto": false,
         "modelParameters": { "verbosity": "low" }, "preset": "p1", "contextPercent": 50,
     });
     let (_, _, wake) = host(&rig, main);
     assert_eq!(
         wake.lead_route().await.unwrap(),
-        Some(json!({ "provider": "anthropic", "model": "opus", "fast": true, "autoEffort": false, "modelParameters": { "verbosity": "low" } }))
+        Some(json!({ "provider": "anthropic", "model": "opus", "fast": true, "effortAuto": false, "modelParameters": { "verbosity": "low" } }))
     );
     let (_, _, unchosen) = host(&rig, json!({ "provider": "anthropic", "model": "  " }));
     assert_eq!(unchosen.lead_route().await.unwrap(), None);
@@ -218,13 +218,13 @@ async fn a_hidden_session_is_created_as_mixys_exec_run_and_closed_with_a_tombsto
         ("ownerAgentId", json!("lead")),
         ("sessionMode", json!("agent")),
         ("fast", json!(false)),
-        ("autoEffort", json!(true)),
         ("modelParameters", json!({})),
         ("toolProfile", json!("heartbeat")),
         ("schemaAllowedTools", json!(["session", "setup", "load_tool"])),
     ] {
         assert_eq!(header.get(key), Some(&want), "{key}");
     }
+    assert!(header.get("autoEffort").is_none(), "hidden session never writes legacy autoEffort");
 
     let loaded = directory.handle(&thread).expect("loaded");
     assert!(wake.close_hidden_session(&id).await.unwrap());

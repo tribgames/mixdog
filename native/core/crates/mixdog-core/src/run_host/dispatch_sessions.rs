@@ -97,9 +97,20 @@ pub struct AdmittedHeader {
 /// Applies a fallback candidate's route fields onto `base`, keeping preset identity and fallback metadata.
 pub fn apply_fallback_to_preset(base: &Value, candidate: &Value) -> Value {
     let mut out = base.as_object().cloned().unwrap_or_default();
-    for key in
-        ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens", "modelDisplay", "display", "displayName"]
-    {
+    for key in [
+        "provider",
+        "model",
+        "effort",
+        "fast",
+        "autoEffort",
+        "effortAuto",
+        "modelParameters",
+        "contextPercent",
+        "contextTokens",
+        "modelDisplay",
+        "display",
+        "displayName",
+    ] {
         out.shift_remove(key);
     }
     let text =
@@ -114,9 +125,7 @@ pub fn apply_fallback_to_preset(base: &Value, candidate: &Value) -> Value {
         out.insert("effort".into(), Value::String(effort));
     }
     out.insert("fast".into(), Value::Bool(candidate.get("fast") == Some(&Value::Bool(true))));
-    if candidate.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), Value::Bool(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field(candidate, &mut out);
     if let Some(params) = candidate.get("modelParameters").filter(|value| value.is_object()) {
         out.insert("modelParameters".into(), params.clone());
     }
@@ -393,10 +402,7 @@ pub fn stamped_header(spec: &PrepareSpec, admit: impl FnOnce(&str) -> Result<(),
     header.insert("presetName".into(), field("name").cloned().unwrap_or(Value::Null));
     header.insert("effort".into(), field("effort").cloned().unwrap_or(Value::Null));
     header.insert("fast".into(), json!(preset.get("fast") == Some(&Value::Bool(true))));
-    // Absent means Auto effort is on; only the off state is recorded.
-    if preset.get("autoEffort") == Some(&Value::Bool(false)) {
-        header.insert("autoEffort".into(), json!(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field(preset, &mut header);
     header.insert("modelParameters".into(), preset.get("modelParameters").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})));
     header.insert("contextPercent".into(), context_percent(context("contextPercent")));
     if let Some(tokens) = normalize_context_tokens(context("contextTokens")) {

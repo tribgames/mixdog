@@ -18,7 +18,8 @@
 use serde_json::{Map, Value};
 
 /// The route fields a request publishes before the runtime write settles.
-pub const ROUTE_PREVIEW_KEYS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+pub const ROUTE_PREVIEW_KEYS: [&str; 9] =
+    ["provider", "model", "effort", "fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens"];
 
 /// `String(a ?? b ?? '')`.
 fn nullish_text(first: Option<&Value>, second: Option<&Value>) -> String {

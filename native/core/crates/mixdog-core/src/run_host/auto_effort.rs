@@ -45,6 +45,31 @@ impl ConfigAutoEffort {
         auto_effort_mode((self.env)("MIXDOG_AUTO_EFFORT").as_deref(), &self.config.agent(), &|name| (self.env)(name))
     }
 
+    /// Effective Auto effort mode for one route:
+    /// - Resolves explicit `effortAuto`, or runs the single legacy conversion on pre-update headers
+    ///   (`legacy_switch_on && old autoEffort != false`).
+    /// - A Manual route never runs the judge.
+    /// - For an Auto route, explicit `MIXDOG_AUTO_EFFORT` env overrides (`off`, `observe`, `on`),
+    ///   else runs when ONNX runtime is supported (the legacy switch is never re-checked for explicit `effortAuto: true`).
+    pub fn route_mode(&self, header: &Header) -> &'static str {
+        let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&self.config.agent());
+        if !mixdog_ai::effort::EffortAuto::resolve(header, legacy_switch_on).is_auto() {
+            return "off";
+        }
+        if let Some(raw) = (self.env)("MIXDOG_AUTO_EFFORT").filter(|raw| !raw.is_empty()) {
+            let mode = js_trim(&raw).to_lowercase();
+            return match mode.as_str() {
+                "on" => "on",
+                "observe" => "observe",
+                _ => "off",
+            };
+        }
+        if !mixdog_services::tool_state::onnx_runtime_supported() {
+            return "off";
+        }
+        "on"
+    }
+
     /// `autoEffortBaseSetting(config)`: `low`, `medium` or `high`.
     pub fn base(&self) -> &'static str {
         auto_effort_base(self.config.agent().get("autoEffortBase"))
@@ -306,6 +331,43 @@ fn last_text(messages: &[Value], role: &str, content_text: &dyn Fn(&Value) -> St
     String::new()
 }
 
+fn is_tagged_runtime_block(request: &str) -> bool {
+    ["<system-reminder>", "<task-notification>", "<mixdog-runtime>", "<skill", "<command-name>"].iter().any(|prefix| request.starts_with(prefix))
+}
+
+/// The session's last Auto-judged effort level on the same provider/model, read from prior turns'
+/// `meta.effortConfiguration` stamps marked `judged: true` and checked against the model's supported
+/// effort options. Manual turns are never reused as an Auto fallback.
+fn last_judged_effort(messages: &[Value], provider: &str, model: &str, options: &[String]) -> Option<&'static str> {
+    let want_model = mixdog_agent::effort::model_key(model);
+    for message in messages.iter().rev() {
+        let Some(cfg) = message.pointer("/meta/effortConfiguration").and_then(Value::as_object) else {
+            continue;
+        };
+        if cfg.get("judged") != Some(&Value::Bool(true)) {
+            continue;
+        }
+        if cfg.get("provider").and_then(Value::as_str) != Some(provider) {
+            continue;
+        }
+        let stamped_model = cfg.get("model").and_then(Value::as_str).map(mixdog_agent::effort::model_key).unwrap_or_default();
+        if stamped_model != want_model {
+            continue;
+        }
+        let Some(raw) = cfg.get("effort").and_then(Value::as_str) else {
+            continue;
+        };
+        let normalized = mixdog_js::js_trim(raw).to_lowercase();
+        let Some(level) = mixdog_ai::effort::ALL_EFFORT_LEVELS.into_iter().find(|candidate| *candidate == normalized) else {
+            continue;
+        };
+        if options.is_empty() || options.iter().any(|opt| mixdog_js::js_trim(opt).eq_ignore_ascii_case(level)) {
+            return Some(level);
+        }
+    }
+    None
+}
+
 /// `Number(value.toFixed(3))`.
 fn fixed3(value: f64) -> f64 {
     mixdog_js::math::to_fixed(value, 3).parse().unwrap_or(f64::NAN)
@@ -338,6 +400,7 @@ impl TurnAutoEffort {
 
     /// Only a real, unsent turn asks the judge. Observe mode and any skipped
     /// judgment leave both the request's saved effort and its history seed alone.
+    /// Returns `(effort, judged)` where `judged` is true only when the judge model answered.
     pub(super) async fn first_request_effort(
         &self,
         session_id: &str,
@@ -346,15 +409,15 @@ impl TurnAutoEffort {
         prompt: &str,
         injected: bool,
         cancel: &CancellationToken,
-    ) -> Option<&'static str> {
+    ) -> Option<(&'static str, bool)> {
         let content_text = |content: &Value| mixdog_core_session::session::idle_auto_clear::prompt_content_text(content, &|_| None);
         let input = TurnAutoEffortInput { session_id, header, messages, prompt, injected, content_text: &content_text };
         tokio::select! {
             biased;
             () = cancel.cancelled() => None,
             decision = self.resolve(&input) => decision
-                .filter(|decision| decision.applied && self.auto.mode() == "on")
-                .map(|decision| decision.effort),
+                .filter(|decision| decision.applied && decision.mode == "on")
+                .map(|decision| (decision.effort, decision.level.is_some())),
         }
     }
 
@@ -370,16 +433,17 @@ impl TurnAutoEffort {
         }
     }
 
-    /// The judged effort of the turn's first request, or `None` when Auto effort does not apply
-    /// (or the judge cannot answer in time, and the route's own effort stands).
+    /// The judged effort of the turn's first request, or `None` when Auto effort does not apply.
+    /// When the judge is not installed (`model-missing`), returns `None` so the route's own effort
+    /// runs unchanged. When a late judge skips for another reason, falls back to the session's last
+    /// Auto-judged level, and without one returns `None` as well.
     pub async fn resolve(&self, turn: &TurnAutoEffortInput<'_>) -> Option<AutoEffortDecision> {
-        let mode = self.auto.mode();
-        if mode == "off" || turn.injected || !mixdog_ai::effort::route_auto_effort_on(turn.header.get("autoEffort")) {
+        let mode = self.auto.route_mode(turn.header);
+        if mode == "off" || turn.injected {
             return None;
         }
         let request = js_trim(turn.prompt);
-        // Skill bodies and runtime blocks arrive as tagged text, not as a request.
-        if request.is_empty() || request.starts_with('<') || !self.configuration.configured(turn.header).await {
+        if request.is_empty() || is_tagged_runtime_block(request) || !self.configuration.configured(turn.header).await {
             return None;
         }
         let (provider, model) = (text(turn.header, "provider"), text(turn.header, "model"));
@@ -412,8 +476,25 @@ impl TurnAutoEffort {
             JudgeAnswer::Probs { probs, ms } => (probs, ms),
             JudgeAnswer::Skipped(why) => {
                 record.insert("skipped".into(), json!(why));
+                // Without a judged level to reuse, the turn runs at the route's stored level.
+                let fallback = (why != "model-missing").then(|| last_judged_effort(turn.messages, provider, model, &options)).flatten();
+                let Some(fallback) = fallback else {
+                    self.diagnostics.record(record);
+                    return None;
+                };
+                record.insert("fallback".into(), json!(fallback));
+                record.insert("effort".into(), json!(fallback));
                 self.diagnostics.record(record);
-                return None;
+                return Some(AutoEffortDecision {
+                    base,
+                    effort: fallback,
+                    step: 0,
+                    level: None,
+                    confidence: 0.0,
+                    applied: mode == "on",
+                    mode,
+                    request: request.to_owned(),
+                });
             }
         };
         let resolved = resolve_auto_effort(base, &options, &probs);
@@ -439,7 +520,7 @@ impl TurnAutoEffort {
             step: found.step,
             level: found.level,
             confidence: fixed3(found.confidence),
-            applied: mode == "on" && found.effort != chosen,
+            applied: mode == "on",
             mode,
             request: request.to_owned(),
         })
@@ -511,5 +592,332 @@ mod route_configuration_tests {
         let header = json!({ "provider": "acp-agent", "model": "m", "effort": "high" }).as_object().cloned().unwrap();
         assert!(!configuration.configured(&header).await);
         assert!(builder.0.lock().unwrap().is_empty(), "the registry was asked about {:?}", builder.0.lock().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod turn_auto_effort_tests {
+    use super::*;
+    use mixdog_ai::effort::EffortAuto;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct StubJudge {
+        answer: JudgeAnswer,
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl TurnJudge for StubJudge {
+        async fn judge(&self, _: TurnJudgeInput) -> JudgeAnswer {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.answer.clone()
+        }
+    }
+
+    struct StubRoute;
+
+    #[async_trait]
+    impl EffortConfiguration for StubRoute {
+        async fn configured(&self, _: &Header) -> bool {
+            true
+        }
+    }
+
+    #[async_trait]
+    impl LadderSources for StubRoute {
+        fn cached_row(&self, _: &str, _: &str) -> Option<Map<String, Value>> {
+            json!({ "reasoningLevels": ["low", "medium", "high"] }).as_object().cloned()
+        }
+        async fn rejected(&self, _: &str, _: &str) -> Option<mixdog_ai::effort::RejectionEntry> {
+            None
+        }
+        fn custom_config(&self, _: &str) -> Option<(mixdog_ai::providers::custom::Protocol, String)> {
+            None
+        }
+        fn anthropic_levels(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    #[derive(Default)]
+    struct StubDiagnostics(Mutex<Vec<Map<String, Value>>>);
+
+    impl EffortDiagnostics for StubDiagnostics {
+        fn record(&self, entry: Map<String, Value>) {
+            self.0.lock().unwrap().push(entry);
+        }
+        fn warn(&self, _: &str) {}
+    }
+
+    async fn harness(agent_config: Value, answer: JudgeAnswer) -> (TurnAutoEffort, Arc<StubJudge>, Arc<StubDiagnostics>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, serde_json::to_string(&json!({ "agent": agent_config })).unwrap()).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let (cfg, _) = Config::open(
+            path,
+            Arc::new(mixdog_core_api::mock::MockStatePublisher::default()),
+            mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+        .await
+        .unwrap();
+        let judge = Arc::new(StubJudge { answer, calls: AtomicUsize::new(0) });
+        let diagnostics = Arc::new(StubDiagnostics::default());
+        let auto = TurnAutoEffort::new(
+            Arc::new(ConfigAutoEffort::new(cfg, Arc::new(|_| None))),
+            judge.clone(),
+            Arc::new(StubRoute),
+            Arc::new(StubRoute),
+            diagnostics.clone(),
+            Arc::new(|| "2026-01-01T00:00:00Z".to_owned()),
+        );
+        (auto, judge, diagnostics)
+    }
+
+    #[tokio::test]
+    async fn explicit_route_effort_is_never_replaced_by_judge() {
+        let (auto, judge, _) = harness(json!({}), JudgeAnswer::Probs { probs: vec![0.0, 0.0, 1.0, 0.0], ms: 5 }).await;
+        let header = json!({ "provider": "openai", "model": "gpt-5", "effort": "low", "effortAuto": false }).as_object().cloned().unwrap();
+        let input =
+            TurnAutoEffortInput { session_id: "s1", header: &header, messages: &[], prompt: "hard problem", injected: false, content_text: &|_| String::new() };
+        assert!(auto.resolve(&input).await.is_none());
+        assert_eq!(judge.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn explicit_auto_runs_when_legacy_switch_is_off_and_unconverted_converts_with_switch() {
+        let (auto_off, judge_off, _) =
+            harness(json!({ "modules": { "autoEffort": { "enabled": false } } }), JudgeAnswer::Probs { probs: vec![0.0, 0.0, 1.0, 0.0], ms: 5 }).await;
+        // Pre-update session without effortAuto converts with legacy switch OFF -> Manual.
+        let unpicked = json!({ "provider": "openai", "model": "gpt-5", "effort": "low" }).as_object().cloned().unwrap();
+        let input = TurnAutoEffortInput {
+            session_id: "s1",
+            header: &unpicked,
+            messages: &[],
+            prompt: "hard problem",
+            injected: false,
+            content_text: &|_| String::new(),
+        };
+        assert!(auto_off.resolve(&input).await.is_none());
+        assert_eq!(judge_off.calls.load(Ordering::SeqCst), 0);
+
+        // Session with explicit effortAuto: true runs regardless of the legacy switch.
+        let picked_auto = json!({ "provider": "openai", "model": "gpt-5", "effort": "low", "effortAuto": true }).as_object().cloned().unwrap();
+        let input = TurnAutoEffortInput {
+            session_id: "s1",
+            header: &picked_auto,
+            messages: &[],
+            prompt: "hard problem",
+            injected: false,
+            content_text: &|_| String::new(),
+        };
+        let decision = auto_off.resolve(&input).await.expect("explicit Auto runs with switch off");
+        assert_eq!((decision.effort, decision.applied), ("high", true));
+        assert_eq!(judge_off.calls.load(Ordering::SeqCst), 1);
+
+        // User who had the legacy switch ON converts pre-update unpicked session to Auto.
+        let (auto_on, _, _) =
+            harness(json!({ "modules": { "autoEffort": { "enabled": true } } }), JudgeAnswer::Probs { probs: vec![0.0, 0.0, 1.0, 0.0], ms: 5 }).await;
+        let input = TurnAutoEffortInput {
+            session_id: "s2",
+            header: &unpicked,
+            messages: &[],
+            prompt: "hard problem",
+            injected: false,
+            content_text: &|_| String::new(),
+        };
+        let decision = auto_on.resolve(&input).await.expect("legacy switch on converts unpicked session to Auto");
+        assert_eq!((decision.effort, decision.applied), ("high", true));
+    }
+
+    #[tokio::test]
+    async fn late_judge_falls_back_only_to_last_judged_turn_never_manual_turns_or_when_model_missing() {
+        let (auto, _, diagnostics) = harness(json!({}), JudgeAnswer::Skipped("timeout".into())).await;
+        for (model, stamped) in [("gpt-5.5", "gpt-5-5"), ("claude-sonnet-4.5-20250929", "claude-sonnet-4-5")] {
+            let header = json!({ "provider": "openai", "model": model, "effort": "low", "effortAuto": true }).as_object().cloned().unwrap();
+            let prior = [
+                json!({
+                    "role": "user",
+                    "content": "earlier judged task",
+                    "meta": { "effortConfiguration": { "provider": "openai", "model": stamped, "mode": "responses", "initialEffort": "high", "effort": "high", "judged": true } }
+                }),
+                json!({ "role": "assistant", "content": "done" }),
+                // A newer manual turn (no `judged: true`) must NOT override the last judged level.
+                json!({
+                    "role": "user",
+                    "content": "manual turn",
+                    "meta": { "effortConfiguration": { "provider": "openai", "model": stamped, "mode": "responses", "initialEffort": "low", "effort": "low" } }
+                }),
+                json!({ "role": "assistant", "content": "done" }),
+            ];
+            let input = TurnAutoEffortInput {
+                session_id: "s1",
+                header: &header,
+                messages: &prior,
+                prompt: "follow up",
+                injected: false,
+                content_text: &|_| String::new(),
+            };
+            let decision = auto.resolve(&input).await.expect("timeout falls back to last judged level");
+            assert_eq!((decision.effort, decision.applied), ("high", true), "{model} matches {stamped}");
+            assert!(decision.level.is_none(), "fallback is not stamped as freshly judged");
+        }
+        assert_eq!(diagnostics.0.lock().unwrap()[0]["fallback"], json!("high"));
+        assert_eq!(diagnostics.0.lock().unwrap()[1]["fallback"], json!("high"));
+
+        // No judged turn yet (a session from before the update): the stored level runs, not the base.
+        let header = json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "effortAuto": true }).as_object().cloned().unwrap();
+        let input =
+            TurnAutoEffortInput { session_id: "s1", header: &header, messages: &[], prompt: "first turn", injected: false, content_text: &|_| String::new() };
+        assert!(auto.resolve(&input).await.is_none());
+
+        // When the judge is NOT installed (`model-missing`), TurnAutoEffort returns None directly
+        // so the stored/configured effort runs rather than replaying an earlier turn's level.
+        let (missing_judge, _, _) = harness(json!({}), JudgeAnswer::Skipped("model-missing".into())).await;
+        let header = json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "effortAuto": true }).as_object().cloned().unwrap();
+        let prior = [json!({
+            "role": "user",
+            "content": "earlier turn",
+            "meta": { "effortConfiguration": { "provider": "openai", "model": "gpt-5", "mode": "responses", "initialEffort": "low", "effort": "low", "judged": true } }
+        })];
+        let input =
+            TurnAutoEffortInput { session_id: "s1", header: &header, messages: &prior, prompt: "next", injected: false, content_text: &|_| String::new() };
+        assert!(missing_judge.resolve(&input).await.is_none(), "missing judge returns None so route's stored level runs");
+    }
+
+    #[tokio::test]
+    async fn subagent_brief_starting_with_angle_bracket_is_judged_while_runtime_blocks_skip() {
+        let (auto, judge, _) = harness(json!({}), JudgeAnswer::Probs { probs: vec![0.0, 0.0, 1.0, 0.0], ms: 3 }).await;
+        let header = json!({ "provider": "openai", "model": "gpt-5", "effortAuto": true }).as_object().cloned().unwrap();
+        let brief = TurnAutoEffortInput {
+            session_id: "s1",
+            header: &header,
+            messages: &[],
+            prompt: "<brief>Refactor the parser</brief>",
+            injected: false,
+            content_text: &|_| String::new(),
+        };
+        assert_eq!(auto.resolve(&brief).await.map(|d| d.effort), Some("high"));
+
+        let runtime = TurnAutoEffortInput {
+            session_id: "s1",
+            header: &header,
+            messages: &[],
+            prompt: "<task-notification>done</task-notification>",
+            injected: false,
+            content_text: &|_| String::new(),
+        };
+        assert!(auto.resolve(&runtime).await.is_none());
+        assert_eq!(judge.calls.load(Ordering::SeqCst), 1);
+    }
+
+    fn load_v150_fixture_header() -> serde_json::Map<String, Value> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mixdog-store/fixtures/dev-1.5.0-04b0508714/sess_24468_1795314060915_1795314060915_0c98a09bb8f446c28fe31940371d0292/log.000000");
+        let raw = std::fs::read_to_string(&path).expect("read 1.5.0 fixture");
+        for line in raw.lines().rev() {
+            if let Some(idx) = line.find('{') {
+                if let Ok(val) = serde_json::from_str::<Value>(&line[idx..]) {
+                    if val.get("k") == Some(&json!("checkpoint")) {
+                        let header = val["state"]["inline"]["header"].as_object().expect("checkpoint header").clone();
+                        assert!(header.get("effortAuto").is_none() && header.get("autoEffort").is_none());
+                        return header;
+                    }
+                }
+            }
+        }
+        panic!("1.5.0 fixture checkpoint not found");
+    }
+
+    #[tokio::test]
+    async fn update_regression_v150_fixture_and_legacy_hidden_header_across_three_user_states() {
+        let v150_header = load_v150_fixture_header();
+        // Old hidden-session header written by pre-update heartbeat_host.rs (`autoEffort: route != false`).
+        let legacy_hidden: serde_json::Map<String, Value> =
+            json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "autoEffort": true }).as_object().cloned().unwrap();
+
+        // 1. Switch-ON user: both the 1.5.0 fixture header and the legacy hidden header convert to Auto and get judged.
+        let (auto_on, judge_on, _) =
+            harness(json!({ "modules": { "autoEffort": { "enabled": true } } }), JudgeAnswer::Probs { probs: vec![0.0, 0.0, 1.0, 0.0], ms: 5 }).await;
+        for (label, mut header) in [("v1.5.0 fixture", v150_header.clone()), ("legacy hidden header", legacy_hidden.clone())] {
+            header.insert("provider".into(), json!("openai"));
+            header.insert("model".into(), json!("gpt-5"));
+            assert_eq!(EffortAuto::convert_on_load(&mut header, true), EffortAuto::Auto, "switch-on converts {label} to Auto");
+            assert!(header.get("autoEffort").is_none());
+            assert_eq!(header.get("effortAuto"), Some(&json!(true)));
+            let input = TurnAutoEffortInput {
+                session_id: "s-on",
+                header: &header,
+                messages: &[],
+                prompt: "solve this",
+                injected: false,
+                content_text: &|_| String::new(),
+            };
+            let decision = auto_on.resolve(&input).await.expect("switch-on user is judged");
+            assert_eq!((decision.effort, decision.applied), ("high", true), "{label}");
+        }
+        assert_eq!(judge_on.calls.load(Ordering::SeqCst), 2);
+
+        // 2. Switch-OFF user: NEITHER the 1.5.0 fixture header NOR legacy `autoEffort: true` gets judged!
+        let (auto_off, judge_off, _) =
+            harness(json!({ "modules": { "autoEffort": { "enabled": false } } }), JudgeAnswer::Probs { probs: vec![0.0, 0.0, 1.0, 0.0], ms: 5 }).await;
+        for (label, mut header) in [("v1.5.0 fixture", v150_header.clone()), ("legacy hidden header", legacy_hidden.clone())] {
+            header.insert("provider".into(), json!("openai"));
+            header.insert("model".into(), json!("gpt-5"));
+            // Even before explicit convert_on_load, TurnAutoEffort resolves legacy data via the switch.
+            let raw_input = TurnAutoEffortInput {
+                session_id: "s-off",
+                header: &header,
+                messages: &[],
+                prompt: "solve this",
+                injected: false,
+                content_text: &|_| String::new(),
+            };
+            assert!(auto_off.resolve(&raw_input).await.is_none(), "switch-off never judges raw {label}");
+            assert_eq!(EffortAuto::convert_on_load(&mut header, false), EffortAuto::Manual, "switch-off converts {label} to Manual");
+            assert!(header.get("autoEffort").is_none());
+            assert_eq!(header.get("effortAuto"), Some(&json!(false)));
+            let converted_input = TurnAutoEffortInput {
+                session_id: "s-off",
+                header: &header,
+                messages: &[],
+                prompt: "solve this",
+                injected: false,
+                content_text: &|_| String::new(),
+            };
+            assert!(auto_off.resolve(&converted_input).await.is_none(), "switch-off never judges converted {label}");
+            let status = crate::run_host::tool_pool::session_control::status("s-off", &header, false, false, Value::Null, false);
+            assert_eq!(status["effortAuto"], json!(false), "session status reports Auto off for {label}");
+        }
+        assert_eq!(judge_off.calls.load(Ordering::SeqCst), 0);
+        // Also verify session status on raw unconverted headers with switch OFF reports false.
+        assert_eq!(crate::run_host::tool_pool::session_control::status("s-raw", &v150_header, false, false, Value::Null, false)["effortAuto"], json!(false));
+        assert_eq!(
+            crate::run_host::tool_pool::session_control::status("s-raw-h", &legacy_hidden, false, false, Value::Null, false)["effortAuto"],
+            json!(false)
+        );
+
+        // 3. Judge-NOT-installed user (switch ON, judge returns model-missing): stored level runs, prior manual level is NOT replayed.
+        let (no_judge, _, _) = harness(json!({ "modules": { "autoEffort": { "enabled": true } } }), JudgeAnswer::Skipped("model-missing".into())).await;
+        let prior_manual = [json!({
+            "role": "user",
+            "content": "prior manual turn",
+            "meta": { "effortConfiguration": { "provider": "openai", "model": "gpt-5", "mode": "responses", "initialEffort": "low", "effort": "low" } }
+        })];
+        for (label, mut header) in [("v1.5.0 fixture", v150_header), ("legacy hidden header", legacy_hidden)] {
+            header.insert("provider".into(), json!("openai"));
+            header.insert("model".into(), json!("gpt-5"));
+            header.insert("effort".into(), json!("high"));
+            EffortAuto::convert_on_load(&mut header, true);
+            let input = TurnAutoEffortInput {
+                session_id: "s-no-judge",
+                header: &header,
+                messages: &prior_manual,
+                prompt: "solve this",
+                injected: false,
+                content_text: &|_| String::new(),
+            };
+            assert!(no_judge.resolve(&input).await.is_none(), "uninstalled judge leaves stored effort in force for {label}");
+        }
     }
 }

@@ -40,6 +40,7 @@ pub const PROJECTED_FIELDS: &[&str] = &[
     "fast",
     "fastCapable",
     "autoEffort",
+    "effortAuto",
     "modelParameters",
     "selectedContextWindow",
     "effort",

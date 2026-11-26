@@ -58,7 +58,7 @@ pub struct RouteActions {
 /// The setup actions [`RouteActions`] serves.
 pub const ACTIONS: [&str; 6] = ["set_route", "set_agent_route", "reset_route_fallback", "continue_in_model", "schedule_quota_resume", "cancel_quota_resume"];
 
-const LEAF_FIELDS: [&str; 6] = ["effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+const LEAF_FIELDS: [&str; 7] = ["effort", "fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens"];
 
 fn fail(message: impl Into<String>) -> PortError {
     PortError::Failed { capability: "route".into(), message: message.into() }
@@ -82,11 +82,10 @@ fn route_input(source: &Value) -> Obj {
             next.insert(key.into(), json!(text));
         }
     }
-    for key in ["fast", "autoEffort"] {
-        if let Some(Value::Bool(b)) = source.get(key) {
-            next.insert(key.into(), json!(b));
-        }
+    if let Some(Value::Bool(b)) = source.get("fast") {
+        next.insert("fast".into(), json!(b));
     }
+    mixdog_ai::effort::EffortAuto::carry_field(source, &mut next);
     if has("modelParameters") {
         next.insert("modelParameters".into(), source["modelParameters"].clone());
     }

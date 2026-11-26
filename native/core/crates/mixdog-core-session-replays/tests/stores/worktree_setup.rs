@@ -474,6 +474,34 @@ async fn a_delete_cancels_the_sessions_own_background_work_and_shells_only() {
     assert_eq!(*world.shells.0.lock().unwrap(), ["sess_gone"], "the session's shells go with its work");
 }
 
+#[test]
+fn session_deletion_keeps_agent_process_on_unload_and_releases_on_close_or_explicit_release() {
+    struct SpyProcesses(Mutex<Vec<String>>);
+    impl mixdog_core_session::session::purge::SessionAgentProcesses for SpyProcesses {
+        fn release(&self, session_id: &str) {
+            self.0.lock().unwrap().push(session_id.to_owned());
+        }
+        fn release_idle(&self, session_id: &str) {
+            self.0.lock().unwrap().push(format!("idle:{session_id}"));
+        }
+        fn unloaded(&self, session_id: &str) {
+            self.0.lock().unwrap().push(format!("unloaded:{session_id}"));
+        }
+    }
+    let spy = Arc::new(SpyProcesses(Mutex::default()));
+    let mut world = delete_world();
+    world.deletion.agent_processes = Some(spy.clone());
+
+    world.deletion.release_unloaded_runtime("sess_w1");
+    assert!(spy.0.lock().unwrap().is_empty(), "idle unload must not release the ACP agent process");
+
+    world.deletion.release_agent_process("sess_w1");
+    assert_eq!(*spy.0.lock().unwrap(), ["sess_w1"], "close/cleanup/park releases the ACP agent process");
+
+    world.deletion.release_mcp_scope("sess_w2");
+    assert_eq!(*spy.0.lock().unwrap(), ["sess_w1", "sess_w2"], "delete/tombstone releases the ACP agent process");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_delete_removes_the_sessions_gateway_route_before_the_release_returns() {
     let world = delete_world();

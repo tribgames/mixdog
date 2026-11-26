@@ -226,6 +226,8 @@ pub struct ModelSelection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_effort: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_auto: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_percent: Option<f64>,

@@ -309,7 +309,7 @@ fn a_row_carries_the_users_saved_settings_for_its_model() {
     let cfg = config(json!({
         "providers": {"custom-x": {"name": "  My Box  ", "protocol": "openai-chat"}},
         "modelSettings": {"custom-x/m1": {
-            "alias": "  Quick  ", "fast": true, "effort": "high", "autoEffort": false, "modelParameters": {"context": "1m"},
+            "alias": "  Quick  ", "fast": true, "effort": "high", "effortAuto": false, "modelParameters": {"context": "1m"},
             "contextPercent": 50, "contextTokens": 0, "hidden": true, "favorite": true,
         }},
     }));
@@ -319,7 +319,7 @@ fn a_row_carries_the_users_saved_settings_for_its_model() {
     assert_eq!((out["display"].clone(), out["displayAlias"].clone()), (json!("Quick"), json!("Quick")));
     assert_eq!(out["effortOptions"], json!([{"value": "low"}, {"value": "high"}]));
     assert_eq!((out["fastCapable"].clone(), out["fastPreferred"].clone(), out["savedFast"].clone()), (json!(true), json!(true), json!(true)));
-    assert_eq!((out["savedEffort"].clone(), out["savedAutoEffort"].clone(), out["autoEffortCapable"].clone()), (json!("high"), json!(false), json!(true)));
+    assert_eq!((out["savedEffort"].clone(), out["savedEffortAuto"].clone(), out["autoEffortCapable"].clone()), (json!("high"), json!(false), json!(true)));
     assert_eq!(out["savedModelParameters"], json!({"context": "1m"}));
     assert_eq!(out["savedContextPercent"], 50);
     assert!(out.get("savedContextTokens").is_none(), "a zero is no saved choice");
@@ -334,7 +334,7 @@ fn a_row_with_no_saved_settings_states_no_saved_facts() {
     assert!(out.get("displayAlias").is_none());
     assert_eq!((out["fastCapable"].clone(), out["fastPreferred"].clone(), out["autoEffortCapable"].clone()), (json!(false), json!(false), json!(false)));
     assert_eq!((out["savedEffort"].clone(), out["savedModelParameters"].clone()), (Value::Null, json!({})));
-    for absent in ["savedFast", "savedAutoEffort", "savedContextPercent", "savedContextTokens", "savedHidden", "favorite"] {
+    for absent in ["savedFast", "savedEffortAuto", "savedContextPercent", "savedContextTokens", "savedHidden", "favorite"] {
         assert!(out.get(absent).is_none(), "{absent}");
     }
 }

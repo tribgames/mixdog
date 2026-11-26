@@ -31,7 +31,8 @@ pub type Route = Map<String, Value>;
 pub const PRE_SWITCH_COMPACTION: &str = "preSwitchCompaction";
 
 /// `AGENT_ROUTE_KEYS` of `agent-profile-changes.mjs`.
-pub const AGENT_ROUTE_KEYS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+pub const AGENT_ROUTE_KEYS: [&str; 9] =
+    ["provider", "model", "effort", "fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens"];
 
 /// `TUNED_PARAMETERS`: `serviceTier` and the OpenRouter sort parameter.
 const TUNED_PARAMETERS: [&str; 2] = ["serviceTier", "providerSort"];
@@ -180,9 +181,6 @@ pub fn held_route_pick(route: &Route) -> Route {
         put("effectiveEffort", route["effectiveEffort"].clone());
     }
     put("fast", Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
-    if route.get("autoEffort") == Some(&Value::Bool(false)) {
-        put("autoEffort", Value::Bool(false));
-    }
     if truthy(route.get("modelParameters")) {
         put("modelParameters", route["modelParameters"].clone());
     }
@@ -202,6 +200,8 @@ pub fn held_route_pick(route: &Route) -> Route {
             put(key, value.clone());
         }
     }
+    drop(put);
+    mixdog_ai::effort::EffortAuto::carry_field_map(route, &mut pick);
     pick
 }
 
@@ -256,7 +256,7 @@ pub struct ThreadRouteView {
     pub model: String,
     pub fast: bool,
     pub effort: Option<String>,
-    pub auto_effort: bool,
+    pub effort_auto: Option<mixdog_ai::effort::EffortAuto>,
 }
 
 impl SessionRoutes {
@@ -286,7 +286,7 @@ impl SessionRoutes {
             model: text(&header, "model").to_owned(),
             fast: header.get("fast") == Some(&Value::Bool(true)),
             effort: header.get("effort").and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_owned),
-            auto_effort: header.get("autoEffort") != Some(&Value::Bool(false)),
+            effort_auto: mixdog_ai::effort::EffortAuto::read_explicit(&header),
         })
     }
 
@@ -329,8 +329,19 @@ impl SessionRoutes {
         let mut fields = Route::new();
         fields.insert("provider".into(), route.get("provider").cloned().unwrap_or(Value::Null));
         fields.insert("model".into(), route.get("model").cloned().unwrap_or(Value::Null));
+        let effort_auto = mixdog_ai::effort::EffortAuto::read_explicit(route);
         fields.insert("fast".into(), Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
-        fields.insert("autoEffort".into(), Value::Bool(route.get("autoEffort") != Some(&Value::Bool(false))));
+        if let Some(mode) = effort_auto {
+            fields.insert(mixdog_ai::effort::EffortAuto::KEY.into(), Value::Bool(mode.as_bool()));
+            fields.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Null);
+        } else {
+            fields.insert(mixdog_ai::effort::EffortAuto::KEY.into(), Value::Null);
+            if let Some(Value::Bool(legacy)) = route.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+                fields.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(*legacy));
+            } else {
+                fields.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Null);
+            }
+        }
         let or_null = |key: &str| if truthy(route.get(key)) { route[key].clone() } else { Value::Null };
         fields.insert("effort".into(), or_null("effectiveEffort"));
         fields
@@ -342,7 +353,20 @@ impl SessionRoutes {
         fields.insert("selectedContextWindow".into(), or_null("selectedContextWindow"));
         fields.extend(self.fallback_fields(thread, header, route).await?);
         if !self.session.update_route(thread, fields.clone(), cross_provider).await? {
-            self.threads.patch_header(thread, fields, Vec::new()).await?;
+            let mut unset = Vec::new();
+            fields.shift_remove(mixdog_ai::effort::EffortAuto::KEY);
+            fields.shift_remove(mixdog_ai::effort::EffortAuto::LEGACY_KEY);
+            if let Some(mode) = effort_auto {
+                mode.write_to_patch(&mut fields, &mut unset);
+            } else {
+                unset.push(mixdog_ai::effort::EffortAuto::KEY.to_owned());
+                if let Some(Value::Bool(legacy)) = route.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+                    fields.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(*legacy));
+                } else {
+                    unset.push(mixdog_ai::effort::EffortAuto::LEGACY_KEY.to_owned());
+                }
+            }
+            self.threads.patch_header(thread, fields, unset).await?;
         }
         self.session.rebuild_tool_surface(thread, text(route, "provider")).await?;
         self.session.write_statusline(thread, route);
@@ -417,11 +441,13 @@ impl SessionRoutes {
         }
         let mut unset = Vec::new();
         set.insert("fast".into(), Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
-        // Absent means on; only the off state is stored on the session.
-        if route.get("autoEffort") == Some(&Value::Bool(false)) {
-            set.insert("autoEffort".into(), Value::Bool(false));
+        if let Some(mode) = mixdog_ai::effort::EffortAuto::read_explicit(&route) {
+            mode.write_to_patch(&mut set, &mut unset);
+        } else if let Some(Value::Bool(legacy)) = route.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+            set.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(*legacy));
         } else {
-            unset.push("autoEffort".to_owned());
+            unset.push(mixdog_ai::effort::EffortAuto::KEY.into());
+            unset.push(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into());
         }
         set.insert("effort".into(), if truthy(route.get("effectiveEffort")) { route["effectiveEffort"].clone() } else { Value::Null });
         let mut parameters = header.get("modelParameters").and_then(Value::as_object).cloned().unwrap_or_default();
@@ -920,12 +946,12 @@ mod tests {
                     "pendingRoute": { "provider": "p", "model": "next", "effort": "low" }
                 }),
                 established(),
-                json!({ "provider": "p", "model": "next", "effort": "ultra", "effectiveEffort": "high", "autoEffort": false }),
+                json!({ "provider": "p", "model": "next", "effort": "ultra", "effectiveEffort": "high", "effortAuto": false }),
             );
             routes.tune(&thread()).await.unwrap();
             let header = routes.threads.header(&thread()).await.unwrap();
             assert_eq!(facade_effort(header["pendingRoute"].as_object().unwrap()), Some(&json!("high")));
-            assert_eq!(header["pendingRoute"]["autoEffort"], false);
+            assert_eq!(header["pendingRoute"]["effortAuto"], false);
             assert_eq!(header["model"], running_model);
             assert_eq!(header["effort"], if running_model == "next" { "high" } else { "low" });
         }
@@ -1029,7 +1055,7 @@ mod tests {
     #[tokio::test]
     async fn a_same_model_pick_only_tunes_the_session() {
         let (routes, calls) = routes(
-            json!({"provider": "openai", "model": "gpt-a", "autoEffort": false, "modelParameters": {"serviceTier": "fast", "keep": "1"}}),
+            json!({"provider": "openai", "model": "gpt-a", "effortAuto": false, "modelParameters": {"serviceTier": "fast", "keep": "1"}}),
             established(),
             json!({"provider": "openai", "model": "gpt-a", "fast": true, "effectiveEffort": "low", "modelParameters": {}}),
         );
@@ -1037,6 +1063,7 @@ mod tests {
         routes.follow(&thread(), &options).await.unwrap();
         let header = routes.threads.header(&thread()).await.unwrap();
         assert_eq!((header["fast"].clone(), header["effort"].clone(), header["modelParameters"].clone()), (json!(true), json!("low"), json!({"keep": "1"})));
+        assert!(!header.contains_key("effortAuto"));
         assert!(!header.contains_key("autoEffort"));
         assert!(calls.all().contains(&"statusline".to_owned()));
     }
@@ -1251,5 +1278,77 @@ mod tests {
         assert_eq!(calls.all(), [format!("home {pick} defer=true"), format!("room {pick} defer=true")]);
         assert!(follow.follow("nobody", &route).await.is_ok());
         assert!(follow.follow("bot", &obj(json!({"provider": "openai"}))).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn explicit_effort_auto_states_survive_held_pick_update_and_tune() {
+        use mixdog_ai::effort::EffortAuto;
+        struct Capture(Arc<Mutex<Vec<Route>>>);
+        #[async_trait]
+        impl RouteSession for Capture {
+            fn generation(&self, _: &ThreadId) -> u64 {
+                1
+            }
+            async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+                Ok(Vec::new())
+            }
+            fn has_user_conversation(&self, messages: &[Value]) -> bool {
+                messages.iter().any(|m| m["role"] == "user")
+            }
+            async fn update_route(&self, _: &ThreadId, fields: Route, _: bool) -> Result<bool, PortError> {
+                self.0.lock().unwrap().push(fields);
+                Ok(true)
+            }
+            async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
+                Ok(true)
+            }
+            async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
+                Ok(())
+            }
+            async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+                Ok(None)
+            }
+            fn write_statusline(&self, _: &ThreadId, _: &Route) {}
+            fn invalidate_context_status(&self, _: &ThreadId) {}
+        }
+
+        for (label, state) in [("auto", EffortAuto::Auto), ("manual", EffortAuto::Manual)] {
+            let mut live = obj(json!({ "provider": "openai", "model": "gpt-b", "effort": "high", "fast": false }));
+            state.write_to(&mut live);
+
+            let pick = held_route_pick(&live);
+            assert_eq!(EffortAuto::read_explicit(&pick), Some(state), "held_route_pick preserves {label}");
+
+            let calls = Arc::new(Calls::default());
+            let captured: Arc<Mutex<Vec<Route>>> = Arc::default();
+            let routes = SessionRoutes::new(
+                Arc::new(Threads::new(json!({ "id": "t", "provider": "openai", "model": "gpt-a", "effort": "low", "effortAuto": false }), calls.clone())),
+                Arc::new(Messages(established())),
+                Arc::new(Capture(captured.clone())),
+                Arc::new(Live(live.clone())),
+            );
+            let defer = FollowOptions { switch_established: true, defer_until_next_turn: true, lease: Some(1), ..FollowOptions::default() };
+            routes.follow(&thread(), &defer).await.unwrap();
+            let pending = routes.threads.header(&thread()).await.unwrap()["pendingRoute"].clone();
+            assert_eq!(EffortAuto::read_explicit_value(&pending), Some(state), "pendingRoute preserves {label}");
+
+            routes.apply_admitted(&thread(), Some(&pending)).await.unwrap();
+            let updates = captured.lock().unwrap();
+            assert_eq!(updates.len(), 1);
+            assert_eq!(EffortAuto::read_explicit(&updates[0]), Some(state), "apply_admitted update preserves {label}");
+
+            let tune_calls = Arc::new(Calls::default());
+            let tune_threads = Arc::new(Threads::new(
+                json!({ "id": "t", "provider": "openai", "model": "gpt-b", "effort": "high", "fast": false, "autoEffort": true }),
+                tune_calls.clone(),
+            ));
+            let tune_routes =
+                SessionRoutes::new(tune_threads.clone(), Arc::new(Messages(Vec::new())), Arc::new(Session::new(tune_calls, None)), Arc::new(Live(live)));
+            tune_routes.tune(&thread()).await.unwrap();
+            let header = tune_threads.header(&thread()).await.unwrap();
+            assert_eq!(EffortAuto::read_explicit(&header), Some(state), "tune preserves {label}");
+            assert!(header.get("autoEffort").is_none(), "tune clears legacy autoEffort when writing effortAuto");
+            assert_eq!(tune_routes.read(&thread()).await.unwrap().effort_auto, Some(state), "SessionRoutes::read reads {label}");
+        }
     }
 }

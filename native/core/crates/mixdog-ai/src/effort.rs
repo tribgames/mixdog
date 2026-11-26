@@ -105,9 +105,167 @@ pub fn anthropic_ladder_row(model: &str, levels: Vec<String>) -> Value {
     serde_json::json!({ "id": model, "reasoningLevels": levels, "customReasoning": true })
 }
 
-/// A route's own Auto flag: only an explicit `false` opts out, absent means on. The judge and the labels both ask this.
-pub fn route_auto_effort_on(flag: Option<&Value>) -> bool {
-    flag != Some(&Value::Bool(false))
+/// The explicit two-state choice of how a route picks reasoning effort:
+/// - `Auto` (`"effortAuto": true`): the judge picks a level per turn.
+/// - `Manual` (`"effortAuto": false`): the stored/chosen level runs.
+///
+/// Legacy `"autoEffort"` keeps its pre-update meaning ("not turned off") and is read ONLY
+/// by [`Self::from_legacy`] when `"effortAuto"` is absent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffortAuto {
+    Auto,
+    Manual,
+}
+
+impl EffortAuto {
+    pub const KEY: &'static str = "effortAuto";
+    pub const LEGACY_KEY: &'static str = "autoEffort";
+
+    pub const fn as_bool(self) -> bool {
+        matches!(self, Self::Auto)
+    }
+
+    pub const fn is_auto(self) -> bool {
+        matches!(self, Self::Auto)
+    }
+
+    pub const fn from_bool(auto: bool) -> Self {
+        if auto { Self::Auto } else { Self::Manual }
+    }
+
+    /// Default a newly created route takes when the user states no choice.
+    pub const fn default_for_new(legacy_switch_on: bool) -> Self {
+        Self::from_bool(legacy_switch_on)
+    }
+
+    /// The ONE legacy conversion: when `effortAuto` is absent on pre-update data,
+    /// `(legacy_switch_on && old_auto_effort != false)` yields `Auto`, otherwise `Manual`.
+    pub fn from_legacy(old_auto_effort: Option<&Value>, legacy_switch_on: bool) -> Self {
+        if legacy_switch_on && old_auto_effort != Some(&Value::Bool(false)) { Self::Auto } else { Self::Manual }
+    }
+
+    /// Read explicit `effortAuto` boolean when present; `None` if absent or non-boolean.
+    pub fn read_explicit(map: &serde_json::Map<String, Value>) -> Option<Self> {
+        map.get(Self::KEY).and_then(Value::as_bool).map(Self::from_bool)
+    }
+
+    /// Read explicit `effortAuto` boolean from a JSON value when present.
+    pub fn read_explicit_value(value: &Value) -> Option<Self> {
+        value.get(Self::KEY).and_then(Value::as_bool).map(Self::from_bool)
+    }
+
+    /// Read `effortAuto` if present, else run the ONE legacy conversion from `autoEffort` + `legacy_switch_on`.
+    pub fn resolve(map: &serde_json::Map<String, Value>, legacy_switch_on: bool) -> Self {
+        Self::read_explicit(map).unwrap_or_else(|| Self::from_legacy(map.get(Self::LEGACY_KEY), legacy_switch_on))
+    }
+
+    /// Same as [`Self::resolve`] on a JSON value.
+    pub fn resolve_value(value: &Value, legacy_switch_on: bool) -> Self {
+        Self::read_explicit_value(value).unwrap_or_else(|| Self::from_legacy(value.get(Self::LEGACY_KEY), legacy_switch_on))
+    }
+
+    /// Convert a stored route map in-place on load: resolves once if `effortAuto` is absent,
+    /// writes `"effortAuto"`, and removes legacy `"autoEffort"`.
+    pub fn convert_on_load(map: &mut serde_json::Map<String, Value>, legacy_switch_on: bool) -> Self {
+        let mode = Self::resolve(map, legacy_switch_on);
+        mode.write_to(map);
+        mode
+    }
+
+    /// Read `effortAuto` on an already-converted route without consulting legacy `autoEffort`
+    /// or the legacy switch; fails closed to `Manual` if absent.
+    pub fn read_converted(map: &serde_json::Map<String, Value>) -> Self {
+        Self::read_explicit(map).unwrap_or(Self::Manual)
+    }
+
+    /// Read `effortAuto` on an already-converted JSON value; fails closed to `Manual` if absent.
+    pub fn read_converted_value(value: &Value) -> Self {
+        Self::read_explicit_value(value).unwrap_or(Self::Manual)
+    }
+
+    /// Write `"effortAuto": true|false` and strip legacy `"autoEffort"`.
+    pub fn write_to(self, map: &mut serde_json::Map<String, Value>) {
+        map.shift_remove(Self::LEGACY_KEY);
+        map.insert(Self::KEY.into(), Value::Bool(self.as_bool()));
+    }
+
+    /// Write `"effortAuto"` into a header patch and unset legacy `"autoEffort"`.
+    pub fn write_to_patch(self, set: &mut serde_json::Map<String, Value>, unset: &mut Vec<String>) {
+        set.insert(Self::KEY.into(), Value::Bool(self.as_bool()));
+        if !unset.iter().any(|k| k == Self::LEGACY_KEY) {
+            unset.push(Self::LEGACY_KEY.to_owned());
+        }
+    }
+
+    /// In config-less projection/normalization helpers: carry explicit `"effortAuto"` (dropping
+    /// legacy `"autoEffort"`), or preserve legacy `"autoEffort"` unchanged until a config-aware
+    /// load boundary converts it.
+    pub fn carry_field(src: &Value, dst: &mut serde_json::Map<String, Value>) {
+        if let Some(explicit) = Self::read_explicit_value(src) {
+            explicit.write_to(dst);
+        } else if let Some(Value::Bool(legacy)) = src.get(Self::LEGACY_KEY) {
+            dst.insert(Self::LEGACY_KEY.into(), Value::Bool(*legacy));
+        }
+    }
+
+    /// Same as [`Self::carry_field`] from a map.
+    pub fn carry_field_map(src: &serde_json::Map<String, Value>, dst: &mut serde_json::Map<String, Value>) {
+        if let Some(explicit) = Self::read_explicit(src) {
+            explicit.write_to(dst);
+        } else if let Some(Value::Bool(legacy)) = src.get(Self::LEGACY_KEY) {
+            dst.insert(Self::LEGACY_KEY.into(), Value::Bool(*legacy));
+        }
+    }
+
+    /// What an explicit `effort` choice implies: `"auto"` => `Some(Auto)`, any other non-empty
+    /// level => `Some(Manual)`, empty/absent => `None`.
+    pub fn implied_by_effort(value: Option<&Value>) -> Option<Self> {
+        let v = clean(value).to_lowercase();
+        if v.is_empty() {
+            None
+        } else if v == "auto" {
+            Some(Self::Auto)
+        } else {
+            Some(Self::Manual)
+        }
+    }
+
+    /// Only `"auto"` in `effort` opts in; concrete levels return `None`.
+    pub fn implied_auto_only(value: Option<&Value>) -> Option<Self> {
+        clean(value).eq_ignore_ascii_case("auto").then_some(Self::Auto)
+    }
+
+    /// Resolve an explicit choice from a user request: explicit `effortAuto` wins, then legacy
+    /// `autoEffort` converted with `legacy_switch_on`, then what `effort` implies (`"auto"` or level).
+    pub fn from_request(map: &serde_json::Map<String, Value>, legacy_switch_on: bool) -> Option<Self> {
+        if let Some(explicit) = Self::read_explicit(map) {
+            return Some(explicit);
+        }
+        if let Some(legacy) = map.get(Self::LEGACY_KEY).filter(|v| v.is_boolean()) {
+            return Some(Self::from_legacy(Some(legacy), legacy_switch_on));
+        }
+        Self::implied_by_effort(map.get("effort"))
+    }
+
+    /// Like [`Self::from_request`], but a concrete `effort` level does not override saved/fallback
+    /// `effortAuto` (only `"auto"` implies `Auto`).
+    pub fn from_request_soft(map: &serde_json::Map<String, Value>, legacy_switch_on: bool) -> Option<Self> {
+        if let Some(explicit) = Self::read_explicit(map) {
+            return Some(explicit);
+        }
+        if let Some(legacy) = map.get(Self::LEGACY_KEY).filter(|v| v.is_boolean()) {
+            return Some(Self::from_legacy(Some(legacy), legacy_switch_on));
+        }
+        Self::implied_auto_only(map.get("effort"))
+    }
+
+    /// Resolve from a `ModelSelection`'s explicit `effort_auto` or legacy `auto_effort`.
+    pub fn from_selection(effort_auto: Option<bool>, legacy_auto_effort: Option<bool>, legacy_switch_on: bool) -> Option<Self> {
+        if let Some(flag) = effort_auto {
+            return Some(Self::from_bool(flag));
+        }
+        legacy_auto_effort.map(|legacy| Self::from_legacy(Some(&Value::Bool(legacy)), legacy_switch_on))
+    }
 }
 
 /// The store key of a route's rejections (`provider:model`, the model lower-cased).

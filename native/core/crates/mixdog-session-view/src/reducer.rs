@@ -78,6 +78,7 @@ const SECTIONS: &[(&str, Section)] = &[
                 "fast",
                 "fastCapable",
                 "autoEffort",
+                "effortAuto",
                 "modelParameters",
                 "selectedContextWindow",
                 "effort",

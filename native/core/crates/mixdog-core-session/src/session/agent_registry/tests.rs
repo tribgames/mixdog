@@ -35,6 +35,8 @@ struct Store {
     /// Mirrors `StoreWorkers`' `KeptMemory` change log so tests observe real `keep` -> `forget_session` ordering.
     kept_memory: Mutex<super::store_workers::KeptMemory>,
     sessions: Mutex<Vec<Row>>,
+    /// The listings of every agent session read, closed ones included.
+    listings: std::sync::atomic::AtomicUsize,
     headers: Mutex<HashMap<String, Row>>,
     dirs: Mutex<HashSet<String>>,
     /// The stored session records asked for.
@@ -100,7 +102,12 @@ impl WorkerStore for Store {
     }
 
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
+        self.listings.fetch_add(1, Ordering::SeqCst);
         Ok(self.sessions.lock().unwrap().clone())
+    }
+
+    async fn open_agent_sessions(&self) -> Result<Vec<Row>, String> {
+        Ok(self.sessions.lock().unwrap().iter().filter(|row| row.get("closed") != Some(&json!(true))).cloned().collect())
     }
 
     fn keep(&self, session: &str, worker: Option<Row>) {
@@ -602,6 +609,24 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
         assert_eq!(tags(&scoped).contains(&"r3".to_owned()), now > reap_end, "r3 row at {now}");
         assert_eq!(index.1.iter().any(|r| r["tag"] == "rel" && r.get("released") == Some(&json!(true))), now <= marker_end, "release marker at {now}");
     }
+}
+
+/// An agent tool call's scan of the sessions reads only the open ones from the index; a listing that needs the closed ones
+/// still reads them all.
+#[tokio::test]
+async fn a_scan_of_the_sessions_reads_only_the_open_ones_from_the_index() {
+    let rig = Rig::new();
+    let shut = json!({ "closed": true });
+    rig.store.sessions.lock().unwrap().push(session("sess_open", "open", &at(NOW - HOUR), json!({})));
+    rig.store.sessions.lock().unwrap().push(session("sess_shut", "shut", &at(NOW - HOUR), shut));
+    rig.store.touch_sessions();
+    let registry = rig.registry();
+    registry.refresh_tags_from_sessions(true, &lead("lead-a")).await.unwrap();
+    assert_eq!(registry.tag_session("open").as_deref(), Some("sess_open"), "the scan binds the open session's tag");
+    assert_eq!(registry.tag_session("shut"), None);
+    assert_eq!(rig.store.listings.load(Ordering::SeqCst), 0, "the scan read no listing of the closed sessions");
+    assert_eq!(registry.descendants("lead-a").await.unwrap(), ["sess_open", "sess_shut"]);
+    assert_eq!(rig.store.listings.load(Ordering::SeqCst), 1);
 }
 
 /// Hot path 2: whether a session is at work is answered from memory. No bookkeeping pass of the registry reads a
@@ -1403,7 +1428,7 @@ fn held(registry: &AgentRegistry) -> (Vec<(String, Place, Row)>, Vec<(String, Op
 
 /// The state as an operation that lists the agent-only sessions holds it: with every one of them read from the index.
 async fn listed(registry: &AgentRegistry) -> Operation<'_> {
-    let reads = registry.read_index(true, &[]).await.expect("the index reads");
+    let reads = registry.read_index(Listed::Whole, &[]).await.expect("the index reads");
     registry.op(reads)
 }
 
@@ -4058,6 +4083,52 @@ async fn an_idle_agent_with_no_runtime_left_is_parked_until_a_turn_starts() {
     crate::session::TurnStarts::turn_started(&**registry, &ThreadId::from("sess_w1"), &"turn".into());
     assert_eq!(stage().await.as_deref(), Some("idle"));
     assert_eq!(workers.live("sess_w1").runtime_stage, None);
+}
+
+/// Closing or cleaning up an idle-unloaded worker releases its external (ACP) agent process, and parking it lets go of
+/// the process while idle, keeping what the session approved and holds; a loaded session is not parked, and a cleanup
+/// whose turn fence moved releases nothing.
+#[tokio::test(start_paused = true)]
+async fn closing_cleaning_up_or_parking_an_unloaded_worker_releases_its_agent_process() {
+    use mixdog_agent::agent_tool::host::{CloseOptions, MemberClose, MemberOutcome, Sessions};
+
+    let world = park_world().await;
+    let steps_of = |prefix: &str| -> Vec<String> {
+        world._srig.deletes.0.lock().unwrap().iter().filter_map(|step| step.strip_prefix(prefix).map(str::to_owned)).collect()
+    };
+    let agent_releases = || steps_of("releaseAgentProcess:");
+    let idle_releases = || steps_of("releaseIdleAgentProcess:");
+
+    // Loaded session is not parked and releases no agent process.
+    assert!(!world.sessions.park_session(world.loaded.id.as_str()).await);
+    assert!(agent_releases().is_empty() && idle_releases().is_empty());
+
+    // Parking an idle-unloaded worker lets go of its idle ACP process, keeping its approvals.
+    assert!(world.sessions.park_session("sess_w1").await);
+    assert_eq!(idle_releases(), ["sess_w1"]);
+    assert!(agent_releases().is_empty());
+
+    // Cleanup with a mismatched turn fence does not release the ACP process.
+    world._srig.deletes.0.lock().unwrap().clear();
+    let stale_fence = MemberClose { turn: Some(mixdog_agent::agent_tool::host::TurnMark { started: 99, last: Some("stale".to_owned()) }), stamped: true };
+    assert_eq!(
+        world.sessions.close_member("sess_w1", "agent-cleanup", CloseOptions { tombstone: false, owner_close: true }, stale_fence).await.unwrap(),
+        MemberOutcome::Moved
+    );
+    assert!(agent_releases().is_empty());
+
+    // Cleanup with a matching idle fence releases the ACP process.
+    let idle_fence = MemberClose { turn: world.registry.turn_mark("sess_w1"), stamped: true };
+    assert_eq!(
+        world.sessions.close_member("sess_w1", "agent-cleanup", CloseOptions { tombstone: false, owner_close: true }, idle_fence).await.unwrap(),
+        MemberOutcome::Closed
+    );
+    assert_eq!(agent_releases(), ["sess_w1"]);
+
+    // Closing an idle-unloaded worker releases its ACP process.
+    world._srig.deletes.0.lock().unwrap().clear();
+    assert!(world.sessions.close_session("sess_w1", "cli-agent-close", CloseOptions { tombstone: false, owner_close: true }).await);
+    assert_eq!(agent_releases(), ["sess_w1"]);
 }
 
 /// What cleanup reads: the open agent sessions, the sessions a tag is bound to, and whether one is hidden already.

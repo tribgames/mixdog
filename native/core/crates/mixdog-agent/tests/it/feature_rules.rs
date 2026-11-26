@@ -105,9 +105,9 @@ fn a_spawn_that_names_its_model_runs_on_it_directly_with_the_pickers_defaults_un
     assert_eq!((&spawn.preset["effort"], &spawn.preset["fast"]), (&json!("high"), &json!(true)));
     assert!(spawn.preset.get("fallbacks").is_none());
     let asked =
-        json!({ "agent": "worker", "provider": "openai", "model": "gpt-x", "modelDefaults": defaults, "effort": "low", "fast": false, "autoEffort": false });
+        json!({ "agent": "worker", "provider": "openai", "model": "gpt-x", "modelDefaults": defaults, "effort": "low", "fast": false, "effortAuto": false });
     let spawn = resolve_agent_spawn_preset(config, &asked, &[]).unwrap();
-    assert_eq!((&spawn.preset["effort"], &spawn.preset["fast"], &spawn.preset["autoEffort"]), (&json!("low"), &json!(false), &json!(false)));
+    assert_eq!((&spawn.preset["effort"], &spawn.preset["fast"], &spawn.preset["effortAuto"]), (&json!("low"), &json!(false), &json!(false)));
 }
 
 #[test]

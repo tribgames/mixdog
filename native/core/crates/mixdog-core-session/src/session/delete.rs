@@ -195,6 +195,14 @@ pub trait DeleteSeams: Send + Sync {
     /// The close's tombstone landed: the MCP scope the session holds is released and its servers
     /// close (the runtime's teardown, `disconnectAll({ scopeId })`, `runtime-stops.mjs:24`). Not awaited.
     fn release_mcp_scope(&self, session_id: &str);
+    /// Ends the session's external (ACP) agent process without closing the conversation or its MCP owner.
+    fn release_agent_process(&self, _session_id: &str) {}
+    /// Lets go of the session's external (ACP) agent process where its agent is idle, keeping what the session approved
+    /// and holds so its next turn reopens it; an agent that is not idle keeps running.
+    fn release_idle_agent_process(&self, _session_id: &str) {}
+    /// The session's runtime unloaded while its external (ACP) agent process stays: the agent is not reopened before the
+    /// session's next turn.
+    fn agent_process_unloaded(&self, _session_id: &str) {}
     /// Release resources of an unloaded runtime without closing the conversation.
     fn release_unloaded_runtime(&self, _session_id: &str) {}
     /// The loaded session rested (it stays loaded, watched and idle): what was kept only for its next turn goes, rebuilt

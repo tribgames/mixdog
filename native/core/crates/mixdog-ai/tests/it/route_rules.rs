@@ -69,7 +69,7 @@ fn a_request_naming_nothing_follows_the_default_preset_with_its_values() {
     // The user's saved choices for the model come before the preset's own values.
     assert_eq!((route["effort"].clone(), route["fast"].clone()), (json!("low"), json!(false)));
     assert_eq!((route["modelParameters"].clone(), route["contextPercent"].clone()), (json!({"context": "1m"}), json!(60)));
-    assert_eq!(route["autoEffort"], true);
+    assert_eq!(route["effortAuto"], json!(true), "default switch-on config resolves unflagged route to effortAuto: true");
 }
 
 #[test]
@@ -109,8 +109,8 @@ fn what_the_request_states_overrides_what_is_saved() {
         request.extend(obj(extra));
         resolve_route(&config, &request, &known(&[])).unwrap()
     };
-    let route = ask(json!({"effort": "HIGH", "fast": true, "autoEffort": false, "modelParameters": {" k ": " v ", "empty": " "}}));
-    assert_eq!((route["effort"].clone(), route["fast"].clone(), route["autoEffort"].clone()), (json!("high"), json!(true), json!(false)));
+    let route = ask(json!({"effort": "HIGH", "fast": true, "effortAuto": false, "modelParameters": {" k ": " v ", "empty": " "}}));
+    assert_eq!((route["effort"].clone(), route["fast"].clone(), route["effortAuto"].clone()), (json!("high"), json!(true), json!(false)));
     assert_eq!(route["modelParameters"], json!({"k": "v"}), "keys and values are trimmed and an empty one is dropped");
     assert_eq!(ask(json!({"effort": "auto"}))["effort"], Value::Null, "auto means no fixed effort");
     assert_eq!(ask(json!({"effort": ""}))["effort"], Value::Null);
@@ -153,26 +153,113 @@ fn route_of(value: Value) -> Obj {
 fn saving_a_route_keeps_its_choices_under_provider_slash_model() {
     let mut config = Obj::new();
     let route = route_of(
-        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"context": "1m", " ": "x"}}),
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "effortAuto": false, "modelParameters": {"context": "1m", " ": "x"}}),
     );
     save_model_settings(&mut config, &route, true);
     assert_eq!(
         config["modelSettings"]["openai-oauth/gpt-5"],
-        json!({"effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"context": "1m"}})
+        json!({"effort": "high", "fast": true, "effortAuto": false, "modelParameters": {"context": "1m"}})
     );
 }
 
 #[test]
 fn fast_is_saved_only_for_a_model_that_can_run_it_and_default_choices_are_not_saved() {
     let mut config =
-        obj(json!({"modelSettings": {"p/m": {"effort": "low", "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 40, "contextTokens": 9}}}));
-    let route = route_of(json!({"provider": "p", "model": "m", "fast": true, "autoEffort": true, "contextPercent": 50, "contextDefaultPercent": 50}));
+        obj(json!({"modelSettings": {"p/m": {"effort": "low", "effortAuto": false, "modelParameters": {"a": "b"}, "contextPercent": 40, "contextTokens": 9}}}));
+    let route = route_of(json!({"provider": "p", "model": "m", "fast": true, "effortAuto": true, "contextPercent": 50, "contextDefaultPercent": 50}));
     save_model_settings(&mut config, &route, false);
     let saved = &config["modelSettings"]["p/m"];
     assert_eq!(saved["fast"], false, "a model without Fast saves it off");
-    for gone in ["effort", "autoEffort", "modelParameters", "contextPercent", "contextTokens"] {
+    assert_eq!(saved["effortAuto"], true, "explicit Auto choice is preserved so the legacy switch never overrides it");
+    for gone in ["effort", "modelParameters", "contextPercent", "contextTokens"] {
         assert!(saved.get(gone).is_none(), "{gone}");
     }
+}
+
+#[test]
+fn effort_auto_and_legacy_conversion_survive_route_resolution_and_workflow_normalization() {
+    let known = |_: &str, _: &Obj| true;
+    let default_on = obj(json!({}));
+    let switch_off = obj(json!({ "modules": { "autoEffort": { "enabled": false } } }));
+
+    // New route without explicit effortAuto takes the creation default from the legacy switch.
+    let unflagged_on = resolve_route(&default_on, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high" })), &known).unwrap();
+    assert_eq!((&unflagged_on["effort"], &unflagged_on["effortAuto"]), (&json!("high"), &json!(true)));
+    let unflagged_off = resolve_route(&switch_off, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high" })), &known).unwrap();
+    assert_eq!((&unflagged_off["effort"], &unflagged_off["effortAuto"]), (&json!("high"), &json!(false)));
+
+    // Pre-update legacy `autoEffort: true` is converted with the switch: OFF -> Manual, ON -> Auto.
+    let legacy_true_off =
+        resolve_route(&switch_off, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "autoEffort": true })), &known).unwrap();
+    assert_eq!(legacy_true_off["effortAuto"], json!(false), "legacy autoEffort: true is Manual when switch is off");
+    let legacy_true_on =
+        resolve_route(&default_on, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "autoEffort": true })), &known).unwrap();
+    assert_eq!(legacy_true_on["effortAuto"], json!(true), "legacy autoEffort: true is Auto when switch is on");
+
+    let explicit_off =
+        resolve_route(&default_on, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "effortAuto": false })), &known).unwrap();
+    assert_eq!((&explicit_off["effort"], &explicit_off["effortAuto"]), (&json!("high"), &json!(false)));
+
+    let picked_auto = resolve_route(&switch_off, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "auto" })), &known).unwrap();
+    assert_eq!((&picked_auto["effort"], &picked_auto["effortAuto"]), (&Value::Null, &json!(true)));
+
+    let unpicked_off = resolve_route(&switch_off, &obj(json!({ "provider": "openai", "model": "gpt-5" })), &known).unwrap();
+    assert_eq!(unpicked_off["effortAuto"], json!(false));
+    let unpicked_on = resolve_route(&default_on, &obj(json!({ "provider": "openai", "model": "gpt-5" })), &known).unwrap();
+    assert_eq!(unpicked_on["effortAuto"], json!(true));
+
+    for (label, flag) in [("auto", true), ("manual", false)] {
+        let stored = obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "effortAuto": flag }));
+        let chain = start_chain_entry(&default_on, &obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "low" })), &stored, &known).unwrap();
+        assert_eq!(chain["effortAuto"], json!(flag), "start_chain_entry preserves {label}");
+
+        let preset_route = obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "effortAuto": flag }));
+        let presets = upsert_workflow_preset(&json!([]), "lead", &Value::Object(preset_route)).expect("upsert_workflow_preset");
+        assert_eq!(presets[0]["effortAuto"], json!(flag), "upsert_workflow_preset preserves {label}");
+    }
+
+    let requested_override = mixdog_ai::service::admin_route::normalize_requested_workflow_route(
+        &json!({ "provider": "openai", "model": "gpt-5", "effort": "high" }),
+        &json!({ "provider": "openai", "model": "gpt-5", "effort": "medium", "effortAuto": true }),
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(requested_override["effortAuto"], json!(false), "route's own explicit effort overrides fallback effortAuto");
+
+    let requested_inherit = mixdog_ai::service::admin_route::normalize_requested_workflow_route(
+        &json!({ "provider": "openai", "model": "gpt-5" }),
+        &json!({ "provider": "openai", "model": "gpt-5", "effortAuto": true }),
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(requested_inherit["effortAuto"], json!(true));
+
+    let requested_auto = mixdog_ai::service::admin_route::normalize_requested_workflow_route(
+        &json!({ "provider": "openai", "model": "gpt-5", "effort": "auto" }),
+        &json!({ "provider": "openai", "model": "gpt-5", "effortAuto": false }),
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(requested_auto.get("effort").is_none());
+    assert_eq!(requested_auto["effortAuto"], json!(true));
+
+    let wf_auto = normalize_workflow_route(&json!({ "provider": "openai", "model": "gpt-5", "effortAuto": true }), &json!({}), false).unwrap().unwrap();
+    assert_eq!(wf_auto["effortAuto"], json!(true));
+
+    assert!(!mixdog_ai::service::admin_route::config_default_auto_effort_with(&default_on, None, false), "unsupported ONNX disables default Auto");
+    assert!(
+        !mixdog_ai::service::admin_route::config_default_auto_effort_with(&default_on, Some("0"), true),
+        "MIXDOG_FEATURE_AUTO_EFFORT=0 disables default Auto"
+    );
+    assert!(!mixdog_ai::service::admin_route::config_default_auto_effort_with(&default_on, Some("off"), true));
+    assert!(
+        mixdog_ai::service::admin_route::config_default_auto_effort_with(&switch_off, Some("1"), true),
+        "MIXDOG_FEATURE_AUTO_EFFORT=1 enables default Auto"
+    );
+    assert!(!mixdog_ai::service::admin_route::config_default_auto_effort_with(&switch_off, Some(""), true), "empty env falls back to config");
 }
 
 #[test]
@@ -321,11 +408,11 @@ fn a_free_form_sentence_is_not_a_model_selector_but_an_id_or_a_preset_is() {
 
 #[test]
 fn a_workflow_route_is_normalized_to_the_choices_it_states() {
-    let route = json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "HIGH", "fast": true, "autoEffort": false, "contextPercent": 55, "modelParameters": {"a": "b"}});
+    let route = json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "HIGH", "fast": true, "effortAuto": false, "contextPercent": 55, "modelParameters": {"a": "b"}});
     let got = normalize_workflow_route(&route, &json!({}), false).unwrap().unwrap();
     assert_eq!(
         got,
-        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 60})
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "effortAuto": false, "modelParameters": {"a": "b"}, "contextPercent": 60})
     );
 }
 
@@ -413,14 +500,14 @@ fn an_adopted_model_becomes_the_lead_unless_the_selection_keeps_the_main_model()
 fn a_chain_entry_inherits_the_stored_choices_of_the_same_model_only() {
     let is_known = known(&[]);
     let stored = obj(
-        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 40}),
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "effortAuto": false, "modelParameters": {"a": "b"}, "contextPercent": 40}),
     );
     let same = start_chain_entry(&Obj::new(), &obj(json!({"provider": "openai-oauth", "model": "gpt-5"})), &stored, &is_known).unwrap();
-    assert_eq!((same["effort"].clone(), same["fast"].clone(), same["autoEffort"].clone()), (json!("high"), json!(true), json!(false)));
+    assert_eq!((same["effort"].clone(), same["fast"].clone(), same["effortAuto"].clone()), (json!("high"), json!(true), json!(false)));
     assert_eq!((same["modelParameters"].clone(), same["contextPercent"].clone()), (json!({"a": "b"}), json!(40)));
     let other = start_chain_entry(&Obj::new(), &obj(json!({"provider": "openai-oauth", "model": "gpt-4.1"})), &stored, &is_known).unwrap();
     assert_eq!(
-        (other["effort"].clone(), other["fast"].clone(), other["autoEffort"].clone(), other["modelParameters"].clone()),
+        (other["effort"].clone(), other["fast"].clone(), other["effortAuto"].clone(), other["modelParameters"].clone()),
         (Value::Null, json!(false), json!(true), json!({}))
     );
     assert!(other.get("contextPercent").is_none());

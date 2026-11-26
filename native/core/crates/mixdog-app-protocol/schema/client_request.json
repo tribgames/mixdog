@@ -7053,6 +7053,12 @@
             "null"
           ]
         },
+        "effortAuto": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "fallbacks": {
           "description": "The Lead's ordered fallback models; `[]` clears, absent keeps.",
           "items": {
@@ -12535,8 +12541,22 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "subscriptionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "window": {
           "$ref": "#/definitions/ResumeWindow"
+        },
+        "windowVersion": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

@@ -221,7 +221,12 @@ impl AgentSessions {
                     let parts = CloseParts { registry: &*this.registry, sessions: &*this, tasks: &board };
                     let outcome = park_idle(parts, row).await;
                     let still_idle = this.registry.idle_rows().contains_key(&session);
-                    release.settled(&session, &outcome, still_idle, this.clock.now_ms() as f64);
+                    if release.settled(&session, &outcome, still_idle, this.clock.now_ms() as f64) {
+                        this.directory.while_idle(&ThreadId::from(session.as_str()), || {
+                            this.directory.deps().deletion.release_idle_agent_process(&session);
+                            Some(())
+                        });
+                    }
                 }
                 drop(this);
                 // One at a time, a turn apart: a restart finds every old idle agent due at once.
@@ -254,6 +259,7 @@ impl AgentSessions {
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
         self.directory.deps().side.forget(&thread, crate::session::turn_ops::SideEnd::Detach);
+        self.directory.deps().deletion.release_agent_process(session_id);
         // Only a close that stopped a running turn is a cancellation; closing a finished agent keeps its status.
         if was_running {
             self.registry.set_cancelled(session_id, true);
@@ -534,11 +540,20 @@ impl Sessions for AgentSessions {
     /// session is loaded this answers `false`, and the idle release asks again one period later.
     async fn park_session(&self, session_id: &str) -> bool {
         let Some(session) = self.registry.session_of(session_id).await else { return false };
-        if session.get("closed") == Some(&Value::Bool(true)) || self.directory.handle(&ThreadId::from(session_id)).is_some() {
+        if session.get("closed") == Some(&Value::Bool(true)) {
             return false;
         }
-        self.registry.set_parked(session_id, true);
-        true
+        let thread = ThreadId::from(session_id);
+        self.directory
+            .while_idle(&thread, || {
+                if self.directory.handle(&thread).is_some() {
+                    return None;
+                }
+                self.directory.deps().deletion.release_idle_agent_process(session_id);
+                self.registry.set_parked(session_id, true);
+                Some(())
+            })
+            .is_some()
     }
 
     async fn open_sessions(&self) -> Vec<OpenSession> {

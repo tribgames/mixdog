@@ -25,8 +25,10 @@ pub fn draft_pick(route: &ModelSelection) -> Map<String, Value> {
     if let Some(fast) = route.fast {
         pick.insert("fast".into(), Value::Bool(fast));
     }
-    if let Some(auto) = route.auto_effort {
-        pick.insert("autoEffort".into(), Value::Bool(auto));
+    if let Some(flag) = route.effort_auto {
+        mixdog_ai::effort::EffortAuto::from_bool(flag).write_to(&mut pick);
+    } else if let Some(legacy) = route.auto_effort {
+        pick.insert("autoEffort".into(), Value::Bool(legacy));
     }
     if let Some(parameters) = &route.model_parameters {
         pick.insert("modelParameters".into(), Value::Object(parameters.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect()));
@@ -40,7 +42,7 @@ pub fn draft_pick(route: &ModelSelection) -> Map<String, Value> {
     pick
 }
 
-fn record_route(header: &Map<String, Value>) -> Option<Map<String, Value>> {
+pub(super) fn record_route(header: &Map<String, Value>, legacy_switch_on: bool) -> Option<Map<String, Value>> {
     if !mixdog_core_ports::ports::route::header_names_session(header) {
         return None;
     }
@@ -52,7 +54,7 @@ fn record_route(header: &Map<String, Value>) -> Option<Map<String, Value>> {
         request.insert("effort".into(), effort.clone());
     }
     request.insert("fast".into(), Value::Bool(header.get("fast") == Some(&Value::Bool(true))));
-    request.insert("autoEffort".into(), Value::Bool(header.get("autoEffort") != Some(&Value::Bool(false))));
+    mixdog_ai::effort::EffortAuto::resolve(header, legacy_switch_on).write_to(&mut request);
     let parameters = header.get("modelParameters").filter(|parameters| truthy(Some(parameters))).cloned();
     request.insert("modelParameters".into(), parameters.unwrap_or_else(|| Value::Object(Map::new())));
     Some(request)
@@ -78,7 +80,8 @@ impl NewThreadRoute for RouteService {
     }
 
     fn boot(&self, thread: &ThreadId, header: &Map<String, Value>) {
-        if let Some(request) = record_route(header) {
+        let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&self.config.agent());
+        if let Some(request) = record_route(header, legacy_switch_on) {
             self.writer.boot(thread, &request);
         }
     }
@@ -101,35 +104,65 @@ mod tests {
         let bare: ModelSelection = serde_json::from_value(json!({ "provider": "p", "model": "m", "effort": "" })).expect("draft");
         assert_eq!(Value::Object(draft_pick(&bare)), json!({ "provider": "p", "model": "m" }));
         let full: ModelSelection = serde_json::from_value(json!({
-            "provider": "p", "model": "m", "effort": "high", "fast": true, "autoEffort": false,
+            "provider": "p", "model": "m", "effort": "high", "fast": true, "effortAuto": false,
             "modelParameters": { "context": "1m" }, "contextPercent": 30.0, "contextTokens": 200000,
         }))
         .expect("draft");
         assert_eq!(
             Value::Object(draft_pick(&full)),
             json!({
-                "provider": "p", "model": "m", "effort": "high", "fast": true, "autoEffort": false,
+                "provider": "p", "model": "m", "effort": "high", "fast": true, "effortAuto": false,
                 "modelParameters": { "context": "1m" }, "contextPercent": 30, "contextTokens": 200000,
             })
         );
     }
 
-    /// `resumedRouteFor`: a record's route asks for its own Fast, Auto effort and model parameters as it holds them (absent
-    /// ones as off, on and none), and for its effort only when it has one; a record that names no model asks for none.
+    /// `resumedRouteFor`: converts pre-update headers once using the legacy switch and preserves
+    /// explicit `effortAuto` regardless of the switch.
     #[test]
     fn a_records_route_asks_for_what_the_record_holds() {
         let header = |value: Value| value.as_object().cloned().expect("header");
-        let bare = record_route(&header(json!({ "provider": "p", "model": "m", "effort": null }))).expect("a route");
-        assert_eq!(Value::Object(bare), json!({ "provider": "p", "model": "m", "fast": false, "autoEffort": true, "modelParameters": {} }));
+        let bare = record_route(&header(json!({ "provider": "p", "model": "m", "effort": null })), false).expect("a route");
+        assert_eq!(Value::Object(bare), json!({ "provider": "p", "model": "m", "fast": false, "effortAuto": false, "modelParameters": {} }));
+        let pre_update_off = record_route(&header(json!({ "provider": "p", "model": "m", "effort": "high", "autoEffort": true })), false).expect("a route");
+        assert_eq!(
+            Value::Object(pre_update_off),
+            json!({ "provider": "p", "model": "m", "effort": "high", "fast": false, "effortAuto": false, "modelParameters": {} })
+        );
+        let pre_update_on = record_route(&header(json!({ "provider": "p", "model": "m", "effort": "high" })), true).expect("a route");
+        assert_eq!(
+            Value::Object(pre_update_on),
+            json!({ "provider": "p", "model": "m", "effort": "high", "fast": false, "effortAuto": true, "modelParameters": {} })
+        );
+        let explicit_auto = record_route(&header(json!({ "provider": "p", "model": "m", "effort": "high", "effortAuto": true })), false).expect("a route");
+        assert_eq!(
+            Value::Object(explicit_auto),
+            json!({ "provider": "p", "model": "m", "effort": "high", "fast": false, "effortAuto": true, "modelParameters": {} })
+        );
         let held = header(json!({
-            "provider": "p", "model": "m", "effort": "high", "fast": true, "autoEffort": false,
+            "provider": "p", "model": "m", "effort": "high", "fast": true, "effortAuto": false,
             "modelParameters": { "context": "1m" }, "contextPercent": 30, "preset": "full",
         }));
         assert_eq!(
-            Value::Object(record_route(&held).expect("a route")),
-            json!({ "provider": "p", "model": "m", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": { "context": "1m" } })
+            Value::Object(record_route(&held, true).expect("a route")),
+            json!({ "provider": "p", "model": "m", "effort": "high", "fast": true, "effortAuto": false, "modelParameters": { "context": "1m" } })
         );
-        assert_eq!(record_route(&header(json!({ "provider": "p", "model": "" }))), None);
+        assert_eq!(record_route(&header(json!({ "provider": "p", "model": "" })), true), None);
+    }
+
+    #[test]
+    fn explicit_effort_auto_and_legacy_flag_survive_draft_pick() {
+        for (label, state) in [("auto", true), ("manual", false)] {
+            let input = json!({ "provider": "p", "model": "m", "effort": "high", "effortAuto": state });
+            let selection: ModelSelection = serde_json::from_value(input).expect("selection");
+            let pick = draft_pick(&selection);
+            assert_eq!(pick.get("effortAuto").and_then(Value::as_bool), Some(state), "draft_pick preserves {label}");
+            assert!(pick.get("autoEffort").is_none());
+        }
+        let legacy: ModelSelection = serde_json::from_value(json!({ "provider": "p", "model": "m", "effort": "high", "autoEffort": true })).expect("legacy");
+        let pick = draft_pick(&legacy);
+        assert_eq!(pick.get("autoEffort").and_then(Value::as_bool), Some(true));
+        assert!(pick.get("effortAuto").is_none());
     }
 }
 

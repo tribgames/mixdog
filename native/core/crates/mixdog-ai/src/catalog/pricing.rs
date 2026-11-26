@@ -274,7 +274,7 @@ impl PricingCatalog {
     }
 
     /// [`Self::revision`] from what the documents hold instead of when they were fetched: a refetch of the same documents
-    /// (every catalog refresh, and the disk copy replaced by the network one at each start) keeps it.
+    /// (every catalog refresh, or a stale disk copy replaced from the network) keeps it.
     pub fn content_revision(&self) -> String {
         let (litellm, models_dev) = self.service.warm_digests().unwrap_or_default();
         self.revision_of(litellm, models_dev)

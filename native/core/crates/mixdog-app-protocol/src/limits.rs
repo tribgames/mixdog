@@ -112,7 +112,8 @@ impl Default for Limits {
             max_upload_in_flight_bytes: 3 * MIB,
             max_connections: 128,
             heartbeat_tick_ms: 15_000,
-            max_processes: 64,
+            // 0 = uncapped; foreground shell concurrency is bounded by shell admission (MIXDOG_MAX_CONCURRENT_SHELLS).
+            max_processes: 0,
             terminal_input_buffer_bytes: MIB,
         }
     }

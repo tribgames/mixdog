@@ -21,7 +21,7 @@ use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::run_host::progress::WaitedJobs;
 
 /// The header members [`facts_of`] and [`worker_result_text`] read.
-const FACT_FIELDS: [&str; 16] = [
+const FACT_FIELDS: [&str; 17] = [
     "agent",
     "tag",
     "provider",
@@ -30,6 +30,7 @@ const FACT_FIELDS: [&str; 16] = [
     "effort",
     "fast",
     "autoEffort",
+    "effortAuto",
     "status",
     "closed",
     "stage",
@@ -160,7 +161,7 @@ fn facts_of(id: &str, session: &Row, awaiting_user: bool, result_text: String) -
         preset: text(session, "presetName"),
         effort: text(session, "effort"),
         fast: session.get("fast") == Some(&Value::Bool(true)),
-        auto_effort_off: session.get("autoEffort") == Some(&Value::Bool(false)),
+        effort_auto: mixdog_ai::effort::EffortAuto::read_explicit(session),
         status: text(session, "status"),
         closed: session.get("closed") == Some(&Value::Bool(true)),
         stage: text(session, "stage"),
@@ -234,7 +235,7 @@ mod tests {
     fn a_workers_record_reads_as_the_job_views_read_it() {
         let session = row(json!({
             "agent": "reviewer", "tag": "rev", "provider": "openai", "model": "gpt-a", "presetName": "p",
-            "effort": "", "fast": true, "autoEffort": false, "status": "running", "createdAt": 1000,
+            "effort": "", "fast": true, "effortAuto": false, "status": "running", "createdAt": 1000,
             "updatedAt": "2026-01-01T00:00:00.000Z", "clientHostPid": 0, "lastHandoff": "handed",
         }));
         let messages = [
@@ -246,7 +247,10 @@ mod tests {
         assert_eq!(worker_result_text(&row(json!({ "lastHandoff": " " })), &messages), "[{\"type\":\"text\",\"text\":\"parts\"}]");
         assert_eq!(worker_result_text(&row(json!({ "lastHandoff": " " })), &[]), NO_OUTPUT);
         let facts = facts_of("sess_w", &session, true, "r".into());
-        assert_eq!((facts.preset.as_deref(), facts.effort.as_deref(), facts.fast, facts.auto_effort_off), (Some("p"), None, true, true));
+        assert_eq!(
+            (facts.preset.as_deref(), facts.effort.as_deref(), facts.fast, facts.effort_auto),
+            (Some("p"), None, true, Some(mixdog_ai::effort::EffortAuto::Manual))
+        );
         assert_eq!((facts.created_at.as_ref().and_then(Stamp::shown).as_deref(), facts.client_host_pid, facts.closed), (Some("1000"), None, false));
         assert_eq!((facts.status.as_deref(), facts.awaiting_user), (Some("running"), true));
     }

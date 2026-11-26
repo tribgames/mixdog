@@ -1,5 +1,5 @@
-//! Node: `createCatalogSource` (a disk warm does not count as fetched). The merge order of the layers is replayed by the
-//! lookup goldens and `model_list_node_tests`.
+//! Composed catalog table loading: a disk copy's age decides whether a refresh fetches. The merge order of the layers
+//! is replayed by the lookup goldens and `model_list_node_tests`.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -14,7 +14,7 @@ use super::modelsdev_source::{LITELLM_URL, MODELS_DEV_URL, read_file};
 const LITELLM: &str =
     r#"{"openai/gpt-x":{"max_input_tokens":128000,"max_output_tokens":4096,"mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.00001}}"#;
 const MODELS_DEV: &str = r#"{"openai":{"models":{"gpt-m":{"name":"GPT M","limit":{"context":200000,"output":8000},"cost":{"input":1.5,"output":6.0}}}}}"#;
-use super::{CatalogService, CatalogSnapshot, LITELLM_CACHE_FILE, MODELS_DEV_CACHE_FILE};
+use super::{CatalogService, CatalogSnapshot, LITELLM_CACHE_FILE, MODELS_DEV_CACHE_FILE, REFRESH_AFTER};
 use crate::oauth::CredentialIo;
 use crate::transport::http::{HttpResponse, HttpSend};
 use crate::transport::testing::Once;
@@ -62,15 +62,21 @@ async fn get(path: PathBuf) -> Vec<u8> {
     io().read_job(move |_| Ok(read_file(&path))).await.unwrap().unwrap()
 }
 
-/// A composed service over a data directory holding fresh copies of both tables.
-async fn composed(failing: bool) -> (tempfile::TempDir, Arc<Tables>, CatalogService) {
+/// A composed service over a data directory holding copies of both tables stamped at `fetched_at` (or empty when `None`).
+async fn composed_at(fetched_at: Option<u64>, failing: bool) -> (tempfile::TempDir, Arc<Tables>, CatalogService) {
     let dir = tempfile::tempdir().unwrap();
-    let at = now_ms();
-    put(dir.path().join(LITELLM_CACHE_FILE), format!("{{\"fetchedAt\":{at},\"data\":{LITELLM}}}\n")).await;
-    put(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":{at},\"data\":{MODELS_DEV}}}\n")).await;
+    if let Some(at) = fetched_at {
+        put(dir.path().join(LITELLM_CACHE_FILE), format!("{{\"fetchedAt\":{at},\"data\":{LITELLM}}}\n")).await;
+        put(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":{at},\"data\":{MODELS_DEV}}}\n")).await;
+    }
     let http = Arc::new(Tables { asked: Mutex::new(Vec::new()), failing });
     let service = CatalogService::composed(CatalogSnapshot::default(), Vec::new(), http.clone(), dir.path().to_path_buf(), io()).await;
     (dir, http, service)
+}
+
+/// A composed service over a data directory holding fresh copies of both tables.
+async fn composed(failing: bool) -> (tempfile::TempDir, Arc<Tables>, CatalogService) {
+    composed_at(Some(now_ms()), failing).await
 }
 
 fn asked(http: &Tables) -> Vec<String> {
@@ -80,26 +86,48 @@ fn asked(http: &Tables) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn both_tables_are_warm_from_the_disk_and_fetched_once_at_the_first_refresh() {
-    let (dir, http, service) = composed(false).await;
+async fn fresh_disk_copies_serve_without_fetching_while_stale_and_missing_refresh() {
+    // Fresh (< 6 h) disk copies: warmed at boot, served with no download or rewrite on refresh.
+    let fresh_at = now_ms().saturating_sub(60_000);
+    let (dir, http, service) = composed_at(Some(fresh_at), false).await;
     assert!(service.warm_stamps().is_some(), "both tables are resident from the disk copies");
     assert!(asked(&http).is_empty(), "the cold start reads no network");
+    service.refresh_metadata().await;
+    service.refresh_due().await;
+    service.refresh().await;
+    assert!(asked(&http).is_empty(), "fresh disk copies make no catalog download");
+    assert!(service.models_dev_models("openai").is_some_and(|m| m.contains_key("gpt-m")));
+    let file: Value = serde_json::from_slice(&get(dir.path().join(LITELLM_CACHE_FILE)).await).unwrap();
+    assert_eq!(file["fetchedAt"].as_u64(), Some(fresh_at), "the fresh cache file is not rewritten");
 
+    // Stale (>= 6 h) disk copies: warmed at boot, refreshed once, then served from the new copy.
+    let stale_at = now_ms().saturating_sub(REFRESH_AFTER.as_millis() as u64 + 1_000);
+    let (dir, http, service) = composed_at(Some(stale_at), false).await;
+    assert!(service.warm_stamps().is_some(), "stale disk copies still warm the cold start");
+    assert!(asked(&http).is_empty(), "the cold start reads no network");
     let before = now_ms();
     service.refresh().await;
-    // Fresh disk copies do not spare the fetch: Node counts a disk warm as not fetched.
     assert_eq!(asked(&http), [MODELS_DEV_URL, LITELLM_URL]);
     let file: Value = serde_json::from_slice(&get(dir.path().join(LITELLM_CACHE_FILE)).await).unwrap();
     assert!(file["fetchedAt"].as_u64().unwrap() >= before, "the cache file is rewritten with the fetch time");
     assert_eq!(file["data"], serde_json::from_str::<Value>(LITELLM).unwrap(), "the body is stored verbatim");
+    service.refresh().await;
+    assert_eq!(asked(&http).len(), 2, "no second fetch inside the six hours");
 
+    // Missing disk copies: cold at boot, fetched once on refresh.
+    let (_dir, http, service) = composed_at(None, false).await;
+    assert!(service.warm_stamps().is_none(), "missing disk copies leave the catalog cold");
+    assert!(asked(&http).is_empty(), "the cold start reads no network");
+    service.refresh().await;
+    assert_eq!(asked(&http), [MODELS_DEV_URL, LITELLM_URL]);
+    assert!(service.warm_stamps().is_some());
     service.refresh().await;
     assert_eq!(asked(&http).len(), 2, "no second fetch inside the six hours");
 }
 
 #[tokio::test]
 async fn a_failed_fetch_keeps_the_disk_copies_and_is_not_retried_for_a_minute() {
-    let (_dir, http, service) = composed(true).await;
+    let (_dir, http, service) = composed_at(Some(1), true).await;
     service.refresh().await;
     assert_eq!(asked(&http), [MODELS_DEV_URL, LITELLM_URL]);
     assert!(service.warm_stamps().is_some(), "the disk copies stay");
@@ -111,7 +139,7 @@ async fn a_failed_fetch_keeps_the_disk_copies_and_is_not_retried_for_a_minute() 
 /// reported once per table revision, not on every warm-up.
 #[tokio::test]
 async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision() {
-    let (dir, _http, service) = composed(false).await;
+    let (dir, _http, service) = composed_at(Some(1), false).await;
     let service = Arc::new(service);
     // An audit records the revision it judged whether or not it reported (`lastAuditedRevision = revision`), so a
     // roster that appears later under the same table stamps is not reported: this is checked on a service of its own.

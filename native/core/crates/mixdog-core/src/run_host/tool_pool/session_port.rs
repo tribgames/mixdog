@@ -269,11 +269,20 @@ pub(super) async fn directory_call(directory: &SessionDirectory, thread: &Thread
 /// The Settings switch of AI session titles (`rt.config?.aiSessionTitles !== false`).
 pub trait AiTitleSetting: Send + Sync {
     fn enabled(&self) -> bool;
+    /// Legacy Auto effort feature switch (`modules.autoEffort.enabled !== false`) for converting
+    /// pre-update session headers that lack explicit `effortAuto`.
+    fn legacy_auto_effort(&self) -> bool {
+        true
+    }
 }
 
 impl AiTitleSetting for Config {
     fn enabled(&self) -> bool {
         self.agent().get("aiSessionTitles") != Some(&Value::Bool(false))
+    }
+
+    fn legacy_auto_effort(&self) -> bool {
+        mixdog_ai::service::admin_route::config_default_auto_effort(&self.agent())
     }
 }
 
@@ -484,7 +493,8 @@ impl DirectorySessionPort {
         let quota_resume = self.parts.quota.entry(thread.as_str()).map_or(Value::Null, |entry| entry.public());
         let send = self.parts.send.get().map_err(failed)?;
         let agents_working = mixdog_services::task_reports::follow::FollowHost::pending_work(&**send.tasks.host(), thread.as_str(), None).await;
-        Ok(session_control::status(thread.as_str(), &header, busy, agents_working, quota_resume))
+        let legacy_switch_on = self.parts.ai_titles.legacy_auto_effort();
+        Ok(session_control::status(thread.as_str(), &header, busy, agents_working, quota_resume, legacy_switch_on))
     }
 
     /// Only the requested window, oldest first, and whether older rows exist.
@@ -600,6 +610,7 @@ impl SessionPort for DirectorySessionPort {
     async fn status(&self, thread: &ThreadId, cwd: &AbsPath) -> SessionStatus {
         let cwd = cwd.as_path().to_string_lossy().into_owned();
         let header = self.header(thread).await.unwrap_or_default();
+        let legacy_switch_on = self.parts.ai_titles.legacy_auto_effort();
         SessionStatus {
             session_id: Some(thread.as_str().to_owned()),
             title: field(&header, "title"),
@@ -609,7 +620,7 @@ impl SessionPort for DirectorySessionPort {
             provider: field(&header, "provider"),
             model: field(&header, "model"),
             effort: field(&header, "effort"),
-            auto_effort: header.get("autoEffort") != Some(&Value::Bool(false)),
+            auto_effort: mixdog_ai::effort::EffortAuto::resolve(&header, legacy_switch_on).is_auto(),
             fast: header.get("fast") == Some(&Value::Bool(true)),
         }
     }

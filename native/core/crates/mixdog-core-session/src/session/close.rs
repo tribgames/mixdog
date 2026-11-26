@@ -211,6 +211,7 @@ pub(crate) fn stop_idle_work(
         if let Some(handle) = &handle {
             handle.cell.abort_compaction(&mixdog_agent::cancel::Abort::close_session(thread.as_str(), reason));
         }
+        directory.deps().deletion.release_agent_process(thread.as_str());
         Some(())
     });
     if stopped.is_some() {

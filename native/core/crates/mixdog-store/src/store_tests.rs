@@ -2453,7 +2453,7 @@ async fn worker_rows_are_indexed_by_tag_owner_and_host_pid() {
 
     // Every lookup is a seek on its index, never a scan of the sessions.
     let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
-    let sqls = crate::worker::ROWS_SQL.iter().flatten().copied().chain([AGENT_ONLY_SQL, crate::worker::NEWEST_TAG_SQL]);
+    let sqls = crate::worker::ROWS_SQL.iter().flatten().copied().chain([AGENT_ONLY_SQL, AGENT_ONLY_OPEN_SQL, crate::worker::NEWEST_TAG_SQL]);
     for sql in sqls {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let args: Vec<rusqlite::types::Value> = (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();

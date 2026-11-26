@@ -284,6 +284,10 @@ impl SessionActor {
         use super::super::idle_auto_clear::idle_config_of;
         use super::super::idle_auto_clear::idle_window_elapsed;
         use super::super::idle_auto_clear::session_activity_timestamp;
+        let header = &self.acked.header;
+        if header.get("owner").is_some_and(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).eq_ignore_ascii_case("agent")) {
+            return None;
+        }
         let options = input.options.as_ref();
         if options.is_some_and(|options| options.kickoff == Some(true) || options.retry_failed_turn == Some(true) || options.retry_turn_id.is_some())
             || self.deleting

@@ -407,6 +407,11 @@ impl SessionActor {
             // The session's warm chain outlives it: from here each warm reads the request it repeats from what is stored.
             self.deps.warm.unloaded(&self.id);
             self.deps.deletion.release_unloaded_runtime(self.id.as_str());
+            if super::super::close::is_worker(&self.acked.header) {
+                self.deps.deletion.agent_process_unloaded(self.id.as_str());
+            } else {
+                self.deps.deletion.release_idle_agent_process(self.id.as_str());
+            }
             // A side question after the reload forks the next turn's request, not the old runtime's. An unload, as a close, keeps
             // the prompt-cache touch for the restart re-arm (`forgetSideQuestion(id, { cancel: true })`).
             self.deps.side.forget(&self.id, crate::session::turn_ops::SideEnd::Unload);

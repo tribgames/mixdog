@@ -7779,11 +7779,47 @@ async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_an
     eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
     assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
     assert!(!handle.cell.subscribing(), "an unloaded thread takes no subscriber");
-    assert_eq!(*lock(&rig.deletes.0), [format!("unloadMcpScope:{}", handle.id)], "the unload released the thread's MCP scope");
+    assert_eq!(
+        *lock(&rig.deletes.0),
+        [format!("unloadMcpScope:{}", handle.id), format!("releaseIdleAgentProcess:{}", handle.id)],
+        "the unload released the non-worker thread's MCP scope and let go of its idle ACP agent process"
+    );
     assert!(lock(&rig.deletes.2).is_empty(), "and did not close its owner");
     // A later open loads it again.
     let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
     assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
+}
+
+/// A worker session still unloads Mixdog's own state after `WORKER_IDLE_EVICT`, without releasing its external
+/// (ACP) agent process, which is told the runtime unloaded; deleting the unloaded worker releases it via
+/// `release_mcp_scope`.
+#[tokio::test(start_paused = true)]
+async fn a_worker_idle_evict_unloads_session_state_without_releasing_agent_process() {
+    let rig = Rig::new();
+    rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let thread = ThreadId::from("sess_worker_idle_acp");
+    let header = json!({ "cwd": "/ws", "owner": "agent", "agent": "worker" }).as_object().cloned().unwrap();
+    directory.create_with_id(thread.clone(), header, json!({})).await.expect("worker thread");
+    let handle = directory.handle(&thread).expect("worker loaded");
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    caught_up(&handle).await;
+
+    tokio::time::advance(super::actor::WORKER_IDLE_EVICT + Duration::from_secs(1)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&thread).is_none().then_some(())).await;
+
+    let steps = lock(&rig.deletes.0).clone();
+    assert!(steps.contains(&format!("unloadMcpScope:{thread}")), "worker unloaded its Mixdog runtime: {steps:?}");
+    assert!(!steps.contains(&format!("releaseAgentProcess:{thread}")), "idle unload must not release the ACP agent process: {steps:?}");
+    assert!(!steps.contains(&format!("releaseIdleAgentProcess:{thread}")), "idle unload must not let go of the ACP agent process: {steps:?}");
+    assert!(steps.contains(&format!("agentProcessUnloaded:{thread}")), "the ACP agent is told the worker unloaded: {steps:?}");
+    assert!(lock(&rig.deletes.2).is_empty(), "idle unload must not close MCP scope / ACP process: {:?}", *lock(&rig.deletes.2));
+
+    let deleted = directory.request(request("thread/delete", json!({ "threadId": thread.as_str(), "opId": "op-del" }), "op-del")).await.expect("thread/delete");
+    assert!(matches!(deleted, Reply::Value(Value::Bool(true))));
+    assert!(lock(&rig.deletes.2).contains(&thread.as_str().to_owned()), "deleting the idle-unloaded worker releases its MCP scope and ACP process");
 }
 
 /// A watched thread never unloads, so what it holds for nobody goes while it stays: once its turn is over and it does nothing,

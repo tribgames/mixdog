@@ -30,7 +30,7 @@ pub const PRE_SESSION: &str = "";
 const OPTION_KEYS: [&str; 5] = ["applyToCurrentSession", "keepMainModel", "sessionOnly", "onlyIfEmpty", "validateOnly"];
 
 /// The keys a session-only request may carry (`SESSION_ONLY_KEYS`).
-const SESSION_ONLY_KEYS: [&str; 5] = ["provider", "model", "effort", "fast", "autoEffort"];
+const SESSION_ONLY_KEYS: [&str; 6] = ["provider", "model", "effort", "fast", "autoEffort", "effortAuto"];
 
 /// [`SessionFollow`] that leaves the [`PRE_SESSION`] cell alone: with no session there is
 /// nothing to follow, tune or switch.
@@ -95,7 +95,7 @@ fn clean(value: Option<&Value>) -> &str {
 /// `completeSessionOnlyRequest(request, selected)`: the request completed against the selected
 /// route, `None` when it asks for nothing the route does not already have and the session
 /// already runs that model (`unchanged`).
-fn complete_session_only(request: &Obj, selected: &Obj) -> Option<Obj> {
+fn complete_session_only(request: &Obj, selected: &Obj, legacy_switch_on: bool) -> Option<Obj> {
     let named = truthy_of(request.get("provider")) || truthy_of(request.get("model"));
     let mut target = request.clone();
     if !named {
@@ -109,12 +109,17 @@ fn complete_session_only(request: &Obj, selected: &Obj) -> Option<Obj> {
     let session_on_target = !truthy_of(selected.get("sessionModel"))
         || (selected.get("sessionProvider") == target.get("provider") && selected.get("sessionModel") == target.get("model"));
     let selected_fast = selected.get("fast") == Some(&Value::Bool(true));
-    let selected_auto = selected.get("autoEffort") != Some(&Value::Bool(false));
+    let selected_auto = mixdog_ai::effort::EffortAuto::resolve(selected, legacy_switch_on);
+    let requested_auto = if !named && !request.contains_key("effortAuto") && !request.contains_key("autoEffort") {
+        mixdog_ai::effort::EffortAuto::implied_by_effort(request.get("effort"))
+    } else {
+        mixdog_ai::effort::EffortAuto::from_request_soft(request, legacy_switch_on)
+    };
     let unchanged = session_on_target
         && request.keys().all(|key| SESSION_ONLY_KEYS.contains(&key.as_str()))
         && request.get("effort").is_none_or(|e| Some(e) == selected.get("effort"))
         && request.get("fast").is_none_or(|f| f == &Value::Bool(selected_fast))
-        && request.get("autoEffort").is_none_or(|a| a == &Value::Bool(selected_auto));
+        && requested_auto.is_none_or(|a| a == selected_auto);
     if unchanged {
         return None;
     }
@@ -123,8 +128,8 @@ fn complete_session_only(request: &Obj, selected: &Obj) -> Option<Obj> {
         completed.insert("effort".into(), selected["effort"].clone());
     }
     completed.insert("fast".into(), Value::Bool(selected_fast));
-    completed.insert("autoEffort".into(), Value::Bool(selected_auto));
     completed.extend(target);
+    requested_auto.unwrap_or(selected_auto).write_to(&mut completed);
     Some(completed)
 }
 
@@ -140,6 +145,10 @@ pub(super) enum Plan {
 /// `setRoute(opts)` of `createRouteWrite`: the options the selection carries, the selection
 /// itself, and a session-only request completed against the `selected` (live) route.
 pub(super) fn plan(selection: &Obj, selected: &Obj) -> Plan {
+    plan_with(selection, selected, true)
+}
+
+pub(super) fn plan_with(selection: &Obj, selected: &Obj, legacy_switch_on: bool) -> Plan {
     let flag = |key: &str| selection.get(key) == Some(&Value::Bool(true));
     let session_only = flag("sessionOnly");
     let mut requested = selection.clone();
@@ -147,7 +156,7 @@ pub(super) fn plan(selection: &Obj, selected: &Obj) -> Plan {
         requested.shift_remove(key);
     }
     if session_only {
-        match complete_session_only(&requested, selected) {
+        match complete_session_only(&requested, selected, legacy_switch_on) {
             Some(completed) => requested = completed,
             None => return Plan::Unchanged,
         }
@@ -183,7 +192,8 @@ impl RouteSetService {
             return self.agents.set_agent_route(agent, selection).await.map_err(|m| failed(DOMAIN, m));
         }
         let thread = params.thread_id.unwrap_or_else(|| ThreadId::from(PRE_SESSION));
-        match plan(selection, &self.live(&thread)) {
+        let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&self.routes.config.agent());
+        match plan_with(selection, &self.live(&thread), legacy_switch_on) {
             Plan::Unchanged => Ok(Value::Object(self.live(&thread))),
             Plan::Write(requested, options) => self.routes.set_route(&thread, &requested, &options).await.map_err(|m| failed(DOMAIN, m)),
         }

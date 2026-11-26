@@ -5,10 +5,12 @@
 //! - cached verbatim in `modelsdev-catalog.json` of the plugin data directory
 //!   as `{"fetchedAt":<ms>,"data":<body>}\n`, written atomically under a lock
 //!   and best-effort;
-//! - a remote copy younger than 6 h is served as is; after a failed fetch the
-//!   next try waits 60 s and the cached file (however old) is the fallback;
-//! - a copy warmed from disk at boot is stale-ok and never counts as fetched,
-//!   so the first refresh still goes to the network;
+//! - a copy younger than 6 h (from disk or a fetch) is served as is; after a
+//!   failed fetch the next try waits 60 s and the cached file (however old) is
+//!   the fallback;
+//! - a copy warmed from disk at boot is stale-ok for immediate reads, and its
+//!   `fetchedAt` timestamp decides whether the next load refreshes from the
+//!   network (a missing, zero, or future `fetchedAt` counts as stale);
 //! - a forced refresh ignores both windows; concurrent loads share one fetch.
 //!
 //! Nothing here runs on a read path: catalog reads load an `ArcSwap`
@@ -59,7 +61,10 @@ struct CacheFile<'a> {
 struct State {
     layer: Option<Arc<ModelsDev>>,
     cache_at: u64,
-    fetched_remote: bool,
+    /// True when `cache_at` is a recorded non-future fetch timestamp (from disk
+    /// or a fetch) and no fetch has failed since; missing, zero, or future disk
+    /// timestamps stay false.
+    stamped: bool,
     retry_at: u64,
     flight: Option<Shared<BoxFuture<'static, ()>>>,
 }
@@ -153,7 +158,9 @@ impl ModelsDevSource {
     }
 
     /// Boot: a stale-ok copy from disk; never replaces a layer a fetch
-    /// already produced, and stays cold when no usable file exists.
+    /// already produced, and stays cold when no usable file exists. A copy with
+    /// a non-zero `fetchedAt` not in the future counts toward the 6 h freshness
+    /// window.
     pub async fn warm_from_disk(&self) {
         if self.current().is_some() {
             return;
@@ -161,8 +168,10 @@ impl ModelsDevSource {
         if let Some((layer, fetched_at)) = self.read_disk().await {
             let mut state = self.lock();
             if state.layer.is_none() {
+                let now = now_ms();
                 state.layer = Some(layer);
-                state.cache_at = if fetched_at == 0 { now_ms() } else { fetched_at };
+                state.cache_at = if fetched_at == 0 { now } else { fetched_at };
+                state.stamped = fetched_at != 0 && fetched_at <= now;
             }
         }
     }
@@ -174,7 +183,7 @@ impl ModelsDevSource {
         let flight = {
             let mut state = self.lock();
             let now = now_ms();
-            let fresh = state.fetched_remote && state.layer.is_some() && now.saturating_sub(state.cache_at) < REFRESH_AFTER.as_millis() as u64;
+            let fresh = state.stamped && state.layer.is_some() && now.checked_sub(state.cache_at).is_some_and(|age| age < REFRESH_AFTER.as_millis() as u64);
             if !force && (fresh || now < state.retry_at) {
                 return state.layer.clone();
             }
@@ -203,14 +212,14 @@ impl ModelsDevSource {
                 let mut state = self.lock();
                 state.layer = Some(layer);
                 state.cache_at = fetched_at;
-                state.fetched_remote = true;
+                state.stamped = fetched_at != 0;
                 state.retry_at = 0;
             }
             Err(reason) => {
                 mixdog_rt::node_stderr!("[model-catalog] {}fetch failed: {reason}", self.label);
                 let disk = self.read_disk().await;
                 let mut state = self.lock();
-                state.fetched_remote = false;
+                state.stamped = false;
                 state.retry_at = now_ms() + RETRY_AFTER.as_millis() as u64;
                 if let Some((layer, fetched_at)) = disk {
                     state.layer = Some(layer);
@@ -334,10 +343,60 @@ mod tests {
         assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
         assert!(catalog.snapshot().models_of(&"gateway".into()).iter().all(|r| r.npm.is_none()), "the layer is read beside the listing, never merged into it");
         assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
-        // A disk warm is stale-ok and does not count as fetched.
+        // The disk copy has fetchedAt=1 (older than 6 h), so the next load fetches.
         *fake.body.lock().unwrap() = Some(API);
         source.load(false).await;
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn disk_copy_age_decides_whether_load_fetches() {
+        let now = now_ms();
+        let stale_at = now.saturating_sub(REFRESH_AFTER.as_millis() as u64 + 1_000);
+
+        // Fresh disk copy (< 6 h): warmed at boot, served with no download; force still fetches.
+        let (dir, fake, source) = fixture(Some(API));
+        let fresh_at = now.saturating_sub(60_000);
+        std::fs::write(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":{fresh_at},\"data\":{API}}}\n")).unwrap();
+        source.warm_from_disk().await;
+        assert!(source.load(false).await.is_some_and(|l| l.find(&"anthropic".into(), "claude-x").is_some()));
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0, "fresh disk copy skips network fetch");
+        assert!(source.load(true).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "forced refresh ignores disk freshness");
+
+        // Stale disk copy (>= 6 h): warmed at boot, then refreshed once on first load.
+        let (dir, fake, source) = fixture(Some(API));
+        std::fs::write(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":{stale_at},\"data\":{API}}}\n")).unwrap();
+        source.warm_from_disk().await;
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
+        assert!(source.load(false).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "stale disk copy refreshes");
+        assert!(source.load(false).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "refreshed copy stays fresh");
+
+        // Missing or zero fetchedAt: warmed for immediate reads, still refreshed on load.
+        let (dir, fake, source) = fixture(Some(API));
+        std::fs::write(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":0,\"data\":{API}}}\n")).unwrap();
+        source.warm_from_disk().await;
+        assert!(source.current().is_some());
+        assert!(source.load(false).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "zero fetchedAt counts as stale");
+
+        // Future fetchedAt (clock ran ahead): treated as unstamped, warmed for immediate reads, refreshed on load.
+        let (dir, fake, source) = fixture(Some(API));
+        let future_at = now.saturating_add(REFRESH_AFTER.as_millis() as u64);
+        std::fs::write(dir.path().join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":{future_at},\"data\":{API}}}\n")).unwrap();
+        source.warm_from_disk().await;
+        assert!(source.current().is_some());
+        assert!(source.load(false).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "future fetchedAt counts as unstamped");
+
+        // Missing disk copy: stays cold at boot, refreshed on first load.
+        let (_dir, fake, source) = fixture(Some(API));
+        source.warm_from_disk().await;
+        assert!(source.current().is_none());
+        assert!(source.load(false).await.is_some());
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "missing disk copy fetches");
     }
 
     #[tokio::test]

@@ -138,9 +138,7 @@ pub fn route_params(route: &Value) -> Map<String, Value> {
     if let Some(fast) = leaf.get("fast").filter(|value| value.is_boolean()) {
         out.insert("fast".into(), fast.clone());
     }
-    if leaf.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), Value::Bool(false));
-    }
+    mixdog_ai::effort::EffortAuto::carry_field(leaf, &mut out);
     if let Some(parameters) = leaf.get("modelParameters").filter(|value| value.is_object() || value.is_array()) {
         out.insert("modelParameters".into(), parameters.clone());
     }

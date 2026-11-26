@@ -265,8 +265,10 @@ pub fn catalog_row_of<H: HeaderFields + ?Sized>(session: &str, log_id: &str, bas
     s.insert("presetName".into(), if truthy(get(h, "presetName")) { or_null(get(h, "presetName")) } else { or_null(get(h, "profileId")) });
     s.insert("effort".into(), or_null(get(h, "effort")));
     s.insert("fast".into(), json!(get(h, "fast") == Some(&Value::Bool(true))));
-    if get(h, "autoEffort") == Some(&Value::Bool(false)) {
-        s.insert("autoEffort".into(), json!(false));
+    if let Some(Value::Bool(enabled)) = get(h, "effortAuto") {
+        s.insert("effortAuto".into(), json!(*enabled));
+    } else if let Some(Value::Bool(enabled)) = get(h, "autoEffort") {
+        s.insert("autoEffort".into(), json!(*enabled));
     }
     s.insert(
         "modelParameters".into(),

@@ -337,6 +337,7 @@ pub struct HandedCalls {
     asks: Arc<JudgedAsks>,
     /// Shared repeat guards mutated under one lock across concurrent lanes so updates never clobber each other.
     repeat: Arc<Mutex<RepeatGuards>>,
+    artifacts: Option<Arc<dyn ArtifactStore>>,
     slot: Option<Arc<dyn Yielder>>,
     guards: Arc<dyn TurnGuards>,
     hooks: Option<Arc<dyn ToolHooks>>,
@@ -354,6 +355,7 @@ impl HandedCalls {
         let guards = parts.guards.clone();
         let hooks = parts.hooks.clone();
         let slot = parts.slot.clone();
+        let artifacts = parts.artifacts.clone();
         let limits = parts.limits;
         let hidden_agent = parts.hidden_agent;
         let mut env = crate::one_shot::isolated(parts.clock, Arc::new(Unsent), Arc::new(Unsent), Arc::new(Unsent));
@@ -393,6 +395,7 @@ impl HandedCalls {
             env,
             asks,
             repeat,
+            artifacts,
             slot,
             guards,
             hooks,
@@ -401,6 +404,11 @@ impl HandedCalls {
             hidden_agent,
             limit_state: Mutex::default(),
         }
+    }
+
+    /// The session's artifact store for offloading large tool results, if configured.
+    pub fn artifacts(&self) -> Option<Arc<dyn ArtifactStore>> {
+        self.artifacts.clone()
     }
 
     /// Runs `call` as a batch of one: a `call_tool` as its target, any other call as itself.

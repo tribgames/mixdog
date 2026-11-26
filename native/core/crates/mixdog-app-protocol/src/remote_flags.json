@@ -47,6 +47,13 @@
         "inheritSession": { "method": "thread/fork" }
       }
     },
+    "routeEffortAuto": {
+      "calls": {
+        "submitNewTask": { "method": "thread/start" },
+        "setModelRoute": { "method": "route/set" },
+        "inheritSession": { "method": "thread/fork" }
+      }
+    },
     "visualize": {
       "calls": {
         "visualizeState": { "method": "visualize/command" },

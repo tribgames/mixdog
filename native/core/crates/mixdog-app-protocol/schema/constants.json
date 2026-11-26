@@ -58,7 +58,7 @@
     "maxInboundFrameBytes": 262144,
     "maxItemFieldBytes": 262144,
     "maxMediaFrameBytes": 67108864,
-    "maxProcesses": 64,
+    "maxProcesses": 0,
     "maxSnapshotBytes": 3145728,
     "maxUploadInFlightBytes": 3145728,
     "orderedQueueBytes": 8388608,

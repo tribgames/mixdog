@@ -55,6 +55,7 @@ const STRUCTURAL: &[&str] = &[
     "effort",
     "fast",
     "autoEffort",
+    "effortAuto",
     "modelParameters",
     "agentTag",
     "tag",

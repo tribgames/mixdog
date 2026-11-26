@@ -575,8 +575,9 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
     if has_fast {
         out.insert("savedFast".into(), Value::Bool(saved.get("fast") == Some(&Value::Bool(true))));
     }
-    if saved.contains_key("autoEffort") {
-        out.insert("savedAutoEffort".into(), Value::Bool(crate::effort::route_auto_effort_on(saved.get("autoEffort"))));
+    if !saved.is_empty() {
+        let mode = crate::effort::EffortAuto::resolve(&saved, crate::service::admin_route::config_default_auto_effort(cfg));
+        out.insert("savedEffortAuto".into(), Value::Bool(mode.as_bool()));
     }
     out.insert("savedModelParameters".into(), if truthy(saved.get("modelParameters")) { saved["modelParameters"].clone() } else { json!({}) });
     for (key, source) in [("savedContextPercent", "contextPercent"), ("savedContextTokens", "contextTokens")] {

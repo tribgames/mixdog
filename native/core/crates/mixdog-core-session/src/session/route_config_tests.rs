@@ -37,7 +37,7 @@ async fn model_and_effort_changes_reach_both_the_route_feed_and_thread_read() {
     handle.set_section(Section::Route(ThreadRoute { effort: Some("medium".into()), ..Default::default() })).await.unwrap();
     for (set, unset, model, effort) in [
         (json!({ "provider": "p", "model": "running", "effort": "low" }), vec![], "running", Some("low")),
-        (json!({ "effort": "high", "autoEffort": false }), vec![], "running", Some("high")),
+        (json!({ "effort": "high", "effortAuto": false }), vec![], "running", Some("high")),
         (json!({ "pendingRoute": { "provider": "p", "model": "next", "effort": "ultra", "effectiveEffort": "high" } }), vec![], "next", Some("high")),
         (json!({ "model": "fallback", "effort": "low" }), vec![], "next", Some("high")),
         (json!({ "pendingRoute": { "provider": "p", "model": "next", "effort": null } }), vec![], "next", None),
@@ -504,6 +504,38 @@ async fn a_loaded_thread_shows_the_stored_context_reading_before_any_model_respo
     eventually_on!(&[&handle.cell.stepped], || (stats(&handle)["currentContextTokens"] == json!(42_000)).then_some(())).await;
     let stats = stats(&handle);
     assert_eq!((&stats["currentContextSource"], &stats["currentContextUpdatedAt"]), (&json!("last_api_request"), &json!(7_000)));
+}
+
+/// A gauge whose route-move read panics.
+struct PanickingRead;
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for PanickingRead {
+    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(Value::Null)
+    }
+
+    async fn context_status_for(
+        &self,
+        _: mixdog_core_api::ids::ThreadId,
+        _: serde_json::Map<String, Value>,
+    ) -> Result<Value, mixdog_core_api::error::CoreError> {
+        panic!("the route move's status read died")
+    }
+}
+
+/// A route move whose status read panics is answered with the failure, not left pending, and the thread keeps its route.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_route_move_whose_status_read_panics_is_refused() {
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.context_status = Arc::new(PanickingRead);
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = awaiting(|| "the thread to start".to_owned(), start_thread(&directory)).await;
+    let before = shown(&handle);
+    let answer = awaiting(|| "the move to answer".to_owned(), move_to(&handle, &route_state("fixture-model", 128_000))).await;
+    assert!(matches!(&answer, Err(mixdog_core_api::error::CoreError::Internal { incident_id }) if &**incident_id == "route-status-panicked"), "{answer:?}");
+    assert_eq!(shown(&handle), before, "the refused move is not written");
 }
 
 /// The [`MOVED`] fields of a thread on `model` of the 128000-token custom route, compacting at `trigger`.

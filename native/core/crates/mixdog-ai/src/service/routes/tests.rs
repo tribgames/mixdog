@@ -36,6 +36,16 @@ fn candidates_follow_the_main_model_or_the_configured_chain() {
         no_candidate_message(&default, Some(&codex)),
         "default web search route requires the current main model to support native web search (openai-oauth/gpt-5-codex)"
     );
+    assert_eq!(
+        no_candidate_message_with_reason(
+            &default,
+            Some(&codex),
+            Some(
+                "Antigravity (acp-antigravity) is signed out; sign in to Antigravity (acp-antigravity) in Settings, or open /websearch to choose another provider/model"
+            )
+        ),
+        "default web search route cannot run on openai-oauth/gpt-5-codex: Antigravity (acp-antigravity) is signed out; sign in to Antigravity (acp-antigravity) in Settings, or open /websearch to choose another provider/model"
+    );
 
     let chain = web_search_route_or_default(&[&json!({"provider": "gemini", "model": "gemini-2.5-pro",
         "fallbacks": [{"provider": "mixdog-local", "model": "x"}, {"provider": "anthropic", "model": "claude-opus-4-1"}]})])
@@ -412,5 +422,23 @@ fn a_web_search_route_is_normalised_and_its_chain_checked_as_documented() {
         let texts = |rows: Vec<Value>| rows.iter().map(Value::to_string).collect::<Vec<_>>();
         assert_eq!(texts(route_chain(&got).unwrap()), chain.iter().map(|v| text(v)).collect::<Vec<_>>(), "{candidates:?}");
         assert_eq!(texts(execution_fallbacks(&got).unwrap()), exec.iter().map(|v| text(v)).collect::<Vec<_>>(), "{candidates:?}");
+    }
+}
+
+#[test]
+fn pick_quick_web_search_model_uses_rule_not_catalog_order() {
+    let cases: &[(&str, &[&str], &str)] = &[
+        ("acp-antigravity", &["gemini-3-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3-flash"], "gemini-3-flash"),
+        ("gemini", &["gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-2.5-flash-preview", "gemini-2.5-flash"], "gemini-2.5-flash"),
+        ("openai-oauth", &["gpt-5.2", "gpt-5-mini", "gpt-5.2-nano", "gpt-5.2-mini-preview", "gpt-5.2-mini"], "gpt-5.2-mini"),
+        ("anthropic-oauth", &["claude-opus-4-6", "claude-sonnet-4-5", "claude-haiku-3-5", "claude-haiku-4-5-20251001", "claude-haiku-4-5"], "claude-haiku-4-5"),
+        ("xai", &["grok-4", "grok-3-fast", "grok-4.1-fast"], "grok-4.1-fast"),
+    ];
+    for (provider, ids, want) in cases {
+        let forward: Vec<String> = ids.iter().map(|id| (*id).to_owned()).collect();
+        let mut reversed = forward.clone();
+        reversed.reverse();
+        assert_eq!(pick_quick_web_search_model(provider, &forward).as_deref(), Some(*want), "{provider} forward");
+        assert_eq!(pick_quick_web_search_model(provider, &reversed).as_deref(), Some(*want), "{provider} reversed");
     }
 }

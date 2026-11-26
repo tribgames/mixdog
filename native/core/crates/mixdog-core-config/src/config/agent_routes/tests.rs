@@ -8,7 +8,7 @@ use super::*;
 use crate::config::ConfigLanes;
 
 fn route(model: &str) -> Value {
-    json!({ "provider": "openai", "model": model })
+    json!({ "provider": "openai", "model": model, "effortAuto": false })
 }
 
 fn bot_file(dir: &tempfile::TempDir, bot: &str) -> Value {

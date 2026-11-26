@@ -36,7 +36,7 @@ fn meta_lines(meta: &JobMeta, operation: &str, host_pid: Option<u64>) -> Vec<Str
     let text = |value: &Option<String>| value.clone();
     let pid = host_pid.map(|p| p.to_string());
     let fast = meta.fast.map(|f| f.to_string());
-    let auto_effort = meta.auto_effort_off.then(|| "false".to_owned());
+    let effort_auto = meta.effort_auto.map(|m| m.as_bool().to_string());
     if operation == "send" {
         put("tag", text(&meta.tag));
         put("sessionId", text(&meta.session_id));
@@ -46,7 +46,7 @@ fn meta_lines(meta: &JobMeta, operation: &str, host_pid: Option<u64>) -> Vec<Str
         put("preset", text(&meta.preset));
         put("effort", text(&meta.effort));
         put("fast", fast);
-        put("autoEffort", auto_effort);
+        put("effortAuto", effort_auto);
         put("resumed", flag(meta.resumed));
         put("clientHostPid", pid);
     } else {
@@ -61,7 +61,7 @@ fn meta_lines(meta: &JobMeta, operation: &str, host_pid: Option<u64>) -> Vec<Str
         put("effort", text(&meta.effort));
         put("fast", fast);
         put("clientHostPid", pid);
-        put("autoEffort", auto_effort);
+        put("effortAuto", effort_auto);
     }
     lines
 }

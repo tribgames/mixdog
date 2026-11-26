@@ -85,24 +85,26 @@ fn only_an_explicit_false_keeps_the_main_model_from_being_kept() {
 }
 
 fn live() -> Value {
-    json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "autoEffort": true })
+    json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "effortAuto": true })
 }
 
 #[test]
 fn a_session_only_request_for_what_the_route_already_is_changes_nothing() {
     for selection in [
         json!({ "sessionOnly": true }),
-        json!({ "sessionOnly": true, "effort": "high" }),
-        json!({ "sessionOnly": true, "provider": "openai", "model": "gpt-5", "fast": false, "autoEffort": true }),
+        json!({ "sessionOnly": true, "effort": "high", "effortAuto": true }),
+        json!({ "sessionOnly": true, "provider": "openai", "model": "gpt-5", "fast": false, "effortAuto": true }),
     ] {
         assert!(matches!(plan(&obj(selection.clone()), &obj(live())), Plan::Unchanged), "{selection}");
     }
+    let (requested, _) = written(json!({ "sessionOnly": true, "effort": "high" }), live());
+    assert_eq!(requested["effortAuto"], false, "an explicit concrete effort turns Auto off even when it matches the saved fallback level");
 }
 
 #[test]
 fn a_session_only_request_for_the_same_model_is_completed_with_the_routes_other_settings() {
     let (requested, options) = written(json!({ "sessionOnly": true, "effort": "low" }), live());
-    assert_eq!(Value::Object(requested), json!({ "effort": "low", "fast": false, "autoEffort": true, "provider": "openai", "model": "gpt-5" }));
+    assert_eq!(Value::Object(requested), json!({ "effort": "low", "fast": false, "effortAuto": false, "provider": "openai", "model": "gpt-5" }));
     assert!(options.session_only);
     let (requested, _) = written(json!({ "sessionOnly": true, "provider": "anthropic", "model": "claude-x" }), live());
     assert_eq!(
@@ -112,6 +114,7 @@ fn a_session_only_request_for_the_same_model_is_completed_with_the_routes_other_
     );
     let (requested, _) = written(json!({ "sessionOnly": true, "fast": true }), live());
     assert_eq!(requested["fast"], true);
+    assert_eq!(requested["effortAuto"], true, "changing fast keeps the live route's Auto setting");
 }
 
 #[test]
@@ -234,7 +237,7 @@ impl RouteContext for Agents {
         Ok(obj(json!({ "provider": "anthropic", "model": "claude-x" })))
     }
     async fn resolve_chain_entry(&self, entry: &Obj, _: &Obj) -> Result<Obj, String> {
-        Ok(entry.clone())
+        Ok(super::agent_route_feature_tests::resolved_entry(entry))
     }
     async fn ensure_ready(&self, _: &str) -> Result<(), String> {
         Ok(())
@@ -328,7 +331,7 @@ fn text(error: CoreError) -> String {
 #[tokio::test]
 async fn a_session_only_request_for_what_the_route_already_is_answers_the_live_route_and_follows_nothing() {
     let rig = build(Value::Null, false).await;
-    let params = with_op(json!({ "threadId": "t", "route": { "sessionOnly": true, "effort": "high" } }), 1);
+    let params = with_op(json!({ "threadId": "t", "route": { "sessionOnly": true, "effort": "high", "effortAuto": true } }), 1);
     let answer = value(&rig.service, request(ROUTE_SET, params, Some(1))).await.expect("an answer");
     assert_eq!(answer, live());
     assert!(rig.session.follows.lock().unwrap().is_empty(), "nothing was written, so no session followed");
@@ -374,12 +377,12 @@ fn gpt_5_row() -> Value {
 async fn an_explicit_tune_after_a_hop_saves_the_fallback_not_the_previous_cell_model() {
     let rig = build(gpt_5_row(), true).await;
     let thread = ThreadId::from("t");
-    *rig.session.selected.lock().unwrap() = Some(obj(json!({ "provider": "openai", "model": "fallback", "effort": "high", "autoEffort": false })));
+    *rig.session.selected.lock().unwrap() = Some(obj(json!({ "provider": "openai", "model": "fallback", "effort": "high", "effortAuto": false })));
     rig.service.routes.set_effort(&thread, &json!("low"), false).await.unwrap();
     assert!(rig.service.routes.set_fast(&thread, super::route_service::FastValue::On).await.unwrap());
     let saved = rig.saved_agent();
     let settings = &saved["modelSettings"]["openai/fallback"];
-    assert_eq!((&settings["effort"], &settings["fast"], &settings["autoEffort"]), (&json!("low"), &json!(true), &json!(false)));
+    assert_eq!((&settings["effort"], &settings["fast"], &settings["effortAuto"]), (&json!("low"), &json!(true), &json!(false)));
     assert!(saved["modelSettings"].get("openai/gpt-5").is_none());
 }
 
@@ -396,8 +399,8 @@ async fn a_selection_saves_the_models_own_settings_and_the_session_follows_it_wi
     let saved = rig.saved_agent();
     assert_eq!(
         saved["modelSettings"],
-        json!({ "openai/gpt-5": { "effort": "low", "fast": false, "modelParameters": {} } }),
-        "the model's settings are saved under provider/model, its parameters as resolved (none)"
+        json!({ "openai/gpt-5": { "effort": "low", "fast": false, "effortAuto": true, "modelParameters": {} } }),
+        "the model's settings are saved under provider/model with explicit effortAuto"
     );
     assert!(saved.get("presets").is_none() && saved.get("default").is_none(), "a selection keeps the Main model unless it says otherwise: {saved}");
     assert_eq!(rig.session.follows.lock().unwrap().len(), 1, "the addressed session follows the saved route once");
@@ -413,9 +416,52 @@ async fn a_selection_that_does_not_keep_the_main_model_makes_it_the_lead_preset_
     assert_eq!(saved["default"], "workflow-lead");
     assert_eq!(
         saved["presets"],
-        json!([{ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "provider": "openai", "model": "gpt-5", "effort": "low", "fast": false, "tools": "full" }])
+        json!([{ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "provider": "openai", "model": "gpt-5", "effort": "low", "fast": false, "effortAuto": true, "tools": "full" }])
     );
     assert_eq!(saved["modelSettings"]["openai/gpt-5"]["effort"], "low");
+    assert_eq!(saved["modelSettings"]["openai/gpt-5"]["effortAuto"], true);
+}
+
+#[tokio::test]
+async fn effort_auto_states_survive_tuning_changes() {
+    for (label, initial) in [("auto", true), ("manual", false)] {
+        let rig = build(gpt_5_row(), true).await;
+        let thread = ThreadId::from("t");
+        let live_route = obj(json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "effortAuto": initial }));
+        rig.service.routes.writer.set_route_state(&thread, live_route);
+
+        rig.service.routes.set_fast(&thread, super::route_service::FastValue::On).await.expect("set_fast");
+        let after_fast = rig.service.routes.writer.route(&thread);
+        assert_eq!(after_fast["effortAuto"], json!(initial), "set_fast live route preserves {label}");
+        assert_eq!(rig.saved_agent()["modelSettings"]["openai/gpt-5"]["effortAuto"], json!(initial), "set_fast modelSettings preserves {label}");
+
+        let params = with_op(json!({ "threadId": "t", "route": { "fast": false } }), 2);
+        let answer = value(&rig.service, request(ROUTE_SET, params, Some(2))).await.expect("route/set fast");
+        assert_eq!(answer["effortAuto"], json!(initial), "ROUTE_SET fast toggle preserves {label}");
+        assert_eq!(rig.saved_agent()["modelSettings"]["openai/gpt-5"]["effortAuto"], json!(initial), "ROUTE_SET modelSettings preserves {label}");
+    }
+}
+
+#[tokio::test]
+async fn set_effort_auto_enables_auto_effort_and_explicit_level_disables_it() {
+    let rig = build(gpt_5_row(), false).await;
+    let thread = ThreadId::from("t");
+    let explicit = rig.service.routes.set_effort(&thread, &json!("low"), false).await.unwrap();
+    assert_eq!((&explicit["effort"], &explicit["effortAuto"]), (&json!("low"), &json!(false)), "the live route afterwards");
+    let saved_explicit = rig.saved_agent();
+    assert_eq!(saved_explicit["modelSettings"]["openai/gpt-5"]["effort"], "low");
+    assert_eq!(saved_explicit["modelSettings"]["openai/gpt-5"]["effortAuto"], false);
+
+    let auto = rig.service.routes.set_effort(&thread, &json!("auto"), false).await.unwrap();
+    assert_eq!(auto["effortAuto"], json!(true), "the live route afterwards");
+    let saved_auto = rig.saved_agent();
+    assert_eq!(saved_auto["modelSettings"]["openai/gpt-5"]["effortAuto"], true);
+
+    // A fast-only selection against an Auto route must keep Auto on even though complete_request copies live effort.
+    let fast_rig = build(gpt_5_row(), true).await;
+    let params = with_op(json!({ "threadId": "t", "route": { "fast": true } }), 2);
+    let answer = value(&fast_rig.service, request(ROUTE_SET, params, Some(2))).await.expect("fast toggle");
+    assert_eq!((&answer["fast"], &answer["effortAuto"]), (&json!(true), &json!(true)));
 }
 
 #[tokio::test]

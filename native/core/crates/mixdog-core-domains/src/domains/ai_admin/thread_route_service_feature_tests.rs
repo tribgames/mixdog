@@ -68,7 +68,7 @@ fn continue_case(want_error: bool) -> Value {
         json!({
             "config": { "default": "workflow-lead", "providers": { "openai": { "apiKey": "sk-fake" } } },
             "continueSession": { "model": "gpt-5", "provider": "gemini" },
-            "live": { "autoEffort": true, "effort": null, "fast": false, "model": "gpt-5", "modelParameters": {}, "preset": null, "provider": "anthropic-oauth" },
+            "live": { "effortAuto": true, "effort": null, "fast": false, "model": "gpt-5", "modelParameters": {}, "preset": null, "provider": "anthropic-oauth" },
             "meta": { "contextWindow": 128000, "id": "x", "maxContextWindow": 200000, "name": "Model X", "provider": "y", "serviceTiers": ["ultrafast"], "supportsFastMode": false },
             "request": { "effort": "bogus", "fast": false, "model": "o3", "provider": " openai " },
             "error": "effort must be one of auto, none, minimal, low, medium, high, xhigh, max, ultra"
@@ -77,7 +77,7 @@ fn continue_case(want_error: bool) -> Value {
         json!({
             "config": { "presets": [{ "fast": true, "id": "workflow-lead", "model": "gemini-2.5-pro", "name": "WORKFLOW LEAD", "provider": "openai-oauth", "type": "agent" }], "providers": { "openai": { "apiKey": "sk-fake" } } },
             "continueSession": { "model": "claude-opus-4-1", "provider": "openai" },
-            "live": { "autoEffort": true, "effort": null, "fast": false, "model": "", "modelParameters": {}, "preset": null, "provider": "anthropic-oauth" },
+            "live": { "effortAuto": true, "effort": null, "fast": false, "model": "", "modelParameters": {}, "preset": null, "provider": "anthropic-oauth" },
             "meta": { "contextWindow": 400000, "id": "x", "maxContextWindow": 200000, "name": "Model X", "provider": "y", "supportsFastMode": true },
             "request": { "effort": null, "fallbacks": [{ "model": "gpt-5", "provider": "openai" }], "model": "quick", "modelParameters": { "serviceTier": "ultrafast" }, "provider": "anthropic-oauth" },
             "value": { "modelSwitch": { "at": 0, "modelId": "quick", "provider": "anthropic-oauth" } }

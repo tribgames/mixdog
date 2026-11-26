@@ -47,7 +47,7 @@ impl std::fmt::Display for RouteReadUnavailable {
     }
 }
 
-const LEAF_FIELDS: [&str; 6] = ["effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+const LEAF_FIELDS: [&str; 6] = ["effort", "fast", "effortAuto", "modelParameters", "contextPercent", "contextTokens"];
 
 fn truthy(v: Option<&Value>) -> Option<&Value> {
     v.filter(|x| match x {
@@ -101,7 +101,11 @@ pub fn route_leaf(route: Option<&Value>) -> Obj {
     leaf.insert("provider".into(), or_empty(route.and_then(|r| r.get("provider"))));
     leaf.insert("model".into(), or_empty(route.and_then(|r| r.get("model"))));
     for key in LEAF_FIELDS {
-        if let Some(v) = route.and_then(|r| r.get(key)).filter(|v| !v.is_null()) {
+        if key == "effortAuto" {
+            if let Some(route) = route {
+                mixdog_ai::effort::EffortAuto::carry_field(route, &mut leaf);
+            }
+        } else if let Some(v) = route.and_then(|r| r.get(key)).filter(|v| !v.is_null()) {
             leaf.insert(key.to_owned(), v.clone());
         }
     }

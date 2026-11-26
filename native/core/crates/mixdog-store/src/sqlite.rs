@@ -811,6 +811,11 @@ pub(crate) const AGENT_ONLY_SQL: &str = "SELECT summary, EXISTS (SELECT 1 FROM w
     FROM sessions WHERE visibility = 'agent-only'
     AND deleted = 0 AND log_id <> '' ORDER BY activity DESC, id";
 
+/// [`AGENT_ONLY_SQL`] of the sessions not closed.
+pub(crate) const AGENT_ONLY_OPEN_SQL: &str = "SELECT summary, EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)
+    FROM sessions WHERE visibility = 'agent-only' AND closed = 0
+    AND deleted = 0 AND log_id <> '' ORDER BY activity DESC, id";
+
 const UPSERT_SQL: &str = "
 INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, newest_file_no,
     projected_file_no, projected_offset, projected_ordinal, history_rev, row_count, visible_count,
@@ -4267,8 +4272,17 @@ impl SqliteStore {
     /// The list rows of the agent-only sessions (`visibility` 'agent-only'), the
     /// candidates of 1.4.5 agent rehydration; most recent activity first.
     pub async fn agent_only_sessions(&self) -> Result<Vec<String>, DbError> {
-        self.read(Need::Workers, |c| {
-            let mut stmt = c.prepare_cached(AGENT_ONLY_SQL)?;
+        self.agent_only(AGENT_ONLY_SQL).await
+    }
+
+    /// [`Self::agent_only_sessions`] of the sessions not closed.
+    pub async fn open_agent_only_sessions(&self) -> Result<Vec<String>, DbError> {
+        self.agent_only(AGENT_ONLY_OPEN_SQL).await
+    }
+
+    async fn agent_only(&self, sql: &'static str) -> Result<Vec<String>, DbError> {
+        self.read(Need::Workers, move |c| {
+            let mut stmt = c.prepare_cached(sql)?;
             let rows = stmt.query_map([], |r| {
                 let summary: String = r.get(0)?;
                 Ok(if r.get::<_, bool>(1)? { withheld::blank_summary(&summary) } else { summary })

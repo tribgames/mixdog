@@ -887,6 +887,295 @@ async fn a_scoped_call_after_a_streamed_shell_waits_for_the_mutation_before_look
     assert!(workspace.lookups.lock().unwrap().iter().all(|changed| *changed));
 }
 
+struct StaleReuse {
+    lookups: Mutex<Vec<String>>,
+    stale_body: &'static str,
+}
+
+#[async_trait]
+impl ResultReuse for StaleReuse {
+    async fn has_candidate(&self, _call: &ToolCall, _cwd: &Path) -> bool {
+        true
+    }
+
+    async fn lookup(&self, call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
+        // As the host's reuse: only reads have a kept body, so the edit's own lookup finds none.
+        if call.name == "edit" {
+            return None;
+        }
+        self.lookups.lock().unwrap().push(call.name.clone());
+        Some(Reused { content: self.stale_body.to_owned(), first_tool_use_id: "prior".into(), kind: ReuseKind::Scoped, explicit_success: false })
+    }
+}
+
+struct WriterThenDisjointReads {
+    spec: ToolSpec,
+    reads_done: Arc<std::sync::atomic::AtomicUsize>,
+    expected_reads: usize,
+    release_writer: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl Tool for WriterThenDisjointReads {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+        let body = if self.spec.name == "edit" {
+            self.release_writer.notified().await;
+            "edit done".to_owned()
+        } else {
+            let done = self.reads_done.fetch_add(1, Ordering::AcqRel) + 1;
+            if done >= self.expected_reads {
+                self.release_writer.notify_one();
+            }
+            format!("fresh {}", self.spec.name)
+        };
+        Ok(ToolOutput { parts: vec![ToolPart::Text(body)], ..ToolOutput::default() })
+    }
+}
+
+#[tokio::test]
+async fn disjoint_reads_after_an_edit_dispatch_without_waiting_and_skip_stale_reuse() {
+    for limited in [false, true] {
+        let reuse = Arc::new(StaleReuse { lookups: Mutex::new(Vec::new()), stale_body: "stale cached body" });
+        let reads_done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let release_writer = Arc::new(tokio::sync::Notify::new());
+        let mut h = Harness::new(vec![
+            turn(vec![
+                call("e1", "edit", json!({"file_path": "src/a.rs", "old_string": "x", "new_string": "y"})),
+                call("g1", "glob", json!({"pattern": "docs/*.md"})),
+                call("r1", "read", json!({"file_path": "src/b.rs"})),
+                done(StopReason::ToolUse),
+            ]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        h.reuse = Some(reuse.clone());
+        let mut cfg = config();
+        if limited {
+            cfg.limits = Some(TurnLimits { max_tool_calls: Some(10), ..TurnLimits::default() });
+        }
+        let make = |name: &str, read_only: bool| {
+            let mut spec = Echo::tool().spec().clone();
+            spec.name = name.into();
+            if !read_only {
+                spec.annotations = ToolAnnotations::default();
+            }
+            Arc::new(WriterThenDisjointReads { spec, reads_done: reads_done.clone(), expected_reads: 2, release_writer: release_writer.clone() })
+                as Arc<dyn Tool>
+        };
+        let tools = vec![make("edit", false), make("glob", true), make("read", true)];
+        let out = tokio::time::timeout(Duration::from_secs(10), finish(h.run(cfg, tools, vec![AgentMessage::user("go")])))
+            .await
+            .expect("disjoint glob and read must dispatch without waiting for edit");
+        let rows = dump(&out.transcript);
+        assert!(rows.iter().any(|row| row == "tool#g1(Normal):fresh glob"), "limited={limited}: {rows:?}");
+        assert!(rows.iter().any(|row| row == "tool#r1(Normal):fresh read"), "limited={limited}: {rows:?}");
+        let lookups = reuse.lookups.lock().unwrap().clone();
+        assert!(lookups.is_empty(), "limited={limited}: stale reuse lookup must be skipped while edit is unfinished: {lookups:?}");
+    }
+}
+
+struct TimedTool {
+    spec: ToolSpec,
+    clock: Arc<FixedClock>,
+    advance_ms: i64,
+    hold: Option<Arc<tokio::sync::Notify>>,
+}
+
+#[async_trait]
+impl Tool for TimedTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+        if let Some(hold) = &self.hold {
+            hold.notified().await;
+        }
+        self.clock.0.fetch_add(self.advance_ms, Ordering::Relaxed);
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("ran {}", self.spec.name))], ..ToolOutput::default() })
+    }
+}
+
+#[tokio::test]
+async fn overlapping_read_and_shell_read_wait_for_earlier_call_and_record_dispatch_wait() {
+    struct StateTool {
+        spec: ToolSpec,
+        written: Arc<std::sync::atomic::AtomicBool>,
+        clock: Arc<FixedClock>,
+        advance_ms: i64,
+        hold: Option<Arc<tokio::sync::Notify>>,
+    }
+    #[async_trait]
+    impl Tool for StateTool {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+            if let Some(hold) = &self.hold {
+                hold.notified().await;
+            }
+            self.clock.0.fetch_add(self.advance_ms, Ordering::Relaxed);
+            let body = if matches!(self.spec.name.as_str(), "edit" | "shell") {
+                self.written.store(true, Ordering::Release);
+                "mutated"
+            } else if self.written.load(Ordering::Acquire) {
+                "post-write"
+            } else {
+                "pre-write"
+            };
+            Ok(ToolOutput { parts: vec![ToolPart::Text(body.into())], ..ToolOutput::default() })
+        }
+    }
+
+    // 1. Overlapping read behind edit waits for edit and sees post-write state (both streamed and batch-limited),
+    //    and records dispatch wait before execution.
+    for limited in [false, true] {
+        let clock = Arc::new(FixedClock(AtomicI64::new(1_000)));
+        let written = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hold = (!limited).then(|| Arc::new(tokio::sync::Notify::new()));
+        let mut edit_spec = Echo::tool().spec().clone();
+        edit_spec.name = "edit".into();
+        edit_spec.annotations = ToolAnnotations::default();
+        let mut read_spec = Echo::tool().spec().clone();
+        read_spec.name = "read".into();
+        let mut steps = vec![
+            call("e1", "edit", json!({"file_path": "src/a.rs", "old_string": "x", "new_string": "y"})),
+            call("r1", "read", json!({"file_path": "src/a.rs"})),
+        ];
+        if let Some(release) = hold.clone() {
+            steps.push(Step::Wire(
+                Box::pin(async move {
+                    release.notify_one();
+                }),
+                "release edit after streaming overlapping read",
+            ));
+        }
+        steps.push(done(StopReason::ToolUse));
+        let h = Harness { clock: clock.clone(), ..Harness::new(vec![turn(steps), turn(vec![text("ok"), done(StopReason::EndTurn)])]) };
+        let mut cfg = config();
+        if limited {
+            cfg.limits = Some(TurnLimits { max_tool_calls: Some(10), ..TurnLimits::default() });
+        }
+        let tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(StateTool { spec: edit_spec, written: written.clone(), clock: clock.clone(), advance_ms: 4_000, hold }),
+            Arc::new(StateTool { spec: read_spec, written, clock: clock.clone(), advance_ms: 50, hold: None }),
+        ];
+        let out = finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
+        assert!(dump(&out.transcript).iter().any(|row| row == "tool#r1(Normal):post-write"), "limited={limited}");
+        if limited {
+            let read_timing = out.transcript.iter().find(|m| m.tool_call_id() == Some("r1")).and_then(|m| m.tool_timing).expect("read timing");
+            assert_eq!(read_timing.dispatch_started_at, 1_000);
+            assert_eq!(read_timing.execution_started_at, 5_000);
+            assert_eq!(read_timing.execution_completed_at, 5_050);
+        }
+    }
+
+    // 2. Glob behind shell waits for shell and sees post-write state (both streamed and batch-limited),
+    //    and records dispatch wait before execution.
+    for limited in [false, true] {
+        let clock = Arc::new(FixedClock(AtomicI64::new(1_000)));
+        let written = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hold = (!limited).then(|| Arc::new(tokio::sync::Notify::new()));
+        let mut shell_spec = Echo::tool().spec().clone();
+        shell_spec.name = "shell".into();
+        shell_spec.annotations = ToolAnnotations::default();
+        let mut glob_spec = Echo::tool().spec().clone();
+        glob_spec.name = "glob".into();
+        let mut steps = vec![call("s1", "shell", json!({"command": "generate files"})), call("g1", "glob", json!({"pattern": "docs/*.md"}))];
+        if let Some(release) = hold.clone() {
+            steps.push(Step::Wire(
+                Box::pin(async move {
+                    release.notify_one();
+                }),
+                "release shell after streaming glob",
+            ));
+        }
+        steps.push(done(StopReason::ToolUse));
+        let h = Harness { clock: clock.clone(), ..Harness::new(vec![turn(steps), turn(vec![text("ok"), done(StopReason::EndTurn)])]) };
+        let mut cfg = config();
+        if limited {
+            cfg.limits = Some(TurnLimits { max_tool_calls: Some(10), ..TurnLimits::default() });
+        }
+        let tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(StateTool { spec: shell_spec, written: written.clone(), clock: clock.clone(), advance_ms: 9_000, hold }),
+            Arc::new(StateTool { spec: glob_spec, written, clock: clock.clone(), advance_ms: 30, hold: None }),
+        ];
+        let out = finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
+        assert!(dump(&out.transcript).iter().any(|row| row == "tool#g1(Normal):post-write"), "limited={limited}");
+        if limited {
+            let glob_timing = out.transcript.iter().find(|m| m.tool_call_id() == Some("g1")).and_then(|m| m.tool_timing).expect("glob timing");
+            assert_eq!(glob_timing.dispatch_started_at, 1_000);
+            assert_eq!(glob_timing.execution_started_at, 10_000);
+            assert_eq!(glob_timing.execution_completed_at, 10_030);
+        }
+    }
+}
+
+#[tokio::test]
+async fn dispatch_wait_before_execution_is_recorded_in_tool_timing() {
+    // 1. Eager barrier wait: shell waits for earlier edit in `try_eager`.
+    let clock = Arc::new(FixedClock(AtomicI64::new(1_000)));
+    let hold_edit = Arc::new(tokio::sync::Notify::new());
+    let release_edit = hold_edit.clone();
+    let mut edit_spec = Echo::tool().spec().clone();
+    edit_spec.name = "edit".into();
+    edit_spec.annotations = ToolAnnotations::default();
+    let mut shell_spec = Echo::tool().spec().clone();
+    shell_spec.name = "shell".into();
+    shell_spec.annotations = ToolAnnotations::default();
+    let h = Harness {
+        clock: clock.clone(),
+        ..Harness::new(vec![
+            turn(vec![
+                call("e1", "edit", json!({"file_path": "a.txt", "old_string": "x", "new_string": "y"})),
+                call("s1", "shell", json!({"command": "echo hi"})),
+                Step::Wire(
+                    Box::pin(async move {
+                        release_edit.notify_one();
+                    }),
+                    "release edit after shell is queued in try_eager",
+                ),
+                done(StopReason::ToolUse),
+            ]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ])
+    };
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(TimedTool { spec: edit_spec.clone(), clock: clock.clone(), advance_ms: 5_000, hold: Some(hold_edit) }),
+        Arc::new(TimedTool { spec: shell_spec, clock: clock.clone(), advance_ms: 200, hold: None }),
+    ];
+    let out = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+    let shell_timing = out.transcript.iter().find(|m| m.tool_call_id() == Some("s1")).and_then(|m| m.tool_timing).expect("shell toolTiming");
+    assert_eq!(shell_timing.dispatch_started_at, 1_000);
+    assert_eq!(shell_timing.execution_started_at, 6_000);
+    assert_eq!(shell_timing.execution_completed_at, 6_200);
+
+    // 2. Non-eager batch wait: second edit waits in `process_tool_batch` behind first edit.
+    let clock = Arc::new(FixedClock(AtomicI64::new(1_000)));
+    let h = Harness {
+        clock: clock.clone(),
+        ..Harness::new(vec![
+            turn(vec![
+                call("e1", "edit", json!({"file_path": "a.txt", "old_string": "x", "new_string": "y"})),
+                call("e2", "edit", json!({"file_path": "b.txt", "old_string": "x", "new_string": "y"})),
+                done(StopReason::ToolUse),
+            ]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ])
+    };
+    let mut cfg = config();
+    cfg.limits = Some(TurnLimits { max_tool_calls: Some(10), ..TurnLimits::default() });
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(TimedTool { spec: edit_spec, clock: clock.clone(), advance_ms: 7_000, hold: None })];
+    let out = finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
+    let second_timing = out.transcript.iter().find(|m| m.tool_call_id() == Some("e2")).and_then(|m| m.tool_timing).expect("second edit toolTiming");
+    assert_eq!(second_timing.dispatch_started_at, 1_000);
+    assert_eq!(second_timing.execution_started_at, 8_000);
+    assert_eq!(second_timing.execution_completed_at, 15_000);
+}
+
 /// `edit` of one file kept in memory, answering as the str-replace adapter does: a unique anchor is replaced, one found more than
 /// once is refused as ambiguous unless the call says how many remain (`editOccurrence`), when the first is taken. It counts the
 /// runs that ended.
@@ -3218,6 +3507,7 @@ async fn each_request_carries_the_effort_projection_of_its_transcript() {
         mode: EffortMode::Responses,
         initial_effort: "low".into(),
         effort: effort.into(),
+        judged: false,
     };
     let mut first = AgentMessage::user("earlier");
     first.effort = Some(snap("low"));
@@ -3265,6 +3555,7 @@ async fn a_messages_request_carries_its_effort_projection_and_a_responses_one_do
             mode,
             initial_effort: "low".into(),
             effort: effort.into(),
+            judged: false,
         };
         let mut first = AgentMessage::user("earlier");
         first.effort = Some(snap("low"));
@@ -3310,7 +3601,14 @@ async fn an_effort_change_between_two_turns_keeps_every_byte_the_earlier_request
     use mixdog_ai::providers::anthropic::ModelCaps;
     const MODEL: &str = "claude-opus-5-5";
     fn snap(provider: &str, effort: &str) -> EffortSnapshot {
-        EffortSnapshot { provider: provider.into(), model: MODEL.into(), mode: EffortMode::Anthropic, initial_effort: "low".into(), effort: effort.into() }
+        EffortSnapshot {
+            provider: provider.into(),
+            model: MODEL.into(),
+            mode: EffortMode::Anthropic,
+            initial_effort: "low".into(),
+            effort: effort.into(),
+            judged: false,
+        }
     }
     fn stamped(provider: &str, text: &str, effort: &str) -> AgentMessage {
         let mut message = AgentMessage::user(text);
@@ -3404,8 +3702,14 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let timer = Arc::new(HeldTimer::default());
     h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
-    let seed =
-        EffortSnapshot { provider: "openai".into(), model: "gpt-6-1".into(), mode: EffortMode::Responses, initial_effort: "low".into(), effort: "low".into() };
+    let seed = EffortSnapshot {
+        provider: "openai".into(),
+        model: "gpt-6-1".into(),
+        mode: EffortMode::Responses,
+        initial_effort: "low".into(),
+        effort: "low".into(),
+        judged: false,
+    };
     let mut cfg = config();
     cfg.effort = Some(EffortWiring {
         route: EffortRoute {
@@ -3457,8 +3761,14 @@ async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_on
     let timer = Arc::new(HeldTimer::default());
     h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
-    let seed =
-        EffortSnapshot { provider: "openai".into(), model: "gpt-6-1".into(), mode: EffortMode::Responses, initial_effort: "low".into(), effort: "low".into() };
+    let seed = EffortSnapshot {
+        provider: "openai".into(),
+        model: "gpt-6-1".into(),
+        mode: EffortMode::Responses,
+        initial_effort: "low".into(),
+        effort: "low".into(),
+        judged: false,
+    };
     let mut cfg = config();
     cfg.effort = Some(EffortWiring {
         route: EffortRoute {
@@ -4290,7 +4600,8 @@ impl mixdog_core_api::domain::cache_tail::TailGate for OwnsRewrite {
     }
 }
 
-/// The rewrite of an expired history is made inside the send loop: its fold lands in the request that follows it, once.
+/// The rewrite of an expired history is made inside the send loop for a delegated agent session: its fold lands in the
+/// request that follows it, once.
 #[tokio::test]
 async fn the_rewrite_of_an_expired_history_is_sent_under_its_fold() {
     use mixdog_core_api::domain::cache_tail::{Cold, ColdRequest, TailGateHandle, TailRefusal};
@@ -4300,7 +4611,7 @@ async fn the_rewrite_of_an_expired_history_is_sent_under_its_fold() {
     let folds = Arc::new(FoldMcp::default());
     h.mcp = Some(folds.clone());
     let mut cfg = config();
-    cfg.compact = Some(compact_settings());
+    cfg.compact = Some(CompactSettings { agent_owner: true, ..compact_settings() });
     cfg.options.tail_gate = Some(TailGateHandle(Arc::new(OwnsRewrite)));
     cfg.options.tail_generation = Some(1);
     let messages = vec![system_message("old rules"), AgentMessage::user("m0"), AgentMessage::user("m1"), AgentMessage::user("latest")];
@@ -4320,7 +4631,7 @@ async fn an_expired_history_that_cannot_shrink_is_resent_without_a_notice() {
     let mut h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(expired)), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     h.compactor = Some(Arc::new(Compactor100::default()));
     let mut cfg = config();
-    cfg.compact = Some(compact_settings());
+    cfg.compact = Some(CompactSettings { agent_owner: true, ..compact_settings() });
     cfg.options.tail_gate = Some(TailGateHandle(Arc::new(OwnsRewrite)));
     cfg.options.tail_generation = Some(1);
     finish(h.run(cfg, vec![Echo::tool()], vec![system_message("rules"), AgentMessage::user("latest")])).await;
@@ -4364,19 +4675,32 @@ impl mixdog_core_api::domain::cache_tail::TailGate for RecordingOwnsRewrite {
     }
 }
 
-/// Prompt-cache expiry outcomes that resend the transcript unchanged (no sizing, skipped/no-op compaction, or
-/// agent-mode's quiet compaction failure) never emit a user-visible `Stage::Notice`.
+/// Prompt-cache expiry outcomes that resend the transcript unchanged (no sizing, Lead session, automatic compaction
+/// off, context below 10% of the compaction trigger, skipped/no-op compaction, or agent-mode's quiet compaction
+/// failure) never emit a user-visible `Stage::Notice`.
 #[tokio::test]
 async fn expired_cache_noop_and_quiet_failure_decisions_emit_no_transcript_notice() {
     use mixdog_core_api::domain::cache_tail::{Cold, ColdRequest, Resolution, TailGateHandle, TailRefusal};
     let expired = || TailRefusal::Rebuild(ColdRequest { ticket: 1, cold: Cold::Expired });
     let four = || vec![system_message("rules"), AgentMessage::user("m0"), AgentMessage::user("m1"), AgentMessage::user("latest")];
+    let agent = || CompactSettings { agent_owner: true, ..compact_settings() };
     let cases = [
         ("no sizing", None, None, false, Resolution::NoSizing),
-        ("skipped compaction", Some(compact_settings()), Some(Compactor100 { skip: true, ..Default::default() }), false, Resolution::Irreducible),
-        ("quiet compaction failure", Some(compact_settings()), Some(Compactor100 { fail: true, ..Default::default() }), true, Resolution::Failed),
+        ("lead session", Some(compact_settings()), Some(Compactor100::default()), false, Resolution::NoSizing),
+        ("auto compaction off", Some(CompactSettings { auto: false, ..agent() }), Some(Compactor100::default()), true, Resolution::NoSizing),
+        (
+            "below 10% of trigger",
+            Some(CompactSettings { context_window: Some(10_000), ..agent() }),
+            Some(Compactor100::default()),
+            true,
+            Resolution::Irreducible,
+        ),
+        ("skipped compaction", Some(agent()), Some(Compactor100 { skip: true, ..Default::default() }), false, Resolution::Irreducible),
+        ("quiet compaction failure", Some(agent()), Some(Compactor100 { fail: true, ..Default::default() }), true, Resolution::Failed),
     ];
     for (label, compact, compactor, agent_mode, expected_resolution) in cases {
+        // A failed pass leaves its own record of the turn; every other decision runs no pass at all.
+        let expected_markers = if matches!(expected_resolution, Resolution::Failed) { vec![CompactStatus::Failed] } else { Vec::new() };
         let mut h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(expired())), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
         h.compactor = compactor.map(Arc::new);
         let gate = Arc::new(RecordingOwnsRewrite::default());
@@ -4387,6 +4711,7 @@ async fn expired_cache_noop_and_quiet_failure_decisions_emit_no_transcript_notic
         cfg.options.tail_generation = Some(1);
         finish(h.run(cfg, vec![Echo::tool()], four())).await;
         assert_eq!(*gate.0.lock().unwrap(), vec![expected_resolution], "{label}");
+        assert_eq!(compact_marker(&h).iter().map(|e| e.status).collect::<Vec<_>>(), expected_markers, "{label}: unexpected compaction");
         let sent = h.provider.requests();
         assert_eq!(sent.len(), 2, "{label}");
         assert_eq!(wire_dump(&sent[1]), ["System:rules", "User:m0", "User:m1", "User:latest"], "{label}");
@@ -5571,8 +5896,14 @@ async fn a_step_judged_on_the_route_left_behind_does_not_reach_the_route_taken()
     // The step grace never passes: a judgment still held when the request is built would land on it.
     h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(Arc::new(HeldTimer::default()))));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
-    let seed =
-        EffortSnapshot { provider: "openai".into(), model: "gpt-6-1".into(), mode: EffortMode::Responses, initial_effort: "low".into(), effort: "low".into() };
+    let seed = EffortSnapshot {
+        provider: "openai".into(),
+        model: "gpt-6-1".into(),
+        mode: EffortMode::Responses,
+        initial_effort: "low".into(),
+        effort: "low".into(),
+        judged: false,
+    };
     let mut cfg = config();
     cfg.effort = Some(EffortWiring {
         route: EffortRoute {

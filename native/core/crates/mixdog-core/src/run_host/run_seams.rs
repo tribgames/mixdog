@@ -291,10 +291,21 @@ impl ConfigSeams for ConfigRunSeams {
         // `webSearchRouteOrDefault(config.webSearchRoute)`; a saved route that does not normalize leaves the seeded default in place.
         let configured = self.config.get("webSearchRoute").unwrap_or(Value::Null);
         let web_search_route = mixdog_ai::service::routes::web_search_route_or_default(&[&configured]).ok();
+        let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&self.config.agent());
+        let effort_auto = if own("model").is_none() && held("model").is_none() {
+            self.main_route
+                .as_ref()
+                .map(|main| mixdog_ai::effort::EffortAuto::resolve(&main(), legacy_switch_on))
+                .unwrap_or_else(|| mixdog_ai::effort::EffortAuto::resolve(header, legacy_switch_on))
+        } else {
+            let selected = header.get("pendingRoute").and_then(Value::as_object).unwrap_or(header);
+            mixdog_ai::effort::EffortAuto::resolve(selected, legacy_switch_on)
+        };
         ThreadRoute {
             auto_clear: Some(Value::Object(mixdog_agent::compact::settings::get_auto_clear(&self.config.agent(), provider))),
             system_shell: Some(serde_json::json!({ "command": command, "effective": effective, "source": source })),
             web_search_route,
+            effort_auto: Some(effort_auto.as_bool()),
             provider: route_provider,
             model: route_model,
             ..Default::default()
@@ -311,11 +322,13 @@ impl ConfigSeams for ConfigRunSeams {
     fn run_settings(&self, _thread: &ThreadId, header: &Header) -> RunSettings {
         let agent_mode = session_mode_of(header) == "agent";
         let provider = header.get("provider").and_then(Value::as_str);
+        let compact = self.compact_settings(header, agent_mode);
+        let cold_rebuild = compact.agent_owner && compact.auto;
         RunSettings {
             hidden_agent: self.agents.hidden_agent(header.get("agent").and_then(Value::as_str)),
             agent_mode,
             limits: None,
-            compact: Some(self.compact_settings(header, agent_mode)),
+            compact: Some(compact),
             escalated_max_output_tokens: None,
             read_body_required: matches!(provider, Some("cursor-oauth" | "cursor-api")),
             vision: None,
@@ -325,12 +338,7 @@ impl ConfigSeams for ConfigRunSeams {
             attachments: None,
             file_text: None,
             model_max_output_tokens: None,
-            auto_clear: Some({
-                let config = self.config.clone();
-                Arc::new(move || {
-                    mixdog_agent::compact::settings::normalize_auto_clear(config.agent().get("autoClear")).get("enabled") != Some(&Value::Bool(false))
-                })
-            }),
+            auto_clear: Some(Arc::new(move || cold_rebuild)),
         }
     }
 

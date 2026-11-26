@@ -31,17 +31,18 @@ fn anthropic_family_model(family: &str) -> String {
     }
 }
 
-/// Shipped default presets matching `mixdog-core-config::workflow::presets::default_presets`.
-fn shipped_default_presets() -> Vec<Value> {
+/// Shipped default presets matching `mixdog-core-config::workflow::presets::default_presets_for`.
+fn shipped_default_presets(legacy_switch_on: bool) -> Vec<Value> {
     let haiku = anthropic_family_model("haiku");
     let sonnet = anthropic_family_model("sonnet");
     let opus = anthropic_family_model("opus");
+    let effort_auto = mixdog_ai::effort::EffortAuto::default_for_new(legacy_switch_on).as_bool();
     vec![
-        serde_json::json!({ "id": "haiku", "name": "HAIKU", "type": "agent", "provider": "anthropic-oauth", "model": haiku, "tools": "full" }),
-        serde_json::json!({ "id": "sonnet-mid", "name": "SONNET MID", "type": "agent", "provider": "anthropic-oauth", "model": sonnet, "effort": "medium", "tools": "full" }),
-        serde_json::json!({ "id": "sonnet-high", "name": "SONNET HIGH", "type": "agent", "provider": "anthropic-oauth", "model": sonnet, "effort": "high", "tools": "full" }),
-        serde_json::json!({ "id": "opus-mid", "name": "OPUS MID", "type": "agent", "provider": "anthropic-oauth", "model": opus, "effort": "medium", "tools": "full" }),
-        serde_json::json!({ "id": "opus-high", "name": "OPUS HIGH", "type": "agent", "provider": "anthropic-oauth", "model": opus, "effort": "high", "tools": "full" }),
+        serde_json::json!({ "id": "haiku", "name": "HAIKU", "type": "agent", "provider": "anthropic-oauth", "model": haiku, "effortAuto": effort_auto, "tools": "full" }),
+        serde_json::json!({ "id": "sonnet-mid", "name": "SONNET MID", "type": "agent", "provider": "anthropic-oauth", "model": sonnet, "effort": "medium", "effortAuto": effort_auto, "tools": "full" }),
+        serde_json::json!({ "id": "sonnet-high", "name": "SONNET HIGH", "type": "agent", "provider": "anthropic-oauth", "model": sonnet, "effort": "high", "effortAuto": effort_auto, "tools": "full" }),
+        serde_json::json!({ "id": "opus-mid", "name": "OPUS MID", "type": "agent", "provider": "anthropic-oauth", "model": opus, "effort": "medium", "effortAuto": effort_auto, "tools": "full" }),
+        serde_json::json!({ "id": "opus-high", "name": "OPUS HIGH", "type": "agent", "provider": "anthropic-oauth", "model": opus, "effort": "high", "effortAuto": effort_auto, "tools": "full" }),
     ]
 }
 
@@ -49,6 +50,7 @@ fn shipped_default_presets() -> Vec<Value> {
 /// complete stored presets first (excluding `workflow-search` and incomplete entries), followed
 /// only by shipped defaults whose key is not already present among the complete stored presets.
 fn effective_presets(config: &Obj) -> Vec<Value> {
+    let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(config);
     let mut presets: Vec<Value> = config
         .get("presets")
         .and_then(Value::as_array)
@@ -58,12 +60,18 @@ fn effective_presets(config: &Obj) -> Vec<Value> {
                     let id = clean(p.get("id"));
                     id != "workflow-search" && !preset_key(Some(p)).is_empty() && normalize_agent_route(Some(p)).is_some()
                 })
-                .cloned()
+                .map(|p| {
+                    let mut cloned = p.clone();
+                    if let Some(obj) = cloned.as_object_mut() {
+                        mixdog_ai::effort::EffortAuto::convert_on_load(obj, legacy_switch_on);
+                    }
+                    cloned
+                })
                 .collect()
         })
         .unwrap_or_default();
     let present: Vec<String> = presets.iter().map(|p| preset_key(Some(p))).collect();
-    presets.extend(shipped_default_presets().into_iter().filter(|shipped| !present.contains(&preset_key(Some(shipped)))));
+    presets.extend(shipped_default_presets(legacy_switch_on).into_iter().filter(|shipped| !present.contains(&preset_key(Some(shipped)))));
     presets
 }
 
@@ -119,9 +127,7 @@ pub fn normalize_agent_route(route: Option<&Value>) -> Option<Obj> {
         out.insert("effort".into(), effort.into());
     }
     out.insert("fast".into(), (route.get("fast") == Some(&Value::Bool(true))).into());
-    if route.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), false.into());
-    }
+    mixdog_ai::effort::EffortAuto::carry_field(route, &mut out);
     match route.get("modelParameters") {
         Some(Value::Object(o)) => {
             out.insert("modelParameters".into(), Value::Object(o.clone()));
@@ -151,7 +157,14 @@ pub fn resolve_agent_route_candidate(config: &Obj, candidate: &Value) -> Option<
 
 fn resolve_stored_candidate(config: &Obj, candidate: &Value) -> Option<(Value, Option<String>)> {
     if candidate.is_object() {
-        return normalize_agent_route(Some(candidate)).map(|_| (candidate.clone(), None));
+        return normalize_agent_route(Some(candidate)).map(|_| {
+            let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(config);
+            let mut converted = candidate.clone();
+            if let Some(obj) = converted.as_object_mut() {
+                mixdog_ai::effort::EffortAuto::convert_on_load(obj, legacy_switch_on);
+            }
+            (converted, None)
+        });
     }
     let key = clean(Some(candidate));
     if key.is_empty() {
@@ -216,46 +229,51 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
         }
         Value::Object(source)
     };
+    let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(config);
     // `strict`: the spawn named its model, so no other model may answer it (no chain, no source).
-    let agent_preset = |route: &Obj, fallbacks: &[Value], effort: Option<String>, fast: Option<bool>, strict: bool| {
-        // A strict preset is a direct one by identity: the send flow follows the agent's configured
-        // route only for a worker on the agent's own preset identity, and a named model is kept for
-        // the worker's life, whether or not it is the agent's own.
-        let (id, name, preset_name): (String, String, Value) = if strict {
-            let named = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
-            ("__direct__".into(), "__DIRECT__".into(), named)
-        } else {
-            let name = agent_preset_name(&agent);
-            (format!("agent-{agent}"), name.clone(), name.into())
+    let agent_preset =
+        |route: &Obj, fallbacks: &[Value], effort: Option<String>, fast: Option<bool>, asked_auto: Option<mixdog_ai::effort::EffortAuto>, strict: bool| {
+            // A strict preset is a direct one by identity: the send flow follows the agent's configured
+            // route only for a worker on the agent's own preset identity, and a named model is kept for
+            // the worker's life, whether or not it is the agent's own.
+            let (id, name, preset_name): (String, String, Value) = if strict {
+                let named = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
+                ("__direct__".into(), "__DIRECT__".into(), named)
+            } else {
+                let name = agent_preset_name(&agent);
+                (format!("agent-{agent}"), name.clone(), name.into())
+            };
+            let mut preset = Obj::new();
+            preset.insert("id".into(), id.into());
+            preset.insert("name".into(), name.into());
+            preset.insert("type".into(), "agent".into());
+            preset.insert("provider".into(), route["provider"].clone());
+            preset.insert("model".into(), route["model"].clone());
+            if !strict {
+                if !fallbacks.is_empty() {
+                    preset.insert("fallbacks".into(), Value::Array(fallbacks_of(fallbacks)));
+                }
+                preset.insert("fallbackSource".into(), fallback_source(stored_preset_ref));
+            }
+            if let Some(effort) = effort {
+                preset.insert("effort".into(), effort.into());
+            }
+            preset.insert("fast".into(), fast.map_or_else(|| route["fast"].clone(), Value::from));
+            for key in ["modelParameters", "contextPercent", "contextTokens"] {
+                if let Some(v) = route.get(key) {
+                    preset.insert(key.into(), v.clone());
+                }
+            }
+            asked_auto.unwrap_or_else(|| mixdog_ai::effort::EffortAuto::resolve(route, legacy_switch_on)).write_to(&mut preset);
+            preset.insert("tools".into(), "full".into());
+            SpawnPreset { preset_name, preset: Value::Object(preset) }
         };
-        let mut preset = Obj::new();
-        preset.insert("id".into(), id.into());
-        preset.insert("name".into(), name.into());
-        preset.insert("type".into(), "agent".into());
-        preset.insert("provider".into(), route["provider"].clone());
-        preset.insert("model".into(), route["model"].clone());
-        if !strict {
-            if !fallbacks.is_empty() {
-                preset.insert("fallbacks".into(), Value::Array(fallbacks_of(fallbacks)));
-            }
-            preset.insert("fallbackSource".into(), fallback_source(stored_preset_ref));
-        }
-        if let Some(effort) = effort {
-            preset.insert("effort".into(), effort.into());
-        }
-        preset.insert("fast".into(), fast.map_or_else(|| route["fast"].clone(), Value::from));
-        for key in ["autoEffort", "modelParameters", "contextPercent", "contextTokens"] {
-            if let Some(v) = route.get(key) {
-                preset.insert(key.into(), v.clone());
-            }
-        }
-        preset.insert("tools".into(), "full".into());
-        SpawnPreset { preset_name, preset: Value::Object(preset) }
-    };
 
     if truthy(arg("provider")) && truthy(arg("model")) {
         let (provider, model) = (clean(arg("provider")), clean(arg("model")));
-        let asked_effort = Some(clean(arg("effort"))).filter(|e| !e.is_empty());
+        let raw_asked_effort = Some(clean(arg("effort"))).filter(|e| !e.is_empty());
+        let asked_effort = raw_asked_effort.filter(|e| !e.eq_ignore_ascii_case("auto"));
+        let asked_auto = args.as_object().and_then(|o| mixdog_ai::effort::EffortAuto::from_request(o, legacy_switch_on));
         let asked_fast = arg("fast").map(|f| f == &Value::Bool(true));
         let defaults = arg("modelDefaults");
         let default_effort = Some(clean(defaults.and_then(|d| d.get("effort")))).filter(|e| !e.is_empty());
@@ -270,14 +288,17 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
                 (Some(effort), Some(offered)) if !offered.iter().any(|o| *o == effort.as_str()) => default_effort,
                 _ => own,
             };
-            return Ok(agent_preset(route, &[], effort, asked_fast, true));
+            return Ok(agent_preset(route, &[], effort, asked_fast, asked_auto, true));
         }
-        return Ok(direct_model_preset(args, provider, model, asked_effort.or(default_effort), asked_fast, defaults));
+        let direct_auto = asked_auto
+            .or_else(|| defaults.and_then(mixdog_ai::effort::EffortAuto::read_explicit_value))
+            .unwrap_or_else(|| mixdog_ai::effort::EffortAuto::default_for_new(legacy_switch_on));
+        return Ok(direct_model_preset(args, provider, model, asked_effort.or(default_effort), asked_fast, direct_auto, defaults));
     }
 
     if let (Some(route), Some(chain)) = (&agent_route, &agent_chain) {
         let effort = Some(clean(route.get("effort"))).filter(|e| !e.is_empty());
-        return Ok(agent_preset(route, chain, effort, None, false));
+        return Ok(agent_preset(route, chain, effort, None, None, false));
     }
 
     let main = if named.is_empty() { preset_in(config, config.get("default")) } else { None };
@@ -300,6 +321,7 @@ fn direct_model_preset(
     model: String,
     effort: Option<String>,
     asked_fast: Option<bool>,
+    effort_auto: mixdog_ai::effort::EffortAuto,
     defaults: Option<&Value>,
 ) -> SpawnPreset {
     let arg = |key: &str| args.get(key);
@@ -314,9 +336,7 @@ fn direct_model_preset(
     }
     let fast = asked_fast.unwrap_or_else(|| defaults.and_then(|d| d.get("fast")) == Some(&Value::Bool(true)));
     preset.insert("fast".into(), fast.into());
-    if arg("autoEffort") == Some(&Value::Bool(false)) {
-        preset.insert("autoEffort".into(), false.into());
-    }
+    effort_auto.write_to(&mut preset);
     preset.insert("tools".into(), "full".into());
     let name = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
     SpawnPreset { preset_name: name, preset: Value::Object(preset) }
@@ -379,10 +399,14 @@ pub fn bound_preset_for_session(planned: &Value, session: &Value) -> Value {
     } else if route_changed {
         bound.insert("fast".into(), Value::Bool(false));
     }
-    if session.get("autoEffort") == Some(&Value::Bool(false)) {
-        bound.insert("autoEffort".into(), Value::Bool(false));
-    } else if session.get("autoEffort").is_some() || route_changed {
-        bound.shift_remove("autoEffort");
+    if let Some(mode) = mixdog_ai::effort::EffortAuto::read_explicit_value(session) {
+        mode.write_to(&mut bound);
+    } else if let Some(Value::Bool(legacy)) = session.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+        bound.shift_remove(mixdog_ai::effort::EffortAuto::KEY);
+        bound.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(*legacy));
+    } else if route_changed {
+        bound.shift_remove(mixdog_ai::effort::EffortAuto::KEY);
+        bound.shift_remove(mixdog_ai::effort::EffortAuto::LEGACY_KEY);
     }
     if let Some(params) = session.get("modelParameters") {
         if params.is_object() {
@@ -426,9 +450,7 @@ pub fn preset_descriptor(agent: &str, preset: &Value, preset_name: &Value) -> Ob
     let effort = preset.get("effort");
     out.insert("effort".into(), if truthy(effort) { effort.cloned().unwrap_or(Value::Null) } else { Value::Null });
     out.insert("fast".into(), (preset.get("fast") == Some(&Value::Bool(true))).into());
-    if preset.get("autoEffort") == Some(&Value::Bool(false)) {
-        out.insert("autoEffort".into(), false.into());
-    }
+    mixdog_ai::effort::EffortAuto::carry_field(preset, &mut out);
     out
 }
 
@@ -450,7 +472,7 @@ pub fn prepared_spawn_meta(tag: &str, session_id: &str, agent: &str, preset: &Va
         fast: Some(preset.get("fast") == Some(&Value::Bool(true))),
         respawned,
         resumed: false,
-        auto_effort_off: preset.get("autoEffort") == Some(&Value::Bool(false)),
+        effort_auto: mixdog_ai::effort::EffortAuto::read_explicit_value(preset),
     }
 }
 
@@ -479,19 +501,86 @@ pub fn pending_spawn_meta(args: &Value, resolved: Option<&Value>, respawned: boo
         fast: (args.get("fast") == Some(&Value::Bool(true)) || resolved.and_then(|r| r.get("fast")) == Some(&Value::Bool(true))).then_some(true),
         respawned,
         resumed: false,
-        auto_effort_off: false,
+        effort_auto: resolved.and_then(mixdog_ai::effort::EffortAuto::read_explicit_value),
     }
 }
 
 /// `mergeJobMeta(job, preparedSpawnMeta(..))`: the prepared spawn's meta over the pending card's.
 /// A prepared meta defines every identity key (an unset one is `null`, which still replaces), so
-/// those come from the update; the flags (`respawned`, `resumed`, `autoEffort: false`) only ever
-/// get added.
+/// those come from the update; the flags (`respawned`, `resumed`, explicit `effortAuto`) are kept.
 pub fn merge_prepared_meta(job: &JobMeta, prepared: &JobMeta) -> JobMeta {
     JobMeta {
         respawned: prepared.respawned || job.respawned,
         resumed: prepared.resumed || job.resumed,
-        auto_effort_off: prepared.auto_effort_off || job.auto_effort_off,
+        effort_auto: prepared.effort_auto.or(job.effort_auto),
         ..prepared.clone()
+    }
+}
+
+#[cfg(test)]
+mod auto_effort_tests {
+    use super::*;
+    use mixdog_ai::effort::EffortAuto;
+    use serde_json::json;
+
+    #[test]
+    fn shipped_presets_follow_legacy_switch_and_direct_spawns_respect_explicit_choice() {
+        let on = json!({ "modules": { "autoEffort": { "enabled": true } } }).as_object().cloned().unwrap();
+        let off = json!({ "modules": { "autoEffort": { "enabled": false } } }).as_object().cloned().unwrap();
+        for name in ["haiku", "sonnet-mid", "sonnet-high", "opus-mid", "opus-high", "opus-xhigh"] {
+            let resolved_on = resolve_agent_spawn_preset(&on, &json!({ "preset": name }), &[]).expect(name);
+            assert_eq!(resolved_on.preset["effortAuto"], json!(true), "{name} takes creation default true when switch is on");
+            assert!(resolved_on.preset.get("autoEffort").is_none());
+
+            let resolved_off = resolve_agent_spawn_preset(&off, &json!({ "preset": name }), &[]).expect(name);
+            assert_eq!(resolved_off.preset["effortAuto"], json!(false), "{name} takes creation default false when switch is off");
+            assert!(resolved_off.preset.get("autoEffort").is_none());
+        }
+
+        let direct_default_on = resolve_agent_spawn_preset(&on, &json!({ "provider": "openai", "model": "gpt-5" }), &[]).unwrap();
+        assert_eq!(direct_default_on.preset["effortAuto"], json!(true));
+        let direct_default_off = resolve_agent_spawn_preset(&off, &json!({ "provider": "openai", "model": "gpt-5" }), &[]).unwrap();
+        assert_eq!(direct_default_off.preset["effortAuto"], json!(false));
+
+        let direct = resolve_agent_spawn_preset(&on, &json!({ "provider": "openai", "model": "gpt-5", "effort": "high" }), &[]).unwrap();
+        assert_eq!((&direct.preset["effort"], &direct.preset["effortAuto"]), (&json!("high"), &json!(false)));
+
+        let direct_auto = resolve_agent_spawn_preset(&off, &json!({ "provider": "openai", "model": "gpt-5", "effort": "auto" }), &[]).unwrap();
+        assert_eq!((direct_auto.preset.get("effort"), &direct_auto.preset["effortAuto"]), (None, &json!(true)));
+
+        let candidates = [json!({ "provider": "openai", "model": "gpt-5", "effortAuto": true })];
+        let override_effort =
+            resolve_agent_spawn_preset(&on, &json!({ "agent": "worker", "provider": "openai", "model": "gpt-5", "effort": "low" }), &candidates).unwrap();
+        assert_eq!((&override_effort.preset["effort"], &override_effort.preset["effortAuto"]), (&json!("low"), &json!(false)));
+    }
+
+    #[test]
+    fn explicit_effort_auto_states_survive_spawn_preset_and_meta() {
+        let config = Obj::new();
+        for (label, state) in [("auto", EffortAuto::Auto), ("manual", EffortAuto::Manual)] {
+            let mut candidate = json!({ "provider": "openai", "model": "gpt-5", "effort": "high" });
+            state.write_to(candidate.as_object_mut().unwrap());
+
+            let normalized = normalize_agent_route(Some(&candidate)).expect("normalized");
+            assert_eq!(EffortAuto::read_explicit(&normalized), Some(state), "normalize_agent_route preserves {label}");
+
+            let resolved = resolve_agent_spawn_preset(&config, &json!({ "agent": "worker" }), &[candidate.clone()]).expect("resolved");
+            assert_eq!(EffortAuto::read_explicit_value(&resolved.preset), Some(state), "resolve_agent_spawn_preset preserves {label}");
+
+            let descriptor = preset_descriptor("worker", &resolved.preset, &resolved.preset_name);
+            assert_eq!(EffortAuto::read_explicit(&descriptor), Some(state), "preset_descriptor preserves {label}");
+
+            let prepared = prepared_spawn_meta("w1", "sess_w1", "worker", &resolved.preset, &resolved.preset_name, false);
+            assert_eq!(prepared.effort_auto, Some(state), "prepared_spawn_meta preserves {label}");
+
+            let pending = pending_spawn_meta(&json!({ "agent": "worker" }), Some(&resolved.preset), false);
+            let merged = merge_prepared_meta(&pending, &prepared);
+            assert_eq!(merged.effort_auto, Some(state), "merge_prepared_meta preserves {label}");
+
+            let mut session = json!({ "provider": "anthropic", "model": "opus", "effort": "low" });
+            state.write_to(session.as_object_mut().unwrap());
+            let bound = bound_preset_for_session(&resolved.preset, &session);
+            assert_eq!(EffortAuto::read_explicit_value(&bound), Some(state), "bound_preset_for_session preserves {label}");
+        }
     }
 }

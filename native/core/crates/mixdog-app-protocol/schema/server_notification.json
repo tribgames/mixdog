@@ -4884,6 +4884,12 @@
             "null"
           ]
         },
+        "effortAuto": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "effortOptions": {
           "items": true,
           "type": [

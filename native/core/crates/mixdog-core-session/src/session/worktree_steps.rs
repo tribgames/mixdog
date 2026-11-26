@@ -191,7 +191,7 @@ impl Inner {
         let (branch, create) = branch_choice;
         let project_path = previous.project_path.clone();
         let project = self.ops.inspect(&project_path, cancel).await?;
-        let resolved = self.ops.resolve_branch(&project_path, branch, create, TxScope { session, tx_id }, options.confirm_large, cancel).await?;
+        let resolved = self.ops.resolve_branch(&project_path, branch, create, None, TxScope { session, tx_id }, options.confirm_large, cancel).await?;
         let entry = resolved.entry;
         if let Some(entry) = &entry {
             journal.push(self.release_undo(&entry.id, session, resolved.reference_added));

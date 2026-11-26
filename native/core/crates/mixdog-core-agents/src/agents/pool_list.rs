@@ -55,7 +55,7 @@ static YEAR_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^
 static STORED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(SESSION_ID_PATTERN.0, SESSION_ID_PATTERN.1));
 
 /// The header fields the pool reads of a worker session record (`WORKER_HEADER_FIELDS`).
-pub const HEADER_FIELDS: [&str; 34] = [
+pub const HEADER_FIELDS: [&str; 35] = [
     "owner",
     "agent",
     "sourceType",
@@ -68,6 +68,7 @@ pub const HEADER_FIELDS: [&str; 34] = [
     "fast",
     "modelParameters",
     "autoEffort",
+    "effortAuto",
     "createdAt",
     "updatedAt",
     "cwd",
@@ -570,11 +571,11 @@ impl Assembly<'_> {
         if let Some(request) = &request_route {
             out.insert("routeObserved".into(), Value::Bool(true));
             // A header for another route (e.g. during a hop) cannot describe this request's Auto setting.
-            if session.is_some_and(|saved| ["provider", "model"].iter().all(|key| saved.get(*key) == request.get(*key))) {
-                out.insert("autoEffort".into(), Value::Bool(session_get("autoEffort") != Some(&Value::Bool(false))));
+            if let Some(saved) = session.filter(|saved| ["provider", "model"].iter().all(|key| saved.get(*key) == request.get(*key))) {
+                mixdog_ai::effort::EffortAuto::carry_field_map(saved, &mut out);
             }
-        } else if route_get("autoEffort") == Some(&Value::Bool(false)) {
-            out.insert("autoEffort".into(), Value::Bool(false));
+        } else if let Some(r) = route {
+            mixdog_ai::effort::EffortAuto::carry_field_map(r, &mut out);
         }
         out.insert("status".into(), json!(shown_status));
         out.insert("stage".into(), json!(shown_stage));
@@ -661,9 +662,7 @@ impl Assembly<'_> {
             out.insert(key.into(), text_or_null(clean_value(row.get(key))));
         }
         out.insert("fast".into(), Value::Bool(row.get("fast") == Some(&Value::Bool(true))));
-        if row.get("autoEffort") == Some(&Value::Bool(false)) {
-            out.insert("autoEffort".into(), Value::Bool(false));
-        }
+        mixdog_ai::effort::EffortAuto::carry_field_map(row, &mut out);
         out.insert("status".into(), json!(shown));
         out.insert("stage".into(), json!(shown));
         if working {

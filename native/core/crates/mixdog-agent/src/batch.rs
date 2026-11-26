@@ -21,7 +21,7 @@ use mixdog_rt::TaskClass;
 
 use mixdog_core_api::domain::tool::ToolOutput;
 
-use crate::barriers::{invalidates_reuse, is_mutation, uses_result_cache};
+use crate::barriers::{invalidates_reuse, may_affect_read, uses_result_cache};
 use crate::env::GateCall;
 use crate::env::ReuseKind;
 use crate::env::ReuseWrite;
@@ -89,10 +89,11 @@ pub(crate) struct Settle {
 }
 
 /// Whether a streamed run's result is the one a host keeps for its call until the call's row commits (it recovers the
-/// call by it): a read from before a change must not be recovered as the read after it. The batch decides it, where it
-/// decides whether it takes the run's result or runs the call again (`kept` in [`Run::process_tool_batch`]), from the
-/// calls before it that run, or answers the call without it ([`Run::pass`]). A call the stream handed over behind a call
-/// that may change what it reads is undecided until then: whether that call runs at all is the batch's to say.
+/// call by it): a read from before a change that may affect it must not be recovered as the read after it. The batch
+/// decides it, where it decides whether it takes the run's result or runs the call again (`kept` in
+/// [`Run::process_tool_batch`]), from the calls before it that run, or answers the call without it ([`Run::pass`]). A
+/// call the stream handed over behind a call that may change what it reads is undecided until then: whether that call
+/// runs at all is the batch's to say.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Standing {
     /// The call's result: told as its early result.
@@ -186,8 +187,8 @@ fn edit_key(call: &ToolCall) -> Option<String> {
     Some(format!("{}\u{0}{}", a.get("file_path")?.as_str()?, a.get("old_string")?.as_str()?))
 }
 
-async fn run_one(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, group: Option<EditGroup>) -> Executed {
-    let executed = crate::tools::execute_call_at(call.clone(), Arc::clone(&env), cwd, None).await;
+async fn run_one(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, group: Option<EditGroup>, dispatch_started_at: Option<i64>) -> Executed {
+    let executed = crate::tools::execute_call_at(call.clone(), Arc::clone(&env), cwd, None, dispatch_started_at).await;
     retry_in_group(call, env, group, executed).await
 }
 
@@ -282,11 +283,16 @@ pub(crate) struct StepCalls {
 pub(crate) struct Decided<'a> {
     recorded: usize,
     runs: &'a [Option<bool>],
+    finished: &'a [bool],
 }
 
 impl Decided<'_> {
     fn of(&self, i: usize) -> Option<bool> {
         self.runs.get(i).copied().flatten()
+    }
+
+    fn is_finished(&self, i: usize) -> bool {
+        i < self.recorded || self.finished.get(i).copied().unwrap_or(false)
     }
 }
 
@@ -341,6 +347,7 @@ impl Run {
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
             prepared: false,
+            bypass_reuse: false,
             outside: self.outside,
             answer_by: self.answer_by.clone(),
             native_pdf: self.provider.native_pdf(),
@@ -357,6 +364,29 @@ impl Run {
         self.live_cwd().as_path().to_path_buf()
     }
 
+    /// Whether an earlier call of `step` that may run and invalidate result reuse has not yet finished.
+    fn has_unfinished_reuse_invalidator(&self, step: &StepCalls, decided: Decided<'_>, k: usize) -> bool {
+        (0..k).any(|i| {
+            !decided.is_finished(i)
+                && decided.of(i) != Some(false)
+                && !matches!(self.prejudge(step, i), Some(Decision::Skip(_)))
+                && invalidates_reuse(&step.calls[i].name, &step.calls[i].arguments)
+        })
+    }
+
+    /// Whether a read-type call `k` of `step` sits behind an earlier call that may run and touch what `k` reads.
+    fn behind_affecting_change(&self, step: &StepCalls, decided: Decided<'_>, k: usize, cwd: &std::path::Path) -> bool {
+        let call = &step.calls[k];
+        if !(self.tools.read_only(&call.name) || uses_result_cache(&call.name)) {
+            return false;
+        }
+        (0..k).any(|i| {
+            decided.of(i) != Some(false)
+                && invalidates_reuse(&step.calls[i].name, &step.calls[i].arguments)
+                && may_affect_read(&step.calls[i].name, &step.calls[i].arguments, &call.name, &call.arguments, cwd)
+        })
+    }
+
     /// The call `k` of `step` as it will run (a `call_tool` as its target) when nothing in the batch could answer it
     /// differently: no limit, no answer the batch gives it before the repeat guards ([`Self::prejudge`]), no twin, receipt
     /// or cached body, and no repeat guard that could answer it. For a read that is a guard refusing it now: a read started
@@ -365,7 +395,7 @@ impl Run {
     /// will decide them by its rules, and a changing call before it that may still start ([`Self::clears_the_way`]): changing
     /// calls start in call order, each with every changing call before it in the barriers it waits on. `None` leaves it to the
     /// serial batch.
-    async fn admit_eager(&self, step: &StepCalls, k: usize, decided: Decided<'_>, cwd: &AbsPath) -> Option<ToolCall> {
+    async fn admit_eager(&self, step: &StepCalls, k: usize, decided: Decided<'_>, cwd: &AbsPath, bypass_reuse: bool) -> Option<ToolCall> {
         let call = &step.calls[k];
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
@@ -379,8 +409,10 @@ impl Run {
             return None;
         }
         let name = &call.name;
-        let changes = !self.tools.read_only(name);
-        if (uses_result_cache(name) && self.barriers.has_reuse_invalidator()) || (changes && !(0..k).all(|i| self.clears_the_way(step, decided, i))) {
+        let changes = !self.tools.read_only(name) && !uses_result_cache(name);
+        if (uses_result_cache(name) && self.barriers.has_reuse_invalidator_for(name, &call.arguments, cwd.as_path()))
+            || (changes && !(0..k).all(|i| self.clears_the_way(step, decided, i)))
+        {
             return None;
         }
         self.env.gate.refresh_policy(&GateCall::new(name.clone(), call.arguments.clone())).await;
@@ -393,7 +425,8 @@ impl Run {
             return None;
         }
         let dedup = self.tools.dedup_eligible(name) && (step.bridged[k] || self.tools.get(name).is_some());
-        if (dedup || uses_result_cache(name))
+        if !bypass_reuse
+            && (dedup || uses_result_cache(name))
             && let Some(reuse) = self.env.reuse.clone()
             && let Some(invocation) = self.tools.reuse_invocation(call)
             && reuse.has_candidate(&invocation, cwd.as_path()).await
@@ -407,16 +440,30 @@ impl Run {
     /// early), its outcome is recorded, or the batch decided not to run it.
     fn clears_the_way(&self, step: &StepCalls, decided: Decided<'_>, i: usize) -> bool {
         let call = &step.calls[i];
-        self.tools.read_only(&call.name) || i < decided.recorded || decided.of(i) == Some(false) || self.eager_started.iter().any(|e| e.id == call.id)
+        self.tools.read_only(&call.name)
+            || uses_result_cache(&call.name)
+            || i < decided.recorded
+            || decided.of(i) == Some(false)
+            || self.eager_started.iter().any(|e| e.id == call.id)
     }
 
     /// Starts the call `k` of `step` (`call` as the wire carries it) ahead of the batch's decision, as the provider streams
     /// it or as the batch starts what it decided, when [`Self::admit_eager`] admits it. A call that did not start here is
     /// decided by the serial batch. `cwd` is the session's folder the caller read for this start: the calls one start takes
     /// together are prepared in order from one read, so a sibling's Project switch landing meanwhile moves none of them.
-    pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath, step: &StepCalls, k: usize, decided: Decided<'_>) {
-        let behind = self.behind_a_change(call);
-        let Some(exec) = self.admit_eager(step, k, decided, cwd).await else { return };
+    pub(crate) async fn try_eager(
+        &mut self,
+        call: &ToolCall,
+        cwd: &AbsPath,
+        step: &StepCalls,
+        k: usize,
+        decided: Decided<'_>,
+        dispatch_started_at: Option<i64>,
+    ) {
+        let queued_at = dispatch_started_at.unwrap_or_else(|| self.env.clock.now_ms());
+        let behind = self.behind_affecting_change(step, decided, k, cwd.as_path());
+        let bypass_reuse = self.has_unfinished_reuse_invalidator(step, decided, k);
+        let Some(exec) = self.admit_eager(step, k, decided, cwd, bypass_reuse).await else { return };
         let name = exec.name.clone();
         let mut env = self.call_env();
         let id = call.id.clone();
@@ -430,6 +477,9 @@ impl Run {
             && crate::env::or_cancelled(&self.cancel, mcp.refresh()).await.is_some()
         {
             Arc::get_mut(&mut env).expect("a call's own environment").prepared = true;
+        }
+        if bypass_reuse {
+            Arc::get_mut(&mut env).expect("a call's own environment").bypass_reuse = true;
         }
         let waits = !preceding.ids().is_empty();
         let (finished, done) = tokio::sync::watch::channel(false);
@@ -452,9 +502,8 @@ impl Run {
         let mut gate = self.settle_gate.subscribe();
         let identity = self.trace_identity();
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
-            let dispatch_started_at = env.clock.now_ms();
             let executed = match preceding.wait(&exec.name).await {
-                Some(text) => crate::tools::stamp_timing(Executed::skipped(&exec.id, text), dispatch_started_at, env.clock.as_ref()),
+                Some(text) => crate::tools::stamp_timing(Executed::skipped(&exec.id, text), queued_at, env.clock.as_ref()),
                 None => {
                     #[cfg(feature = "test-support")]
                     if let Some(key) = &key {
@@ -467,7 +516,7 @@ impl Run {
                         turn.ready().await;
                     }
                     let cwd = if waits { env.cwd_now() } else { start_cwd };
-                    crate::tools::execute_call_at(exec, env, cwd, None).await
+                    crate::tools::execute_call_at(exec, env, cwd, None, Some(queued_at)).await
                 }
             };
             if executed.conflict {
@@ -499,27 +548,8 @@ impl Run {
             drop(settler);
             executed
         });
-        self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) });
+        self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) || uses_result_cache(&name) });
         self.eager.insert(id, handle);
-    }
-
-    /// Whether `call` is a read the stream handed over behind a call of this turn that would change what it reads, if
-    /// that call runs. Whether it runs is the batch's to say (a call the session's surface denies does not), and with
-    /// it whether this read is run again: until then the read's streamed run is undecided ([`Standing`]). Answered the
-    /// first time the call is seen, in the order the calls were handed over.
-    fn behind_a_change(&mut self, call: &ToolCall) -> bool {
-        if let Some(behind) = self.streamed_behind.get(&call.id) {
-            return *behind;
-        }
-        let (exec, _, _) = self.execution_view(std::slice::from_ref(call));
-        let exec = &exec[0];
-        let (mutation, invalidator) = self.streamed_changes;
-        let behind = if uses_result_cache(&exec.name) { invalidator } else { mutation && self.tools.read_only(&exec.name) };
-        self.streamed_changes = (mutation || is_mutation(&exec.name, &exec.arguments), invalidator || invalidates_reuse(&exec.name, &exec.arguments));
-        if !call.id.is_empty() {
-            self.streamed_behind.insert(call.id.clone(), behind);
-        }
-        behind
     }
 
     /// Eager results of a dead attempt are dropped before the next attempt. A read is wound down; a write that started
@@ -535,8 +565,6 @@ impl Run {
         self.eager_started.clear();
         self.barriers.clear();
         self.streamed_ids.clear();
-        self.streamed_changes = (false, false);
-        self.streamed_behind.clear();
     }
 
     /// The batch is over, or its turn was cancelled. A started call no listed call consumed (the provider ran a
@@ -549,8 +577,6 @@ impl Run {
         self.eager_started.clear();
         self.barriers.clear();
         self.streamed_ids.clear();
-        self.streamed_changes = (false, false);
-        self.streamed_behind.clear();
     }
 
     /// Whether the stream of the request in flight handed this complete call over, admitted for an eager run or not.
@@ -681,6 +707,7 @@ impl Run {
     }
 
     pub(crate) async fn process_tool_batch(&mut self, wire_calls: &[ToolCall], allowed: u64) -> Result<(), AgentError> {
+        let batch_started_at = self.env.clock.now_ms();
         let n = wire_calls.len();
         let step = self.step_calls(wire_calls);
         let (calls, bridged) = (&step.calls, &step.bridged);
@@ -785,22 +812,22 @@ impl Run {
                     continue;
                 }
                 let started_in = self.live_cwd();
+                let decided = Decided { recorded, runs: &runs, finished: &finished };
                 for (k, wire_call) in wire_calls.iter().enumerate().skip(j) {
-                    self.try_eager(wire_call, &started_in, &step, k, Decided { recorded, runs: &runs }).await;
+                    self.try_eager(wire_call, &started_in, &step, k, decided, Some(batch_started_at)).await;
                 }
                 let call = calls[j].clone();
                 let read_only = self.tools.get(&call.name).is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
                     || (bridged[j] && self.tools.read_only(&call.name));
                 let reuse_candidate = uses_result_cache(&call.name);
-                let intervening = (0..j).any(|i| {
+                let read_like = read_only || reuse_candidate;
+                let affects = |i: usize| {
                     !skipped[i]
-                        && if reuse_candidate {
-                            invalidates_reuse(&calls[i].name, &calls[i].arguments)
-                        } else {
-                            is_mutation(&calls[i].name, &calls[i].arguments)
-                        }
-                });
-                let kept = self.eager.contains_key(&call.id) && (!(read_only || reuse_candidate) || !intervening);
+                        && invalidates_reuse(&calls[i].name, &calls[i].arguments)
+                        && may_affect_read(&calls[i].name, &calls[i].arguments, &call.name, &call.arguments, &cwd)
+                };
+                let intervening = read_like && (0..j).any(affects);
+                let kept = self.eager.contains_key(&call.id) && (!read_like || !intervening);
                 // The one place a streamed run's standing is decided, from the same answer the rerun is: every call before
                 // this one has been decided by now, so `intervening` counts those that run.
                 if self.eager.contains_key(&call.id)
@@ -818,7 +845,8 @@ impl Run {
                         }
                     }
                 }
-                if !kept && !(0..j).all(|i| finished[i]) {
+                let held_by_earlier = if read_like { (0..j).any(|i| !finished[i] && affects(i)) } else { !(0..j).all(|i| finished[i]) };
+                if !kept && held_by_earlier {
                     continue;
                 }
                 started[j] = true;
@@ -856,7 +884,14 @@ impl Run {
                         (j, retry_in_group(call, env, group, result).await)
                     }));
                 } else {
-                    let env = Arc::clone(&env);
+                    let bypass_reuse = self.has_unfinished_reuse_invalidator(&step, decided, j);
+                    let call_env = if bypass_reuse {
+                        let mut custom = self.call_env();
+                        Arc::get_mut(&mut custom).expect("a call's own environment").bypass_reuse = true;
+                        custom
+                    } else {
+                        Arc::clone(&env)
+                    };
                     let announce = !rerun && !crate::tools::is_invalid_args_marker(&call.arguments);
                     if announce {
                         streamed.insert(j);
@@ -864,7 +899,7 @@ impl Run {
                     let (observer, identity, id) = (Arc::clone(&self.env.observer), self.trace_identity(), call.id.clone());
                     let generation = observer.send_generation();
                     let task = mixdog_rt::spawn("agent.call", TaskClass::Work, async move {
-                        let executed = run_one(call, env, execution_cwd, group).await;
+                        let executed = run_one(call, call_env, execution_cwd, group, Some(batch_started_at)).await;
                         if announce && executed.cache_hit.is_none() {
                             mixdog_rt::turn_trace!("[turn] {identity} phase=tool-finished call={id} failed={} tool_ms={}", executed.failed, executed.tool_ms);
                             observer.early_result_of(generation, early_result(&id, &executed));

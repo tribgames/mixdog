@@ -180,6 +180,9 @@ pub struct RemoteCapabilities {
     pub project_recovery: bool,
     /// `autoEffort` in model selections.
     pub route_auto_effort: bool,
+    /// `effortAuto` in model selections; a host offering only `routeAutoEffort` rejects that key.
+    #[serde(default)]
+    pub route_effort_auto: bool,
     /// The agent visualize panel.
     pub visualize: bool,
     /// The host file download lane (`transfer/*`).

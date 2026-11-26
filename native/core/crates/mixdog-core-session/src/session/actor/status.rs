@@ -221,16 +221,20 @@ impl SessionActor {
         let pass = self.next_status_pass();
         let (seq, jobs, gauge, thread) = (self.route_moves, self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
         tokio::spawn(async move {
-            let status = match mixdog_rt::time::timeout(ROUTE_STATUS_DEADLINE, gauge.context_status_for(thread.clone(), header)).await {
-                Ok(Ok(status)) if status.is_object() => Some(status),
-                Ok(Ok(_)) => None,
-                Ok(Err(error)) => {
+            use futures::FutureExt;
+            let read = mixdog_rt::time::timeout(ROUTE_STATUS_DEADLINE, gauge.context_status_for(thread.clone(), header));
+            // A read that panics is answered too: the move, and every header write queued behind it, would otherwise wait forever.
+            let status = match std::panic::AssertUnwindSafe(read).catch_unwind().await {
+                Err(_) => Err(CoreError::Internal { incident_id: "route-status-panicked".into() }),
+                Ok(Ok(Ok(status))) if status.is_object() => Ok(Some(status)),
+                Ok(Ok(Ok(_))) => Ok(None),
+                Ok(Ok(Err(error))) => {
                     tracing::warn!(thread = %thread, "the route move's context status failed: {error:?}");
-                    None
+                    Ok(None)
                 }
-                Err(_) => {
+                Ok(Err(_)) => {
                     tracing::warn!(thread = %thread, "the route move's context status missed its {}s deadline", ROUTE_STATUS_DEADLINE.as_secs());
-                    None
+                    Ok(None)
                 }
             };
             let _ = jobs.send(JobDone::RouteStatus { seq, status });
@@ -238,9 +242,18 @@ impl SessionActor {
         self.route_move = Some(PendingMove { seq, pass, apply });
     }
 
-    /// The pending route move `seq` read its figures (`None`: the read failed): the move is written now, with them.
-    pub(super) fn route_status_read(&mut self, seq: u64, status: Option<Value>) {
+    /// The pending route move `seq` read its figures (`Ok(None)`: the read failed): the move is written now, with them. A read
+    /// that panicked refuses the move, as a header update that panics is refused.
+    pub(super) fn route_status_read(&mut self, seq: u64, status: Result<Option<Value>, CoreError>) {
         let Some(pending) = self.route_move.take_if(|pending| pending.seq == seq) else { return };
+        let status = match status {
+            Ok(status) => status,
+            Err(error) => {
+                let (MoveApply::Request { tx, .. } | MoveApply::Change { tx, .. }) = pending.apply;
+                let _ = tx.send(Err(error));
+                return;
+            }
+        };
         self.route_status = Some(status.map(|status| (pending.pass, status)));
         match pending.apply {
             MoveApply::Request { req, tx } => self.on_inbox(Inbox::Request { req, tx }),

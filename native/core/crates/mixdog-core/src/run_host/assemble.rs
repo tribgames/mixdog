@@ -13,7 +13,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::env::{Clock, Compactor, RouteFallback, SkillSelector, TurnGuards};
-use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_agent::todo::{TodoGuards, TodoView};
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{RunCarry, RunConfig};
@@ -26,7 +25,7 @@ use mixdog_core_api::domain::tool::{SurfaceKind, Tool, ToolIo};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_protocol::TurnError;
-use mixdog_services::effort_judge::judge::{EffortJudge, EffortJudgeModel};
+use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use serde_json::{Value, json};
@@ -527,6 +526,8 @@ fn sizing_key(settings: Option<&mixdog_agent::boundary::CompactSettings>) -> u64
     let Some(s) = settings else { return 0 };
     let optional = |value: Option<u64>| value.unwrap_or(u64::MAX);
     let words = [
+        u64::from(s.auto),
+        u64::from(s.agent_owner),
         optional(s.context_window),
         optional(s.explicit_boundary),
         optional(s.auto_limit),
@@ -929,10 +930,11 @@ impl HostRunParts {
         let (thread, header) = (source.thread, source.header);
         let cwd = cwd_of(header)?;
         let tool_set = self.run_tools(thread, header, source.surface).await?;
-        let effort = match (&s.settings.first_auto_effort, source.first_send) {
+        let judged = match (&s.settings.first_auto_effort, source.first_send) {
             (Some(auto), Some(cancel)) => auto.first_request_effort(thread.as_str(), header, source.prior, source.request, source.injected, cancel).await,
             _ => None,
         };
+        let effort = judged.map(|(effort, _)| effort);
         let settings = super::settings::merge_settings(
             seams.run_settings(thread, header),
             &s.settings,
@@ -946,7 +948,7 @@ impl HostRunParts {
                 tools: &tool_set.definitions(),
                 now_ms: s.clock.now_ms(),
             },
-            effort,
+            judged,
         );
         let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
         apply_identity(&mut options, thread, header, source.turn);
@@ -957,6 +959,10 @@ impl HostRunParts {
         options.model_max_output_tokens = settings.model_max_output_tokens;
         options.provider_state = source.provider_state;
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is gone"))?;
+        // Only delegated sub-agents compact on cache expiry inside the send loop; Lead sessions use idle auto-clear
+        // before a submit or wake.
+        let allow_cold_rebuild = super::compaction_world::is_agent_owner(header) && settings.compact.as_ref().is_some_and(|c| c.auto);
+        let auto_clear = if allow_cold_rebuild { settings.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true)) } else { Arc::new(|| false) };
         options.tail_gate = Some(directory.deps().cache_tail.gate(
             thread.as_str(),
             header.get("cacheTailBook"),
@@ -965,7 +971,7 @@ impl HostRunParts {
                     let clock = s.clock.clone();
                     Arc::new(move || clock.now_ms())
                 },
-                auto_clear: settings.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true)),
+                auto_clear,
                 sizing: sizing_key(settings.compact.as_ref()),
                 // Nothing of this session was sent before: no stored rows ahead of this request and no recorded send.
                 fresh: source.prior.is_empty() && header.get("lastProviderSendAt").is_none(),
@@ -1015,17 +1021,19 @@ impl HostRunParts {
                 let ceiling = ceilings.ceilings(text(header, "provider"), text(header, "model"), header);
                 options.model_max_output_tokens = ceiling.model_max;
                 let run = seams.run_settings(&thread, header);
-                let auto_clear = run.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true));
+                let agent_owner = super::compaction_world::is_agent_owner(header);
+                let base_auto_clear = run.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true));
                 let (session, book, clock) = (thread.clone(), header.get("cacheTailBook").cloned(), clock.clone());
                 let tail_gate = directory.upgrade().map(|directory| -> mixdog_agent::env::TailGateFor {
                     Arc::new(move |compact: Option<&mixdog_agent::boundary::CompactSettings>| {
                         let clock = clock.clone();
+                        let auto_clear = if agent_owner && compact.is_some_and(|c| c.auto) { base_auto_clear.clone() } else { Arc::new(|| false) };
                         directory.deps().cache_tail.gate(
                             session.as_str(),
                             book.as_ref(),
                             mixdog_ai::cache_tail::GateSettings {
                                 clock: Arc::new(move || clock.now_ms()),
-                                auto_clear: auto_clear.clone(),
+                                auto_clear,
                                 sizing: sizing_key(compact),
                                 fresh: false,
                                 last_send_at: None,
@@ -1046,31 +1054,6 @@ impl HostRunParts {
             hop = hop.with_cancel(Arc::new(TokenCancel(cancel.clone())));
         }
         Some((Arc::new(hop), switch_bus))
-    }
-
-    /// The step judge exists only when auto effort is on for the turn and the shared model has a calibration made for steps.
-    async fn step_judge(
-        &self,
-        thread: &ThreadId,
-        header: &Header,
-        provider_id: &str,
-        requested: Option<mixdog_agent::step_effort::StepAutoEffort>,
-    ) -> (Option<mixdog_agent::step_effort::StepAutoEffort>, Option<Arc<dyn StepEffortJudge>>) {
-        let s = &self.services;
-        let step_auto_effort = match (requested, &s.effort_judge) {
-            (Some(auto), Some(model)) if model.supports_steps().await => Some(auto),
-            _ => None,
-        };
-        let step_judge = match &step_auto_effort {
-            Some(auto) => match s.seams.step_ladder_facts(thread, header, auto).await {
-                Some(facts) => super::step_judge::ladder_for(provider_id, auto, facts)
-                    .zip(s.effort_judge.clone())
-                    .map(|(ladder, model)| Arc::new(EffortJudge::new(model, ladder)) as Arc<dyn StepEffortJudge>),
-                None => None,
-            },
-            None => None,
-        };
-        (step_auto_effort, step_judge)
     }
 
     /// The gate is built by the factory from the run's observer and token, which exist only after assembly.
@@ -1608,6 +1591,7 @@ impl RunParts for HostRunParts {
             handoff_budget_tokens: policy.as_ref().map_or(0, |policy| policy.target_budget()).max(super::inheritance_fit::MIN_COMPACT_BUDGET_TOKENS),
             context_tokens: settings.compact.as_ref().and_then(|settings| settings.last_context_tokens),
             compact: policy,
+            compact_settings: settings.compact.clone(),
             limits: settings.limits,
             skills: seams.skill_parts().map(|parts| {
                 struct MergedSkillNames {
@@ -1754,8 +1738,8 @@ impl HostRunParts {
         config.read_body_required = settings.read_body_required;
         config.vision = settings.vision;
         config.effort = settings.effort;
-        let (step_auto_effort, step_judge) = self.step_judge(thread, header, provider_id, settings.step_auto_effort).await;
-        config.step_auto_effort = step_auto_effort;
+        config.step_auto_effort = None;
+        let step_judge = None;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
         config.file_text = settings.file_text;

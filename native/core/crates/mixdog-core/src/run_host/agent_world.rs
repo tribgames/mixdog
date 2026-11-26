@@ -378,7 +378,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mixdog-config.json");
         let saved = serde_json::json!({
-            "agent": { "agents": { "maintainer": { "provider": "p", "model": "m" } }, "default": "lead", "presets": [{ "id": "lead" }] },
+            "agent": { "agents": { "maintainer": { "provider": "p", "model": "m", "effortAuto": false } }, "default": "lead", "presets": [{ "id": "lead", "effortAuto": false }] },
             "agents": { "greeted": true },
         });
         std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
@@ -387,9 +387,13 @@ mod tests {
         let (config, _) = Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
         let world = AgentWorld::new(config, Arc::new(Table), Arc::new(|_: &str| None), Arc::new(Epoch), Arc::new(|_| {}));
         let seen = world.config();
-        assert_eq!(world.route_candidates(&seen, "maintainer"), vec![serde_json::json!({ "provider": "p", "model": "m" })], "the Maintainer's route");
+        assert_eq!(
+            world.route_candidates(&seen, "maintainer"),
+            vec![serde_json::json!({ "provider": "p", "model": "m", "effortAuto": false })],
+            "the Maintainer's route"
+        );
         assert_eq!(seen.get("default"), Some(&serde_json::json!("lead")));
-        assert_eq!(seen.get("presets"), Some(&serde_json::json!([{ "id": "lead" }])));
+        assert_eq!(seen.get("presets"), Some(&serde_json::json!([{ "id": "lead", "effortAuto": false }])));
         assert!(seen.get("agent").is_none(), "the section itself, not the file that holds it");
     }
     #[tokio::test(start_paused = true)]

@@ -129,7 +129,7 @@ impl Client {
     }
 
     fn resume_from(&self, epoch: &FeedEpoch, window: &Window) -> Option<ResumeFrom> {
-        self.last.map(|seq| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: window.clone() })
+        self.last.map(|seq| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: window.clone(), positioned: None })
     }
 }
 
@@ -180,7 +180,7 @@ fn resume_case(limits: MockLimits, other_epoch: bool, seq: u64, resume_window: W
 
     let epoch = if other_epoch { FeedEpoch::from("ffffffffffffffffffffffffffffffff") } else { actor.feed.position().epoch };
     let client = Client::at(seq, KEYS);
-    let resume_from = ResumeFrom { position: FeedPosition { epoch, seq }, window: resume_window };
+    let resume_from = ResumeFrom { position: FeedPosition { epoch, seq }, window: resume_window, positioned: None };
     let conn = MockConnection::new(ConnectionId(2), limits);
     let decision = attach(&actor.feed, &conn, "new", window.clone(), Some(resume_from));
     let mut resumed = one("new", client);
@@ -344,7 +344,7 @@ fn reconnect_storm_encodes_each_snapshot_once() {
                     start.wait();
                     for (s, feed) in feeds.iter().enumerate() {
                         let sub = format!("c{c}-t{s}");
-                        let resume_from = ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: window.clone() };
+                        let resume_from = ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: window.clone(), positioned: None };
                         attach(feed, &conn, &sub, window.clone(), Some(resume_from));
                         clients.insert(SubscriptionId::from(sub), Client::at(seq, KEYS));
                     }
@@ -462,7 +462,7 @@ fn a_feed_nobody_watched_keeps_no_frame_its_view_describes() {
     actor.feed.detach(SubscriptionId::from("a"));
     actor.run_to(60);
     assert!(actor.feed.ring_held() > 0);
-    let resume = ResumeFrom { position: FeedPosition { epoch: actor.feed.position().epoch, seq: 40 }, window: Window::Fixed };
+    let resume = ResumeFrom { position: FeedPosition { epoch: actor.feed.position().epoch, seq: 40 }, window: Window::Fixed, positioned: None };
     let decision = attach(&actor.feed, &conn, "b", Window::Fixed, Some(resume));
     assert_eq!((decision.mode, decision.start_seq), (AttachMode::Replay, 41));
 }
@@ -480,7 +480,7 @@ fn a_resting_feed_keeps_no_frame_its_view_describes_and_serves_the_view_to_an_ol
     actor.feed.rest();
     assert_eq!(actor.feed.ring_held(), 0);
     let epoch = actor.feed.position().epoch;
-    let at = |seq| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: Window::Fixed };
+    let at = |seq| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: Window::Fixed, positioned: None };
     let decision = attach(&actor.feed, &conn, "head", Window::Fixed, Some(at(40)));
     assert_eq!((decision.mode, decision.start_seq), (AttachMode::Replay, 41));
     let decision = attach(&actor.feed, &conn, "older", Window::Fixed, Some(at(30)));
@@ -1049,5 +1049,289 @@ mod positioned {
         unit_of(&feed, 2, 9);
         assert_eq!(lanes(&a), ["a:reset@1", "a:rebased@1", "a:insert#12@1", "a:replace#9@1"], "a record of the old lineage is not sent");
         assert_eq!(lanes(&plain), ["p:reset@1"]);
+    }
+
+    fn positioned_resume(feed: &Arc<CoreFeed>, seq: u64, window: Window, sub_id: &str, window_version: u64) -> ResumeFrom {
+        ResumeFrom {
+            position: FeedPosition { epoch: feed.position().epoch, seq },
+            window,
+            positioned: Some(mixdog_core_api::feed::PositionedResume { subscription_id: SubscriptionId::from(sub_id), window_version }),
+        }
+    }
+
+    #[test]
+    fn positioned_short_drop_replays_missed_frames_and_deliveries_and_continues_grant() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        assert_eq!(lanes(&a), ["a:snap@0v0"]);
+
+        // Client pages up to hold 4..=5 alongside 8..=10 and tail from 11.
+        let v1 = regrant(&feed, "a", 0, ask(&[(4, 5), (8, 10)], Some(11)), "paged");
+        assert_eq!(v1, 1);
+        feed.publish(&[row(1)], None).unwrap();
+        unit(&feed, 11);
+        assert_eq!(lanes(&a), ["a:paged@0", "a:progress@1", "a:insert#11@1"]);
+
+        // Phone drops at seq 1, windowVersion 1.
+        feed.detach(sub("a"));
+
+        // Deliveries standing at seq 1, then frames 2..=3, then deliveries at seq 3.
+        unit(&feed, 12);
+        unit(&feed, 4);
+        unit(&feed, 6); // outside grant; must not be sent
+        feed.publish(&[row(2), FeedFrame::new(3, Bytes::from_static(b"evt@3"))], None).unwrap();
+        unit(&feed, 13);
+        unit(&feed, 12); // replace of the record inserted while disconnected
+
+        let b = MockConnection::new(ConnectionId(2), limits);
+        let resume = positioned_resume(&feed, 1, Window::Positioned(3), "a", v1);
+        let decision = attach(&feed, &b, "b", Window::Positioned(3), Some(resume));
+        assert_eq!((decision.mode, decision.start_seq, decision.live_seq), (AttachMode::Replay, 2, 4));
+        assert_eq!(lanes(&b), ["b:insert#11@1", "b:insert#12@1", "b:replace#4@1", "b:progress@2", "b:evt@3", "b:insert#13@3", "b:replace#12@3"]);
+
+        let continued = feed.grant(&sub("b")).expect("continued grant");
+        assert_eq!((continued.version, continued.tail_from), (v1, Some(14)));
+        assert!(continued.spans().contains(&(4, 5)), "scrolled-up range preserved");
+        assert!(continued.spans().contains(&(8, 10)), "initial range preserved");
+
+        // Subsequent regrant at the continued windowVersion succeeds and live deliveries work.
+        let v2 = regrant(&feed, "b", v1, ask(&[(4, 5), (8, 10)], Some(14)), "moved");
+        assert_eq!(v2, 3);
+        unit(&feed, 14);
+        unit(&feed, 4);
+        assert_eq!(lanes(&b), ["b:moved@3", "b:insert#14@3", "b:replace#4@3"]);
+    }
+
+    #[test]
+    fn positioned_replay_handles_half_open_previous_sub_and_back_to_back_drops() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        feed.publish(&[row(1)], None).unwrap();
+        assert_eq!(lanes(&a), ["a:snap@0v0", "a:progress@1"]);
+
+        // `a` stays half-open in `subs` while deliveries extend its tail at seq 1 and seq 2.
+        unit(&feed, 11);
+        feed.publish(&[row(2)], None).unwrap();
+        unit(&feed, 12);
+
+        let b = MockConnection::new(ConnectionId(2), limits);
+        let decision = attach(&feed, &b, "b", Window::Positioned(3), Some(positioned_resume(&feed, 1, Window::Positioned(3), "a", 0)));
+        assert_eq!((decision.mode, decision.start_seq, decision.live_seq), (AttachMode::Replay, 2, 3));
+        assert_eq!(lanes(&b), ["b:insert#11@1", "b:progress@2", "b:insert#12@2"]);
+
+        // `b` drops before the client folds anything, and more events arrive before reconnect `c`.
+        feed.detach(sub("b"));
+        feed.publish(&[row(3)], None).unwrap();
+        unit(&feed, 13);
+
+        let c = MockConnection::new(ConnectionId(3), limits);
+        let decision = attach(&feed, &c, "c", Window::Positioned(3), Some(positioned_resume(&feed, 1, Window::Positioned(3), "b", 0)));
+        assert_eq!((decision.mode, decision.start_seq, decision.live_seq), (AttachMode::Replay, 2, 4));
+        assert_eq!(lanes(&c), ["c:insert#11@1", "c:progress@2", "c:insert#12@2", "c:progress@3", "c:insert#13@3"]);
+    }
+
+    #[test]
+    fn positioned_rest_falls_back_when_head_delivery_was_dropped_and_replays_when_head_had_none() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        feed.publish(&[row(1)], None).unwrap();
+        // Final turn delivery at seq 1 into a connection that may already have died before rest().
+        unit(&feed, 11);
+        lanes(&a);
+
+        feed.rest();
+        assert_eq!(feed.ring_held(), 0);
+        // Reconnecting at seq 1 must fall back to a snapshot rather than silently skipping record 11.
+        let b = MockConnection::new(ConnectionId(2), limits);
+        let decision = attach(&feed, &b, "b", Window::Positioned(3), Some(positioned_resume(&feed, 1, Window::Positioned(3), "a", 0)));
+        assert_eq!((decision.mode, decision.start_seq), (AttachMode::Snapshot, 2));
+        assert_eq!(lanes(&b), ["b:snap@1v1"]);
+
+        // When a subsequent frame at seq 3 arrives after the last delivery (seq 2), resting leaves no
+        // undelivered record at seq 3, so a client that folded seq 3 can still replay at head.
+        feed.publish(&[row(2)], None).unwrap();
+        unit(&feed, 12);
+        feed.publish(&[row(3)], None).unwrap();
+        lanes(&b);
+        feed.rest();
+        assert_eq!(feed.ring_held(), 0);
+        feed.detach(sub("b"));
+
+        let c = MockConnection::new(ConnectionId(3), limits);
+        let decision = attach(&feed, &c, "c", Window::Positioned(3), Some(positioned_resume(&feed, 3, Window::Positioned(3), "b", 1)));
+        assert_eq!((decision.mode, decision.start_seq, decision.live_seq), (AttachMode::Replay, 4, 4));
+        assert!(lanes(&c).is_empty());
+
+        // Detaching before a rest clears the detached grant, so reconnect falls back to snapshot.
+        feed.detach(sub("c"));
+        feed.rest();
+        let d = MockConnection::new(ConnectionId(4), limits);
+        let decision = attach(&feed, &d, "d", Window::Positioned(3), Some(positioned_resume(&feed, 3, Window::Positioned(3), "c", 1)));
+        assert_eq!((decision.mode, decision.start_seq), (AttachMode::Snapshot, 4));
+        assert_eq!(lanes(&d), ["d:snap@3v3"]);
+    }
+
+    #[test]
+    fn positioned_deliver_encodes_only_forms_needed_by_retained_grants() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let record_deliver = |ordinal: u64| -> Vec<Held> {
+            let mut encoded = Vec::new();
+            feed.deliver(1, ordinal, &format!("p{ordinal}"), Some("before"), None, &mut |held, at| {
+                encoded.push(held);
+                let how = if held == Held::Tail { "insert" } else { "replace" };
+                Bytes::from(format!("{how}#{ordinal}@{}", at.seq))
+            });
+            encoded
+        };
+
+        // No positioned subscriber yet: nothing encoded.
+        assert!(record_deliver(9).is_empty());
+        assert!(record_deliver(11).is_empty());
+
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        lanes(&a);
+
+        assert!(record_deliver(6).is_empty(), "record outside every grant is not encoded");
+        assert_eq!(record_deliver(11), [Held::Tail], "tail append encodes only insert");
+        assert_eq!(record_deliver(9), [Held::Range], "range update encodes only replace");
+
+        // Detached grant retains only the form it needs and advances its tail across deliveries.
+        feed.detach(sub("a"));
+        assert!(record_deliver(6).is_empty());
+        assert_eq!(record_deliver(12), [Held::Tail]);
+        assert_eq!(record_deliver(12), [Held::Range], "detached grant tracks tail extension so amendment encodes replace");
+
+        // One grant holds 12 as Range (`a` detached) and another holds 12 as Tail (`b` live): both forms encoded once.
+        let b = MockConnection::new(ConnectionId(2), limits);
+        attach(&feed, &b, "b", Window::Positioned(3), None);
+        lanes(&b);
+        let both = record_deliver(12);
+        assert_eq!(both.len(), 2);
+        assert!(both.contains(&Held::Tail) && both.contains(&Held::Range));
+
+        // After all positioned grants are gone and rested, nothing is encoded again.
+        feed.detach(sub("b"));
+        feed.rest();
+        assert!(record_deliver(9).is_empty());
+        assert!(record_deliver(13).is_empty());
+    }
+
+    #[test]
+    fn positioned_deliveries_do_not_reduce_plain_frame_ring_coverage() {
+        let limits = MockLimits { ring_bytes: 128, ..MockLimits::default() };
+        let feed = feed(limits);
+        let p = MockConnection::new(ConnectionId(1), limits);
+        let d = MockConnection::new(ConnectionId(2), limits);
+        attach(&feed, &p, "p", Window::Positioned(3), None);
+        attach(&feed, &d, "d", Window::LastItems(3), None);
+        lanes(&p);
+        lanes(&d);
+        feed.detach(sub("p"));
+        feed.detach(sub("d"));
+
+        // 5 frames = 5 * ("legacy@N" + "progress@N") = 90 bytes, fitting within 128 bytes.
+        for seq in 1..=5 {
+            feed.publish(&[row(seq)], None).unwrap();
+        }
+        // Push large deliveries that far exceed 128 bytes.
+        for ord in 11..=30 {
+            feed.deliver(1, ord, &format!("p{ord}"), Some("before"), None, &mut |_, _| Bytes::from(format!("insert#{ord:02}-xxxxxxxxxxxxxxxxxxxxxxxxxxxx")));
+        }
+
+        // Plain (desktop) subscriber still replays all 5 frames from seq 0.
+        let d2 = MockConnection::new(ConnectionId(3), limits);
+        let plain_resume = ResumeFrom { position: FeedPosition { epoch: feed.position().epoch, seq: 0 }, window: Window::LastItems(3), positioned: None };
+        let decision = attach(&feed, &d2, "d2", Window::LastItems(3), Some(plain_resume));
+        assert_eq!((decision.mode, decision.start_seq, decision.live_seq), (AttachMode::Replay, 1, 6));
+        assert_eq!(lanes(&d2), ["d2:legacy@1", "d2:legacy@2", "d2:legacy@3", "d2:legacy@4", "d2:legacy@5"]);
+
+        // Positioned subscriber falls back to snapshot because its delivery ring evicted early deliveries.
+        let p2 = MockConnection::new(ConnectionId(4), limits);
+        let decision = attach(&feed, &p2, "p2", Window::Positioned(3), Some(positioned_resume(&feed, 0, Window::Positioned(3), "p", 0)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+    }
+
+    #[test]
+    fn positioned_fallback_to_snapshot_when_gap_is_not_covered() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        feed.publish(&[row(1)], None).unwrap();
+        lanes(&a);
+
+        // 1. Legacy client without positioned identity falls back to snapshot.
+        let legacy = MockConnection::new(ConnectionId(2), limits);
+        let decision = attach(
+            &feed,
+            &legacy,
+            "legacy",
+            Window::Positioned(3),
+            Some(ResumeFrom { position: FeedPosition { epoch: feed.position().epoch, seq: 1 }, window: Window::Positioned(3), positioned: None }),
+        );
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+
+        // 2. Unknown subscription id falls back.
+        let unknown = MockConnection::new(ConnectionId(3), limits);
+        let decision = attach(&feed, &unknown, "u", Window::Positioned(3), Some(positioned_resume(&feed, 1, Window::Positioned(3), "missing", 0)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+
+        // 3. Mismatched window version falls back.
+        let v1 = regrant(&feed, "a", 0, ask(&[(8, 10)], Some(11)), "moved");
+        assert_eq!(v1, 1);
+        let stale_ver = MockConnection::new(ConnectionId(4), limits);
+        let decision = attach(&feed, &stale_ver, "sv", Window::Positioned(3), Some(positioned_resume(&feed, 1, Window::Positioned(3), "a", 0)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+
+        // 4. Changed window size falls back.
+        let diff_win = MockConnection::new(ConnectionId(5), limits);
+        let decision = attach(&feed, &diff_win, "dw", Window::Positioned(5), Some(positioned_resume(&feed, 1, Window::Positioned(3), "a", v1)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+
+        // 5. Rebase while disconnected clears detached grants and bumps live version -> falls back.
+        feed.detach(sub("a"));
+        feed.rebase(&mut |_, _, version, _| {
+            Some((GrantAsk { lineage: 2, ranges: vec![GrantRange::of(8, 9)], tail_from: Some(10) }, Bytes::from(format!("rebased@{version}"))))
+        });
+        let after_rebase = MockConnection::new(ConnectionId(6), limits);
+        let decision = attach(&feed, &after_rebase, "ar", Window::Positioned(3), Some(positioned_resume(&feed, 1, Window::Positioned(3), "a", v1)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+
+        // 6. Ring eviction of a missed delivery or frame falls back.
+        let tiny_ring = MockLimits { ring_bytes: 64, ..MockLimits::default() };
+        let evicted_feed = self::feed(tiny_ring);
+        let e1 = MockConnection::new(ConnectionId(7), tiny_ring);
+        attach(&evicted_feed, &e1, "e1", Window::Positioned(3), None);
+        lanes(&e1);
+        evicted_feed.detach(sub("e1"));
+        for seq in 1..=20 {
+            evicted_feed.publish(&[row(seq)], None).unwrap();
+            unit(&evicted_feed, 10 + seq);
+        }
+        let e2 = MockConnection::new(ConnectionId(8), tiny_ring);
+        let decision = attach(&evicted_feed, &e2, "e2", Window::Positioned(3), Some(positioned_resume(&evicted_feed, 0, Window::Positioned(3), "e1", 0)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
+
+        // 7. Connection event budget too small for replay falls back.
+        let tight = small_budget();
+        let budget_feed = self::feed(tight);
+        let b1 = MockConnection::new(ConnectionId(9), tight);
+        attach(&budget_feed, &b1, "b1", Window::Positioned(3), None);
+        lanes(&b1);
+        budget_feed.detach(sub("b1"));
+        for seq in 1..=20 {
+            budget_feed.publish(&[FeedFrame::new(seq, Bytes::from(format!("payload-{seq:02}-xxxxxxxx")))], None).unwrap();
+        }
+        let b2 = MockConnection::new(ConnectionId(10), tight);
+        let decision = attach(&budget_feed, &b2, "b2", Window::Positioned(3), Some(positioned_resume(&budget_feed, 0, Window::Positioned(3), "b1", 0)));
+        assert_eq!(decision.mode, AttachMode::Snapshot);
     }
 }

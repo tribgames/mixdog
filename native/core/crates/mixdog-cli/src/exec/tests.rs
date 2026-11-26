@@ -1000,12 +1000,12 @@ fn pristine_boundary(dir: &Path) -> Boundary {
 fn the_pristine_config_names_only_the_explicit_route_and_binds_the_key_in_memory() {
     let dir = tempfile::tempdir().unwrap();
     let boundary = pristine_boundary(dir.path());
-    let preset = json!({ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "tools": "full", "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true });
+    let preset = json!({ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "tools": "full", "provider": "openai", "model": "gpt-x", "effort": "high", "effortAuto": false, "fast": true });
     let config = |provider: Value| {
         json!({
             "builtins": {}, "modules": { "acpAgents": { "enabled": false } }, "providers": { "openai": provider }, "presets": [preset], "default": "workflow-lead",
             "workflow": { "active": "headless" }, "workflowRoutes": {}, "agents": {},
-            "modelSettings": { "openai/gpt-x": { "effort": "high", "fast": true } }, "mcpServers": {},
+            "modelSettings": { "openai/gpt-x": { "effort": "high", "effortAuto": false, "fast": true } }, "mcpServers": {},
         })
     };
     // The file on disk holds no key; the config the runtime loads has the host's key in the provider's entry.

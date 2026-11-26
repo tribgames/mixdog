@@ -4690,6 +4690,7 @@
     "request thread/restoreNewerTranscript /threadId",
     "request thread/restoreOlderTranscript /threadId",
     "request thread/resume /resumeFrom/epoch",
+    "request thread/resume /resumeFrom/subscriptionId",
     "request thread/resume /threadId",
     "request thread/revertTurnChanges /checkpointId",
     "request thread/revertTurnChanges /opId",

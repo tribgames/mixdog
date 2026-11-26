@@ -747,10 +747,12 @@ impl ThreadSettings {
         // `runtime.effort` is route state (`effectiveEffort || effort`): the route section carries the live route's value.
         let route = self.parts.effort.route(thread);
         let effort = route.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
+        let effort_auto = mixdog_ai::effort::EffortAuto::read_explicit_value(&route).map(mixdog_ai::effort::EffortAuto::as_bool);
         let effort_options = route.get("effortOptions").and_then(Value::as_array).cloned();
         handle
             .set_section(mixdog_core_ports::ports::threads::Section::Route(mixdog_app_protocol::v2::thread::ThreadRoute {
                 effort,
+                effort_auto,
                 effort_options,
                 ..Default::default()
             }))

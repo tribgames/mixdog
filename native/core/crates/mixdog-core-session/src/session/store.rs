@@ -2419,20 +2419,15 @@ impl StoreThreads {
                 }
                 let mut failed_missing = std::collections::BTreeSet::new();
                 if !missing.is_empty() {
-                    let mut cleaned = false;
-                    for id in &missing {
-                        match journal.forget_session(id) {
-                            Ok(()) => cleaned = true,
-                            Err(error) => {
-                                tracing::warn!(thread = %id, "could not prune purged session from sensitive mark journal at open: {error}");
-                                failed_missing.insert(id.clone());
-                            }
-                        }
+                    let outcome = journal.forget_sessions(&missing);
+                    for (id, error) in outcome.failed {
+                        tracing::warn!(thread = %id, "could not prune purged session from sensitive mark journal at open: {error}");
+                        failed_missing.insert(id);
                     }
                     if !failed_missing.is_empty() {
                         unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(failed_missing.iter().cloned());
                     }
-                    if cleaned {
+                    if outcome.any_changed {
                         loaded = journal.snapshot_recovered();
                     }
                 }
@@ -2502,21 +2497,18 @@ impl StoreThreads {
         };
         let unforgotten = unforgotten.clone();
         mixdog_core_base::support::on_lane_wait(lane, &mixdog_rt::CancellationToken::new(), move |_lane| -> Result<(), String> {
-            let mut first_error = None;
-            for id in pending {
-                match journal.forget_session(&id) {
-                    Ok(()) => {
-                        unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
-                    }
-                    Err(error) => {
-                        if first_error.is_none() {
-                            first_error = Some(error);
-                        }
+            let outcome = journal.forget_sessions(&pending);
+            let failed_ids: std::collections::HashSet<&str> = outcome.failed.iter().map(|(id, _)| id.as_str()).collect();
+            {
+                let mut set = unforgotten.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                for id in &pending {
+                    if !failed_ids.contains(id.as_str()) {
+                        set.remove(id);
                     }
                 }
             }
-            match first_error {
-                Some(error) => Err(error),
+            match outcome.failed.into_iter().next() {
+                Some((_, error)) => Err(error),
                 None => Ok(()),
             }
         })
@@ -5307,5 +5299,91 @@ mod cold_window_tests {
             assert!(!mark.sessions.contains_key(id_b.as_str()), "no pending file may reference purged B");
         }
         directory.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test stages boot journal and surviving session dirs directly")]
+    async fn owe_marks_prunes_many_missing_sessions_in_one_carries_publish() {
+        async fn run_boot_prune(chain_len: usize) -> (usize, usize) {
+            let data = tempfile::tempdir().expect("data dir");
+            let tokens = mixdog_rt::testing::tokens();
+            let root = data.path().to_path_buf();
+            let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+            })
+            .expect("lane")
+            .await
+            .expect("job ran")
+            .expect("index");
+            let store = Arc::new(
+                StoreThreads::over_data_dir(
+                    data.path(),
+                    index.clone(),
+                    Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                    tokens.maintenance_io,
+                )
+                .await
+                .expect("store"),
+            );
+            let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+            store.redact_with(Arc::new(SensitiveMarksOf::new(sensitive.clone()))).ok().expect("bind marks");
+
+            std::fs::create_dir_all(data.path().join("sessions/s-start")).expect("s-start dir");
+            std::fs::create_dir_all(data.path().join("sessions/s-end")).expect("s-end dir");
+
+            let sensitive_dir = data.path().join("sensitive");
+            let pending_dir = sensitive_dir.join("pending");
+            std::fs::create_dir_all(&pending_dir).expect("pending dir");
+
+            let mut carries = Vec::with_capacity(chain_len + 1);
+            carries.push(("s-start".to_owned(), "d-0".to_owned()));
+            for i in 0..chain_len.saturating_sub(1) {
+                carries.push((format!("d-{i}"), format!("d-{}", i + 1)));
+            }
+            carries.push((format!("d-{}", chain_len - 1), "s-end".to_owned()));
+            std::fs::write(sensitive_dir.join("carries.json"), serde_json::to_vec(&carries).expect("carries json")).expect("write carries");
+            std::fs::write(
+                pending_dir.join("0.json"),
+                serde_json::to_vec(&json!({ "origin": "d-0", "values": ["secret-chain"], "sessions": { "d-0": 1 } })).expect("mark 0"),
+            )
+            .expect("write mark 0");
+            std::fs::write(
+                pending_dir.join("1.json"),
+                serde_json::to_vec(&json!({ "origin": "d-solo", "values": ["secret-solo"], "sessions": { "d-solo": 1 } })).expect("mark 1"),
+            )
+            .expect("write mark 1");
+
+            let journal = store.journal.get().expect("journal bound");
+            journal.take_published_paths();
+            journal.take_pending_dir_reads();
+
+            let owed = store.owe_marks(tokens.durability_io, None).await.expect("owe_marks succeeds");
+            let carries_publishes =
+                journal.take_published_paths().into_iter().filter(|path| path.file_name().and_then(|name| name.to_str()) == Some("carries.json")).count();
+            let pending_reads = journal.take_pending_dir_reads();
+
+            assert_eq!(owed.owed(), 1, "surviving s-end must owe its rewrite");
+            assert!(index.is_withheld("s-end").await.expect("withheld s-end"));
+            assert!(!index.is_withheld("d-0").await.expect("not withheld d-0"));
+            assert!(sensitive.version("s-end") > 0, "surviving s-end must receive transferred mark");
+            assert_eq!(sensitive.version("d-0"), 0, "deleted d-0 must not be resurrected");
+
+            let reloaded = super::super::mark_journal::MarksOnDisk::new(data.path()).load().expect("reload");
+            assert_eq!(reloaded.carries, vec![("s-start".to_owned(), "s-end".to_owned())], "transitive carry edge must collapse across missing chain");
+            assert_eq!(reloaded.pending.len(), 1, "solo dead mark must be retired and chain mark preserved");
+            let mark = reloaded.pending.values().next().expect("surviving mark");
+            assert!(mark.origin.is_empty(), "deleted origin must be cleared");
+            assert_eq!(mark.values, vec!["secret-chain".to_owned()]);
+            assert_eq!(mark.sessions.keys().cloned().collect::<Vec<_>>(), vec!["s-end".to_owned()]);
+
+            (carries_publishes, pending_reads)
+        }
+
+        let (small_publishes, small_reads) = run_boot_prune(2).await;
+        let (large_publishes, large_reads) = run_boot_prune(40).await;
+        assert_eq!(small_publishes, 1, "pruning 3 missing sessions must publish carries.json once");
+        assert_eq!(large_publishes, 1, "pruning 41 missing sessions must still publish carries.json once");
+        assert_eq!(small_reads, 1, "pruning 3 missing sessions must scan pending/ once");
+        assert_eq!(large_reads, 1, "pruning 41 missing sessions must still scan pending/ once");
     }
 }

@@ -109,7 +109,7 @@ fn unavailable(error: RouteReadUnavailable) -> PortError {
 
 /// `ROUTE_FIELDS`, and `routeFields(input)`: only route fields cross, provider and model required.
 fn route_fields(input: Option<&Obj>) -> Result<Obj, PortError> {
-    const ROUTE_FIELDS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+    const ROUTE_FIELDS: [&str; 9] = ["provider", "model", "effort", "fast", "autoEffort", "effortAuto", "modelParameters", "contextPercent", "contextTokens"];
     let mut route = Obj::new();
     for key in ROUTE_FIELDS {
         if let Some(value) = input.and_then(|i| i.get(key)).filter(|v| !v.is_null()) {
@@ -294,7 +294,7 @@ fn facade_properties(route: &Obj, session_context_percent: Option<&Value>) -> Va
     }
     out.insert("effort".into(), mixdog_core_ports::ports::route::facade_effort(route).cloned().unwrap_or(Value::Null));
     out.insert("fast".into(), Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
-    out.insert("autoEffort".into(), Value::Bool(route.get("autoEffort") != Some(&Value::Bool(false))));
+    mixdog_ai::effort::EffortAuto::carry_field_map(route, &mut out);
     out.insert("fastCapable".into(), Value::Bool(route.get("fastCapable") == Some(&Value::Bool(true))));
     out.insert("modelParameters".into(), or_value(route.get("modelParameters"), json!({})));
     out.insert("effortOptions".into(), or_value(route.get("effortOptions"), json!([])));
@@ -440,7 +440,7 @@ mod tests {
             (
                 "a route with an effort, not refreshed",
                 json!({ "provider": "openai", "model": "gpt-5", "effort": "high" }),
-                json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "autoEffort": true, "fastCapable": false, "modelParameters": {},
+                json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "fastCapable": false, "modelParameters": {},
                     "effortOptions": [], "contextPercent": null, "contextTokens": null }),
                 json!([]),
             ),
@@ -449,7 +449,7 @@ mod tests {
                 json!({ "provider": "openai", "model": "gpt-5", "effort": "ultra", "fast": false, "fastCapable": false, "effectiveEffort": "high",
                     "effortOptions": [{ "value": "low", "label": "Low", "description": "" }, { "value": "high", "label": "High", "description": "current" }],
                     "contextPercent": 30, "contextDefaultPercent": 30, "selectedContextWindow": 272000, "modelDisplay": "GPT 5" }),
-                json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "autoEffort": true, "fastCapable": false, "modelParameters": {},
+                json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": false, "fastCapable": false, "modelParameters": {},
                     "effortOptions": [{ "value": "low", "label": "Low", "description": "" }, { "value": "high", "label": "High", "description": "current" }],
                     "contextPercent": 30, "contextTokens": null }),
                 json!([{ "value": "low", "label": "Low", "description": "" }, { "value": "high", "label": "High", "description": "current" }]),
@@ -637,7 +637,7 @@ mod tests {
                 json!({ "default": "main", "presets": [{ "id": "main", "name": "Main", "provider": "openai", "model": "gpt" }], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } })
             }
         };
-        let facts = json!({ "provider": "openai", "model": "gpt", "effort": "high", "fast": true, "fastCapable": true, "autoEffort": false, "modelParameters": { "tier": "x" },
+        let facts = json!({ "provider": "openai", "model": "gpt", "effort": "high", "fast": true, "fastCapable": true, "effortAuto": false, "modelParameters": { "tier": "x" },
             "contextPercent": 34, "contextTokens": 1200, "effortOptions": ["low", "high"] });
         for row in rows {
             let rig = Rig::new();

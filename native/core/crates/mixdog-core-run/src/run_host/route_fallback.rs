@@ -1788,7 +1788,17 @@ fn route_fields(next: &Value, window: Option<u64>) -> Obj {
     };
     route.insert("effort".into(), truthy_or("effort", Value::Null));
     route.insert("fast".into(), Value::Bool(next.get("fast") == Some(&Value::Bool(true))));
-    route.insert("autoEffort".into(), Value::Bool(next.get("autoEffort") != Some(&Value::Bool(false))));
+    if let Some(mode) = mixdog_ai::effort::EffortAuto::read_explicit_value(next) {
+        route.insert(mixdog_ai::effort::EffortAuto::KEY.into(), Value::Bool(mode.as_bool()));
+        route.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Null);
+    } else {
+        route.insert(mixdog_ai::effort::EffortAuto::KEY.into(), Value::Null);
+        if let Some(Value::Bool(legacy)) = next.get(mixdog_ai::effort::EffortAuto::LEGACY_KEY) {
+            route.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Bool(*legacy));
+        } else {
+            route.insert(mixdog_ai::effort::EffortAuto::LEGACY_KEY.into(), Value::Null);
+        }
+    }
     route.insert("modelParameters".into(), truthy_or("modelParameters", json!({})));
     // Present with no value clears the session's own, as Node's `undefined` does.
     for key in ["contextPercent", "contextTokens"] {
@@ -3729,4 +3739,22 @@ mod reconsider_tests {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use mixdog_ai::effort::EffortAuto;
+
+    #[test]
+    fn effort_auto_states_survive_fallback_hop() {
+        for (label, state) in [("auto", EffortAuto::Auto), ("manual", EffortAuto::Manual)] {
+            let mut next = json!({ "provider": "anthropic", "model": "opus", "effort": "high", "fast": false });
+            state.write_to(next.as_object_mut().unwrap());
+
+            let fields = route_fields(&next, None);
+            assert_eq!(EffortAuto::read_explicit(&fields), Some(state), "route_fields preserves {label}");
+            assert_eq!(fields.get("autoEffort"), Some(&Value::Null), "hop clears stale legacy autoEffort");
+
+            let leaf = crate::run_host::route_chain::route_leaf(Some(&next));
+            assert_eq!(EffortAuto::read_explicit(&leaf), Some(state), "route_leaf preserves {label}");
+        }
+    }
+}

@@ -18,7 +18,7 @@ fn case() -> Value {
             "presets": [{ "id": "quick", "model": "nope-9", "name": "Quick", "provider": "openai", "type": "agent" }],
             "providers": { "openai": { "apiKey": "sk-fake" } }
         },
-        "live": { "autoEffort": true, "effort": null, "fast": false, "model": "nope-9", "modelParameters": {}, "provider": "openai" },
+        "live": { "effortAuto": true, "effort": null, "fast": false, "model": "nope-9", "modelParameters": {}, "provider": "openai" },
         "meta": { "contextWindow": 400000, "id": "x", "maxContextWindow": 200000, "name": "Model X", "provider": "y", "supportsFastMode": true },
         "fastTable": { "gemini": false },
         "continueSession": null

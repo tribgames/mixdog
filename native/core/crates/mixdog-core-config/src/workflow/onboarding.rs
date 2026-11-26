@@ -1,4 +1,4 @@
-use mixdog_ai::service::admin_route::normalize_workflow_route;
+use mixdog_ai::service::admin_route::normalize_requested_workflow_route;
 use mixdog_ai::service::admin_route::upsert_workflow_preset;
 use mixdog_ai::service::admin_route::workflow_preset_id;
 use mixdog_ai::service::routes::WEB_SEARCH_DEFAULT_MODEL;
@@ -150,7 +150,7 @@ impl Draft {
     /// `payload.defaultRoute`: a sent route that normalizes becomes the Lead.
     fn apply_default_route(&mut self, payload: &Value, main: &Value) -> Result<(), String> {
         if has_own(payload, "defaultRoute")
-            && let Some(route) = normalize_workflow_route(&payload["defaultRoute"], main, true)?
+            && let Some(route) = normalize_requested_workflow_route(&payload["defaultRoute"], main, true)?
         {
             self.choose_lead(route)?;
         }
@@ -164,7 +164,7 @@ impl Draft {
             if !has_own(&slots, slot) {
                 continue;
             }
-            let route = normalize_workflow_route(&slots[slot], empty, true)?;
+            let route = normalize_requested_workflow_route(&slots[slot], empty, true)?;
             match slot {
                 "lead" => {
                     if let Some(route) = route {
@@ -189,7 +189,7 @@ impl Draft {
         }
         for id in configurable {
             if has_own(sent, &id) {
-                let route = normalize_workflow_route(&sent[id.as_str()], empty, true)?;
+                let route = normalize_requested_workflow_route(&sent[id.as_str()], empty, true)?;
                 self.set_agent(&id, route);
             }
         }
@@ -246,5 +246,28 @@ pub(crate) fn lead_selection(lead: &Value) -> Value {
     if let Some(effort) = lead.get("effort") {
         selection["effort"] = effort.clone();
     }
+    if let Some(obj) = selection.as_object_mut() {
+        mixdog_ai::effort::EffortAuto::carry_field(lead, obj);
+    }
     selection
+}
+
+#[cfg(test)]
+mod auto_effort_tests {
+    use super::*;
+
+    #[test]
+    fn default_route_explicit_effort_overrides_main_auto_effort_and_lead_selection_forwards_auto() {
+        let main = json!({ "provider": "openai", "model": "gpt-5", "effort": "medium", "effortAuto": true });
+        let payload = json!({ "defaultRoute": { "provider": "openai", "model": "gpt-5", "effort": "low" } });
+        let done = completed(&Doc::new(), &payload, &main, &[], "2026-01-01T00:00:00Z").unwrap();
+        let lead = done.lead.expect("lead");
+        assert_eq!((&lead["effort"], &lead["effortAuto"]), (&json!("low"), &json!(false)));
+        assert_eq!(done.after["presets"][0]["effortAuto"], json!(false));
+
+        let auto_payload = json!({ "defaultRoute": { "provider": "openai", "model": "gpt-5", "effort": "high", "effortAuto": true } });
+        let done_auto = completed(&Doc::new(), &auto_payload, &main, &[], "2026-01-01T00:00:00Z").unwrap();
+        let auto_lead = done_auto.lead.expect("auto lead");
+        assert_eq!(lead_selection(&auto_lead)["effortAuto"], json!(true));
+    }
 }

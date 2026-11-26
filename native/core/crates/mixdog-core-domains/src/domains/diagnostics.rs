@@ -552,10 +552,23 @@ fn with_migration_counts(mut row: Verdict, migration: &Value) -> Verdict {
         count("dangling"),
         count("quarantinedExpected"),
     ));
+    let in_place: Vec<&str> =
+        migration.get("keptInPlace").and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let total_aside = unexpected + count("quarantinedExpected");
     // Whatever was set aside, expected or not, is named with its folder; only the unexpected makes the row a warning.
-    if unexpected + count("quarantinedExpected") > 0 {
+    if total_aside > 0 || !in_place.is_empty() {
         let folder = migration.get("quarantineDir").and_then(Value::as_str).unwrap_or("the quarantine folder of the data folder");
-        row.detail.push_str(&format!(" (moved aside to {folder}, each with its reason.json)"));
+        if in_place.is_empty() {
+            row.detail.push_str(&format!(" (moved aside to {folder}, each with its reason.json)"));
+        } else {
+            let moved = migration.get("movedAside").and_then(Value::as_u64).unwrap_or_else(|| total_aside.saturating_sub(in_place.len() as u64));
+            let files = in_place.join(", ");
+            if moved == 0 {
+                row.detail.push_str(&format!(" (left damaged in place: {files}; details in {folder})"));
+            } else {
+                row.detail.push_str(&format!(" (moved aside to {folder}, each with its reason.json; left damaged in place: {files})"));
+            }
+        }
     }
     if unexpected > 0 && row.level == Level::Ok {
         row.level = Level::Warn;

@@ -92,11 +92,10 @@ fn route_input(source: Option<&Value>) -> Result<Value, PortError> {
             next.insert(key.into(), Value::String(text));
         }
     }
-    for key in ["fast", "autoEffort"] {
-        if let Some(flag @ Value::Bool(_)) = field(key) {
-            next.insert(key.into(), flag.clone());
-        }
+    if let Some(flag @ Value::Bool(_)) = field("fast") {
+        next.insert("fast".into(), flag.clone());
     }
+    mixdog_ai::effort::EffortAuto::carry_field(source, &mut next);
     if let Some(parameters) = field("modelParameters") {
         next.insert("modelParameters".into(), Value::Object(spread(parameters)));
     }

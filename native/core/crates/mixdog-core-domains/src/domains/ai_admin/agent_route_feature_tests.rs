@@ -27,7 +27,7 @@ impl RouteContext for Context {
         Ok(json!({ "provider": "openai-oauth", "model": "main-model" }).as_object().unwrap().clone())
     }
     async fn resolve_chain_entry(&self, requested: &Obj, _: &Obj) -> Result<Obj, String> {
-        Ok(requested.clone())
+        Ok(resolved_entry(requested))
     }
     async fn ensure_ready(&self, _: &str) -> Result<(), String> {
         Ok(())
@@ -35,6 +35,14 @@ impl RouteContext for Context {
     async fn sender(&self, provider: &str) -> Result<Option<RouteSender>, String> {
         Ok((provider == AGENT).then(|| RouteSender::Agent(Arc::new(Unasked))))
     }
+}
+
+/// The entry as `start_chain_entry` answers it: its Auto choice stated, as the stored route holds it.
+pub(super) fn resolved_entry(requested: &Obj) -> Obj {
+    let mut entry = requested.clone();
+    let switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(&Obj::new());
+    mixdog_ai::effort::EffortAuto::resolve(&entry, switch_on).write_to(&mut entry);
+    entry
 }
 
 /// An agent a route save asks nothing.

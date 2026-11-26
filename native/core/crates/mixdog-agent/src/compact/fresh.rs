@@ -330,8 +330,10 @@ struct Tail {
 
 struct Layout {
     summary: Option<AgentMessage>,
+    summary_cost: u64,
     tail: Tail,
     stable_head: Vec<AgentMessage>,
+    finalized: Vec<AgentMessage>,
     mandatory_cost: u64,
 }
 
@@ -443,8 +445,21 @@ fn prepend_latest_user_context(message: &AgentMessage, prefix: &str) -> AgentMes
     out
 }
 
+fn finalize_assembled(messages: &[AgentMessage], base: &[AgentMessage], assembled: &[AgentMessage]) -> Vec<AgentMessage> {
+    let mut result = sanitized(assembled);
+    if let Some(at) = result.iter().rposition(|m| m.source == Some(Source::CompactSkillWindow)) {
+        result[at] = window_marker(result.len() - at - 1);
+    }
+    // Signatures cover what the model saw before them: compared against the request this result
+    // becomes, after every edit (a Goal prefix, a referenced attachment, a shortened result).
+    crate::recovery::rebind_thinking(messages, &mut result);
+    rebase_effort(base, result)
+}
+
 async fn fresh_layout(
     ctx: &FreshContext<'_>,
+    messages: &[AgentMessage],
+    base: &[AgentMessage],
     source: &Source_,
     skills: &SkillState<'_>,
     budget_tokens: u64,
@@ -470,21 +485,22 @@ async fn fresh_layout(
     };
     let mut stable_head = source.protected_prefix.clone();
     stable_head.extend(summary.clone());
-    stable_head.extend(stable_ack.clone());
-    let mut mandatory = source.protected_prefix.clone();
-    mandatory.extend(stable_ack);
-    mandatory.extend(tail.volatile.iter().cloned());
-    let mandatory_cost = ctx.tail.meter.compact_messages(&mandatory);
-    Ok(Layout { summary, tail, stable_head, mandatory_cost })
+    stable_head.extend(stable_ack);
+    let mut assembled = stable_head.clone();
+    assembled.extend(tail.volatile.iter().cloned());
+    let finalized = finalize_assembled(messages, base, &assembled);
+    let summary_cost = summary.as_ref().map_or(0, |s| ctx.tail.meter.compact_message(s));
+    let mandatory_cost = ctx.tail.meter.compact_messages(&finalized).saturating_sub(summary_cost);
+    Ok(Layout { summary, summary_cost, tail, stable_head, finalized, mandatory_cost })
 }
 
 /// The compact budget: the soft target, widened toward the model window when
 /// the mandatory context and the handoff need more.
-fn fresh_budget(ctx: &FreshContext<'_>, target: u64, budget_tokens: u64, layout: &Layout, opts: &FreshOptions) -> Result<u64, FreshError> {
+fn fresh_budget(target: u64, budget_tokens: u64, layout: &Layout, opts: &FreshOptions) -> Result<u64, FreshError> {
     if opts.max_budget_tokens <= budget_tokens {
         return Ok(target);
     }
-    let required = layout.mandatory_cost + layout.summary.as_ref().map_or(0, |s| ctx.tail.meter.message(s));
+    let required = layout.mandatory_cost + layout.summary_cost;
     Ok(effective_budget(opts.max_budget_tokens, opts.reserve_tokens)?.min(target.max(required)))
 }
 
@@ -570,8 +586,8 @@ pub(super) async fn fresh_context_compact_messages_with_skills(
     }
     let mut source = split_fresh_source(ctx, &base).await;
     let mut skills = SkillState::read(&source.live, resolver, source.skill_window_start, opts.preview).await.map_err(FreshError::Failed)?;
-    let mut layout = fresh_layout(ctx, &source, &skills, budget_tokens, opts).await?;
-    let mut budget = fresh_budget(ctx, target, budget_tokens, &layout, opts)?;
+    let mut layout = fresh_layout(ctx, messages, &base, &source, &skills, budget_tokens, opts).await?;
+    let mut budget = fresh_budget(target, budget_tokens, &layout, opts)?;
     // The latest request is kept verbatim — except its attachments: when they
     // are what does not fit (or the provider already refused the request as
     // too long), they travel by reference instead of failing the turn.
@@ -582,8 +598,8 @@ pub(super) async fn fresh_context_compact_messages_with_skills(
         drop(skills);
         source.live[latest] = ctx.attachments.reference_media(&source.live[latest]).await;
         skills = SkillState::read(&source.live, resolver, source.skill_window_start, opts.preview).await.map_err(FreshError::Failed)?;
-        layout = fresh_layout(ctx, &source, &skills, budget_tokens, opts).await?;
-        budget = fresh_budget(ctx, target, budget_tokens, &layout, opts)?;
+        layout = fresh_layout(ctx, messages, &base, &source, &skills, budget_tokens, opts).await?;
+        budget = fresh_budget(target, budget_tokens, &layout, opts)?;
     }
     assert_mandatory_fits(ctx, budget, layout.mandatory_cost, &layout.summary, opts.context_window, &layout.tail.latest_user)?;
     let room_uncapped = budget as i64 - layout.mandatory_cost as i64;
@@ -591,32 +607,43 @@ pub(super) async fn fresh_context_compact_messages_with_skills(
         Some(cap) => room_uncapped.min(cap as i64),
         None => room_uncapped,
     };
-    if let Some(summary) = &layout.summary
-        && ctx.tail.meter.message(summary) as i64 > room
-    {
+    if layout.summary.is_some() && layout.summary_cost as i64 > room {
         return Err(FreshError::Failed(format!(
             "freshContextCompactMessages: complete handoff exceeds the compact budget={room}; refusing to drop older context"
         )));
     }
-    let mut stable = layout.stable_head;
     let meter = ctx.tail.meter;
     let marker = window_marker(0);
-    let committed = meter.compact_messages(&stable) + meter.compact_messages(&layout.tail.volatile);
+    let marker_cost = meter.compact_message(&marker);
+    let committed = layout.mandatory_cost + layout.summary_cost;
     let skill_budget = (target / 5).min(25_000).min(budget.saturating_sub(committed));
-    let restored = skills.restore(&source.live, &layout.tail.volatile, skill_budget.saturating_sub(meter.message(&marker)), meter);
-    if !restored.is_empty() {
+    let restored = if skill_budget > marker_cost {
+        let split = layout.stable_head.len();
+        let mut with_marker = layout.stable_head.clone();
+        with_marker.push(marker.clone());
+        with_marker.extend(layout.tail.volatile.iter().cloned());
+        let with_marker_cost = meter.compact_messages(&finalize_assembled(messages, &base, &with_marker));
+        // An existing skill window at `split` can let restored skills match `messages` verbatim,
+        // keeping signed thinking that `with_marker` stripped.
+        let base_with_window = if messages.get(split).is_some_and(|m| m.source == Some(Source::CompactSkillWindow) || m.text() == marker.text()) {
+            with_marker_cost.max(meter.compact_messages(&sanitized(&with_marker)))
+        } else {
+            with_marker_cost
+        };
+        let available = budget.saturating_sub(base_with_window).min(skill_budget - marker_cost);
+        skills.restore(&source.live, &layout.tail.volatile, available, meter)
+    } else {
+        Vec::new()
+    };
+    let result = if restored.is_empty() {
+        layout.finalized
+    } else {
+        let mut stable = layout.stable_head;
         stable.push(marker);
         stable.extend(restored);
-    }
-    stable.extend(layout.tail.volatile);
-    let mut result = sanitized(&stable);
-    if let Some(at) = result.iter().rposition(|m| m.source == Some(Source::CompactSkillWindow)) {
-        result[at] = window_marker(result.len() - at - 1);
-    }
-    // Signatures cover what the model saw before them: compared against the request this result
-    // becomes, after every edit (a Goal prefix, a referenced attachment, a shortened result).
-    crate::recovery::rebind_thinking(messages, &mut result);
-    let result = rebase_effort(&base, result);
+        stable.extend(layout.tail.volatile);
+        finalize_assembled(messages, &base, &stable)
+    };
     let final_tokens = meter.compact_messages(&result);
     if final_tokens > budget {
         return Err(FreshError::Failed(format!("freshContextCompactMessages: compacted result exceeds budget={budget} (result={final_tokens})")));

@@ -257,6 +257,7 @@ fn transcript_row_facts_round_trip() {
 fn default_limits_pass_their_own_check() {
     let limits = mixdog_app_protocol::limits::Limits::default();
     limits.check().unwrap();
+    assert_eq!(limits.max_processes, 0);
     let encoded = limits.max_blob_put_chunk_bytes.div_ceil(3) * 4;
     assert!(encoded < limits.max_inbound_frame_bytes);
     assert_eq!(limits.max_blob_put_chunk_bytes % 3, 0);
@@ -689,7 +690,7 @@ fn new_tab_created_and_terminal_run_claimed_are_client_notifications() {
 fn a_route_section_carries_the_efforts_and_the_selected_route() {
     use mixdog_app_protocol::ServerNotification;
     let route = json!({
-        "sessionProvider": "anthropic-oauth", "sessionModel": "m", "fast": false, "fastCapable": false, "autoEffort": true,
+        "sessionProvider": "anthropic-oauth", "sessionModel": "m", "fast": false, "fastCapable": false, "effortAuto": true,
         "modelParameters": {}, "effort": "high", "provider": "anthropic-oauth", "model": "m", "turnEffort": "low",
         "effortOptions": ["low", "high"],
         // Node's context-state.mjs sends `runtime.session?.forkedFrom || null`: the key is always present.

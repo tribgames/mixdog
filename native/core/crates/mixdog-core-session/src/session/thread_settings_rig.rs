@@ -88,7 +88,7 @@ impl EffortTuning for Effort {
             return Err("effort must be one of auto, none, minimal, low, medium, high, xhigh, max, ultra".into());
         }
         lock(&self.0).push((thread.as_str().to_owned(), value.to_owned(), session_only));
-        Ok(json!({ "provider": "anthropic", "model": "opus", "effort": value, "autoEffort": false }))
+        Ok(json!({ "provider": "anthropic", "model": "opus", "effort": value, "effortAuto": false }))
     }
     fn route(&self, _: &ThreadId) -> Value {
         json!({})

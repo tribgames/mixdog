@@ -49,7 +49,7 @@ use crate::agent_tool::scope::normalize_agent_name;
 use crate::agent_tool::views::JobViews;
 
 /// `AGENT_ROUTE_KEYS` (`agent-profile-changes.mjs`).
-const AGENT_ROUTE_KEYS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+const AGENT_ROUTE_KEYS: [&str; 8] = ["provider", "model", "effort", "fast", "effortAuto", "modelParameters", "contextPercent", "contextTokens"];
 
 fn text(session: &Value, key: &str) -> Option<String> {
     session.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
@@ -125,7 +125,10 @@ fn route_field_matches(key: &str, preset: &Value, target: &Value, config: &Obj) 
         }
         "model" | "effort" => clean(preset.get(key)) == clean(target.get(key)),
         "fast" => (preset.get("fast") == Some(&Value::Bool(true))) == (target.get("fast") == Some(&Value::Bool(true))),
-        "autoEffort" => (preset.get("autoEffort") != Some(&Value::Bool(false))) == (target.get("autoEffort") != Some(&Value::Bool(false))),
+        "effortAuto" => {
+            let legacy_switch_on = mixdog_ai::service::admin_route::config_default_auto_effort(config);
+            mixdog_ai::effort::EffortAuto::resolve_value(preset, legacy_switch_on) == mixdog_ai::effort::EffortAuto::resolve_value(target, legacy_switch_on)
+        }
         "modelParameters" => normalized_params(preset) == normalized_params(target),
         "contextPercent" => {
             mixdog_ai::service::admin_route::clean_context_percent(preset.get("contextPercent"))
@@ -174,7 +177,7 @@ fn active_fallback_permitted(session: &Value, preset: &Value, config: &Obj) -> b
         let keys: Vec<&str> = AGENT_ROUTE_KEYS
             .into_iter()
             .filter(|key| {
-                matches!(*key, "provider" | "model" | "effort" | "fast" | "autoEffort" | "modelParameters" | "contextTokens")
+                matches!(*key, "provider" | "model" | "effort" | "fast" | "effortAuto" | "modelParameters" | "contextTokens")
                     || !matches!(entry.get(*key), None | Some(Value::Null))
             })
             .collect();
@@ -209,9 +212,9 @@ fn route_to_set(keys: &[&str], preset: &Value, clear_context_tokens: bool) -> Va
             "fast" => {
                 route.insert("fast".into(), Value::Bool(preset.get("fast") == Some(&Value::Bool(true))));
             }
-            "autoEffort" => {
-                if preset.get("autoEffort") == Some(&Value::Bool(false)) {
-                    route.insert("autoEffort".into(), Value::Bool(false));
+            "effortAuto" => {
+                if let Some(mode) = mixdog_ai::effort::EffortAuto::read_explicit_value(preset) {
+                    mode.write_to(&mut route);
                 }
             }
             other => {
@@ -241,7 +244,7 @@ fn send_job_meta(session: &Value, id: &str, tag: Option<String>, resumed: bool) 
         fast: Some(session.get("fast") == Some(&Value::Bool(true))),
         respawned: false,
         resumed,
-        auto_effort_off: session.get("autoEffort") == Some(&Value::Bool(false)),
+        effort_auto: mixdog_ai::effort::EffortAuto::read_explicit_value(session),
     }
 }
 
@@ -376,7 +379,7 @@ impl SendFlowImpl {
         }
         let set: Vec<&str> = AGENT_ROUTE_KEYS
             .into_iter()
-            .filter(|key| *key == "fast" || *key == "autoEffort" || !matches!(preset.get(*key), None | Some(Value::Null)))
+            .filter(|key| *key == "fast" || *key == "effortAuto" || !matches!(preset.get(*key), None | Some(Value::Null)))
             .collect();
         let mut compare_keys = set.clone();
         if !compare_keys.contains(&"contextTokens") {
@@ -594,5 +597,29 @@ impl SendFlow for Arc<SendFlowImpl> {
 
     async fn dispatch_to_existing_session(&self, prepared: &Prepared, notify: &Caller, options: DispatchOptions) -> Result<AgentReply, String> {
         SendFlowImpl::dispatch_to_existing_session(self, prepared, &notify.into(), options).await
+    }
+}
+
+#[cfg(test)]
+mod auto_effort_match_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn route_field_matches_resolves_legacy_auto_effort_against_config_switch() {
+        let off = json!({ "modules": { "autoEffort": { "enabled": false } } }).as_object().cloned().unwrap();
+        let on = json!({ "modules": { "autoEffort": { "enabled": true } } }).as_object().cloned().unwrap();
+        let absent = json!({ "provider": "openai", "model": "gpt-5" });
+        let legacy_true = json!({ "provider": "openai", "model": "gpt-5", "autoEffort": true });
+        let explicit_true = json!({ "provider": "openai", "model": "gpt-5", "effortAuto": true });
+        let explicit_false = json!({ "provider": "openai", "model": "gpt-5", "effortAuto": false });
+
+        assert!(!route_field_matches("effortAuto", &explicit_true, &absent, &off));
+        assert!(route_field_matches("effortAuto", &explicit_false, &absent, &off));
+        assert!(route_field_matches("effortAuto", &explicit_false, &legacy_true, &off), "legacy autoEffort: true resolves to false when switch is off");
+        assert!(route_field_matches("effortAuto", &explicit_true, &absent, &on));
+        assert!(route_field_matches("effortAuto", &explicit_true, &legacy_true, &on), "legacy autoEffort: true resolves to true when switch is on");
+        assert!(!route_field_matches("effortAuto", &explicit_false, &absent, &on));
     }
 }
